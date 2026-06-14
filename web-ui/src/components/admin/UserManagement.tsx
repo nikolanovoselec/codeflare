@@ -56,16 +56,20 @@ const UserManagement: Component<UserManagementProps> = (props) => {
   const [editingMaxUsers, setEditingMaxUsers] = createSignal(false);
   const [maxUsersInput, setMaxUsersInput] = createSignal('');
   const [currentEmail, setCurrentEmail] = createSignal('');
+  // SaaS mode exposes the full subscription-tier controls; the app-owned onboarding
+  // mode collapses them to a plain Approve (full access) / Block decision.
+  const [saasMode, setSaasMode] = createSignal(false);
 
   onMount(async () => {
     try {
       const [{ users: fetched, maxUsers: cap }, auth] = await Promise.all([
         getUsers(),
-        getAuthStatus().catch(() => ({ email: '' })),
+        getAuthStatus().catch(() => ({ email: '', saasMode: false })),
       ]);
       setUsers(fetched.map((u) => ({ ...u, resolvedTier: resolveTier(u) })));
       setMaxUsers(cap);
       setCurrentEmail((auth.email ?? '').toLowerCase());
+      setSaasMode(auth.saasMode === true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load users');
     } finally {
@@ -129,6 +133,11 @@ const UserManagement: Component<UserManagementProps> = (props) => {
     const pending = groupedUsers().pending;
     if (pending.length === 0) return;
 
+    // SaaS approval lands on the entry-level paid tier; onboarding approval grants
+    // full access (unlimited + advanced session mode) since there are no paid tiers.
+    const approveTier: SubscriptionTier = saasMode() ? 'standard' : 'unlimited';
+    const approveMode = saasMode() ? undefined : ('advanced' as const);
+
     // Mark all pending as updating
     setUpdatingEmails((prev) => {
       const next = new Set(prev);
@@ -141,12 +150,17 @@ const UserManagement: Component<UserManagementProps> = (props) => {
     // Process sequentially to avoid overwhelming the API
     for (const user of pending) {
       try {
-        await updateUserTier(user.email, 'standard');
+        await updateUserTier(user.email, approveTier, approveMode);
         // Update local state immutably after each success
         setUsers((prev) =>
           prev.map((u) =>
             u.email === user.email
-              ? { ...u, subscriptionTier: 'standard' as SubscriptionTier, resolvedTier: 'standard' as SubscriptionTier }
+              ? {
+                  ...u,
+                  subscriptionTier: approveTier,
+                  resolvedTier: approveTier,
+                  ...(approveMode ? { subscribedMode: approveMode } : {}),
+                }
               : u
           )
         );
@@ -301,7 +315,7 @@ const UserManagement: Component<UserManagementProps> = (props) => {
                         class="user-mgmt-btn--approve"
                         onClick={() => { void handleApproveAllPending(); }}
                       >
-                        Approve All (Standard)
+                        {saasMode() ? 'Approve All (Standard)' : 'Approve All'}
                       </button>
                     </div>
                   </Show>
@@ -331,38 +345,66 @@ const UserManagement: Component<UserManagementProps> = (props) => {
                                 when={user.role !== 'admin' || user.email.toLowerCase() === currentEmail()}
                                 fallback={<span class="user-mgmt-tier-fixed">Unlimited</span>}
                               >
-                                <select
-                                  class="user-mgmt-tier-select"
-                                  value={user.resolvedTier}
-                                  onChange={(e) => {
-                                    const newTier = e.currentTarget.value as SubscriptionTier;
-                                    if (newTier !== user.resolvedTier) {
-                                      void handleTierChange(user.email, newTier, user.subscribedMode ?? 'default');
-                                    }
-                                  }}
+                                {/* SaaS: full tier + mode controls. Onboarding: a plain
+                                    Approve (full access) / Block decision. */}
+                                <Show
+                                  when={saasMode()}
+                                  fallback={
+                                    <Show
+                                      when={user.resolvedTier === 'pending' || user.resolvedTier === 'blocked'}
+                                      fallback={
+                                        <button
+                                          type="button"
+                                          class="user-mgmt-btn--block"
+                                          onClick={() => { void handleTierChange(user.email, 'blocked'); }}
+                                        >
+                                          Block
+                                        </button>
+                                      }
+                                    >
+                                      <button
+                                        type="button"
+                                        class="user-mgmt-btn--approve"
+                                        onClick={() => { void handleTierChange(user.email, 'unlimited', 'advanced'); }}
+                                      >
+                                        Approve
+                                      </button>
+                                    </Show>
+                                  }
                                 >
-                                  <option value="blocked">Blocked</option>
-                                  <option value="pending">Pending</option>
-                                  <option value="free">Free</option>
-                                  <option value="trial">Trial</option>
-                                  <option value="standard">Starter</option>
-                                  <option value="advanced">Advanced</option>
-                                  <option value="max">Max</option>
-                                  <option value="unlimited">Custom</option>
-                                </select>
-                                <select
-                                  class="user-mgmt-tier-select"
-                                  value={user.subscribedMode ?? 'default'}
-                                  onChange={(e) => {
-                                    const newMode = e.currentTarget.value as 'default' | 'advanced';
-                                    if (newMode !== (user.subscribedMode ?? 'default')) {
-                                      void handleTierChange(user.email, user.resolvedTier, newMode);
-                                    }
-                                  }}
-                                >
-                                  <option value="default">Standard</option>
-                                  <option value="advanced">Pro</option>
-                                </select>
+                                  <select
+                                    class="user-mgmt-tier-select"
+                                    value={user.resolvedTier}
+                                    onChange={(e) => {
+                                      const newTier = e.currentTarget.value as SubscriptionTier;
+                                      if (newTier !== user.resolvedTier) {
+                                        void handleTierChange(user.email, newTier, user.subscribedMode ?? 'default');
+                                      }
+                                    }}
+                                  >
+                                    <option value="blocked">Blocked</option>
+                                    <option value="pending">Pending</option>
+                                    <option value="free">Free</option>
+                                    <option value="trial">Trial</option>
+                                    <option value="standard">Starter</option>
+                                    <option value="advanced">Advanced</option>
+                                    <option value="max">Max</option>
+                                    <option value="unlimited">Custom</option>
+                                  </select>
+                                  <select
+                                    class="user-mgmt-tier-select"
+                                    value={user.subscribedMode ?? 'default'}
+                                    onChange={(e) => {
+                                      const newMode = e.currentTarget.value as 'default' | 'advanced';
+                                      if (newMode !== (user.subscribedMode ?? 'default')) {
+                                        void handleTierChange(user.email, user.resolvedTier, newMode);
+                                      }
+                                    }}
+                                  >
+                                    <option value="default">Standard</option>
+                                    <option value="advanced">Pro</option>
+                                  </select>
+                                </Show>
                                 <button
                                   type="button"
                                   class="user-mgmt-btn--delete"

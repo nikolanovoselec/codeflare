@@ -577,10 +577,11 @@ None.
 
 <!-- @impl: src/routes/admin -->
 <!-- @impl: src/routes/users.ts -->
+<!-- @impl: web-ui/src/components/admin/UserManagement.tsx -->
 <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData -->
-<!-- @test: src/__tests__/routes/users.test.ts (Users Routes + GET/DELETE + Admin-only access control describes -> AC1/AC2/AC3 admin panel listing + tier mutations + delete cascade) -->
+<!-- @test: src/__tests__/routes/users.test.ts (Users Routes + GET/DELETE + Admin-only access control describes -> AC1/AC2/AC3 admin panel listing + tier mutations + delete cascade; onboarding-mode PATCH approval + default-mode PATCH rejection -> AC2/AC4 gate) -->
 
-**Intent:** Admins can manage users, approve access, and configure tiers without CLI tools.
+**Intent:** Admins can manage users, approve access, and configure tiers without CLI tools. Approval is a tier mutation (`PATCH /api/users/:email`); the control surface adapts to the deployment mode — SaaS exposes the full subscription-tier picker, while onboarding (which has no paid tiers) collapses it to a plain Approve / Block decision.
 
 **Applies To:** Admin
 
@@ -589,10 +590,11 @@ None.
 1. `/admin/users` shows all users grouped by tier.
 2. Admin can search, approve pending users, change tiers, delete users (triggers full cleanup: KV + R2 + sessions + scoped tokens).
 3. User count vs capacity displayed.
+4. In SaaS mode the admin panel renders the full tier + session-mode selectors per user; in onboarding mode it renders a per-user Approve (grants full access: `unlimited` tier + `advanced` session mode) / Block (`blocked` tier) control, and the bulk action approves all pending users to that same full-access tier.
 
 **Constraints:**
 
-None.
+- Tier mutation (`PATCH /api/users/:email`) is the access-approval mechanism in the app-owned OIDC modes only: it is gated on `isSessionOidcMode` (`SAAS_MODE` active OR `ONBOARDING_LANDING_PAGE` active). Enterprise mode is already 403'd by the user-management router middleware (REQ-ENTERPRISE-009), and default (CF Access) mode has no tier-gated access, so PATCH returns 400 there.
 
 **Priority:** P1
 

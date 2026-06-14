@@ -674,6 +674,82 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
       expect(mockKV._store.get(prefsKey)).toBeUndefined();
     });
 
+    it('PATCH approves a pending user in onboarding mode (Approve = unlimited + advanced)', async () => {
+      // REQ-ENTERPRISE-008: tier mutation is the approval mechanism in onboarding,
+      // not just SaaS. ONBOARDING_LANDING_PAGE active (no SAAS_MODE) must clear the gate.
+      const onboardingApp = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+      onboardingApp.use('*', async (c, next) => {
+        c.env = {
+          KV: mockKV as unknown as KVNamespace,
+          CLOUDFLARE_API_TOKEN: 'test-api-token',
+          CLOUDFLARE_WORKER_NAME: 'codeflare',
+          ONBOARDING_LANDING_PAGE: 'active',
+        } as unknown as Env;
+        return next();
+      });
+      onboardingApp.route('/users', usersRoutes);
+      onboardingApp.onError((err, c) => {
+        if (err instanceof AppError) {
+          return c.json(err.toJSON(), err.statusCode as 400 | 401 | 403 | 404 | 409 | 500);
+        }
+        return c.json({ error: 'Unexpected error' }, 500);
+      });
+
+      mockKV._set('user:applicant@example.com', {
+        addedBy: 'jit',
+        addedAt: '2024-01-01T00:00:00.000Z',
+        role: 'user',
+        accessTier: 'pending',
+      });
+
+      const res = await onboardingApp.request('/users/applicant%40example.com', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscriptionTier: 'unlimited', subscribedMode: 'advanced' }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { success: boolean; subscriptionTier: string };
+      expect(body.success).toBe(true);
+      expect(body.subscriptionTier).toBe('unlimited');
+    });
+
+    it('PATCH is rejected outside SaaS/onboarding (default mode has no tier-gated access)', async () => {
+      // No SAAS_MODE and no ONBOARDING_LANDING_PAGE -> isSessionOidcMode is false.
+      const defaultApp = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+      defaultApp.use('*', async (c, next) => {
+        c.env = {
+          KV: mockKV as unknown as KVNamespace,
+          CLOUDFLARE_API_TOKEN: 'test-api-token',
+        } as unknown as Env;
+        return next();
+      });
+      defaultApp.route('/users', usersRoutes);
+      defaultApp.onError((err, c) => {
+        if (err instanceof AppError) {
+          return c.json(err.toJSON(), err.statusCode as 400 | 401 | 403 | 404 | 409 | 500);
+        }
+        return c.json({ error: 'Unexpected error' }, 500);
+      });
+
+      mockKV._set('user:noone@example.com', {
+        addedBy: 'jit',
+        addedAt: '2024-01-01T00:00:00.000Z',
+        role: 'user',
+        accessTier: 'pending',
+      });
+
+      const res = await defaultApp.request('/users/noone%40example.com', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscriptionTier: 'standard' }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json() as { error: string };
+      expect(body.error).toMatch(/SaaS or onboarding/i);
+    });
+
     it('GET /users returns role field for each user', async () => {
       const mockUsers = [
         { email: 'admin@example.com', addedBy: 'setup', addedAt: '2024-01-01', role: 'admin' as const },

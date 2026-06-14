@@ -9,7 +9,7 @@ import { getAllUsers, getAdminEmails, syncAccessPolicy } from '../lib/access-pol
 import { createLogger } from '../lib/logger';
 import { ValidationError, NotFoundError, ForbiddenError, toError } from '../lib/error-types';
 import { cleanupUserData } from '../lib/user-cleanup';
-import { isSaasModeActive } from '../lib/onboarding';
+import { isSaasModeActive, isSessionOidcMode } from '../lib/onboarding';
 import { isEnterpriseMode } from '../lib/subscription';
 import { parseJsonBody } from '../lib/request-helpers';
 import { sendTierChangeNotification } from '../lib/email';
@@ -111,8 +111,12 @@ app.delete('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
 
 // PATCH /api/users/:email - Update a user's subscription tier (admin only, SaaS mode only)
 app.patch('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
-  if (!isSaasModeActive(c.env.SAAS_MODE)) {
-    throw new ValidationError('Subscription tiers are only available in SaaS mode');
+  // Tier mutation is the access-approval mechanism in the app-owned OIDC modes:
+  // SaaS subscription tiers, and onboarding's Approve (unlimited) / Block. Enterprise
+  // user management is already 403'd by the router middleware above, and default mode
+  // has no tier-gated access, so restrict to SaaS + onboarding.
+  if (!isSessionOidcMode(c.env)) {
+    throw new ValidationError('Access tiers are only configurable in SaaS or onboarding mode');
   }
 
   const rawEmail = c.req.param('email');
