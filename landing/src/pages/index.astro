@@ -639,7 +639,7 @@ import {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: clamp(1.5rem, 4vw, 3rem);
+    gap: clamp(2rem, 5vw, 3.5rem);
     flex-wrap: wrap;
   }
 
@@ -656,26 +656,41 @@ import {
     }
   }
 
-  /* All four are compact, text-free brand marks: three square (Gray Matter,
-     Swiss Post, ZT Solutions) and one wide cloud (Cloudflare). One shared
-     height normalizes their visual size the way a clean logo wall does;
-     object-fit contain preserves each mark's aspect, and the max-width cap
-     keeps the wide cloud from dominating the row. */
+  /* The marks have very different aspects: one wide wordmark (Cloudflare 2.19:1)
+     and three squares (Gray Matter, Swiss Post, ZT Solutions). A shared *height*
+     left the wide mark ~2.2x the visible area of the squares (it complained as
+     "vastly different sizes"). A shared *bounding box* whose aspect (3:2 = 1.5)
+     sits between square (1.0) and the widest mark (2.19) auto-balances them:
+     contain width-limits the wide mark and height-limits the squares, so all
+     four land at near-equal visible area. Grayscale + lifted brightness +
+     reduced opacity unify their clashing brand colours into one calm tone;
+     colour returns on hover. */
   .trusted-logo {
-    height: clamp(34px, 7vw, 42px);
-    width: auto;
-    max-width: 104px;
+    width: clamp(58px, 13vw, 66px);
+    height: auto;
+    aspect-ratio: 3 / 2;
     object-fit: contain;
+    filter: grayscale(1) brightness(1.35);
+    opacity: 0.6;
+    transition: opacity 0.3s ease, filter 0.3s ease;
   }
 
-  /* The logo links to the customer site; a quiet hover signals it is clickable. */
+  /* The logo links to the customer site; restoring colour + full opacity on
+     hover/focus signals it is clickable. */
   .trusted-logo-link {
     display: inline-flex;
-    transition: opacity 0.2s ease;
   }
 
-  .trusted-logo-link:hover {
-    opacity: 0.7;
+  .trusted-logo-link:hover .trusted-logo,
+  .trusted-logo-link:focus-visible .trusted-logo {
+    filter: grayscale(0) brightness(1);
+    opacity: 1;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .trusted-logo {
+      transition: none;
+    }
   }
 
   /* Orchestration terminal: the "Running N agents" operator tree. Reuses the
