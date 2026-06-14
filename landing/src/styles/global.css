@@ -1748,7 +1748,8 @@ svg {
 .flare-on .feature-terminal,
 .flare-on .gate,
 .flare-on .review-board,
-.flare-on .ledger {
+.flare-on .ledger,
+.flare-on .proof-terminal {
   background: var(--glass-artifact);
 }
 
@@ -1757,7 +1758,8 @@ svg {
 .flare-on .contact-form,
 .flare-on .gate,
 .flare-on .review-board,
-.flare-on .ledger {
+.flare-on .ledger,
+.flare-on .proof-terminal {
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
 }
