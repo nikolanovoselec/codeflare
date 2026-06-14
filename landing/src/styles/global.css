@@ -346,13 +346,13 @@ svg {
   }
 }
 
-.hero h1 {
+.hero-headline {
   font-size: var(--fs-display);
   max-width: 18ch;
   letter-spacing: -0.03em;
 }
 
-.hero h1 .flare {
+.hero-headline .flare {
   background: var(--flare-gradient);
   -webkit-background-clip: text;
   background-clip: text;

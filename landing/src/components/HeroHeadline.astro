@@ -1,0 +1,15 @@
+---
+/**
+ * The hero headline ("This is not / a coding assistant"), extracted into its own
+ * component so the onboarding sign-in page can reuse the exact landing-hero
+ * markup, size, gradient flare, and scramble animation. Styled by the global
+ * `.hero-headline` rules; the flare word churns via scripts/scramble.ts (it
+ * targets every [data-scramble] on the page, already loaded by BaseLayout).
+ */
+import { HERO } from '../content/site';
+---
+
+<h1 class="hero-headline">
+  {HERO.headline.plain}<br />
+  <span class="flare" data-scramble>{HERO.headline.flare}</span>
+</h1>

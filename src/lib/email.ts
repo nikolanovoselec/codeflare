@@ -157,13 +157,32 @@ export async function sendAccessRequestConfirmation(opts: {
   env: { RESEND_API_KEY?: string; RESEND_EMAIL?: string };
 }): Promise<boolean> {
   const safeEmail = escapeXml(opts.userEmail);
+  // Voice and lines mirror the landing (HERO + SECURITY copy) so the first email
+  // a prospect gets matches the page they just left. Light, inline-styled HTML so
+  // it renders consistently across mail clients. No em/en dashes in rendered copy.
+  const accent = '#ff5c3c';
+  const ink = '#0a0a0c';
+  const body =
+    "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;" +
+    'max-width:480px;margin:0 auto;padding:8px 4px;color:#1a1a1f;line-height:1.6;font-size:15px';
   return sendEmail({
     to: [opts.userEmail],
-    subject: 'We received your Codeflare access request',
+    subject: "You're on the list for Codeflare",
     html: [
-      '<h2>Access request received</h2>',
-      `<p>Hi ${safeEmail},</p>`,
-      "<p>We've received your Codeflare access request; you'll hear from us when your workspace is approved.</p>",
+      `<div style="${body}">`,
+      `<p style="font-weight:700;letter-spacing:-0.01em;font-size:18px;color:${accent};margin:0 0 28px">codeflare</p>`,
+      `<h1 style="font-size:24px;letter-spacing:-0.02em;line-height:1.25;margin:0 0 16px;color:${ink}">You're on the list</h1>`,
+      `<p style="margin:0 0 16px">Hi ${safeEmail},</p>`,
+      "<p style=\"margin:0 0 16px\">Thanks for requesting access to Codeflare. Your request is in and queued for review. We'll email you the moment your workspace is approved, so there is nothing more you need to do right now.</p>",
+      `<div style="height:1px;background:#e6e6ea;margin:28px 0"></div>`,
+      `<p style="margin:0 0 12px;color:#6b6b76;font-size:12px;text-transform:uppercase;letter-spacing:0.1em">While you wait</p>`,
+      `<p style="margin:0 0 14px;font-size:19px;font-weight:600;letter-spacing:-0.01em;color:${ink}">This is not a coding assistant.</p>`,
+      '<p style="margin:0 0 16px">Codeflare runs autonomous coding agents inside your own cloud. Each change is backed by a spec, proven by tests, documented, and handed to your team as a pull request to merge.</p>',
+      '<p style="margin:0 0 16px">Every session authenticates through your identity provider, runs in an isolated container in your own tenancy, and reaches models only through your AI Gateway. Your code never leaves your boundary.</p>',
+      '<p style="margin:28px 0 4px">Talk soon,</p>',
+      '<p style="margin:0 0 28px">The Codeflare team</p>',
+      `<p style="color:#9a9aa4;font-size:13px;margin:0">Need help, or did not make this request? Just reply to this email.</p>`,
+      '</div>',
     ].join('\n'),
     env: opts.env,
   });

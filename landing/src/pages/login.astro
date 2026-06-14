@@ -15,6 +15,7 @@
  */
 import BaseLayout from '../layouts/BaseLayout.astro';
 import Footer from '../components/Footer.astro';
+import HeroHeadline from '../components/HeroHeadline.astro';
 import { LOGIN } from '../content/site';
 
 const GITHUB_PATH =
@@ -96,10 +97,9 @@ const GITHUB_PATH =
       <!-- Post-OAuth confirmation for a not-yet-approved visitor (login.ts shows
            this and hides the choices when the URL carries ?status=requested). -->
       <div class="login-requested" data-login-requested hidden>
-        <p class="login-requested-mark" aria-hidden="true">✓</p>
+        <HeroHeadline />
         <h2 class="login-requested-title">{LOGIN.requested.title}</h2>
         <p class="login-requested-body">{LOGIN.requested.body}</p>
-        <a class="btn btn-ghost btn-sm" href={LOGIN.back.href}>{LOGIN.back.label}</a>
       </div>
     </div>
 
@@ -286,19 +286,12 @@ const GITHUB_PATH =
     text-align: center;
   }
 
-  .login-requested-mark {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2.6rem;
-    height: 2.6rem;
-    margin: 0 auto 1rem;
-    border-radius: 50%;
-    background: var(--accent-soft);
-    border: 1px solid var(--accent-line);
-    color: var(--accent);
-    font-size: 1.3rem;
-    font-weight: 700;
+  /* The reused landing hero line (HeroHeadline): same size, gradient flare, and
+     scramble as the marketing hero, centered to sit where the checkmark did. */
+  .login-requested :global(.hero-headline) {
+    max-width: none;
+    margin: 0 auto 1.4rem;
+    text-align: center;
   }
 
   .login-requested-title {

@@ -5,6 +5,7 @@
  * tested, reviewed, shipped through the pipeline, container destroyed).
  */
 import { HERO, TERMINAL, SPINE } from '../content/site';
+import HeroHeadline from './HeroHeadline.astro';
 ---
 
 <header class="hero">
@@ -12,10 +13,7 @@ import { HERO, TERMINAL, SPINE } from '../content/site';
   <div class="container">
     <div class="hero-copy">
       <p class="hero-kicker">{HERO.kicker}</p>
-      <h1>
-        {HERO.headline.plain}<br />
-        <span class="flare" data-scramble>{HERO.headline.flare}</span>
-      </h1>
+      <HeroHeadline />
       <p class="hero-def">{HERO.definition}</p>
       <div class="hero-cta">
         <a class="btn btn-primary" href={HERO.primaryCta.href}>{HERO.primaryCta.label}</a>

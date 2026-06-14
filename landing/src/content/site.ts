@@ -896,10 +896,10 @@ export const LOGIN = {
     "We'll email you when your workspace is approved.",
   // The post-OAuth "access request submitted" state (login.astro reads ?status=requested).
   requested: {
-    title: 'Access request submitted',
+    title: "You're on the list",
     body:
-      "Thanks for your interest. We've emailed you a confirmation, and you'll hear from us " +
-      'when your workspace is approved.',
+      "We've sent a confirmation to your inbox. You'll hear from us as soon as " +
+      'your workspace is approved.',
   },
   back: { label: 'Back to codeflare.ch', href: '/landing/' },
   // OAuth-flow error copy, keyed by the ?error=<code> the Worker redirects with.
