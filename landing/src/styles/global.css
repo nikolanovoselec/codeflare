@@ -411,11 +411,14 @@ svg {
   box-shadow: 0 30px 60px -30px rgb(0 0 0 / 0.7);
 }
 
-/* The five wide lower artifacts share the terminal chrome but take a lighter
-   shadow so they do not stack hero-grade depth down the page. */
+/* The wide lower artifacts share the terminal chrome but take a lighter shadow
+   so they do not stack hero-grade depth down the page. The legacy + context
+   narrative terminals are now full-width lower artifacts too (no longer in a
+   half-width pair), so they join this group instead of the heavy base shadow. */
 .gate,
 .review-board,
-.ledger {
+.ledger,
+.proof-terminal {
   box-shadow: 0 18px 40px -28px rgb(0 0 0 / 0.6);
 }
 
