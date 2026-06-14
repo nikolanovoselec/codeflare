@@ -636,6 +636,18 @@ import {
     flex-wrap: wrap;
   }
 
+  /* Four mixed-width logos wrap unevenly (3 + 1) on a phone; a 2-column grid
+     keeps them balanced 2x2 and centered. */
+  @media (max-width: 600px) {
+    .trusted-logos {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      justify-items: center;
+      align-items: center;
+      gap: 1.75rem 1.25rem;
+    }
+  }
+
   /* Mixed marks (square) and wordmarks (wide) share one strip: a moderate
      height with a max-width cap keeps the wide ones from dominating, and
      object-fit contain preserves each aspect ratio. */
