@@ -155,10 +155,15 @@ export const AGENTS = ['claude-code', 'codex', 'copilot', 'pi', 'antigravity', '
 export const HERO = {
   kicker: 'The enterprise agentic coding engine',
   headline: { plain: 'This is not', flare: 'a coding assistant.' },
-  sub:
-    'Autonomous agents that build, review, test, and ship inside your enterprise boundary. ' +
-    'Spec, tests and docs stay aligned at every pull request. ' +
-    'One engineer, the output of a team.',
+  // The plain one-sentence answer to the headline's hook, rendered in the terminal
+  // white directly under the h1: what it is (a platform), what it does (agents
+  // build -> ship), where (your trust boundary), and the differentiator a coding
+  // assistant cannot claim (an enforcement loop that makes drift impossible).
+  definition:
+    "It's a platform where autonomous agents build, review, test, and ship inside your own " +
+    'trust boundary, with an enforcement loop that keeps spec, tests, and code in lockstep ' +
+    'so drift is impossible.',
+  sub: 'One engineer, the output of a team.',
   primaryCta: { label: 'Book a demo', href: '#contact' } satisfies Cta,
   secondaryCta: { label: 'See the shift', href: '#shift' } satisfies Cta,
 };
@@ -206,9 +211,6 @@ export const TERMINAL = {
   run: [
     'spec-driven · enforced, not suggested',
     'legacy codebase · bootstrapped to an SDD baseline',
-    'zero trust · the architecture, not only a policy',
-    'ephemeral, runs everywhere and nowhere',
-    'the open web · distilled, and driven',
     'agents · citizens of your pipeline',
     'drift impossible by design',
     'knowledge graph · skills and tools · MCP',

@@ -55,6 +55,12 @@ describe('landing page (REQ-LANDING-001)', () => {
   it('REQ-LANDING-001: hero renders the kicker, both CTA hrefs, and the scramble + fluid hooks on the flare word', () => {
     // Kicker text must appear in the rendered output, not just be present in site.ts.
     expect(text).toContain(HERO.kicker);
+    // The plain "what it is" definition line must render under the headline (the
+    // payoff to the "not a coding assistant" hook), inside its .hero-def element so
+    // the terminal-white styling applies. Missing it leaves a visitor with only the
+    // negation and no positive answer.
+    expect(text).toContain(HERO.definition);
+    expect(html).toContain('class="hero-def"');
     // Both CTAs route to their configured destinations — wrong href = broken conversion path.
     expect(html).toContain(`href="${HERO.primaryCta.href}"`);
     expect(html).toContain(`href="${HERO.secondaryCta.href}"`);

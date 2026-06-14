@@ -347,11 +347,23 @@ svg {
   color: transparent;
 }
 
+/* The plain "what it is" answer directly under the headline: the terminal command
+   white (matching .t-cmd / --text-primary) so it reads as the bright payoff to the
+   "not a coding assistant" hook. --fs-lead keeps it on the token scale (no bespoke
+   size); the supporting sub sits quietly beneath it in secondary grey. */
+.hero-def {
+  font-size: var(--fs-lead);
+  color: var(--text-primary);
+  max-width: 48ch;
+  margin-top: 1.4rem;
+  line-height: 1.5;
+}
+
 .hero-sub {
   font-size: var(--fs-lead);
   color: var(--text-secondary);
   max-width: 42ch;
-  margin-top: 1.4rem;
+  margin-top: 0.9rem;
 }
 
 .hero-cta {
