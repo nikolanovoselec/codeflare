@@ -75,6 +75,9 @@
   --fs-lead: clamp(1.05rem, 0.98rem + 0.4vw, 1.2rem);
   --fs-body: 1rem;
   --fs-small: 0.875rem;
+  /* Interactive-control text (buttons, inputs, micro-CTAs, SSO rows): one size,
+     between body and small, kept as its own token so every control stays uniform. */
+  --fs-ui: 0.95rem;
   --fs-mono: 0.8125rem;
   /* Two subordinate mono sizes carry ALL terminal chrome and dense-table text,
      so the page uses three mono sizes total (body / ui / micro) instead of the

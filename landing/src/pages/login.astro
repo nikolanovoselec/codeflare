@@ -113,6 +113,15 @@ const GITHUB_PATH =
     justify-content: center;
   }
 
+  /* The back arrow (←) sits a hair below the label's optical centre because Inter
+     centres arrow glyphs on the math axis, which is below the cap-centre the label
+     reads from; lift it so the glyph lines up with the text in the flex button. */
+  .login-back-arrow {
+    display: inline-block;
+    line-height: 1;
+    transform: translateY(-0.06em);
+  }
+
   .login-card {
     text-align: center;
   }
@@ -191,7 +200,7 @@ const GITHUB_PATH =
     cursor: pointer;
     list-style: none;
     font-family: var(--font-sans);
-    font-size: 0.95rem;
+    font-size: var(--fs-ui);
     font-weight: 600;
     color: var(--text-primary);
     transition: background 0.18s var(--ease-out);

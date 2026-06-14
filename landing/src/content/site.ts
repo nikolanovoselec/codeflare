@@ -276,10 +276,10 @@ export const FEATURE_TERMINALS: FeatureTerminal[] = [
 
 export const SHIFT = {
   id: 'shift',
-  title: 'Decades of SDLC. One generational leap.',
+  title: 'Decades of software delivery. One generational leap.',
   lead:
     'Coding assistants made typing faster. Codeflare changes what an engineer <em>is</em>: ' +
-    'the engineer specifies, steers, and judges; agents do everything else. ' +
+    'you specify, steer, and judge; agents do the rest. ' +
     'Four moments from inside the boundary.',
 };
 
@@ -363,7 +363,7 @@ export const SECURITY = {
     'Autonomous agents are only safe inside structural boundaries. Codeflare makes the ' +
     'dangerous paths impossible to express, not merely discouraged: one session, ' +
     'everything it may do, and everything it cannot.',
-  microCta: 'Request the security and compliance deep-dive',
+  microCta: 'Request the security and compliance briefing',
   // The boundary as one proof artifact: the approved paths (pass) and the paths
   // the architecture makes impossible (deny), in the same gate grammar as the
   // enforcement gate and egress strip, so security reads as one coherent receipt.
@@ -462,6 +462,7 @@ export const DOGFOOD = {
     { tone: 'cmd', text: 'sdd status REQ-LANDING-001' },
     { tone: 'ok', text: '✓ Status: Implemented' },
     { tone: 'dim', text: '@impl landing/src/pages/index.astro' },
+    { tone: 'dim', text: '@impl landing/src/components/Hero.astro' },
     { tone: 'dim', text: '@impl landing/src/components/FeatureTerminals.astro' },
     { tone: 'dim', text: '@impl landing/src/content/site.ts' },
     { tone: 'dim', text: '@test landing/src/__tests__/index-page.test.ts' },
@@ -476,7 +477,7 @@ export const OPERATIONS = {
   title: 'Not just code. The systems behind it.',
   lead:
     'The same governed agents that ship code can operate the infrastructure it runs on: ' +
-    'orchestrate environments, patch fleets, carry migrations through, drive incident response.',
+    'orchestrate environments, patch fleets, run migrations, drive incident response.',
   cards: [
     {
       title: 'Policy-scoped zero-trust tunnels',
@@ -506,7 +507,7 @@ export const BROWSER = {
       title: 'Nothing to deploy',
       body:
         'No golden images, no workstation builds, no local toolchains to patch. Full Linux ' +
-        'environments with every agent pre-installed, born in seconds.',
+        'environments with every agent pre-installed, ready in seconds.',
     },
     {
       title: 'Onboarding is IAM configuration',
@@ -846,7 +847,7 @@ export const CONTACT_FORM = {
   title: 'Bring agentic coding inside your boundary.',
   aside: [
     'Whether you are evaluating agentic coding for the first time, planning a pilot, or need a ' +
-      'security and compliance deep-dive, let’s talk about your environment specifically.',
+      'security and compliance briefing, let\'s talk about your environment specifically.',
     'Your message goes directly to the team that builds Codeflare. Expect a reply within 1-2 ' +
       'business days. Submissions are protected against bots and are not stored. ' +
       'Your data is never sold or shared.',

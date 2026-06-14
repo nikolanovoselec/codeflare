@@ -70,6 +70,30 @@ describe('Auth redirect routes', () => {
   // GET /logout
   // ===========================================================================
   describe('GET /logout / REQ-AUTH-009 (logout dispatches by mode)', () => {
+    it('SaaS mode with OAuth configured redirects to the GitHub logout route', async () => {
+      const app = createApp({ SAAS_MODE: 'active', OAUTH_CLIENT_ID: 'gh-client' });
+      const res = await app.request('/logout');
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('Location')).toBe('/auth/github/logout');
+    });
+
+    it('onboarding mode with OAuth configured redirects to the GitHub logout route, not CF Access', async () => {
+      // Onboarding issues the app's own codeflare_session, so logout must clear it
+      // via GitHub logout rather than the CF Access logout endpoint (whose returnTo
+      // Access rejects as an invalid redirect URL). Regression for the integration
+      // "Invalid redirect URL" logout failure: auth_domain IS set on integration,
+      // yet onboarding must still take the OIDC branch.
+      mockKV._store.set('setup:auth_domain', 'myteam.cloudflareaccess.com');
+      mockKV._store.set('setup:custom_domain', 'myapp.example.com');
+
+      const app = createApp({ ONBOARDING_LANDING_PAGE: 'active', OAUTH_CLIENT_ID: 'gh-client' });
+      const res = await app.request('/logout');
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('Location')).toBe('/auth/github/logout');
+    });
+
     it('redirects to CF Access logout URL when auth_domain is set', async () => {
       mockKV._store.set('setup:auth_domain', 'myteam.cloudflareaccess.com');
       mockKV._store.set('setup:custom_domain', 'myapp.example.com');

@@ -124,3 +124,14 @@ export async function executeBrowserAction(opts: {
   if (text.trim() === "") return { text: emptyRenderText(params.url), details: { url: params.url, empty: true } };
   return { text: truncate(text), details: { url: params.url } };
 }
+
+/**
+ * Helper module for browser-run.ts; the named helpers above are imported there.
+ * The Pi extension scanner loads every file in extensions/ and requires a default
+ * factory, so expose a no-op one (matching the other *-helpers.ts modules) rather
+ * than registering anything. Without it, Pi fails to start with "Extension does
+ * not export a valid factory function".
+ */
+export default function () {
+  // Helper module only; loaded by the Pi extension scanner as a no-op extension.
+}

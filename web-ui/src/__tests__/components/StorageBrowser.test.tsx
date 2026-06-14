@@ -296,6 +296,19 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       expect((iconDot as HTMLElement).style.backgroundColor).toBe('rgb(49, 120, 198)'); // #3178c6
     });
 
+    it('folder dot has no hardcoded colour so it inherits the accent theme', () => {
+      mockPrefixes = ['workspace/src/'];
+      render(() => <StorageBrowser />);
+
+      const folderRow = screen.getByTestId('folder-src');
+      const iconDot = folderRow.querySelector('.storage-item-icon-dot');
+      expect(iconDot).toBeInTheDocument();
+      // No inline background: the folder dot is coloured in CSS by
+      // .storage-item--folder .storage-item-icon-dot { background: var(--color-accent) },
+      // so it tracks the Appearance accent instead of a static blue.
+      expect((iconDot as HTMLElement).style.backgroundColor).toBe('');
+    });
+
     it('file checkbox toggles selection via storageStore.toggleSelect', () => {
       mockObjects = [
         { key: 'workspace/test.txt', size: 100, lastModified: '2024-01-15T10:00:00Z' },

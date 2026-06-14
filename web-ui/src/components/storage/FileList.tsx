@@ -66,7 +66,6 @@ const FileList: Component<FileListProps> = (props) => {
       <For each={props.displayedItems().prefixes}>
         {(prefix) => {
           const rawName = prefix.split('/').filter(Boolean).pop() || prefix;
-          const icon = getFileIcon(getFolderName(prefix), true);
           return (
             <div
               class="storage-item storage-item--folder"
@@ -91,7 +90,7 @@ const FileList: Component<FileListProps> = (props) => {
                   }}
                 />
               </Show>
-              <span class="storage-item-icon-dot" style={{ "background-color": icon.color }} />
+              <span class="storage-item-icon-dot" />
               <span class="storage-item-name">{getFolderName(prefix)}</span>
               <Show when={getSpecialFolder(prefix)} keyed>
                 {(special: SpecialFolder) => (

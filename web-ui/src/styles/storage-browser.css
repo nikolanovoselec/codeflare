@@ -106,6 +106,12 @@
   flex-shrink: 0;
 }
 
+/* Folder dots follow the configured accent theme (Appearance settings) instead
+   of a fixed colour; file dots keep their per-type colours from file-icons. */
+.storage-item--folder .storage-item-icon-dot {
+  background-color: var(--color-accent);
+}
+
 .storage-icon-btn {
   display: flex;
   align-items: center;

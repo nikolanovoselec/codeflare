@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { createLogger } from '../lib/logger';
-import { isSaasModeActive } from '../lib/onboarding';
+import { isSaasModeActive, isSessionOidcMode } from '../lib/onboarding';
 import { SETUP_KEYS } from '../lib/kv-keys';
 
 const logger = createLogger('auth-redirects');
@@ -26,8 +26,12 @@ app.get('/login/:provider', async (c) => {
 });
 
 app.get('/logout', async (c) => {
-  // SaaS mode with GitHub OIDC: clear session cookie and redirect to login
-  if (isSaasModeActive(c.env.SAAS_MODE) && c.env.OAUTH_CLIENT_ID) {
+  // SaaS AND onboarding modes issue the app's own GitHub-OIDC session cookie, so
+  // logout clears it via the GitHub logout route. Enterprise / default deployments
+  // delegate to Cloudflare Access logout instead (below). Onboarding must route
+  // here too: sending it to the CF Access logout endpoint makes Access reject the
+  // returnTo as an invalid redirect URL.
+  if (isSessionOidcMode(c.env) && c.env.OAUTH_CLIENT_ID) {
     return c.redirect('/auth/github/logout');
   }
 

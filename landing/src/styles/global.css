@@ -157,7 +157,7 @@ svg {
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   font-family: var(--font-sans);
-  font-size: 0.95rem;
+  font-size: var(--fs-ui);
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
@@ -196,7 +196,7 @@ svg {
 
 .btn-sm {
   padding: 0.55rem 1rem;
-  font-size: 0.875rem;
+  font-size: var(--fs-small);
 }
 
 /* --------------------------------------------------------------------------
@@ -364,6 +364,7 @@ svg {
   color: var(--text-secondary);
   max-width: 42ch;
   margin-top: 0.9rem;
+  line-height: 1.5;
 }
 
 .hero-cta {
@@ -503,8 +504,8 @@ svg {
 /* Hero terminal never scrolls sideways: a long transcript line reflows the way a
    real terminal wraps it, with a hanging indent so the continuation aligns past
    the leading glyph. (The orchestration tree keeps its own `pre`/scroll, since
-   its columns must line up.) The capability reel takes the agent voice colour
-   ("✻ ephemeral container" tone), not the brighter command white. */
+   its columns must line up.) The capability reel is a typed command, so it takes
+   the brighter command white (--text-primary), matching the prompt it types at. */
 .hero-terminal .terminal-body {
   overflow-x: hidden;
 }
@@ -517,7 +518,7 @@ svg {
 }
 
 .hero-terminal .ft-typed {
-  color: var(--term-cyan);
+  color: var(--text-primary);
 }
 
 .t-cmd {
@@ -959,7 +960,7 @@ svg {
   padding: 0.7rem 0.85rem;
   color: var(--text-primary);
   font-family: var(--font-sans);
-  font-size: 0.95rem;
+  font-size: var(--fs-ui);
   transition: border-color 0.18s var(--ease-out), box-shadow 0.18s var(--ease-out);
 }
 
@@ -1016,7 +1017,7 @@ svg {
    -------------------------------------------------------------------------- */
 .micro-cta {
   margin-top: 2rem;
-  font-size: 0.95rem;
+  font-size: var(--fs-ui);
 }
 
 .micro-cta a {
@@ -1224,6 +1225,17 @@ svg {
 [data-roll] > .roll-down {
   opacity: 0;
   transform: translateY(8px);
+}
+
+/* Scroll-anchoring opt-out. The roll loop moves the top row of the list to the
+   bottom every few seconds. On a phone, when the terminal fills the viewport and
+   the reader is scrolled into it, the browser would otherwise pick a rolling row
+   as its scroll anchor and chase it as it moves, walking the whole page downward
+   on every cycle. Excluding the list's subtree from anchoring keeps the viewport
+   still; the list height is already frozen by JS during a cycle, so nothing below
+   the terminal shifts. */
+[data-roll] {
+  overflow-anchor: none;
 }
 
 /* Once an artifact is rolling, its one-shot entrance keyframes must not replay

@@ -714,7 +714,7 @@ import {
 
   .orch .t-line {
     white-space: pre;
-    line-height: 1.7;
+    line-height: 1.85;
   }
 
   /* Sub-content folded into the section above it (operations under security,
@@ -728,20 +728,16 @@ import {
 
   /* Sub-block heading: the SAME --fs-h3 as the card / clause headings, so the
      page carries one subordinate-heading size instead of a bespoke in-between
-     one. It reads as "still inside this section" through spacing and a body-size
-     lead (below), and because the accent kicker is reserved for true section
-     starts (a substation never gets one). */
+     one. It reads as "still inside this section" through spacing alone, and
+     because the accent kicker is reserved for true section starts (a substation
+     never gets one). The lead is deliberately left at the section --fs-lead (no
+     override): a smaller sub-block intro read as a font-size glitch next to the
+     real section leads rather than as subordination. */
   .substation h3 {
     font-size: var(--fs-h3);
     line-height: 1.25;
     letter-spacing: -0.01em;
     margin: 0 0 0.6rem;
-  }
-
-  /* A substation's lead drops to body size so it sits clearly beneath the
-     section's own lead, reinforcing sub-block over new-section. */
-  .substation .lead {
-    font-size: var(--fs-body);
   }
 
   /* The trusted-by band centers its logo wall; its separation from the dogfood
