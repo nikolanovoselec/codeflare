@@ -694,19 +694,22 @@ svg {
   padding-block: 0;
 }
 
-/* Card / sub-block label: the anchor that keeps the under-terminal prose blocks
-   (operations, tenancy, runs-everywhere) legible as label -> body rather than two
-   runs of similar text. Same body size as the paragraph but a clear heading
-   weight + primary colour + a small uppercase tracking lift, so the eye reads it
-   as the heading of its column without needing a bespoke in-between font size. */
+/* Card / sub-block label: the heading for each column in the under-terminal prose
+   blocks (operations, tenancy, runs-everywhere). It is SENTENCE CASE in the same
+   family as every other heading on the page: the page carries exactly one heading
+   case, and the hierarchy (section h2 > substation h3 > this card label) is read by
+   size + weight + colour, never by switching a level to all-caps. Heading weight +
+   primary colour over secondary body text reads as label -> body on its own; the
+   earlier uppercase + wide-tracking treatment clashed with the sentence-case
+   sub-heads directly above it (a sub-head in normal case, its card labels in caps)
+   and is what read as inconsistent. Body size keeps it subordinate to the h3 head. */
 .feature-col h3 {
-  font-size: var(--fs-small);
-  font-weight: 700;
+  font-size: var(--fs-body);
+  font-weight: 680;
   line-height: 1.3;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: -0.01em;
   color: var(--text-primary);
-  margin-bottom: 0.65rem;
+  margin-bottom: 0.5rem;
 }
 
 .feature-col p {
