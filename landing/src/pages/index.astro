@@ -18,6 +18,7 @@ import Footer from '../components/Footer.astro';
 import { APP_LINKS } from '../config';
 import {
   NAV_LINKS,
+  SECTION_KICKERS,
   AGENTS,
   SPINE,
   SHIFT,
@@ -75,6 +76,7 @@ import {
     <section id={SHIFT.id} class="section">
       <div class="container">
         <div class="section-head reveal">
+          <p class="kicker">{SECTION_KICKERS.shift}</p>
           <h2>{SHIFT.title}</h2>
           <p class="lead" set:html={SHIFT.lead} />
         </div>
@@ -88,6 +90,7 @@ import {
     <section id={METHOD.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
+          <p class="kicker">{SECTION_KICKERS.method}</p>
           <h2>{METHOD.title}</h2>
           <p class="lead">{METHOD.lead}</p>
         </div>
@@ -136,22 +139,21 @@ import {
          drifted spec, in the page's existing terminal idiom (context grammar). -->
     <section id={LEGACY.id} class="section">
       <div class="container">
-        <div class="proof-pair">
-          <div class="proof-copy reveal">
-            <h2>{LEGACY.title}</h2>
-            <p class="lead">{LEGACY.lead}</p>
+        <div class="section-head reveal">
+          <p class="kicker">{SECTION_KICKERS.legacy}</p>
+          <h2>{LEGACY.title}</h2>
+          <p class="lead">{LEGACY.lead}</p>
+        </div>
+        <div class="terminal proof-terminal reveal" data-proof>
+          <div class="terminal-bar">
+            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="terminal-title">{LEGACY.terminal.title}</span>
           </div>
-          <div class="terminal feature-terminal proof-terminal reveal" data-proof>
-            <div class="terminal-bar">
-              <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-              <span class="terminal-title">{LEGACY.terminal.title}</span>
-            </div>
-            <div class="terminal-body">
-              {LEGACY.terminal.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
-            </div>
-            <div class="terminal-foot tf-static">
-              <span class="tf-seg">{LEGACY.terminal.foot}</span>
-            </div>
+          <div class="terminal-body">
+            {LEGACY.terminal.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
+          </div>
+          <div class="terminal-foot tf-static">
+            <span class="tf-seg">{LEGACY.terminal.foot}</span>
           </div>
         </div>
       </div>
@@ -164,6 +166,7 @@ import {
     <section id={SECURITY.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
+          <p class="kicker">{SECTION_KICKERS.security}</p>
           <h2>{SECURITY.title}</h2>
           <p class="lead">{SECURITY.lead}</p>
           <p class="micro-cta">
@@ -228,50 +231,46 @@ import {
          real fetch from the spine run shown as a proof terminal. -->
     <section id={CONTEXT.id} class="section">
       <div class="container">
-        <!-- The open web read clean: prose beside one real fetch, the narrative
-             terminal at half width (paired like the hero) so it normalizes with
-             the page's other paired terminals instead of an odd in-between box. -->
-        <div class="proof-pair">
-          <div class="proof-copy reveal">
-            <h2>{CONTEXT.title}</h2>
-            <p class="lead">{CONTEXT.lead}</p>
+        <div class="section-head reveal">
+          <p class="kicker">{SECTION_KICKERS.context}</p>
+          <h2>{CONTEXT.title}</h2>
+          <p class="lead">{CONTEXT.lead}</p>
+        </div>
+        <!-- One real fetch from the spine run: the open web crosses an isolation
+             boundary the remote page never breaches, resolving to agent-ready
+             markdown. A full-width terminal under the head, like every section. -->
+        <div class="terminal proof-terminal reveal" data-proof>
+          <div class="terminal-bar">
+            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="terminal-title">{CONTEXT.terminal.title}</span>
           </div>
-          <div class="terminal feature-terminal proof-terminal reveal" data-proof>
-            <div class="terminal-bar">
-              <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-              <span class="terminal-title">{CONTEXT.terminal.title}</span>
-            </div>
-            <div class="terminal-body">
-              {CONTEXT.terminal.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
-            </div>
-            <div class="terminal-foot tf-static">
-              <span class="tf-seg">{CONTEXT.terminal.foot}</span>
-            </div>
+          <div class="terminal-body">
+            {CONTEXT.terminal.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
+          </div>
+          <div class="terminal-foot tf-static">
+            <span class="tf-seg">{CONTEXT.terminal.foot}</span>
           </div>
         </div>
 
-        <!-- The other Browser Run surface, paired and flipped (terminal left): the
-             same throwaway browser the agent reads, it also DRIVES, an agent-steered
-             semantic e2e at a mobile viewport that judges the deployed app against
-             intent (the deny line is a real clip this repo's own landing QA caught).
-             The h3 keeps it subordinate to the section's web fetch; the flip gives
-             the section its own internal left/right alternation. -->
-        <div class="proof-pair proof-pair--flip">
-          <div class="proof-copy reveal">
-            <h3>{CONTEXT.e2e.heading}</h3>
-            <p class="lead">{CONTEXT.e2e.lead}</p>
+        <!-- The same throwaway browser also DRIVES: an agent-steered semantic e2e
+             at a mobile viewport judging the deployed app against intent (the deny
+             line is a real clip this repo's own landing QA caught). A substation
+             sub-head keeps it subordinate to the section's web fetch, reading as
+             part of this section rather than a new one. -->
+        <div class="section-head substation reveal">
+          <h3>{CONTEXT.e2e.heading}</h3>
+          <p class="lead">{CONTEXT.e2e.lead}</p>
+        </div>
+        <div class="terminal proof-terminal reveal" data-proof>
+          <div class="terminal-bar">
+            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="terminal-title">{CONTEXT.e2e.terminal.title}</span>
           </div>
-          <div class="terminal feature-terminal proof-terminal reveal" data-proof>
-            <div class="terminal-bar">
-              <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-              <span class="terminal-title">{CONTEXT.e2e.terminal.title}</span>
-            </div>
-            <div class="terminal-body">
-              {CONTEXT.e2e.terminal.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
-            </div>
-            <div class="terminal-foot tf-static">
-              <span class="tf-seg">{CONTEXT.e2e.terminal.foot}</span>
-            </div>
+          <div class="terminal-body">
+            {CONTEXT.e2e.terminal.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
+          </div>
+          <div class="terminal-foot tf-static">
+            <span class="tf-seg">{CONTEXT.e2e.terminal.foot}</span>
           </div>
         </div>
       </div>
@@ -284,6 +283,7 @@ import {
     <section id={PIPELINE.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
+          <p class="kicker">{SECTION_KICKERS.pipeline}</p>
           <h2>{PIPELINE.title}</h2>
           <p class="lead">{PIPELINE.lead}</p>
         </div>
@@ -330,6 +330,7 @@ import {
     <section id={ORCHESTRATION.id} class="section">
       <div class="container">
         <div class="section-head reveal">
+          <p class="kicker">{SECTION_KICKERS.orchestration}</p>
           <h2>{ORCHESTRATION.title}</h2>
           <p class="lead">{ORCHESTRATION.lead}</p>
         </div>
@@ -364,6 +365,7 @@ import {
     <section id={COST.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
+          <p class="kicker">{SECTION_KICKERS.cost}</p>
           <h2>{COST.title}</h2>
           <p class="lead">{COST.lead}</p>
         </div>
@@ -450,6 +452,7 @@ import {
     <section id={PLATFORM.id} class="section">
       <div class="container">
         <div class="section-head reveal">
+          <p class="kicker">{SECTION_KICKERS.platform}</p>
           <h2>{PLATFORM.title}</h2>
           <p class="lead">{PLATFORM.lead}</p>
         </div>
@@ -506,6 +509,7 @@ import {
     <section id={MCP.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
+          <p class="kicker">{SECTION_KICKERS.mcp}</p>
           <h2>{MCP.title}</h2>
           <p class="lead">{MCP.lead}</p>
         </div>
@@ -538,6 +542,7 @@ import {
     <section id={DOGFOOD.id} class="section">
       <div class="container">
         <div class="section-head reveal">
+          <p class="kicker">{SECTION_KICKERS.dogfood}</p>
           <h2>{DOGFOOD.title}</h2>
           <p class="lead">{DOGFOOD.lead}</p>
         </div>
@@ -585,6 +590,7 @@ import {
     <section id={FAQ_SECTION.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
+          <p class="kicker">{SECTION_KICKERS.faq}</p>
           <h2>{FAQ_SECTION.title}</h2>
         </div>
         <div class="faq reveal">
@@ -604,6 +610,7 @@ import {
     <section id={CONTACT_FORM.id} class="section">
       <div class="container">
         <div class="section-head reveal">
+          <p class="kicker">{SECTION_KICKERS.contact}</p>
           <h2>{CONTACT_FORM.title}</h2>
         </div>
         <ContactForm />
@@ -694,18 +701,20 @@ import {
   }
 
   /* The agent tree relies on box-drawing connectors (├ │ └) lining up across
-     lines. `pre` preserves the leading-space indentation each row needs; a tighter
-     line-height closes the vertical gaps so the bars read as continuous lines; and
-     horizontal scroll keeps the tree intact on a phone instead of wrapping (which
-     misaligned the connectors). Scoped to the orch terminal so other terminals
-     keep their phone wrapping. */
+     lines. `pre` preserves the leading-space indentation each row needs, and
+     horizontal scroll keeps the tree intact on a phone instead of wrapping
+     (which misaligned the connectors). Line-height matches the other terminals'
+     breathing room: it had been compressed to 1.4, which read as cramped next to
+     the rest; the connectors still read as a tree at this rhythm (real terminal
+     output has the same small gaps). Scoped to the orch terminal so other
+     terminals keep their phone wrapping. */
   .orch .terminal-body {
     overflow-x: auto;
   }
 
   .orch .t-line {
     white-space: pre;
-    line-height: 1.4;
+    line-height: 1.7;
   }
 
   /* Sub-content folded into the section above it (operations under security,
@@ -717,14 +726,22 @@ import {
     margin-top: clamp(3rem, 6vw, 5rem);
   }
 
-  /* Subordinate to the section's h2 (--fs-h2, up to 2.6rem) yet above the card
-     h3s (--fs-h3): the size step is the signal that this block belongs to the
-     section above it rather than opening a new one. */
+  /* Sub-block heading: the SAME --fs-h3 as the card / clause headings, so the
+     page carries one subordinate-heading size instead of a bespoke in-between
+     one. It reads as "still inside this section" through spacing and a body-size
+     lead (below), and because the accent kicker is reserved for true section
+     starts (a substation never gets one). */
   .substation h3 {
-    font-size: clamp(1.25rem, 2.6vw, 1.6rem);
-    line-height: 1.2;
+    font-size: var(--fs-h3);
+    line-height: 1.25;
     letter-spacing: -0.01em;
-    margin: 0 0 0.75rem;
+    margin: 0 0 0.6rem;
+  }
+
+  /* A substation's lead drops to body size so it sits clearly beneath the
+     section's own lead, reinforcing sub-block over new-section. */
+  .substation .lead {
+    font-size: var(--fs-body);
   }
 
   /* The trusted-by band centers its logo wall; its separation from the dogfood

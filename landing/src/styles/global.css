@@ -375,7 +375,7 @@ svg {
   margin-top: 1.1rem;
   padding-left: 0.1rem;
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: var(--fs-mono-ui);
   letter-spacing: 0.04em;
 }
 
@@ -428,7 +428,7 @@ svg {
   border-bottom: 1px solid var(--border-subtle);
   background: rgb(var(--white-rgb) / 0.015);
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: var(--fs-mono-ui);
 }
 
 .terminal-dots {
@@ -445,7 +445,7 @@ svg {
 
 .terminal-title {
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: var(--fs-mono-ui);
   color: var(--text-muted);
   margin-left: 0.4rem;
   white-space: nowrap;
@@ -562,7 +562,7 @@ svg {
   border-top: 1px solid var(--border-subtle);
   background: rgb(var(--white-rgb) / 0.012);
   font-family: var(--font-mono);
-  font-size: 0.66rem;
+  font-size: var(--fs-mono-micro);
   letter-spacing: 0.02em;
   color: var(--text-muted);
 }
@@ -653,7 +653,7 @@ svg {
 }
 
 .feature-terminal .terminal-foot {
-  font-size: 0.64rem;
+  font-size: var(--fs-mono-micro);
 }
 
 @media (min-width: 760px) {
@@ -762,7 +762,7 @@ svg {
 }
 
 .manifest dt {
-  font-size: 0.78rem;
+  font-size: var(--fs-mono-ui);
   letter-spacing: 0.02em;
   color: var(--text-muted);
 }
@@ -785,7 +785,7 @@ svg {
 
 .agent-chips span {
   font-family: var(--font-mono);
-  font-size: 0.78rem;
+  font-size: var(--fs-mono-ui);
   padding: 0.4rem 0.8rem;
   border: 1px solid var(--border-default);
   border-radius: 999px;
@@ -872,7 +872,7 @@ svg {
 
 .faq-answer {
   color: var(--text-secondary);
-  font-size: 0.97rem;
+  font-size: var(--fs-body);
   max-width: var(--measure);
   padding-bottom: 1.4rem;
 }
@@ -1040,7 +1040,7 @@ svg {
   gap: 0.4rem 1.4rem;
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: var(--fs-mono-ui);
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1267,7 +1267,7 @@ svg {
   grid-area: state;
   justify-self: end;
   align-self: center;
-  font-size: 0.62rem;
+  font-size: var(--fs-mono-micro);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   padding: 0.12rem 0.5rem;
@@ -1401,35 +1401,17 @@ svg {
 }
 
 .method-clauses li p {
-  font-size: 0.97rem;
+  font-size: var(--fs-body);
   color: var(--text-secondary);
 }
 
 /* --------------------------------------------------------------------------
-   Proof pairs: a narrative feature terminal at ~half width with its prose
-   beside it, alternating sides down the page, mirroring the hero mechanism.
-   Normalizes the legacy + context terminals (formerly an odd 56rem in-between
-   width) into the page's paired-terminal rhythm. Stacks on mobile (prose first).
+   Proof terminals: the narrative legacy + context terminals. They sit full
+   width beneath a standard section head (not in a half-width pair) like every
+   other major artifact, so every section opens the same way (kicker + h2 +
+   lead, then the artifact). The wrapping keeps long transcript lines from
+   scrolling sideways at any width.
    -------------------------------------------------------------------------- */
-.proof-pair {
-  display: grid;
-  gap: clamp(1.75rem, 4vw, 2.5rem);
-}
-
-.proof-pair + .proof-pair {
-  margin-top: clamp(2.75rem, 6vw, 4.5rem);
-}
-
-.proof-copy {
-  max-width: 44rem;
-}
-
-.proof-copy .lead {
-  margin-top: 1rem;
-}
-
-/* The narrative terminal never scrolls sideways at half width: long transcript
-   lines reflow with a hanging indent, the way the hero terminal wraps. */
 .proof-terminal .terminal-body {
   overflow-x: hidden;
 }
@@ -1441,18 +1423,11 @@ svg {
   text-indent: -2ch;
 }
 
-@media (min-width: 980px) {
-  .proof-pair {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.02fr);
-    align-items: center;
-    gap: clamp(2.5rem, 5vw, 4.5rem);
-  }
-
-  /* Flip: terminal on the left, prose on the right. Source order stays prose
-     first, so mobile always leads with the copy. */
-  .proof-pair--flip .proof-copy {
-    order: 2;
-  }
+/* A standalone narrative terminal under a section head gets the same top gap as
+   any first artifact, and successive ones (context: web fetch, then e2e) keep a
+   clear rhythm without a divider. */
+.proof-terminal {
+  margin-top: clamp(1.25rem, 3vw, 1.75rem);
 }
 
 /* ---- Pipeline: parallel review board (shares .terminal chrome) ---- */
@@ -1464,13 +1439,13 @@ svg {
 .board-pr-id {
   color: var(--text-primary);
   font-weight: 600;
-  font-size: 0.8rem;
+  font-size: var(--fs-mono-ui);
 }
 
 .board-pr-trigger {
   margin-left: auto;
   color: var(--text-muted);
-  font-size: 0.72rem;
+  font-size: var(--fs-mono-ui);
 }
 
 /* Overhead conductor label: the fan-out under one human gate, made explicit. */
@@ -1478,7 +1453,7 @@ svg {
   padding: 0.5rem 1.1rem;
   border-bottom: 1px solid var(--border-subtle);
   font-family: var(--font-mono);
-  font-size: 0.64rem;
+  font-size: var(--fs-mono-micro);
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--text-muted);
@@ -1503,7 +1478,7 @@ svg {
 .lane-agent {
   grid-area: agent;
   font-family: var(--font-mono);
-  font-size: 0.8rem;
+  font-size: var(--fs-mono-ui);
   color: var(--text-primary);
   font-weight: 600;
 }
@@ -1517,7 +1492,7 @@ svg {
 
 .lane-step {
   font-family: var(--font-mono);
-  font-size: 0.62rem;
+  font-size: var(--fs-mono-micro);
   text-transform: uppercase;
   letter-spacing: 0.07em;
   padding: 0.12rem 0.45rem;
@@ -1543,7 +1518,7 @@ svg {
 .lane-note {
   grid-area: note;
   min-width: 0;
-  font-size: 0.85rem;
+  font-size: var(--fs-mono-ui);
   color: var(--text-secondary);
 }
 
@@ -1569,7 +1544,7 @@ svg {
 
 .verdict-title {
   font-family: var(--font-mono);
-  font-size: 0.82rem;
+  font-size: var(--fs-mono-ui);
   color: var(--text-primary);
   font-weight: 600;
 }
@@ -1579,7 +1554,7 @@ svg {
 }
 
 .verdict-note {
-  font-size: 0.85rem;
+  font-size: var(--fs-mono-ui);
   color: var(--text-secondary);
 }
 
@@ -1603,13 +1578,13 @@ svg {
 .ledger-meta-id {
   color: var(--text-primary);
   font-weight: 600;
-  font-size: 0.78rem;
+  font-size: var(--fs-mono-ui);
 }
 
 .ledger-meta-sample {
   margin-left: auto;
   color: var(--text-muted);
-  font-size: 0.64rem;
+  font-size: var(--fs-mono-micro);
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
@@ -1625,7 +1600,7 @@ svg {
 
 .ledger-head {
   border-bottom: 1px solid var(--border-subtle);
-  font-size: 0.62rem;
+  font-size: var(--fs-mono-micro);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--text-muted);
@@ -1633,7 +1608,7 @@ svg {
 
 .ledger-row {
   border-top: 1px solid var(--border-subtle);
-  font-size: 0.74rem;
+  font-size: var(--fs-mono-ui);
   color: var(--text-secondary);
 }
 .ledger-rows .ledger-row:first-child {
@@ -1684,14 +1659,14 @@ svg {
 }
 
 .total-label {
-  font-size: 0.62rem;
+  font-size: var(--fs-mono-micro);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--text-muted);
 }
 
 .total-value {
-  font-size: 0.8rem;
+  font-size: var(--fs-mono-ui);
   color: var(--text-secondary);
 }
 

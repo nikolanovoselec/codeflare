@@ -76,6 +76,12 @@
   --fs-body: 1rem;
   --fs-small: 0.875rem;
   --fs-mono: 0.8125rem;
+  /* Two subordinate mono sizes carry ALL terminal chrome and dense-table text,
+     so the page uses three mono sizes total (body / ui / micro) instead of the
+     dozen one-off sizes that had accreted. --fs-mono-ui: bars, titles, ids,
+     chips, ledger rows. --fs-mono-micro: captions, column heads, state pills. */
+  --fs-mono-ui: 0.72rem;
+  --fs-mono-micro: 0.65rem;
   --fs-kicker: 0.75rem;
 
   /* Spacing rhythm */

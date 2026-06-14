@@ -126,6 +126,30 @@ export const NAV_LINKS: NavLink[] = [
   { label: 'Cost', href: '#cost' },
 ];
 
+/**
+ * Per-section eyebrow labels ("the kicker spine"). A small uppercase accent
+ * label opens every top-level section: the calm structural cue that replaced the
+ * old numbered spine, so a reader can feel where each section starts without a
+ * counter or a divider rule. The five that match a nav pillar (shift/method/
+ * security/pipeline/cost) reuse the pillar word so clicking the nav lands on a
+ * section whose eyebrow echoes the link. Keyed by section id; rendered uppercase.
+ */
+export const SECTION_KICKERS: Record<string, string> = {
+  shift: 'Velocity',
+  method: 'Quality',
+  legacy: 'Adoption',
+  security: 'Security',
+  context: 'Context',
+  pipeline: 'Control',
+  orchestration: 'Observability',
+  cost: 'Cost',
+  platform: 'Platform',
+  mcp: 'Tooling',
+  dogfood: 'Proof',
+  faq: 'FAQ',
+  contact: 'Get started',
+};
+
 export const AGENTS = ['claude-code', 'codex', 'copilot', 'pi', 'antigravity', 'opencode'];
 
 export const HERO = {

@@ -18,6 +18,7 @@ import {
   LEGACY,
   METHOD,
   NAV_LINKS,
+  SECTION_KICKERS,
   OPERATIONS,
   PLATFORM,
   PIPELINE,
@@ -238,14 +239,16 @@ describe('landing page (REQ-LANDING-001)', () => {
     // The terminal closes on a normalised in-chrome foot.
     expect(text).toContain(LEGACY.terminal.foot);
     // The legacy section must appear BEFORE security in the document order, and the
-    // legacy terminal is now paired with prose (proof-pair), not an odd-width box.
+    // legacy terminal now sits full width under a standard section head (kicker +
+    // h2 + lead), not in a half-width pair — so every section opens the same way.
     const legacyPos = html.indexOf('id="legacy"');
     const securityPos = html.indexOf('id="security"');
     expect(legacyPos).toBeGreaterThan(0);
     expect(legacyPos).toBeLessThan(securityPos);
     const legacySection = html.slice(legacyPos, securityPos);
-    expect(legacySection).toContain('proof-pair');
+    expect(legacySection).toContain('section-head');
     expect(legacySection).toContain('proof-terminal');
+    expect(legacySection).not.toContain('proof-pair');
   });
 
   it('REQ-LANDING-001: the numbered station spine is gone; sections render as calm peers in document order', () => {
@@ -263,6 +266,34 @@ describe('landing page (REQ-LANDING-001)', () => {
     for (let i = 1; i < positions.length; i++) {
       expect(positions[i]).toBeGreaterThan(positions[i - 1]);
     }
+  });
+
+  it('REQ-LANDING-001: every top-level section opens with its kicker eyebrow (the calm spine that replaced the numbers)', () => {
+    // The numbered spine was removed; a small uppercase accent eyebrow now opens
+    // every section so a reader feels where each one starts without a counter or a
+    // divider rule. Each section head must render its kicker label.
+    const sectionIds = [
+      'shift', 'method', 'legacy', 'security', 'context', 'pipeline',
+      'orchestration', 'cost', 'platform', 'mcp', 'dogfood', 'faq', 'contact',
+    ];
+    const allStarts = sectionIds.map((s) => html.indexOf(`id="${s}"`));
+    for (const id of sectionIds) {
+      const label = SECTION_KICKERS[id];
+      expect(label, `missing kicker for ${id}`).toBeTruthy();
+      const start = html.indexOf(`id="${id}"`);
+      expect(start, `section ${id} not found`).toBeGreaterThan(0);
+      const nextStart = allStarts.filter((p) => p > start).sort((a, b) => a - b)[0] ?? html.length;
+      const block = html.slice(start, nextStart);
+      expect(block, `${id} missing kicker class`).toContain('class="kicker"');
+      expect(block, `${id} missing kicker label ${label}`).toContain(label);
+    }
+    // The five nav pillars reuse their pillar word as the section eyebrow, so a
+    // nav click lands on a section whose kicker echoes the link.
+    expect(SECTION_KICKERS.shift).toBe('Velocity');
+    expect(SECTION_KICKERS.method).toBe('Quality');
+    expect(SECTION_KICKERS.security).toBe('Security');
+    expect(SECTION_KICKERS.pipeline).toBe('Control');
+    expect(SECTION_KICKERS.cost).toBe('Cost');
   });
 
   it('REQ-LANDING-001: every instrument terminal closes on a normalised in-chrome terminal-foot element', () => {
@@ -526,25 +557,27 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(visible).not.toMatch(/\bWrangler\b/i);
   });
 
-  it('REQ-LANDING-001: context section renders the isolation proof terminal as a proof-pair with in-chrome foot', () => {
+  it('REQ-LANDING-001: context section renders the isolation proof terminal full width under a section head', () => {
     expect(html).toContain('id="context"');
-    // The narrative terminal is now paired with prose (proof-pair / proof-terminal),
-    // normalized to the page's paired-terminal rhythm instead of an odd 56rem box.
+    // The narrative terminal now sits full width under a standard section head
+    // (kicker + h2 + lead), not in a half-width pair — every section opens the
+    // same way. The wrapping class stays so long lines never scroll sideways.
     const contextPos = html.indexOf('id="context"');
     const pipelinePos = html.indexOf('id="pipeline"');
     const contextSection = html.slice(contextPos, pipelinePos);
-    expect(contextSection).toContain('proof-pair');
+    expect(contextSection).toContain('section-head');
     expect(contextSection).toContain('proof-terminal');
+    expect(contextSection).not.toContain('proof-pair');
     // The proof terminal must render with every line — it is the isolation claim.
     for (const line of CONTEXT.terminal.lines) {
       expect(text).toContain(line.text);
     }
     expect(text).toContain(CONTEXT.terminal.foot);
     // The section also carries the agent-steered e2e proof (the "drive" surface
-    // beside the "read"/markdown one), paired and flipped: its heading and every
-    // transcript line must render, including the pass/fail verdict lines.
+    // after the "read"/markdown one) as a subordinate substation sub-head: its
+    // heading and every transcript line must render, including the verdict lines.
     expect(text).toContain(CONTEXT.e2e.heading);
-    expect(contextSection).toContain('proof-pair--flip');
+    expect(contextSection).toContain('substation');
     for (const line of CONTEXT.e2e.terminal.lines) {
       expect(text).toContain(line.text);
     }
