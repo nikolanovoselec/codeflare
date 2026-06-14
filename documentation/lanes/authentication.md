@@ -43,7 +43,7 @@ The frontend always calls `/auth/logout` - the backend dispatches to the correct
 `getUserFromRequest()` in `src/lib/access.ts` checks auth methods in this order:
 
 1. **Service token** (`X-Service-Auth` header) - E2E testing, all modes. Constant-time comparison against `SERVICE_AUTH_SECRET`.
-2. **Direct GitHub OAuth** (`codeflare_session` cookie) - only when `SAAS_MODE=active` AND `OAUTH_CLIENT_ID` is set. HMAC-SHA256 JWT verified against `OAUTH_JWT_SECRET`. When this branch is entered, CF Access is never checked.
+2. **Direct GitHub OAuth** (`codeflare_session` cookie) - only when (`SAAS_MODE=active` OR `ONBOARDING_LANDING_PAGE=active`) AND `OAUTH_CLIENT_ID` is set. HMAC-SHA256 JWT verified against `OAUTH_JWT_SECRET`. When this branch is entered, CF Access is never checked.
 3. **Cloudflare Access** (`cf-access-jwt-assertion` header or `CF_Authorization` cookie) - all other modes. RS256 JWT verified against CF Access JWKS endpoint.
 4. **Pre-setup fallback** (`cf-access-authenticated-user-email` header) - trusted only before setup completes.
 

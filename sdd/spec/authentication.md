@@ -304,7 +304,7 @@ None. Authentication is foundational; other domains depend on it.
 **Acceptance Criteria:**
 
 1. The frontend triggers logout via a single endpoint, irrespective of deployment mode.
-2. In any mode that issues the app's own GitHub-OIDC session (SaaS or onboarding), the backend redirects to the GitHub logout route, which clears the session credential and returns the user to the login page; it must not redirect to the CF Access logout endpoint.
+2. In any mode that issues the app's own GitHub-OIDC session (SaaS or onboarding), the backend redirects to the GitHub logout route, which clears the session credential and returns the user to the login page. It must not redirect to the CF Access logout endpoint.
 3. In CF Access mode, the backend redirects through CF Access's system logout endpoint so CF Access clears its own credential.
 4. The dispatch decision is made by the backend based on the current deployment configuration, not by the frontend.
 
