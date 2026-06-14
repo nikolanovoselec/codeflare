@@ -120,7 +120,7 @@ flowchart TD
     D --> E["getUserFromRequest()"]
     E --> F{Service token?}
     F -->|Yes| G[Return admin user]
-    F -->|No| H{SaaS + OIDC?}
+    F -->|No| H{SaaS or Onboarding + OIDC?}
     H -->|Yes| I[Verify codeflare_session cookie]
     H -->|No| J[Verify CF Access JWT]
     I --> K[Normalize email]
@@ -158,6 +158,8 @@ When `SAAS_MODE=active`, Codeflare replaces the Cloudflare Access interstitial w
 
 ### Complete SaaS Authentication Flow
 
+> Note: this flow depicts SaaS mode without `OAUTH_CLIENT_ID` (CF Access-backed). When `OAUTH_CLIENT_ID` is set, the Direct GitHub OAuth flow above applies instead and CF Access is bypassed.
+
 ```mermaid
 flowchart TD
     A["Visitor arrives at domain"] --> B["CF Access intercepts request"]
@@ -190,7 +192,7 @@ flowchart TD
 
 SaaS mode uses a layered middleware stack on every request to protected routes (`src/middleware/auth.ts`):
 
-1. **`requireIdentity`** - Resolves the user from CF Access JWT. If the user is not in KV, auto-provisions them with `pending` tier. Sets `c.get('user')`. Used for endpoints like `/api/auth/status` and `/api/auth/subscribe`.
+1. **`requireIdentity`** - Resolves the user from whichever credential the mode issues (the `codeflare_session` cookie in SaaS/onboarding OIDC mode, the CF Access JWT in default/enterprise mode). If the user is not in KV, auto-provisions them with `pending` tier. Sets `c.get('user')`. Used for endpoints like `/api/auth/status` and `/api/auth/subscribe`.
 
 2. **`requireActiveUser`** - Authenticates then checks `subscriptionTier ?? accessTier` is an active tier via `isActiveTier()`. Pending users get 403 `{ code: 'PENDING' }` - frontend redirects to `/app/subscribe`. Blocked users get 403 `{ code: 'BLOCKED' }`. In non-SaaS mode, behaves identically to `requireIdentity`.
 
