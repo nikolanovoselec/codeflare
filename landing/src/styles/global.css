@@ -124,7 +124,33 @@ svg {
   margin-bottom: clamp(1.75rem, 3vw, 2.5rem);
 }
 
+/* Section / sub-section marker, in the page's own terminal language: a path tag
+   ("~/security", nested "~/security/operations") instead of the generic uppercase
+   tracked eyebrow that reads as AI scaffolding. Mono + lowercase + the coral "~/"
+   prefix tie it to the terminals, and the nesting in the path string carries the
+   section -> sub-section hierarchy, so the reader sees depth rather than guessing
+   from size. Content keeps its capitalised word ("Security") so the nav-pillar
+   echo and tests hold; text-transform renders it lowercase. */
 .kicker {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-ui);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: lowercase;
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+}
+
+.kicker::before {
+  content: '~/';
+  color: var(--accent);
+}
+
+/* The hero's single product tagline keeps the classic eyebrow treatment (uppercase
+   coral): one deliberate kicker is brand voice, unlike the per-section eyebrow that
+   was the AI tell. It is NOT a terminal-path tag, so it does not use .kicker. */
+.hero-kicker {
   display: inline-block;
   font-size: var(--fs-kicker);
   font-weight: 600;
@@ -694,18 +720,17 @@ svg {
   padding-block: 0;
 }
 
-/* Card / sub-block label: the heading for each column in the under-terminal prose
-   blocks (operations, tenancy, runs-everywhere). It is SENTENCE CASE in the same
-   family as every other heading on the page: the page carries exactly one heading
-   case, and the hierarchy (section h2 > substation h3 > this card label) is read by
-   size + weight + colour, never by switching a level to all-caps. Heading weight +
-   primary colour over secondary body text reads as label -> body on its own; the
-   earlier uppercase + wide-tracking treatment clashed with the sentence-case
-   sub-heads directly above it (a sub-head in normal case, its card labels in caps)
-   and is what read as inconsistent. Body size keeps it subordinate to the h3 head. */
+/* Card term: the "term" in a term/definition pair, for the under-terminal prose
+   blocks (operations, cost, runs-everywhere). It sits at body size but reads as a
+   distinct level through WEIGHT + COLOUR, not size: semibold + primary (white) over
+   the regular + secondary (grey) explanation below it, exactly like a dictionary
+   word above its definition. The three levels never collide in size, so none reads
+   as an accidental near-miss: the sub-section head is --fs-subhead (decisively
+   larger), this term is 1rem white-semibold, the explanation is 1rem grey-regular.
+   Sentence case in the one page-wide heading case; no caps, no eyebrow, no stripe. */
 .feature-col h3 {
   font-size: var(--fs-body);
-  font-weight: 680;
+  font-weight: 600;
   line-height: 1.3;
   letter-spacing: -0.01em;
   color: var(--text-primary);

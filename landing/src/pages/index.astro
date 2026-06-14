@@ -211,6 +211,7 @@ import {
              governed agents beyond code into infrastructure, on the same boundary,
              so it reads as part of this section rather than a section of its own. -->
         <div class="section-head substation reveal">
+          <p class="kicker">{OPERATIONS.tag}</p>
           <h3>{OPERATIONS.title}</h3>
           <p class="lead">{OPERATIONS.lead}</p>
         </div>
@@ -258,6 +259,7 @@ import {
              sub-head keeps it subordinate to the section's web fetch, reading as
              part of this section rather than a new one. -->
         <div class="section-head substation reveal">
+          <p class="kicker">{CONTEXT.e2e.tag}</p>
           <h3>{CONTEXT.e2e.heading}</h3>
           <p class="lead">{CONTEXT.e2e.lead}</p>
         </div>
@@ -430,6 +432,7 @@ import {
              "Storage · your buckets", ...) duplicated the boundary terminal's own
              "your IdP / your tenancy / your AI Gateway" rows, so it is dropped. -->
         <div class="section-head substation reveal">
+          <p class="kicker">{TENANCY.tag}</p>
           <h3>{TENANCY.title}</h3>
           <p class="lead" set:html={TENANCY.lead} />
         </div>
@@ -474,6 +477,7 @@ import {
         </div>
         <!-- Runs-everywhere folded into the platform section as sub-content. -->
         <div class="section-head substation reveal">
+          <p class="kicker">{BROWSER.tag}</p>
           <h3>{BROWSER.title}</h3>
           <p class="lead">{BROWSER.lead}</p>
         </div>
@@ -740,17 +744,18 @@ import {
     margin-top: clamp(1.75rem, 4vw, 2.75rem);
   }
 
-  /* Sub-block heading: the SAME --fs-h3 as the card / clause headings, so the
-     page carries one subordinate-heading size instead of a bespoke in-between
-     one. It reads as "still inside this section" through spacing alone, and
-     because the accent kicker is reserved for true section starts (a substation
-     never gets one). The lead is deliberately left at the section --fs-lead (no
-     override): a smaller sub-block intro read as a font-size glitch next to the
-     real section leads rather than as subordination. */
+  /* Sub-section head: the larger --fs-subhead (a decisive step above the 1rem card
+     terms), bold, so it reads as the block's headline rather than as a near-miss of
+     the term size. It is anchored by a nested terminal-path tag (e.g.
+     "~/security/operations") rendered with the same .kicker style as the section
+     tags: the path is one level deeper than the section's own ("~/security"), so the
+     nesting is what marks it as a sub-section. Hierarchy reads from the path depth
+     plus the size jump, never from size alone. The lead stays at the section --fs-lead. */
   .substation h3 {
-    font-size: var(--fs-h3);
-    line-height: 1.25;
-    letter-spacing: -0.01em;
+    font-size: var(--fs-subhead);
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
     margin: 0 0 0.6rem;
   }
 

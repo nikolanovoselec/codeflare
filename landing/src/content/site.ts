@@ -147,7 +147,7 @@ export const SECTION_KICKERS: Record<string, string> = {
   mcp: 'Tooling',
   dogfood: 'Proof',
   faq: 'FAQ',
-  contact: 'Get started',
+  contact: 'get-started',
 };
 
 export const AGENTS = ['claude-code', 'codex', 'copilot', 'pi', 'antigravity', 'opencode'];
@@ -472,6 +472,9 @@ export const DOGFOOD = {
 
 export const OPERATIONS = {
   id: 'operations',
+  // Nested terminal-path tag: one level under the security section's own "~/security",
+  // so the path depth marks this as a sub-section (the "~/" prefix is added in CSS).
+  tag: 'security/operations',
   title: 'Not just code. The systems behind it.',
   lead:
     'The same governed agents that ship code can operate the infrastructure it runs on: ' +
@@ -496,6 +499,7 @@ export const OPERATIONS = {
 
 export const BROWSER = {
   id: 'browser',
+  tag: 'platform/runs-everywhere',
   title: 'It runs in a browser. So it runs everywhere.',
   lead:
     'The engine already runs in your cloud; a session is just a URL. The endpoint device ' +
@@ -574,6 +578,7 @@ export const CONTEXT = {
   // judging the deployed app against intent (the deny line is a real clip this
   // repo's own landing QA caught and filed). Shown beside the web-fetch terminal as a paired proof.
   e2e: {
+    tag: 'context/drives',
     heading: "And it doesn't just read. It drives.",
     lead:
       'The same throwaway browser runs your e2e. Tell an agent to test a deployed flow ' +
@@ -742,6 +747,7 @@ export const COST = {
 
 export const TENANCY = {
   id: 'tenancy',
+  tag: 'cost/tenancy',
   title: 'Runs where your data lives.',
   lead:
     'Codeflare deploys into <strong>your own cloud account</strong>, with no vendor in the ' +

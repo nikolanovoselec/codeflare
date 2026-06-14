@@ -72,6 +72,11 @@
   --fs-display: clamp(2.5rem, 1.6rem + 4.4vw, 4.5rem);
   --fs-h2: clamp(1.75rem, 1.3rem + 2.1vw, 2.6rem);
   --fs-h3: clamp(1.15rem, 1.05rem + 0.5vw, 1.35rem);
+  /* Sub-section head: fills the empty gap between h2 and h3 so a substation head
+     (e.g. "Not just code. The systems behind it.") sits a decisive >=1.4x step
+     above its 1rem card terms at every viewport. Without it, h3/lead/body cluster
+     at 1.35/1.2/1.0 (~1.1x apart) and the hierarchy reads as an accidental near-miss. */
+  --fs-subhead: clamp(1.4rem, 1.2rem + 1.1vw, 1.7rem);
   --fs-lead: clamp(1.05rem, 0.98rem + 0.4vw, 1.2rem);
   --fs-body: 1rem;
   --fs-small: 0.875rem;

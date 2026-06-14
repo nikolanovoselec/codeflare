@@ -274,10 +274,12 @@ describe('landing page (REQ-LANDING-001)', () => {
     }
   });
 
-  it('REQ-LANDING-001: every top-level section opens with its kicker eyebrow (the calm spine that replaced the numbers)', () => {
-    // The numbered spine was removed; a small uppercase accent eyebrow now opens
-    // every section so a reader feels where each one starts without a counter or a
-    // divider rule. Each section head must render its kicker label.
+  it('REQ-LANDING-001: every top-level section opens with its terminal-path tag (the ~/ marker that replaced the uppercase eyebrow)', () => {
+    // The numbered spine, then the uppercase eyebrow, were both removed; each section
+    // now opens with a terminal-path tag (the .kicker class rendered "~/<name>": mono,
+    // lowercase, with a CSS "~/" prefix) so a reader feels where each one starts
+    // without a counter, a divider rule, or the generic AI eyebrow. The content keeps
+    // its capitalised pillar word; CSS lowercases it, so these assertions still hold.
     const sectionIds = [
       'shift', 'method', 'legacy', 'security', 'context', 'pipeline',
       'orchestration', 'cost', 'platform', 'mcp', 'dogfood', 'faq', 'contact',
@@ -300,6 +302,13 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(SECTION_KICKERS.security).toBe('Security');
     expect(SECTION_KICKERS.pipeline).toBe('Control');
     expect(SECTION_KICKERS.cost).toBe('Cost');
+
+    // Sub-sections carry a nested terminal-path tag one level deeper than their parent
+    // section (e.g. "security/operations" under "~/security"), so the path depth marks
+    // them as sub-sections rather than new sections. The "~/" prefix is added in CSS.
+    for (const subTag of ['security/operations', 'context/drives', 'cost/tenancy', 'platform/runs-everywhere']) {
+      expect(html, `missing nested sub-section tag ${subTag}`).toContain(subTag);
+    }
   });
 
   it('REQ-LANDING-001: every instrument terminal closes on a normalised in-chrome terminal-foot element', () => {
