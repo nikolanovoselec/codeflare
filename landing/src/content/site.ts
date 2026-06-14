@@ -346,6 +346,7 @@ export const SECURITY = {
     rows: [
       { actor: 'identity', state: 'pass', label: 'authenticated', text: 'your IdP · Entra, Okta, any OIDC' },
       { actor: 'container', state: 'pass', label: 'isolated', text: 'your tenancy · destroyed on exit' },
+      { actor: 'transport', state: 'pass', label: 'post-quantum', text: 'every session keyed post-quantum · X25519MLKEM768' },
       { actor: 'egress', state: 'pass', label: 'inspected', text: 'your AI Gateway · guardrails · DLP' },
       { actor: 'direct call', state: 'deny', label: 'denied', text: 'no provider endpoint outside the gateway' },
       { actor: 'lateral move', state: 'deny', label: 'impossible', text: 'nothing to escalate into, nowhere to go' },
@@ -355,7 +356,7 @@ export const SECURITY = {
     // left-aligned command echo (EGRESS.call) above a thin divider issues the
     // call, the egress rows inspect it below, and the merged caption closes the
     // single terminal (see #7 in the round-2 owner feedback).
-    caption: 'The boundary is yours, and nothing leaves it unseen.',
+    caption: 'The boundary is yours, sessions post-quantum secured, and nothing leaves it unseen.',
   },
 };
 
@@ -376,6 +377,46 @@ export const EGRESS = {
     { actor: 'route', state: 'pass', label: 'approved', text: 'sent to an approved model, every token attributed' },
   ] satisfies EgressRow[],
   caption: 'Nothing leaves the boundary unseen.',
+};
+
+/** A row in the MCP-portal artifact (the tool-governance proof terminal). Same
+ *  gate grammar as the security boundary so it reads as one more receipt; the
+ *  code-mode row uses `work` for a cyan accent that draws the eye. */
+export interface McpRow {
+  actor: string;
+  state: 'pass' | 'work';
+  label: string;
+  text: string;
+}
+
+/**
+ * MCP portals: the external tools an agent can reach, governed. Many MCP servers
+ * collapse behind one portal endpoint; every call is made as the signed-in user
+ * with least privilege and is attributed; and code mode collapses the whole tool
+ * surface into a single typed `code` tool the agent drives in an isolated worker.
+ * Rendered as a dynamic proof terminal (rolling steps + a code-mode echo), the
+ * page's terminal idiom, not prose.
+ */
+export const MCP = {
+  id: 'mcp',
+  title: 'Every tool an agent can reach, governed.',
+  lead:
+    'An agent is only as safe as the tools it can call. Codeflare puts your MCP servers behind ' +
+    'one governed portal: every tool call is made as the signed-in user, least privilege, fully ' +
+    'attributed. Code mode collapses the whole surface into a single typed interface the agent drives in isolation.',
+  portal: {
+    title: 'mcp portal · one endpoint',
+    rows: [
+      { actor: 'portal', state: 'pass', label: 'unified', text: 'internal and SaaS MCP servers on one endpoint' },
+      { actor: 'identity', state: 'pass', label: 'as the user', text: 'the agent authenticates as you, scoped to least privilege' },
+      { actor: 'policy', state: 'pass', label: 'scoped', text: 'each group sees only the tools it is entitled to' },
+      { actor: 'code mode', state: 'work', label: '40 → 1', text: 'the whole tool surface becomes one typed `code` tool' },
+      { actor: 'sandbox', state: 'pass', label: 'isolated', text: 'agent-written code runs in a throwaway worker' },
+      { actor: 'audit', state: 'pass', label: 'attributed', text: 'every tool call logged to your tenancy, by name' },
+    ] satisfies McpRow[],
+    echo: 'const pr = await github.getPR(207); await slack.post(pr.title)',
+    caption: 'Less surface exposed to the model · more control over what it can do.',
+  },
 };
 
 export const GITHUB_URL = 'https://github.com/nikolanovoselec/codeflare';
@@ -415,7 +456,7 @@ export const OPERATIONS = {
       title: 'Policy-scoped zero-trust tunnels',
       body:
         'Agents reach internal hosts, databases, and control planes through tunnels gated by ' +
-        'Cloudflare Access policy. A session sees only what its group is entitled to, never the ' +
+        'zero-trust access policy. A session sees only what its group is entitled to, never the ' +
         'flat network: no standing VPN to over-grant, no credentials living in the container.',
     },
     {
@@ -444,7 +485,7 @@ export const BROWSER = {
     {
       title: 'Onboarding is IAM configuration',
       body:
-        'Add a user to the Access group in your identity provider. Day-one productivity for ' +
+        'Add a user to the access group in your identity provider. Day-one productivity for ' +
         'hires, same-day offboarding with nothing to reclaim or wipe.',
     },
     {
@@ -642,7 +683,7 @@ export const COST = {
     rows: [
       { time: '09:41:03', user: 't.anderson', team: 'payments', agent: 'spec-enforce', route: 'gateway / openai', cost: '$0.08' },
       { time: '09:41:11', user: 't.anderson', team: 'payments', agent: 'code-reviewer', route: 'gateway / anthropic', cost: '$0.21' },
-      { time: '09:41:19', user: 't.anderson', team: 'payments', agent: 'container', route: 'cf-containers', cost: '$0.03' },
+      { time: '09:41:19', user: 't.anderson', team: 'payments', agent: 'container', route: 'edge-container', cost: '$0.03' },
       { time: '09:41:25', user: 't.anderson', team: 'payments', agent: 'browser-fetch', route: 'isolated-render', cost: '$0.01' },
     ] satisfies LedgerRow[],
     totals: [
@@ -678,11 +719,11 @@ export const TENANCY = {
   id: 'tenancy',
   title: 'Runs where your data lives.',
   lead:
-    'Codeflare deploys into <strong>your own Cloudflare account</strong>, with no vendor in the ' +
+    'Codeflare deploys into <strong>your own cloud account</strong>, with no vendor in the ' +
     'data path. A guided wizard takes a fresh account to a running engine.',
   manifest: [
     { label: 'Identity', note: 'your IdP' },
-    { label: 'Storage', note: 'your R2, your keys' },
+    { label: 'Storage', note: 'your buckets, your keys' },
     { label: 'AI Gateway', note: 'guardrails, DLP, your rates' },
     { label: 'Domain', note: 'yours' },
   ],
@@ -697,8 +738,8 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: 'Where does our code and data live?',
     answer:
-      'Inside your own Cloudflare account: workspace storage in your R2 buckets, metadata in ' +
-      'your KV namespaces, sessions in containers under your tenancy. Codeflare is software you ' +
+      'Inside your own cloud account: workspace storage in your object-storage buckets, metadata in ' +
+      'your key-value store, sessions in containers under your tenancy. Codeflare is software you ' +
       'run, not a service that holds your data. Storage is encrypted at rest, with customer-provided key options.',
   },
   {
@@ -712,7 +753,7 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: 'How does authentication work with our IdP?',
     answer:
-      'Through Cloudflare Access in front of every surface, federating to Entra ID, Okta, Google ' +
+      'Through zero-trust access in front of every surface, federating to Entra ID, Okta, Google ' +
       'Workspace, or any SAML/OIDC provider you already run. Provisioning is group membership; offboarding is group removal.',
   },
   {
@@ -731,7 +772,7 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: 'What does it cost to run?',
     answer:
-      'Pay-per-use on your own Cloudflare bill: container minutes while sessions run, storage ' +
+      'Pay-per-use on your own cloud bill: container minutes while sessions run, storage ' +
       'per byte, and your negotiated model rates through the AI Gateway. No per-seat licenses, no ' +
       'idle fleet, and no vendor margin on your inference.',
   },
@@ -743,17 +784,27 @@ export const FAQ_ITEMS: FaqItem[] = [
   },
 ];
 
-/** Social proof: a single national-institution customer, shown as a calm
- *  "Trusted by" strip just before the contact CTA. One logo, centered; the
- *  asset ships from the landing public root. */
+/** A logo in the social-proof strip. */
+export interface TrustedLogo {
+  src: string;
+  alt: string;
+  name: string;
+  href: string;
+}
+
+/** Social proof: a calm logo strip just before the contact CTA. The eyebrow is
+ *  deliberately relationship-neutral ("In good company") so each mark reads as
+ *  association rather than a stated customer or vendor claim. Logos are ordered
+ *  alphabetically by name; assets ship from the landing public root and each
+ *  links to the brand site. */
 export const TRUSTED = {
-  label: 'Trusted by',
-  logo: {
-    src: '/landing/customers/swiss-post.svg',
-    alt: 'Swiss Post',
-    name: 'Swiss Post',
-    href: 'https://www.post.ch',
-  },
+  label: 'In good company',
+  logos: [
+    { src: '/landing/customers/cloudflare.svg', alt: 'Cloudflare', name: 'Cloudflare', href: 'https://www.cloudflare.com' },
+    { src: '/landing/customers/graymatter.svg', alt: 'Gray Matter', name: 'Gray Matter', href: 'https://graymatter.ch' },
+    { src: '/landing/customers/swiss-post.svg', alt: 'Swiss Post', name: 'Swiss Post', href: 'https://www.post.ch' },
+    { src: '/landing/customers/ztsolutions.png', alt: 'ZT Solutions', name: 'ZT Solutions', href: 'https://ztsolutions.io' },
+  ] satisfies TrustedLogo[],
 };
 
 const TOPIC_LABELS: Record<ContactTopic, string> = {
@@ -771,7 +822,7 @@ export const CONTACT_FORM = {
     'Whether you are evaluating agentic coding for the first time, planning a pilot, or need a ' +
       'security and compliance deep-dive, let’s talk about your environment specifically.',
     'Your message goes directly to the team that builds Codeflare. Expect a reply within 1-2 ' +
-      'business days. Submissions are protected by Cloudflare Turnstile and are not stored. ' +
+      'business days. Submissions are protected against bots and are not stored. ' +
       'Your data is never sold or shared.',
   ],
   topics: CONTACT_TOPICS.map((value) => ({ value, label: TOPIC_LABELS[value] })) satisfies TopicOption[],

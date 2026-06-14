@@ -28,6 +28,7 @@ import {
   TERMINAL,
   TRUSTED,
   ORCHESTRATION,
+  MCP,
 } from '../content/site';
 
 let html: string;
@@ -290,18 +291,31 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(text).toContain(DOGFOOD.cta.label);
   });
 
-  it('REQ-LANDING-001: the Trusted-by strip renders the Swiss Post logo + label in the proof section, before the contact CTA', () => {
-    // The label + the actual logo asset must render — a missing src is a broken
-    // proof, and alt text is required for the logo to be accessible.
+  it('REQ-LANDING-001: the trust-logo strip renders all four logos (alphabetical, linked) under the relationship-neutral label, before the contact CTA', () => {
+    // The eyebrow is deliberately relationship-neutral so the strip claims no
+    // direction; assert the exact label so a regression back to "Trusted by" is caught.
     expect(text).toContain(TRUSTED.label);
-    expect(html).toContain(`src="${TRUSTED.logo.src}"`);
-    expect(html).toContain(`alt="${TRUSTED.logo.alt}"`);
-    // The logo links to the customer's site, opened safely in a new tab.
-    expect(html).toContain(`href="${TRUSTED.logo.href}"`);
-    expect(html).toMatch(/<a[^>]*href="https:\/\/www\.post\.ch"[^>]*rel="noopener noreferrer"/);
+    expect(TRUSTED.label).toBe('In good company');
+    // Each logo must render its asset, alt text, and outbound link (a missing src
+    // is a broken proof; alt is required for accessibility). Deleting any logo
+    // from site.ts fails this — not theater.
+    expect(TRUSTED.logos.length).toBe(4);
+    for (const logo of TRUSTED.logos) {
+      expect(html).toContain(`src="${logo.src}"`);
+      expect(html).toContain(`alt="${logo.alt}"`);
+      expect(html).toContain(`href="${logo.href}"`);
+    }
+    // External links open safely in a new tab.
+    expect(html).toMatch(/<a[^>]*href="https:\/\/www\.cloudflare\.com"[^>]*rel="noopener noreferrer"/);
+    // Logos are ordered alphabetically by name, and render in that order L->R.
+    const names = TRUSTED.logos.map((l) => l.name);
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+    const positions = TRUSTED.logos.map((l) => html.indexOf(l.src));
+    for (const p of positions) expect(p).toBeGreaterThan(0);
+    for (let i = 1; i < positions.length; i++) expect(positions[i]).toBeGreaterThan(positions[i - 1]);
     // Placement (owner's choice): after the dogfood proof, immediately before the
-    // contact section. Use the logo asset's position so it is class-name agnostic.
-    const trustedPos = html.indexOf(TRUSTED.logo.src);
+    // contact section. Use the first logo asset's position so it is class-agnostic.
+    const trustedPos = positions[0];
     const dogfoodPos = html.indexOf('id="dogfood"');
     const contactPos = html.indexOf('id="contact"');
     expect(trustedPos).toBeGreaterThan(dogfoodPos);
@@ -409,10 +423,15 @@ describe('landing page (REQ-LANDING-001)', () => {
     // inside the platform section, so this section reads like every other one
     // instead of a wall of feature cards.
     const platformPos = html.indexOf('id="platform"');
+    const mcpPos = html.indexOf('id="mcp"');
     const dogfoodPos = html.indexOf('id="dogfood"');
-    const seedTitlePos = html.indexOf(PLATFORM.seed.title);
-    expect(seedTitlePos).toBeGreaterThan(platformPos);
-    expect(seedTitlePos).toBeLessThan(dogfoodPos);
+    // The seed terminal's title renders inside the platform section. That title
+    // string also appears earlier in a feature terminal, so scope the search to
+    // this section's slice (platform -> mcp) rather than a global indexOf.
+    const platformBlock = html.slice(platformPos, mcpPos);
+    expect(platformBlock).toContain(PLATFORM.seed.title);
+    expect(platformPos).toBeLessThan(mcpPos);
+    expect(mcpPos).toBeLessThan(dogfoodPos);
     // Every capability row renders its actor + description (deleting one from
     // site.ts fails here — not theater).
     for (const row of PLATFORM.seed.rows) {
@@ -422,7 +441,6 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(text).toContain(PLATFORM.seed.caption);
     // It is a scroll-revealed proof artifact (data-proof) whose rows roll in
     // (data-roll), reusing the gate idiom.
-    const platformBlock = html.slice(platformPos, dogfoodPos);
     expect(platformBlock).toContain('data-proof');
     expect(platformBlock).toContain('data-roll');
     expect(platformBlock).toContain('gate-step');
@@ -436,6 +454,61 @@ describe('landing page (REQ-LANDING-001)', () => {
       ...PLATFORM.seed.rows.flatMap((r) => [r.actor, r.label, r.text]),
     ].join(' ');
     expect(seedCopy).not.toMatch(/[—–]/);
+  });
+
+  it('REQ-LANDING-001: MCP section renders a dynamic governance terminal with the code-mode echo and every governance row', () => {
+    expect(html).toContain('id="mcp"');
+    const mcpPos = html.indexOf('id="mcp"');
+    const dogfoodPos = html.indexOf('id="dogfood"');
+    const mcpBlock = html.slice(mcpPos, dogfoodPos);
+    // It is a live terminal proof artifact (data-proof) whose rows roll in
+    // (data-roll) in the gate idiom, not a wall of prose cards.
+    expect(mcpBlock).toContain('data-proof');
+    expect(mcpBlock).toContain('data-roll');
+    expect(mcpBlock).toContain('gate-step');
+    expect(mcpBlock).not.toContain('feature-grid');
+    // Every governance row renders its actor + text (deleting one from site.ts
+    // fails here — not theater).
+    for (const row of MCP.portal.rows) {
+      expect(text).toContain(row.actor);
+      expect(text).toContain(row.text);
+    }
+    // The two load-bearing claims: the as-the-user attribution (managed-oauth
+    // beat) and code mode collapsing the whole tool surface.
+    expect(text).toContain('as the user');
+    expect(MCP.portal.rows.some((r) => r.actor === 'code mode')).toBe(true);
+    // The code-mode echo (the agent writing typed JS over MCP tools) renders.
+    expect(text).toContain(MCP.portal.echo);
+    expect(text).toContain(MCP.portal.caption);
+  });
+
+  it('REQ-LANDING-001: the security boundary carries the post-quantum transport row', () => {
+    const transport = SECURITY.boundary.rows.find((r) => r.actor === 'transport');
+    expect(transport).toBeDefined();
+    // Honest claim: sessions are post-quantum keyed (not "every external call").
+    expect(transport?.text).toContain('post-quantum');
+    expect(text).toContain(transport!.text);
+    // It renders inside the security section's boundary receipt.
+    const securityPos = html.indexOf('id="security"');
+    const contextPos = html.indexOf('id="context"');
+    const securityBlock = html.slice(securityPos, contextPos);
+    expect(securityBlock).toContain(transport!.label);
+  });
+
+  it('REQ-LANDING-001: the rendered marketing copy names no Cloudflare product (only the logo brand name is allowed)', () => {
+    // The owner positions Codeflare as standalone, so the rendered marketing copy
+    // must not reveal the underlying stack. Two allowed exceptions are scrubbed
+    // first: the Cloudflare logo link (alt/name/href "Cloudflare") and functional
+    // <script> URLs (e.g. the Turnstile bot-protection loader), neither of which
+    // is visible marketing copy.
+    const scrubbed = text
+      .replace(/<script[\s\S]*?<\/script>/g, '')
+      .replace(/<a[^>]*class="trusted-logo-link"[\s\S]*?<\/a>/g, '');
+    expect(scrubbed).not.toMatch(/Cloudflare/i);
+    expect(scrubbed).not.toMatch(/\bR2\b/);
+    expect(scrubbed).not.toMatch(/KV namespace/i);
+    expect(scrubbed).not.toMatch(/Turnstile/i);
+    expect(scrubbed).not.toMatch(/\bWrangler\b/i);
   });
 
   it('REQ-LANDING-001: context section renders the isolation proof terminal as a proof-pair with in-chrome foot', () => {

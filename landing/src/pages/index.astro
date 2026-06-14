@@ -37,6 +37,7 @@ import {
   CONTACT_FORM,
   DOGFOOD,
   ORCHESTRATION,
+  MCP,
   TRUSTED,
 } from '../content/site';
 ---
@@ -496,11 +497,45 @@ import {
       </div>
     </section>
 
+    <!-- MCP portals: the external tools an agent can reach, governed. A dynamic
+         proof terminal in the boundary's gate grammar: many MCP servers collapse
+         to one endpoint, every call is made as the signed-in user (least
+         privilege, attributed), and code mode collapses the whole tool surface
+         into one typed `code` tool the agent writes (the echo) and runs in
+         isolation. data-proof/data-roll arm the live roll; no JS of its own. -->
+    <section id={MCP.id} class="section section--alt">
+      <div class="container">
+        <div class="section-head reveal">
+          <h2>{MCP.title}</h2>
+          <p class="lead">{MCP.lead}</p>
+        </div>
+        <div class="terminal gate reveal" data-proof>
+          <div class="terminal-bar">
+            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="gate-req">{MCP.portal.title}</span>
+          </div>
+          <div class="gate-steps" data-roll>
+            {
+              MCP.portal.rows.map((row, i) => (
+                <div class:list={['gate-step', `is-${row.state}`]} style={`--i:${i}`}>
+                  <span class="gate-actor">{row.actor}</span>
+                  <span class="gate-state">{row.label}</span>
+                  <span class="gate-text">{row.text}</span>
+                </div>
+              ))
+            }
+          </div>
+          <div class="gate-echo"><span class="gate-echo-prompt" aria-hidden="true">❯</span> {MCP.portal.echo}</div>
+          <div class="terminal-foot tf-static"><span class="tf-seg">{MCP.portal.caption}</span></div>
+        </div>
+      </div>
+    </section>
+
     <!-- Proof: this very page is a Codeflare-governed requirement.
          The proof is real (the @impl / @test anchors live in sdd/spec/landing.md),
-         the Swiss Post customer band folds in as its social-proof tail. It sits
-         before the FAQ so the dogfood proof lands before the closing answers. -->
-    <section id={DOGFOOD.id} class="section section--alt">
+         the trust-logo strip folds in as its social-proof tail. It sits before
+         the FAQ so the dogfood proof lands before the closing answers. -->
+    <section id={DOGFOOD.id} class="section">
       <div class="container">
         <div class="section-head reveal">
           <h2>{DOGFOOD.title}</h2>
@@ -529,28 +564,25 @@ import {
         <div class="trusted-section substation">
           <p class="trusted-label reveal">{TRUSTED.label}</p>
           <div class="trusted-logos reveal">
-            <a
-              class="trusted-logo-link"
-              href={TRUSTED.logo.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={`${TRUSTED.logo.name} (opens in a new tab)`}
-            >
-              <img
-                class="trusted-logo"
-                src={TRUSTED.logo.src}
-                alt={TRUSTED.logo.alt}
-                width="72"
-                height="72"
-                loading="lazy"
-              />
-            </a>
+            {
+              TRUSTED.logos.map((logo) => (
+                <a
+                  class="trusted-logo-link"
+                  href={logo.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`${logo.name} (opens in a new tab)`}
+                >
+                  <img class="trusted-logo" src={logo.src} alt={logo.alt} loading="lazy" />
+                </a>
+              ))
+            }
           </div>
         </div>
       </div>
     </section>
 
-    <section id={FAQ_SECTION.id} class="section">
+    <section id={FAQ_SECTION.id} class="section section--alt">
       <div class="container">
         <div class="section-head reveal">
           <h2>{FAQ_SECTION.title}</h2>
@@ -569,7 +601,7 @@ import {
     </section>
 
     <!-- Contact -->
-    <section id={CONTACT_FORM.id} class="section section--alt">
+    <section id={CONTACT_FORM.id} class="section">
       <div class="container">
         <div class="section-head reveal">
           <h2>{CONTACT_FORM.title}</h2>
@@ -604,9 +636,14 @@ import {
     flex-wrap: wrap;
   }
 
+  /* Mixed marks (square) and wordmarks (wide) share one strip: a moderate
+     height with a max-width cap keeps the wide ones from dominating, and
+     object-fit contain preserves each aspect ratio. */
   .trusted-logo {
-    height: clamp(60px, 12vw, 88px);
+    height: clamp(40px, 8vw, 56px);
     width: auto;
+    max-width: clamp(130px, 30vw, 200px);
+    object-fit: contain;
   }
 
   /* The logo links to the customer site; a quiet hover signals it is clickable. */
