@@ -45,3 +45,6 @@ graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
 
 # Raw ingest material for graphify (sourced from private repos)
 raw/
+
+# PR-boundary review lane triage reports (report-only agent output; local scratch)
+sdd/review/
