@@ -467,19 +467,30 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(mcpBlock).toContain('data-roll');
     expect(mcpBlock).toContain('gate-step');
     expect(mcpBlock).not.toContain('feature-grid');
-    // Every governance row renders its actor + text (deleting one from site.ts
-    // fails here — not theater).
+    // Scope row/echo/caption assertions to the MCP section's decoded slice so
+    // they stay load-bearing: some actors (identity/policy) also appear in the
+    // security boundary, so a section-scoped check is what actually fails when a
+    // row is deleted from site.ts — not theater.
+    const mcpText = text.slice(text.indexOf('id="mcp"'), text.indexOf('id="dogfood"'));
     for (const row of MCP.portal.rows) {
-      expect(text).toContain(row.actor);
-      expect(text).toContain(row.text);
+      expect(mcpText).toContain(row.actor);
+      expect(mcpText).toContain(row.text);
     }
     // The two load-bearing claims: the as-the-user attribution (managed-oauth
     // beat) and code mode collapsing the whole tool surface.
-    expect(text).toContain('as the user');
+    expect(mcpText).toContain('as the user');
     expect(MCP.portal.rows.some((r) => r.actor === 'code mode')).toBe(true);
     // The code-mode echo (the agent writing typed JS over MCP tools) renders.
-    expect(text).toContain(MCP.portal.echo);
-    expect(text).toContain(MCP.portal.caption);
+    expect(mcpText).toContain(MCP.portal.echo);
+    expect(mcpText).toContain(MCP.portal.caption);
+    // No em/en dashes anywhere in the MCP copy (CI tripwire parity with seed copy).
+    const mcpCopy = [
+      MCP.portal.title,
+      MCP.portal.echo,
+      MCP.portal.caption,
+      ...MCP.portal.rows.flatMap((r) => [r.actor, r.label, r.text]),
+    ].join(' ');
+    expect(mcpCopy).not.toMatch(/[—–]/);
   });
 
   it('REQ-LANDING-001: the security boundary carries the post-quantum transport row', () => {
@@ -495,20 +506,24 @@ describe('landing page (REQ-LANDING-001)', () => {
     expect(securityBlock).toContain(transport!.label);
   });
 
-  it('REQ-LANDING-001: the rendered marketing copy names no Cloudflare product (only the logo brand name is allowed)', () => {
-    // The owner positions Codeflare as standalone, so the rendered marketing copy
-    // must not reveal the underlying stack. Two allowed exceptions are scrubbed
-    // first: the Cloudflare logo link (alt/name/href "Cloudflare") and functional
-    // <script> URLs (e.g. the Turnstile bot-protection loader), neither of which
-    // is visible marketing copy.
-    const scrubbed = text
-      .replace(/<script[\s\S]*?<\/script>/g, '')
-      .replace(/<a[^>]*class="trusted-logo-link"[\s\S]*?<\/a>/g, '');
-    expect(scrubbed).not.toMatch(/Cloudflare/i);
-    expect(scrubbed).not.toMatch(/\bR2\b/);
-    expect(scrubbed).not.toMatch(/KV namespace/i);
-    expect(scrubbed).not.toMatch(/Turnstile/i);
-    expect(scrubbed).not.toMatch(/\bWrangler\b/i);
+  it('REQ-LANDING-001: the rendered marketing copy names no Cloudflare product (the logo image aside)', () => {
+    // The owner positions Codeflare as standalone, so the *visible* marketing copy
+    // must not reveal the underlying stack. Assert against visible text only: strip
+    // <script>/<style> blocks then all tags, so functional DOM ids (the Turnstile
+    // mount point id="cf-turnstile"), script URLs, and image alt / aria text (the
+    // allowed Cloudflare logo) drop out — only words a reader actually sees remain.
+    const visible = text
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ');
+    // "Codeflare" (the product) must survive; "Cloudflare" (the platform) must not.
+    expect(visible).toMatch(/Codeflare/);
+    expect(visible).not.toMatch(/Cloudflare/i);
+    expect(visible).not.toMatch(/\bR2\b/);
+    expect(visible).not.toMatch(/KV namespace/i);
+    expect(visible).not.toMatch(/Turnstile/i);
+    expect(visible).not.toMatch(/\bWrangler\b/i);
   });
 
   it('REQ-LANDING-001: context section renders the isolation proof terminal as a proof-pair with in-chrome foot', () => {
