@@ -366,21 +366,21 @@ const Layout: Component<LayoutProps> = (props) => {
       </Show>
 
       {/* Usage quota banners — dismissal persists per UTC month via localStorage. Implements REQ-SUB-018.
-          REQ-ENTERPRISE-008 AC4: enterprise has no quotas or upgrade path, so the banners and their
-          "Upgrade" CTAs never render. No-op when enterpriseMode is unset. */}
-      <Show when={!props.enterpriseMode && usageWarning() === '80' && getDismissedQuotaLevel() == null}>
+          REQ-ENTERPRISE-008 AC4: monthly compute quotas + the "Upgrade" CTA are a SaaS-billing concept,
+          so the banners render only in SaaS mode — hidden in enterprise, onboarding, and default alike. */}
+      <Show when={sessionStore.saasMode && usageWarning() === '80' && getDismissedQuotaLevel() == null}>
         <div class="layout-auth-banner layout-usage-warning" data-testid="usage-warning-80">
           <span>You've used 80% of your monthly compute quota. <a href="/app/subscribe">Upgrade plan</a></span>
           <button type="button" class="layout-banner-dismiss" aria-label="Dismiss" onClick={() => setDismissedQuotaLevel('80')}>&times;</button>
         </div>
       </Show>
-      <Show when={!props.enterpriseMode && usageWarning() === '95' && getDismissedQuotaLevel() !== '95'}>
+      <Show when={sessionStore.saasMode && usageWarning() === '95' && getDismissedQuotaLevel() !== '95'}>
         <div class="layout-auth-banner layout-usage-critical" data-testid="usage-warning-95">
           <span>You've used 95% of your monthly compute quota. <a href="/app/subscribe">Upgrade now</a></span>
           <button type="button" class="layout-banner-dismiss" aria-label="Dismiss" onClick={() => setDismissedQuotaLevel('95')}>&times;</button>
         </div>
       </Show>
-      <Show when={!props.enterpriseMode && usageWarning() === '100'}>
+      <Show when={sessionStore.saasMode && usageWarning() === '100'}>
         <div class="layout-auth-banner layout-usage-exceeded" data-testid="usage-warning-100">
           <span>Monthly compute quota exceeded. Sessions cannot start until quota resets. <a href="/app/subscribe">Upgrade plan</a></span>
         </div>

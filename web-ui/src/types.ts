@@ -133,6 +133,7 @@ export interface AuthStatus {
   billingStatus?: string | null;
   userCapacityReached?: boolean;
   enterpriseMode?: boolean;
+  saasMode?: boolean;
 }
 
 export interface AuthProvider {

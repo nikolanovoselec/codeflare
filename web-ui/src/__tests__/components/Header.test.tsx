@@ -34,6 +34,7 @@ const sessionStoreState = vi.hoisted(() => ({
   activeSessionId: 'session-1' as string | null,
   presets: [] as Array<{ id: string; name: string; tabs: Array<{ id: string; command: string; label: string }>; createdAt: string }>,
   error: null as string | null,
+  saasMode: false as boolean,
   loadPresets: vi.fn(async () => undefined),
   saveBookmarkForSession: vi.fn(async () => ({ id: 'new-bookmark', name: 'My Bookmark', tabs: [], createdAt: new Date().toISOString() }) as { id: string; name: string; tabs: never[]; createdAt: string } | null),
   applyPresetToSession: vi.fn(async () => true),
@@ -57,6 +58,9 @@ vi.mock('../../stores/session', () => ({
     },
     get error() {
       return sessionStoreState.error;
+    },
+    get saasMode() {
+      return sessionStoreState.saasMode;
     },
     loadPresets: (...args: Parameters<typeof sessionStoreState.loadPresets>) =>
       sessionStoreState.loadPresets(...args),
@@ -87,6 +91,7 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     sessionStoreState.activeSessionId = 'session-1';
     sessionStoreState.presets = [];
     sessionStoreState.error = null;
+    sessionStoreState.saasMode = false;
     isMobileMock.value = false;
     terminalStoreMock.authUrl = null;
     usageStateMock.value = { monthlySeconds: 0, monthlyQuotaSeconds: null };
@@ -490,6 +495,10 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
   });
 
   describe('Usage Dropdown Item', () => {
+    // The Usage dropdown item is a SaaS-billing surface (REQ-ENTERPRISE-008 AC2),
+    // so it renders only in SaaS mode.
+    beforeEach(() => { sessionStoreState.saasMode = true; });
+
     it('should show formatted spent time when usage data is available', () => {
       // 2h 15m = 8100 seconds, quota = 10h = 36000 seconds
       usageStateMock.value = { monthlySeconds: 8100, monthlyQuotaSeconds: 36000 };
@@ -592,9 +601,12 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     });
   });
 
-  // REQ-ENTERPRISE-002: the Subscription menu item is hidden in enterprise mode.
-  describe('Enterprise mode subscription gating', () => {
-    it('shows the Subscription menu item when enterpriseMode is undefined (default)', () => {
+  // REQ-ENTERPRISE-008 AC2: the Subscription + Usage menu items are SaaS-billing
+  // surfaces, gated on saasMode (shown only in SaaS; hidden in onboarding/default
+  // and enterprise alike).
+  describe('Subscription/Usage gating (SaaS-only)', () => {
+    it('shows the Subscription menu item in SaaS mode', () => {
+      sessionStoreState.saasMode = true;
       render(() => <Header {...defaultSessionProps} />);
 
       fireEvent.click(screen.getByTestId('header-user-menu'));
@@ -602,23 +614,26 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
       expect(screen.getByTestId('header-user-dropdown-profile')).toBeInTheDocument();
     });
 
-    it('shows the Subscription menu item when enterpriseMode is false', () => {
-      render(() => <Header {...defaultSessionProps} enterpriseMode={false} />);
+    it('hides the Subscription and Usage menu items in onboarding/default mode (not SaaS)', () => {
+      render(() => <Header {...defaultSessionProps} />);
 
       fireEvent.click(screen.getByTestId('header-user-menu'));
 
-      expect(screen.getByTestId('header-user-dropdown-profile')).toBeInTheDocument();
+      expect(screen.queryByTestId('header-user-dropdown-profile')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('header-user-dropdown-usage')).not.toBeInTheDocument();
+      // Non-billing items remain present.
+      expect(screen.getByTestId('header-user-dropdown-onboarding')).toBeInTheDocument();
+      expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
     });
 
-    it('hides the Subscription and Usage menu items when enterpriseMode is true', () => {
+    it('hides the Subscription and Usage menu items in enterprise mode', () => {
       render(() => <Header {...defaultSessionProps} enterpriseMode={true} />);
 
       fireEvent.click(screen.getByTestId('header-user-menu'));
 
-      // REQ-ENTERPRISE-008 AC2: both Subscription and Usage are gated in enterprise mode.
       expect(screen.queryByTestId('header-user-dropdown-profile')).not.toBeInTheDocument();
       expect(screen.queryByTestId('header-user-dropdown-usage')).not.toBeInTheDocument();
-      // Non-SaaS items remain present.
+      // Non-billing items remain present.
       expect(screen.getByTestId('header-user-dropdown-onboarding')).toBeInTheDocument();
       expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
     });

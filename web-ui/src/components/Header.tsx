@@ -290,7 +290,7 @@ const Header: Component<HeaderProps> = (props) => {
               No onClick handlers = no touch event race conditions on mobile. */}
           <Show when={showUserMenu()}>
             <div class="header-user-dropdown" data-testid="header-user-dropdown">
-              <Show when={!props.enterpriseMode}>
+              <Show when={sessionStore.saasMode}>
                 <a
                   href="/app/subscribe"
                   class="header-user-dropdown-item"
@@ -300,7 +300,7 @@ const Header: Component<HeaderProps> = (props) => {
                   <span>Subscription</span>
                 </a>
               </Show>
-              <Show when={!props.enterpriseMode}>
+              <Show when={sessionStore.saasMode}>
                 <a
                   href="/app/usage"
                   class="header-user-dropdown-item"

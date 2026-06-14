@@ -51,6 +51,7 @@ const sessionStoreState = vi.hoisted(() => ({
   presets: [] as unknown[],
   activeSessionId: null as string | null,
   error: null as string | null,
+  saasMode: false as boolean,
 }));
 
 vi.mock('../../stores/session', () => ({
@@ -59,6 +60,7 @@ vi.mock('../../stores/session', () => ({
     get presets() { return sessionStoreState.presets; },
     get activeSessionId() { return sessionStoreState.activeSessionId; },
     get error() { return sessionStoreState.error; },
+    get saasMode() { return sessionStoreState.saasMode; },
     loadPresets: vi.fn(async () => undefined),
     saveBookmarkForSession: vi.fn(async () => null),
     applyPresetToSession: vi.fn(async () => true),
@@ -104,6 +106,7 @@ beforeEach(() => {
   sessionStoreState.presets = [];
   sessionStoreState.activeSessionId = null;
   sessionStoreState.error = null;
+  sessionStoreState.saasMode = false;
 });
 
 afterEach(() => cleanup());
@@ -122,7 +125,18 @@ describe('REQ-ENTERPRISE-008 AC2: Header username dropdown', () => {
     expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
   });
 
-  it('renders Usage and Subscription when the flag is unset (AC6)', () => {
+  it('hides Usage and Subscription in onboarding/default mode (not enterprise, not SaaS)', () => {
+    render(() => <Header {...headerProps} />);
+    fireEvent.click(screen.getByTestId('header-user-menu'));
+    expect(screen.queryByTestId('header-user-dropdown-usage')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('header-user-dropdown-profile')).not.toBeInTheDocument();
+    // Non-billing items remain.
+    expect(screen.getByTestId('header-user-dropdown-onboarding')).toBeInTheDocument();
+    expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
+  });
+
+  it('renders Usage and Subscription in SaaS mode (AC6)', () => {
+    sessionStoreState.saasMode = true;
     render(() => <Header {...headerProps} />);
     fireEvent.click(screen.getByTestId('header-user-menu'));
     expect(screen.getByTestId('header-user-dropdown-usage')).toBeInTheDocument();
@@ -145,7 +159,17 @@ describe('REQ-ENTERPRISE-008 AC1/AC3: SettingsPanel', () => {
     expect(screen.getByText('Setup Wizard')).toBeInTheDocument();
   });
 
-  it('renders all admin surfaces and the mode selector when the flag is unset (AC6)', () => {
+  it('keeps Manage Users but hides Manage Subscriptions + the mode selector in onboarding/default mode', () => {
+    render(() => <SettingsPanel {...panelProps} />);
+    // Manage Users is admin, not billing — it stays outside enterprise.
+    expect(screen.getByText('Manage Users')).toBeInTheDocument();
+    // SaaS-billing surfaces are gated on saasMode.
+    expect(screen.queryByText('Manage Subscriptions')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('session-mode-control')).not.toBeInTheDocument();
+  });
+
+  it('renders all admin surfaces and the mode selector in SaaS mode (AC6)', () => {
+    sessionStoreState.saasMode = true;
     render(() => <SettingsPanel {...panelProps} />);
     expect(screen.getByText('Manage Users')).toBeInTheDocument();
     expect(screen.getByText('Manage Subscriptions')).toBeInTheDocument();
@@ -181,18 +205,18 @@ describe('REQ-ENTERPRISE-008 AC3: SessionSection mode selector', () => {
     updateSetting: () => {},
   };
 
-  it('does not render the Standard/Pro selector in enterprise mode', () => {
-    render(() => <SessionSection {...sectionProps} enterpriseMode={() => true} />);
+  it('does not render the Standard/Pro selector outside SaaS mode (enterprise/onboarding/default)', () => {
+    render(() => <SessionSection {...sectionProps} saasMode={() => false} />);
     expect(screen.queryByTestId('session-mode-control')).not.toBeInTheDocument();
   });
 
-  it('renders the Standard/Pro selector when the flag is unset (AC6)', () => {
-    render(() => <SessionSection {...sectionProps} enterpriseMode={() => false} />);
+  it('renders the Standard/Pro selector in SaaS mode', () => {
+    render(() => <SessionSection {...sectionProps} saasMode={() => true} />);
     expect(screen.getByTestId('session-mode-control')).toBeInTheDocument();
   });
 
-  it('renders the selector when no enterpriseMode accessor is provided (AC6)', () => {
+  it('does not render the selector when no saasMode accessor is provided (treated as not SaaS)', () => {
     render(() => <SessionSection {...sectionProps} />);
-    expect(screen.getByTestId('session-mode-control')).toBeInTheDocument();
+    expect(screen.queryByTestId('session-mode-control')).not.toBeInTheDocument();
   });
 });

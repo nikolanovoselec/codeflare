@@ -226,9 +226,9 @@ const RootPage: Component = () => {
 };
 
 /**
- * Subscribe-route guard. Enterprise users are always unlimited and the billing
- * flow is hidden, so direct navigation to /app/subscribe redirects to /app.
- * Non-enterprise (flag unset/false): renders SubscribePage unchanged.
+ * Subscribe-route guard. Subscriptions and plans exist only in SaaS mode, so
+ * /app/subscribe is reachable only when saasMode is active; every non-SaaS
+ * deployment (enterprise, onboarding, default) redirects to /app/.
  */
 const SubscribeGuard: Component = () => {
   const [decision, setDecision] = createSignal<'loading' | 'subscribe' | 'redirect'>('loading');
@@ -236,13 +236,17 @@ const SubscribeGuard: Component = () => {
   onMount(async () => {
     try {
       const status = await getAuthStatus();
-      if (status.enterpriseMode === true) {
+      if (status.saasMode !== true) {
         setDecision('redirect');
         window.location.href = '/app/';
         return;
       }
     } catch {
-      // Status unavailable — fall through to the normal subscribe page.
+      // Status unavailable — redirect rather than show a SaaS-only page in a
+      // non-SaaS deployment.
+      setDecision('redirect');
+      window.location.href = '/app/';
+      return;
     }
     setDecision('subscribe');
   });

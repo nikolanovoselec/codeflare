@@ -6,6 +6,7 @@ import { createRateLimiter } from '../middleware/rate-limit';
 import { ValidationError, ForbiddenError, toError } from '../lib/error-types';
 import { isActiveUser } from '../lib/access-tier';
 import { getTierConfig, getEffectiveTier, isActiveTier, SUBSCRIBABLE_TIER_IDS, countPaidSlots, isEnterpriseMode } from '../lib/subscription';
+import { isSaasModeActive } from '../lib/onboarding';
 import { getAllUsers, getAdminEmails } from '../lib/access-policy';
 import { createLogger } from '../lib/logger';
 import { verifyTurnstileToken } from '../lib/turnstile';
@@ -145,6 +146,9 @@ app.get('/status', requireIdentity, async (c) => {
     subscribedMode,
     billingStatus,
     userCapacityReached,
+    // SaaS-billing surfaces (subscribe page, usage, plans) gate on this; the
+    // SubscribeGuard redirects away from /app/subscribe when it is not active.
+    saasMode: isSaasModeActive(c.env.SAAS_MODE),
   });
 });
 

@@ -34,7 +34,7 @@ vi.mock('../../components/SettingsPanel', () => ({
 vi.mock('../../components/SplashCursor', () => ({ default: () => <div data-testid="splash-cursor" /> }));
 vi.mock('../../components/StoragePanel', () => ({ default: () => <div data-testid="storage-panel" /> }));
 
-const usageState = vi.hoisted(() => ({ warning: 'none' as string, dismissed: null as string | null }));
+const usageState = vi.hoisted(() => ({ warning: 'none' as string, dismissed: null as string | null, saasMode: false as boolean }));
 
 vi.mock('../../stores/session', () => ({
   sessionStore: {
@@ -42,6 +42,7 @@ vi.mock('../../stores/session', () => ({
     get activeSessionId() { return null; },
     get error() { return null; },
     get preferences() { return {}; },
+    get saasMode() { return usageState.saasMode; },
     loadSessions: vi.fn(),
     loadPresets: vi.fn(),
     loadPreferences: vi.fn(),
@@ -85,6 +86,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   usageState.warning = 'none';
   usageState.dismissed = null;
+  usageState.saasMode = false;
   delete (window as unknown as Record<string, unknown>).__headerProps;
   delete (window as unknown as Record<string, unknown>).__terminalAreaProps;
   delete (window as unknown as Record<string, unknown>).__settingsPanelProps;
@@ -92,15 +94,22 @@ beforeEach(() => {
 
 afterEach(() => cleanup());
 
-describe('REQ-ENTERPRISE-008 AC4: quota banners are suppressed in enterprise mode', () => {
+describe('REQ-ENTERPRISE-008 AC4: quota banners render only in SaaS mode', () => {
   it('does not render the 100% banner in enterprise mode', () => {
     usageState.warning = '100';
     render(() => <Layout enterpriseMode />);
     expect(screen.queryByTestId('usage-warning-100')).not.toBeInTheDocument();
   });
 
-  it('renders the 100% banner when the flag is unset (AC6)', () => {
+  it('does not render the 100% banner in onboarding/default mode (not enterprise, not SaaS)', () => {
     usageState.warning = '100';
+    render(() => <Layout />);
+    expect(screen.queryByTestId('usage-warning-100')).not.toBeInTheDocument();
+  });
+
+  it('renders the 100% banner in SaaS mode (AC6)', () => {
+    usageState.warning = '100';
+    usageState.saasMode = true;
     render(() => <Layout />);
     expect(screen.getByTestId('usage-warning-100')).toBeInTheDocument();
   });
@@ -111,8 +120,15 @@ describe('REQ-ENTERPRISE-008 AC4: quota banners are suppressed in enterprise mod
     expect(screen.queryByTestId('usage-warning-80')).not.toBeInTheDocument();
   });
 
-  it('renders the 80% banner when the flag is unset (AC6)', () => {
+  it('does not render the 80% banner in onboarding/default mode (not enterprise, not SaaS)', () => {
     usageState.warning = '80';
+    render(() => <Layout />);
+    expect(screen.queryByTestId('usage-warning-80')).not.toBeInTheDocument();
+  });
+
+  it('renders the 80% banner in SaaS mode (AC6)', () => {
+    usageState.warning = '80';
+    usageState.saasMode = true;
     render(() => <Layout />);
     expect(screen.getByTestId('usage-warning-80')).toBeInTheDocument();
   });

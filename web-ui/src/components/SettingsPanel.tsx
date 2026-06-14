@@ -334,6 +334,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
           >
             <SessionSection
               enterpriseMode={() => props.enterpriseMode === true}
+              saasMode={() => sessionStore.saasMode}
               currentSessionMode={currentSessionMode}
               canUseAdvanced={canUseAdvanced}
               fastStartEnabled={fastStartEnabled}
@@ -428,9 +429,10 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   If you rotate your Cloudflare API token, redeploy with the new token and re-run the Setup Wizard.
                 </span>
               </section>
-              {/* REQ-ENTERPRISE-008 AC1: there is a single effective tier (unlimited)
-                  in enterprise mode, so tier/subscription config is hidden. */}
-              <Show when={!props.enterpriseMode}>
+              {/* REQ-ENTERPRISE-008 AC1: subscription-tier config is a SaaS-billing
+                  surface, so it renders only in SaaS mode (hidden in enterprise,
+                  onboarding, and default deployments alike). */}
+              <Show when={sessionStore.saasMode}>
                 <section class="settings-section">
                   <div class="settings-section-header">
                     <Icon path={mdiCogOutline} size={16} />

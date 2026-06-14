@@ -292,8 +292,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
-<!-- @test: web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx (real-component renders -> SettingsPanel Administration hides Manage Subscriptions + Manage Users AC1 + Header username dropdown hides Usage + Subscription AC2 + SettingsPanel/SessionSection mode selector not rendered AC3 + every surface byte-identical when flag unset AC6) -->
-<!-- @test: web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx (Layout -> quota banners + upgrade CTAs not rendered AC4 + enterpriseMode threaded to TerminalArea→Dashboard dropdown AC2 + SettingsPanel admin AC1 + byte-identical when flag unset AC6) -->
+<!-- @test: web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx (real-component renders -> Manage Subscriptions renders only in saasMode (hidden in enterprise/onboarding/default) AC1 + Manage Users hidden only in enterprise AC1 + Header/Dashboard dropdown Usage + Subscription render only in saasMode AC2 + SessionSection Standard/Pro selector renders only in saasMode AC3 + three-mode parity AC6) -->
+<!-- @test: web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx (Layout -> quota banners + upgrade CTAs render only in saasMode (hidden in enterprise/onboarding/default) AC4 + enterpriseMode threaded to TerminalArea→Dashboard dropdown AC2 + SettingsPanel admin AC1 + three-mode parity AC6) -->
 <!-- @test: web-ui/src/__tests__/components/enterprise-app-routing.test.tsx (App -> first-time enterprise user routed to /app/ not onboarding/subscribe AC5 + non-enterprise SaaS user still redirected when flag unset AC6) -->
 <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (Enterprise mode surface suppression describe -> setup wizard hides Regular Users section when enterpriseMode set + still renders Admin Users + Access Group field AC7 + Regular Users renders when flag unset, default render tests) -->
 ### REQ-ENTERPRISE-008: Enterprise Frontend Surface Suppression
@@ -305,26 +305,27 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @impl: web-ui/src/components/settings/SessionSection.tsx -->
 <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx -->
 <!-- @impl: web-ui/src/App.tsx -->
+<!-- @impl: src/routes/auth.ts -->
 
-**Intent:** In Enterprise Mode the deployment is single-tenant with no self-serve billing and no in-product user administration, so every SaaS- and admin-oriented frontend surface that would be meaningless or misleading must not render.
+**Intent:** Frontend surfaces are suppressed along two axes. (a) The SaaS-billing surfaces — subscription, usage, plans, the monthly-quota / "Upgrade" banners, the subscription-tier admin, and the Standard/Pro session-mode selector — are meaningful only in SaaS mode, so they render only when `SAAS_MODE` is active and are hidden in enterprise, onboarding, and default deployments alike (a non-SaaS deployment showing a "choose your plan" / "upgrade" surface is misleading; onboarding originally inherited these because the gate was `!enterprise`, which this REQ corrects to `saasMode`). (b) In-product user administration, first-login routing, and the setup "Regular Users" section are enterprise-specific suppressions keyed off `ENTERPRISE_MODE`.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. When `ENTERPRISE_MODE` is set, the Settings → Administration section renders neither the "Manage Subscriptions" nor the "Manage Users" entry.
-2. When `ENTERPRISE_MODE` is set, the username dropdown — in both the Header menu and the Dashboard menu — renders neither the "Usage" nor the "Subscription" entry.
-3. When `ENTERPRISE_MODE` is set, the Standard/Pro session-mode selector is not rendered; every user is implicitly Pro (advanced) per [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC2.
-4. When `ENTERPRISE_MODE` is set, the monthly-quota warning banners and their "Upgrade" calls-to-action are not rendered.
+1. The "Manage Subscriptions" entry in Settings → Administration renders only when `SAAS_MODE` is active (hidden in enterprise, onboarding, and default). The "Manage Users" entry renders in every mode except enterprise (hidden only when `ENTERPRISE_MODE` is set).
+2. The username dropdown — in both the Header menu and the Dashboard menu — renders the "Usage" and "Subscription" entries only when `SAAS_MODE` is active.
+3. The Standard/Pro session-mode selector renders only when `SAAS_MODE` is active; in enterprise every user is implicitly Pro (advanced) per [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC2, and onboarding / default deployments have no Standard/Pro plans.
+4. The monthly-quota warning banners and their "Upgrade" calls-to-action render only when `SAAS_MODE` is active.
 5. When `ENTERPRISE_MODE` is set, a first-time (auto-provisioned) user is routed to the application home, never to `/app/subscribe` or the self-serve onboarding/waitlist flow.
-6. When `ENTERPRISE_MODE` is unset, every surface in AC1–AC5 renders byte-identically to current behavior.
+6. Three-mode parity: in SaaS mode every surface in AC1–AC4 renders; in onboarding and default deployments the SaaS-billing surfaces (AC1 "Manage Subscriptions", AC2, AC3, AC4) do not render while AC1 "Manage Users" does; in enterprise mode every surface in AC1–AC5 is suppressed. `/app/subscribe` is reachable only in SaaS mode — the client `SubscribeGuard` redirects to `/app/` whenever `saasMode` is not active.
 7. When `ENTERPRISE_MODE` is set, the setup wizard's "Regular Users" section is not rendered — setup configures only Admin Users and the optional Cloudflare Access group, since regular users are provisioned via Cloudflare Access on first sign-in per [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning); when unset, the section renders unchanged.
 
 **Constraints:**
 
-- The frontend decides what to suppress from the deploy-time `enterpriseMode` signal already exposed by `GET /api/user`, never from the user's tier or role.
+- The frontend gates the SaaS-billing surfaces (AC1 "Manage Subscriptions", AC2, AC3, AC4) on the deploy-time `saasMode` signal, and the admin / routing surfaces (AC1 "Manage Users", AC5, AC7) on the `enterpriseMode` signal; never on the user's tier or role. Both signals are exposed by `GET /api/user` (consumed via `sessionStore`); `saasMode` is additionally exposed by `GET /api/auth/status` for the `SubscribeGuard` redirect.
 - Suppression is render-gating only: it removes no component code path for non-enterprise deployments and deletes no stored user state.
-- This REQ concretizes the surface list implied by [REQ-ENTERPRISE-002](#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded) AC1 (which owns the `/app/subscribe` route guard) and adds the admin-button, mode-selector, and first-login-routing surfaces. Visibility only; the matching routes are made unreachable server-side in [REQ-ENTERPRISE-009](#req-enterprise-009-enterprise-backend-route-hardening).
+- This REQ concretizes the surface list implied by [REQ-ENTERPRISE-002](#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded) AC1 (which owns the server-side `/app/subscribe` route guard) and adds the client `SubscribeGuard` saasMode redirect plus the admin-button, mode-selector, quota-banner, and first-login-routing surfaces. Visibility only; the matching routes are made unreachable server-side in [REQ-ENTERPRISE-009](#req-enterprise-009-enterprise-backend-route-hardening).
 
 **Priority:** P2
 

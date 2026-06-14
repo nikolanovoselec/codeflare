@@ -142,6 +142,30 @@ describe('Auth routes / REQ-SEC-015 (auth-bypass prevention on public endpoints)
       expect(body.role).toBe('admin');
     });
 
+    it('returns saasMode reflecting SAAS_MODE (REQ-ENTERPRISE-008: the SubscribeGuard signal)', async () => {
+      mockAuthResult.user = {
+        email: 'user@example.com',
+        authenticated: true,
+        role: 'user',
+        accessTier: 'advanced',
+        subscriptionTier: 'advanced',
+      };
+
+      const saas = createApp({ SAAS_MODE: 'active' });
+      const saasRes = await saas.request('/auth/status', {
+        headers: { 'cf-access-authenticated-user-email': 'user@example.com' },
+      });
+      expect(saasRes.status).toBe(200);
+      expect((await saasRes.json() as { saasMode: boolean }).saasMode).toBe(true);
+
+      const nonSaas = createApp({ SAAS_MODE: 'inactive' });
+      const nonSaasRes = await nonSaas.request('/auth/status', {
+        headers: { 'cf-access-authenticated-user-email': 'user@example.com' },
+      });
+      expect(nonSaasRes.status).toBe(200);
+      expect((await nonSaasRes.json() as { saasMode: boolean }).saasMode).toBe(false);
+    });
+
     it('returns 401 for unauthenticated request', async () => {
       mockAuthShouldReject = true;
 

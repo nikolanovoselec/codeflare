@@ -12,6 +12,9 @@ const mobileState = vi.hoisted(() => ({ mobile: false, samsung: false }));
 const sessionStoreState = vi.hoisted(() => ({
   preferences: { workspaceSyncEnabled: false, fastStartEnabled: undefined, sessionMode: undefined } as { workspaceSyncEnabled: boolean | undefined; fastStartEnabled: boolean | undefined; sessionMode?: string | undefined },
   updatePreferences: vi.fn(async () => undefined),
+  // The Standard/Pro session-mode selector is SaaS-gated (REQ-ENTERPRISE-008 AC3);
+  // these tests exercise its behavior, so default to SaaS mode.
+  saasMode: true as boolean,
 }));
 
 vi.mock('../../lib/mobile', () => ({
@@ -52,6 +55,9 @@ vi.mock('../../stores/session', () => ({
   sessionStore: {
     get preferences() {
       return sessionStoreState.preferences;
+    },
+    get saasMode() {
+      return sessionStoreState.saasMode;
     },
     updatePreferences: (...args: Parameters<typeof sessionStoreState.updatePreferences>) =>
       sessionStoreState.updatePreferences(...args),

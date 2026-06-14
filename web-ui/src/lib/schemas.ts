@@ -47,6 +47,7 @@ export const AuthStatusResponseSchema = z.object({
   billingStatus: z.string().nullable().optional(),
   userCapacityReached: z.boolean().optional(),
   enterpriseMode: z.boolean().optional(),
+  saasMode: z.boolean().optional(),
 });
 
 export const AuthProvidersResponseSchema = z.object({

@@ -13,6 +13,7 @@ import { isTouchDevice } from '../../lib/mobile';
 
 interface SessionSectionProps {
   enterpriseMode?: Accessor<boolean>;
+  saasMode?: Accessor<boolean>;
   currentSessionMode: Accessor<'default' | 'advanced'>;
   canUseAdvanced: Accessor<boolean>;
   fastStartEnabled: Accessor<boolean>;
@@ -39,10 +40,11 @@ interface SessionSectionProps {
 const SessionSection: Component<SessionSectionProps> = (props) => {
   return (
     <>
-      {/* Session Mode — REQ-ENTERPRISE-008 AC3: every enterprise user is implicitly
-          Pro (advanced), so the Standard/Pro selector is not rendered. No-op when
-          enterpriseMode is unset/absent. */}
-      <Show when={!props.enterpriseMode?.()}>
+      {/* Session Mode — REQ-ENTERPRISE-008 AC3: the Standard/Pro selector is SaaS-tier
+          framing (in enterprise every user is implicitly Pro/advanced, and onboarding /
+          default deployments have no Standard/Pro plans), so it renders only in SaaS
+          mode. No-op when saasMode is unset/absent (treated as not SaaS). */}
+      <Show when={props.saasMode?.()}>
       <section class="settings-section">
         <div class="settings-section-header">
           <h3 class="settings-section-title type-section-header">Session Mode</h3>

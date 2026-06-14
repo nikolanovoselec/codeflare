@@ -182,7 +182,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     onClick={(e) => e.stopPropagation()}
                     style={window.innerWidth > 640 ? { top: `${userMenuPos().top}px`, right: `${userMenuPos().right}px` } : undefined}
                   >
-                    <Show when={!props.enterpriseMode}>
+                    <Show when={sessionStore.saasMode}>
                       <a
                         href="/app/subscribe"
                         class="header-user-dropdown-item"
