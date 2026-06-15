@@ -192,7 +192,7 @@ for i in range(0, len(items), batch_size):
         '# Graphify community labels batch',
         '',
         'Local Pi main session only. Do not call external LLM providers.',
-        'For each community, choose a unique concise 2-6 word semantic label. Do not use numeric suffixes; qualify by source/domain instead.'
+        'For each community, choose a unique concise 2-6 word semantic label. Do not use numeric suffixes; qualify by source/domain instead.',
         '',
     ]
     for item in batch:
