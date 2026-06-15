@@ -471,8 +471,9 @@ All preseed content is deployed via the manifest pipeline:
   escalates to the `/review-results` fallback so it can never strand silently. This age backstop
   is **summary-only**: the idle-gated summary can defer indefinitely while the agent streams
   (burning no attempts), so age is its sole escalation path; the autofix announcement is exempt —
-  aging it would mark it `failed` at `attempts:0` before the fix turn ever fired, so autofix fails
-  only via the attempt cap, after genuine delivery attempts. That makes the
+  aging it would mark it `failed` at `attempts:0` before the fix turn ever fired, so an undelivered
+  autofix instead terminates via head-supersede (a newer push retires the stale head) or the attempt
+  cap — never on age alone. That makes the
   nonce-verify/retry phase a backstop rather than the primary delivery path: the earlier
   `triggerTurn`/`followUp` send routed through agent-core queues whose custom-message
   persistence depended on a live loop, so off-turn or post-reload it no-op'd and the summary
