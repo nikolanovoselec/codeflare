@@ -154,6 +154,8 @@ export interface Session {
   lastActiveAt?: string;
   agentType?: AgentType;
   tabConfig?: TabConfig[];
+  /** REQ-GITHUB-004: GitHub repo to clone into the workspace at container start. */
+  clone?: { repo: string; ref?: string };
   metrics?: {
     cpu?: string;
     mem?: string;
@@ -354,6 +356,9 @@ export interface ContainerConfigPayload {
   defaultReasoning?: string;
   /** REQ-MEM-001 AC4: user's IANA timezone forwarded to the container. */
   userTimezone?: string;
+  /** REQ-GITHUB-004: one-shot GitHub clone directive forwarded to the container. */
+  gitCloneRepo?: string;
+  gitCloneRef?: string;
 }
 
 interface StorageObject {

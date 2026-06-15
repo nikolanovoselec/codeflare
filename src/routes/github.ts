@@ -11,6 +11,8 @@
  * (GET /auth/github/connect/callback) so GitHub redirects to a stable path.
  */
 import { Hono } from 'hono';
+import { z } from 'zod';
+import { getContainer } from '@cloudflare/containers';
 import type { Env } from '../types';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
@@ -19,6 +21,8 @@ import { getBaseUrl } from '../lib/kv-keys';
 import { signOauthState } from '../lib/oauth-state';
 import { createLogger } from '../lib/logger';
 import { toError } from '../lib/error-types';
+import { getContainerId } from '../lib/container-helpers';
+import { parseJsonBody } from '../lib/request-helpers';
 import {
   getGithubProvider,
   getGithubConnectionStatus,
@@ -38,6 +42,16 @@ app.use('*', authMiddleware);
 
 const connectRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 20, keyPrefix: 'github-connect' });
 const reposRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 60, keyPrefix: 'github-repos' });
+const cloneRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 20, keyPrefix: 'github-clone' });
+
+// REQ-GITHUB-004: clone-into-running-session. owner/name + optional ref; the
+// sessionId targets a specific running container. Same repo shape the
+// CreateSessionBody clone field uses, kept in sync intentionally.
+const CloneBody = z.object({
+  repo: z.string().regex(/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/),
+  ref: z.string().min(1).max(255).optional(),
+  sessionId: z.string(),
+}).strict();
 
 /**
  * Whether the GitHub panel/feature is available for this deployment.
@@ -144,6 +158,46 @@ app.post('/disconnect', connectRateLimiter, async (c) => {
   if (!githubFeatureEnabled(c.env)) return c.json({ error: 'GitHub integration disabled', code: 'GITHUB_DISABLED' }, 403);
   await disconnectGithub(c.env, c.get('bucketName'));
   return c.json({ success: true });
+});
+
+// POST /api/github/clone — clone a repo into an already-running session's
+// workspace (REQ-GITHUB-004 running-session path). The new-session path is
+// handled by POST /api/sessions with a `clone` field, not here. Forwards to the
+// container DO's /internal/git-clone host endpoint; the DO's fetch() override
+// injects the CONTAINER_AUTH_TOKEN bearer for the no-underscore /internal path.
+// The upstream status (200 cloned / 409 collision / 502 failed / 504 timeout) is
+// relayed verbatim so the client sees the real outcome.
+app.post('/clone', cloneRateLimiter, async (c) => {
+  if (!githubFeatureEnabled(c.env)) return c.json({ error: 'GitHub integration disabled', code: 'GITHUB_DISABLED' }, 403);
+
+  const { repo, ref, sessionId } = await parseJsonBody(c, CloneBody);
+
+  const containerId = getContainerId(c.get('bucketName'), sessionId);
+  const container = getContainer(c.env.CONTAINER, containerId);
+
+  let upstream: Response;
+  try {
+    upstream = await container.fetch(
+      new Request('http://container/internal/git-clone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo, ...(ref && { ref }) }),
+      }),
+    );
+  } catch (err) {
+    logger.error('git-clone container forward failed', toError(err));
+    return c.json({ error: 'Failed to reach container', code: 'UPSTREAM_ERROR' }, 502);
+  }
+
+  // Relay the upstream JSON + status verbatim (409 stays 409, etc.). A non-JSON
+  // upstream body (DO 503 when the container is asleep) collapses to a 503.
+  let payload: unknown;
+  try {
+    payload = await upstream.json();
+  } catch {
+    return c.json({ error: 'Container not running', code: 'NOT_RUNNING' }, 503);
+  }
+  return c.json(payload as Record<string, unknown>, upstream.status as never);
 });
 
 export default app;

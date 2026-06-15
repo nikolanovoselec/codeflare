@@ -19,7 +19,16 @@ vi.mock('../../lib/access', () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
+// Container DO fetch is the forward target for POST /api/github/clone. The mock
+// returns whatever containerFetch resolves to so each test controls the
+// upstream status/body the route must relay.
+const containerFetch = vi.fn();
+vi.mock('@cloudflare/containers', () => ({
+  getContainer: vi.fn(() => ({ fetch: containerFetch })),
+}));
+
 import githubRoutes from '../../routes/github';
+import { getContainer } from '@cloudflare/containers';
 
 const KEY = 'deploy-keys:test-bucket';
 const ENT: Partial<Env> = {
@@ -154,5 +163,117 @@ describe('POST /api/github/disconnect', () => {
     expect(res.status).toBe(200);
     expect((await res.json() as Record<string, unknown>).success).toBe(true);
     expect(await mockKV.get(KEY)).toBeNull();
+  });
+});
+
+// ─── POST /clone (REQ-GITHUB-004 running-session path) ───────────────────────
+
+function containerJson(status: number, json: unknown) {
+  return { status, json: async () => json };
+}
+
+describe('POST /api/github/clone', () => {
+  const SID = 'sid12345678';
+
+  it('403s when the GitHub feature is disabled (non-enterprise)', async () => {
+    const res = await createTestApp({}).request('/api/github/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: 'octo/repo', sessionId: SID }),
+    });
+    expect(res.status).toBe(403);
+    expect((await res.json() as Record<string, unknown>).code).toBe('GITHUB_DISABLED');
+    expect(containerFetch).not.toHaveBeenCalled();
+  });
+
+  it('forwards to the container /internal/git-clone and relays a 200', async () => {
+    containerFetch.mockResolvedValueOnce(containerJson(200, { status: 'cloned', path: '/home/user/workspace/repo' }));
+
+    const res = await createTestApp(ENT).request('/api/github/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: 'octo/repo', ref: 'develop', sessionId: SID }),
+    });
+
+    expect(res.status).toBe(200);
+    expect((await res.json() as Record<string, unknown>).status).toBe('cloned');
+
+    // The forwarded request hit the internal clone path and carried repo+ref.
+    expect(containerFetch).toHaveBeenCalledTimes(1);
+    const forwarded = containerFetch.mock.calls[0][0] as Request;
+    expect(new URL(forwarded.url).pathname).toBe('/internal/git-clone');
+    expect(forwarded.method).toBe('POST');
+    const sentBody = await forwarded.json() as Record<string, unknown>;
+    expect(sentBody).toEqual({ repo: 'octo/repo', ref: 'develop' });
+    // Container is addressed by the bucket+session-derived id.
+    expect(vi.mocked(getContainer).mock.calls[0][1]).toBe('test-bucket-sid12345678');
+  });
+
+  it('relays a 409 collision verbatim', async () => {
+    containerFetch.mockResolvedValueOnce(containerJson(409, { error: 'exists', code: 'CLONE_TARGET_EXISTS' }));
+
+    const res = await createTestApp(ENT).request('/api/github/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: 'octo/repo', sessionId: SID }),
+    });
+    expect(res.status).toBe(409);
+    expect((await res.json() as Record<string, unknown>).code).toBe('CLONE_TARGET_EXISTS');
+  });
+
+  it('relays a 502 clone failure verbatim', async () => {
+    containerFetch.mockResolvedValueOnce(containerJson(502, { error: 'failed', code: 'CLONE_FAILED' }));
+
+    const res = await createTestApp(ENT).request('/api/github/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: 'octo/repo', sessionId: SID }),
+    });
+    expect(res.status).toBe(502);
+    expect((await res.json() as Record<string, unknown>).code).toBe('CLONE_FAILED');
+  });
+
+  it('omits ref from the forwarded body when not supplied', async () => {
+    containerFetch.mockResolvedValueOnce(containerJson(200, { status: 'cloned', path: '/x' }));
+
+    await createTestApp(ENT).request('/api/github/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: 'octo/repo', sessionId: SID }),
+    });
+    const forwarded = containerFetch.mock.calls[0][0] as Request;
+    expect(await forwarded.json() as Record<string, unknown>).toEqual({ repo: 'octo/repo' });
+  });
+
+  it('rejects a malformed repo with 400 and never forwards', async () => {
+    const res = await createTestApp(ENT).request('/api/github/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: 'not-valid', sessionId: SID }),
+    });
+    expect(res.status).toBe(400);
+    expect(containerFetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a missing sessionId with 400 and never forwards', async () => {
+    const res = await createTestApp(ENT).request('/api/github/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: 'octo/repo' }),
+    });
+    expect(res.status).toBe(400);
+    expect(containerFetch).not.toHaveBeenCalled();
+  });
+
+  it('returns 503 when the container body is not JSON (asleep DO)', async () => {
+    containerFetch.mockResolvedValueOnce({ status: 503, json: async () => { throw new Error('not json'); } });
+
+    const res = await createTestApp(ENT).request('/api/github/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: 'octo/repo', sessionId: SID }),
+    });
+    expect(res.status).toBe(503);
+    expect((await res.json() as Record<string, unknown>).code).toBe('NOT_RUNNING');
   });
 });

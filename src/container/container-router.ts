@@ -58,6 +58,11 @@ interface SetBucketNameBody {
   // surfaces it to the container as USER_TIMEZONE; entrypoint.sh applies the
   // three-artifact contract (export TZ, /etc/timezone, /etc/localtime symlink).
   userTimezone?: string;
+  // REQ-GITHUB-004: one-shot clone directive forwarded by the Worker from the
+  // session's `clone` field. applyBucketName stores it in instance memory and
+  // buildEnvVars surfaces it to the container as GIT_CLONE_REPO/GIT_CLONE_REF.
+  gitCloneRepo?: string;
+  gitCloneRef?: string;
   sleepAfter?: string;
 }
 
@@ -145,7 +150,7 @@ export function dispatchInternalRoute(
 /** Handle POST /_internal/setBucketName. */
 async function handleSetBucketName(host: ContainerHost, request: Request): Promise<Response> {
   try {
-    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, sessionMode, userTimezone, sleepAfter: sleepAfterPref } =
+    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, sessionMode, userTimezone, gitCloneRepo, gitCloneRef, sleepAfter: sleepAfterPref } =
       await request.json() as SetBucketNameBody;
 
     // FIX-28: Idempotency - once bucket name is set, reject subsequent calls.
@@ -252,6 +257,10 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       encryptionKey,
       sessionMode,
       userTimezone,
+      // REQ-GITHUB-004: one-shot clone directive. Only on the first (create→start)
+      // call — the restart path (409 idempotent branch above) does not re-apply it.
+      gitCloneRepo,
+      gitCloneRef,
     });
 
     // Apply user-configurable idle timeout (validated values: 5m, 15m, 30m, 1h, 2h).

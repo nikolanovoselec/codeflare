@@ -261,6 +261,10 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       // on createSession) into the container so capture filenames reflect
       // the user's wall-clock instead of UTC.
       userTimezone: preferences.userTimezone,
+      // REQ-GITHUB-004: forward the one-shot clone directive recorded on the
+      // session at create time. entrypoint.sh clones the repo at start.
+      gitCloneRepo: sessionData.clone?.repo,
+      gitCloneRef: sessionData.clone?.ref,
       logger: reqLogger,
     });
 

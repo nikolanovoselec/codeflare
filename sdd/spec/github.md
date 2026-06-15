@@ -125,7 +125,15 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 ### REQ-GITHUB-004: Clone a repository into a session
 
 <!-- @impl: src/routes/github.ts -->
+<!-- @impl: src/routes/session/crud.ts -->
+<!-- @impl: src/container/container-env.ts::buildEnvVars -->
 <!-- @impl: entrypoint.sh -->
+<!-- @impl: host/src/git-clone.ts -->
+<!-- @impl: host/src/server.ts -->
+<!-- @test: src/__tests__/routes/session-creation.test.ts (clone field accepted/persisted/rejected -> AC2,AC3) -->
+<!-- @test: src/__tests__/routes/github.test.ts (POST /clone forward+relay -> AC2) -->
+<!-- @test: src/__tests__/container/container-env.test.ts (GIT_CLONE_REPO/REF env -> AC2,AC3) -->
+<!-- @test: host/__tests__/git-clone.test.js (repo/ref validation + dir computation -> AC3,AC4) -->
 **Intent:** From the panel a user clones a repository into a new or running session, into the workspace, ready for the agent.
 
 **Applies To:** User
@@ -133,8 +141,9 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Acceptance Criteria:**
 
 1. The clone action offers a session picker: running sessions first (e.g. "Pi #1"), then a separator, then "Clone into a new session".
-2. New session → the repo is cloned before the agent process starts; running session → cloned via an authenticated internal RPC into the live container.
-3. The repo is cloned into `$USER_WORKSPACE/<repo-name-verbatim>`; the clone is refused with a clear message if that folder already exists.
+2. New session → the repo is cloned before the agent process starts (entrypoint.sh, from the `clone` field on session create); running session → cloned via an authenticated internal RPC into the live container. <!-- @impl: src/routes/container/lifecycle.ts -->
+3. The repo is cloned into `$USER_WORKSPACE/<repo-name-verbatim>`; the clone is refused with a clear message if that folder already exists. <!-- @impl: host/src/git-clone.ts::resolveGitClone -->
+4. The clone targets the chosen branch (default branch preselected); authentication uses the per-mode credential path (egress injection in enterprise, `GH_TOKEN` otherwise). <!-- @impl: host/src/git-clone.ts::buildCloneArgs -->
 4. The clone targets the chosen branch (default branch preselected); authentication uses the per-mode credential path (egress injection in enterprise, `GH_TOKEN` otherwise).
 5. The cloned working tree is ephemeral by default and participates in workspace sync when the user has it enabled.
 

@@ -47,6 +47,10 @@ export interface ContainerEnvState {
   _defaultReasoning: string | null;
   /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   _userTimezone: string | null;
+  /** REQ-GITHUB-004: GitHub repo (owner/name) to clone at container start. */
+  _gitCloneRepo: string | null;
+  /** REQ-GITHUB-004: optional branch/tag ref for the clone. */
+  _gitCloneRef: string | null;
 }
 
 /** Fields sent in the setBucketName body that may need updating on restart. */
@@ -71,6 +75,10 @@ interface RestartPrefsInput {
   /** REQ-MEM-001 AC4: user's IANA timezone. Updated on subsequent DO wakes
    * when preferences.userTimezone changes between sessions. */
   userTimezone?: string;
+  /** REQ-GITHUB-004: GitHub repo (owner/name) to clone at container start. */
+  gitCloneRepo?: string;
+  /** REQ-GITHUB-004: optional branch/tag ref for the clone. */
+  gitCloneRef?: string;
 }
 
 export interface SetBucketNameCreds {
@@ -91,6 +99,10 @@ export interface SetBucketNameCreds {
   sessionMode?: string;
   /** REQ-MEM-001 AC4: user's IANA timezone forwarded from /start. */
   userTimezone?: string;
+  /** REQ-GITHUB-004: GitHub repo (owner/name) to clone at container start. */
+  gitCloneRepo?: string;
+  /** REQ-GITHUB-004: optional branch/tag ref for the clone. */
+  gitCloneRef?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +249,12 @@ export function buildEnvVars(
         : { GH_TOKEN: state._githubToken })),
     ...(state._cloudflareApiToken && { CLOUDFLARE_API_TOKEN: state._cloudflareApiToken }),
     ...(state._cloudflareAccountId && { CLOUDFLARE_ACCOUNT_ID: state._cloudflareAccountId }),
+    // REQ-GITHUB-004: one-shot clone directive. entrypoint.sh clones the repo
+    // into $USER_WORKSPACE/<repo-name> at start (after the git credential helper
+    // is configured, before the agent autostarts), refusing on a name collision.
+    // Only emit when set so a session with no clone request gets neither var.
+    ...(state._gitCloneRepo && { GIT_CLONE_REPO: state._gitCloneRepo }),
+    ...(state._gitCloneRef && { GIT_CLONE_REF: state._gitCloneRef }),
     // Session mode (controls memory persistence in entrypoint.sh)
     SESSION_MODE: state._sessionMode,
     // REQ-MEM-001 AC4: user's IANA timezone. The capture haiku resolves
@@ -327,6 +345,13 @@ export async function applyBucketName(
     await storage.put('userTimezone', tz);
     state._userTimezone = tz;
   }
+
+  // REQ-GITHUB-004: clone target is a one-shot, set-at-create directive.
+  // Kept in instance memory only (not persisted to DO storage); buildEnvVars
+  // surfaces it as GIT_CLONE_REPO/GIT_CLONE_REF and entrypoint.sh clones once,
+  // refusing if the target dir already exists (so an idempotent restart is safe).
+  if (r2Creds?.gitCloneRepo) state._gitCloneRepo = r2Creds.gitCloneRepo;
+  if (r2Creds?.gitCloneRef) state._gitCloneRef = r2Creds.gitCloneRef;
 
   // Use Worker-provided R2 credentials (most reliable — Worker definitely has secrets)
   if (r2Creds?.r2AccessKeyId) state._r2AccessKeyId = r2Creds.r2AccessKeyId;

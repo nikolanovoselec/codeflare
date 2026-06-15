@@ -170,6 +170,12 @@ export class container extends Container<Env> implements ContainerEnvState {
   _defaultReasoning: string | null = null;
   /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   _userTimezone: string | null = null;
+  /** REQ-GITHUB-004: one-shot clone directive (repo owner/name + optional ref),
+   * set at create→start. Instance memory only — buildEnvVars surfaces it as
+   * GIT_CLONE_REPO/GIT_CLONE_REF; not hydrated from storage on restart so the
+   * clone runs once. */
+  _gitCloneRepo: string | null = null;
+  _gitCloneRef: string | null = null;
   /**
    * Timestamp captured at the start of destroy(); read by onStop() to
    * log shutdown elapsed-ms. Helps telemetry decide whether the 135s

@@ -78,6 +78,11 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     // pipeline's TZ resolution produces wall-clock filenames matching
     // the user's location instead of UTC.
     ...(params.userTimezone && { userTimezone: params.userTimezone }),
+    // REQ-GITHUB-004: forward the one-shot clone directive so the container
+    // clones the repo at start (before the agent autostarts). Only sent when a
+    // repo was requested; ref travels with it when present.
+    ...(params.gitCloneRepo && { gitCloneRepo: params.gitCloneRepo }),
+    ...(params.gitCloneRef && { gitCloneRef: params.gitCloneRef }),
   });
   return JSON.stringify(body);
 }

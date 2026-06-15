@@ -304,4 +304,67 @@ describe('REQ-SESSION-001: Session creation with name and agent type', () => {
       expect(cfg.windowMs).toBe(60_000);
     });
   });
+
+  // REQ-GITHUB-004: optional `clone` field on session create. The repo is cloned
+  // by entrypoint.sh at container start; here we verify the field is accepted,
+  // persisted on the session record, and that a malformed repo is rejected.
+  describe('REQ-GITHUB-004: clone field on session create', () => {
+    it('accepts a valid clone and persists it on the session record', async () => {
+      const app = createApp();
+      const res = await app.request('/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Clone Session', clone: { repo: 'octo/repo', ref: 'develop' } }),
+      });
+      expect(res.status).toBe(201);
+      const body = await res.json() as { session: Session };
+      expect(body.session.clone).toEqual({ repo: 'octo/repo', ref: 'develop' });
+
+      const stored = await mockKV.get(`session:test-bucket:${body.session.id}`, 'json') as Session;
+      expect(stored.clone).toEqual({ repo: 'octo/repo', ref: 'develop' });
+    });
+
+    it('accepts a clone without a ref', async () => {
+      const app = createApp();
+      const res = await app.request('/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'No Ref', clone: { repo: 'octo/repo' } }),
+      });
+      expect(res.status).toBe(201);
+      const body = await res.json() as { session: Session };
+      expect(body.session.clone).toEqual({ repo: 'octo/repo' });
+    });
+
+    it('omits clone from the session record when not provided', async () => {
+      const app = createApp();
+      const res = await app.request('/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'No Clone' }),
+      });
+      const body = await res.json() as { session: Session };
+      expect(body.session.clone).toBeUndefined();
+    });
+
+    it('rejects a malformed repo (missing owner/name slash) with 400', async () => {
+      const app = createApp();
+      const res = await app.request('/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Bad Repo', clone: { repo: 'not-a-valid-repo' } }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects a repo with path-traversal characters with 400', async () => {
+      const app = createApp();
+      const res = await app.request('/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Traversal', clone: { repo: 'octo/../../etc' } }),
+      });
+      expect(res.status).toBe(400);
+    });
+  });
 });

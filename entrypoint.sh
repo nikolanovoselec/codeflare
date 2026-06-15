@@ -2614,6 +2614,29 @@ else
     fi
 fi
 
+# REQ-GITHUB-004: one-shot repo clone at container start. Runs AFTER the git
+# credential helper above (so private repos authenticate via $GH_TOKEN, or the
+# enterprise egress GitHubInterceptor injects the real token) and BEFORE
+# configure_tab_autostart launches the agent, so the workspace is populated when
+# the user lands. Best-effort: a clone failure is logged but never aborts start.
+if [ -n "${GIT_CLONE_REPO:-}" ]; then
+    clone_repo="${GIT_CLONE_REPO%.git}"
+    repo_name="${clone_repo##*/}"
+    CLONE_DIR="$USER_WORKSPACE/$repo_name"
+    if [ -e "$CLONE_DIR" ]; then
+        echo "[entrypoint] Skipping clone: $CLONE_DIR already exists (collision refuse)"
+    else
+        echo "[entrypoint] Cloning $clone_repo into $CLONE_DIR"
+        if [ -n "${GIT_CLONE_REF:-}" ]; then
+            git clone --branch "$GIT_CLONE_REF" "https://${GITHUB_HOST:-github.com}/${clone_repo}.git" "$CLONE_DIR" \
+                || echo "[entrypoint] clone failed for $clone_repo (ref $GIT_CLONE_REF); continuing startup"
+        else
+            git clone "https://${GITHUB_HOST:-github.com}/${clone_repo}.git" "$CLONE_DIR" \
+                || echo "[entrypoint] clone failed for $clone_repo; continuing startup"
+        fi
+    fi
+fi
+
 # Configure tab auto-start
 configure_tab_autostart
 

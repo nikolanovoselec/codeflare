@@ -142,6 +142,40 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
     expect(vars.ENCRYPTION_KEY).toBeUndefined();
   });
 
+  // REQ-GITHUB-004: the one-shot clone directive flows DO state -> container env.
+  // entrypoint.sh clones GIT_CLONE_REPO (with optional GIT_CLONE_REF) at start.
+  it('REQ-GITHUB-004: emits GIT_CLONE_REPO when state._gitCloneRepo is set', () => {
+    const state = baseState();
+    (state as unknown as { _gitCloneRepo: string | null })._gitCloneRepo = 'octo/repo';
+    const vars = buildEnvVars(state, baseEnv) as Record<string, string | undefined>;
+    expect(vars.GIT_CLONE_REPO).toBe('octo/repo');
+  });
+
+  it('REQ-GITHUB-004: emits GIT_CLONE_REF when state._gitCloneRef is set', () => {
+    const state = baseState();
+    const s = state as unknown as { _gitCloneRepo: string | null; _gitCloneRef: string | null };
+    s._gitCloneRepo = 'octo/repo';
+    s._gitCloneRef = 'develop';
+    const vars = buildEnvVars(state, baseEnv) as Record<string, string | undefined>;
+    expect(vars.GIT_CLONE_REPO).toBe('octo/repo');
+    expect(vars.GIT_CLONE_REF).toBe('develop');
+  });
+
+  it('REQ-GITHUB-004: omits both GIT_CLONE vars when unset', () => {
+    const state = baseState();
+    const vars = buildEnvVars(state, baseEnv) as Record<string, string | undefined>;
+    expect(vars.GIT_CLONE_REPO).toBeUndefined();
+    expect(vars.GIT_CLONE_REF).toBeUndefined();
+  });
+
+  it('REQ-GITHUB-004: omits GIT_CLONE_REF when only the repo is set', () => {
+    const state = baseState();
+    (state as unknown as { _gitCloneRepo: string | null })._gitCloneRepo = 'octo/repo';
+    const vars = buildEnvVars(state, baseEnv) as Record<string, string | undefined>;
+    expect(vars.GIT_CLONE_REPO).toBe('octo/repo');
+    expect(vars.GIT_CLONE_REF).toBeUndefined();
+  });
+
   // CF-063 / REQ-AGENT-029 AC2: deploy credentials (GitHub + Cloudflare) are
   // forwarded from DO state to the container env vars when set, and OMITTED
   // (not emitted empty) when cleared to null so a revoked credential is unset
