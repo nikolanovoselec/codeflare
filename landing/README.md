@@ -14,9 +14,9 @@ Strict separation of concerns; each layer changes independently:
 | Global styles | `src/styles/global.css` | Layout and component styles; resolves through tokens. Mobile-first. |
 | Content | `src/content/site.ts` | All copy, typed. Components never carry their own text. |
 | Integration config | `src/config.ts` | Every Worker endpoint / app link the page touches. |
-| Logic | `src/scripts/*.ts`, `src/lib/splash-*.ts` | Browser modules: the pure, unit-tested `contact-controller.ts`; `scramble.ts` (hero accent-word effect); `splash.ts` + the `splash-*` / `webgl-utils` fluid set (the page-wide flare-fluid; sets `html.flare-on` to switch the page onto its glass surfaces, paused while the tab is hidden — desktop pointers drive it with the cursor, touch devices from page scroll, and reduced-motion or no-WebGL visitors never set it and keep the solid surfaces); and `proof.ts` (arms the body's proof artifacts: adds `.is-live` to each `[data-proof]` once on scroll-in to play a one-shot reveal sequence; the markup renders the resolved state by default, so it is fully legible with no JS, and reduced-motion visitors keep that static state). All but the contact controller are presentational and reduced-motion gated. |
-| Components | `src/components/*.astro` | `Hero`, `ContactForm`, `Footer`. Markup rendering content data. |
-| Pages | `src/pages/*.astro` | `index.astro` (composition), `privacy.astro`. |
+| Logic | `src/scripts/*.ts`, `src/lib/splash-*.ts` | Browser modules: the pure, unit-tested `contact-controller.ts`; `scramble.ts` (hero accent-word effect); `splash.ts` + the `splash-*` / `webgl-utils` fluid set (the page-wide flare-fluid; sets `html.flare-on` to switch the page onto its glass surfaces, paused while the tab is hidden — desktop pointers drive it with the cursor, touch devices from page scroll, and reduced-motion or no-WebGL visitors never set it and keep the solid surfaces); and `proof.ts` (arms the body's proof artifacts: adds `.is-live` to each `[data-proof]` once on scroll-in to play a one-shot reveal sequence; the markup renders the resolved state by default, so it is fully legible with no JS, and reduced-motion visitors keep that static state); and `reveal.ts` (scroll-driven entrance for `.reveal` elements and `[data-stagger]` grids, extracted from `BaseLayout.astro` for testability — one-shot per element and flicker-safe for above-the-fold content — plus the sticky-nav `.is-scrolled` depth seam). All but the contact controller are presentational and reduced-motion gated. |
+| Components | `src/components/*.astro` | Markup rendering content data; components never carry their own text (it comes from `src/content/site.ts`). Layout primitives (`Section`, `SectionHead`, `Header`, `Footer`); the terminal system (`Terminal` chrome + `Transcript` [last-line cursor / typed / roll-middle styler] + `GateSteps` [rolling-rows styler] + `LedgerTable` / `ReviewBoard` / `OrchTree` bodies); sections (`Hero` / `HeroHeadline`, `FeatureTerminals`, `FeatureGrid` / `FeatureCard`, `TrustStrip`, `MicroCta`, `ContactForm`); login UI (`LoginCard`, `SsoAccordion`, `RequestedPanel`). Pages are pure composition of these. |
+| Pages | `src/pages/*.astro` | `index.astro` (composition), `login.astro` (onboarding sign-in: GitHub OAuth + enterprise-SSO request flow), `privacy.astro`. |
 
 ## Design
 
@@ -72,7 +72,12 @@ pages. Build order matters: web-ui first (it wipes `dist/`), landing second.
 
 ## Tests
 
-`npm test` (vitest, CI-run): Container-API render tests for the composed page and
-metadata (REQ-LANDING-001 AC4 + REQ-LANDING-003), the privacy no-storage
-disclosure (REQ-LANDING-002), and unit tests for the contact controller using an
-injected `fetch`. No JS framework ships to the browser.
+`npm test` (vitest, CI-run): behavioral component tests (Container-API render →
+parsed DOM, asserting structure and behaviour — caret placement, slot routing,
+row/column counts, variant wiring — never copy strings), structural oracles for
+the composed `index` / `login` pages and metadata (REQ-LANDING-001 AC4 +
+REQ-LANDING-003, REQ-AUTH-020), the privacy no-storage disclosure
+(REQ-LANDING-002), behavioral script tests under fake timers (`proof`,
+`feature-terminals`, `orch`, `reveal`, `scramble`, `agentfoot`, `login`), and unit
+tests for the contact controller using an injected `fetch`. No copy-string
+theater; no JS framework ships to the browser.

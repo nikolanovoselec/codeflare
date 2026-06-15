@@ -639,7 +639,8 @@ None.
 
 ---
 
-<!-- @test: landing/src/__tests__/login-page.test.ts (REQ-AUTH-020 describe -> Container render: GitHub sign-in href /auth/github/login + four enterprise SSO expand-to-CTA controls + ?status=requested confirmation state + robots noindex -> AC1,AC2,AC3) -->
+<!-- @test: landing/src/__tests__/login-page.test.ts (REQ-AUTH-020 structural oracle for the composed Header + LoginCard + SsoAccordion + RequestedPanel + Footer login page, rendered via the Container API -> GitHub is the single primary action: .login-github href equals LOGIN.github.href (/auth/github/login) with btn-primary -> AC1; one native exclusive <details name="sso"> per LOGIN.ssoProviders carrying its data-sso id, every SSO button a CTA deep-linking to LOGIN.sso.cta.href (#contact + topic=enterprise-deployment) with none pointing at a real /auth/ route -> AC2; the [data-login-requested] confirmation ships hidden while the [data-login-choices] sign-in choices ship visible, plus a hidden [data-login-error] slot and a parseable JSON #login-errors map carrying the known codes (no-verified-email, default) -> AC3; inherits the shared layout (the data-flare-fluid splash mount + the .login-back link equals LOGIN.back.href) + robots noindex,nofollow + no em/en dash in the rendered copy) -->
+<!-- @test: landing/src/__tests__/components.test.ts (REQ-AUTH-020 Header (one nav, two variants) describe -> variant=login renders only the .login-back link equal to LOGIN.back.href + the back arrow, no pillar .nav-links -> AC1 the login page reuses the shared landing nav chrome) -->
 <!-- @test: landing/src/__tests__/login.script.test.ts (REQ-AUTH-020 describe -> ?status / ?error param state handling reshapes the page -> AC3) -->
 <!-- @test: landing/src/__tests__/contact-controller.test.ts (contact-controller (REQ-LANDING-002) describe / pickDeepLinkTopic describe -> returns the enterprise-deployment topic from ?topic= and rejects crafted values -> REQ-AUTH-020 AC2) -->
 <!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 describe -> /login rewrite to /landing/login/ in onboarding mode + callback mode-aware redirect + access-request record + emails + sendAccessRequestConfirmation -> AC1,AC3,AC4) -->
@@ -657,6 +658,10 @@ None.
 <!-- @impl: src/routes/github-auth.ts -->
 <!-- @impl: src/lib/email.ts -->
 <!-- @impl: landing/src/components/ContactForm.astro -->
+<!-- @impl: landing/src/components/LoginCard.astro -->
+<!-- @impl: landing/src/components/SsoAccordion.astro -->
+<!-- @impl: landing/src/components/RequestedPanel.astro -->
+<!-- @impl: landing/src/components/Header.astro -->
 <!-- @impl: landing/src/scripts/contact-controller.ts -->
 <!-- @impl: src/lib/onboarding.ts::isSessionOidcMode -->
 <!-- @impl: src/lib/access.ts::validateSessionOidc -->

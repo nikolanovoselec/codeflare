@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
 ---
 
@@ -8,14 +9,7 @@ import Footer from '../components/Footer.astro';
   description="Privacy policy for codeflare.ch: what the contact form collects, how it is processed, and what is never stored."
   canonical="https://codeflare.ch/landing/privacy/"
 >
-  <nav class="site-nav">
-    <div class="container">
-      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"></span>codeflare</a>
-      <div class="nav-right">
-        <a class="btn btn-ghost btn-sm" href="/">Back to home</a>
-      </div>
-    </div>
-  </nav>
+  <Header variant="login" />
 
   <main>
     <article class="prose">

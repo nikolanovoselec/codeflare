@@ -141,10 +141,11 @@ describe('feature-terminals.ts (REQ-LANDING-001)', () => {
     expect(typed.textContent).toBe('initial');
   });
 
-  it('REQ-LANDING-001: a data-ft-once terminal (the hero) types through the run and rests on the final beat, no loop-back', async () => {
+  it('REQ-LANDING-001: a data-ft-once terminal (play-once mode) types through the run and rests on the final beat, no loop-back', async () => {
     const run = ['one', 'two', 'final'];
     const { typed } = buildFixture(run);
-    // The only difference from the looping feature tiles: the hero is play-once.
+    // The engine's play-once mode (no live terminal uses it now that the hero
+    // loops via data-ft-shuffle; this exercises the supported engine branch).
     (document.querySelector('[data-ft-loop]') as HTMLElement).setAttribute('data-ft-once', '');
     mockMatchMedia(false);
 
@@ -154,7 +155,7 @@ describe('feature-terminals.ts (REQ-LANDING-001)', () => {
     // throws on runaway timers); terminating at all is itself proof of no loop-back.
     vi.runAllTimers();
 
-    // The hero rests on the last beat, legible and final.
+    // Play-once rests on the last beat, legible and final.
     expect(typed.textContent).toBe('final');
   });
 
