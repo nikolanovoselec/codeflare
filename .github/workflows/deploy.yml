@@ -30,7 +30,6 @@ concurrency:
 
 permissions:
   contents: read
-  actions: write  # type=gha buildx cache writes to the Actions cache service
 
 jobs:
   deploy:
@@ -40,6 +39,9 @@ jobs:
        && github.event.workflow_run.conclusion == 'success'
        && github.event.workflow_run.event == 'push'
        && github.event.workflow_run.head_repository.full_name == github.repository)
+    permissions:
+      contents: read
+      actions: write  # type=gha buildx cache writes to the Actions cache service
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     # On workflow_run: only deploy when PR Checks ended green.
     # On workflow_dispatch (manual): always run; the inner production-
