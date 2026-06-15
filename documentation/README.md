@@ -1,6 +1,6 @@
 # Codeflare Documentation
 
-Operator and developer reference for Codeflare - an ephemeral cloud IDE that runs AI coding agents in isolated containers on Cloudflare's edge.
+Operator and developer reference for Codeflare - an enterprise agentic coding engine that runs autonomous AI agents in isolated containers on Cloudflare's edge.
 
 This documentation is organized into **lanes** - each file targets a specific audience (operator, developer, or security) and covers one operational slice of the system. Facts live in one place and are cross-referenced elsewhere. When documentation implements a specification requirement, the file links back to the relevant REQ in `sdd/` via anchor references.
 

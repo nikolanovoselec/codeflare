@@ -153,7 +153,7 @@ const OnboardingLanding: Component = () => {
 
           <div class="onboarding-card-content">
             <p class="onboarding-lead">
-              Join the waitlist for access to an isolated, ephemeral cloud development environment.
+              Join the waitlist for access to the enterprise agentic coding engine.
             </p>
 
             <form onSubmit={handleSubmit} autocomplete="off">

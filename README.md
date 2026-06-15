@@ -2,12 +2,12 @@
 
 ![Codeflare](documentation/images/login-hero.png)
 
-An ephemeral IDE where AI coding agents reach their full potential. Fully autonomous, no boundaries, zero risk. Every session runs in an isolated container on Cloudflare's edge. Your files persist. Your bad decisions don't.
+**The enterprise agentic coding engine.** This is not a coding assistant. Codeflare runs autonomous coding agents inside your own cloud, where every change is backed by a spec, proven by tests, documented, and handed to your team as a pull request to merge.
 
-It runs wherever you happen to find yourself — on the Cloudflare edge that spans the planet, accessible from anything with a browser. Because the best commits in history were made from places without desks.
+The engineer specifies, steers, and judges; the agents do everything else — build, review, test, and ship — subject to your git, your CI, and your zero-trust boundary. Spec-driven and test-driven development run as enforced, self-healing loops, so drift is caught as a blocking finding instead of shipping. Every model call is inspected and every token of spend is attributed.
 
 ![Codeflare on a foldable tablet](documentation/images/mobile-foldable.jpg)
-*Ideas don't care where you are. Any screen with a browser, zero setup. Open the link and start building.*
+*One governed run, from intent to merge — reachable from any screen with a browser, zero setup.*
 
 **Try it:** [codeflare.ch](https://codeflare.ch)
 
@@ -56,7 +56,7 @@ Cloudflare Containers run as root, and both Claude Code and Antigravity launch w
 ![Dashboard](documentation/images/dashboard.png)
 *Manage sessions, browse persistent storage, and monitor live resource usage — all from one view.*
 
-**Built for Cloudflare — not adapted, not ported.**
+**Native integrations, wired in — not bolted on.**
 
 - **Native GitHub integration** — connect once. Every session gets automatic `git push`, `gh` CLI, and CI/CD access. No SSH keys, no per-session auth.
 - **Native Cloudflare integration** — connect once. Deploy Workers and manage D1, R2, KV, and DNS from the terminal, already authenticated.

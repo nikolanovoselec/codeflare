@@ -126,8 +126,8 @@ const LoginPage: Component = () => {
         </h1>
 
         <p class="login-subtitle">
-          An ephemeral IDE where AI coding agents reach their full potential.
-          Fully autonomous. No boundaries. Zero risk.
+          The enterprise agentic coding engine. Autonomous agents build,
+          review, test, and ship inside your own cloud boundary.
         </p>
 
         {/* Feature highlights */}
