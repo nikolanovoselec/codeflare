@@ -292,8 +292,8 @@ export function injectVaultBootScript(html: string, config: VaultBootConfig): st
  * a derivation that may drift.
  */
 export const VAULT_IDB_RECORDER_MARKER = '/*codeflare-vault-idb-recorder*/';
-export const VAULT_PREWARM_QUERY = 'codeflarePrewarm';
-export const VAULT_PREWARM_ID_QUERY = 'prewarmId';
+const VAULT_PREWARM_QUERY = 'codeflarePrewarm';
+const VAULT_PREWARM_ID_QUERY = 'prewarmId';
 export const VAULT_PREWARM_BRIDGE_MARKER = 'data-codeflare-vault-prewarm-bridge';
 
 export function injectVaultIdbRecorder(html: string): string {
