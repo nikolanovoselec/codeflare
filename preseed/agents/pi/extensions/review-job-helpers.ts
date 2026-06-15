@@ -255,8 +255,11 @@ export type AnnouncementReconcileDecision = "visible" | "failed" | "keep";
 // escalating; once older than maxAgeMs it becomes `failed` so the documented /review-results fallback
 // stays reachable and nothing is acked-and-lost. The AUTOFIX announcement is deliberately EXEMPT: it
 // defers off-turn (no live session) without burning an attempt, so aging it would mark it `failed` at
-// attempts:0 — expiring the fix turn before it ever fired. Autofix fails only via the attempt cap
-// above (after genuinely attempting delivery maxAttempts times), never on age alone. Keyed on
+// attempts:0 — expiring the fix turn before it ever fired. An undelivered autofix instead reaches a
+// terminal state via head-supersede (a newer push retires the stale head via abandonReviewAnnouncements),
+// or via the attempt cap above while still claimable and a send keeps erroring — never on age alone.
+// (Once the one-shot autofix.requested marker is claimed, claim() returns false so the record can no
+// longer re-fire to accrue attempts; head-supersede is then its only terminal path.) Keyed on
 // createdAt, so the summary backstop is independent of the attempt counter and never penalises a
 // normal in-flight retry.
 export function announcementReconcileDecision(input: AnnouncementReconcileInput): AnnouncementReconcileDecision {
