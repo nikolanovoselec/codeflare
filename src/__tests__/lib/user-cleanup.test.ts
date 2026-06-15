@@ -343,4 +343,37 @@ describe('cleanupUserData', () => {
     // Token API deletion should still have succeeded
     expect(result.tokenDeleted).toBe(true);
   });
+
+  // REQ-GITHUB-005: offboarding revokes the user's GitHub token AT GitHub (same
+  // revoke+clear as POST /api/github/disconnect), not just a local KV delete.
+  it('REQ-GITHUB-005: revokes the GitHub token at GitHub, then deletes the deploy-keys entry', async () => {
+    mockKV._store.set('setup:account_id', 'test-account-id');
+    // A connected GitHub token (app source) lives in the deploy-keys entry.
+    // Stored plaintext — no ENCRYPTION_KEY in the test env (getAndDecrypt reads it back).
+    mockKV._set(`deploy-keys:${bucketName}`, { githubToken: 'gho_secret', githubTokenSource: 'app' });
+
+    const env = createEnv({ GITHUB_APP_CLIENT_ID: 'app-cid', GITHUB_APP_CLIENT_SECRET: 'app-sec' } as Partial<Env>);
+    await cleanupUserData(email, env);
+
+    // The GitHub token-revoke endpoint (DELETE /applications/{clientId}/token) was hit.
+    const revokeCall = mockFetch.mock.calls.find(
+      (c) => typeof c[0] === 'string' && (c[0] as string).includes('/applications/app-cid/token'),
+    );
+    expect(revokeCall).toBeDefined();
+    expect((revokeCall![1] as RequestInit).method).toBe('DELETE');
+    // The deploy-keys entry holding the token is removed.
+    expect(mockKV.delete).toHaveBeenCalledWith(`deploy-keys:${bucketName}`);
+  });
+
+  it('REQ-GITHUB-005: makes no GitHub revoke call when the user never connected GitHub', async () => {
+    mockKV._store.set('setup:account_id', 'test-account-id');
+    const env = createEnv({ GITHUB_APP_CLIENT_ID: 'app-cid', GITHUB_APP_CLIENT_SECRET: 'app-sec' } as Partial<Env>);
+
+    await cleanupUserData(email, env);
+
+    const revokeCall = mockFetch.mock.calls.find(
+      (c) => typeof c[0] === 'string' && (c[0] as string).includes('/applications/'),
+    );
+    expect(revokeCall).toBeUndefined();
+  });
 });

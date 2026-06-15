@@ -164,7 +164,11 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 ### REQ-GITHUB-005: Disconnect and offboarding revocation
 
 <!-- @impl: src/lib/github-token.ts::disconnectGithub -->
-<!-- @impl: src/lib/user-cleanup.ts -->
+<!-- @impl: src/lib/user-cleanup.ts::cleanupUserData -->
+<!-- @impl: src/routes/github.ts -->
+<!-- @test: src/__tests__/routes/github.test.ts (POST /disconnect revoke+clear -> AC1) -->
+<!-- @test: src/__tests__/lib/github-token.test.ts (disconnectGithub revoke vs pat -> AC1,AC2) -->
+<!-- @test: src/__tests__/lib/user-cleanup.test.ts (offboarding revokes at GitHub -> AC3) -->
 **Intent:** Disconnecting (or offboarding) revokes and removes the user's GitHub token.
 
 **Applies To:** User
@@ -173,13 +177,13 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 1. `POST /api/github/disconnect` revokes the token at GitHub (App/OAuth sources) and clears the github fields from the deploy-keys entry, removing the entry entirely when nothing else remains. <!-- @impl: src/lib/github-token.ts::disconnectGithub -->
 2. A manually-pasted PAT is cleared but not sent to the GitHub revoke endpoint.
-3. User offboarding revokes and clears the GitHub token on the same cleanup path as the scoped R2 token. <!-- @impl: src/lib/user-cleanup.ts -->
+3. User offboarding revokes and clears the GitHub token on the same cleanup path as the scoped R2 token. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData -->
 
 **Priority:** P1
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)
 
-**Verification:** [Unit test](../../src/__tests__/lib/github-token.test.ts) (disconnectGithub) — offboarding path planned
+**Verification:** [Unit test](../../src/__tests__/lib/github-token.test.ts) (disconnectGithub) + [offboarding revoke](../../src/__tests__/lib/user-cleanup.test.ts)
 
 **Status:** Planned
 
