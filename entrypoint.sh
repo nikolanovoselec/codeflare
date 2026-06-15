@@ -1674,7 +1674,7 @@ warm_pi_npm_dependencies() {
 const fs = require('fs');
 const path = process.argv[2];
 const required = [
-  'npm:@gotgenes/pi-subagents@15.0.1',
+  'npm:@gotgenes/pi-subagents@16.2.1',
   // context-mode is now enabled by default for Pi (was disabled): its ctx_* tools
   // and the bash-curl-redirect hook are active without an explicit `/ctx on`.
   'npm:context-mode@1.0.162',

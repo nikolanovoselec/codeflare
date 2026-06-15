@@ -2,7 +2,7 @@
   "name": "codeflare-pi-preseed",
   "private": true,
   "dependencies": {
-    "@gotgenes/pi-subagents": "15.0.1",
+    "@gotgenes/pi-subagents": "16.2.1",
     "@juicesharp/rpiv-advisor": "1.19.1",
     "@juicesharp/rpiv-ask-user-question": "1.19.1",
     "@juicesharp/rpiv-todo": "1.19.1",
