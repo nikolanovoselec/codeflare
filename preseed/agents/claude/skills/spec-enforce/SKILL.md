@@ -54,13 +54,16 @@ Audit location by trigger: `/sdd clean` writes to the per-category commit bodies
 | CQ-TEST — Test-anchor coverage | Invoke `spec-enforce-truth` if `enforce_tdd: true` AND (Implemented REQs touched OR scope=all). | `ran (N REQs, M findings)` or `inert (enforce_tdd: false)` |
 | CQ-SOURCE — Source-anchor truth-check | During `/sdd init`: consume both the Phase 7a verifier JSON (`.verify-anchors.json`) AND the Phase 7b enumeration-coverage verifier JSON (`.phase-7b.json`). The Phase 7a output drives anchor-orphaned / value-drift findings; the Phase 7b output drives `phase-7b-evidence-missing` / `import-mode-narrowed-scope` findings (a Phase 7b `unaccounted > 0` reported in the `[sdd-init]` commit body is itself a CRITICAL spec-side finding). Outside `/sdd init`: invoke `spec-enforce-truth` UNCONDITIONALLY when any Implemented or Partial REQ in diff OR scope=all. Never gated by `enforce_tdd`. Agent self-attestation without verifier output = CRITICAL `phase-7a-self-attestation` / `phase-7b-self-attestation` (see `sdd-init/SKILL.md` steps 7 and 8). When reading the most recent `[sdd-init]` commit body to verify the bulk-op actually ran, both the Phase 7a line (`Phase 7a verifier: parsed=...`) AND the Phase 7b line (`Phase 7b enum verifier: enumerated=...`) MUST be present; either line missing = CRITICAL `phase-7a-evidence-missing` / `phase-7b-evidence-missing`. | `ran (N REQs, A anchors verified, V drift, O orphaned, U unanchored)` |
 | CQ-1, CQ-2, CQ-3 | Invoke `spec-enforce-truth`. | `ran (...)` or `inert` |
+| Index integrity (README ↔ filesystem) | Run the mandated command in § Index integrity; every tracked file under `sdd/spec/` (flat: `sdd/*.md`) must be indexed in `sdd/README.md`, REQ-bearing files in the Domains table, support files in a Support section. Non-empty output = finding. Eyeballing the index is forbidden — the command is the check. | `ran (F files, M unindexed/misclassified)` |
+| REQ dependency acyclicity | Run the mandated cycle detector in § REQ dependency acyclicity over every `**Dependencies:**` field; any cycle = HIGH finding. | `ran (N REQs, E edges, C cycles)` |
+| Queue hygiene (live queue, not history log) | Run the mandated command in § Queue hygiene; resolved/dated-historical content in `sdd/spec/.review-queue.md` (flat: `sdd/.review-needed.md`) = finding — resolved findings are removed, not archived. | `ran (Q lines, M findings)` |
 | Backlog re-triage | Walk every open finding in the layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy); re-classify under current rules; auto-fix what is now mechanisable. | `ran (B items, R re-triaged, F auto-fixed, S still-escalated)` |
 | Commit-prefix + 5-round limit | Check last 6 commits; halt if 5+ counted-tag commits in lane. | `ran (6 commits inspected, M findings)` |
 
 ## Orchestration logic
 
 1. **Parse diff.** Identify: changed REQs, changed files, changed AC bullets, REQ ID set in diff, Status field changes, `sdd/changes.md` deltas.
-2. **Always-runs rows** (the 10 inline rows in the manifest above — Forbidden content, Status field semantics, REQ rendering, REQ length, Changelog drift, the three Meta-content leakage rules, Backlog re-triage, Commit-prefix + 5-round limit): execute inline. Each row updates its manifest status to `ran (N REQs, M findings)` immediately on completion. The remaining 10 rows invoke `spec-enforce-ac` (7 rows: AC granularity, per-AC verbosity + Constraints conciseness, actor coherence, sub-bullets, cross-cutting, concern-boundary, mechanism leakage) or `spec-enforce-truth` (3 rows: CQ-TEST, CQ-SOURCE, CQ-1/2/3) per the conditional rules below.
+2. **Always-runs rows** (the 13 inline rows in the manifest above — Forbidden content, Status field semantics, REQ rendering, REQ length, Changelog drift, the three Meta-content leakage rules, Index integrity, REQ dependency acyclicity, Queue hygiene, Backlog re-triage, Commit-prefix + 5-round limit): execute inline. Each row updates its manifest status to `ran (N REQs, M findings)` immediately on completion. The three structural-integrity rows (Index integrity, REQ dependency acyclicity, Queue hygiene) are mandated *commands*, not judgments — run the command verbatim and treat its output as the finding set; never substitute an at-a-glance read. The remaining 10 rows invoke `spec-enforce-ac` (7 rows: AC granularity, per-AC verbosity + Constraints conciseness, actor coherence, sub-bullets, cross-cutting, concern-boundary, mechanism leakage) or `spec-enforce-truth` (3 rows: CQ-TEST, CQ-SOURCE, CQ-1/2/3) per the conditional rules below.
 3. **Conditional invocations**:
    - IF any AC bullet line changed in diff OR any `**Constraints:**` bullet changed in diff OR scope=all: invoke `spec-enforce-ac` skill with the diff + scope + mode. (Constraints bullets are included so the Constraints-conciseness rule fires on a diff that touches only Constraints; a touched REQ gets its ACs AND Constraints checked.)
    - IF any REQ with `Status: Implemented` or `Status: Partial` is in the diff, OR any path matched by `src_globs` (from the layout-resolved config; default defined in `spec-enforce-truth/SKILL.md` § Inputs) is in the diff, OR scope=all: invoke `spec-enforce-truth` skill with the diff + scope + mode. Source-touching diffs trigger invocation because source changes can orphan existing `@impl` anchors in unchanged REQs — CQ-SOURCE must re-validate. Partial REQs are included because they may carry source anchors that can drift, and CQ-SOURCE must run wherever an anchor exists (Truth guarantee is never gated). The skill itself decides per-pass which REQs each pass applies to (CQ-TEST only fires on Implemented when `enforce_tdd: true`; CQ-SOURCE fires on every REQ whose `@impl` anchors target the changed source OR every Implemented/Partial REQ on `scope=all`).
@@ -215,6 +218,81 @@ Forbidden patterns in preamble:
 - Self-referential framing co-occurring with above
 
 Severity: LOW `preamble-edit-history-leakage`. Auto-fix in `unleashed`: delete offending paragraph(s). Structural-change descriptions go as a single consolidated dated entry to `sdd/changes.md`.
+
+## Index integrity
+
+The ai-news-digest incident: an agent eyeballed the root README, saw links that resolved, and called it clean — while six support files and one REQ-bearing domain were missing from the index. A link-valid README can still be semantically wrong. So this is a **mandated command, not a judgment**. Run it; non-empty output is the finding set.
+
+Nested layout:
+
+```bash
+# (1) every tracked file under sdd/spec/ must be named somewhere in sdd/README.md
+for f in sdd/spec/*; do b=$(basename "$f"); grep -q "$b" sdd/README.md || echo "UNINDEXED: $b"; done
+# (2) classification: a file carrying '### REQ-' is a domain (belongs in the Domains table);
+#     a file without it is a support file (belongs in a Support section). List the domains:
+grep -l '^### REQ-' sdd/spec/*.md
+# (3) no dangling link: every *.md the README points at must exist
+grep -oE '\]\(([^)]+\.md)\)' sdd/README.md | sed -E 's/^\]\(|\)$//g' \
+  | while read -r l; do [ -f "sdd/$l" ] || [ -f "$l" ] || echo "DANGLING: $l"; done
+```
+
+Flat layout: replace `sdd/spec/*` with `sdd/*.md` excluding `sdd/README.md`. The doc-side equivalent (`documentation/lanes/` ↔ `documentation/README.md`) runs in `doc-enforce`.
+
+Findings:
+- Each `UNINDEXED:` line = MEDIUM `index-unindexed-file`.
+- A REQ-bearing file (matched by check 2) absent from the README Domains table = MEDIUM `index-domain-misclassified`; a non-REQ file listed *as* a domain = same.
+- Each `DANGLING:` line = MEDIUM `index-dangling-link`.
+
+Auto-fix in `auto`/`unleashed`: add each missing file to the README — REQ-bearing files to the Domains table, support files to a `## Support files` section — deriving the description from the file's own H1 / first line, never inventing one. Remove dangling links to deleted files. Interactive prompts before each README edit. If a file's role is genuinely ambiguous (no `### REQ-` but clearly a domain), escalate rather than guess its table.
+
+## REQ dependency acyclicity
+
+Dependency cycles hide in prose and "survive until a human notices." An agent cannot reliably trace cycles across hundreds of REQs by reading — so this is a mandated computation (text-only; runs in-process, not a build). Run it verbatim:
+
+```bash
+python3 - <<'PY'
+import re, glob
+files = sorted(glob.glob('sdd/spec/*.md')) or [f for f in sorted(glob.glob('sdd/*.md')) if not f.endswith('README.md')]
+edges, cur = {}, None
+for fn in files:
+    for ln in open(fn):
+        m = re.match(r'###\s+(REQ-[A-Z]+-\d+)', ln)
+        if m: cur = m.group(1)
+        elif cur and ln.startswith('**Dependencies:**'):
+            edges.setdefault(cur, []).extend(re.findall(r'REQ-[A-Z]+-\d+', ln))
+color, seen = {}, set()
+def dfs(u, st):
+    color[u] = 1; st.append(u)
+    for v in edges.get(u, []):
+        if color.get(v) == 1:
+            cyc = st[st.index(v):] + [v]
+            if frozenset(cyc) not in seen:
+                seen.add(frozenset(cyc)); print('CYCLE:', ' -> '.join(cyc))
+        elif color.get(v) is None and v in edges:
+            dfs(v, st)
+    st.pop(); color[u] = 2
+for n in list(edges):
+    if color.get(n) is None: dfs(n, [])
+print(f'REQs={len(edges)} edges={sum(len(v) for v in edges.values())} cycles={len(seen)}')
+PY
+```
+
+Each `CYCLE:` line = HIGH `req-dependency-cycle`. **Never auto-edit a dependency edge** — which edge to break is semantic. Disposition is always `escalated -> .review-queue.md` with the full cycle path and the recommended break (keep child→parent/core, drop parent→child/extension; a UI-surface REQ may depend on its endpoint contract or the endpoint on auth/core policy, but not both ways). The Status line reports `cycles=N` from the script's last line.
+
+## Queue hygiene
+
+`sdd/spec/.review-queue.md` (flat: `sdd/.review-needed.md`) is a **live queue**, not a history log. Resolved findings are removed; historical audit lives in changelog/ADR/commit bodies. Run:
+
+```bash
+# case-SENSITIVE: rot markers are uppercase RESOLVED/CLOSED/FIXED, dated section
+# headers, or a "## Resolved"/"## Archive" section — NOT the lowercase word "resolved"
+# in an open finding's prose (a -i flag here false-positives on clean queues).
+grep -nE '✅|^#+ +(Resolved|Closed|Archive)\b|^#+ +20[0-9]{2}-|\b(RESOLVED|CLOSED|FIXED)\b' \
+  sdd/spec/.review-queue.md
+wc -l sdd/spec/.review-queue.md
+```
+
+Any match = MEDIUM `queue-history-leak`. Auto-fix in `auto`/`unleashed`: delete resolved/closed entries and dated historical sections, leaving only genuinely-open findings — or the empty sentinel `No open findings.` when none remain. Genuinely-open findings (no resolved marker) are preserved verbatim. Interactive prompts before trimming. The empty-slot scaffold (`_Awaiting first finding._`) does not match and is not a finding.
 
 ## Backlog re-triage
 
