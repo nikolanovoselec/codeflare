@@ -159,7 +159,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)
+**Dependencies:** None.
 
 **Verification:** [Automated test](../../src/__tests__/lib/session-mode.test.ts)
 
@@ -736,7 +736,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-034](#req-agent-034-sdd-init-enrichment-pass-with-graphify), [REQ-AGENT-035](#req-agent-035-sdd-init-phase-7a-source-anchor-verifier-gate), [REQ-AGENT-039](#req-agent-039-sdd-init-phase-7b-enumeration-coverage-verifier-gate)
+**Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
 
 **Verification:** [Automated test](../../host/__tests__/skill-sdd-init-contract.test.js)
 

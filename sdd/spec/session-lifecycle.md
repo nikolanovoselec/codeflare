@@ -567,7 +567,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-SESSION-014](#req-session-014-user-configurable-auto-sleep-timeout-in-settings) (preferences flow), [REQ-MEM-010](memory.md#req-mem-010-memory-capture-hook-plumbing) AC4 (the capture pipeline consumes the resulting env var)
+**Dependencies:** [REQ-SESSION-014](#req-session-014-user-configurable-auto-sleep-timeout-in-settings) (preferences flow)
 
 **Verification:** [Automated test](../../src/__tests__/routes/preferences.test.ts)
 
