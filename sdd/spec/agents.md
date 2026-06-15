@@ -1664,9 +1664,11 @@ None.
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py -->
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh -->
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/safe-graphify-update.sh -->
+<!-- @impl: preseed/agents/claude/plugins/graphify/scripts/local-graphify-labels.sh -->
 <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh -->
 <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh -->
 <!-- @impl: preseed/agents/pi/scripts/safe-graphify-update.sh -->
+<!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh -->
 <!-- @impl: preseed/agents/pi/extensions/graphify-native.ts -->
 <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
 <!-- @impl: Dockerfile -->
