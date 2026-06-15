@@ -4,6 +4,11 @@ import type { AgentType } from '../../types';
 import { sessionStore } from '../../stores/session';
 import { AGENT_OPTIONS, ENTERPRISE_AGENT_TYPES } from '../CreateSessionDialog';
 
+interface ClonePickerNewSessionProps {
+  disabled: boolean;
+  onSelect: (agentType: AgentType) => void;
+}
+
 // "Clone into a new session" group: reuses the canonical AGENT_OPTIONS catalog
 // (the same agent-type chooser the dashboard New Session dialog renders).
 // Selecting an agent creates a new session that clones the target repo at start.
