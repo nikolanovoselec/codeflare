@@ -290,7 +290,7 @@ You can adjust scopes anytime from your [GitHub token settings](https://github.c
 
 - **GitHub Copilot** requires the Advanced tier. The `user_copilot_requests: read` account scope is needed for the Copilot CLI to authenticate.
 - Fine-grained PATs expire after 90 days by default. You can change the expiration during creation.
-- You can scope tokens to specific repositories or all repositories. For a cloud IDE, "All repositories" is typical since you may create new repos from sessions.
+- You can scope tokens to specific repositories or all repositories. For Codeflare, "All repositories" is typical since agents may create new repositories from within a session.
 
 ---
 

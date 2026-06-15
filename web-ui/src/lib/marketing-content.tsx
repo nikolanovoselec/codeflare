@@ -19,5 +19,5 @@ export const FEATURES: Array<{ icon: string; content: () => JSX.Element }> = [
   { icon: mdiCellphoneScreenshot, content: () => <>Containers self-destruct when done</> },
   { icon: mdiCloudLockOutline, content: () => <>Encrypted in transit and at rest</> },
   { icon: mdiRocketLaunchOutline, content: () => <>Idea to deployment in minutes</> },
-  { icon: mdiCellphoneLink, content: () => <>Files persist. Bad decisions don't.</> },
+  { icon: mdiCellphoneLink, content: () => <>Files persist across sessions.</> },
 ];
