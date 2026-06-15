@@ -92,6 +92,12 @@ describe('reveal.ts (REQ-LANDING-001)', () => {
     const observed = inViewCalls.map((c) => c.el);
     expect(observed).toContain(below);
     expect(observed).not.toContain(above);
+
+    // The scroll-in flash fix: the below-fold target is hidden up front (at setup,
+    // while still off-screen) so it never paints at full opacity and then snaps to
+    // 0 when armed. The above-fold one is left visible (it plays no entrance).
+    expect(below.style.opacity).toBe('0');
+    expect(above.style.opacity).toBe('');
   });
 
   it('animates a below-the-fold element only once it scrolls into view, and never the above-the-fold one', async () => {
@@ -108,6 +114,10 @@ describe('reveal.ts (REQ-LANDING-001)', () => {
 
     // Nothing animated yet: the reveal fires from inView's callback, not at import.
     expect(animateCalls).toHaveLength(0);
+    // But the below-fold element is already hidden (pre-hidden at setup), so when
+    // it scrolls in it fades up from hidden rather than flashing visible-then-0.
+    expect(below.style.opacity).toBe('0');
+    expect(above.style.opacity).toBe('');
 
     // Simulate the below-fold element scrolling into view.
     const entry = inViewCalls.find((c) => c.el === below);
@@ -143,14 +153,18 @@ describe('reveal.ts (REQ-LANDING-001)', () => {
     mockMatchMedia(false);
     await import('../scripts/reveal');
 
+    // Children are hidden up front, at setup (before the grid is in view), so they
+    // never paint at their final position and then snap hidden — the flash fix.
+    // (Reverting the pre-hide back into the callback fails here.)
+    expect(a.style.opacity).toBe('0');
+    expect(b.style.opacity).toBe('0');
+
     const entry = inViewCalls.find((c) => c.el === grid);
     expect(entry).toBeDefined();
     entry!.cb();
 
-    // Each child is animated in (the stagger), and hidden synchronously first so
-    // there is no flash of the final position.
+    // Each child is then animated in (the cascade).
     expect(animateCalls).toContain(a);
     expect(animateCalls).toContain(b);
-    expect(a.style.opacity).toBe('0');
   });
 });

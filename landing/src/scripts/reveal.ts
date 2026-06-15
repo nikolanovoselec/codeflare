@@ -40,6 +40,11 @@ if (!prefersReduced && 'IntersectionObserver' in window) {
       revealed.add(el);
       continue;
     }
+    // Hide below-the-fold targets up front, while they are still off-screen, so
+    // they never paint at full opacity and then snap to 0 when armed. That snap,
+    // visible because inView fires only once the element is already on screen, is
+    // the scroll-in flash; from this hidden state they fade up cleanly on entry.
+    el.style.opacity = '0';
     const stop = inView(
       el,
       () => {
@@ -65,12 +70,15 @@ if (!prefersReduced && 'IntersectionObserver' in window) {
       continue;
     }
     const items = Array.from(grid.children) as HTMLElement[];
+    // Pre-hide the children up front for the same reason as .reveal above: hiding
+    // them inside the callback ran after they had already painted on entry, which
+    // flashed. Off-screen now, they cascade up from hidden when the grid enters.
+    for (const item of items) item.style.opacity = '0';
     const stop = inView(
       grid,
       () => {
         if (revealed.has(grid)) return;
         revealed.add(grid);
-        for (const item of items) item.style.opacity = '0';
         items.forEach((item, i) => {
           animate(
             item,

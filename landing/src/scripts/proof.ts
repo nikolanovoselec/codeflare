@@ -102,7 +102,12 @@ if (reduced) {
     startRoll(el);
   }
 } else {
-  // Arms the one-shot reveal the first time an artifact scrolls in.
+  // Arms the one-shot reveal just BEFORE an artifact scrolls in (positive bottom
+  // rootMargin), not after. The row keyframes are backwards-filled: adding
+  // .is-live snaps the resolved rows to their hidden 'from' state, then animates
+  // them in. If that snap lands while the artifact is already on screen it reads
+  // as a flash, so arming ~100px ahead keeps the hidden start off-screen and the
+  // rows animate in as the artifact arrives.
   const armObserver = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
@@ -113,7 +118,7 @@ if (reduced) {
         }
       }
     },
-    { rootMargin: '-80px 0px -80px 0px' }
+    { rootMargin: '0px 0px 100px 0px' }
   );
 
   // Tracks on-screen state so the roll loop pauses when the artifact leaves view.
