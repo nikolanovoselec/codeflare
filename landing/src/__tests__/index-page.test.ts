@@ -126,14 +126,18 @@ describe('feature terminals (the shift)', () => {
   });
 });
 
-describe('proof terminals animate with a blinking cursor (#32)', () => {
-  it('every proof transcript ends with exactly one caret, on the last line', () => {
+describe('proof terminals type their last line in on view (#32)', () => {
+  it('every proof transcript ends with one caret and a [data-typeline] last line', () => {
     const proofs = body.querySelectorAll('.proof-terminal');
     expect(proofs).toHaveLength(3); // legacy + context web + context e2e
     for (const p of Array.from(proofs)) {
       const lines = p.querySelectorAll('.terminal-body .t-line');
       expect(p.querySelectorAll('.terminal-body .t-caret')).toHaveLength(1);
-      expect(lines[lines.length - 1].querySelector('.t-caret')).not.toBeNull();
+      const last = lines[lines.length - 1];
+      expect(last.querySelector('.t-caret')).not.toBeNull();
+      // The last line's text is wrapped for type-on-view.ts; no earlier line is.
+      expect(p.querySelectorAll('.terminal-body [data-typeline]')).toHaveLength(1);
+      expect(last.querySelector('[data-typeline]')).not.toBeNull();
     }
   });
 });

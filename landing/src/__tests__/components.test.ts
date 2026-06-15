@@ -32,13 +32,18 @@ const LINES: TranscriptLine[] = [
 ];
 
 describe('Transcript (styler 1: last line + scrolling cursor)', () => {
-  it("animate='cursor' puts exactly one blinking caret, on the last line only", async () => {
+  it("animate='cursor' puts one caret on the last line and wraps that line for type-on-view", async () => {
     const body = dom(await container.renderToString(Transcript, { props: { lines: LINES, animate: 'cursor' } })).querySelector('.terminal-body')!;
     const tlines = body.querySelectorAll('.t-line');
     expect(tlines).toHaveLength(LINES.length);
     expect(body.querySelectorAll('.t-caret')).toHaveLength(1);
     expect(tlines[tlines.length - 1].querySelector('.t-caret')).not.toBeNull();
     expect(tlines[0].querySelector('.t-caret')).toBeNull();
+    // Only the last line is marked [data-typeline] (type-on-view.ts's hook); it
+    // carries the full line text so no-JS / reduced motion shows the resolved line.
+    expect(body.querySelectorAll('[data-typeline]')).toHaveLength(1);
+    expect(tlines[tlines.length - 1].querySelector('[data-typeline]')?.textContent).toBe(LINES[LINES.length - 1].text);
+    expect(tlines[0].querySelector('[data-typeline]')).toBeNull();
     expect(body.querySelector('.ft-typed')).toBeNull();
     expect(body.querySelector('[data-roll]')).toBeNull();
   });
@@ -53,6 +58,8 @@ describe('Transcript (styler 1: last line + scrolling cursor)', () => {
     expect(typedLine.querySelector('.t-caret')).not.toBeNull();
     // The transcript lines themselves carry no caret in typed mode.
     expect(tlines[0].querySelector('.t-caret')).toBeNull();
+    // Type-on-view is cursor-mode only; the typed reel uses its own .ft-typed line.
+    expect(body.querySelector('[data-typeline]')).toBeNull();
   });
 
   it("animate='roll-middle' pins the first and last line and rolls only the middle", async () => {
@@ -65,6 +72,7 @@ describe('Transcript (styler 1: last line + scrolling cursor)', () => {
     expect(pinned[0].textContent).toContain(LINES[0].text);
     expect(pinned[1].textContent).toContain(LINES[LINES.length - 1].text);
     expect(body.querySelector('.t-caret')).toBeNull();
+    expect(body.querySelector('[data-typeline]')).toBeNull();
   });
 
   it("default animate='static' renders plain lines with no caret, roll, or typed line", async () => {
@@ -73,6 +81,7 @@ describe('Transcript (styler 1: last line + scrolling cursor)', () => {
     expect(body.querySelector('.t-caret')).toBeNull();
     expect(body.querySelector('[data-roll]')).toBeNull();
     expect(body.querySelector('.ft-typed')).toBeNull();
+    expect(body.querySelector('[data-typeline]')).toBeNull();
   });
 });
 

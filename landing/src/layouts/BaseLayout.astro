@@ -111,6 +111,12 @@ const structuredData = {
       import '../scripts/feature-terminals';
     </script>
     <script>
+      // Proof-terminal last line (cursor mode): types the final transcript line in
+      // when the terminal scrolls into view, then rests on it (reduced-motion safe;
+      // the full server-rendered line stands otherwise).
+      import '../scripts/type-on-view';
+    </script>
+    <script>
       // Page-wide flare-fluid signature (WebGL; desktop pointers only, reduced-motion safe).
       import '../scripts/splash';
     </script>
