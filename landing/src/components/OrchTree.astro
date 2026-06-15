@@ -1,0 +1,34 @@
+---
+/**
+ * OrchTree: the operator's live "Running N agents" view of the same review, an
+ * agent tree whose tool-use / token counters and current-activity lines tick in
+ * the browser (orch.ts, armed by data-orch). Wraps the shared <Terminal> chrome;
+ * the body is the box-drawing tree. data-proof reveals the lines once on
+ * scroll-in; the resolved counters + first activity stand with no JS. Content
+ * comes from ORCHESTRATION + SPINE in site.ts.
+ */
+import Terminal from './Terminal.astro';
+import { ORCHESTRATION, SPINE } from '../content/site';
+---
+
+<Terminal variant="orch" orch foot={ORCHESTRATION.foot}>
+  <Fragment slot="bar">
+    <span class="board-pr-id">{SPINE.pr} · {SPINE.service}</span>
+    <span class="board-pr-trigger">live</span>
+  </Fragment>
+  <div class="terminal-body">
+    <span class="t-line orch-head"><span class="orch-dot" aria-hidden="true">●</span> {ORCHESTRATION.header}… <span class="orch-hint">({ORCHESTRATION.hint})</span></span>
+    {
+      ORCHESTRATION.agents.map((agent, i) => {
+        const last = i === ORCHESTRATION.agents.length - 1;
+        return (
+          <Fragment>
+            <span class="t-line orch-agent-line" data-orch-agent data-activities={JSON.stringify(agent.activities)}><span class="orch-branch" aria-hidden="true">{last ? '└ ' : '├ '}</span><span class="orch-agent">{agent.agent}</span><span class="orch-meta"> ({agent.task}) · <span data-orch-tooluses>{agent.toolUses}</span> tool uses · <span data-orch-tokens>{agent.tokens.toFixed(1)}</span>k tokens</span></span>
+            <span class="t-line orch-sub"><span class="orch-branch" aria-hidden="true">{last ? '  └ ' : '│ └ '}</span><span data-orch-activity>{agent.activities[0]}</span></span>
+          </Fragment>
+        );
+      })
+    }
+    <span class="t-line orch-hint">({ORCHESTRATION.footHint})</span>
+  </div>
+</Terminal>

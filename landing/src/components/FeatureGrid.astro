@@ -1,0 +1,20 @@
+---
+/**
+ * FeatureGrid: the hairline-separated term/definition grid (2 or 3 columns) used
+ * under the boundary, cost, and platform terminals. One component owns the grid
+ * + the stagger hook, so the three grids stay identical and reusable. Cards come
+ * from site.ts content data.
+ */
+import type { Card } from '../content/site';
+import FeatureCard from './FeatureCard.astro';
+
+interface Props {
+  cards: Card[];
+  cols: 2 | 3;
+}
+const { cards, cols } = Astro.props;
+---
+
+<div class:list={['feature-grid', `feature-grid--${cols}`]} data-stagger>
+  {cards.map((card) => <FeatureCard title={card.title} body={card.body} />)}
+</div>

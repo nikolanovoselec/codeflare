@@ -1,0 +1,15 @@
+---
+/**
+ * FeatureCard: one term/definition column in a FeatureGrid (operations, cost,
+ * runs-everywhere). Borderless; the level reads from weight + colour (semibold
+ * white term over regular grey body), never a box. Styled by .feature-col.
+ */
+import type { Card } from '../content/site';
+type Props = Card;
+const { title, body } = Astro.props;
+---
+
+<div class="feature-col">
+  <h3>{title}</h3>
+  <p>{body}</p>
+</div>

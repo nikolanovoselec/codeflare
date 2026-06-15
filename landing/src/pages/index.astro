@@ -9,18 +9,33 @@
  * and the cost ledger is its bill closing on zero unattributed. Governance
  * carries the page; the platform capability lands afterwards as the payoff the
  * boundary makes safe. Calm, sans prose, mono for proof, mobile-first.
+ *
+ * The page is pure composition: every band is a <Section> + <SectionHead>, every
+ * terminal wraps the shared <Terminal> chrome with a <Transcript> (cursor / typed
+ * / roll-middle styler) or <GateSteps> (rolling-rows styler) body, and the cards
+ * are <FeatureGrid>. Content lives in content/site.ts; styling in global.css +
+ * tokens.css; behaviour in the page scripts. Nothing here is tuned per-instance.
  */
 import BaseLayout from '../layouts/BaseLayout.astro';
+import Header from '../components/Header.astro';
+import Section from '../components/Section.astro';
+import SectionHead from '../components/SectionHead.astro';
+import Terminal from '../components/Terminal.astro';
+import Transcript from '../components/Transcript.astro';
+import GateSteps from '../components/GateSteps.astro';
+import FeatureGrid from '../components/FeatureGrid.astro';
+import MicroCta from '../components/MicroCta.astro';
+import TrustStrip from '../components/TrustStrip.astro';
+import LedgerTable from '../components/LedgerTable.astro';
+import ReviewBoard from '../components/ReviewBoard.astro';
+import OrchTree from '../components/OrchTree.astro';
 import Hero from '../components/Hero.astro';
 import FeatureTerminals from '../components/FeatureTerminals.astro';
 import ContactForm from '../components/ContactForm.astro';
 import Footer from '../components/Footer.astro';
-import { APP_LINKS } from '../config';
 import {
-  NAV_LINKS,
   SECTION_KICKERS,
   AGENTS,
-  SPINE,
   SHIFT,
   METHOD,
   LEGACY,
@@ -39,8 +54,43 @@ import {
   DOGFOOD,
   ORCHESTRATION,
   MCP,
-  TRUSTED,
 } from '../content/site';
+
+// Each rolling-rows artifact maps its own content (GateStep / BoundaryRow /
+// EgressRow / McpRow / seed row) to the GateSteps row shape: actor, the state
+// pill label, text, and the state colour class. Kept here so GateSteps stays a
+// pure renderer and the page reads declaratively.
+const stateLabel = (s: 'fail' | 'work' | 'pass') =>
+  s === 'fail' ? 'failed' : s === 'work' ? 'correcting' : 'passed';
+const methodGateRows = METHOD.gate.steps.map((step) => ({
+  actor: step.actor,
+  label: stateLabel(step.state),
+  text: step.text,
+  state: `is-${step.state}`,
+}));
+const boundaryRows = SECURITY.boundary.rows.map((row) => ({
+  actor: row.actor,
+  label: row.label,
+  text: row.text,
+  state: `is-${row.state}`,
+}));
+const egressRows = EGRESS.rows.map((row) => ({
+  actor: row.actor,
+  label: row.label,
+  text: row.text,
+  state: `is-${row.state}`,
+}));
+const seedRows = PLATFORM.seed.rows.map((row) => ({
+  actor: row.actor,
+  label: row.label,
+  text: row.text,
+}));
+const mcpRows = MCP.portal.rows.map((row) => ({
+  actor: row.actor,
+  label: row.label,
+  text: row.text,
+  state: `is-${row.state}`,
+}));
 ---
 
 <BaseLayout
@@ -55,17 +105,7 @@ import {
     publisher: { '@id': 'https://codeflare.ch/#organization' },
   }}
 >
-  <nav class="site-nav">
-    <div class="container">
-      <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"></span>codeflare</a>
-      <div class="nav-right">
-        <ul class="nav-links">
-          {NAV_LINKS.map((link) => <li><a href={link.href}>{link.label}</a></li>)}
-        </ul>
-        <a class="btn btn-ghost btn-sm nav-signin" href={APP_LINKS.signIn}>Sign in</a>
-      </div>
-    </div>
-  </nav>
+  <Header variant="landing" />
 
   <main id="top">
     <Hero />
@@ -73,695 +113,162 @@ import {
     <!-- The shift: the assistant-to-engine leap shown the way the page trades,
          as terminals. Four short feature terminals (gateway, session, review,
          spec) replace the old stat band and the old checkmark comparison. -->
-    <section id={SHIFT.id} class="section">
-      <div class="container">
-        <div class="section-head reveal">
-          <p class="kicker">{SECTION_KICKERS.shift}</p>
-          <h2>{SHIFT.title}</h2>
-          <p class="lead" set:html={SHIFT.lead} />
-        </div>
-        <FeatureTerminals />
-      </div>
-    </section>
+    <Section id={SHIFT.id}>
+      <SectionHead kicker={SECTION_KICKERS.shift} title={SHIFT.title} leadHtml={SHIFT.lead} />
+      <FeatureTerminals />
+    </Section>
 
-    <!-- Method: spec-driven development, enforced. The gate (the
-         receipt) precedes the prose, and the two pillars read as plain
-         label-and-prose clauses, with no numbered counters of their own. -->
-    <section id={METHOD.id} class="section section--alt">
-      <div class="container">
-        <div class="section-head reveal">
-          <p class="kicker">{SECTION_KICKERS.method}</p>
-          <h2>{METHOD.title}</h2>
-          <p class="lead">{METHOD.lead}</p>
-        </div>
-        <!-- Self-healing enforcement gate: a drift caught and corrected at the PR
-             boundary. Static markup is the resolved state; data-proof replays the
-             fail -> correct -> pass sequence once on scroll-in. The only place an
-             agent visibly fails, which is the point. The gate caption is the
-             terminal's in-chrome foot, matching every other terminal on the page. -->
-        <div class="terminal gate reveal" data-proof>
-          <div class="terminal-bar">
-            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-            <span class="gate-req">{METHOD.gate.req}</span>
-            <span class="gate-crit">{METHOD.gate.criterion}</span>
-            <span class="gate-pr">{METHOD.gate.pr}</span>
-          </div>
-          <div class="gate-steps" data-roll>
-            {
-              METHOD.gate.steps.map((step, i) => (
-                <div class:list={['gate-step', `is-${step.state}`]} style={`--i:${i}`}>
-                  <span class="gate-actor">{step.actor}</span>
-                  <span class="gate-state">
-                    {step.state === 'fail' ? 'failed' : step.state === 'work' ? 'correcting' : 'passed'}
-                  </span>
-                  <span class="gate-text">{step.text}</span>
-                </div>
-              ))
-            }
-          </div>
-          <div class="terminal-foot tf-static"><span class="tf-seg">{METHOD.gate.caption}</span></div>
-        </div>
-        <ol class="method-clauses" data-stagger>
-          {
-            METHOD.pillars.map((card) => (
-              <li>
-                <h3>{card.title}</h3>
-                <p>{card.body}</p>
-              </li>
-            ))
-          }
-        </ol>
-      </div>
-    </section>
+    <!-- Method: spec-driven development, enforced. The gate (the receipt)
+         precedes the prose, and the two pillars read as plain label-and-prose
+         clauses, with no numbered counters of their own. -->
+    <Section id={METHOD.id} alt>
+      <SectionHead kicker={SECTION_KICKERS.method} title={METHOD.title} lead={METHOD.lead} />
+      <Terminal variant="gate" foot={METHOD.gate.caption}>
+        <Fragment slot="bar">
+          <span class="gate-req">{METHOD.gate.req}</span>
+          <span class="gate-crit">{METHOD.gate.criterion}</span>
+          <span class="gate-pr">{METHOD.gate.pr}</span>
+        </Fragment>
+        <GateSteps rows={methodGateRows} />
+      </Terminal>
+      <ol class="method-clauses" data-stagger>
+        {
+          METHOD.pillars.map((card) => (
+            <li>
+              <h3>{card.title}</h3>
+              <p>{card.body}</p>
+            </li>
+          ))
+        }
+      </ol>
+    </Section>
 
     <!-- Legacy: legacy code transformed into an agentic baseline. /sdd init turns
          a legacy codebase into a spec-driven baseline and /sdd clean realigns a
-         drifted spec, in the page's existing terminal idiom (context grammar). -->
-    <section id={LEGACY.id} class="section">
-      <div class="container">
-        <div class="section-head reveal">
-          <p class="kicker">{SECTION_KICKERS.legacy}</p>
-          <h2>{LEGACY.title}</h2>
-          <p class="lead">{LEGACY.lead}</p>
-        </div>
-        <div class="terminal proof-terminal reveal" data-proof>
-          <div class="terminal-bar">
-            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-            <span class="terminal-title">{LEGACY.terminal.title}</span>
-          </div>
-          <div class="terminal-body">
-            {LEGACY.terminal.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
-          </div>
-          <div class="terminal-foot tf-static">
-            <span class="tf-seg">{LEGACY.terminal.foot}</span>
-          </div>
-        </div>
-      </div>
-    </section>
+         drifted spec, in the page's existing terminal idiom. -->
+    <Section id={LEGACY.id}>
+      <SectionHead kicker={SECTION_KICKERS.legacy} title={LEGACY.title} lead={LEGACY.lead} />
+      <Terminal variant="proof-terminal" title={LEGACY.terminal.title} foot={LEGACY.terminal.foot}>
+        <Transcript lines={LEGACY.terminal.lines} animate="cursor" />
+      </Terminal>
+    </Section>
 
-    <!-- Security: zero trust is the architecture. One merged receipt:
-         the boundary's approved and impossible paths, a thin in-terminal divider,
+    <!-- Security: zero trust is the architecture. One merged receipt: the
+         boundary's approved and impossible paths, a thin in-terminal divider,
          then one real call obeying the boundary, closing on a single in-chrome
-         foot (security + egress folded into one terminal, #7). -->
-    <section id={SECURITY.id} class="section section--alt">
-      <div class="container">
-        <div class="section-head reveal">
-          <p class="kicker">{SECTION_KICKERS.security}</p>
-          <h2>{SECURITY.title}</h2>
-          <p class="lead">{SECURITY.lead}</p>
-          <p class="micro-cta">
-            <a href="#contact" data-topic="security-compliance">{SECURITY.microCta}</a>
-          </p>
-        </div>
-        <!-- Boundary + egress as one terminal: the approved paths and the paths
-             the architecture makes impossible (rolled in), a divider, then one
-             outbound model call obeying the boundary (the DLP redaction is the
-             one amber beat), under a single normalized in-chrome foot. -->
-        <div class="terminal gate boundary reveal" data-proof>
-          <div class="terminal-bar">
-            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-            <span class="gate-req">{SECURITY.boundary.title}</span>
-          </div>
-          <div class="gate-steps" data-roll>
-            {
-              SECURITY.boundary.rows.map((row, i) => (
-                <div class:list={['gate-step', `is-${row.state}`]} style={`--i:${i}`}>
-                  <span class="gate-actor">{row.actor}</span>
-                  <span class="gate-state">{row.label}</span>
-                  <span class="gate-text">{row.text}</span>
-                </div>
-              ))
-            }
-          </div>
-          <div class="gate-echo"><span class="gate-echo-prompt" aria-hidden="true">❯</span> {EGRESS.call}</div>
-          <div class="gate-steps" data-roll>
-            {
-              EGRESS.rows.map((row, i) => (
-                <div class:list={['gate-step', `is-${row.state}`]} style={`--i:${i}`}>
-                  <span class="gate-actor">{row.actor}</span>
-                  <span class="gate-state">{row.label}</span>
-                  <span class="gate-text">{row.text}</span>
-                </div>
-              ))
-            }
-          </div>
-          <div class="terminal-foot tf-static"><span class="tf-seg">{SECURITY.boundary.caption}</span></div>
-        </div>
-        <!-- Operations folded into the boundary section as sub-content: the same
-             governed agents beyond code into infrastructure, on the same boundary,
-             so it reads as part of this section rather than a section of its own. -->
-        <div class="section-head substation reveal">
-          <p class="kicker">{OPERATIONS.tag}</p>
-          <h3>{OPERATIONS.title}</h3>
-          <p class="lead">{OPERATIONS.lead}</p>
-        </div>
-        <div class="feature-grid feature-grid--2" data-stagger>
-          {
-            OPERATIONS.cards.map((card) => (
-              <div class="feature-col">
-                <h3>{card.title}</h3>
-                <p>{card.body}</p>
-              </div>
-            ))
-          }
-        </div>
+         foot. Operations folds in below as a substation on the same boundary. -->
+    <Section id={SECURITY.id} alt>
+      <SectionHead kicker={SECTION_KICKERS.security} title={SECURITY.title} lead={SECURITY.lead}>
+        <MicroCta href="#contact" label={SECURITY.microCta} dataTopic="security-compliance" />
+      </SectionHead>
+      <Terminal variant="gate boundary" foot={SECURITY.boundary.caption}>
+        <span class="gate-req" slot="bar">{SECURITY.boundary.title}</span>
+        <GateSteps rows={boundaryRows} />
+        <div class="gate-echo"><span class="gate-echo-prompt" aria-hidden="true">❯</span> {EGRESS.call}</div>
+        <GateSteps rows={egressRows} />
+      </Terminal>
+      <SectionHead substation kicker={OPERATIONS.tag} title={OPERATIONS.title} lead={OPERATIONS.lead} />
+      <FeatureGrid cards={OPERATIONS.cards} cols={2} />
+    </Section>
+
+    <!-- Context: the open web, rendered clean, never trusted. One real fetch from
+         the spine run, then the same throwaway browser DRIVES an e2e (substation). -->
+    <Section id={CONTEXT.id}>
+      <SectionHead kicker={SECTION_KICKERS.context} title={CONTEXT.title} lead={CONTEXT.lead} />
+      <Terminal variant="proof-terminal" title={CONTEXT.terminal.title} foot={CONTEXT.terminal.foot}>
+        <Transcript lines={CONTEXT.terminal.lines} animate="cursor" />
+      </Terminal>
+      <SectionHead substation kicker={CONTEXT.e2e.tag} title={CONTEXT.e2e.heading} lead={CONTEXT.e2e.lead} />
+      <Terminal variant="proof-terminal" title={CONTEXT.e2e.terminal.title} foot={CONTEXT.e2e.terminal.foot}>
+        <Transcript lines={CONTEXT.e2e.terminal.lines} animate="cursor" />
+      </Terminal>
+    </Section>
+
+    <!-- Pipeline: the parallel review board. Six specialist agents on one diff at
+         once, two catching a finding and re-proving it, all converging on one
+         human triage gate. -->
+    <Section id={PIPELINE.id} alt>
+      <SectionHead kicker={SECTION_KICKERS.pipeline} title={PIPELINE.title} lead={PIPELINE.lead} />
+      <ReviewBoard />
+    </Section>
+
+    <!-- Orchestration: the operator's live view of the same review, ticking. -->
+    <Section id={ORCHESTRATION.id}>
+      <SectionHead kicker={SECTION_KICKERS.orchestration} title={ORCHESTRATION.title} lead={ORCHESTRATION.lead} />
+      <OrchTree />
+    </Section>
+
+    <!-- Cost: no unattributed spend. The ledger is the literal bill for the spine
+         run, closing on zero unattributed. Tenancy folds in below as a substation
+         (the spend and the cloud it lands in are one story: your account). -->
+    <Section id={COST.id} alt>
+      <SectionHead kicker={SECTION_KICKERS.cost} title={COST.title} lead={COST.lead} />
+      <LedgerTable />
+      <FeatureGrid cards={COST.cards} cols={3} />
+      <SectionHead substation kicker={TENANCY.tag} title={TENANCY.title} leadHtml={TENANCY.lead} />
+    </Section>
+
+    <!-- Platform: the payoff band, after the governance sections so capability
+         reads as the payoff the boundary makes safe. Runs-everywhere folds in
+         below as a substation. -->
+    <Section id={PLATFORM.id}>
+      <SectionHead kicker={SECTION_KICKERS.platform} title={PLATFORM.title} lead={PLATFORM.lead} />
+      <Terminal variant="gate" foot={PLATFORM.seed.caption}>
+        <Fragment slot="bar">
+          <span class="gate-req">{PLATFORM.seed.title}</span>
+          <span class="gate-pr">{PLATFORM.seed.meta}</span>
+        </Fragment>
+        <GateSteps rows={seedRows} />
+      </Terminal>
+      <div class="agent-chips reveal" aria-label="Supported coding agents">
+        {AGENTS.map((agent) => <span>{agent}</span>)}
       </div>
-    </section>
+      <SectionHead substation kicker={BROWSER.tag} title={BROWSER.title} lead={BROWSER.lead} />
+      <FeatureGrid cards={BROWSER.cards} cols={3} />
+    </Section>
 
-    <!-- Context: the open web, rendered clean, never trusted. One
-         real fetch from the spine run shown as a proof terminal. -->
-    <section id={CONTEXT.id} class="section">
-      <div class="container">
-        <div class="section-head reveal">
-          <p class="kicker">{SECTION_KICKERS.context}</p>
-          <h2>{CONTEXT.title}</h2>
-          <p class="lead">{CONTEXT.lead}</p>
-        </div>
-        <!-- One real fetch from the spine run: the open web crosses an isolation
-             boundary the remote page never breaches, resolving to agent-ready
-             markdown. A full-width terminal under the head, like every section. -->
-        <div class="terminal proof-terminal reveal" data-proof>
-          <div class="terminal-bar">
-            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-            <span class="terminal-title">{CONTEXT.terminal.title}</span>
-          </div>
-          <div class="terminal-body">
-            {CONTEXT.terminal.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
-          </div>
-          <div class="terminal-foot tf-static">
-            <span class="tf-seg">{CONTEXT.terminal.foot}</span>
-          </div>
-        </div>
+    <!-- MCP portals: the external tools an agent can reach, governed. Many MCP
+         servers collapse to one endpoint; every call runs as the signed-in user;
+         code mode collapses the tool surface into one typed `code` tool. -->
+    <Section id={MCP.id} alt>
+      <SectionHead kicker={SECTION_KICKERS.mcp} title={MCP.title} lead={MCP.lead} />
+      <Terminal variant="gate" foot={MCP.portal.caption}>
+        <span class="gate-req" slot="bar">{MCP.portal.title}</span>
+        <GateSteps rows={mcpRows} />
+      </Terminal>
+    </Section>
 
-        <!-- The same throwaway browser also DRIVES: an agent-steered semantic e2e
-             at a mobile viewport judging the deployed app against intent (the deny
-             line is a real clip this repo's own landing QA caught). A substation
-             sub-head keeps it subordinate to the section's web fetch, reading as
-             part of this section rather than a new one. -->
-        <div class="section-head substation reveal">
-          <p class="kicker">{CONTEXT.e2e.tag}</p>
-          <h3>{CONTEXT.e2e.heading}</h3>
-          <p class="lead">{CONTEXT.e2e.lead}</p>
-        </div>
-        <div class="terminal proof-terminal reveal" data-proof>
-          <div class="terminal-bar">
-            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-            <span class="terminal-title">{CONTEXT.e2e.terminal.title}</span>
-          </div>
-          <div class="terminal-body">
-            {CONTEXT.e2e.terminal.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
-          </div>
-          <div class="terminal-foot tf-static">
-            <span class="tf-seg">{CONTEXT.e2e.terminal.foot}</span>
-          </div>
-        </div>
+    <!-- Proof: this very page is a Codeflare-governed requirement. The trust-logo
+         strip folds in as its social-proof tail, before the FAQ. -->
+    <Section id={DOGFOOD.id}>
+      <SectionHead kicker={SECTION_KICKERS.dogfood} title={DOGFOOD.title} lead={DOGFOOD.lead} />
+      <Terminal variant="dogfood-terminal" title={DOGFOOD.terminalTitle} foot={DOGFOOD.foot}>
+        <Transcript lines={DOGFOOD.lines} animate="roll-middle" />
+      </Terminal>
+      <MicroCta href={DOGFOOD.cta.href} label={DOGFOOD.cta.label} external class="dogfood-cta" reveal />
+      <TrustStrip />
+    </Section>
+
+    <Section id={FAQ_SECTION.id} alt>
+      <SectionHead kicker={SECTION_KICKERS.faq} title={FAQ_SECTION.title} />
+      <div class="faq reveal">
+        {
+          FAQ_ITEMS.map((item) => (
+            <details class="faq-item">
+              <summary>{item.question}</summary>
+              <p class="faq-answer">{item.answer}</p>
+            </details>
+          ))
+        }
       </div>
-    </section>
-
-    <!-- Pipeline: the parallel review board. Six specialist agents
-         on one diff at once, two catching a finding and re-proving it, all
-         converging on one human triage gate. "One engineer, many agents" made
-         literal. -->
-    <section id={PIPELINE.id} class="section section--alt">
-      <div class="container">
-        <div class="section-head reveal">
-          <p class="kicker">{SECTION_KICKERS.pipeline}</p>
-          <h2>{PIPELINE.title}</h2>
-          <p class="lead">{PIPELINE.lead}</p>
-        </div>
-
-        <div class="terminal review-board reveal" data-proof>
-          <div class="terminal-bar">
-            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-            <span class="board-pr-id">{SPINE.pr} · {SPINE.service}</span>
-            <span class="board-pr-trigger">{PIPELINE.trigger}</span>
-          </div>
-          <div class="board-dispatch" aria-hidden="true">{PIPELINE.dispatch}</div>
-          <div class="board-lanes" data-roll>
-            {
-              PIPELINE.lanes.map((lane, i) => (
-                <div class:list={['board-lane', `is-${lane.result}`]} style={`--i:${i}`}>
-                  <span class="lane-agent">{lane.agent}</span>
-                  <span class="lane-track" aria-hidden="true">
-                    <span class="lane-step">queued</span>
-                    <span class="lane-step">running</span>
-                    {lane.result === 'finding' && <span class="lane-step is-finding">finding</span>}
-                    {lane.result === 'finding' && <span class="lane-step is-fixed">fixed</span>}
-                    <span class="lane-step is-verified">verified</span>
-                  </span>
-                  <span class="lane-note">{lane.note}</span>
-                </div>
-              ))
-            }
-          </div>
-          <div class="board-verdict">
-            <span class="verdict-title">{PIPELINE.verdict.title}</span>
-            <span class="verdict-note">{PIPELINE.verdict.note}</span>
-          </div>
-        </div>
-
-      </div>
-    </section>
-
-    <!-- Orchestration: the operator's live view of the same review,
-         relocated out from under the board into its own section and made dynamic.
-         orch.ts ticks each agent's tool-use / token counters and advances its
-         activity line so it reads as a running feed, not a frozen screenshot.
-         data-proof reveals the lines once on scroll-in; data-orch arms the live
-         ticking. Reduced motion / no JS: the resolved values stand. -->
-    <section id={ORCHESTRATION.id} class="section">
-      <div class="container">
-        <div class="section-head reveal">
-          <p class="kicker">{SECTION_KICKERS.orchestration}</p>
-          <h2>{ORCHESTRATION.title}</h2>
-          <p class="lead">{ORCHESTRATION.lead}</p>
-        </div>
-        <div class="terminal orch reveal" data-proof data-orch>
-          <div class="terminal-bar">
-            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-            <span class="board-pr-id">{SPINE.pr} · {SPINE.service}</span>
-            <span class="board-pr-trigger">live</span>
-          </div>
-          <div class="terminal-body">
-            <span class="t-line orch-head"><span class="orch-dot" aria-hidden="true">●</span> {ORCHESTRATION.header}… <span class="orch-hint">({ORCHESTRATION.hint})</span></span>
-            {
-              ORCHESTRATION.agents.map((agent, i) => {
-                const last = i === ORCHESTRATION.agents.length - 1;
-                return (
-                  <Fragment>
-                    <span class="t-line orch-agent-line" data-orch-agent data-activities={JSON.stringify(agent.activities)}><span class="orch-branch" aria-hidden="true">{last ? '└ ' : '├ '}</span><span class="orch-agent">{agent.agent}</span><span class="orch-meta"> ({agent.task}) · <span data-orch-tooluses>{agent.toolUses}</span> tool uses · <span data-orch-tokens>{agent.tokens.toFixed(1)}</span>k tokens</span></span>
-                    <span class="t-line orch-sub"><span class="orch-branch" aria-hidden="true">{last ? '  └ ' : '│ └ '}</span><span data-orch-activity>{agent.activities[0]}</span></span>
-                  </Fragment>
-                );
-              })
-            }
-            <span class="t-line orch-hint">({ORCHESTRATION.footHint})</span>
-          </div>
-          <div class="terminal-foot tf-static"><span class="tf-seg">{ORCHESTRATION.foot}</span></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Cost: no unattributed spend. The ledger is the literal bill
-         for the spine run, closing on zero unattributed. -->
-    <section id={COST.id} class="section section--alt">
-      <div class="container">
-        <div class="section-head reveal">
-          <p class="kicker">{SECTION_KICKERS.cost}</p>
-          <h2>{COST.title}</h2>
-          <p class="lead">{COST.lead}</p>
-        </div>
-        <!-- Attribution ledger: every line carries an owner; the last total
-             reads zero unattributed. The rows are a sample of the run; the
-             totals cover all of it (the sample note reconciles the two). -->
-        <div class="terminal ledger reveal" data-proof>
-          <div class="terminal-bar">
-            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-            <span class="ledger-meta-id">{COST.ledger.meta}</span>
-            <span class="ledger-meta-sample">{COST.ledger.sample}</span>
-          </div>
-          <div class="ledger-head" aria-hidden="true">
-            <span class="lc-time">{COST.ledger.columns[0]}</span>
-            <span class="lc-user">{COST.ledger.columns[1]}</span>
-            <span class="lc-team">{COST.ledger.columns[2]}</span>
-            <span class="lc-agent">{COST.ledger.columns[3]}</span>
-            <span class="lc-route">{COST.ledger.columns[4]}</span>
-            <span class="lc-cost">{COST.ledger.columns[5]}</span>
-          </div>
-          <div class="ledger-rows" data-roll>
-            {
-              COST.ledger.rows.map((row, i) => (
-                <div class="ledger-row" style={`--i:${i}`}>
-                  <span class="lc-time">{row.time}</span>
-                  <span class="lc-user">{row.user}</span>
-                  <span class="lc-team">{row.team}</span>
-                  <span class="lc-agent">{row.agent}</span>
-                  <span class="lc-route">{row.route}</span>
-                  <span class="lc-cost">{row.cost}</span>
-                </div>
-              ))
-            }
-          </div>
-          <div class="ledger-totals">
-            {
-              COST.ledger.totals.map((total) => (
-                <div class:list={['ledger-total', { 'is-accent': total.accent }]}>
-                  <span class="total-label">{total.label}</span>
-                  <span class="total-value">{total.value}</span>
-                </div>
-              ))
-            }
-          </div>
-        </div>
-
-        <div class="feature-grid feature-grid--3" data-stagger>
-          {
-            COST.cards.map((card) => (
-              <div class="feature-col">
-                <h3>{card.title}</h3>
-                <p>{card.body}</p>
-              </div>
-            ))
-          }
-        </div>
-        <!-- Tenancy folded into the spend section as sub-content: the spend and
-             the cloud it lands in are one story (your account), so it reads as part
-             of this section rather than a section of its own. A plain sub-head +
-             lead (the same .section-head.substation as operations / runs-everywhere);
-             the bare key/value manifest it used to carry ("Identity · your IdP",
-             "Storage · your buckets", ...) duplicated the boundary terminal's own
-             "your IdP / your tenancy / your AI Gateway" rows, so it is dropped. -->
-        <div class="section-head substation reveal">
-          <p class="kicker">{TENANCY.tag}</p>
-          <h3>{TENANCY.title}</h3>
-          <p class="lead" set:html={TENANCY.lead} />
-        </div>
-      </div>
-    </section>
-
-    <!-- Platform: the payoff band, after the governance sections so
-         capability reads as the payoff the boundary makes safe. The browser-runs-
-         everywhere story folds in as sub-content so it reads as part of this section. -->
-    <section id={PLATFORM.id} class="section">
-      <div class="container">
-        <div class="section-head reveal">
-          <p class="kicker">{SECTION_KICKERS.platform}</p>
-          <h2>{PLATFORM.title}</h2>
-          <p class="lead">{PLATFORM.lead}</p>
-        </div>
-        <!-- Arrives-equipped proof: a session boot log in the page's terminal
-             idiom. Each capability rolls in (data-roll) as a loaded checklist row,
-             so the section carries a live artifact like every other one instead of
-             a wall of prose cards. -->
-        <div class="terminal gate reveal" data-proof>
-          <div class="terminal-bar">
-            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-            <span class="gate-req">{PLATFORM.seed.title}</span>
-            <span class="gate-pr">{PLATFORM.seed.meta}</span>
-          </div>
-          <div class="gate-steps" data-roll>
-            {
-              PLATFORM.seed.rows.map((row, i) => (
-                <div class="gate-step" style={`--i:${i}`}>
-                  <span class="gate-actor">{row.actor}</span>
-                  <span class="gate-state">{row.label}</span>
-                  <span class="gate-text">{row.text}</span>
-                </div>
-              ))
-            }
-          </div>
-          <div class="terminal-foot tf-static"><span class="tf-seg">{PLATFORM.seed.caption}</span></div>
-        </div>
-        <div class="agent-chips reveal" aria-label="Supported coding agents">
-          {AGENTS.map((agent) => <span>{agent}</span>)}
-        </div>
-        <!-- Runs-everywhere folded into the platform section as sub-content. -->
-        <div class="section-head substation reveal">
-          <p class="kicker">{BROWSER.tag}</p>
-          <h3>{BROWSER.title}</h3>
-          <p class="lead">{BROWSER.lead}</p>
-        </div>
-        <div class="feature-grid feature-grid--3" data-stagger>
-          {
-            BROWSER.cards.map((card) => (
-              <div class="feature-col">
-                <h3>{card.title}</h3>
-                <p>{card.body}</p>
-              </div>
-            ))
-          }
-        </div>
-      </div>
-    </section>
-
-    <!-- MCP portals: the external tools an agent can reach, governed. A dynamic
-         proof terminal in the boundary's gate grammar: many MCP servers collapse
-         to one endpoint, every call is made as the signed-in user (least
-         privilege, attributed), and code mode collapses the whole tool surface
-         into one typed `code` tool the agent runs in isolation (the "40 -> 1"
-         row). data-proof/data-roll arm the live roll; no JS of its own. -->
-    <section id={MCP.id} class="section section--alt">
-      <div class="container">
-        <div class="section-head reveal">
-          <p class="kicker">{SECTION_KICKERS.mcp}</p>
-          <h2>{MCP.title}</h2>
-          <p class="lead">{MCP.lead}</p>
-        </div>
-        <div class="terminal gate reveal" data-proof>
-          <div class="terminal-bar">
-            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-            <span class="gate-req">{MCP.portal.title}</span>
-          </div>
-          <div class="gate-steps" data-roll>
-            {
-              MCP.portal.rows.map((row, i) => (
-                <div class:list={['gate-step', `is-${row.state}`]} style={`--i:${i}`}>
-                  <span class="gate-actor">{row.actor}</span>
-                  <span class="gate-state">{row.label}</span>
-                  <span class="gate-text">{row.text}</span>
-                </div>
-              ))
-            }
-          </div>
-          <div class="terminal-foot tf-static"><span class="tf-seg">{MCP.portal.caption}</span></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Proof: this very page is a Codeflare-governed requirement.
-         The proof is real (the @impl / @test anchors live in sdd/spec/landing.md),
-         the trust-logo strip folds in as its social-proof tail. It sits before
-         the FAQ so the dogfood proof lands before the closing answers. -->
-    <section id={DOGFOOD.id} class="section">
-      <div class="container">
-        <div class="section-head reveal">
-          <p class="kicker">{SECTION_KICKERS.dogfood}</p>
-          <h2>{DOGFOOD.title}</h2>
-          <p class="lead">{DOGFOOD.lead}</p>
-        </div>
-        <div class="terminal dogfood-terminal reveal" data-proof>
-          <div class="terminal-bar">
-            <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-            <span class="terminal-title">{DOGFOOD.terminalTitle}</span>
-          </div>
-          <div class="terminal-body">
-            <span class={`t-line t-${DOGFOOD.lines[0].tone}`} style="--i:0">{DOGFOOD.lines[0].text}</span>
-            <div data-roll>
-              {DOGFOOD.lines.slice(1, -1).map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i + 1}`}>{line.text}</span>)}
-            </div>
-            <span class={`t-line t-${DOGFOOD.lines[DOGFOOD.lines.length - 1].tone}`} style={`--i:${DOGFOOD.lines.length - 1}`}>{DOGFOOD.lines[DOGFOOD.lines.length - 1].text}</span>
-          </div>
-          <div class="terminal-foot tf-static"><span class="tf-seg">{DOGFOOD.foot}</span></div>
-        </div>
-        <p class="micro-cta dogfood-cta reveal">
-          <a href={DOGFOOD.cta.href} target="_blank" rel="noopener">{DOGFOOD.cta.label}</a>
-        </p>
-        <!-- Trusted-by folded into the proof section: a single national-institution
-             customer as the social-proof tail of the dogfood argument, a quiet band
-             that reads as part of this section. The logo links to the customer site. -->
-        <div class="trusted-section substation">
-          <p class="trusted-label reveal">{TRUSTED.label}</p>
-          <div class="trusted-logos reveal">
-            {
-              TRUSTED.logos.map((logo) => (
-                <a
-                  class="trusted-logo-link"
-                  href={logo.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={`${logo.name} (opens in a new tab)`}
-                >
-                  <img class="trusted-logo" src={logo.src} alt={logo.alt} loading="lazy" />
-                </a>
-              ))
-            }
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section id={FAQ_SECTION.id} class="section section--alt">
-      <div class="container">
-        <div class="section-head reveal">
-          <p class="kicker">{SECTION_KICKERS.faq}</p>
-          <h2>{FAQ_SECTION.title}</h2>
-        </div>
-        <div class="faq reveal">
-          {
-            FAQ_ITEMS.map((item) => (
-              <details class="faq-item">
-                <summary>{item.question}</summary>
-                <p class="faq-answer">{item.answer}</p>
-              </details>
-            ))
-          }
-        </div>
-      </div>
-    </section>
+    </Section>
 
     <!-- Contact -->
-    <section id={CONTACT_FORM.id} class="section">
-      <div class="container">
-        <div class="section-head reveal">
-          <p class="kicker">{SECTION_KICKERS.contact}</p>
-          <h2>{CONTACT_FORM.title}</h2>
-        </div>
-        <ContactForm />
-      </div>
-    </section>
+    <Section id={CONTACT_FORM.id}>
+      <SectionHead kicker={SECTION_KICKERS.contact} title={CONTACT_FORM.title} />
+      <ContactForm />
+    </Section>
   </main>
 
   <Footer />
 </BaseLayout>
-
-<style>
-  /* Trusted-by social-proof strip: a quiet, centered band before the contact CTA. */
-  .trusted-section {
-    text-align: center;
-  }
-
-  .trusted-label {
-    margin: 0 0 1.5rem;
-    font-size: var(--fs-kicker);
-    text-transform: uppercase;
-    letter-spacing: 0.18em;
-    color: var(--text-muted);
-  }
-
-  .trusted-logos {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: clamp(2rem, 5vw, 3.5rem);
-    flex-wrap: wrap;
-  }
-
-  /* Four mixed-width logos wrap unevenly (3 + 1) on a phone; a 2-column grid
-     keeps them balanced 2x2 and centered. 680px matches the page's phone
-     breakpoint (global.css). */
-  @media (max-width: 680px) {
-    .trusted-logos {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      justify-items: center;
-      align-items: center;
-      gap: 1.75rem 1.25rem;
-    }
-  }
-
-  /* The marks have very different aspects: one wide wordmark (Cloudflare 2.19:1)
-     and three squares (Gray Matter, Swiss Post, ZT Solutions). A shared *height*
-     left the wide mark ~2.2x the visible area of the squares (it complained as
-     "vastly different sizes"). A shared *bounding box* whose aspect (3:2 = 1.5)
-     sits between square (1.0) and the widest mark (2.19) auto-balances them:
-     contain width-limits the wide mark and height-limits the squares, so all
-     four land at near-equal visible area. Grayscale + lifted brightness +
-     reduced opacity unify their clashing brand colours into one calm tone;
-     colour returns on hover. */
-  .trusted-logo {
-    width: clamp(58px, 13vw, 66px);
-    height: auto;
-    aspect-ratio: 3 / 2;
-    object-fit: contain;
-    filter: grayscale(1) brightness(1.35);
-    opacity: 0.6;
-    transition: opacity 0.3s ease, filter 0.3s ease;
-  }
-
-  /* The logo links to the customer site; restoring colour + full opacity on
-     hover/focus signals it is clickable. */
-  .trusted-logo-link {
-    display: inline-flex;
-  }
-
-  .trusted-logo-link:hover .trusted-logo,
-  .trusted-logo-link:focus-visible .trusted-logo {
-    filter: grayscale(0) brightness(1);
-    opacity: 1;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .trusted-logo {
-      transition: none;
-    }
-  }
-
-  /* Orchestration terminal: the "Running N agents" operator tree. Reuses the
-     terminal chrome; these tones colour the live agent rows over the mono body. */
-  .orch-head {
-    color: var(--text-secondary);
-  }
-
-  .orch-dot {
-    color: var(--term-green);
-  }
-
-  .orch-agent {
-    color: var(--text-primary);
-    font-weight: 600;
-  }
-
-  .orch-meta,
-  .orch-sub,
-  .orch-hint,
-  .orch-branch {
-    color: var(--term-dim);
-  }
-
-  /* The agent tree relies on box-drawing connectors (├ │ └) lining up across
-     lines. `pre` preserves the leading-space indentation each row needs, and
-     horizontal scroll keeps the tree intact on a phone instead of wrapping
-     (which misaligned the connectors). Line-height matches the other terminals'
-     breathing room: it had been compressed to 1.4, which read as cramped next to
-     the rest; the connectors still read as a tree at this rhythm (real terminal
-     output has the same small gaps). Scoped to the orch terminal so other
-     terminals keep their phone wrapping. */
-  .orch .terminal-body {
-    overflow-x: auto;
-  }
-
-  .orch .t-line {
-    white-space: pre;
-    line-height: 1.85;
-  }
-
-  /* Sub-content folded into the section above it (operations under security,
-     tenancy under cost, runs-everywhere under platform, trusted under proof):
-     separated by space alone, never a rule, so it reads as the same section
-     continuing rather than a block walled off by a gray line. The shared
-     section tint already groups it with the content above. */
-  .substation {
-    margin-top: clamp(3rem, 6vw, 5rem);
-  }
-
-  /* When a substation sub-head directly follows a terminal (context: the e2e
-     "And it doesn't just read. It drives." head under the web-fetch terminal;
-     security: operations under the boundary terminal), the full substation gap
-     read as a section break and severed the section. A terminal is already a
-     self-contained box, so a tighter gap keeps the sub-head reading as a
-     continuation of the same section rather than a new one. */
-  .terminal + .substation {
-    margin-top: clamp(1.75rem, 4vw, 2.75rem);
-  }
-
-  /* Sub-section head: the larger --fs-subhead (a decisive step above the 1rem card
-     terms), bold, so it reads as the block's headline rather than as a near-miss of
-     the term size. It is anchored by a nested terminal-path tag (e.g.
-     "~/security/operations") rendered with the same .kicker style as the section
-     tags: the path is one level deeper than the section's own ("~/security"), so the
-     nesting is what marks it as a sub-section. Hierarchy reads from the path depth
-     plus the size jump, never from size alone. The lead stays at the section --fs-lead. */
-  .substation h3 {
-    font-size: var(--fs-subhead);
-    font-weight: 700;
-    line-height: 1.2;
-    letter-spacing: -0.02em;
-    margin: 0 0 0.6rem;
-  }
-
-  /* The trusted-by band centers its logo wall; its separation from the dogfood
-     proof above comes from .substation's margin-top alone (no rule). */
-  .trusted-section.substation {
-    text-align: center;
-  }
-</style>

@@ -1,0 +1,35 @@
+---
+/**
+ * SectionHead: the kicker + heading + optional lead that opens every section and
+ * sub-section. One component owns the whole head, so the kicker path-tag, the
+ * heading level, and the lead measure are tuned once.
+ *
+ *   - top-level head:  kicker + <h2> + lead.
+ *   - substation:      kicker + <h3> + lead, under .substation (a sub-section
+ *                      folded into the band above it, e.g. operations under
+ *                      security, tenancy under cost, runs-everywhere under
+ *                      platform). The depth in the kicker path ("~/security/
+ *                      operations") plus the size step marks the hierarchy.
+ *
+ * `lead` is plain text; `leadHtml` is build-time-trusted inline HTML (em/strong)
+ * rendered via set:html (used where a lead emphasises a phrase). The default
+ * slot carries any trailing in-head content, e.g. the security micro-CTA.
+ */
+interface Props {
+  kicker: string;
+  title: string;
+  lead?: string;
+  leadHtml?: string;
+  /** Sub-section head: <h3> under .substation instead of a top-level <h2>. */
+  substation?: boolean;
+  reveal?: boolean;
+}
+const { kicker, title, lead, leadHtml, substation = false, reveal = true } = Astro.props;
+---
+
+<div class:list={['section-head', { substation }, { reveal }]}>
+  <p class="kicker">{kicker}</p>
+  {substation ? <h3>{title}</h3> : <h2>{title}</h2>}
+  {leadHtml ? <p class="lead" set:html={leadHtml} /> : lead && <p class="lead">{lead}</p>}
+  <slot />
+</div>

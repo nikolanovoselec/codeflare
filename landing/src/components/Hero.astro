@@ -1,11 +1,17 @@
 ---
 /**
  * Hero: positioning line, the headline, a plain definition line, two CTAs, and
- * one legible static terminal showing a real Codeflare session (feature built,
- * tested, reviewed, shipped through the pipeline, container destroyed).
+ * one legible terminal showing a real Codeflare session (the spine run, opened).
+ * The terminal uses the shared <Terminal> chrome + <Transcript animate="typed">:
+ * the transcript then a typed command line that feature-terminals.ts cycles as a
+ * capability reel (data-ft-loop + data-ft-shuffle, looping, never stopping). The
+ * statusline foot is the hero's own (agentfoot.ts ticks it). The spine strip
+ * below names the run once as the page's quiet table of contents.
  */
 import { HERO, TERMINAL, SPINE } from '../content/site';
 import HeroHeadline from './HeroHeadline.astro';
+import Terminal from './Terminal.astro';
+import Transcript from './Transcript.astro';
 ---
 
 <header class="hero">
@@ -22,25 +28,18 @@ import HeroHeadline from './HeroHeadline.astro';
     </div>
 
     <div class="hero-terminal reveal">
-      <div class="terminal" data-proof data-ft-loop={JSON.stringify(TERMINAL.run)} data-ft-once data-ft-shuffle>
-        <div class="terminal-bar">
-          <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-          <span class="terminal-title">{TERMINAL.title}</span>
-        </div>
-        <div class="terminal-body">
-          {TERMINAL.lines.map((line, i) => <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{line.text}</span>)}
-          <span class="t-line t-cmd" style={`--i:${TERMINAL.lines.length}`}><span class="ft-typed" data-ft-typed>{TERMINAL.run[0]}</span><span class="t-caret" aria-hidden="true"></span></span>
-        </div>
+      <Terminal reveal={false} title={TERMINAL.title} ftLoop={JSON.stringify(TERMINAL.run)} ftShuffle>
+        <Transcript lines={TERMINAL.lines} animate="typed" typed={TERMINAL.run[0]} />
         <!-- Coding-agent statusline: context / model / reasoning, gently animated
-             (context ticks, an occasional compaction beat) by agentfoot.ts;
-             static and fully legible without JS and under reduced motion. -->
-        <div class="terminal-foot" data-agentfoot>
+             (context ticks, an occasional compaction beat) by agentfoot.ts; static
+             and fully legible without JS and under reduced motion. -->
+        <div class="terminal-foot" data-agentfoot slot="foot">
           <span class="tf-seg tf-ctx"><span class="tf-dot" aria-hidden="true"></span><span data-tf-ctx>{TERMINAL.foot.ctx}</span></span>
           <span class="tf-seg">{TERMINAL.foot.model}</span>
           <span class="tf-seg" data-tf-reason>{TERMINAL.foot.reason}</span>
           <span class="tf-seg tf-note">{TERMINAL.foot.note}</span>
         </div>
-      </div>
+      </Terminal>
       <!-- The spine as the page's quiet table of contents: one run, named once,
            that every proof artifact below is a camera angle on. -->
       <div class="hero-spine" aria-hidden="true">

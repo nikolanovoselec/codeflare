@@ -1,0 +1,62 @@
+---
+/**
+ * Header: the one sticky top nav, shared by the marketing landing and the
+ * onboarding /login page so the two flow into one another and the nav is tuned
+ * once. `variant` selects which:
+ *   - 'landing'  brand + pillar nav links + the "Sign in" ghost button.
+ *   - 'login'    a single "Back to codeflare.ch" link (no pillar nav).
+ * Both render the same .site-nav chrome (sticky, blur, scroll seam in global.css).
+ */
+import { NAV_LINKS, LOGIN } from '../content/site';
+import { APP_LINKS } from '../config';
+
+interface Props {
+  variant?: 'landing' | 'login';
+}
+const { variant = 'landing' } = Astro.props;
+---
+
+{
+  variant === 'landing' ? (
+    <nav class="site-nav">
+      <div class="container">
+        <a class="brand" href="#top">
+          <span class="brand-mark" aria-hidden="true" />codeflare
+        </a>
+        <div class="nav-right">
+          <ul class="nav-links">
+            {NAV_LINKS.map((link) => (
+              <li>
+                <a href={link.href}>{link.label}</a>
+              </li>
+            ))}
+          </ul>
+          <a class="btn btn-ghost btn-sm nav-signin" href={APP_LINKS.signIn}>
+            Sign in
+          </a>
+        </div>
+      </div>
+    </nav>
+  ) : (
+    <nav class="site-nav login-nav">
+      <div class="container">
+        <a class="btn btn-ghost btn-sm login-back" href={LOGIN.back.href}>
+          <svg
+            class="login-back-arrow"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M13 8H3.5" />
+            <path d="M8 3.5 3.5 8 8 12.5" />
+          </svg>
+          {LOGIN.back.label}
+        </a>
+      </div>
+    </nav>
+  )
+}

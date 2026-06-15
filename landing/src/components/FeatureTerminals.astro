@@ -2,47 +2,28 @@
 /**
  * Feature terminals: a small grid of compact terminals, each one codeflare
  * capability shown as a command and its output, with a one-line caption foot.
- * This replaces the old big-number stat band and the old checkmark comparison
- * with the same terminal proof idiom the rest of the page trades in.
- *
- * Each terminal is `data-proof`, so proof.ts types its lines in once when it
- * scrolls into view; the static markup is the resolved state, so it is fully
- * legible with no JavaScript and under reduced motion.
+ * Each uses the shared <Terminal> chrome + <Transcript animate="typed">: the
+ * transcript then a live command line that feature-terminals.ts types / deletes
+ * in a loop (data-ft-loop). The static markup is the resolved state, fully
+ * legible with no JS and under reduced motion. Content from FEATURE_TERMINALS.
  */
 import { FEATURE_TERMINALS } from '../content/site';
+import Terminal from './Terminal.astro';
+import Transcript from './Transcript.astro';
 ---
 
 <div class="feature-terminals">
   {
     FEATURE_TERMINALS.map((ft) => (
-      <div
-        class="terminal feature-terminal"
-        data-proof
-        data-ft-loop={ft.loop ? JSON.stringify(ft.loop) : undefined}
+      <Terminal
+        variant="feature-terminal"
+        reveal={false}
+        title={ft.title}
+        foot={ft.foot}
+        ftLoop={ft.loop ? JSON.stringify(ft.loop) : undefined}
       >
-        <div class="terminal-bar">
-          <span class="terminal-dots" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-          </span>
-          <span class="terminal-title">{ft.title}</span>
-        </div>
-        <div class="terminal-body">
-          {ft.lines.map((line, i) => (
-            <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>
-              {line.text}
-            </span>
-          ))}
-          <span class="t-line t-cmd" style={`--i:${ft.lines.length}`}>
-            <span class="ft-typed" data-ft-typed>{ft.loop?.[0] ?? ''}</span>
-            <span class="t-caret" aria-hidden="true" />
-          </span>
-        </div>
-        <div class="terminal-foot tf-static">
-          <span class="tf-seg">{ft.foot}</span>
-        </div>
-      </div>
+        <Transcript lines={ft.lines} animate="typed" typed={ft.loop?.[0] ?? ''} />
+      </Terminal>
     ))
   }
 </div>

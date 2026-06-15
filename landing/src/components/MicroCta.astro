@@ -1,0 +1,25 @@
+---
+/**
+ * MicroCta: the quiet "→" text link used as a secondary call to action (the
+ * security briefing request inside a section head, the dogfood "see it on
+ * GitHub" line). One component owns the markup so the arrow + weight stay
+ * consistent. `dataTopic` preselects a contact-form topic; `external` opens in a
+ * new tab; `class` adds a placement modifier (e.g. dogfood-cta).
+ */
+interface Props {
+  href: string;
+  label: string;
+  /** Preselects a contact-form topic when the link is an in-page jump. */
+  dataTopic?: string;
+  /** Opens in a new tab (target + rel). */
+  external?: boolean;
+  /** Extra placement class, e.g. 'dogfood-cta'. */
+  class?: string;
+  reveal?: boolean;
+}
+const { href, label, dataTopic, external = false, class: className, reveal = false } = Astro.props;
+---
+
+<p class:list={['micro-cta', className, { reveal }]}>
+  <a href={href} data-topic={dataTopic} {...(external ? { target: '_blank', rel: 'noopener' } : {})}>{label}</a>
+</p>

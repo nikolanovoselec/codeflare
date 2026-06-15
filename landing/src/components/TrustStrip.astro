@@ -1,0 +1,28 @@
+---
+/**
+ * TrustStrip: the calm "in good company" logo band, folded in as the social-proof
+ * tail of the dogfood section (a substation). One component owns the markup + the
+ * logo-balancing styles (in global.css). Logos come from site.ts; each links to
+ * the brand site and opens in a new tab.
+ */
+import { TRUSTED } from '../content/site';
+---
+
+<div class="trusted-section substation">
+  <p class="trusted-label reveal">{TRUSTED.label}</p>
+  <div class="trusted-logos reveal">
+    {
+      TRUSTED.logos.map((logo) => (
+        <a
+          class="trusted-logo-link"
+          href={logo.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`${logo.name} (opens in a new tab)`}
+        >
+          <img class="trusted-logo" src={logo.src} alt={logo.alt} loading="lazy" />
+        </a>
+      ))
+    }
+  </div>
+</div>

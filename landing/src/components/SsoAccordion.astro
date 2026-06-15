@@ -1,0 +1,32 @@
+---
+/**
+ * SsoAccordion: the enterprise-SSO chooser on /login. The buttons look like real
+ * SSO options but are CTAs: the product offers GitHub today, so each provider is
+ * a native exclusive <details name="sso"> (works with no JS, one open at a time)
+ * that expands to a "get in touch" link deep-linking to the contact form with the
+ * enterprise topic preselected. Providers come from LOGIN.ssoProviders in site.ts.
+ */
+import { LOGIN } from '../content/site';
+---
+
+<div class="sso-divider"><span>{LOGIN.ssoHeading}</span></div>
+
+<div class="sso-group">
+  {
+    LOGIN.ssoProviders.map((provider) => (
+      <details class="sso-item" name="sso">
+        <summary class="sso-btn" data-sso={provider.id}>
+          <span class="sso-chip" aria-hidden="true">{provider.id.charAt(0).toUpperCase()}</span>
+          <span class="sso-name">{provider.name}</span>
+          <span class="sso-chev" aria-hidden="true">›</span>
+        </summary>
+        <div class="sso-panel">
+          <p>{provider.name} {LOGIN.sso.body}</p>
+          <a class="btn btn-ghost btn-sm" href={LOGIN.sso.cta.href} data-topic="enterprise-deployment">
+            {LOGIN.sso.cta.label} →
+          </a>
+        </div>
+      </details>
+    ))
+  }
+</div>

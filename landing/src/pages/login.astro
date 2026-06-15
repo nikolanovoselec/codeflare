@@ -6,20 +6,17 @@
  * same design tokens, fonts, and the page-wide flare-fluid splash (BaseLayout),
  * letting the marketing landing and sign-in flow into one another.
  *
- * Everyone enters via GitHub: an approved account lands in the app, a new
- * visitor is told their request was submitted and is emailed a confirmation
- * (the Worker callback decides and redirects back with ?status=requested).
- * Enterprise SSO is shown as expand-to-CTA buttons (a native exclusive
- * <details> accordion, so it works with no JS) that deep-link to the contact
- * form. Default markup is the sign-in choices, fully legible without JS.
+ * Pure composition: the shared <Header variant="login"> nav, the <LoginCard>
+ * (GitHub primary + enterprise-SSO accordion + the hidden access-requested
+ * confirmation), the build-time error map login.ts reads, and the shared
+ * <Footer>. Markup, copy, and behaviour live in those + content/site.ts +
+ * scripts/login.ts. No em/en dashes in any rendered copy.
  */
 import BaseLayout from '../layouts/BaseLayout.astro';
+import Header from '../components/Header.astro';
+import LoginCard from '../components/LoginCard.astro';
 import Footer from '../components/Footer.astro';
-import HeroHeadline from '../components/HeroHeadline.astro';
 import { LOGIN } from '../content/site';
-
-const GITHUB_PATH =
-  'M12 2C6.48 2 2 6.58 2 12.24c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49 0-.24-.01-1.05-.01-1.9-2.78.62-3.37-1.21-3.37-1.21-.45-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.9 1.58 2.35 1.12 2.92.86.09-.67.35-1.12.63-1.38-2.22-.26-4.55-1.14-4.55-5.08 0-1.12.39-2.04 1.03-2.76-.1-.26-.45-1.31.1-2.73 0 0 .84-.27 2.75 1.05A9.25 9.25 0 0 1 12 6.4a9.2 9.2 0 0 1 2.5.35c1.9-1.32 2.74-1.05 2.74-1.05.55 1.42.2 2.47.1 2.73.64.72 1.03 1.64 1.03 2.76 0 3.95-2.33 4.82-4.56 5.07.36.31.68.92.68 1.86 0 1.34-.01 2.42-.01 2.75 0 .27.18.59.69.49A10.26 10.26 0 0 0 22 12.24C22 6.58 17.52 2 12 2z';
 ---
 
 <BaseLayout
@@ -28,80 +25,10 @@ const GITHUB_PATH =
   canonical="https://codeflare.ch/login/"
   robots="noindex, nofollow"
 >
-  <nav class="site-nav login-nav">
-    <div class="container">
-      <a class="btn btn-ghost btn-sm login-back" href={LOGIN.back.href}>
-        <svg
-          class="login-back-arrow"
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.6"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M13 8H3.5" />
-          <path d="M8 3.5 3.5 8 8 12.5" />
-        </svg>{LOGIN.back.label}
-      </a>
-    </div>
-  </nav>
+  <Header variant="login" />
 
   <main class="login-main">
-    <div class="login-card reveal">
-      <h1 class="login-title">{LOGIN.title}</h1>
-      <p class="login-sub">{LOGIN.sub}</p>
-
-      <p class="login-error" data-login-error role="alert" hidden></p>
-
-      <!-- Default state: the sign-in choices. Rendered for every visitor; JS only
-           swaps this out for the confirmation when the Worker says so. -->
-      <div data-login-choices>
-        <a class="btn btn-primary login-github" href={LOGIN.github.href}>
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
-            <path d={GITHUB_PATH} />
-          </svg>
-          {LOGIN.github.label}
-        </a>
-
-        <div class="sso-divider"><span>{LOGIN.ssoHeading}</span></div>
-
-        <div class="sso-group">
-          {
-            LOGIN.ssoProviders.map((provider) => (
-              <details class="sso-item" name="sso">
-                <summary class="sso-btn" data-sso={provider.id}>
-                  <span class="sso-chip" aria-hidden="true">{provider.id.charAt(0).toUpperCase()}</span>
-                  <span class="sso-name">{provider.name}</span>
-                  <span class="sso-chev" aria-hidden="true">›</span>
-                </summary>
-                <div class="sso-panel">
-                  <p>{provider.name} {LOGIN.sso.body}</p>
-                  <a
-                    class="btn btn-ghost btn-sm"
-                    href={LOGIN.sso.cta.href}
-                    data-topic="enterprise-deployment"
-                  >
-                    {LOGIN.sso.cta.label} →
-                  </a>
-                </div>
-              </details>
-            ))
-          }
-        </div>
-
-        <p class="login-helper">{LOGIN.helper}</p>
-      </div>
-
-      <!-- Post-OAuth confirmation for a not-yet-approved visitor (login.ts shows
-           this and hides the choices when the URL carries ?status=requested). -->
-      <div class="login-requested" data-login-requested hidden>
-        <HeroHeadline />
-        <h2 class="login-requested-title">{LOGIN.requested.title}</h2>
-        <p class="login-requested-body">{LOGIN.requested.body}</p>
-      </div>
-    </div>
+    <LoginCard />
 
     <!-- OAuth-error copy, keyed by ?error=<code>; login.ts reads this map. -->
     <script type="application/json" id="login-errors" set:html={JSON.stringify(LOGIN.errors)}></script>
@@ -113,203 +40,3 @@ const GITHUB_PATH =
     import '../scripts/login';
   </script>
 </BaseLayout>
-
-<style>
-  .login-main {
-    max-width: 26rem;
-    margin: 0 auto;
-    padding: clamp(2.5rem, 1.5rem + 5vw, 5rem) 1.25rem var(--section-y);
-    min-height: calc(100vh - var(--nav-height));
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-  }
-
-  /* The back arrow is an inline SVG, not the &larr; font glyph: a glyph's ink
-     position inside the line box is font-metric-dependent and rounds differently
-     at fractional DPR, so box-centering it held on desktop but drifted on tablet
-     and mobile. The SVG geometry is vertically symmetric in its viewBox, so the
-     flex button's own align-items:center (from .btn) lands it on the label's
-     optical centre identically at every viewport and DPR, with no magic number. */
-  .login-back-arrow {
-    width: 0.95em;
-    height: 0.95em;
-    flex-shrink: 0;
-  }
-
-  .login-card {
-    text-align: center;
-  }
-
-  .login-title {
-    font-size: var(--fs-h2);
-    line-height: 1.1;
-    letter-spacing: -0.02em;
-    margin: 0;
-  }
-
-  .login-sub {
-    color: var(--text-secondary);
-    font-size: var(--fs-body);
-    margin: 0.6rem auto 2rem;
-    max-width: 22rem;
-  }
-
-  .login-error {
-    margin: 0 0 1.25rem;
-    padding: 0.7rem 0.9rem;
-    border: 1px solid var(--accent-line);
-    border-radius: var(--radius-sm);
-    background: var(--accent-soft);
-    color: var(--text-primary);
-    font-size: var(--fs-small);
-    text-align: left;
-  }
-
-  /* GitHub is the one primary action: full width, the locked coral. */
-  .login-github {
-    width: 100%;
-    padding-block: 0.95rem;
-    font-size: 1rem;
-  }
-
-  .sso-divider {
-    display: flex;
-    align-items: center;
-    gap: 0.85rem;
-    margin: 1.85rem 0 1.1rem;
-    color: var(--text-muted);
-    font-size: var(--fs-kicker);
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-  }
-
-  .sso-divider::before,
-  .sso-divider::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: var(--border-subtle);
-  }
-
-  .sso-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-  }
-
-  .sso-item {
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-sm);
-    background: var(--bg-surface);
-    overflow: hidden;
-  }
-
-  /* The provider button looks like a real SSO option; the chevron rotates open. */
-  .sso-btn {
-    display: flex;
-    align-items: center;
-    gap: 0.7rem;
-    padding: 0.8rem 0.95rem;
-    min-height: 44px;
-    cursor: pointer;
-    list-style: none;
-    font-family: var(--font-sans);
-    font-size: var(--fs-ui);
-    font-weight: 600;
-    color: var(--text-primary);
-    transition: background 0.18s var(--ease-out);
-  }
-
-  .sso-btn::-webkit-details-marker {
-    display: none;
-  }
-
-  .sso-btn:hover {
-    background: var(--bg-elevated);
-  }
-
-  .sso-chip {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.7rem;
-    height: 1.7rem;
-    flex-shrink: 0;
-    border-radius: 7px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-default);
-    color: var(--text-secondary);
-    font-family: var(--font-mono);
-    font-size: 0.85rem;
-    font-weight: 600;
-  }
-
-  .sso-name {
-    flex: 1;
-    text-align: left;
-  }
-
-  .sso-chev {
-    color: var(--text-muted);
-    font-size: 1.1rem;
-    line-height: 1;
-    transition: transform 0.2s var(--ease-out);
-  }
-
-  .sso-item[open] .sso-chev {
-    transform: rotate(90deg);
-  }
-
-  .sso-panel {
-    padding: 0 0.95rem 0.95rem;
-    text-align: left;
-  }
-
-  .sso-panel p {
-    color: var(--text-secondary);
-    font-size: var(--fs-small);
-    line-height: 1.6;
-    margin: 0 0 0.85rem;
-  }
-
-  .login-helper {
-    margin: 1.75rem auto 0;
-    max-width: 22rem;
-    color: var(--text-muted);
-    font-size: var(--fs-small);
-    line-height: 1.6;
-  }
-
-  /* Confirmation state. */
-  .login-requested {
-    text-align: center;
-  }
-
-  /* The reused landing hero line (HeroHeadline): same size, gradient flare, and
-     scramble as the marketing hero, centered to sit where the checkmark did. */
-  .login-requested :global(.hero-headline) {
-    max-width: none;
-    margin: 0 auto 1.4rem;
-    text-align: center;
-  }
-
-  .login-requested-title {
-    font-size: var(--fs-h3);
-    margin: 0 0 0.6rem;
-  }
-
-  .login-requested-body {
-    color: var(--text-secondary);
-    font-size: var(--fs-body);
-    line-height: 1.65;
-    margin: 0 auto 1.6rem;
-    max-width: 22rem;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .sso-chev {
-      transition: none;
-    }
-  }
-</style>

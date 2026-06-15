@@ -1,0 +1,40 @@
+---
+/**
+ * GateSteps: the "horizontal rows rolling in / fading out" terminal styler
+ * (styler 2). Renders the actor / state / text rows of an enforcement-gate-
+ * grammar artifact inside a [data-roll] list, which proof.ts rolls once armed
+ * (the top row slides out and re-enters at the bottom on a slow loop). Used by
+ * the method gate, the security boundary + egress rows, the platform seed log,
+ * and the MCP portal.
+ *
+ * Each caller maps its own data (GateStep / BoundaryRow / EgressRow / McpRow /
+ * seed row) to the GateRow shape below, so this component owns the rolling-list
+ * markup and the roll behaviour is defined once. Default markup is the resolved
+ * state, fully legible with no JS and under reduced motion.
+ */
+export interface GateRow {
+  actor: string;
+  /** The state-pill text (e.g. 'failed', 'authenticated', '30+'). */
+  label: string;
+  text: string;
+  /** State colour class ('is-fail' | 'is-work' | 'is-pass' | 'is-deny' |
+   *  'is-redact'); omit for a neutral row (the platform seed log). */
+  state?: string;
+}
+interface Props {
+  rows: GateRow[];
+}
+const { rows } = Astro.props;
+---
+
+<div class="gate-steps" data-roll>
+  {
+    rows.map((row, i) => (
+      <div class:list={['gate-step', row.state]} style={`--i:${i}`}>
+        <span class="gate-actor">{row.actor}</span>
+        <span class="gate-state">{row.label}</span>
+        <span class="gate-text">{row.text}</span>
+      </div>
+    ))
+  }
+</div>

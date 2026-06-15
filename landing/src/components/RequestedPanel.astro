@@ -1,0 +1,17 @@
+---
+/**
+ * RequestedPanel: the post-OAuth "access request submitted" state on /login,
+ * shipped hidden in the DOM so login.ts can reveal it (and hide the sign-in
+ * choices) when the Worker redirects back with ?status=requested. Reuses the
+ * landing hero headline so the confirmation carries the same brand flare.
+ * Copy comes from LOGIN.requested in site.ts.
+ */
+import { LOGIN } from '../content/site';
+import HeroHeadline from './HeroHeadline.astro';
+---
+
+<div class="login-requested" data-login-requested hidden>
+  <HeroHeadline />
+  <h2 class="login-requested-title">{LOGIN.requested.title}</h2>
+  <p class="login-requested-body">{LOGIN.requested.body}</p>
+</div>

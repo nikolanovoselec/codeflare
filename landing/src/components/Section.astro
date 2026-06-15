@@ -1,0 +1,20 @@
+---
+/**
+ * Section: the page's top-level section wrapper. Every band on the landing page
+ * is one of these, so the vertical rhythm (--section-y) and the centered
+ * .container live in one place. `alt` adds the subtle surface tint that
+ * separates adjacent sections (never a drawn rule).
+ */
+interface Props {
+  id?: string;
+  /** Tinted (alternating) band: adds .section--alt. */
+  alt?: boolean;
+}
+const { id, alt = false } = Astro.props;
+---
+
+<section id={id} class:list={['section', { 'section--alt': alt }]}>
+  <div class="container">
+    <slot />
+  </div>
+</section>

@@ -1,0 +1,51 @@
+---
+/**
+ * LedgerTable: the cost-attribution ledger, the literal bill for the spine run
+ * (PR #207) closing on zero unattributed. Wraps the shared <Terminal> chrome and
+ * renders the column head, the rolling [data-roll] rows (proof.ts rolls them),
+ * and the pinned totals. Content comes from COST.ledger in site.ts.
+ */
+import Terminal from './Terminal.astro';
+import { COST } from '../content/site';
+
+const { ledger } = COST;
+---
+
+<Terminal variant="ledger">
+  <Fragment slot="bar">
+    <span class="ledger-meta-id">{ledger.meta}</span>
+    <span class="ledger-meta-sample">{ledger.sample}</span>
+  </Fragment>
+  <div class="ledger-head" aria-hidden="true">
+    <span class="lc-time">{ledger.columns[0]}</span>
+    <span class="lc-user">{ledger.columns[1]}</span>
+    <span class="lc-team">{ledger.columns[2]}</span>
+    <span class="lc-agent">{ledger.columns[3]}</span>
+    <span class="lc-route">{ledger.columns[4]}</span>
+    <span class="lc-cost">{ledger.columns[5]}</span>
+  </div>
+  <div class="ledger-rows" data-roll>
+    {
+      ledger.rows.map((row, i) => (
+        <div class="ledger-row" style={`--i:${i}`}>
+          <span class="lc-time">{row.time}</span>
+          <span class="lc-user">{row.user}</span>
+          <span class="lc-team">{row.team}</span>
+          <span class="lc-agent">{row.agent}</span>
+          <span class="lc-route">{row.route}</span>
+          <span class="lc-cost">{row.cost}</span>
+        </div>
+      ))
+    }
+  </div>
+  <div class="ledger-totals">
+    {
+      ledger.totals.map((total) => (
+        <div class:list={['ledger-total', { 'is-accent': total.accent }]}>
+          <span class="total-label">{total.label}</span>
+          <span class="total-value">{total.value}</span>
+        </div>
+      ))
+    }
+  </div>
+</Terminal>

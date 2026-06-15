@@ -1,0 +1,37 @@
+---
+/**
+ * LoginCard: the onboarding /login card. Everyone enters via GitHub (the one
+ * primary action); enterprise SSO is the expand-to-CTA accordion; a new visitor
+ * is steered to GitHub by the helper line. The not-yet-approved confirmation
+ * (RequestedPanel) ships hidden for login.ts to reveal. Default markup is the
+ * sign-in choices, fully legible with no JS. Copy comes from LOGIN in site.ts.
+ */
+import { LOGIN } from '../content/site';
+import SsoAccordion from './SsoAccordion.astro';
+import RequestedPanel from './RequestedPanel.astro';
+
+const GITHUB_PATH =
+  'M12 2C6.48 2 2 6.58 2 12.24c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49 0-.24-.01-1.05-.01-1.9-2.78.62-3.37-1.21-3.37-1.21-.45-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.9 1.58 2.35 1.12 2.92.86.09-.67.35-1.12.63-1.38-2.22-.26-4.55-1.14-4.55-5.08 0-1.12.39-2.04 1.03-2.76-.1-.26-.45-1.31.1-2.73 0 0 .84-.27 2.75 1.05A9.25 9.25 0 0 1 12 6.4a9.2 9.2 0 0 1 2.5.35c1.9-1.32 2.74-1.05 2.74-1.05.55 1.42.2 2.47.1 2.73.64.72 1.03 1.64 1.03 2.76 0 3.95-2.33 4.82-4.56 5.07.36.31.68.92.68 1.86 0 1.34-.01 2.42-.01 2.75 0 .27.18.59.69.49A10.26 10.26 0 0 0 22 12.24C22 6.58 17.52 2 12 2z';
+---
+
+<div class="login-card reveal">
+  <h1 class="login-title">{LOGIN.title}</h1>
+  <p class="login-sub">{LOGIN.sub}</p>
+
+  <p class="login-error" data-login-error role="alert" hidden></p>
+
+  <div data-login-choices>
+    <a class="btn btn-primary login-github" href={LOGIN.github.href}>
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+        <path d={GITHUB_PATH} />
+      </svg>
+      {LOGIN.github.label}
+    </a>
+
+    <SsoAccordion />
+
+    <p class="login-helper">{LOGIN.helper}</p>
+  </div>
+
+  <RequestedPanel />
+</div>

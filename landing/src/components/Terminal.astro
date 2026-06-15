@@ -1,0 +1,64 @@
+---
+/**
+ * Terminal chrome: the single source of every terminal frame on the page (the
+ * bar with traffic-light dots, the body slot, and the foot). Every terminal —
+ * the hero reel, the proof transcripts, the rolling gates, the cost ledger, the
+ * review board, the orchestration tree — wraps its body in this, so the frame,
+ * border, radius, shadow, and width stay identical everywhere: tune the terminal
+ * once, here, never in fifteen places.
+ *
+ * The body is a <slot>: a <Transcript> (the cursor / typed / roll-middle styler),
+ * a <GateSteps> (the rolling-rows styler), or a specialised body (ledger, board,
+ * orch). Animation behaviour lives in those + the page scripts; this owns only
+ * the frame. data-proof (armed by proof.ts on scroll-in) is always emitted; the
+ * reel / orch hooks are explicit, typed props.
+ *
+ * Slots: default = the terminal body. "bar" = custom bar content after the dots
+ * (artifact ids/metas), used when no plain `title` is given. "foot" = a custom
+ * foot (the hero statusline), used when no plain `foot` caption is given.
+ */
+interface Props {
+  /** Extra class(es) on .terminal: 'gate', 'proof-terminal', 'gate boundary',
+   *  'review-board', 'ledger', 'orch', 'dogfood-terminal', 'feature-terminal'. */
+  variant?: string;
+  /** Adds the .reveal entrance hook (default true). The hero + feature terminals
+   *  carry .reveal on their wrapper instead, so they pass reveal={false}. */
+  reveal?: boolean;
+  /** Plain bar title (.terminal-title). Omit and use the "bar" slot for the
+   *  artifact bars (gate ids, board ids, ledger metas). */
+  title?: string;
+  /** Single prose caption foot (.terminal-foot.tf-static). Omit and use the
+   *  "foot" slot for the animated statusline (hero), or omit entirely for the
+   *  board / ledger which close on their own verdict / totals. */
+  foot?: string;
+  /** Reel hook (hero + feature terminals): the JSON command array
+   *  feature-terminals.ts types / deletes in a loop (data-ft-loop). */
+  ftLoop?: string;
+  /** Reel hook (hero): shuffle the beat order each load (data-ft-shuffle). */
+  ftShuffle?: boolean;
+  /** Orchestration hook: arm orch.ts live counter / activity ticking (data-orch). */
+  orch?: boolean;
+}
+const { variant, reveal = true, title, foot, ftLoop, ftShuffle = false, orch = false } = Astro.props;
+---
+
+<div
+  class:list={['terminal', variant, { reveal }]}
+  data-proof
+  data-ft-loop={ftLoop}
+  data-ft-shuffle={ftShuffle ? '' : undefined}
+  data-orch={orch ? '' : undefined}
+>
+  <div class="terminal-bar">
+    <span class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+    {title ? <span class="terminal-title">{title}</span> : <slot name="bar" />}
+  </div>
+  <slot />
+  {
+    foot ? (
+      <div class="terminal-foot tf-static"><span class="tf-seg">{foot}</span></div>
+    ) : (
+      <slot name="foot" />
+    )
+  }
+</div>

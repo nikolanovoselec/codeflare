@@ -129,82 +129,11 @@ const structuredData = {
       import '../scripts/orch';
     </script>
     <script>
-      // Entrance wiring: .reveal elements fade up on first view. Content is
-      // visible by default; JS applies the hidden state and immediately
-      // animates, never a CSS opacity:0 default (no-JS and reduced-motion
-      // visitors see everything).
-      import { inView, animate } from 'motion';
-
-      const EASE_OUT_STRONG: [number, number, number, number] = [0.23, 1, 0.32, 1];
-      const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-      if (!prefersReduced && 'IntersectionObserver' in window) {
-        // Each element reveals exactly once. Motion's inView re-fires its
-        // callback every time an element re-enters the viewport; without this
-        // guard, scrolling up then down re-ran the entrance (blank to visible),
-        // which read as a flash on mobile. The WeakSet makes the reveal one-shot
-        // and we disconnect the observer after it fires.
-        const revealed = new WeakSet<HTMLElement>();
-
-        for (const el of document.querySelectorAll<HTMLElement>('.reveal')) {
-          const stop = inView(
-            el,
-            () => {
-              if (revealed.has(el)) return;
-              revealed.add(el);
-              animate(
-                el,
-                { opacity: [0, 1], transform: ['translateY(12px)', 'translateY(0px)'] },
-                { duration: 0.4, ease: EASE_OUT_STRONG }
-              );
-              stop?.();
-            },
-            { margin: '-60px' }
-          );
-        }
-
-        // Grids cascade their children in (a short stagger) instead of fading as
-        // one block. Children are hidden synchronously on enter, then animated.
-        // Also one-shot, for the same reason.
-        for (const grid of document.querySelectorAll<HTMLElement>('[data-stagger]')) {
-          const items = Array.from(grid.children) as HTMLElement[];
-          const stop = inView(
-            grid,
-            () => {
-              if (revealed.has(grid)) return;
-              revealed.add(grid);
-              for (const item of items) item.style.opacity = '0';
-              items.forEach((item, i) => {
-                animate(
-                  item,
-                  { opacity: [0, 1], transform: ['translateY(12px)', 'translateY(0px)'] },
-                  { duration: 0.4, ease: EASE_OUT_STRONG, delay: i * 0.06 }
-                );
-              });
-              stop?.();
-            },
-            { margin: '-60px' }
-          );
-        }
-      }
-
-      // The sticky nav gains a depth seam once scrolled past the hero top (a
-      // movement-free state toggle, safe under reduced motion).
-      const nav = document.querySelector('.site-nav');
-      let ticking = false;
-      const syncScroll = () => {
-        const y = window.scrollY;
-        if (nav) nav.classList.toggle('is-scrolled', y > 12);
-        ticking = false;
-      };
-      const requestSync = () => {
-        if (!ticking) {
-          ticking = true;
-          requestAnimationFrame(syncScroll);
-        }
-      };
-      window.addEventListener('scroll', requestSync, { passive: true });
-      syncScroll();
+      // Entrance + nav-chrome wiring: .reveal elements fade up on first view
+      // (above-the-fold elements are skipped to avoid an open-page flicker), and
+      // the sticky nav gains a depth seam once scrolled. Content is visible by
+      // default (no-JS and reduced-motion visitors see everything).
+      import '../scripts/reveal';
     </script>
   </body>
 </html>

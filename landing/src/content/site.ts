@@ -203,9 +203,9 @@ export const TERMINAL = {
     note: SPINE.service,
   } satisfies TerminalFoot,
   // The hero prompt's bottom line is a capability reel: one highlight per beat,
-  // typed/held/deleted and shuffled on each load (data-ft-once + data-ft-shuffle in
-  // Hero.astro: shuffle, type, hold, advance, stop on the last beat). Reduced motion
-  // / no JS: run[0] is the server-rendered resting state, fully legible.
+  // typed/held/deleted and shuffled on each load (data-ft-shuffle in Hero.astro),
+  // looping continuously so the reel never stops. Reduced motion / no JS: run[0]
+  // is the server-rendered resting state, fully legible.
   run: [
     'spec-driven · enforced, not suggested',
     'legacy codebase · bootstrapped to an SDD baseline',

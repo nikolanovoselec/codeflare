@@ -1,0 +1,58 @@
+---
+/**
+ * Transcript: the "last line + scrolling cursor" terminal styler (styler 1).
+ * Renders a .terminal-body of .t-line rows from typed content, in four modes
+ * that share one component so the cursor / typing behaviour is defined once:
+ *
+ *   - 'cursor'      a blinking caret on the LAST line (legacy + context proofs).
+ *   - 'typed'       the reel: the lines, then a typed command line (.ft-typed +
+ *                   caret) that feature-terminals.ts types / deletes in a loop.
+ *                   The .terminal carries data-ft-loop / data-ft-shuffle (passed
+ *                   to <Terminal>), not this component. Used by the hero + the
+ *                   four feature terminals.
+ *   - 'roll-middle' first and last line pinned; the middle lines sit in a
+ *                   [data-roll] list that proof.ts rolls (the dogfood proof).
+ *   - 'static'      plain lines, no caret, no roll.
+ *
+ * Default markup is the resolved state, fully legible with no JS and under
+ * reduced motion (the scripts only animate from this resting state).
+ */
+import type { TranscriptLine } from '../content/site';
+
+interface Props {
+  lines: TranscriptLine[];
+  animate?: 'cursor' | 'typed' | 'roll-middle' | 'static';
+  /** animate='typed' only: the initial text of the typed command line. */
+  typed?: string;
+}
+const { lines, animate = 'static', typed = '' } = Astro.props;
+const lastIndex = lines.length - 1;
+---
+
+<div class="terminal-body">
+  {
+    animate === 'roll-middle' ? (
+      <Fragment>
+        <span class={`t-line t-${lines[0].tone}`} style="--i:0">{lines[0].text}</span>
+        <div data-roll>
+          {lines.slice(1, -1).map((line, i) => (
+            <span class={`t-line t-${line.tone}`} style={`--i:${i + 1}`}>{line.text}</span>
+          ))}
+        </div>
+        <span class={`t-line t-${lines[lastIndex].tone}`} style={`--i:${lastIndex}`}>{lines[lastIndex].text}</span>
+      </Fragment>
+    ) : (
+      <Fragment>
+        {lines.map((line, i) => (
+          <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>
+            {line.text}
+            {animate === 'cursor' && i === lastIndex && <span class="t-caret" aria-hidden="true" />}
+          </span>
+        ))}
+        {animate === 'typed' && (
+          <span class="t-line t-cmd" style={`--i:${lines.length}`}><span class="ft-typed" data-ft-typed>{typed}</span><span class="t-caret" aria-hidden="true" /></span>
+        )}
+      </Fragment>
+    )
+  }
+</div>

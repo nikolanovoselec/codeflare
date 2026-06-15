@@ -290,7 +290,7 @@ svg {
 .nav-right {
   display: flex;
   align-items: center;
-  gap: 0.85rem;
+  gap: 2rem;
 }
 
 /* "Sign in" goes to the SPA /login provider chooser (GitHub / Google / OIDC /
@@ -402,9 +402,9 @@ svg {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem 0.9rem;
   margin-top: 1.1rem;
-  padding-left: 0.1rem;
   font-family: var(--font-mono);
   font-size: var(--fs-mono-ui);
   letter-spacing: 0.04em;
@@ -891,10 +891,10 @@ svg {
 }
 
 /* The contact section has no section-head lead; its intro paragraph IS the lead,
-   so it takes the same --fs-lead as every other section's lead (it had sat at
-   body size, an awkward near-miss against the small note below it). The note is
-   then clearly fine print at --fs-small, so the two read as an intentional
-   lead -> fine-print step rather than two almost-but-not-quite-equal sizes (#22). */
+   so it takes the same --fs-lead as every other section's lead. The note below it
+   shares that exact size and colour (it is the same aside voice, not separate
+   fine print in a one-off size that appears nowhere else on the page), with only
+   a top margin separating the two (#34). */
 .contact-aside p {
   font-size: var(--fs-lead);
   color: var(--text-secondary);
@@ -903,8 +903,6 @@ svg {
 
 .contact-aside .aside-note {
   margin-top: 1.1rem;
-  font-size: var(--fs-small);
-  color: var(--text-muted);
 }
 
 .contact-form {
@@ -1034,7 +1032,7 @@ svg {
 .footer-copy {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: baseline;
   justify-content: center;
   gap: 0.4rem 1.4rem;
   margin: 0;
@@ -1050,6 +1048,12 @@ svg {
   display: inline-flex;
   align-items: baseline;
   gap: 0.4rem;
+}
+
+/* The copyright mark is its own flex item so the column-gap is symmetric on both
+   sides of it; letter-spacing zeroed so left and right of the mark match exactly. */
+.footer-mark {
+  letter-spacing: 0;
 }
 
 .footer-gm-link {
@@ -1167,6 +1171,16 @@ svg {
    -------------------------------------------------------------------------- */
 .reveal {
   will-change: opacity, transform;
+}
+
+/* Smooth cross-document navigation (landing <-> /login): a default cross-fade
+   between same-origin pages, so clicking "Sign in" transitions instead of a hard
+   cut. Progressive enhancement (Chromium); unsupported browsers navigate
+   normally. Gated on motion preference so reduced-motion gets the plain cut. */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition {
+    navigation: auto;
+  }
 }
 
 /* --------------------------------------------------------------------------
@@ -1778,11 +1792,8 @@ svg {
 /* --------------------------------------------------------------------------
    Polish additions: dogfood proof terminal, live prompt
    -------------------------------------------------------------------------- */
-/* The dogfood terminal is a contained window (not full container width), so its
-   short annotation lines fill it instead of leaving dead space on the right. */
-.dogfood-terminal {
-  max-width: 56rem;
-}
+/* The dogfood terminal spans the full container width like every other body
+   terminal (the prior 56rem cap made it the odd narrow one out). */
 
 .dogfood-cta {
   margin-top: 1.35rem;
@@ -1792,4 +1803,358 @@ svg {
    the caret sits right after it. The type/delete loop is feature-terminals.ts. */
 .ft-typed {
   color: var(--text-primary);
+}
+
+/* --------------------------------------------------------------------------
+   Sub-section heads + folded substations (SectionHead substation). Moved here
+   from the page-scoped <style> when the page was componentized: these selectors
+   cross component boundaries (a SectionHead substation following a Terminal /
+   FeatureGrid / agent-chips), so they must be global, not scoped to a component.
+   -------------------------------------------------------------------------- */
+/* Sub-content folded into the section above it (operations under security,
+   tenancy under cost, runs-everywhere under platform, trusted under proof):
+   separated by space alone, never a rule, so it reads as the same section
+   continuing rather than a block walled off by a gray line. The shared section
+   tint already groups it with the content above. */
+.substation {
+  margin-top: clamp(3rem, 6vw, 5rem);
+}
+
+/* When a substation sub-head directly follows a terminal / grid / chips, the
+   full substation gap read as a section break and severed the section. Those
+   blocks are already self-contained boxes, so a tighter gap keeps the sub-head
+   reading as a continuation of the same section rather than a new one. */
+.terminal + .substation,
+.feature-grid + .substation,
+.agent-chips + .substation {
+  margin-top: clamp(1.75rem, 4vw, 2.75rem);
+}
+
+/* Sub-section head: the larger --fs-subhead (a decisive step above the 1rem card
+   terms), bold, so it reads as the block's headline rather than a near-miss of
+   the term size. Anchored by a nested terminal-path kicker ("~/security/
+   operations"), one level deeper than the section's own, so the hierarchy reads
+   from path depth plus the size jump, never from size alone. */
+.substation h3 {
+  font-size: var(--fs-subhead);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.6rem;
+}
+
+/* --------------------------------------------------------------------------
+   Trusted-by social-proof strip (TrustStrip): a quiet, centered band folded
+   into the dogfood proof as its substation tail.
+   -------------------------------------------------------------------------- */
+.trusted-section {
+  text-align: center;
+}
+
+/* Its separation from the dogfood proof above comes from .substation's
+   margin-top alone (no rule). */
+.trusted-section.substation {
+  text-align: center;
+}
+
+.trusted-label {
+  margin: 0 0 1.5rem;
+  font-size: var(--fs-kicker);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+}
+
+.trusted-logos {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(2rem, 5vw, 3.5rem);
+  flex-wrap: wrap;
+}
+
+/* Four mixed-width logos wrap unevenly (3 + 1) on a phone; a 2-column grid keeps
+   them balanced 2x2 and centered. 680px matches the page's phone breakpoint. */
+@media (max-width: 680px) {
+  .trusted-logos {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    justify-items: center;
+    align-items: center;
+    gap: 1.75rem 1.25rem;
+  }
+}
+
+/* The marks have very different aspects: one wide wordmark (Cloudflare 2.19:1)
+   and three squares. A shared bounding box whose aspect (3:2) sits between square
+   (1.0) and the widest mark auto-balances them. Grayscale + lifted brightness +
+   reduced opacity unify their clashing brand colours; colour returns on hover. */
+.trusted-logo {
+  width: clamp(58px, 13vw, 66px);
+  height: auto;
+  aspect-ratio: 3 / 2;
+  object-fit: contain;
+  filter: grayscale(1) brightness(1.35);
+  opacity: 0.6;
+  transition:
+    opacity 0.3s ease,
+    filter 0.3s ease;
+}
+
+/* The logo links to the customer site; restoring colour + full opacity on
+   hover/focus signals it is clickable. */
+.trusted-logo-link {
+  display: inline-flex;
+}
+
+.trusted-logo-link:hover .trusted-logo,
+.trusted-logo-link:focus-visible .trusted-logo {
+  filter: grayscale(0) brightness(1);
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trusted-logo {
+    transition: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Orchestration tree (OrchTree): the "Running N agents" operator tree. Reuses
+   the terminal chrome; these tones colour the live agent rows over the mono
+   body, and the box-drawing connectors keep their alignment.
+   -------------------------------------------------------------------------- */
+.orch-head {
+  color: var(--text-secondary);
+}
+
+.orch-dot {
+  color: var(--term-green);
+}
+
+.orch-agent {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.orch-meta,
+.orch-sub,
+.orch-hint,
+.orch-branch {
+  color: var(--term-dim);
+}
+
+/* The agent tree relies on box-drawing connectors lining up across lines. `pre`
+   preserves the leading-space indentation each row needs, and horizontal scroll
+   keeps the tree intact on a phone instead of wrapping (which misaligned the
+   connectors). Scoped to the orch terminal so other terminals keep their phone
+   wrapping. */
+.orch .terminal-body {
+  overflow-x: auto;
+}
+
+.orch .t-line {
+  white-space: pre;
+  line-height: 1.85;
+}
+
+/* --------------------------------------------------------------------------
+   Onboarding /login page (LoginCard, SsoAccordion, RequestedPanel, Header
+   variant="login"). Moved here from the page-scoped <style> when login was
+   componentized, so the selectors reach the elements now living in components.
+   -------------------------------------------------------------------------- */
+.login-main {
+  max-width: 26rem;
+  margin: 0 auto;
+  padding: clamp(2.5rem, 1.5rem + 5vw, 5rem) 1.25rem var(--section-y);
+  min-height: calc(100vh - var(--nav-height));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* The back arrow is an inline SVG, not the &larr; font glyph: a glyph's ink
+   position is font-metric-dependent and drifts at fractional DPR. The SVG
+   geometry is vertically symmetric, so the flex button's align-items:center
+   lands it on the label's optical centre at every viewport and DPR. */
+.login-back-arrow {
+  width: 0.95em;
+  height: 0.95em;
+  flex-shrink: 0;
+}
+
+.login-card {
+  text-align: center;
+}
+
+.login-title {
+  font-size: var(--fs-h2);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.login-sub {
+  color: var(--text-secondary);
+  font-size: var(--fs-body);
+  margin: 0.6rem auto 2rem;
+  max-width: 22rem;
+}
+
+.login-error {
+  margin: 0 0 1.25rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  font-size: var(--fs-small);
+  text-align: left;
+}
+
+/* GitHub is the one primary action: full width, the locked coral. */
+.login-github {
+  width: 100%;
+  padding-block: 0.95rem;
+  font-size: 1rem;
+}
+
+.sso-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin: 1.85rem 0 1.1rem;
+  color: var(--text-muted);
+  font-size: var(--fs-kicker);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.sso-divider::before,
+.sso-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-subtle);
+}
+
+.sso-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.sso-item {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+
+/* The provider button looks like a real SSO option; the chevron rotates open. */
+.sso-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.8rem 0.95rem;
+  min-height: 44px;
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--font-sans);
+  font-size: var(--fs-ui);
+  font-weight: 600;
+  color: var(--text-primary);
+  transition: background 0.18s var(--ease-out);
+}
+
+.sso-btn::-webkit-details-marker {
+  display: none;
+}
+
+.sso-btn:hover {
+  background: var(--bg-elevated);
+}
+
+.sso-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  flex-shrink: 0;
+  border-radius: 7px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.sso-name {
+  flex: 1;
+  text-align: left;
+}
+
+.sso-chev {
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  transition: transform 0.2s var(--ease-out);
+}
+
+.sso-item[open] .sso-chev {
+  transform: rotate(90deg);
+}
+
+.sso-panel {
+  padding: 0 0.95rem 0.95rem;
+  text-align: left;
+}
+
+.sso-panel p {
+  color: var(--text-secondary);
+  font-size: var(--fs-small);
+  line-height: 1.6;
+  margin: 0 0 0.85rem;
+}
+
+.login-helper {
+  margin: 1.75rem auto 0;
+  max-width: 22rem;
+  color: var(--text-muted);
+  font-size: var(--fs-small);
+  line-height: 1.6;
+}
+
+/* Confirmation state. */
+.login-requested {
+  text-align: center;
+}
+
+/* The reused landing hero line (HeroHeadline): same size, gradient flare, and
+   scramble as the marketing hero, centered to sit where the checkmark did. */
+.login-requested .hero-headline {
+  max-width: none;
+  margin: 0 auto 1.4rem;
+  text-align: center;
+}
+
+.login-requested-title {
+  font-size: var(--fs-h3);
+  margin: 0 0 0.6rem;
+}
+
+.login-requested-body {
+  color: var(--text-secondary);
+  font-size: var(--fs-body);
+  line-height: 1.65;
+  margin: 0 auto 1.6rem;
+  max-width: 22rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sso-chev {
+    transition: none;
+  }
 }

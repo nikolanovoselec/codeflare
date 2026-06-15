@@ -1,0 +1,40 @@
+---
+/**
+ * ReviewBoard: the parallel PR-boundary review, six specialist agents on one diff
+ * at once (two catching and re-proving a finding), converging on one human triage
+ * gate. Wraps the shared <Terminal> chrome and renders the dispatch line, the
+ * rolling [data-roll] lanes (proof.ts rolls them), and the pinned verdict.
+ * Content comes from PIPELINE + SPINE in site.ts.
+ */
+import Terminal from './Terminal.astro';
+import { PIPELINE, SPINE } from '../content/site';
+---
+
+<Terminal variant="review-board">
+  <Fragment slot="bar">
+    <span class="board-pr-id">{SPINE.pr} · {SPINE.service}</span>
+    <span class="board-pr-trigger">{PIPELINE.trigger}</span>
+  </Fragment>
+  <div class="board-dispatch" aria-hidden="true">{PIPELINE.dispatch}</div>
+  <div class="board-lanes" data-roll>
+    {
+      PIPELINE.lanes.map((lane, i) => (
+        <div class:list={['board-lane', `is-${lane.result}`]} style={`--i:${i}`}>
+          <span class="lane-agent">{lane.agent}</span>
+          <span class="lane-track" aria-hidden="true">
+            <span class="lane-step">queued</span>
+            <span class="lane-step">running</span>
+            {lane.result === 'finding' && <span class="lane-step is-finding">finding</span>}
+            {lane.result === 'finding' && <span class="lane-step is-fixed">fixed</span>}
+            <span class="lane-step is-verified">verified</span>
+          </span>
+          <span class="lane-note">{lane.note}</span>
+        </div>
+      ))
+    }
+  </div>
+  <div class="board-verdict">
+    <span class="verdict-title">{PIPELINE.verdict.title}</span>
+    <span class="verdict-note">{PIPELINE.verdict.note}</span>
+  </div>
+</Terminal>
