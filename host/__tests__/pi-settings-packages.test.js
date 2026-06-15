@@ -40,7 +40,7 @@ function runAssembly(initialSettings) {
 
 const sourceOf = (entry) => (typeof entry === 'string' ? entry : entry && entry.source);
 const REQUIRED = [
-  'npm:@gotgenes/pi-subagents@15.0.1',
+  'npm:@gotgenes/pi-subagents@16.2.1',
   'npm:context-mode@1.0.162',
   'npm:@juicesharp/rpiv-advisor@1.19.1',
   'npm:@juicesharp/rpiv-ask-user-question@1.19.1',
