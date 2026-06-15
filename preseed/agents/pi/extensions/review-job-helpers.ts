@@ -232,6 +232,7 @@ export function shouldAttemptAnnouncement(input: AnnouncementAttemptInput): bool
 }
 
 export type AnnouncementReconcileInput = {
+  kind: ReviewAnnouncementKind;
   status: ReviewAnnouncementStatus;
   attempts: number;
   lastAttemptAt?: number;
@@ -249,18 +250,22 @@ export type AnnouncementReconcileDecision = "visible" | "failed" | "keep";
 // delivery wins outright. An `attempted` announcement that has burned its attempt cap AND given the
 // final attempt its full retry window without ever appearing is `failed` (the user is told to run
 // /review-results); anything still in flight is `keep` (emit retries it per shouldAttemptAnnouncement).
-// Age backstop: a non-terminal announcement that can never be delivered — e.g. the idle-gated summary
-// whose send never fires because the agent never goes idle, so the record never even leaves `pending`
-// to accrue attempts — still escalates to `failed` once it is older than maxAgeMs, so the documented
-// /review-results fallback stays reachable and nothing is acked-and-lost. Keyed on createdAt, so it is
-// independent of the attempt counter and never penalises a normal in-flight retry.
+// Age backstop — SUMMARY ONLY: the idle-gated summary defers (no attempt burned) while the agent
+// streams, so a record that never observes an idle tick would otherwise retry forever without ever
+// escalating; once older than maxAgeMs it becomes `failed` so the documented /review-results fallback
+// stays reachable and nothing is acked-and-lost. The AUTOFIX announcement is deliberately EXEMPT: it
+// defers off-turn (no live session) without burning an attempt, so aging it would mark it `failed` at
+// attempts:0 — expiring the fix turn before it ever fired. Autofix fails only via the attempt cap
+// above (after genuinely attempting delivery maxAttempts times), never on age alone. Keyed on
+// createdAt, so the summary backstop is independent of the attempt counter and never penalises a
+// normal in-flight retry.
 export function announcementReconcileDecision(input: AnnouncementReconcileInput): AnnouncementReconcileDecision {
   if (input.nonceFound) return "visible";
   if (input.status === "failed") return "failed";
   if (input.status === "attempted" && input.attempts >= input.maxAttempts) {
     return input.now - (input.lastAttemptAt ?? 0) >= input.retryDelayMs ? "failed" : "keep";
   }
-  if (input.maxAgeMs !== undefined && input.createdAt !== undefined && input.now - input.createdAt >= input.maxAgeMs) return "failed";
+  if (input.kind === "summary" && input.maxAgeMs !== undefined && input.createdAt !== undefined && input.now - input.createdAt >= input.maxAgeMs) return "failed";
   return "keep";
 }
 

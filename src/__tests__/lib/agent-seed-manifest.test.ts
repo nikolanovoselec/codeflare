@@ -1230,22 +1230,22 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
   });
 
   it('REQ-AGENT-062: announcementReconcileDecision proves delivery by the transcript nonce, fails only after the cap+window, else keeps retrying', () => {
-    const base = { attempts: 1, lastAttemptAt: 50_000, now: 100_000, maxAttempts: 3, retryDelayMs: 30_000 };
+    const base = { kind: 'summary' as const, attempts: 1, lastAttemptAt: 50_000, now: 100_000, maxAttempts: 3, retryDelayMs: 30_000 };
     // nonce in the transcript → delivered, regardless of prior status
     expect(announcementReconcileDecision({ ...base, status: 'attempted', nonceFound: true })).toBe('visible');
     expect(announcementReconcileDecision({ ...base, status: 'pending', nonceFound: true })).toBe('visible');
     // attempted, nonce absent, under the cap → keep (emit retries it)
     expect(announcementReconcileDecision({ ...base, status: 'attempted', nonceFound: false })).toBe('keep');
     // attempted, nonce absent, at the cap with the final window elapsed → failed (→ /review-results notice)
-    expect(announcementReconcileDecision({ status: 'attempted', attempts: 3, lastAttemptAt: 50_000, now: 100_000, maxAttempts: 3, retryDelayMs: 30_000, nonceFound: false })).toBe('failed');
+    expect(announcementReconcileDecision({ kind: 'summary', status: 'attempted', attempts: 3, lastAttemptAt: 50_000, now: 100_000, maxAttempts: 3, retryDelayMs: 30_000, nonceFound: false })).toBe('failed');
     // attempted, nonce absent, at the cap but still within the final window → keep (let the last send land)
-    expect(announcementReconcileDecision({ status: 'attempted', attempts: 3, lastAttemptAt: 95_000, now: 100_000, maxAttempts: 3, retryDelayMs: 30_000, nonceFound: false })).toBe('keep');
+    expect(announcementReconcileDecision({ kind: 'summary', status: 'attempted', attempts: 3, lastAttemptAt: 95_000, now: 100_000, maxAttempts: 3, retryDelayMs: 30_000, nonceFound: false })).toBe('keep');
     // pending (never attempted) → nothing to reconcile yet
     expect(announcementReconcileDecision({ ...base, status: 'pending', nonceFound: false })).toBe('keep');
   });
 
   it('REQ-AGENT-062: announcementReconcileDecision age backstop escalates a never-attempted (idle-deferred) summary so /review-results stays reachable', () => {
-    const base = { attempts: 0, now: 700_000, maxAttempts: 3, retryDelayMs: 30_000, nonceFound: false, maxAgeMs: 600_000 };
+    const base = { kind: 'summary' as const, attempts: 0, now: 700_000, maxAttempts: 3, retryDelayMs: 30_000, nonceFound: false, maxAgeMs: 600_000 };
     // pending forever (idle-gated send never fired → 0 attempts), older than maxAgeMs → failed (age backstop)
     expect(announcementReconcileDecision({ ...base, status: 'pending', createdAt: 0 })).toBe('failed');
     // same record still within maxAgeMs → keep (don't penalise a normal in-flight wait for the next idle tick)
@@ -1253,7 +1253,19 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     // proof of delivery still wins over age (nonce found on the very tick it would have aged out)
     expect(announcementReconcileDecision({ ...base, status: 'pending', createdAt: 0, nonceFound: true })).toBe('visible');
     // no maxAgeMs/createdAt supplied → age branch inert, behaves exactly as before
-    expect(announcementReconcileDecision({ status: 'pending', attempts: 0, now: 700_000, maxAttempts: 3, retryDelayMs: 30_000, nonceFound: false })).toBe('keep');
+    expect(announcementReconcileDecision({ kind: 'summary', status: 'pending', attempts: 0, now: 700_000, maxAttempts: 3, retryDelayMs: 30_000, nonceFound: false })).toBe('keep');
+  });
+
+  it('REQ-AGENT-062: the age backstop is summary-only — an autofix announcement never ages out at attempts:0 (aging it would expire the fix turn before it ever fired)', () => {
+    const aged = { attempts: 0, now: 700_000, maxAttempts: 3, retryDelayMs: 30_000, nonceFound: false, maxAgeMs: 600_000, createdAt: 0, status: 'pending' as const };
+    // summary at this age escalates so the /review-results fallback stays reachable...
+    expect(announcementReconcileDecision({ ...aged, kind: 'summary' })).toBe('failed');
+    // ...but autofix is EXEMPT: stays 'keep' so a later live tick can still fire the fix/commit/push turn
+    expect(announcementReconcileDecision({ ...aged, kind: 'autofix' })).toBe('keep');
+    // autofix still fails honestly via the attempt cap (3 real attempts, final window elapsed), never on age alone
+    expect(announcementReconcileDecision({ kind: 'autofix', status: 'attempted', attempts: 3, lastAttemptAt: 50_000, now: 100_000, maxAttempts: 3, retryDelayMs: 30_000, nonceFound: false, createdAt: 0, maxAgeMs: 600_000 })).toBe('failed');
+    // proof of delivery wins for autofix too, regardless of age
+    expect(announcementReconcileDecision({ ...aged, kind: 'autofix', nonceFound: true })).toBe('visible');
   });
 
   it('REQ-AGENT-062: the autofix request carries the delivery nonce only when supplied (so the SM can verify it landed)', () => {

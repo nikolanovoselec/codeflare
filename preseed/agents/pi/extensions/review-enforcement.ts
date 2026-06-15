@@ -1268,7 +1268,7 @@ export default function (pi: ExtensionAPI) {
   // a record that never observes an idle tick would otherwise retry forever without ever escalating.
   // Generous enough that no normal turn-to-idle gap trips it (idle ticks deliver in seconds), but it
   // bounds the pathological case so the /review-results fallback stays reachable (REQ-AGENT-062 AC3/AC6).
-  const ANNOUNCE_MAX_AGE_MS = 600_000;
+  const ANNOUNCE_MAX_AGE_MS = 1_800_000; // 30 min: safely exceeds long (15-20 min) review/work runs so a busy (non-idle) agent never false-escalates the summary
 
   function completedStateFromDurableJob(repo: string, head: string): PendingReview | undefined {
     const job = readDurableReviewJob(repo, head);
@@ -1373,7 +1373,7 @@ export default function (pi: ExtensionAPI) {
       const record = readReviewAnnouncement(repo, head, kind);
       if (!record || record.status === "visible" || record.status === "failed") continue;
       const nonceFound = sessionContainsNonce(ctx, record.nonce);
-      const verdict = announcementReconcileDecision({ status: record.status, attempts: record.attempts, lastAttemptAt: record.lastAttemptAt, nonceFound, now, maxAttempts: ANNOUNCE_MAX_ATTEMPTS, retryDelayMs: ANNOUNCE_RETRY_MS, createdAt: record.createdAt, maxAgeMs: ANNOUNCE_MAX_AGE_MS });
+      const verdict = announcementReconcileDecision({ kind: record.kind, status: record.status, attempts: record.attempts, lastAttemptAt: record.lastAttemptAt, nonceFound, now, maxAttempts: ANNOUNCE_MAX_ATTEMPTS, retryDelayMs: ANNOUNCE_RETRY_MS, createdAt: record.createdAt, maxAgeMs: ANNOUNCE_MAX_AGE_MS });
       if (verdict === "visible") {
         writeReviewAnnouncement({ ...record, status: "visible", deliveredAt: now });
         appendReviewEvent(repo, { event: `${kind}_announcement_visible`, head, nonce: record.nonce });
