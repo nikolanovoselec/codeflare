@@ -90,18 +90,22 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 ### REQ-GITHUB-003: Enterprise egress-injected GitHub credentials
 
-<!-- @impl: src/github-interceptor.ts -->
-<!-- @impl: src/container/index.ts::setupEnterpriseInterception -->
+<!-- @impl: src/github-interceptor.ts::GitHubInterceptor -->
+<!-- @impl: src/container/index.ts::wireGithubInterception -->
+<!-- @impl: src/container/container-env.ts::buildEnvVars -->
+<!-- @test: src/__tests__/github-interceptor.test.ts (injection format, fail-closed, no cross-user spoofing -> AC1..AC4) -->
+<!-- @test: src/__tests__/container/container-env.test.ts (REQ-GITHUB-003 placeholder GH_TOKEN -> AC4) -->
+<!-- @test: src/__tests__/container/index.test.ts (REQ-GITHUB-003 wiring -> AC1) -->
 **Intent:** In enterprise mode the agent's git/`gh`/API calls to GitHub are authenticated by injecting the user's token at the container egress boundary, so the real token never enters the container.
 
 **Applies To:** System
 
 **Acceptance Criteria:**
 
-1. `github.com` and `api.github.com` are registered for outbound HTTPS interception and handled by a GitHub interceptor; AI hosts continue to route to the LLM interceptor. <!-- @impl: src/container/index.ts::setupEnterpriseInterception -->
-2. On each intercepted request the interceptor resolves + decrypts the user's token for the bound session, strips any client-supplied auth, and stamps the correct credential (git Basic vs `gh` Bearer/`token`; `X-GitHub-Api-Version` for the API host). <!-- @impl: src/github-interceptor.ts -->
-3. When no valid token exists, the interceptor fails closed with a clear error and performs no upstream request.
-4. The container holds only a non-secret placeholder `GH_TOKEN` identical for all users; user-scoping comes solely from the per-session interceptor binding (`props.bucket`), never from the request — a session can only ever inject its own user's token.
+1. `github.com` and `api.github.com` are registered for outbound HTTPS interception and handled by a GitHub interceptor; AI hosts continue to route to the LLM interceptor. <!-- @impl: src/container/index.ts::wireGithubInterception -->
+2. On each intercepted request the interceptor resolves + decrypts the user's token for the bound session, strips any client-supplied auth, and stamps the correct credential (git Basic vs `gh` Bearer/`token`; `X-GitHub-Api-Version` for the API host). <!-- @impl: src/github-interceptor.ts::GitHubInterceptor -->
+3. When no valid token exists, the interceptor fails closed with a clear error and performs no upstream request. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor -->
+4. The container holds only a non-secret placeholder `GH_TOKEN` identical for all users; user-scoping comes solely from the per-session interceptor binding (`props.bucket`), never from the request — a session can only ever inject its own user's token. <!-- @impl: src/container/container-env.ts::buildEnvVars -->
 5. In non-enterprise modes the token reaches the container via the existing deploy-keys→`GH_TOKEN` path, unchanged (see [REQ-GITHUB-006](#req-github-006-other-mode-container-transport)).
 
 **Constraints:**

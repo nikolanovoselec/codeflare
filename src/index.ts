@@ -468,3 +468,11 @@ export { Timekeeper as timekeeper } from './timekeeper/index';
 // ctx.container.interceptOutboundHttps. Exported here (the Worker entry module)
 // so ctx.exports resolves it. Inert unless ENTERPRISE_MODE=active.
 export { LlmInterceptor } from './llm-interceptor';
+
+// Enterprise-mode GitHub credential interceptor (REQ-GITHUB-003). A WorkerEntrypoint
+// the container DO wires into container egress via ctx.exports.GitHubInterceptor +
+// ctx.container.interceptOutboundHttps for the github.com / api.github.com hosts.
+// Strips the container's placeholder GH_TOKEN and stamps the real per-user token at
+// the boundary, so the real token never enters the container. Inert unless
+// ENTERPRISE_MODE=active.
+export { GitHubInterceptor } from './github-interceptor';

@@ -1972,13 +1972,17 @@ CA_TRUST_EOF
     # gateway route on egress. COPILOT_PROVIDER_TYPE defaults to "openai" (correct
     # for the gateway compat path), so it is left unset.
     #
-    # GH_TOKEN is intentionally LEFT in place (Option B): it powers Copilot's
-    # GitHub-hosted features (/delegate, GitHub MCP, Code Search) and git push.
-    # Per GitHub's docs a COMPLETE BYOK config is used for model requests
-    # regardless of GitHub auth status, so LLM traffic still flows to the gateway.
-    # Deterministic fallback if a deploy ever shows Copilot using GitHub-hosted
-    # models anyway: `export COPILOT_OFFLINE=true` (gateway-only; that also
-    # disables the GitHub-hosted features above).
+    # GH_TOKEN here is a NON-SECRET placeholder (REQ-GITHUB-003): buildEnvVars
+    # emits the constant placeholder in enterprise mode instead of the real token,
+    # so the real per-user credential never enters the container. It still powers
+    # Copilot's GitHub-hosted features (/delegate, GitHub MCP, Code Search) and git
+    # push because those hit github.com / api.github.com, where the DO's
+    # GitHubInterceptor (src/github-interceptor.ts) strips the placeholder and
+    # stamps the real per-user token at the boundary. Per GitHub's docs a COMPLETE
+    # BYOK config is used for model requests regardless of GitHub auth status, so
+    # LLM traffic still flows to the gateway. Deterministic fallback if a deploy
+    # ever shows Copilot using GitHub-hosted models anyway: `export
+    # COPILOT_OFFLINE=true` (gateway-only; that also disables the GitHub features above).
     export COPILOT_PROVIDER_BASE_URL="https://api.openai.com/v1"
     export COPILOT_PROVIDER_API_KEY="$ENTERPRISE_PLACEHOLDER_TOKEN"
     export COPILOT_MODEL="$ENTERPRISE_DEFAULT_ROUTE"

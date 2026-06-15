@@ -7,6 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildEnvVars, applyBucketName, applyPrefsOnRestart, type ContainerEnvState } from '../../container/container-env';
 import type { Env } from '../../types';
+import { ENTERPRISE_GH_TOKEN_PLACEHOLDER } from '../../lib/constants';
 
 function baseState(): ContainerEnvState {
   return {
@@ -173,6 +174,30 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
     expect(vars.GH_TOKEN).toBeUndefined();
     expect(vars.CLOUDFLARE_API_TOKEN).toBeUndefined();
     expect(vars.CLOUDFLARE_ACCOUNT_ID).toBeUndefined();
+  });
+
+  // REQ-GITHUB-003: the real GitHub token must never enter an enterprise container.
+  // @test buildEnvVars emits a placeholder GH_TOKEN (not the real token) in enterprise mode
+  it('REQ-GITHUB-003: emits a NON-SECRET placeholder GH_TOKEN in enterprise mode (real token never enters the container)', () => {
+    const state = baseState();
+    (state as unknown as { _githubToken: string | null })._githubToken = 'gho_real_secret';
+    const vars = buildEnvVars(state, { ENTERPRISE_MODE: 'active' } as Env);
+    expect(vars.GH_TOKEN).toBe(ENTERPRISE_GH_TOKEN_PLACEHOLDER);
+    expect(vars.GH_TOKEN).not.toBe('gho_real_secret');
+  });
+
+  // @test buildEnvVars emits the real GH_TOKEN verbatim in non-enterprise mode (byte-identical to today)
+  it('REQ-GITHUB-003: emits the real GH_TOKEN unchanged in non-enterprise mode', () => {
+    const state = baseState();
+    (state as unknown as { _githubToken: string | null })._githubToken = 'gho_real_secret';
+    const vars = buildEnvVars(state, baseEnv);
+    expect(vars.GH_TOKEN).toBe('gho_real_secret');
+  });
+
+  // @test buildEnvVars omits GH_TOKEN entirely (no placeholder) in enterprise when not connected
+  it('REQ-GITHUB-003: omits GH_TOKEN entirely in enterprise mode when not connected (no token to inject)', () => {
+    const vars = buildEnvVars(baseState(), { ENTERPRISE_MODE: 'active' } as Env);
+    expect('GH_TOKEN' in vars).toBe(false);
   });
 });
 

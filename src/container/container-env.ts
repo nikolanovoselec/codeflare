@@ -5,7 +5,7 @@
  * All functions receive explicit state/context parameters instead of `this`.
  */
 import type { Env, TabConfig } from '../types';
-import { TERMINAL_SERVER_PORT } from '../lib/constants';
+import { TERMINAL_SERVER_PORT, ENTERPRISE_GH_TOKEN_PLACEHOLDER } from '../lib/constants';
 import { getR2Config } from '../lib/r2-config';
 import { toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
@@ -221,8 +221,20 @@ export function buildEnvVars(
     ...(!isEnterpriseMode(env) && state._geminiApiKey && { CODEFLARE_GEMINI_API_KEY: state._geminiApiKey }),
     // Encryption key for rclone SSE-C
     ...(state._encryptionKey && { ENCRYPTION_KEY: state._encryptionKey }),
-    // Deploy credentials (GitHub + Cloudflare for push & deploy)
-    ...(state._githubToken && { GH_TOKEN: state._githubToken }),
+    // Deploy credentials (GitHub + Cloudflare for push & deploy).
+    // REQ-GITHUB-003: in enterprise mode the real GitHub token must NEVER enter the
+    // container — emit a non-secret placeholder so git/`gh` (and Copilot's GitHub
+    // features) run in authed mode while the egress GitHubInterceptor swaps in the
+    // real per-user token at the github.com / api.github.com boundary (see
+    // container/index.ts wireGithubInterception + github-interceptor.ts). Emitted
+    // only when the user is connected (a token exists to inject), so an unconnected
+    // enterprise session gets no GH_TOKEN and git/`gh` stay unauthenticated.
+    // Non-enterprise is unchanged: the real token (deploy-keys entry, now also
+    // OAuth-populated) flows as GH_TOKEN verbatim — byte-identical to today.
+    ...(state._githubToken &&
+      (isEnterpriseMode(env)
+        ? { GH_TOKEN: ENTERPRISE_GH_TOKEN_PLACEHOLDER }
+        : { GH_TOKEN: state._githubToken })),
     ...(state._cloudflareApiToken && { CLOUDFLARE_API_TOKEN: state._cloudflareApiToken }),
     ...(state._cloudflareAccountId && { CLOUDFLARE_ACCOUNT_ID: state._cloudflareAccountId }),
     // Session mode (controls memory persistence in entrypoint.sh)
