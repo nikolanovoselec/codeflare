@@ -1,17 +1,21 @@
-import { Component } from 'solid-js';
+import { Component, Show, createSignal } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import { mdiSourceBranch } from '@mdi/js';
 import Icon from '../Icon';
 import type { GithubRepo } from '../../api/github';
+import ClonePicker from './ClonePicker';
 
 interface RepoRowProps {
   repo: GithubRepo;
 }
 
 // One repository row. Renders name/full_name, a visibility badge driven by
-// repo.private / repo.visibility, the relative updated time, and a DISABLED
-// "Clone" stub (Phase 4 enables it — the repo data is wired through so the
-// enable is a one-line change).
+// repo.private / repo.visibility, the relative updated time, and a "Clone"
+// button that opens the ClonePicker anchored to it.
 const RepoRow: Component<RepoRowProps> = (props) => {
+  const [pickerOpen, setPickerOpen] = createSignal(false);
+  const [cloneBtnRef, setCloneBtnRef] = createSignal<HTMLButtonElement>();
+
   const isPrivate = () => props.repo.private;
   const visibilityLabel = () => props.repo.visibility || (isPrivate() ? 'private' : 'public');
 
@@ -56,15 +60,26 @@ const RepoRow: Component<RepoRowProps> = (props) => {
       </span>
       <button
         type="button"
+        ref={setCloneBtnRef}
         class="github-repo-clone-btn"
         data-testid="github-repo-clone-btn"
         data-repo={props.repo.full_name}
         data-branch={props.repo.default_branch}
-        disabled
-        title="Cloning is coming soon"
+        aria-haspopup="dialog"
+        aria-expanded={pickerOpen()}
+        onClick={() => setPickerOpen((v) => !v)}
       >
         Clone
       </button>
+      <Show when={pickerOpen()}>
+        <Portal>
+          <ClonePicker
+            repo={props.repo}
+            anchorRef={cloneBtnRef()}
+            onClose={() => setPickerOpen(false)}
+          />
+        </Portal>
+      </Show>
     </div>
   );
 };

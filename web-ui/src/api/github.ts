@@ -2,8 +2,9 @@ import { z } from 'zod';
 import {
   GithubStatusResponseSchema,
   GithubReposResponseSchema,
+  GithubCloneResponseSchema,
 } from '../lib/schemas';
-import { baseFetch } from './fetch-helper';
+import { ApiError, baseFetch } from './fetch-helper';
 
 const BASE_URL = '/api';
 
@@ -14,6 +15,23 @@ const BASE_URL = '/api';
 export type GithubStatus = z.infer<typeof GithubStatusResponseSchema>;
 export type GithubReposResponse = z.infer<typeof GithubReposResponseSchema>;
 export type GithubRepo = GithubReposResponse['repos'][number];
+
+// Discriminated result of cloning into a running session. The UI branches on
+// `outcome`: 'cloned' is success (200), 'exists' is the CLONE_TARGET_EXISTS
+// collision (409, distinct affordance), and 'failed' covers every other
+// non-2xx (timeout/disabled/not-running/bad-body/clone-failed).
+export type CloneIntoSessionResult =
+  | { outcome: 'cloned'; path: string }
+  | { outcome: 'exists' }
+  | { outcome: 'failed'; code?: string };
+
+export interface CloneIntoSessionArgs {
+  repo: string;
+  sessionId: string;
+  // Optional git ref. Omitted today (backend defaults to the repo's default
+  // branch); kept so a future branch picker is a one-line change.
+  ref?: string;
+}
 
 async function githubFetch<T>(endpoint: string, options: RequestInit, schema: z.ZodType<T>): Promise<T> {
   return baseFetch<T>(`${BASE_URL}${endpoint}`, options, {
@@ -47,4 +65,26 @@ export async function disconnectGithub(): Promise<{ success: boolean }> {
 // caller assigns window.location.href to this value.
 export function githubConnectUrl(): string {
   return '/api/github/connect';
+}
+
+// POST /api/github/clone — clone a repo into a RUNNING session's workspace.
+// Returns a discriminated result so the caller never has to inspect raw HTTP
+// status: 200 → 'cloned', 409 CLONE_TARGET_EXISTS → 'exists', any other
+// non-2xx → 'failed' (carrying the backend .code when present).
+export async function cloneIntoSession(args: CloneIntoSessionArgs): Promise<CloneIntoSessionResult> {
+  const body: Record<string, unknown> = { repo: args.repo, sessionId: args.sessionId };
+  if (args.ref) body.ref = args.ref;
+  try {
+    const res = await githubFetch(
+      '/github/clone',
+      { method: 'POST', body: JSON.stringify(body) },
+      GithubCloneResponseSchema,
+    );
+    return { outcome: 'cloned', path: res.path };
+  } catch (err) {
+    if (err instanceof ApiError && err.code === 'CLONE_TARGET_EXISTS') {
+      return { outcome: 'exists' };
+    }
+    return { outcome: 'failed', code: err instanceof ApiError ? err.code : undefined };
+  }
 }

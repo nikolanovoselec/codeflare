@@ -376,3 +376,11 @@ export const GithubReposResponseSchema = z.object({
   page: z.number(),
   hasMore: z.boolean(),
 });
+
+// Success body of POST /api/github/clone (200). Non-2xx responses surface as
+// ApiError (with .code) via baseFetch; cloneIntoSession maps those to a
+// discriminated result rather than validating an error schema here.
+export const GithubCloneResponseSchema = z.object({
+  status: z.literal('cloned'),
+  path: z.string(),
+});

@@ -118,7 +118,7 @@ describe('GitHubPanel Component', () => {
     expect(badge.classList.contains('github-repo-badge--public')).toBe(false);
   });
 
-  it('renders a disabled Clone stub carrying repo + branch data', async () => {
+  it('renders an enabled Clone button carrying repo + branch data', async () => {
     mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: true, login: 'octocat' });
     mockGetGithubRepos.mockResolvedValueOnce({
       repos: [makeRepo({ full_name: 'octocat/hello', default_branch: 'trunk' })],
@@ -130,7 +130,7 @@ describe('GitHubPanel Component', () => {
 
     await waitFor(() => expect(screen.getByTestId('github-repo-clone-btn')).toBeInTheDocument());
     const clone = screen.getByTestId('github-repo-clone-btn') as HTMLButtonElement;
-    expect(clone.disabled).toBe(true);
+    expect(clone.disabled).toBe(false);
     expect(clone.getAttribute('data-repo')).toBe('octocat/hello');
     expect(clone.getAttribute('data-branch')).toBe('trunk');
   });
