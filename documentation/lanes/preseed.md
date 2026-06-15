@@ -267,7 +267,8 @@ All preseed content is deployed via the manifest pipeline:
   graphify plugin (default+advanced for plugin.json + README
   + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
   graphify-session-start.sh, graphify-clone-prompt.sh,
-  graph-first-nudge.sh, safe-graphify-update.sh)
+  graph-first-nudge.sh, safe-graphify-update.sh,
+  local-graphify-labels.sh)
 - Pi-native runtime assets include package config and package lock. (Graphify
   tools ship as the native extension `extensions/graphify-native.ts` rather than
   through the MCP adapter — a Pi-native first-class choice. Pi DOES consume MCP

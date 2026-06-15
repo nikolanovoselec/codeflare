@@ -227,6 +227,11 @@
       "advanced"
     ]
   },
+  "plugins/graphify/scripts/local-graphify-labels.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/graphify/scripts/safe-graphify-update.sh": {
     "modes": [
       "advanced"

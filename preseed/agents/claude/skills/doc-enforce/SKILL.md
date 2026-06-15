@@ -1,12 +1,12 @@
 ---
 name: doc-enforce
-description: SDD documentation enforcement orchestrator. Runs the 15-row execution manifest against documentation/. Detects forbidden content, per-element budget violations (per-file caps deprecated in v2.0), within-section semantic issues, authoring-quality prose (weasel, unverifiable, missing-why), REQ-backlink gaps, doc source-anchor truth (Pass 15 — always runs). Conditionally invokes doc-enforce-lanes (per file in diff), doc-enforce-shape (api-reference / canonical lane files), and doc-enforce-truth (Implemented REQ docs or scope=all). Invoked by doc-updater on every PR-boundary trigger and by /sdd clean.
+description: SDD documentation enforcement orchestrator. Runs the 16-row execution manifest against documentation/. Detects forbidden content, per-element budget violations (per-file caps deprecated in v2.0), within-section semantic issues, authoring-quality prose (weasel, unverifiable, missing-why), REQ-backlink gaps, doc source-anchor truth (Pass 15 — always runs). Conditionally invokes doc-enforce-lanes (per file in diff), doc-enforce-shape (api-reference / canonical lane files), and doc-enforce-truth (Implemented REQ docs or scope=all). Invoked by doc-updater on every PR-boundary trigger and by /sdd clean.
 version: 2.0.0
 ---
 
 # Documentation Enforcement (orchestrator)
 
-This skill is the spine for SDD documentation enforcement. It runs the 15-row execution manifest against `documentation/` and orchestrates the conditional detail skills (`doc-enforce-lanes`, `doc-enforce-shape`, `doc-enforce-truth`).
+This skill is the spine for SDD documentation enforcement. It runs the 16-row execution manifest against `documentation/` and orchestrates the conditional detail skills (`doc-enforce-lanes`, `doc-enforce-shape`, `doc-enforce-truth`).
 
 ## Inputs
 
@@ -47,13 +47,14 @@ Audit location by trigger:
 | Pass 13 — Within-section semantic consistency | Walk every heading section in every `documentation/**.md`; fire 3 triggers. | `ran (K files, S sections, M findings)` |
 | Pass 14 — Authoring quality (reviewer-with-a-brain) | Re-read every prose diff hunk (or every paragraph in every canonical lane file on /sdd clean --all); flag weasel, unverifiable, missing-why. | `ran (D diff hunks, W weasel, U unverifiable, Y missing-why)` |
 | Pass 15 — Doc source-anchor truth-check | Invoke `doc-enforce-truth` UNCONDITIONALLY for every lane file or ADR file in diff OR scope=all. Never gated. | `ran (D docs, A anchors verified, V drift, O orphaned, U unanchored)` |
+| Pass 16 — Doc index integrity | Run the mandated command in § Doc index integrity; every lane/support file under `documentation/lanes/` (flat: `documentation/*.md`) must be indexed in `documentation/README.md`, and every README link must resolve. Non-empty output = finding. Eyeballing the index is forbidden — the command is the check. | `ran (F files, M unindexed/dangling)` |
 
 Pass 12 caches on commit SHA + file mtime. When warm, record `ran (cached, hit on SHA <sha>)`; that IS execution. Cache amortises cost across Stop hooks; never skips the pass.
 
 ## Orchestration logic
 
 1. **Parse diff.** Identify: changed doc files, changed sections, changed prose hunks, presence of api-reference*.md or canonical lane files in diff, REQ IDs cited in diff.
-2. **Always-runs rows** (Pass 1, 13, 14 actively; Pass 2 always reports `inert (file-level cap removed)` as a manifest-stability stub): execute inline. Each row updates its manifest status to concrete evidence count immediately on completion.
+2. **Always-runs rows** (Pass 1, 13, 14, 16 actively; Pass 2 always reports `inert (file-level cap removed)` as a manifest-stability stub): execute inline. Each row updates its manifest status to concrete evidence count immediately on completion. Pass 16 is a mandated *command*, not a judgment — run it verbatim and treat its output as the finding set.
 3. **Conditional invocations**:
    - For every doc file touched in diff: invoke `doc-enforce-lanes` (covers Pass 3 + Pass 4).
    - IF `documentation/lanes/api-reference*.md` (or flat `documentation/api-reference*.md`) OR any canonical lane file touched in diff OR scope=all: invoke `doc-enforce-shape` (covers Pass 5 + Pass 6 + Pass 7).
@@ -63,6 +64,28 @@ Pass 12 caches on commit SHA + file mtime. When warm, record `ran (cached, hit o
    - `interactive`: confirm each fix; CRITICAL/HIGH/MEDIUM blocking, LOW deferred.
    - `auto`: silently apply CRITICAL/HIGH/MEDIUM; defer LOW to `/sdd clean`.
    - `unleashed`: apply everything including LOW; per-category commits.
+
+## Doc index integrity
+
+The same incident class as spec-side index drift: a `documentation/README.md` whose links resolve can still omit canonical lane files or never mention support files. Mandated command, not a judgment — run it; non-empty output is the finding set.
+
+Nested layout:
+
+```bash
+# (1) every lane/support file under documentation/lanes/ must be named in documentation/README.md
+for f in documentation/lanes/*; do b=$(basename "$f"); grep -wqF -- "$b" documentation/README.md || echo "UNINDEXED: $b"; done
+# (2) no dangling link: every *.md the README points at must exist
+grep -oE '\]\(([^)]+\.md)\)' documentation/README.md | sed -E 's/^\]\(|\)$//g' \
+  | while read -r l; do [ -f "documentation/$l" ] || [ -f "$l" ] || echo "DANGLING: $l"; done
+```
+
+Flat layout: replace `documentation/lanes/*` with `documentation/*.md` excluding `documentation/README.md`. `documentation/decisions/README.md` is the ADR ledger and is indexed as the decisions entry, not a lane.
+
+Findings:
+- Each `UNINDEXED:` line = MEDIUM `doc-index-unindexed-file`.
+- Each `DANGLING:` line = MEDIUM `doc-index-dangling-link`.
+
+Auto-fix in `auto`/`unleashed`: add each missing file to the README — lane files to the lanes index, support files to a `## Support files` section — deriving the description from the file's own H1 / first line, never inventing one. Remove dangling links to deleted files. Interactive prompts before each README edit.
 
 ## Forbidden content in documentation/
 
