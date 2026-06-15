@@ -27,6 +27,8 @@ None. Authentication is foundational; other domains depend on it.
 <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-001 SaaS mode mutual exclusivity describe -> AuthError when OAUTH_JWT_SECRET missing + no fallthrough to CF Access + valid SaaS cookie authenticates -> AC2,3) -->
 ### REQ-AUTH-001: Two authentication modes
 
+<!-- @impl: src/lib/access.ts::getUserFromRequest -->
+<!-- @impl: src/lib/onboarding.ts::isSaasModeActive -->
 **Intent:** Codeflare supports two mutually exclusive authentication mechanisms: Cloudflare Access (CF Access) and Direct GitHub OAuth, selected by deployment configuration.
 
 **Applies To:** User
@@ -216,6 +218,8 @@ None. Authentication is foundational; other domains depend on it.
 <!-- @test: src/__tests__/middleware/auth-saas.test.ts (requireActiveUser describe -> 403 PENDING for pending tier + allows identity-only routes -> AC2 pending-blocked-from-IDE) -->
 ### REQ-AUTH-007: JIT user provisioning in SaaS mode
 
+<!-- @impl: src/lib/access.ts::resolveOrProvisionUser -->
+<!-- @impl: src/middleware/auth.ts::requireIdentity -->
 **Intent:** In SaaS mode, users who authenticate via GitHub OAuth for the first time are automatically provisioned in KV with a `pending` subscription tier, eliminating manual allowlisting.
 
 **Applies To:** User
@@ -460,6 +464,7 @@ None.
 <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (OnboardingPage / REQ-AUTH-015 describe -> renders 4-step flow (idle timeout, GitHub PAT, Cloudflare API token, agent subscription) + free-tier 15m locked + paying-tier 5m-2h selector + auto-redirect for first-time users + onboardingComplete flag prevents re-redirect -> AC1, AC2, AC3, AC4) -->
 ### REQ-AUTH-015: Guided onboarding flow
 
+<!-- @impl: web-ui/src/components/OnboardingPage.tsx -->
 **Intent:** First-time users are walked through connecting their accounts step by step.
 
 **Applies To:** User

@@ -38,6 +38,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (enterprise bypass describe -> unlimited session cap AC3 — enterprise resolves unlimited cap not stored free-tier cap) -->
 ### REQ-ENTERPRISE-001: ENTERPRISE_MODE Forces Unlimited Tier and Pro Mode
 
+<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
+<!-- @impl: src/lib/subscription.ts -->
+<!-- @impl: src/lib/session-mode.ts::resolveSessionMode -->
 **Intent:** A deploy-time `ENTERPRISE_MODE` flag must turn a deployment into a single-tenant enterprise instance where every user gets full access without subscription friction.
 
 **Applies To:** User
@@ -68,6 +71,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: src/__tests__/lib/enterprise-mode.test.ts (subscribe-surface gating describe -> billing UI hidden + /app/subscribe returns guarded response when enterprise + unchanged when flag unset -> AC1..AC4) -->
 ### REQ-ENTERPRISE-002: Subscription UI Hidden and Subscribe Route Guarded
 
+<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
+<!-- @impl: web-ui/src/components -->
+<!-- @impl: src/routes -->
 <!-- @test: src/__tests__/routes/user-profile-enterprise.test.ts (GET /api/user enterpriseMode flag / REQ-ENTERPRISE-002 -> deploy-time enterpriseMode signal AC3 + flag-off parity AC4) -->
 <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription menu hidden when enterpriseMode -> billing UI hidden AC1 + shown when flag unset AC4) -->
 
@@ -100,6 +106,10 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (enterprise agent allowlist describe -> session creation accepts only copilot/pi/bash when enterprise + rejects the other four (claude-code/codex/antigravity/opencode) + accepts all seven when flag unset -> AC1..AC4) -->
 ### REQ-ENTERPRISE-003: Agent Allowlist in Enterprise Mode
 
+<!-- @impl: src/lib/agent-allowlist.ts::allowedAgents -->
+<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
+<!-- @impl: src/routes/session/crud.ts -->
+<!-- @impl: src/types.ts::AgentTypeSchema -->
 **Intent:** Enterprise deployments standardize on a curated agent set, so session creation must restrict the selectable agents when the flag is set.
 
 **Applies To:** User
@@ -168,6 +178,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005 enterprise env injection describe -> emits ENTERPRISE_MODE=active AC1 + fans ENTERPRISE_ROUTE_CATALOG/DEFAULT_ROUTE/DEFAULT_REASONING when enterprise+catalog present, omits them when catalog unset AC1 + never fans COPILOT_MODEL/PI_MODEL or a gateway URL/token/base-URL AC1/AC5 + ENTERPRISE_MODE + route vars omitted when flag unset/non-active AC6) -->
 ### REQ-ENTERPRISE-005: Container-Side Enterprise Routing (CA Trust + Constant Base-URLs)
 
+<!-- @impl: src/container/container-env.ts::buildEnvVars -->
+<!-- @impl: entrypoint.sh -->
+<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
 <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (AC4 Pi models.json build: one model per catalog route + empty-catalog fallback to default + guard against reserved-keyword jq args that crash the container) -->
 
 **Intent:** Agents in Enterprise Mode must be work-ready against the AI Gateway with zero manual login and zero injected credentials, so the container only learns it is in enterprise mode and configures itself to use the intercepted provider hosts.
@@ -204,6 +217,11 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: src/__tests__/routes/setup/access.test.ts (handleCreateAccessApp describe -> enterprise mode creates a host-scoped app (bare host domain + whole-host destination) AC5 + default/SaaS app stays path-scoped (/app/* primary + path destinations) regression) -->
 ### REQ-ENTERPRISE-006: Deploy-Time AIG Secrets and ENTERPRISE_MODE Var
 
+<!-- @impl: wrangler.toml -->
+<!-- @impl: .github/workflows/deploy.yml -->
+<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
+<!-- @impl: src/routes/setup/access.ts::getManagedAppDomain -->
+<!-- @impl: src/routes/setup/access.ts::upsertSwBypassAccessApp -->
 <!-- @test: src/__tests__/routes/setup/access.test.ts (handleCreateAccessApp describe -> enterprise mode provisions a higher-precedence SW-bypass Access app with decision 'bypass' + include everyone scoped to the SW path AC6 + default/non-enterprise mode does NOT create a SW-bypass app) -->
 
 **Intent:** Enterprise configuration must be supplied at deploy time through Worker bindings, kept secret where appropriate, and default to off.

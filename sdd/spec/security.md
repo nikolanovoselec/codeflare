@@ -29,6 +29,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-001: Authenticated endpoints reject unauthenticated requests
 
+<!-- @impl: src/lib/access.ts::getUserFromRequest -->
+<!-- @impl: src/lib/access.ts::authenticateRequest -->
 <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow describe) -->
 <!-- @test: src/__tests__/lib/access.test.ts (authenticateRequest describe) -->
 <!-- @test: src/__tests__/lib/access.test.ts (getUserFromRequest describe) -->
@@ -164,6 +166,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-018: Credential encryption operational policy
 
+<!-- @impl: src/lib/kv-crypto.ts::warnIfNoEncryptionKey -->
 <!-- @test: src/__tests__/lib/request-helpers.test.ts (maskSecret describe → AC1) -->
 <!-- @test: src/__tests__/lib/warn-if-no-encryption-key.test.ts (warnIfNoEncryptionKey describe → AC2) -->
 <!-- @test: src/__tests__/lib/warn-if-no-encryption-key.test.ts (plaintext KV allowlist describe → AC3) -->
@@ -267,6 +270,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 <!-- @test: src/__tests__/security/rate-limit-security.test.ts (REQ-SEC-007 describe -> 429 with RATE_LIMIT_ERROR code in body + fail-closed=true+KV throws=429 + fail-open=false (default)+KV throws=200 -> AC3,7,8) -->
 ### REQ-SEC-007: Rate-limiting infrastructure
 
+<!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit -->
 <!-- @test: src/__tests__/middleware/rate-limit.test.ts (createRateLimiter describe → AC1/AC3/AC4) -->
 <!-- @test: src/__tests__/middleware/rate-limit-fallback.test.ts (rate-limit fallback describe → AC2) -->
 
@@ -297,6 +301,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-019: Per-endpoint rate-limit policy
 
+<!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit -->
 <!-- @test: src/__tests__/lib/cross-package-constants.test.ts (Cross-Package Constants describe → AC1 WS 30/60s budget) -->
 <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (Session limits describe → AC2 MAX_SESSIONS) -->
 <!-- @test: src/__tests__/middleware/rate-limit-fallback.test.ts (checkRateLimit failClosed semantics describe → AC3 fail-closed) -->

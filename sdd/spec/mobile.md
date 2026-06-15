@@ -24,6 +24,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ### REQ-MOB-001: Terminal fully usable on mobile devices
 
+<!-- @impl: web-ui/src/lib/mobile.ts -->
+<!-- @impl: web-ui/src/hooks/useTerminal.ts -->
 <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts describe) -->
 <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-001 describe -> AC4, AC5, AC6) -->
 <!-- @test: e2e/ui/mobile-specific.test.ts (Mobile-specific UI describe -> session-switcher mobile icon + bottom-sheet dropdown + mobile tap behavior, gated on IS_MOBILE viewport so the test confirms terminal renders + responds on the mobile viewport -> AC1) -->
@@ -59,6 +61,9 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ### REQ-MOB-002: Virtual keyboard opens reliably on tap
 
+<!-- @impl: web-ui/src/lib/mobile.ts::enableVirtualKeyboardOverlay -->
+<!-- @impl: web-ui/src/lib/mobile.ts::disableVirtualKeyboardOverlay -->
+<!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight -->
 <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts describe -> enableVirtualKeyboardOverlay / disableVirtualKeyboardOverlay -> AC1, AC2; stale geometrychange ignore window -> AC1, AC3; baselineInnerHeight stability -> AC4; visualViewport fallback -> AC3) -->
 <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-002 describe -> AC1, AC2, AC3, AC4, AC6) -->
 
@@ -96,6 +101,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (baselineInnerHeight stability on keyboard close describe -> consistent keyboard height across close/reopen cycles -> AC4 baseline immutable, AC5 not updated on keyboard close) -->
 ### REQ-MOB-003: Samsung Internet keyboard viewport state
 
+<!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight -->
 **Intent:** Samsung Internet's `geometrychange` event is unreliable (stale-event cache, viewport inflation from bottom nav bar). Viewport state must be filtered and compensated so the terminal lays out correctly under Samsung devices.
 
 **Applies To:** User
@@ -127,6 +133,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (settings describe -> samsungAddressBarTop preference toggle wired to mobile.ts samsung-address-bar position -> AC3 user-settings toggle for address bar position) -->
 ### REQ-MOB-011: Samsung Internet keyboard state recovery
 
+<!-- @impl: web-ui/src/lib/mobile.ts::forceResetKeyboardState -->
 <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (Samsung focusout keyboard dismiss describe -> AC1 back-button dismiss intercepted + keyboard-state signals reset) -->
 
 **Intent:** Samsung's back-button dismiss and browser-resume paths leave the VirtualKeyboard compositor in stale states. State must be force-reset on those edges, and the user must be able to tell codeflare where Samsung's address bar sits (the API does not expose it).
@@ -158,6 +165,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ### REQ-MOB-004: Scroll-drop detection during burst output
 
+<!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer -->
+<!-- @impl: web-ui/src/hooks/useTerminal.ts::isAtBottom -->
 <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-004 describe -> AC3, AC4, AC5) -->
 
 **Intent:** The terminal viewport must not lose its scroll position when burst output trims the scrollback buffer or when the browser silently resets `ydisp` to 0 on focus changes.
@@ -284,6 +293,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (Desktop Voice Button describe + Label Content describe -> mobile floating mic button + desktop bottom-right icon + Ctrl+Space title attribute hint -> AC3 mobile mic + desktop shortcut) -->
 ### REQ-MOB-007: Voice input via Web Speech API
 
+<!-- @impl: web-ui/src/lib/speech-input.ts -->
 **Intent:** Users can dictate text into the terminal using the device microphone, providing an alternative input method on mobile (and desktop).
 
 **Applies To:** User
@@ -343,6 +353,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (named constants describe -> DECTCEM_CURSOR_PARAM equals 25 so applyCursorVisibility only honors DECTCEM hide sequences (parameter 25) from the agent + does not hide in alternate buffer -> AC4 alternate-buffer guard) -->
 ### REQ-MOB-008: Cursor visible for all supported agents
 
+<!-- @impl: web-ui/src/hooks/useTerminal.ts::applyCursorVisibility -->
 **Intent:** The terminal cursor must be visible and correctly rendered for all supported CLI agents (Claude Code, Copilot, etc.) without duplication or visual artifacts.
 
 **Applies To:** User
@@ -408,6 +419,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ### REQ-MOB-010: FitAddon fit calls are coordinated
 
+<!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminals -->
+<!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminalsExported -->
 <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts describe -> visualViewport resize/keyboard show-hide triggers terminal refit cadence) -->
 <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-010 describe -> AC1, AC2, AC3, AC4, AC5, AC6) -->
 

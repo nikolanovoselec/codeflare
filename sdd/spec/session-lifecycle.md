@@ -28,6 +28,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 <!-- @test: src/__tests__/routes/session-creation.test.ts (REQ-SESSION-001 describe -> name+agentType accept (all 7 types) + sanitize + Terminal default + SESSION_ID_PATTERN + KV write + 201 + 429 rate limit + 10/60_000 config -> AC1..AC5) -->
 ### REQ-SESSION-001: Session creation with name and agent type
 
+<!-- @impl: src/routes/session/crud.ts -->
+<!-- @impl: src/lib/constants.ts::SESSION_ID_PATTERN -->
 **Intent:** A user can create a named session associated with a specific AI agent, producing a unique session record stored in KV.
 
 **Applies To:** User
@@ -263,6 +265,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (entrypoint.sh bisync daemon behavior describe -> initial rclone sync from R2 on container start = REQ-STOR-004 = REQ-SESSION-008 AC4) -->
 ### REQ-SESSION-008: Container restart preserves R2 bucket
 
+<!-- @impl: src/container/index.ts -->
+<!-- @impl: src/routes/container/lifecycle.ts -->
+<!-- @impl: entrypoint.sh -->
 <!-- @test: src/__tests__/routes/container-restart-prefs.test.ts (AC3/AC5 describes -> onStart refreshes envVars + preferences apply on restart) + src/__tests__/routes/preferences.test.ts (fastStartEnabled preference describe -> AC1/AC3/AC5 preference persistence across restart) -->
 
 **Intent:** Restarting a session reconnects to the same R2 bucket, preserving all user files without data loss.

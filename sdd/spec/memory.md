@@ -145,6 +145,9 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ### REQ-MEM-004: Vault contents synced to R2 across sessions
 
+<!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
+<!-- @impl: entrypoint.sh::init_user_vault -->
+<!-- @impl: entrypoint.sh::bisync_with_r2 -->
 <!-- @test: host/__audits__/entrypoint-vault.audit.js (vault bisync filter describe -> explicitly includes Vault before graphify-out exclude -> AC1) -->
 <!-- @test: host/__audits__/entrypoint-vault.audit.js (vault boot ordering describe -> establish_bisync_baseline precedes init_user_vault call -> AC2) -->
 <!-- @test: host/__audits__/entrypoint-vault.audit.js (vault boot ordering describe -> init_user_vault guards file creation with existence checks -> AC3) -->
@@ -182,6 +185,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ### REQ-MEM-006: Memory available only in Pro (Advanced) mode
 
+<!-- @impl: preseed/agents/claude/manifest.json -->
 <!-- @test: src/__tests__/lib/pro-mode-gating.test.ts (REQ-MEM-006 AC3 describe -> memory + vault rules and plugins are advanced-only -> AC3) -->
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json describe -> "advanced" is a superset of "default" -> AC4) -->
 

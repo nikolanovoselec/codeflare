@@ -181,6 +181,8 @@ Tiers, billing, usage tracking, and quotas.
 <!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState describe -> sets trialUsed=true when transitioning away from trialing, prevents re-trial loop -> AC6) -->
 ### REQ-SUB-005: Trial Is Compute-Based, Not Time-Based
 
+<!-- @impl: src/timekeeper/index.ts -->
+<!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
 <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted + handleSubscriptionUpdated + handleSubscriptionDeleted + auto-recreate-on-downgrade describes -> AC2/AC4/AC5/AC6 trial state transitions + cap consumption + first-charge handling + trial-used marker) + src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState describe -> AC3 trial quota enforcement) -->
 
 **Intent:** Trial periods must be capped by actual compute usage, not calendar days, so that inactive users do not burn through their trial.
@@ -443,6 +445,8 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-013: Concurrent Session Limits
 
+<!-- @impl: src/lib/subscription.ts::getUserTier -->
+<!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits -->
 <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (Session limits describe → per-tier maxSessions enforcement + STRESS_TEST_MODE bypass → AC1-AC4) -->
 
 **Intent:** Each tier must enforce a maximum number of simultaneously running sessions to control resource consumption.
@@ -586,6 +590,7 @@ Tiers, billing, usage tracking, and quotas.
 <!-- @test: src/__tests__/routes/contact-team.test.ts (POST /auth/contact-team describe -> sendAccessRequestNotification called with userEmail+adminEmails+plan + defaults to Custom + 429 second-request + email-failure non-fatal + 401 unauth -> AC2,4,5) -->
 ### REQ-SUB-017: Enterprise tier contact flow
 
+<!-- @impl: web-ui/src/components/SubscribePage.tsx -->
 **Intent:** The Custom (enterprise) tier is not self-service. Users interested in enterprise-grade access can send an inquiry to admins without leaving the subscribe page.
 
 **Applies To:** User
@@ -648,6 +653,7 @@ Tiers, billing, usage tracking, and quotas.
 <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 describe -> session limit popup explains tier limit + lists running sessions with stop buttons + New Session button disabled when running+initializing >= maxSessions -> AC1, AC2, AC3) -->
 ### REQ-SUB-019: Session limit popup in frontend
 
+<!-- @impl: web-ui/src/components/Dashboard.tsx -->
 <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 describe -> AC1/AC2/AC3 New-Session disable at cap + popup with running sessions + tier max from batch-status) -->
 
 **Intent:** Users understand why they can't start more sessions and which ones to stop.

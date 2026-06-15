@@ -162,6 +162,9 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 <!-- @test: host/__audits__/server-prewarm-lifecycle.audit.js (REQ-TERM-005 describe -> server-boot wiring: sessions.set + onData + 20s setTimeout + orphan setTimeout + terminalServiceReady -> AC2..AC6 server-boot half) -->
 ### REQ-TERM-005: Tab 1 auto-starts the configured agent
 
+<!-- @impl: entrypoint.sh::configure_tab_autostart -->
+<!-- @impl: host/src/prewarm-config.ts -->
+<!-- @impl: host/src/session-manager.ts -->
 <!-- @test: host/__audits__/server-prewarm-lifecycle.audit.js (REQ-TERM-005 server.ts boot wiring audit -> AC1/AC2/AC3/AC4/AC5/AC6 prewarm PTY + readiness gate + adoption window + status pipeline) + host/__tests__/prewarm-readiness.test.js (getPrewarmConfig describes -> AC1 tab-1 config propagation + AC3 agent-launch dispatch) -->
 
 **Intent:** The first terminal tab in a session automatically launches the user's selected AI agent so they can start coding immediately without manual setup.
@@ -195,6 +198,8 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 ### REQ-TERM-006: User-created tabs start with plain bash
 
+<!-- @impl: host/src/session.ts -->
+<!-- @impl: entrypoint.sh::configure_tab_autostart -->
 <!-- @test: web-ui/src/__tests__/lib/terminal-config.test.ts (terminal-config describe → manual flag + ?manual=1 query → MANUAL_TAB env → AC1-AC5) -->
 
 **Intent:** Tabs created by the user (clicking "+") start a plain bash shell without auto-launching an agent, giving the user a general-purpose terminal.
@@ -226,6 +231,10 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 ### REQ-TERM-007: Tiling layouts (2-split, 3-split, 4-grid)
 
+<!-- @impl: web-ui/src/stores/tiling.ts::setTilingLayout -->
+<!-- @impl: web-ui/src/stores/tiling.ts::isLayoutCompatible -->
+<!-- @impl: web-ui/src/stores/tiling.ts::getBestLayoutForTabCount -->
+<!-- @impl: web-ui/src/stores/session-tabs.ts::addTerminalTab -->
 <!-- @test: web-ui/src/__tests__/stores/tiling.test.ts (Tiling Module - Pure Helpers describe → 4 layout modes + min tab count + upgrade order → AC1-AC7) -->
 
 **Intent:** Users can arrange terminal tabs in tiled layouts for simultaneous visibility of multiple terminals, in addition to the default tabbed view.
@@ -259,6 +268,8 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 
 ### REQ-TERM-008: Write batching at 30fps
 
+<!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer -->
+<!-- @impl: web-ui/src/stores/terminal.ts -->
 <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store describe → 33ms flush + buffer coalescing + per-key cancellation → AC1-AC6) -->
 
 **Intent:** Rapid WebSocket messages are coalesced into batched `terminal.write()` calls at 30fps to reduce rendering overhead without perceptible latency increase.
@@ -293,6 +304,8 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 <!-- @test: web-ui/src/__tests__/lib/terminal-process-name.test.ts (REQ-TERM-009 describe -> host JSON wire shape + change-gated send + {"type": prefix + onProcessName dispatch + registerProcessNameCallback wiring -> AC1,2,6 wire-protocol) -->
 ### REQ-TERM-009: Process name detection via control messages
 
+<!-- @impl: host/src/session.ts -->
+<!-- @impl: web-ui/src/lib/terminal-config.ts::PROCESS_ICON_MAP -->
 <!-- @test: web-ui/src/__tests__/lib/terminal-config.test.ts (terminal-config describe → PROCESS_ICON_MAP + AGENT_ICON_MAP + getTabIcon + getTabDisplayName → AC3/AC5) -->
 
 **Intent:** The terminal server detects the foreground process running in each PTY and sends the process name to the frontend for display in tab labels and session cards.
@@ -328,6 +341,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 <!-- @test: web-ui/src/__tests__/stores/session-presets-ac-coverage.test.ts (REQ-TERM-010 describe -> savePreset state append + applyPresetToSession populates tabConfig + tab 1 preserved + 404 on missing -> AC1,4) -->
 ### REQ-TERM-010: Session presets (saved tab configurations)
 
+<!-- @impl: src/routes/presets.ts -->
 <!-- @test: src/__tests__/routes/presets-req-term-010.test.ts (REQ-TERM-010 AC1/AC2/AC3/AC5 describes -> preset name+tabs + 3-max cap + CRUD endpoints + delete removal) + src/__tests__/routes/presets.test.ts (Presets Routes GET/POST/DELETE describes -> AC3 CRUD endpoints) + web-ui/src/__tests__/stores/session-presets-ac-coverage.test.ts (AC1/AC4 describes -> preset object shape + applyPresetToSession session populate) -->
 
 **Intent:** Users save and reuse their preferred tab layouts across sessions.

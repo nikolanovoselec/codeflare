@@ -107,6 +107,10 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 <!-- @test: landing/src/__tests__/index-page.test.ts (privacy page (REQ-LANDING-002) describe -> AC5 no-storage disclosure renders) -->
 ### REQ-LANDING-002: Demo-request contact pipeline
 
+<!-- @impl: src/routes/public/index.ts -->
+<!-- @impl: src/lib/contact-topics.ts::CONTACT_TOPICS -->
+<!-- @impl: landing/src/scripts/contact-controller.ts -->
+
 **Intent:** Enterprise prospects submit demo requests from the landing page through an abuse-protected endpoint that relays to the operators without storing personal data, keeping the landing's privacy promise ("not stored") literally true.
 
 **Applies To:** User
@@ -144,6 +148,10 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 <!-- @test: src/__tests__/lib/seo.test.ts (REQ-LANDING-003 describe -> buildRobotsTxt public/private + buildSitemapXml urlset/canonical/no-login + buildLlmsTxt convention + no em/en dash) -->
 <!-- @test: src/__tests__/index.test.ts (Edge-level setup redirect describe -> AC6 robots.txt indexable in public mode + disallow-all in private mode, sitemap.xml + llms.txt served in public mode and 404 in private mode) -->
 ### REQ-LANDING-003: Landing social-share and search metadata
+
+<!-- @impl: landing/src/layouts/BaseLayout.astro -->
+<!-- @impl: src/lib/seo.ts -->
+<!-- @impl: src/index.ts -->
 
 **Intent:** When codeflare.ch is shared or indexed, the unfurl and search snippet communicate the enterprise agentic-coding-engine positioning with a branded preview card, structured data, and root discoverability documents, while private (default/enterprise) deployments stay out of the index.
 

@@ -38,6 +38,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-001: Persistent vault directory survives across sessions
 
+<!-- @impl: entrypoint.sh::init_user_vault -->
+<!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
 <!-- @test: host/__audits__/entrypoint-vault.audit.js (filter order + init function presence + Uploads/Temporary mkdir + supervisor uses $HOME/Vault → AC1-AC5) -->
 <!-- @test: web-ui/src/__tests__/lib/special-folders.test.ts (special-folders registry describe → Workspace/Vault/Uploads/Temporary entries + tooltips → AC6) -->
 
@@ -407,6 +409,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-006: Shutdown bisync completes vault writes before SIGKILL
 
+<!-- @impl: entrypoint.sh::shutdown_handler -->
+<!-- @impl: src/container/container-lifecycle.ts::destroy -->
 <!-- @test: src/__tests__/container/index.test.ts (135s SIGKILL fallback + shutdownElapsedMs telemetry describe → AC4/AC5) -->
 <!-- @test: host/__audits__/entrypoint-vault.audit.js (120s watchdog + vault-monitor and SilverBullet PID kill in shutdown handler → AC1-AC3) -->
 

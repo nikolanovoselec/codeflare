@@ -444,6 +444,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-012: Session Transcript Cleanup
 
+<!-- @impl: entrypoint.sh::cleanup_old_transcripts -->
 <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (cleanup_old_transcripts describe → 5-most-recent retention against scratch USER_HOME → AC1-AC5) -->
 
 **Intent:** Old session transcripts must be pruned to prevent unbounded R2 growth from long-lived users.

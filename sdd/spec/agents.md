@@ -101,6 +101,8 @@ Multi-agent support, preseed system, and session modes.
 <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (configure_tab_autostart / REQ-AGENT-003 describe -> bash harness extracts the real function from entrypoint.sh and reads generated .bashrc; claude --dangerously-skip-permissions emitted + PATH=/usr/local/bin:/usr/bin:/bin set + MANUAL_TAB skip branch present + TAB_CONFIG honored + invalid tab ids rejected + idempotent on re-run -> AC1, AC2, AC3, AC4) -->
 ### REQ-AGENT-003: Agent CLI Auto-Started in Tab 1
 
+<!-- @impl: entrypoint.sh::configure_tab_autostart -->
+<!-- @impl: host/src/prewarm-config.ts -->
 **Intent:** When a session starts, the selected agent's CLI must be running and ready in the first terminal tab without manual user intervention.
 
 **Applies To:** User
@@ -133,6 +135,8 @@ Multi-agent support, preseed system, and session modes.
 <!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-004 reconcileAgentConfigs describe -> overwrite:false skips + overwrite:true writes + cleanup:true deletes advanced-only + cleanup:false leaves + DELETE failure non-fatal warnings -> AC4..AC6) -->
 ### REQ-AGENT-004: Two Session Modes: Standard and Pro
 
+<!-- @impl: src/lib/session-mode.ts::resolveSessionMode -->
+<!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
 <!-- @test: src/__tests__/lib/session-mode.test.ts (resolveSessionMode describe → AC1/AC2/AC4/AC5/AC6) -->
 
 **Intent:** Users must be able to choose between a Standard mode (essential configs) and a Pro (Advanced) mode (full agent enhancement suite).

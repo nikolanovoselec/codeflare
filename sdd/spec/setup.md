@@ -131,6 +131,8 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 <!-- @test: src/__tests__/lib/onboarding.test.ts (isSaasModeActive describe + deployment mode helpers describe -> SAAS_MODE=active case-insensitive + undefined defaults to CF Access + independence from ONBOARDING_LANDING_PAGE -> AC1..AC4) -->
 ### REQ-SETUP-003: Three deployment modes
 
+<!-- @impl: src/lib/onboarding.ts -->
+<!-- @impl: src/lib/access.ts -->
 **Intent:** Codeflare supports three deployment modes that determine authentication strategy and user provisioning.
 
 **Applies To:** Admin
@@ -193,6 +195,8 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ### REQ-SETUP-005: Post-setup reconfiguration requires admin auth
 
+<!-- @impl: src/routes/setup/index.ts -->
+<!-- @impl: src/lib/access.ts::authenticateRequest -->
 <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers describe → post-setup admin gate + GET status public → AC1-AC5) -->
 
 **Intent:** After initial setup is complete, only authenticated administrators can reconfigure the deployment.
@@ -287,6 +291,8 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 <!-- @test: src/__tests__/setup-007-custom-domain-ac.test.ts (REQ-SETUP-007 describe -> ccTLD zone suffix walk + proxied CNAME + Worker route pattern + 10020 update path + lowercased KV write + cors-cache TTL + workersDevUrl/customDomainUrl in summary -> AC1..AC7) -->
 ### REQ-SETUP-007: Custom domain with DNS validation
 
+<!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain -->
+<!-- @impl: src/lib/cors-cache.ts -->
 <!-- @test: src/__tests__/setup-007-custom-domain-ac.test.ts (REQ-SETUP-007 describe -> AC1/AC2/AC3/AC4/AC5/AC7 zone resolution + CNAME + Worker route + Already-Exists + normalized persistence + workers.dev fallback) + src/__tests__/lib/cors-cache.test.ts (cors-cache describe -> AC6 dynamic-origin cache TTL) -->
 
 **Intent:** The setup wizard must configure a custom domain with proper DNS records and Worker routes, supporting nested subdomains and ccTLDs.

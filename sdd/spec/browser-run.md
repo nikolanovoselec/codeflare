@@ -66,6 +66,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 <!-- @test: web-ui/src/__tests__/lib/token-scopes.test.ts (Cloudflare scopes describe -> Browser Rendering - Edit scope present in token template + existing scopes unchanged -> AC1..AC3) -->
 ### REQ-BROWSER-002: Browser Rendering Scope in the Cloudflare Token Template
 
+<!-- @impl: web-ui/src/lib/token-scopes.ts -->
 **Intent:** Driving Browser Run requires a Cloudflare API-token permission, so the user-pasted token template must request the `Browser Rendering - Edit` scope.
 
 **Applies To:** User
