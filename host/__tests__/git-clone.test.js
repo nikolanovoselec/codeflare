@@ -148,7 +148,9 @@ describe('REQ-GITHUB-004: entrypoint clone step (structural)', () => {
   it('gates the clone on GIT_CLONE_REPO and runs before configure_tab_autostart', () => {
     assert.ok(/if \[ -n "\$\{GIT_CLONE_REPO:-\}" \]/.test(entrypoint));
     const cloneIdx = entrypoint.indexOf('GIT_CLONE_REPO');
-    const autostartIdx = entrypoint.indexOf('\nconfigure_tab_autostart');
+    // Match the configure_tab_autostart CALL (bare, on its own line), NOT the
+    // function definition `configure_tab_autostart() {` which appears far earlier.
+    const autostartIdx = entrypoint.indexOf('\nconfigure_tab_autostart\n');
     assert.ok(cloneIdx !== -1 && autostartIdx !== -1 && cloneIdx < autostartIdx);
   });
 
