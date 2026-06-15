@@ -73,7 +73,7 @@ Nested layout:
 
 ```bash
 # (1) every lane/support file under documentation/lanes/ must be named in documentation/README.md
-for f in documentation/lanes/*; do b=$(basename "$f"); grep -q "$b" documentation/README.md || echo "UNINDEXED: $b"; done
+for f in documentation/lanes/*; do b=$(basename "$f"); grep -wqF -- "$b" documentation/README.md || echo "UNINDEXED: $b"; done
 # (2) no dangling link: every *.md the README points at must exist
 grep -oE '\]\(([^)]+\.md)\)' documentation/README.md | sed -E 's/^\]\(|\)$//g' \
   | while read -r l; do [ -f "documentation/$l" ] || [ -f "$l" ] || echo "DANGLING: $l"; done

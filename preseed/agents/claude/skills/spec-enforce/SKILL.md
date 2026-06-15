@@ -1,12 +1,12 @@
 ---
 name: spec-enforce
-description: SDD spec enforcement orchestrator. Runs the 20-row execution manifest against the current diff (or full spec on scope=all). Detects forbidden content, REQ-shape violations, status drift, meta-leakage, changelog drift, backlog state, source-anchor truth-check (CQ-SOURCE — always runs). Conditionally invokes spec-enforce-ac (when ACs touched) and spec-enforce-truth (when Implemented or Partial REQs touched or scope=all — Partial included so CQ-SOURCE can validate anchors). Invoked by spec-reviewer on every PR-boundary trigger and by /sdd clean.
+description: SDD spec enforcement orchestrator. Runs the 23-row execution manifest against the current diff (or full spec on scope=all). Detects forbidden content, REQ-shape violations, status drift, meta-leakage, changelog drift, backlog state, source-anchor truth-check (CQ-SOURCE — always runs). Conditionally invokes spec-enforce-ac (when ACs touched) and spec-enforce-truth (when Implemented or Partial REQs touched or scope=all — Partial included so CQ-SOURCE can validate anchors). Invoked by spec-reviewer on every PR-boundary trigger and by /sdd clean.
 version: 2.0.0
 ---
 
 # Spec Enforcement (orchestrator)
 
-This skill is the spine for SDD spec enforcement. It runs the 20-row execution manifest against `sdd/` and orchestrates the conditional detail skills (`spec-enforce-ac`, `spec-enforce-truth`).
+This skill is the spine for SDD spec enforcement. It runs the 23-row execution manifest against `sdd/` and orchestrates the conditional detail skills (`spec-enforce-ac`, `spec-enforce-truth`).
 
 ## Inputs
 
@@ -227,7 +227,7 @@ Nested layout:
 
 ```bash
 # (1) every tracked file under sdd/spec/ must be named somewhere in sdd/README.md
-for f in sdd/spec/*; do b=$(basename "$f"); grep -q "$b" sdd/README.md || echo "UNINDEXED: $b"; done
+for f in sdd/spec/*; do b=$(basename "$f"); grep -wqF -- "$b" sdd/README.md || echo "UNINDEXED: $b"; done
 # (2) classification: a file carrying '### REQ-' is a domain (belongs in the Domains table);
 #     a file without it is a support file (belongs in a Support section). List the domains:
 grep -l '^### REQ-' sdd/spec/*.md
