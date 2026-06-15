@@ -18,6 +18,12 @@ updates:
     schedule:
       interval: weekly
 
+  - package-ecosystem: npm
+    directory: /landing
+    target-branch: develop
+    schedule:
+      interval: weekly
+
   # Pi agent preseed (@gotgenes/pi-subagents, context-mode)
   # is intentionally NOT managed by Dependabot. Although it has a real
   # package.json + lockfile, every version here is ALSO pinned as a literal
