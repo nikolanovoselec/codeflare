@@ -87,7 +87,7 @@ Create-read-delete cycle testing session churn with realistic delays between ope
 
 ### Storage Operations (`storage-operations.js`)
 
-Upload-browse-download-delete cycle simulating cloud IDE usage with weighted random file sizes.
+Upload-browse-download-delete cycle simulating an interactive agent session with weighted random file sizes.
 
 File size distribution:
 - 60% small files (1 KB)
@@ -115,7 +115,7 @@ Folder delete testing: ~20% of iterations also test server-side prefix delete by
 | `browse_duration` p95 | <3s |
 | `errors` | <15% |
 
-**Think time:** `think(3, 8)` after upload, `think(2, 5)` between browse/download/delete, `think(5, 15)` between full cycles. Models a user editing files in a cloud IDE. Folder prefix delete operations add `think(1, 3)` between folder setup and delete.
+**Think time:** `think(3, 8)` after upload, `think(2, 5)` between browse/download/delete, `think(5, 15)` between full cycles. Models a user editing files in an active Codeflare session. Folder prefix delete operations add `think(1, 3)` between folder setup and delete.
 
 ### Stress Test with Rate Limits (`rate-limit-validation.js`)
 
