@@ -125,6 +125,12 @@ describe('ECC rules in agent-seed', () => {
     // into the rigorous coding-discipline checks Karpathy principles
     // encourage.
     '.claude/rules/karpathy.md',
+    // frontend-components.md is the composable-UI coding-standards rule
+    // (extract-don't-duplicate, central tokens/content, behavioral-only
+    // tests). A sibling of karpathy.md / tdd-discipline.md: rigorous
+    // coding discipline default-mode vibe-coders didn't opt into, and it
+    // routes to the frontend-components skill, itself advanced-only.
+    '.claude/rules/frontend-components.md',
   ];
 
   it('non-memory codeflare rules have default+advanced modes', () => {
