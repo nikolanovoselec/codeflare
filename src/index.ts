@@ -61,20 +61,30 @@ const SECURITY_HEADERS: Record<string, string> = {
  * app.fetch, so those responses never hit the post-handler middleware that sets
  * SECURITY_HEADERS. Wrapping those early returns here closes the gap.
  *
- * No-op for 101 (WebSocket upgrade) responses, which cannot carry these headers,
- * and for responses that already have them (avoids double-cloning the SPA path).
+ * No-op for 101 (WebSocket upgrade) responses, which cannot carry these headers.
  */
-export function withSecurityHeaders(response: Response, opts?: { csp?: boolean }): Response {
+export function withSecurityHeaders(
+  response: Response,
+  opts?: { csp?: boolean; frame?: 'deny' | 'sameorigin' },
+): Response {
   if (response.status === 101) return response;
-  if (response.headers.has('X-Content-Type-Options')) return response;
   const secured = new Response(response.body, response);
+  const frameMode = opts?.frame ?? 'deny';
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
     // The vault path proxies SilverBullet, which serves its own HTML with
     // inline scripts/styles, web workers and eval; a `default-src 'none'`
     // CSP blocks all of it. Callers serving proxied vault content pass
-    // `csp: false` to keep the transport/clickjacking headers while letting
-    // the proxied app run (same-origin, authenticated, user-owned content).
-    if (key === 'Content-Security-Policy' && opts?.csp === false) continue;
+    // `csp: false` to drop the restrictive script/style policy. When the
+    // vault is prewarmed in a hidden same-origin iframe, keep framing locked
+    // to this origin via X-Frame-Options plus a narrow frame-ancestors CSP.
+    if (key === 'Content-Security-Policy' && opts?.csp === false) {
+      if (frameMode === 'sameorigin') secured.headers.set(key, "frame-ancestors 'self'");
+      continue;
+    }
+    if (key === 'X-Frame-Options' && frameMode === 'sameorigin') {
+      secured.headers.set(key, 'SAMEORIGIN');
+      continue;
+    }
     secured.headers.set(key, value);
   }
   return secured;
@@ -337,7 +347,10 @@ export default {
         return withSecurityHeaders(vaultRouteResult.errorResponse);
       }
       if (vaultRouteResult.remainingPath !== '/status') {
-        return withSecurityHeaders(await handleVaultRequest(request, env, ctx, vaultRouteResult), { csp: false });
+        return withSecurityHeaders(await handleVaultRequest(request, env, ctx, vaultRouteResult), {
+          csp: false,
+          frame: 'sameorigin',
+        });
       }
     }
 

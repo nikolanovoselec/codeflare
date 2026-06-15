@@ -95,11 +95,12 @@ describe('CF-001: security headers on pre-Hono early-return responses', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('Strict-Transport-Security')).toContain('max-age=');
     expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
-    expect(res.headers.get('X-Frame-Options')).toBe('DENY');
+    expect(res.headers.get('X-Frame-Options')).toBe('SAMEORIGIN');
     // Proxied vault content must NOT carry the `default-src 'none'` CSP: it
     // serves SilverBullet's inline scripts/styles/workers, which that policy
-    // blocks. Transport headers stay; the strict CSP is dropped on this path.
-    expect(res.headers.get('Content-Security-Policy')).toBeNull();
+    // blocks. A narrow frame-ancestors policy still prevents cross-site framing
+    // while allowing the dashboard's same-origin hidden prewarm iframe.
+    expect(res.headers.get('Content-Security-Policy')).toBe("frame-ancestors 'self'");
   });
 
   // CF-001: vault validation errorResponse carries the headers
@@ -152,6 +153,17 @@ describe('CF-001: security headers on pre-Hono early-return responses', () => {
     expect(out).toBe(upgrade);
     expect(out.headers.get('X-Content-Type-Options')).toBeNull();
     expect(out.headers.get('Strict-Transport-Security')).toBeNull();
+  });
+
+  it('CF-001: vault frame policy is applied even if upstream already set a security header', () => {
+    const upstream = new Response('vault shell', {
+      headers: { 'X-Content-Type-Options': 'nosniff' },
+    });
+    const res = withSecurityHeaders(upstream, { csp: false, frame: 'sameorigin' });
+
+    expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    expect(res.headers.get('X-Frame-Options')).toBe('SAMEORIGIN');
+    expect(res.headers.get('Content-Security-Policy')).toBe("frame-ancestors 'self'");
   });
 });
 

@@ -136,6 +136,55 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     });
   });
 
+  describe('Vault button behavior', () => {
+    it('does not render the Vault button when no open handler is provided', () => {
+      render(() => <Header {...defaultSessionProps} />);
+
+      expect(screen.queryByTestId('header-vault-button')).not.toBeInTheDocument();
+    });
+
+    it('keeps the Vault button disabled while browser prewarm is still running', () => {
+      const onVaultOpen = vi.fn();
+      render(() => <Header {...defaultSessionProps} onVaultOpen={onVaultOpen} vaultStatus="prewarming" />);
+
+      const button = screen.getByTestId('header-vault-button');
+      fireEvent.click(button);
+
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute('data-vault-status', 'prewarming');
+      expect(onVaultOpen).not.toHaveBeenCalled();
+    });
+
+    it('opens the Vault only after prewarm reaches ready', () => {
+      const onVaultOpen = vi.fn();
+      render(() => <Header {...defaultSessionProps} onVaultOpen={onVaultOpen} vaultStatus="ready" />);
+
+      const button = screen.getByTestId('header-vault-button');
+      fireEvent.click(button);
+
+      expect(button).not.toBeDisabled();
+      expect(button).toHaveAttribute('data-vault-status', 'ready');
+      expect(onVaultOpen).toHaveBeenCalledOnce();
+    });
+
+    it('keeps timeout and error states disabled', () => {
+      const onVaultOpen = vi.fn();
+      const { unmount } = render(() => <Header {...defaultSessionProps} onVaultOpen={onVaultOpen} vaultStatus="timeout" />);
+      const timeoutButton = screen.getByTestId('header-vault-button');
+      fireEvent.click(timeoutButton);
+      expect(timeoutButton).toBeDisabled();
+      expect(timeoutButton).toHaveAttribute('data-vault-status', 'timeout');
+      unmount();
+
+      render(() => <Header {...defaultSessionProps} onVaultOpen={onVaultOpen} vaultStatus="error" />);
+      const errorButton = screen.getByTestId('header-vault-button');
+      fireEvent.click(errorButton);
+      expect(errorButton).toBeDisabled();
+      expect(errorButton).toHaveAttribute('data-vault-status', 'error');
+      expect(onVaultOpen).not.toHaveBeenCalled();
+    });
+  });
+
   describe('User Name Display', () => {
     it('should show user name when provided', () => {
       render(() => <Header {...defaultSessionProps} userName="test@example.com" />);

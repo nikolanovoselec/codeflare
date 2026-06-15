@@ -16,10 +16,10 @@ import {
   mdiFileCabinet,
   mdiOpenInNew,
   mdiClockTimeEightOutline,
-  mdiChartGantt,
 } from '@mdi/js';
 import Icon from './Icon';
 import SessionSwitcher from './SessionSwitcher';
+import VaultButton from './VaultButton';
 import { sessionStore } from '../stores/session';
 import { getSleepTimerInfo } from '../lib/sleep-timer';
 import UsageInlineBadge from './UsageInlineBadge';
@@ -28,6 +28,7 @@ import { terminalStore } from '../stores/terminal';
 import { getGravatarUrl, gravatarExists } from '../lib/gravatar';
 import { isTouchDevice, getKeyboardHeight } from '../lib/mobile';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
+import type { VaultPrewarmStatus } from '../lib/vault-prewarm';
 import '../styles/header.css';
 
 interface HeaderProps {
@@ -36,6 +37,7 @@ interface HeaderProps {
   onStoragePanelToggle?: () => void;
   onVaultOpen?: () => void;
   vaultReady?: boolean;
+  vaultStatus?: VaultPrewarmStatus;
   onLogoClick?: () => void;
   sessions: SessionWithStatus[];
   activeSessionId: string | null;
@@ -525,23 +527,18 @@ const Header: Component<HeaderProps> = (props) => {
           </Show>
         </div>
 
-        {/* Vault button — opens the persistent Obsidian-style vault
-            (SilverBullet) in a new tab. Rendered only when the parent
-            passes onVaultOpen (terminal-view + active session present);
-            disabled while the container is still booting so the user
-            cannot hit the proxy before SilverBullet has bound 3030
-            (would otherwise surface VAULT_UPSTREAM_UNREACHABLE). */}
+        {/* Vault button — opens the persistent SilverBullet vault in a new tab.
+            Rendered only when the parent passes onVaultOpen (terminal-view +
+            active advanced session present). The button remains disabled until
+            browser-side prewarm has completed the real SilverBullet boot and
+            object-index readiness, not just server reachability. */}
         <Show when={props.onVaultOpen}>
-          <button
-            class="header-vault-button"
-            data-testid="header-vault-button"
-            title={props.vaultReady ? 'Open vault' : 'Vault initializing…'}
-            type="button"
-            disabled={!props.vaultReady}
-            onClick={() => props.onVaultOpen?.()}
-          >
-            <Icon path={mdiChartGantt} size={20} />
-          </button>
+          {(onOpen) => (
+            <VaultButton
+              status={props.vaultStatus ?? (props.vaultReady ? 'ready' : 'prewarming')}
+              onOpen={onOpen()}
+            />
+          )}
         </Show>
 
         {/* Storage button */}

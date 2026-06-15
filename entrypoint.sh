@@ -1426,7 +1426,7 @@ init_user_vault() {
     # deletes Raw/Sessions/, Notes/, etc. cannot break the agent hooks
     # or SilverBullet on the next session start.
     mkdir -p "$VAULT/Raw/Sessions" "$VAULT/Raw/Pasted" "$VAULT/Raw/Graphs" "$VAULT/Notes" \
-             "$VAULT/graphify-out" "$VAULT/.silverbullet/_plug"
+             "$VAULT/References" "$VAULT/graphify-out" "$VAULT/.silverbullet/_plug"
 
     # Create-if-missing page under Raw/Graphs/. User-editable index page
     # linking to the vault-graph.html sibling rendered by the vault-extract

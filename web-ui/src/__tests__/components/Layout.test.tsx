@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup } from '@solidjs/testing-library';
+import { render, screen, cleanup, waitFor } from '@solidjs/testing-library';
 
 // Mock all child components to isolate Layout testing
 vi.mock('../../components/Header', () => ({
@@ -32,6 +32,35 @@ vi.mock('../../components/SettingsPanel', () => ({
 
 vi.mock('../../components/StoragePanel', () => ({
   default: (_props: any) => <div data-testid="storage-panel" />
+}));
+
+const vaultProbeMock = vi.hoisted(() => ({
+  start: vi.fn(),
+  latestOptions: null as any,
+  cancel: vi.fn(),
+}));
+
+vi.mock('../../lib/vault-readiness', () => ({
+  startVaultReadinessProbe: (opts: any) => {
+    vaultProbeMock.latestOptions = opts;
+    vaultProbeMock.start(opts);
+    return vaultProbeMock.cancel;
+  },
+}));
+
+const vaultPrewarmMock = vi.hoisted(() => ({
+  start: vi.fn(),
+  latestOptions: null as any,
+  cancel: vi.fn(),
+}));
+
+vi.mock('../../lib/vault-prewarm', () => ({
+  DEFAULT_VAULT_PREWARM_TIMEOUT_MS: 300000,
+  startVaultPrewarm: (opts: any) => {
+    vaultPrewarmMock.latestOptions = opts;
+    vaultPrewarmMock.start(opts);
+    return { cancel: vaultPrewarmMock.cancel, prewarmId: 'test-prewarm', iframe: document.createElement('iframe') };
+  },
 }));
 
 // Session store mock with controllable state.
@@ -127,12 +156,19 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     mockActiveSessionId = null;
     mockPreferences = {};
     mockIsSamsungBrowser = false;
+    vaultProbeMock.start.mockClear();
+    vaultProbeMock.cancel.mockClear();
+    vaultProbeMock.latestOptions = null;
+    vaultPrewarmMock.start.mockClear();
+    vaultPrewarmMock.cancel.mockClear();
+    vaultPrewarmMock.latestOptions = null;
     delete (window as any).__terminalAreaProps;
     delete (window as any).__headerProps;
   });
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
   });
 
   // =========================================================================
@@ -244,6 +280,84 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       render(() => <Layout />);
 
       expect(typeof (window as any).__headerProps.onVaultOpen).toBe('function');
+    });
+
+    it('keeps Header vaultReady false until browser prewarm reports ready', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+
+      render(() => <Layout />);
+
+      expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
+      expect((window as any).__headerProps.vaultReady).toBe(false);
+      vaultProbeMock.latestOptions.setLatch();
+
+      await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
+      expect((window as any).__headerProps.vaultStatus).toBe('prewarming');
+      expect((window as any).__headerProps.vaultReady).toBe(false);
+
+      vaultPrewarmMock.latestOptions.onReady();
+      await waitFor(() => expect((window as any).__headerProps.vaultReady).toBe(true));
+      expect((window as any).__headerProps.vaultStatus).toBe('ready');
+    });
+
+    it('keeps Header vaultReady false when browser prewarm times out', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+
+      render(() => <Layout />);
+      vaultProbeMock.latestOptions.setLatch();
+
+      await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
+      vaultPrewarmMock.latestOptions.onError('timeout', 'slow index');
+
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('timeout'));
+      expect((window as any).__headerProps.vaultReady).toBe(false);
+    });
+
+    it('retries browser prewarm after a timeout without enabling Vault early', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+
+      render(() => <Layout />);
+      vaultProbeMock.latestOptions.setLatch();
+
+      await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(1));
+
+      vi.useFakeTimers();
+      try {
+        vaultPrewarmMock.latestOptions.onError('timeout', 'slow index');
+        await Promise.resolve();
+        expect((window as any).__headerProps.vaultReady).toBe(false);
+        expect((window as any).__headerProps.vaultStatus).toBe('timeout');
+
+        await vi.advanceTimersByTimeAsync(9999);
+        expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(1);
+        await Promise.resolve();
+        expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(2);
+        expect((window as any).__headerProps.vaultReady).toBe(false);
+        expect((window as any).__headerProps.vaultStatus).toBe('prewarming');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('cancels an in-flight browser prewarm when Layout unmounts', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+
+      const { unmount } = render(() => <Layout />);
+      vaultProbeMock.latestOptions.setLatch();
+      await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
+
+      unmount();
+      expect(vaultPrewarmMock.cancel).toHaveBeenCalled();
     });
 
     it('does NOT pass onVaultOpen in advanced mode when there is no active session', () => {

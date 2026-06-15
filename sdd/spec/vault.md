@@ -25,6 +25,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 - Standalone vault-only container (vault lives inside the session container)
 - Migration of legacy `~/.memory/session-*.jsonl` into the vault (MCP server-memory subsystem is removed; no historical graph is preserved)
 - Per-session sync-concurrency tuning for SilverBullet. The default is hardcoded in the editor's sync engine and is not configurable through its boot config. The cold-start latency delta between the default and a tuned value is small at typical vault sizes and not worth maintaining a fork.
+- Priority/lazy object indexing for visible SilverBullet folders. Stock SilverBullet queues every visible `/.fs` entry into the browser object index, so keeping folders visible while indexing only `Notes/` and `References/` first would require a maintained client patch and is deferred until full-index prewarm proves insufficient.
 - Lazy attachment loading for the raw-pasted directory. The editor pastes attachments alongside the note they were dropped into, not under a centralized raw-pasted tree, so the lazy-prefix optimization has no real workload to apply to.
 
 ### Domain Dependencies
@@ -40,7 +41,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 <!-- @impl: entrypoint.sh::init_user_vault -->
 <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
-<!-- @test: host/__audits__/entrypoint-vault.audit.js (filter order + init function presence + Uploads/Temporary mkdir + supervisor uses $HOME/Vault → AC1-AC5) -->
+<!-- @test: host/__audits__/entrypoint-vault.audit.js (filter order + init function presence + vault skeleton including References + Uploads/Temporary mkdir + supervisor uses $HOME/Vault → AC1-AC5) -->
 <!-- @test: web-ui/src/__tests__/lib/special-folders.test.ts (special-folders registry describe → Workspace/Vault/Uploads/Temporary entries + tooltips → AC6) -->
 
 **Intent:** A user opens a new session and finds their previous notes, captures, and pasted assets intact -- the same way the rest of `/home/user/` survives. This REQ covers the directory skeleton, rclone filter coverage, and storage-panel surfacing of the special folders; codeflare-authoritative file preseeding is in [REQ-VAULT-010](#req-vault-010-codeflare-authoritative-files-preseeded-into-the-vault-on-every-boot).
@@ -51,7 +52,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 1. The vault directory tree is included in the rclone sync filter set with an explicit include rule ordered before the global `graphify-out` exclude so the vault's own `graphify-out/` subdirectory rides along. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
 2. The ephemeral global-graph workspace directory is excluded from sync so the merged graph is regenerated on boot from the per-source `graphify-out/` files rather than carrying stale state across sessions. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
-3. The vault initializer creates the standard vault subdirectories (raw-sessions, raw-pasted, notes, graphify-out, silverbullet config) on every boot so a user who deletes any of them cannot leave the agent hooks or the editor in a broken state on the next session start. <!-- @impl: entrypoint.sh::init_user_vault -->
+3. The vault initializer creates the standard vault subdirectories (raw-sessions, raw-pasted, notes, references, graphify-out, silverbullet config) on every boot so a user who deletes any of them cannot leave the agent hooks or the editor in a broken state on the next session start. <!-- @impl: entrypoint.sh::init_user_vault -->
 4. The vault initializer runs after the bisync baseline is established and before the daemon launch block so the empty skeleton never overwrites R2-restored content. <!-- @impl: entrypoint.sh::init_user_vault -->
 5. The vault initializer also creates the persistent Uploads and Temporary folders alongside the vault; both are covered by the same include-before-exclude rule order so files dropped into either survive session restart and appear in the storage panel. <!-- @impl: entrypoint.sh::init_user_vault -->
 6. The storage panel surfaces Workspace, Vault, Uploads, and Temporary as special folders at the bucket root: each appears unconditionally (Workspace gated by the workspace-sync preference) with an info-icon tooltip showing the folder's purpose and the in-container path it materializes at.
@@ -74,7 +75,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-010: Codeflare-authoritative files preseeded into the vault on every boot
 
-<!-- @test: host/__audits__/entrypoint-vault.audit.js (per-boot preseed-page sync loop + graph.json recreate-if-missing guard + preseed-page existence on disk → AC1-AC5) -->
+<!-- @test: host/__audits__/entrypoint-vault.audit.js (per-boot preseed-page sync loop + user-owned skeleton including References + graph.json recreate-if-missing guard + preseed-page existence on disk → AC1-AC5) -->
 
 **Intent:** A defined set of vault files are codeflare-authoritative: SilverBullet widgets, wikilink handlers, theming, and the graph build all depend on their contents being current at boot. User edits to these files are intentionally not preserved, and stale build artefacts that mislead the user must be cleared on every boot.
 
@@ -83,7 +84,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Acceptance Criteria:**
 
 1. The vault initializer copies the four codeflare-authoritative root pages (Index, CONFIG, README, STYLES) from the preseed source into the vault root on every boot, gated so identical files are not rewritten. <!-- @impl: entrypoint.sh::init_user_vault -->
-2. User content lives in dedicated user-owned subdirectories (notes, inbox, journal, raw-pasted, raw-sessions) and is never touched by the preseed sync; only the four codeflare-authoritative pages are overwritten. <!-- @impl: entrypoint.sh::init_user_vault -->
+2. User content lives in dedicated user-owned subdirectories (notes, references, inbox, journal, raw-pasted, raw-sessions) and is never touched by the preseed sync; only the four codeflare-authoritative pages are overwritten. <!-- @impl: entrypoint.sh::init_user_vault -->
 3. The entrypoint must not write a partial copy of the editor's built-in plug library onto disk because the editor binary serves those files from its built-in overlay, and a partial on-disk copy would shadow the overlay with incomplete files and break widget rendering. <!-- @impl: entrypoint.sh::init_user_vault -->
 4. The vault graph file is seeded with an empty-graph stub only when absent; a populated graph from a prior session is never overwritten by the entrypoint. <!-- @impl: entrypoint.sh::init_user_vault -->
 5. The vault initializer removes stale globally-rendered graph artifacts on every boot when present (idempotent removal, guarded so it fires only when the preseed counterpart is also absent). <!-- @impl: entrypoint.sh::init_user_vault -->
@@ -283,31 +284,41 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ### REQ-VAULT-012: Vault button render and readiness gating
 
 <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
-<!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header describe → Vault button gating + readiness probe state machine → AC1-AC5) -->
-<!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012) describe → onVaultOpen wired only for advanced-mode active sessions → AC1) -->
+<!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm -->
+<!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton -->
+<!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmBridge -->
+<!-- @impl: src/routes/vault.ts::handleVaultRequest -->
+<!-- @impl: preseed/silverbullet/Index.md -->
+<!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Vault button behavior describe → disabled until prewarm ready, ready click opens, timeout/error disabled → AC1, AC4, AC6) -->
+<!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012) describe → onVaultOpen wired only for advanced-mode active sessions, prewarm starts after server latch, header ready only after prewarm ready, timeout remains disabled and retries → AC1, AC4-AC6) -->
 <!-- @test: web-ui/src/__tests__/lib/vault-readiness.test.ts (startVaultReadinessProbe describe → no-give-up retry / first-success latch / SB-crash recovery / cancel / mid-probe cancel → AC5) -->
+<!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (vault browser prewarm protocol describe → iframe URL/session scoping, origin + prewarmId validation, ready/timeout/cancel cleanup → AC6) -->
+<!-- @test: src/__tests__/routes/vault-html-direct.test.ts (vault prewarm helpers describe → sanitized prewarm query propagation + generic shell bridge injection for service-worker-cached shell → AC6) -->
 
-**Intent:** The Vault button only appears when usable and only enables after a per-session probe confirms the in-container editor is actually reachable, so users never land on `VAULT_UPSTREAM_UNREACHABLE`. SilverBullet's landing page is the codeflare dashboard. SilverBullet subpath asset adaptation lives in [REQ-VAULT-013](#req-vault-013-silverbullet-subpath-adapter).
+**Intent:** The Vault button only appears when usable and only enables after both readiness layers pass: a per-session server probe confirms the in-container editor is reachable, then a hidden same-origin browser prewarm runs the real SilverBullet client until IndexedDB and the object index are ready. Users should never land on `VAULT_UPSTREAM_UNREACHABLE` or on a slow first-click indexing screen. SilverBullet's landing page is the codeflare dashboard, focused on notes and references. SilverBullet subpath asset adaptation lives in [REQ-VAULT-013](#req-vault-013-silverbullet-subpath-adapter).
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. The Vault control in the header renders only when an active session exists, the session is in advanced mode, and the parent surface has wired up the vault-open handler; the control is scoped to the terminal view alongside the related Bookmarks and Storage entrypoints. In default mode the handler is not wired up, so the control does not render. <!-- @impl: web-ui/src/components/Header.tsx::Header -->
-2. The editor opens to the codeflare dashboard page on every Vault click; the supervisor explicitly pins the dashboard as the editor's index page before launching the binary.
-3. The README page is reachable from the dashboard via a link at the top.
-4. The Vault control is rendered disabled with an "initializing" tooltip until a per-session readiness probe against the vault proxy succeeds. <!-- @impl: web-ui/src/components/Header.tsx::Header -->
-5. The probe retries on a short interval until the first success, then enables the control; readiness state is keyed per session so switching the active session resets it. <!-- @impl: web-ui/src/lib/vault-readiness.ts::startVaultReadinessProbe -->
+2. The editor opens to the codeflare dashboard page on every Vault click; the supervisor explicitly pins the dashboard as the editor's index page before launching the binary. <!-- @impl: entrypoint.sh::start_silverbullet_supervisor -->
+3. The README page is reachable from the dashboard via a link at the top, and the dashboard prominently surfaces the `Notes/` and `References/` areas before generic recent-content widgets. <!-- @impl: preseed/silverbullet/Index.md -->
+4. The Vault control is rendered disabled with a preparing tooltip until a per-session readiness probe against the vault proxy succeeds. <!-- @impl: web-ui/src/components/Header.tsx::Header -->
+5. The server probe retries on a short interval until the first success and is keyed per session so switching the active session resets it. A later failed steady probe clears the server latch and invalidates the browser prewarm latch. <!-- @impl: web-ui/src/lib/vault-readiness.ts::startVaultReadinessProbe -->
+6. After the server probe succeeds, the dashboard starts a hidden same-origin browser prewarm for the active advanced session and retries failed or timed-out attempts without enabling the control. The control remains disabled until a prewarm reports the live SilverBullet client ready; readiness is based on SilverBullet's own widget-ready path after IndexedDB open, service-worker configuration, full object-index completion, and page-list load, not mere HTTP availability. Wrong-origin or wrong-attempt prewarm messages are ignored, and timeout/error states leave the control disabled. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 
 **Constraints:**
 
-- The readiness probe guards two distinct races - the cold-boot race (the editor supervisor binds its localhost port later than terminal readiness flips) and the crashed-editor scenario (container up, editor process dead); without the probe both surface as an unreachable-upstream error to the user.
+- The server readiness probe guards two distinct races - the cold-boot race (the editor supervisor binds its localhost port later than terminal readiness flips) and the crashed-editor scenario (container up, editor process dead); without the probe both surface as an unreachable-upstream error to the user.
+- The browser prewarm intentionally waits for the full current SilverBullet index. Raw session captures and other folders remain visible in SilverBullet in this phase; partial priority indexing is out of scope because stock SilverBullet treats the full visible file list as the object-index workload.
+- The prewarm bridge must be safe to inject into the generic shell because SilverBullet's service worker can serve the precached shell for the prewarm URL. It must stay inert unless the prewarm query and identifier are valid.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** [Automated test](../../web-ui/src/__tests__/lib/vault-readiness.test.ts)
+**Verification:** [Automated test](../../web-ui/src/__tests__/lib/vault-readiness.test.ts), [prewarm protocol test](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx)
 
 **Status:** Implemented
 

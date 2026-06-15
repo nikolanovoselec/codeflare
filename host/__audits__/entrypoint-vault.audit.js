@@ -164,6 +164,36 @@ describe('vault skeleton + daemons (REQ-VAULT-001, REQ-VAULT-003, REQ-VAULT-005)
     );
   });
 
+  // REQ-VAULT-001 AC3, REQ-VAULT-010 AC2
+  it('init_user_vault creates the user-owned vault skeleton including References', () => {
+    const start = entrypoint.indexOf('init_user_vault()');
+    assert.notEqual(start, -1, 'init_user_vault function must exist');
+    const lines = entrypoint.slice(start).split('\n');
+    let depth = 0;
+    const bodyLines = [];
+    for (const line of lines) {
+      bodyLines.push(line);
+      if (/\{/.test(line)) depth += (line.match(/\{/g) || []).length;
+      if (/\}/.test(line)) depth -= (line.match(/\}/g) || []).length;
+      if (depth <= 0 && bodyLines.length > 1) break;
+    }
+    const body = bodyLines.join('\n');
+    for (const dir of [
+      'Raw/Sessions',
+      'Raw/Pasted',
+      'Raw/Graphs',
+      'Notes',
+      'References',
+      'graphify-out',
+      '.silverbullet/_plug',
+    ]) {
+      assert.ok(
+        body.includes(`"$VAULT/${dir}"`),
+        `init_user_vault must mkdir -p $VAULT/${dir}`
+      );
+    }
+  });
+
   // REQ-VAULT-003 AC1
   it('defines start_vault_monitor_daemon and launches it', () => {
     assert.ok(/^start_vault_monitor_daemon\(\)/m.test(entrypoint), 'start_vault_monitor_daemon function must exist');
