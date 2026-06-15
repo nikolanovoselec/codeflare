@@ -17,6 +17,8 @@ import { getAdminEmails } from '../lib/access-policy';
 import { sendAccessRequestNotification, sendAccessRequestConfirmation } from '../lib/email';
 import { signOauthState, verifyOauthState, parseOauthState, claimOauthNonce } from '../lib/oauth-state';
 import { createRateLimiter } from '../middleware/rate-limit';
+import { authenticateRequest } from '../lib/access';
+import { connectGithub, connectStateSecret, getGithubProvider, CONNECT_CALLBACK_PATH } from '../lib/github-token';
 
 const logger = createLogger('github-auth');
 
@@ -238,6 +240,62 @@ app.get('/callback', callbackRateLimiter, async (c) => {
   c.header('Set-Cookie', `codeflare_session=${jwt}; HttpOnly; Secure; SameSite=Lax; Path=/${domainAttr}; Max-Age=3600`);
   logger.info('GitHub OAuth login successful', { email, ghLogin: userLogin });
   return c.redirect(redirectTo);
+});
+
+// ---------------------------------------------------------------------------
+// GET /connect/callback - Connect GitHub (capture a repo-scoped token).
+//
+// Provider-driven (GitHub App in enterprise/EMU, OAuth App in SaaS) and distinct
+// from the SaaS login /callback: it mints no session cookie. Identity is
+// re-derived from the live session (same browser, cookies present on the
+// bounce-back); the token is stored against that user's bucket. State is HMAC-
+// signed (CSRF) + single-use (nonce), exactly like the login flow.
+// ---------------------------------------------------------------------------
+app.get('/connect/callback', callbackRateLimiter, async (c) => {
+  const base = await getBaseUrl(c.env.KV, c.req.url);
+  const appUrl = `${base}/app/`;
+  const url = new URL(c.req.url);
+
+  if (url.searchParams.get('error')) {
+    return c.redirect(`${appUrl}?github=denied`);
+  }
+
+  const secret = connectStateSecret(c.env);
+  const provider = getGithubProvider(c.env);
+  if (!secret || !provider) {
+    return c.redirect(`${appUrl}?github=unavailable`);
+  }
+
+  const queryState = url.searchParams.get('state');
+  if (!queryState || !(await verifyOauthState(queryState, secret))) {
+    return c.redirect(`${appUrl}?github=expired`);
+  }
+  const parsed = parseOauthState(queryState);
+  if (!parsed || !(await claimOauthNonce(c.env.KV, parsed.nonce, 1800))) {
+    return c.redirect(`${appUrl}?github=expired`);
+  }
+
+  const code = url.searchParams.get('code');
+  if (!code) {
+    return c.redirect(`${appUrl}?github=error`);
+  }
+
+  // Re-derive identity from the live session, then store against that bucket.
+  let bucketName: string;
+  try {
+    ({ bucketName } = await authenticateRequest(c.req.raw, c.env));
+  } catch {
+    return c.redirect(`${base}/?error=session-expired`);
+  }
+
+  try {
+    await connectGithub(c.env, bucketName, code, `${base}${CONNECT_CALLBACK_PATH}`);
+  } catch (err) {
+    logger.error('GitHub connect failed', toError(err));
+    return c.redirect(`${appUrl}?github=error`);
+  }
+
+  return c.redirect(`${appUrl}?github=connected`);
 });
 
 // ---------------------------------------------------------------------------

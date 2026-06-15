@@ -37,6 +37,18 @@ export interface GithubConnection {
   login?: string;
 }
 
+/** Stable callback path for the Connect-GitHub flow (registered on the App/OAuth App). */
+export const CONNECT_CALLBACK_PATH = '/auth/github/connect/callback';
+
+/**
+ * Secret used to HMAC-sign the Connect-flow OAuth state (CSRF). Prefers the SaaS
+ * session-JWT secret; falls back to the encryption key (always present where the
+ * integration is usable, since the token is encrypted at rest). Null ⇒ unusable.
+ */
+export function connectStateSecret(env: Env): string | null {
+  return env.OAUTH_JWT_SECRET ?? env.ENCRYPTION_KEY ?? null;
+}
+
 // --- host helpers ----------------------------------------------------------
 
 function webHost(env: Env): string {
