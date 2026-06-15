@@ -387,10 +387,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 ### REQ-SETUP-010: Social-share preview metadata on the public landing page
 
 <!-- @impl: web-ui/index.html -->
-<!-- @test: web-ui/src/__tests__/setup-010-og-metadata.test.ts (REQ-SETUP-010 describe -> AC1 Open Graph required tags + AC2 Twitter Card + AC3 1200x630 PNG + AC4 description/og:description sync + AC5 brand-voice tagline) -->
-
-<!-- @impl: web-ui/src/components/OnboardingLanding.tsx -->
-<!-- @impl: web-ui/index.html -->
+<!-- @test: web-ui/src/__tests__/setup-010-og-metadata.test.ts (REQ-SETUP-010 describe -> AC1 Open Graph required tags + AC2 Twitter Card + AC3 1200x630 PNG + AC4 description/og:description sync) -->
 
 **Intent:** When the public-facing URL is shared on social platforms or chat apps, the unfurl renders a branded preview card with the product tagline and a 1200x630 preview image so the link communicates what Codeflare is before the visitor clicks.
 
@@ -401,8 +398,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 1. The home page exposes Open Graph metadata: `og:type`, `og:site_name`, `og:title`, `og:description`, `og:url`, `og:image`, `og:image:width=1200`, `og:image:height=630`, `og:image:alt`, `og:locale`.
 2. Twitter Card metadata is set with `twitter:card="summary_large_image"` plus title, description, image, and image:alt.
 3. The preview image is a 1200x630 PNG that includes the Codeflare wordmark, the product tagline, and a CODEFLARE.CH wordmark footer.
-4. The `<meta name="description">` extends the `og:description` (it starts with the same brand tagline and appends a short product descriptor) so search-engine snippets and social-share cards stay aligned.
-5. The tagline copy in `og:description` and the meta description follows the brand voice ("Ideas don't care where you are. Neither does your new ephemeral IDE.") and is the canonical external description of the product.
+4. The `<meta name="description">` extends the `og:description` (it begins with the same canonical share copy and appends a short product descriptor) so search-engine snippets and social-share cards stay aligned.
 
 **Constraints:**
 

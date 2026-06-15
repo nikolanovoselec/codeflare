@@ -105,11 +105,4 @@ describe('REQ-SETUP-010: Social-share preview metadata on the public landing pag
     });
   });
 
-  describe('AC5: brand-voice tagline is the canonical short description', () => {
-    it('og:description carries the brand tagline ("Ideas don\'t care where you are.")', () => {
-      const v = ogContent('og:description');
-      expect(v).toMatch(/Ideas don't care where you are\./);
-      expect(v).toMatch(/ephemeral IDE/);
-    });
-  });
 });

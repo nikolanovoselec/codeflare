@@ -39,7 +39,7 @@ describe('SEO discoverability documents (REQ-LANDING-003)', () => {
     it('follows the llms.txt convention: H1 title, a summary blockquote, and linked sections', () => {
       const llms = buildLlmsTxt();
       expect(llms.startsWith('# Codeflare')).toBe(true);
-      expect(llms).toContain('> Codeflare is the enterprise agentic coding engine');
+      expect(llms).toMatch(/\n> .+/); // a summary blockquote exists (llms.txt convention), without pinning its copy
       expect(llms).toContain(`(${CANONICAL_ORIGIN}/)`);
       expect(llms).toContain('https://github.com/nikolanovoselec/codeflare');
       expect(llms).toContain('## Contact');
