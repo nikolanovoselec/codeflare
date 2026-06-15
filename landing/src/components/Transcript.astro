@@ -49,11 +49,13 @@ const lastIndex = lines.length - 1;
       <Fragment>
         {lines.map((line, i) => {
           const cursorLast = animate === 'cursor' && i === lastIndex;
+          // Emit the line text and caret with NO whitespace between them (one line,
+          // like the typed reel below). `.t-line` is white-space: pre / pre-wrap, so
+          // a newline+indent here would render as a visible space before the caret;
+          // the hero hugs its caret precisely because its markup is adjacent. One
+          // component, one behaviour.
           return (
-            <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>
-              {cursorLast ? <span data-typeline>{line.text}</span> : line.text}
-              {cursorLast && <span class="t-caret" aria-hidden="true" />}
-            </span>
+            <span class={`t-line t-${line.tone}`} style={`--i:${i}`}>{cursorLast ? <span data-typeline>{line.text}</span> : line.text}{cursorLast && <span class="t-caret" aria-hidden="true" />}</span>
           );
         })}
         {animate === 'typed' && (

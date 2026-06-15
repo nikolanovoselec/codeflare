@@ -44,6 +44,11 @@ describe('Transcript (styler 1: last line + scrolling cursor)', () => {
     expect(body.querySelectorAll('[data-typeline]')).toHaveLength(1);
     expect(tlines[tlines.length - 1].querySelector('[data-typeline]')?.textContent).toBe(LINES[LINES.length - 1].text);
     expect(tlines[0].querySelector('[data-typeline]')).toBeNull();
+    // The caret hugs the typed text: the caret directly follows the [data-typeline]
+    // span with no whitespace text node between them. `.t-line` is white-space: pre,
+    // so a gap would render as a visible space — the hero has none, these must match.
+    const lastLine = tlines[tlines.length - 1];
+    expect(lastLine.querySelector('.t-caret')!.previousSibling).toBe(lastLine.querySelector('[data-typeline]'));
     expect(body.querySelector('.ft-typed')).toBeNull();
     expect(body.querySelector('[data-roll]')).toBeNull();
   });
