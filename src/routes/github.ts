@@ -55,7 +55,8 @@ const CloneBody = z.object({
 
 /**
  * Whether the GitHub panel/feature is available for this deployment.
- * Phase 2: enterprise only. Phase 6 broadens to SaaS-advanced + a per-user toggle.
+ * Enterprise only (REQ-GITHUB-002 AC3). Broadening to SaaS-advanced + a per-user
+ * toggle is tracked as REQ-GITHUB-007 (Planned) and intentionally deferred.
  */
 function githubFeatureEnabled(env: Env): boolean {
   return isEnterpriseMode(env);

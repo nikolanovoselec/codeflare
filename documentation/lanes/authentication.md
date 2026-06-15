@@ -73,6 +73,43 @@ User clicks "Sign in with GitHub" on /login
 - Missing `OAUTH_JWT_SECRET` throws `AuthError` (fail-loud - never silently falls through to CF Access)
 - Cookie auto-refreshed by middleware when < 15 min remaining
 
+### Connect GitHub (link mode)
+
+"Connect GitHub" is an explicit, additive action - a button in the GitHub panel, separate from login. It is **never** the Codeflare login. Login stays Cloudflare Access (enterprise) or the existing mode; Connect only authorizes Codeflare to act as the user on GitHub. Availability is currently enterprise-only (`githubFeatureEnabled` = `isEnterpriseMode`); broadening the gate is Planned ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)).
+
+**Flow** ([REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage)):
+
+```
+User clicks "Connect GitHub" in the GitHub panel
+  -> GET /api/github/connect (browser-navigated, carries the session cookie)
+  -> Sign an HMAC OAuth state
+  -> 302 to the provider's authorize URL
+  -> User authorizes on GitHub
+  -> GitHub redirects to the stable callback GET /auth/github/connect/callback
+     (src/routes/github-auth.ts)
+  -> Exchange code for a token
+  -> Re-derive the caller's identity from the EXISTING session
+     (Access email header in enterprise; session JWT in SaaS) -
+     no new codeflare_session cookie is minted
+  -> Resolve the identity's bucket
+  -> Persist the token to the existing deploy-keys entry (DeployKeys.githubToken)
+```
+
+**Two providers behind one seam (`getGithubProvider`):**
+
+| Provider | Used for | Token behavior |
+|---|---|---|
+| **GitHub App user-to-server** | Enterprise / EMU | Acts as the user, expires ~8h, refreshable. `getValidGithubToken` refreshes within the skew window and fails closed when an expired App token cannot be refreshed (never returns a stale token). |
+| **OAuth App** (existing) | Non-EMU SaaS | Long-lived token. |
+
+A configured GitHub App takes precedence. With neither configured, Connect is unavailable (`503 GITHUB_NOT_CONFIGURED`).
+
+**Scopes / permissions:** the OAuth App requests `repo read:org workflow`. The GitHub App's equivalent permissions (Contents R/W, Pull requests R/W, Workflows W, Metadata R) are set at registration. Enterprise GitHub Apps must be **internal** to the customer's enterprise - EMU managed users cannot authorize third-party apps.
+
+**At rest:** the token is encrypted (kv-crypto) and never returned to the browser. Disconnect/offboarding revokes it ([REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation)). For the enterprise egress-injection security model and at-rest detail, see [Security](security.md) rather than duplicating it here.
+
+Connect reuses the OAuth App from [REQ-AUTH-002](authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth) (SaaS login OAuth) in SaaS mode, but is distinct from login.
+
 ### CF Access Flow
 
 When `OAUTH_CLIENT_ID` is NOT set, Cloudflare Access handles authentication:

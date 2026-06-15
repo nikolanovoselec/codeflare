@@ -16,6 +16,7 @@ For authentication modes and user identity flow, see [Authentication](authentica
 - [Onboarding Access Request (OAuth-Gated)](#onboarding-access-request-oauth-gated)
 - [API Token Containment](#api-token-containment)
 - [Enterprise Mode: Credential Containment and CA Trust](#enterprise-mode-credential-containment-and-ca-trust)
+- [GitHub Token Handling](#github-token-handling)
 - [Container Auth Token (REQ-SEC-012)](#container-auth-token-req-sec-012)
 - [Dual R2 Credential Architecture](#dual-r2-credential-architecture)
 - [Graceful Shutdown](#graceful-shutdown)
@@ -60,6 +61,22 @@ In Enterprise Mode, two additional invariants apply on top of the standard API t
 **Per-user scoped R2 tokens:** Each container receives a scoped R2 API token restricted to its owner's bucket. Tokens are created on first login via `getOrCreateScopedR2Token()` in `r2-admin.ts` (called from `lifecycle-init.ts`), which calls `POST /accounts/{accountId}/tokens` with a bucket-specific Object Read + Write policy. Tokens are cached in KV as `r2token:{email}` (encrypted via AES-256-GCM when `ENCRYPTION_KEY` is set) and revoked on user deletion via `deleteScopedR2Token()`. This requires the `API Tokens: Edit` permission on the deploy token.
 
 **R2 token verification:** Cached tokens are validated before use via `verifyTokenExists()` in `r2-admin.ts`. This calls `GET /accounts/{accountId}/tokens/{tokenId}` through the circuit breaker. Only a 404 response (token definitively deleted) invalidates the cache and triggers fresh token creation. Transient errors (429, 500, 502, network errors, circuit breaker open) assume the token is still valid - this prevents a Cloudflare API blip from unnecessarily deleting a valid KV entry and causing rclone 401 errors. The verification runs on every `getOrCreateScopedR2Token()` cache hit.
+
+## GitHub Token Handling
+
+The per-user GitHub token authorizes the agent to act with the user's full GitHub permissions (clone/push/PR/merge). Its handling reuses the same primitives as the policies above — encryption at rest and the enterprise egress-injection layer — so a prompt-injected agent or malicious dependency cannot exfiltrate a raw token.
+
+**At rest.** The token lives in the existing encrypted deploy-keys KV entry (`DeployKeys.githubToken` at `deploy-keys:<bucket>`), encrypted with the same kv-crypto as other secrets (AES-256-GCM, AAD bound to the KV key); plaintext is used only when no `ENCRYPTION_KEY` is configured. It is never returned to the browser — `/api/github/repos` proxies GitHub server-side and status/list responses carry only non-secret metadata such as the login handle ([CON-GH-001](../../sdd/spec/constraints.md#con-gh-001-github-token-encrypted-at-rest-and-never-returned-to-the-browser), [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing)).
+
+**Enterprise egress injection (the security core).** In enterprise mode the container holds only a non-secret placeholder `GH_TOKEN` (`codeflare-enterprise`), identical for every user. A `GitHubInterceptor` WorkerEntrypoint sits on the container egress boundary, reusing the AI-Gateway `interceptOutboundHttps` layer (the Cloudflare containers CA is trusted container-wide, so TLS validates — see the CA-trust invariant above). For each outbound request to `github.com` / `api.github.com` it resolves and decrypts the user's token, strips any client-supplied auth (`authorization`, `x-api-key`, etc.), and stamps the correct credential: git over HTTPS gets `Authorization: Basic base64("x-access-token:"+token)`, while the REST API gets `Authorization: Bearer <token>` plus `X-GitHub-Api-Version: 2022-11-28`. It emits a per-user audit line. This satisfies [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials) and reuses the egress layer per [AD81](../decisions/README.md#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) ([CON-GH-002](../../sdd/spec/constraints.md#con-gh-002-the-real-github-token-never-enters-the-enterprise-container)).
+
+**No cross-user spoofing.** User-scoping comes solely from `props.bucket`, bound at container wiring time, never from the request. A session can therefore only ever inject its own user's token, regardless of the placeholder value or any identity the request claims ([CON-GH-003](../../sdd/spec/constraints.md#con-gh-003-egress-injection-is-scoped-by-the-per-session-binding)).
+
+**Fail closed.** When no valid token exists (not connected, or an expired App token that cannot be refreshed), the interceptor returns 401 and performs no upstream request — it never falls back to a stale token.
+
+**Non-enterprise modes.** The real token reaches the container as `GH_TOKEN` via the existing deploy-keys path, unchanged ([REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport)). This is documented honestly as leakage-hygiene, **not** agent-containment: the agent can read its own user's token (which that user already holds). Only enterprise mode keeps the real token out of the container.
+
+**Revocation and offboarding.** `POST /api/github/disconnect` revokes the token at GitHub (App/OAuth sources) and clears the github fields from the deploy-keys entry; a manually-pasted PAT is cleared but never sent to GitHub's revoke endpoint (Codeflare does not own it). User offboarding (`user-cleanup.ts`) revokes and clears on the same path as the scoped R2 token, before the deploy-keys entry is deleted, so a leaked-but-not-yet-deleted token cannot outlive the account ([REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation)).
 
 ## Container Auth Token (REQ-SEC-012)
 

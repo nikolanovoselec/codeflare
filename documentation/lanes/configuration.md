@@ -103,6 +103,26 @@ These env vars tune the graphify knowledge-graph build/update tooling. All are o
 | `GRAPHIFY_ARCH_KEEP_ISOLATES` | When truthy (`1`, `true`, `yes`), keeps isolated files in Pi Architecture graph output instead of omitting them from the module dependency map. | unset (omit isolates) | no | `preseed/agents/pi/scripts/build-graphify-architecture.sh` | [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) |
 | `GRAPHIFY_SEMANTIC_MAX_PARALLEL` | Maximum number of semantic-extraction Task subagents dispatched per wave by the `/graphify` skill. Caps the parallel fan-out on full-semantic builds so a dense repo (with hundreds of non-code files) cannot flood the Task-tool concurrency or trip Anthropic API rate limits in a single burst. Higher values finish a build faster; lower values smooth the rate-limit / token-budget surface. | `10` | no | `preseed/agents/claude/skills/graphify/SKILL.md` Step B2 | (graphify skill operational knob) |
 
+### GitHub Integration
+
+The GitHub panel lets a connected user browse and clone their repositories and lets the in-session agent act with the user's GitHub permissions. Availability is **enterprise-only** today (`githubFeatureEnabled` = `isEnterpriseMode`); broadening the gate is Planned ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)).
+
+Connect uses one of two providers, selected by precedence ([REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage)): a configured **GitHub App** takes precedence over the **OAuth App**. With neither configured the integration is unavailable and `/api/github/connect` returns `503 GITHUB_NOT_CONFIGURED`.
+
+| Variable | Purpose | Default | Required | Consumed by | Implements |
+|----------|---------|---------|----------|-------------|------------|
+| `GITHUB_APP_CLIENT_ID` | GitHub App client ID. Non-secret; the preferred Connect provider when set. Used in enterprise/EMU. | - | no | wrangler.toml `[vars]` | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) |
+| `GITHUB_APP_CLIENT_SECRET` | GitHub App client secret. Pairs with `GITHUB_APP_CLIENT_ID` for the code-for-token exchange. Used in enterprise/EMU. | - | no | Wrangler secret (never in wrangler.toml) | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) |
+| `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET` | Existing SaaS-login GitHub OAuth App credentials (see [Worker Environment](#worker-environment)); reused as the OAuth-App Connect provider in non-EMU SaaS when no GitHub App is configured. | - | no | Wrangler secret | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) |
+| `GITHUB_HOST` | Web host for OAuth authorize/token. Override only for GitHub Enterprise Server-style hosts. | `github.com` | no | wrangler.toml | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) |
+| `GITHUB_API_HOST` | REST API host. Override paired with `GITHUB_HOST`. | `api.github.com` | no | wrangler.toml | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) |
+
+**Token storage.** No new KV key is introduced. The token is stored in the existing per-user encrypted deploy-keys entry as `DeployKeys.githubToken` at `deploy-keys:<bucket>`, encrypted via the existing kv-crypto (plaintext fallback when no `ENCRYPTION_KEY`). A `githubTokenSource` marker distinguishes `'app' | 'oauth' | 'pat'`; App tokens additionally carry a refresh token and expiry.
+
+**Container transport** ([REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport)). In non-enterprise modes the real token flows to the container as `GH_TOKEN` via the existing deploy-keys path, unchanged. In enterprise mode the container instead receives the non-secret placeholder `GH_TOKEN` = `codeflare-enterprise` (the `ENTERPRISE_GH_TOKEN_PLACEHOLDER` code constant, **not** a configured value); the real token is injected at the container egress boundary (see the [security](security.md) and [architecture](architecture.md) lanes).
+
+**Provider registration permissions** (set at app registration, not via config). The GitHub App requests Contents R/W, Pull requests R/W, Workflows W, and Metadata R. The OAuth App requests scopes `repo read:org workflow`. Enterprise GitHub Apps must be **internal** to the customer's enterprise, since EMU users cannot authorize third-party apps.
+
 ---
 
 ## SEO / Discoverability
