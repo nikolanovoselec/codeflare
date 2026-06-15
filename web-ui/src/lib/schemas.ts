@@ -347,3 +347,32 @@ export const SessionsSyncResponseSchema = z.object({
   ),
   count: z.number(),
 });
+
+// GitHub connect status. Matches GET /api/github/status. When `enabled`
+// is false the panel renders nothing; the other fields describe the
+// current connection (source = which credential backs it).
+export const GithubStatusResponseSchema = z.object({
+  enabled: z.boolean(),
+  configured: z.boolean().optional(),
+  connected: z.boolean(),
+  login: z.string().optional(),
+  source: z.union([z.literal('app'), z.literal('oauth'), z.literal('pat')]).optional(),
+});
+
+// A single repository from GET /api/github/repos.
+export const GithubRepoSchema = z.object({
+  full_name: z.string(),
+  name: z.string(),
+  owner: z.string(),
+  private: z.boolean(),
+  visibility: z.string(),
+  default_branch: z.string(),
+  updated_at: z.string(),
+});
+
+// Paginated repo listing. Matches GET /api/github/repos?page=N.
+export const GithubReposResponseSchema = z.object({
+  repos: z.array(GithubRepoSchema),
+  page: z.number(),
+  hasMore: z.boolean(),
+});

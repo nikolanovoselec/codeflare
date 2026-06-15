@@ -10,6 +10,7 @@ import SessionStatCard from './SessionStatCard';
 import SessionContextMenu from './SessionContextMenu';
 import StatCards from './StatCards';
 import StorageBrowser from './StorageBrowser';
+import GitHubPanel from './github/GitHubPanel';
 import FilePreview from './FilePreview';
 import CreateSessionDialog from './CreateSessionDialog';
 import SessionLimitPopup from './SessionLimitPopup';
@@ -314,6 +315,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
 
           {/* Right Column */}
           <div class="dashboard-panel-right" data-testid="dashboard-panel-right">
+            <GitHubPanel />
             <Show when={sessionStore.r2Ready} fallback={
               <div class="storage-skeleton" data-testid="storage-skeleton">
                 <div class="storage-skeleton-header">
