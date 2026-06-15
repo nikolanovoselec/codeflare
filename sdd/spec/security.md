@@ -29,8 +29,6 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-001: Authenticated endpoints reject unauthenticated requests
 
-<!-- @impl: src/lib/access.ts::getUserFromRequest -->
-<!-- @impl: src/lib/access.ts::authenticateRequest -->
 <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow describe) -->
 <!-- @test: src/__tests__/lib/access.test.ts (authenticateRequest describe) -->
 <!-- @test: src/__tests__/lib/access.test.ts (getUserFromRequest describe) -->
@@ -41,12 +39,12 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. Unauthenticated requests to protected paths (application pages, API endpoints, post-setup-completion setup endpoints) receive 401, 302, or 403 responses.
-2. In CF Access mode, requests without a valid CF Access session credential are rejected.
-3. In SaaS mode, requests without a valid SaaS session credential are rejected.
-4. Injecting the pre-setup header-trust signal does not bypass authentication after setup is complete.
-5. Transient storage failures during auth-config fetch do not permanently degrade authentication to the pre-setup trust model.
-6. All protected API endpoints reject unauthenticated requests.
+1. Unauthenticated requests to protected paths (application pages, API endpoints, post-setup-completion setup endpoints) receive 401, 302, or 403 responses. <!-- @impl: src/lib/access.ts::authenticateRequest -->
+2. In CF Access mode, requests without a valid CF Access session credential are rejected. <!-- @impl: src/lib/access.ts::getUserFromRequest -->
+3. In SaaS mode, requests without a valid SaaS session credential are rejected. <!-- @impl: src/lib/access.ts::getUserFromRequest -->
+4. Injecting the pre-setup header-trust signal does not bypass authentication after setup is complete. <!-- @impl: src/lib/access.ts::getUserFromRequest -->
+5. Transient storage failures during auth-config fetch do not permanently degrade authentication to the pre-setup trust model. <!-- @impl: src/lib/access.ts::getUserFromRequest -->
+6. All protected API endpoints reject unauthenticated requests. <!-- @impl: src/lib/access.ts::authenticateRequest -->
 7. The setup-status endpoint is always public and returns only configuration status, no secrets.
 
 **Constraints:**
@@ -66,8 +64,6 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-002: API tokens never enter containers
 
-<!-- @impl: src/container/container-env.ts -->
-<!-- @impl: src/lib/r2-admin.ts::getOrCreateScopedR2Token -->
 <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow describe → info-disclosure job) -->
 <!-- @test: src/__tests__/lib/r2-admin.test.ts (r2-admin describe) -->
 
@@ -77,10 +73,10 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. The master Cloudflare API token is never exposed inside container environments.
-2. Containers receive only per-user scoped R2 credentials (access key pair), never the master API token.
-3. The container environment never carries the master API token.
-4. R2 credentials passed to containers are scoped to the user's bucket (Object Read + Write only).
+1. The master Cloudflare API token is never exposed inside container environments. <!-- @impl: src/container/container-env.ts::buildEnvVars -->
+2. Containers receive only per-user scoped R2 credentials (access key pair), never the master API token. <!-- @impl: src/lib/r2-admin.ts::getOrCreateScopedR2Token -->
+3. The container environment never carries the master API token. <!-- @impl: src/container/container-env.ts::buildEnvVars -->
+4. R2 credentials passed to containers are scoped to the user's bucket (Object Read + Write only). <!-- @impl: src/lib/r2-admin.ts::getOrCreateScopedR2Token -->
 
 **Constraints:**
 
@@ -102,23 +98,19 @@ Security requirements for authentication enforcement, credential isolation, encr
 <!-- @test: src/__tests__/lib/user-cleanup.test.ts (cleanupUserData -> reads r2token KV, calls deleteScopedR2Token with stored tokenId, deletes r2token KV entry -> AC6 wiring) -->
 ### REQ-SEC-003: Per-user R2 tokens scoped to user bucket
 
-<!-- @impl: src/lib/r2-admin.ts::getOrCreateScopedR2Token -->
-<!-- @impl: src/lib/r2-admin.ts::createScopedR2Token -->
-<!-- @impl: src/lib/r2-admin.ts::deleteScopedR2Token -->
-
 **Intent:** Each user's container receives an R2 API token restricted to that user's storage bucket, preventing cross-user data access.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The system creates a per-user Cloudflare API token scoped to that user's R2 bucket (Object Read + Write only).
-2. Token credentials are derived deterministically so the token ID and a hash of the token value form an S3-compatible credential pair.
-3. Tokens are cached per user (encrypted when operator-provided encryption is configured).
-4. Cached tokens are validated before use; only a definitive 404 from the token-existence check invalidates the cache.
-5. Transient verification errors assume the token is still valid to prevent unnecessary downstream auth failures.
-6. Tokens are revoked on user deletion.
-7. Token creation requires the upstream API permission to manage tokens on the deploy credential.
+1. The system creates a per-user Cloudflare API token scoped to that user's R2 bucket (Object Read + Write only). <!-- @impl: src/lib/r2-admin.ts::createScopedR2Token -->
+2. Token credentials are derived deterministically so the token ID and a hash of the token value form an S3-compatible credential pair. <!-- @impl: src/lib/r2-admin.ts::createScopedR2Token -->
+3. Tokens are cached per user (encrypted when operator-provided encryption is configured). <!-- @impl: src/lib/r2-admin.ts::getOrCreateScopedR2Token -->
+4. Cached tokens are validated before use; only a definitive 404 from the token-existence check invalidates the cache. <!-- @impl: src/lib/r2-admin.ts::getOrCreateScopedR2Token -->
+5. Transient verification errors assume the token is still valid to prevent unnecessary downstream auth failures. <!-- @impl: src/lib/r2-admin.ts::getOrCreateScopedR2Token -->
+6. Tokens are revoked on user deletion. <!-- @impl: src/lib/r2-admin.ts::deleteScopedR2Token -->
+7. Token creation requires the upstream API permission to manage tokens on the deploy credential. <!-- @impl: src/lib/r2-admin.ts::createScopedR2Token -->
 
 **Constraints:**
 
@@ -138,8 +130,6 @@ Security requirements for authentication enforcement, credential isolation, encr
 <!-- @test: src/__tests__/security/kv-crypto-security.test.ts (REQ-SEC-004 describe -> AAD key-name binding (ciphertext non-portable) + non-secret entries stay plaintext + warnIfNoEncryptionKey CRITICAL log -> AC4,7,8) -->
 ### REQ-SEC-004: Credential encryption-at-rest cryptographic contract
 
-<!-- @impl: src/lib/kv-crypto.ts::importEncryptionKey -->
-<!-- @impl: src/lib/kv-crypto.ts::encryptForKV -->
 <!-- @impl: src/lib/kv-crypto.ts::decryptFromKV -->
 <!-- @test: src/__tests__/lib/kv-crypto.test.ts (importEncryptionKey describe → AC1/AC2) -->
 <!-- @test: src/__tests__/lib/kv-crypto.test.ts (encryptForKV / decryptFromKV describe → AC3/AC4) -->
@@ -151,10 +141,10 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. The operator-provided encryption key must be a base64-encoded 256-bit value (exactly 32 bytes decoded). Non-base64 or wrong-length values are rejected at startup.
-2. Credential values (LLM keys, deploy keys, R2 tokens) are encrypted at rest with authenticated AES-256-GCM.
-3. Ciphertext carries a version prefix and a random IV per write, so re-encrypting the same plaintext produces a different ciphertext.
-4. The storage key name is bound as additional authenticated data, preventing ciphertext from being copied between storage keys.
+1. The operator-provided encryption key must be a base64-encoded 256-bit value (exactly 32 bytes decoded). Non-base64 or wrong-length values are rejected at startup. <!-- @impl: src/lib/kv-crypto.ts::importEncryptionKey -->
+2. Credential values (LLM keys, deploy keys, R2 tokens) are encrypted at rest with authenticated AES-256-GCM. <!-- @impl: src/lib/kv-crypto.ts::encryptForKV -->
+3. Ciphertext carries a version prefix and a random IV per write, so re-encrypting the same plaintext produces a different ciphertext. <!-- @impl: src/lib/kv-crypto.ts::encryptForKV -->
+4. The storage key name is bound as additional authenticated data, preventing ciphertext from being copied between storage keys. <!-- @impl: src/lib/kv-crypto.ts::encryptForKV -->
 5. The encryption key is imported once per worker instance and reused for the instance's lifetime.
 
 **Constraints:**
@@ -174,7 +164,6 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-018: Credential encryption operational policy
 
-<!-- @impl: src/lib/kv-crypto.ts::warnIfNoEncryptionKey -->
 <!-- @test: src/__tests__/lib/request-helpers.test.ts (maskSecret describe → AC1) -->
 <!-- @test: src/__tests__/lib/warn-if-no-encryption-key.test.ts (warnIfNoEncryptionKey describe → AC2) -->
 <!-- @test: src/__tests__/lib/warn-if-no-encryption-key.test.ts (plaintext KV allowlist describe → AC3) -->
@@ -186,7 +175,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 **Acceptance Criteria:**
 
 1. API responses always return masked values (last 4 characters only); the plaintext value is never returned.
-2. When no operator encryption key is configured, a CRITICAL-severity warning is emitted on the first request.
+2. When no operator encryption key is configured, a CRITICAL-severity warning is emitted on the first request. <!-- @impl: src/lib/kv-crypto.ts::warnIfNoEncryptionKey -->
 3. Non-secret persistent storage entries (preferences, sessions, user records, setup state, storage stats) remain plaintext.
 
 **Constraints:**
@@ -209,9 +198,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (entrypoint.sh bisync daemon behavior describe -> bisync via rclone reads the configured rclone.conf (with or without SSE-C) and round-trips files -> AC5 transparent encrypt/decrypt during initial/periodic/shutdown sync) -->
 ### REQ-SEC-005: R2 files encrypted at rest with SSE-C when operator configures an encryption key
 
-<!-- @impl: src/lib/r2-sse.ts -->
 <!-- @impl: src/lib/r2-client.ts -->
-<!-- @impl: entrypoint.sh::create_rclone_config -->
 
 **Intent:** When an operator provides an encryption key, all R2 object storage operations must use server-side encryption with customer-provided keys (SSE-C).
 
@@ -219,13 +206,13 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. All R2 object operations (read, write, head, multipart) use SSE-C headers when an operator encryption key is configured.
-2. The SSE-C scheme uses AES-256; the request carries the customer-provided key and a key-hash so the storage layer can verify integrity.
+1. All R2 object operations (read, write, head, multipart) use SSE-C headers when an operator encryption key is configured. <!-- @impl: src/lib/r2-sse.ts::getSseHeaders -->
+2. The SSE-C scheme uses AES-256; the request carries the customer-provided key and a key-hash so the storage layer can verify integrity. <!-- @impl: src/lib/r2-sse.ts::getSseHeaders -->
 3. The encryption key is propagated from Worker to Durable Object to container as part of the session environment.
-4. In containers, the sync configuration is extended with SSE-C settings so all R2 traffic carries the customer-provided key.
-5. All bidirectional sync operations (initial restore, periodic sync, shutdown sync) transparently encrypt and decrypt without user action.
-6. Files are visible in the R2 dashboard (names, sizes, metadata) but contents are unreadable without the key.
-7. When no operator encryption key is configured, R2 operations proceed without SSE-C (no code path changes).
+4. In containers, the sync configuration is extended with SSE-C settings so all R2 traffic carries the customer-provided key. <!-- @impl: entrypoint.sh::create_rclone_config -->
+5. All bidirectional sync operations (initial restore, periodic sync, shutdown sync) transparently encrypt and decrypt without user action. <!-- @impl: entrypoint.sh::create_rclone_config -->
+6. Files are visible in the R2 dashboard (names, sizes, metadata) but contents are unreadable without the key. <!-- @impl: src/lib/r2-sse.ts::getSseHeaders -->
+7. When no operator encryption key is configured, R2 operations proceed without SSE-C (no code path changes). <!-- @impl: src/lib/r2-sse.ts::getSseHeaders -->
 
 **Constraints:**
 
@@ -245,8 +232,6 @@ Security requirements for authentication enforcement, credential isolation, encr
 <!-- @test: src/__tests__/security/kv-crypto-security.test.ts (REQ-SEC-006 write-back failure describe -> returns correct data when migration write-back put() rejects + does not propagate as thrown error -> AC5) -->
 ### REQ-SEC-006: Transparent KV encryption migration
 
-<!-- @impl: src/lib/kv-crypto.ts::getAndDecrypt -->
-<!-- @impl: src/lib/kv-crypto.ts::encryptAndStore -->
 <!-- @test: src/__tests__/lib/kv-crypto.test.ts (getAndDecrypt describe → AC1/AC2/AC3/AC5) -->
 <!-- @test: src/__tests__/lib/kv-crypto.test.ts (encryptAndStore describe → AC7) -->
 
@@ -256,13 +241,13 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. Encrypted values (identified by the version prefix) are decrypted transparently on read.
-2. Legacy plaintext values without a version prefix are parsed directly.
-3. Plaintext reads trigger a background re-encryption write-back.
-4. Subsequent reads of the migrated value hit the fast decrypted path.
-5. If the re-encryption write-back fails (transient error, rate limit), the caller still receives correct data.
-6. Two concurrent requests reading the same plaintext entry can both write encrypted copies safely (the result is equivalent regardless of which write wins).
-7. Direct credential writes always store encrypted data without going through a migration path.
+1. Encrypted values (identified by the version prefix) are decrypted transparently on read. <!-- @impl: src/lib/kv-crypto.ts::getAndDecrypt -->
+2. Legacy plaintext values without a version prefix are parsed directly. <!-- @impl: src/lib/kv-crypto.ts::getAndDecrypt -->
+3. Plaintext reads trigger a background re-encryption write-back. <!-- @impl: src/lib/kv-crypto.ts::getAndDecrypt -->
+4. Subsequent reads of the migrated value hit the fast decrypted path. <!-- @impl: src/lib/kv-crypto.ts::getAndDecrypt -->
+5. If the re-encryption write-back fails (transient error, rate limit), the caller still receives correct data. <!-- @impl: src/lib/kv-crypto.ts::getAndDecrypt -->
+6. Two concurrent requests reading the same plaintext entry can both write encrypted copies safely (the result is equivalent regardless of which write wins). <!-- @impl: src/lib/kv-crypto.ts::getAndDecrypt -->
+7. Direct credential writes always store encrypted data without going through a migration path. <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore -->
 
 **Constraints:**
 
@@ -282,7 +267,6 @@ Security requirements for authentication enforcement, credential isolation, encr
 <!-- @test: src/__tests__/security/rate-limit-security.test.ts (REQ-SEC-007 describe -> 429 with RATE_LIMIT_ERROR code in body + fail-closed=true+KV throws=429 + fail-open=false (default)+KV throws=200 -> AC3,7,8) -->
 ### REQ-SEC-007: Rate-limiting infrastructure
 
-<!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit -->
 <!-- @test: src/__tests__/middleware/rate-limit.test.ts (createRateLimiter describe → AC1/AC3/AC4) -->
 <!-- @test: src/__tests__/middleware/rate-limit-fallback.test.ts (rate-limit fallback describe → AC2) -->
 
@@ -294,7 +278,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 1. Rate limiting is keyed by authenticated user identity, with client IP as fallback for unauthenticated requests.
 2. Primary storage is persistent storage with automatic TTL expiry; the fallback is per-isolate in-memory with periodic cleanup.
-3. Exceeded limits return HTTP 429 with a stable error code and a human-readable retry-time message.
+3. Exceeded limits return HTTP 429 with a stable error code and a human-readable retry-time message. <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit -->
 4. All rate-limited responses include the standard rate-limit advisory headers.
 
 **Constraints:**
@@ -313,7 +297,6 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-019: Per-endpoint rate-limit policy
 
-<!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit -->
 <!-- @test: src/__tests__/lib/cross-package-constants.test.ts (Cross-Package Constants describe → AC1 WS 30/60s budget) -->
 <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (Session limits describe → AC2 MAX_SESSIONS) -->
 <!-- @test: src/__tests__/middleware/rate-limit-fallback.test.ts (checkRateLimit failClosed semantics describe → AC3 fail-closed) -->
@@ -328,8 +311,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 1. WebSocket connections are rate-limited at 30 per 60-second window per user.
 2. Per-user concurrent session caps are enforced: 3 for standard users, 10 for admins.
-3. Security-critical endpoints (request-access, Turnstile verification) use fail-closed rate limiting: persistent-storage failure returns 503 instead of allowing the request.
-4. General resource-protection endpoints use fail-open rate limiting (per [AD6](../../documentation/decisions/README.md#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity)).
+3. Security-critical endpoints (request-access, Turnstile verification) use fail-closed rate limiting: persistent-storage failure returns 503 instead of allowing the request. <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit -->
+4. General resource-protection endpoints use fail-open rate limiting (per [AD6](../../documentation/decisions/README.md#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity)). <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit -->
 5. In stress-test deployment mode, all rate limits are bypassed with a one-time warning per worker instance.
 
 **Constraints:**
@@ -378,7 +361,6 @@ Security requirements for authentication enforcement, credential isolation, encr
 <!-- @test: src/__tests__/security/security-headers.test.ts (REQ-SEC-008 describe -> real worker.fetch against /health asserts Strict-Transport-Security + Content-Security-Policy + X-Content-Type-Options nosniff + X-Frame-Options DENY + Referrer-Policy + Permissions-Policy + X-Powered-By absent + HSTS on redirects -> AC1..AC7) -->
 ### REQ-SEC-008: Security headers on every response
 
-<!-- @impl: src/index.ts -->
 <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow describe → security-headers job verifies all headers) -->
 <!-- @test: src/__tests__/security/early-return-security.test.ts (CF-001 vault early-return describe → proxied vault content has null CSP, error responses carry full CSP → AC2 vault-proxy exemption) -->
 
@@ -388,13 +370,13 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. `Strict-Transport-Security` (HSTS) is present on all responses, including redirects and OPTIONS preflight responses.
-2. `Content-Security-Policy` is set.
-3. `X-Content-Type-Options: nosniff` is set.
-4. `X-Frame-Options: DENY` is set.
-5. `Referrer-Policy: strict-origin-when-cross-origin` is set.
-6. `Permissions-Policy` is set.
-7. `X-Powered-By` header is absent.
+1. `Strict-Transport-Security` (HSTS) is present on all responses, including redirects and OPTIONS preflight responses. <!-- @impl: src/index.ts::withSecurityHeaders -->
+2. `Content-Security-Policy` is set. <!-- @impl: src/index.ts::withSecurityHeaders -->
+3. `X-Content-Type-Options: nosniff` is set. <!-- @impl: src/index.ts::withSecurityHeaders -->
+4. `X-Frame-Options: DENY` is set. <!-- @impl: src/index.ts::withSecurityHeaders -->
+5. `Referrer-Policy: strict-origin-when-cross-origin` is set. <!-- @impl: src/index.ts::withSecurityHeaders -->
+6. `Permissions-Policy` is set. <!-- @impl: src/index.ts::withSecurityHeaders -->
+7. `X-Powered-By` header is absent. <!-- @impl: src/index.ts::withSecurityHeaders -->
 
 **Constraints:**
 
@@ -415,7 +397,6 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-021: HSTS coverage on redirect response paths
 
-<!-- @impl: src/index.ts::redirectWithHeaders -->
 <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow describe → security-headers job exercises redirect paths) -->
 <!-- @test: src/__tests__/redirect-with-headers.test.ts (helper round-trip) -->
 
@@ -425,7 +406,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. All redirect responses carry the full security header set, including HSTS.
+1. All redirect responses carry the full security header set, including HSTS. <!-- @impl: src/index.ts::redirectWithHeaders -->
 
 **Constraints:**
 
@@ -444,8 +425,6 @@ Security requirements for authentication enforcement, credential isolation, encr
 ### REQ-SEC-009: Input validation at system boundaries
 
 <!-- @impl: src/lib/schemas.ts -->
-<!-- @impl: src/lib/constants.ts::SESSION_ID_PATTERN -->
-<!-- @impl: src/lib/access.ts::getBucketName -->
 <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow describe → injection job) -->
 <!-- @test: host/__tests__/workflow-files.test.js (fuzz workflow describe → property-based input validation) -->
 
@@ -457,10 +436,10 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 1. Request bodies are validated before handler logic executes.
 2. Setup wizard inputs (domain, emails, origins) are validated with shape-specific patterns.
-3. Session IDs are validated against the canonical format (8-24 lowercase alphanumeric characters) on every entry point. Invalid IDs are rejected with 400 before any session-side interaction.
+3. Session IDs are validated against the canonical format (8-24 lowercase alphanumeric characters) on every entry point. Invalid IDs are rejected with 400 before any session-side interaction. <!-- @impl: src/lib/constants.ts::SESSION_ID_PATTERN -->
 4. Malformed base64 inputs are rejected with 400 immediately.
 5. API routes enforce a 64 KiB body limit (storage routes exempt for file uploads).
-6. Email addresses are normalized before any lookup, comparison, or derivation operation.
+6. Email addresses are normalized before any lookup, comparison, or derivation operation. <!-- @impl: src/lib/access.ts::getBucketName -->
 
 **Constraints:**
 
@@ -480,7 +459,6 @@ Security requirements for authentication enforcement, credential isolation, encr
 <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-010 describe -> validateKey decodes URI before traversal check + %2E%2E rejected + lone % throws ValidationError + decoded key returned -> AC1..AC4) -->
 ### REQ-SEC-010: Path traversal prevention on storage endpoints
 
-<!-- @impl: src/routes/storage/validation.ts::validateKey -->
 <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow describe → injection job, path-traversal payloads → AC6) -->
 
 **Intent:** Storage API endpoints must prevent directory traversal attacks that could access files outside the user's bucket scope.
@@ -489,12 +467,12 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. Storage paths are URI-decoded before the parent-directory traversal check so encoded traversal sequences are caught.
-2. Both single- and double-encoded parent-directory sequences are rejected.
-3. Malformed URI encoding is rejected with a validation error.
-4. The validator returns the decoded key so callers operate on the value the user sees, not the encoded request form.
-5. The browse endpoint validates the prefix parameter against parent-directory traversal.
-6. Path-traversal payloads (percent-encoded, double-encoded, backslash, unicode variants) are rejected.
+1. Storage paths are URI-decoded before the parent-directory traversal check so encoded traversal sequences are caught. <!-- @impl: src/routes/storage/validation.ts::validateKey -->
+2. Both single- and double-encoded parent-directory sequences are rejected. <!-- @impl: src/routes/storage/validation.ts::validateKey -->
+3. Malformed URI encoding is rejected with a validation error. <!-- @impl: src/routes/storage/validation.ts::validateKey -->
+4. The validator returns the decoded key so callers operate on the value the user sees, not the encoded request form. <!-- @impl: src/routes/storage/validation.ts::validateKey -->
+5. The browse endpoint validates the prefix parameter against parent-directory traversal. <!-- @impl: src/routes/storage/validation.ts::validateKey -->
+6. Path-traversal payloads (percent-encoded, double-encoded, backslash, unicode variants) are rejected. <!-- @impl: src/routes/storage/validation.ts::validateKey -->
 
 **Constraints:**
 
@@ -551,9 +529,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 <!-- @test: src/__tests__/container/index.test.ts (REQ-SEC-012 AC6: destroy() clears persisted containerAuthToken so next session starts fresh -> storage.delete called with "containerAuthToken" + in-memory _containerAuthToken nulled -> AC6 no cross-lifecycle reuse) -->
 ### REQ-SEC-012: Container auth token per DO lifecycle
 
-<!-- @impl: src/container/index.ts -->
 <!-- @impl: host/src/server.ts -->
-<!-- @impl: host/src/auth-check.ts::checkContainerAuth -->
 
 **Intent:** Each Durable Object lifecycle generates a unique auth token for container communication, preventing unauthorized access to container endpoints.
 
@@ -561,12 +537,12 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. A unique auth token is generated per Durable Object lifecycle and injected into the container environment.
-2. All proxied requests from the Worker to the container include the token as a bearer credential.
-3. The container's terminal server validates the bearer credential on all non-exempt paths.
-4. A small set of health-check paths (health and activity) are auth-exempt because they are reached over an internal probe path that bypasses the proxy; both paths expose no user data and no mutable state.
-5. The token survives container hibernate/wake cycles within a single Durable Object lifecycle, so a rehydrated session still authenticates successfully without recreating the container.
-6. On Durable Object destruction the persisted token is cleared so the next lifecycle starts with a fresh token.
+1. A unique auth token is generated per Durable Object lifecycle and injected into the container environment. <!-- @impl: src/container/index.ts::container -->
+2. All proxied requests from the Worker to the container include the token as a bearer credential. <!-- @impl: src/container/index.ts::container -->
+3. The container's terminal server validates the bearer credential on all non-exempt paths. <!-- @impl: host/src/auth-check.ts::checkContainerAuth -->
+4. A small set of health-check paths (health and activity) are auth-exempt because they are reached over an internal probe path that bypasses the proxy; both paths expose no user data and no mutable state. <!-- @impl: host/src/auth-check.ts::AUTH_EXEMPT_PATHS -->
+5. The token survives container hibernate/wake cycles within a single Durable Object lifecycle, so a rehydrated session still authenticates successfully without recreating the container. <!-- @impl: src/container/index.ts::container -->
+6. On Durable Object destruction the persisted token is cleared so the next lifecycle starts with a fresh token. <!-- @impl: src/container/index.ts::container -->
 
 **Constraints:**
 
@@ -586,7 +562,6 @@ Security requirements for authentication enforcement, credential isolation, encr
 <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-013 describe -> download.ts uses attachment disposition type + CRLF stripping in buildContentDisposition + quotes/backslashes stripped (structural audit; buildContentDisposition not exported) -> AC2,3) -->
 ### REQ-SEC-013: Content-Disposition hardening on downloads
 
-<!-- @impl: src/routes/storage/download.ts -->
 <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow describe → header-injection job, filename sanitization → AC1/AC2/AC3) -->
 
 **Intent:** File download responses must prevent header injection attacks via sanitized filenames.
@@ -595,9 +570,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. File download responses use `Content-Disposition: attachment` with sanitized filenames.
-2. Special characters are stripped from filenames.
-3. Header-injection control characters are stripped from filenames.
+1. File download responses use `Content-Disposition: attachment` with sanitized filenames. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition -->
+2. Special characters are stripped from filenames. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition -->
+3. Header-injection control characters are stripped from filenames. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition -->
 
 **Constraints:**
 
@@ -616,8 +591,6 @@ Security requirements for authentication enforcement, credential isolation, encr
 <!-- @test: src/__tests__/security/access-security.test.ts (REQ-SEC-014 describe -> cf-access-client-id trusted only when !SAAS_MODE + SaaS mode ignores attacker-controlled cf-access-client-id (no email/auth produced) -> AC1,2) -->
 ### REQ-SEC-014: SaaS service-token header not trusted in SaaS mode
 
-<!-- @impl: src/lib/access.ts::getUserFromRequest -->
-<!-- @impl: src/lib/onboarding.ts::isSaasModeActive -->
 <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow describe → cf-access-client-id spoofing in SaaS mode → AC1/AC2) -->
 
 **Intent:** The `cf-access-client-id` header must not be trusted as an authentication mechanism in SaaS mode where no CF Access edge validates it.
@@ -626,8 +599,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. The CF Access client-id header is only trusted in non-SaaS deployments where a CF Access edge actually validates it.
-2. In SaaS mode the header is attacker-controlled and is ignored.
+1. The CF Access client-id header is only trusted in non-SaaS deployments where a CF Access edge actually validates it. <!-- @impl: src/lib/access.ts::getUserFromRequest -->
+2. In SaaS mode the header is attacker-controlled and is ignored. <!-- @impl: src/lib/onboarding.ts::isSaasModeActive -->
 
 **Constraints:**
 
@@ -652,8 +625,6 @@ Security requirements for authentication enforcement, credential isolation, encr
 ### REQ-SEC-015: Blocked user cannot self-upgrade subscription
 
 <!-- @impl: src/routes/auth.ts -->
-<!-- @impl: src/lib/subscription.ts::getEffectiveTier -->
-<!-- @impl: src/lib/session-mode.ts::clampSessionModeToTier -->
 <!-- @impl: src/routes/container/lifecycle.ts -->
 <!-- @impl: src/routes/preferences.ts -->
 
@@ -663,10 +634,10 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. The subscribe endpoint rejects blocked users at handler entry.
-2. The session mode the user can run with is clamped against the billing-resolved effective tier at both container start and preferences save.
-3. A canceled user with a stale advanced-mode preference is downgraded to default mode because their effective tier no longer permits advanced.
-4. Both container start and preferences save resolve the effective tier from billing state, not from a stored or token-side tier value.
+1. The subscribe endpoint rejects blocked users at handler entry. <!-- @impl: src/lib/subscription.ts::getEffectiveTier -->
+2. The session mode the user can run with is clamped against the billing-resolved effective tier at both container start and preferences save. <!-- @impl: src/lib/session-mode.ts::clampSessionModeToTier -->
+3. A canceled user with a stale advanced-mode preference is downgraded to default mode because their effective tier no longer permits advanced. <!-- @impl: src/lib/session-mode.ts::clampSessionModeToTier -->
+4. Both container start and preferences save resolve the effective tier from billing state, not from a stored or token-side tier value. <!-- @impl: src/lib/subscription.ts::getEffectiveTier -->
 
 **Constraints:**
 
@@ -686,7 +657,6 @@ Security requirements for authentication enforcement, credential isolation, encr
 <!-- @test: src/__tests__/security/access-security.test.ts (REQ-SEC-016 describe -> two concurrent getUserFromRequest issue exactly one setup:auth_domain KV read + sequential warm-cache no re-read + resetAuthConfigCache forces re-read -> AC1,2,3) -->
 ### REQ-SEC-016: Concurrent cache deduplication for auth config
 
-<!-- @impl: src/lib/access.ts::resetAuthConfigCache -->
 <!-- @impl: src/lib/jwt.ts -->
 <!-- @test: src/__tests__/lib/auth-config-fetch-dedup.test.ts (10 concurrent requests → single KV read round → AC1/AC2/AC3) -->
 
@@ -698,7 +668,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 1. Concurrent cold-start requests share a single in-flight auth-config fetch; no redundant storage reads are issued.
 2. Two concurrent cold-start requests reuse the in-flight fetch instead of issuing parallel storage reads.
-3. The cached auth config expires on TTL and can be explicitly invalidated, forcing a fresh storage read.
+3. The cached auth config expires on TTL and can be explicitly invalidated, forcing a fresh storage read. <!-- @impl: src/lib/access.ts::resetAuthConfigCache -->
 
 **Constraints:**
 

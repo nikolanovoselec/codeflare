@@ -30,8 +30,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-001: Dedicated Per-User R2 Bucket
 
-<!-- @impl: src/lib/r2-admin.ts::createBucketIfNotExists -->
-<!-- @impl: src/lib/r2-config.ts -->
 <!-- @test: src/__tests__/lib/r2-config.test.ts (getR2Config describe → AC1/AC2/AC3) -->
 <!-- @test: src/__tests__/lib/r2-admin.test.ts (r2-admin describe → bucket creation idempotency → AC2 constraints) -->
 
@@ -41,9 +39,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. The bucket name is derived deterministically from the authenticated user's email so the same user always resolves to the same bucket.
-2. The bucket is auto-created via the Cloudflare API on first container start when it does not already exist.
-3. No API endpoint may return objects from a bucket the authenticated user does not own.
+1. The bucket name is derived deterministically from the authenticated user's email so the same user always resolves to the same bucket. <!-- @impl: src/lib/r2-config.ts::getR2Config -->
+2. The bucket is auto-created via the Cloudflare API on first container start when it does not already exist. <!-- @impl: src/lib/r2-admin.ts::createBucketIfNotExists -->
+3. No API endpoint may return objects from a bucket the authenticated user does not own. <!-- @impl: src/lib/r2-config.ts::getR2Config -->
 
 **Constraints:**
 
@@ -62,8 +60,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-002: File Persistence Across Sessions
 
-<!-- @impl: entrypoint.sh::initial_sync_from_r2 -->
-<!-- @impl: entrypoint.sh::bisync_with_r2 -->
 <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> periodic bisync runs the mechanism behind cross-session persistence -> AC1/AC2/AC3 mechanism) -->
 
 **Intent:** User files must survive container destruction and be available when a new session starts, because containers are ephemeral.
@@ -72,9 +68,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. Files written during a session are readable in a subsequent session after the container is recreated.
-2. Agent configuration directories and per-user dotfiles persist across sessions. The per-path inventory lives in [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md).
-3. Workspace files persist across sessions when the user has enabled full workspace sync.
+1. Files written during a session are readable in a subsequent session after the container is recreated. <!-- @impl: entrypoint.sh::initial_sync_from_r2 -->
+2. Agent configuration directories and per-user dotfiles persist across sessions. The per-path inventory lives in [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md). <!-- @impl: entrypoint.sh::bisync_with_r2 -->
+3. Workspace files persist across sessions when the user has enabled full workspace sync. <!-- @impl: entrypoint.sh::bisync_with_r2 -->
 
 **Constraints:**
 
@@ -93,9 +89,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-003: Bidirectional Sync Every 15 Minutes (with Manual Triggers)
 
-<!-- @impl: entrypoint.sh::start_sync_daemon -->
-<!-- @impl: entrypoint.sh::bisync_with_r2 -->
-<!-- @impl: entrypoint.sh::recover_vanished_files -->
 <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> periodic bisync runs -> AC1) -->
 <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> SIGUSR1 sleep-interrupt -> AC2) -->
 <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (bisync daemon behavior describe -> SIGUSR1 in-flight coalesce -> AC2) -->
@@ -110,12 +103,12 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. After the bisync baseline is established, a periodic bisync runs on a 15-minute cadence.
-2. The daemon's periodic sleep is interruptible by an external trigger: a trigger wakes the daemon and skips the remaining sleep, producing an immediate bisync. Triggers delivered while a bisync is mid-flight coalesce into exactly one rerun after the current cycle completes (see [REQ-STOR-015](#req-stor-015-explicit-sync-trigger-from-ui) AC5).
-3. Conflict resolution is newest-file-wins.
-4. The daemon retries on transient failure and continues the periodic cycle.
-5. On bisync failure, the daemon attempts vanishing-file recovery (parse the error output, exclude transient files, clear stale locks, retry) before counting the failure against the failure budget.
-6. After three consecutive unrecoverable failures (each with internal retries exhausted), the daemon falls back to a resync baseline to re-establish a clean state.
+1. After the bisync baseline is established, a periodic bisync runs on a 15-minute cadence. <!-- @impl: entrypoint.sh::start_sync_daemon -->
+2. The daemon's periodic sleep is interruptible by an external trigger: a trigger wakes the daemon and skips the remaining sleep, producing an immediate bisync. Triggers delivered while a bisync is mid-flight coalesce into exactly one rerun after the current cycle completes (see [REQ-STOR-015](#req-stor-015-explicit-sync-trigger-from-ui) AC5). <!-- @impl: entrypoint.sh::start_sync_daemon -->
+3. Conflict resolution is newest-file-wins. <!-- @impl: entrypoint.sh::bisync_with_r2 -->
+4. The daemon retries on transient failure and continues the periodic cycle. <!-- @impl: entrypoint.sh::start_sync_daemon -->
+5. On bisync failure, the daemon attempts vanishing-file recovery (parse the error output, exclude transient files, clear stale locks, retry) before counting the failure against the failure budget. <!-- @impl: entrypoint.sh::recover_vanished_files -->
+6. After three consecutive unrecoverable failures (each with internal retries exhausted), the daemon falls back to a resync baseline to re-establish a clean state. <!-- @impl: entrypoint.sh::start_sync_daemon -->
 
 **Constraints:**
 
@@ -136,8 +129,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-004: Initial Sync Restores Files on Container Start
 
-<!-- @impl: entrypoint.sh::initial_sync_from_r2 -->
-<!-- @impl: entrypoint.sh::establish_bisync_baseline -->
 <!-- @impl: entrypoint.sh::init_recovery_filters -->
 <!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (initial sync on container start describe -> rclone sync R2->local -> AC1) -->
 <!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (initial sync on container start describe -> 120s timeout -> AC2) -->
@@ -153,11 +144,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. A one-way sync from R2 to local runs as the first initialization step after the in-container terminal server is ready to accept connections, blocking further startup until it completes.
-2. The initial sync completes or times out within a bounded duration so the session is never blocked indefinitely on a slow R2 fetch.
-3. All per-agent config file modifications complete after the initial sync but before the bisync baseline, so the baseline observes a stable snapshot. The per-agent file enumeration lives in [documentation/lanes/configuration.md](../../documentation/lanes/configuration.md).
-4. A bisync baseline is established after the post-sync file modifications complete.
-5. If the initial baseline fails because of a vanishing file (listed by R2 but deleted before copy), the system parses the error, adds the missing file to a session-scoped recovery filter, and retries with a bounded number of attempts. Only non-workspace files are auto-excluded; workspace files trigger a plain retry.
+1. A one-way sync from R2 to local runs as the first initialization step after the in-container terminal server is ready to accept connections, blocking further startup until it completes. <!-- @impl: entrypoint.sh::initial_sync_from_r2 -->
+2. The initial sync completes or times out within a bounded duration so the session is never blocked indefinitely on a slow R2 fetch. <!-- @impl: entrypoint.sh::initial_sync_from_r2 -->
+3. All per-agent config file modifications complete after the initial sync but before the bisync baseline, so the baseline observes a stable snapshot. The per-agent file enumeration lives in [documentation/lanes/configuration.md](../../documentation/lanes/configuration.md). <!-- @impl: entrypoint.sh::establish_bisync_baseline -->
+4. A bisync baseline is established after the post-sync file modifications complete. <!-- @impl: entrypoint.sh::establish_bisync_baseline -->
+5. If the initial baseline fails because of a vanishing file (listed by R2 but deleted before copy), the system parses the error, adds the missing file to a session-scoped recovery filter, and retries with a bounded number of attempts. Only non-workspace files are auto-excluded; workspace files trigger a plain retry. <!-- @impl: entrypoint.sh::establish_bisync_baseline -->
 6. Known per-session ephemeral agent-state files are statically excluded from all sync operations. The full per-path inventory of static excludes lives in [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md).
 7. The bisync daemon starts unconditionally after the baseline phase, even if all baseline attempts fail; a dead daemon would mean zero sync for the entire session, and the daemon already has its own recovery path (vanishing-file recovery plus resync fallback).
 
@@ -177,8 +168,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-005: Graceful Shutdown Performs Final Sync
 
-<!-- @impl: entrypoint.sh::shutdown_handler -->
-<!-- @impl: src/container/container-lifecycle.ts::destroy -->
 <!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (graceful shutdown final sync describe -> SIGTERM trap -> AC1) -->
 <!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (graceful shutdown final sync describe -> bisync-initialized gate -> AC2) -->
 <!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (graceful shutdown final sync describe -> 120s watchdog -> AC4) -->
@@ -190,11 +179,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. A termination handler runs a final bisync before the process exits (best-effort backstop; the primary guarantee is the live drain in [REQ-SESSION-011](session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync)).
-2. The final bisync runs only when the bisync-initialized marker is set.
-3. Files created during the session are available in R2 after shutdown completes successfully.
-4. The final bisync runs under a hard watchdog. If it has not completed before the watchdog expires the process is force-killed; the user accepts that the last writes may not have synced.
-5. The container orchestrator's destroy budget exceeds the final-sync watchdog by enough time for a clean process exit so the orchestrator does not tear down mid-sync.
+1. A termination handler runs a final bisync before the process exits (best-effort backstop; the primary guarantee is the live drain in [REQ-SESSION-011](session-lifecycle.md#req-session-011-graceful-shutdown-with-final-sync)). <!-- @impl: entrypoint.sh::shutdown_handler -->
+2. The final bisync runs only when the bisync-initialized marker is set. <!-- @impl: entrypoint.sh::shutdown_handler -->
+3. Files created during the session are available in R2 after shutdown completes successfully. <!-- @impl: entrypoint.sh::shutdown_handler -->
+4. The final bisync runs under a hard watchdog. If it has not completed before the watchdog expires the process is force-killed; the user accepts that the last writes may not have synced. <!-- @impl: entrypoint.sh::shutdown_handler -->
+5. The container orchestrator's destroy budget exceeds the final-sync watchdog by enough time for a clean process exit so the orchestrator does not tear down mid-sync. <!-- @impl: src/container/container-lifecycle.ts::destroy -->
 
 **Constraints:**
 
@@ -214,7 +203,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 ### REQ-STOR-006: Storage Quota Enforced Per Tier at Session Start
 
 <!-- @impl: src/routes/storage/stats.ts -->
-<!-- @impl: src/lib/subscription.ts::getTierConfig -->
 <!-- @test: src/__tests__/routes/storage-stats.test.ts (Storage Stats Routes describe → quota enforcement at session start → AC1-AC5) -->
 
 **Intent:** Users must not be able to start new sessions when their storage usage exceeds their tier's quota, preventing unbounded R2 consumption.
@@ -227,7 +215,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 2. If current usage exceeds the configured maximum, session creation is rejected with a clear user-facing error.
 3. The storage-stats endpoint returns both current usage and the configured maximum so the UI can render an "X of Y" indicator.
 4. An unset maximum is interpreted as unlimited and skips enforcement entirely.
-5. When tier configuration adds new fields, previously persisted records inherit the new field's default rather than appearing unset.
+5. When tier configuration adds new fields, previously persisted records inherit the new field's default rather than appearing unset. <!-- @impl: src/lib/subscription.ts::getTierConfig -->
 
 **Constraints:**
 
@@ -249,7 +237,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 <!-- @impl: src/routes/storage/browse.ts -->
 <!-- @impl: src/routes/storage/upload.ts -->
-<!-- @impl: src/routes/storage/download.ts -->
 <!-- @impl: src/routes/storage/delete.ts -->
 <!-- @impl: src/routes/storage/preview.ts -->
 <!-- @impl: src/routes/storage/validation.ts::validateKey -->
@@ -267,7 +254,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 1. The browse endpoint lists objects under a given R2 prefix with directory-style navigation.
 2. The upload endpoint stores a file at a specified R2 key.
-3. The download endpoint returns file contents as an attachment with a sanitized filename.
+3. The download endpoint returns file contents as an attachment with a sanitized filename. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition -->
 4. The delete endpoint removes objects by key and/or prefix in a single server-side bulk operation.
 5. The preview endpoint returns text content inline for text files and metadata-only for other types.
 
@@ -289,8 +276,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-016: File browser presentation and traversal safety
 
-<!-- @impl: web-ui/src/components/StorageBrowser.tsx -->
-<!-- @impl: src/routes/storage/validation.ts::validateKey -->
 <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (StorageBrowser describe → drawer/bottom-sheet + R2-source → AC1/AC2) -->
 <!-- @test: src/__tests__/routes/storage-browse.test.ts (Storage Browse Routes describe → prefix traversal rejection → AC3) -->
 
@@ -300,9 +285,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. The file browser renders as a slide-in side drawer on desktop and a bottom-sheet on mobile.
-2. The file browser reads directly from R2 via the Worker API (not from the container filesystem).
-3. The browse endpoint validates the requested prefix against directory-traversal probes and rejects parent-directory references.
+1. The file browser renders as a slide-in side drawer on desktop and a bottom-sheet on mobile. <!-- @impl: web-ui/src/components/StorageBrowser.tsx::StorageBrowser -->
+2. The file browser reads directly from R2 via the Worker API (not from the container filesystem). <!-- @impl: web-ui/src/components/StorageBrowser.tsx::StorageBrowser -->
+3. The browse endpoint validates the requested prefix against directory-traversal probes and rejects parent-directory references. <!-- @impl: src/routes/storage/validation.ts::validateKey -->
 
 **Constraints:**
 
@@ -357,8 +342,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 ### REQ-STOR-009: Getting-Started Docs Auto-Seeded on First Session
 
 <!-- @impl: src/routes/storage/seed.ts -->
-<!-- @impl: src/lib/r2-seed.ts -->
-<!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed -->
 <!-- @test: src/__tests__/lib/r2-seed.test.ts (seedGettingStartedDocs describe → AC1 + retries on transient failure and succeeds on a later attempt + throws after exhausting retries → AC5) -->
 <!-- @test: src/__tests__/routes/storage-seed.test.ts (seed endpoint → AC2/AC3) -->
 <!-- @test: src/__tests__/routes/rate-limits.test.ts (POST /seed/getting-started limiter, 3/min → AC4) -->
@@ -370,12 +353,12 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. When a user's R2 bucket is created for the first time, tutorial documents are written to the bucket root.
+1. When a user's R2 bucket is created for the first time, tutorial documents are written to the bucket root. <!-- @impl: src/lib/r2-seed.ts::seedGettingStartedDocs -->
 2. A seed endpoint allows the user to manually re-seed the tutorial content, optionally overwriting existing files.
 3. After a successful seed, the storage-stats cache is invalidated so the next poll returns fresh data.
 4. The seed endpoint is rate-limited at a low ceiling appropriate to its destructive-overwrite mode.
-5. The first-session seed retries on a transient failure (e.g. a freshly created bucket not yet writable on the S3 data plane, or R2 credentials still propagating right after setup) with bounded backoff, so a new bucket reliably ends up seeded rather than left empty until a manual re-seed; once retries are exhausted the failure surfaces to the caller.
-6. Getting-started doc seeding is self-healing and is not gated solely on first bucket creation: on session start, when a `gettingStartedSeeded` preference marker is not set, the idempotent seed is re-attempted. The marker is persisted only after a successful seed, so a one-time cold-bucket failure (whose throw is swallowed) recovers on a later session instead of leaving the bucket without docs until a manual re-seed. Once the marker is set, the user's deletion of starter docs is respected (no re-seed).
+5. The first-session seed retries on a transient failure (e.g. a freshly created bucket not yet writable on the S3 data plane, or R2 credentials still propagating right after setup) with bounded backoff, so a new bucket reliably ends up seeded rather than left empty until a manual re-seed; once retries are exhausted the failure surfaces to the caller. <!-- @impl: src/lib/r2-seed.ts::seedGettingStartedDocs -->
+6. Getting-started doc seeding is self-healing and is not gated solely on first bucket creation: on session start, when a `gettingStartedSeeded` preference marker is not set, the idempotent seed is re-attempted. The marker is persisted only after a successful seed, so a one-time cold-bucket failure (whose throw is swallowed) recovers on a later session instead of leaving the bucket without docs until a manual re-seed. Once the marker is set, the user's deletion of starter docs is respected (no re-seed). <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed -->
 
 **Constraints:**
 
@@ -395,9 +378,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-010: Agent Configs Auto-Seeded Based on Session Mode
 
-<!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
-<!-- @impl: src/lib/r2-seed.ts::seedAgentConfigs -->
-<!-- @impl: src/lib/agent-seed.generated.ts -->
 <!-- @test: src/__tests__/lib/r2-seed.test.ts (seedAgentConfigs describe → AC1-AC6) -->
 <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (mode-gating → Pro vs Standard superset → AC6) -->
 <!-- @test: src/__tests__/lib/r2-seed-context-mode.test.ts (context-mode preseed mode-gating) -->
@@ -408,12 +388,12 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. On first bucket creation, the reconciler writes mode-appropriate preseed files to R2 without overwriting or cleaning up.
-2. The agent-config seed endpoint triggers a full reconcile that overwrites existing configs and removes files not present in the current mode.
-3. Cleanup is strictly scoped to the registered preseed key set; user-created files outside that set are never deleted.
-4. Variant-per-mode keys (instruction files whose content differs between modes) are excluded from cleanup so a mode switch never deletes a file the new mode still owns.
-5. Partial delete failures produce warnings but do not fail the overall reconcile operation.
-6. Pro mode seeds a strict superset of Standard's preseed files (Pro adds the memory plugin, agent definitions, hooks, slash commands, the discipline triad rules, and additional skills).
+1. On first bucket creation, the reconciler writes mode-appropriate preseed files to R2 without overwriting or cleaning up. <!-- @impl: src/lib/r2-seed.ts::seedAgentConfigs -->
+2. The agent-config seed endpoint triggers a full reconcile that overwrites existing configs and removes files not present in the current mode. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+3. Cleanup is strictly scoped to the registered preseed key set; user-created files outside that set are never deleted. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+4. Variant-per-mode keys (instruction files whose content differs between modes) are excluded from cleanup so a mode switch never deletes a file the new mode still owns. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+5. Partial delete failures produce warnings but do not fail the overall reconcile operation. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+6. Pro mode seeds a strict superset of Standard's preseed files (Pro adds the memory plugin, agent definitions, hooks, slash commands, the discipline triad rules, and additional skills). <!-- @impl: src/lib/agent-seed.generated.ts::AGENTS_SEEDED_CONFIGS -->
 
 **Constraints:**
 
@@ -433,7 +413,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-011: Sync Mode Controls Workspace Scope
 
-<!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
 <!-- @impl: entrypoint.sh::create_rclone_config -->
 <!-- @test: host/__audits__/entrypoint-initial-sync.audit.js (bisync constraint flags (REQ-STOR-003 constraints) describe -> AC4 always-excluded categories enforced via RCLONE_FILTERS_COMMON) + host/__tests__/entrypoint-hooks-merge.test.js (workspaceSyncEnabled scope (REQ-STOR-011) describe -> AC1/AC2/AC3 none vs full vs metadata workspace scope toggle) -->
 
@@ -446,7 +425,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. The default sync scope (`none`) syncs only settings and config directories and excludes the workspace directory entirely.
 2. The full sync scope (`full`) syncs the entire workspace directory, excluding dependency-install directories.
 3. The metadata sync scope (`metadata`) syncs only the agent-config files (per-repo agent instruction files and the per-repo agent rule directory).
-4. All sync scopes exclude these categories (per-path inventory lives in [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md); the spec governs the categories so future filter changes have something to be verified against): package-manager caches, rclone caches, agent session logs, ephemeral agent data, build artifacts, regenerable tool state, and vendor credential caches that the agent regenerates on demand.
+4. All sync scopes exclude these categories (per-path inventory lives in [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md); the spec governs the categories so future filter changes have something to be verified against): package-manager caches, rclone caches, agent session logs, ephemeral agent data, build artifacts, regenerable tool state, and vendor credential caches that the agent regenerates on demand. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
 
 **Constraints:**
 
@@ -465,7 +444,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-012: Session Transcript Cleanup
 
-<!-- @impl: entrypoint.sh::cleanup_old_transcripts -->
 <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (cleanup_old_transcripts describe → 5-most-recent retention against scratch USER_HOME → AC1-AC5) -->
 
 **Intent:** Old session transcripts must be pruned to prevent unbounded R2 growth from long-lived users.
@@ -474,10 +452,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. Transcript cleanup runs before each periodic bisync and never overlaps another cleanup run.
-2. The five most recent per-project session transcripts are retained by modification time; older transcripts are deleted. The exact filesystem path lives in [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md).
-3. Session directories themselves are left intact so the agent can still resolve project paths.
-4. Cleanup deletions propagate to R2 automatically via the next bisync.
+1. Transcript cleanup runs before each periodic bisync and never overlaps another cleanup run. <!-- @impl: entrypoint.sh::cleanup_old_transcripts -->
+2. The five most recent per-project session transcripts are retained by modification time; older transcripts are deleted. The exact filesystem path lives in [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md). <!-- @impl: entrypoint.sh::cleanup_old_transcripts -->
+3. Session directories themselves are left intact so the agent can still resolve project paths. <!-- @impl: entrypoint.sh::cleanup_old_transcripts -->
+4. Cleanup deletions propagate to R2 automatically via the next bisync. <!-- @impl: entrypoint.sh::cleanup_old_transcripts -->
 5. Subagent transcripts are excluded from bisync entirely so they never reach R2.
 
 **Constraints:**
@@ -528,8 +506,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 ### REQ-STOR-015: Explicit Sync Trigger from UI
 
 <!-- @impl: src/routes/session/index.ts -->
-<!-- @impl: src/lib/sync-fanout.ts -->
-<!-- @impl: entrypoint.sh::start_sync_daemon -->
 <!-- @test: src/__tests__/lib/sync-fanout.test.ts (sync-fanout describe → fan-out + concurrency cap + per-session isolation + rate-limit → AC1/AC2/AC3/AC4) -->
 <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (SIGUSR1 sleep-interrupt branch → AC5; in-flight coalesce branch pending plan) -->
 <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (Sync-now button disabled-while-syncing → AC6) -->
@@ -540,11 +516,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. The sync-trigger endpoint fans out an immediate sync to every running session belonging to the authenticated user. Stopped sessions are skipped client-side using the session batch-status output before fan-out.
-2. Fan-out runs in parallel with a bounded concurrency cap; remaining sessions are queued so a user with many concurrent sessions cannot exhaust Worker subrequest budget.
-3. Per-session failures are isolated: one session's bisync failure does not prevent other sessions from completing. The response carries per-session sync status.
+1. The sync-trigger endpoint fans out an immediate sync to every running session belonging to the authenticated user. Stopped sessions are skipped client-side using the session batch-status output before fan-out. <!-- @impl: src/lib/sync-fanout.ts::fanOutBisyncTrigger -->
+2. Fan-out runs in parallel with a bounded concurrency cap; remaining sessions are queued so a user with many concurrent sessions cannot exhaust Worker subrequest budget. <!-- @impl: src/lib/sync-fanout.ts::fanOutBisyncTrigger -->
+3. Per-session failures are isolated: one session's bisync failure does not prevent other sessions from completing. The response carries per-session sync status. <!-- @impl: src/lib/sync-fanout.ts::fanOutBisyncTrigger -->
 4. The sync-trigger endpoint is rate-limited per user using the same destructive-action rate-limiter pattern applied to other expensive endpoints.
-5. The trigger is idempotent: an external trigger to the bisync daemon while a bisync is already in flight causes exactly one rerun after the current cycle completes (N concurrent triggers coalesce to one rerun, not N).
+5. The trigger is idempotent: an external trigger to the bisync daemon while a bisync is already in flight causes exactly one rerun after the current cycle completes (N concurrent triggers coalesce to one rerun, not N). <!-- @impl: entrypoint.sh::start_sync_daemon -->
 6. The frontend Sync-now control is disabled while any of the user's sessions reports an in-flight sync and re-enables once all sessions transition out.
 
 **Constraints:**

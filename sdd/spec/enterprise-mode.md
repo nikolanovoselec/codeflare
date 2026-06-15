@@ -38,20 +38,16 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (enterprise bypass describe -> unlimited session cap AC3 — enterprise resolves unlimited cap not stored free-tier cap) -->
 ### REQ-ENTERPRISE-001: ENTERPRISE_MODE Forces Unlimited Tier and Pro Mode
 
-<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
-<!-- @impl: src/lib/subscription.ts -->
-<!-- @impl: src/lib/session-mode.ts::resolveSessionMode -->
-
 **Intent:** A deploy-time `ENTERPRISE_MODE` flag must turn a deployment into a single-tenant enterprise instance where every user gets full access without subscription friction.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. When `ENTERPRISE_MODE` is set, every user's effective tier resolves to `unlimited` regardless of the stored `subscriptionTier`.
-2. When `ENTERPRISE_MODE` is set, session-mode resolution returns Pro (`advanced`) for every user regardless of the stored preference.
-3. When `ENTERPRISE_MODE` is set, every user is treated as a custom `unlimited` user: the unlimited tier's session cap applies (not the stored tier's), the monthly compute quota (timekeeper) is never enforced, and billing-status checks and trial logic are disabled — no user is ever blocked on a payment, quota, or time-limit condition.
-4. The flag is read from a single resolver; all callers consult the resolver rather than reading the raw binding.
+1. When `ENTERPRISE_MODE` is set, every user's effective tier resolves to `unlimited` regardless of the stored `subscriptionTier`. <!-- @impl: src/lib/subscription.ts::getEffectiveTier -->
+2. When `ENTERPRISE_MODE` is set, session-mode resolution returns Pro (`advanced`) for every user regardless of the stored preference. <!-- @impl: src/lib/session-mode.ts::resolveSessionMode -->
+3. When `ENTERPRISE_MODE` is set, every user is treated as a custom `unlimited` user: the unlimited tier's session cap applies (not the stored tier's), the monthly compute quota (timekeeper) is never enforced, and billing-status checks and trial logic are disabled — no user is ever blocked on a payment, quota, or time-limit condition. <!-- @impl: src/lib/subscription.ts::getEffectiveTier -->
+4. The flag is read from a single resolver; all callers consult the resolver rather than reading the raw binding. <!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
 5. When `ENTERPRISE_MODE` is unset, tier resolution, session-mode resolution, and subscription enforcement are byte-identical to current behavior across the Default, Onboarding, and SaaS deployment modes.
 
 **Constraints:**
@@ -72,9 +68,6 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: src/__tests__/lib/enterprise-mode.test.ts (subscribe-surface gating describe -> billing UI hidden + /app/subscribe returns guarded response when enterprise + unchanged when flag unset -> AC1..AC4) -->
 ### REQ-ENTERPRISE-002: Subscription UI Hidden and Subscribe Route Guarded
 
-<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
-<!-- @impl: web-ui/src/components -->
-<!-- @impl: src/routes -->
 <!-- @test: src/__tests__/routes/user-profile-enterprise.test.ts (GET /api/user enterpriseMode flag / REQ-ENTERPRISE-002 -> deploy-time enterpriseMode signal AC3 + flag-off parity AC4) -->
 <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Subscription menu hidden when enterpriseMode -> billing UI hidden AC1 + shown when flag unset AC4) -->
 
@@ -84,9 +77,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. When `ENTERPRISE_MODE` is set, the subscription/billing settings surfaces (tier display, plan switching, usage-quota controls) are hidden in the frontend.
+1. When `ENTERPRISE_MODE` is set, the subscription/billing settings surfaces (tier display, plan switching, usage-quota controls) are hidden in the frontend. <!-- @impl: web-ui/src/components/Header.tsx::Header -->
 2. When `ENTERPRISE_MODE` is set, the `/app/subscribe` route is guarded so it does not render the tier-selection or checkout flow.
-3. The frontend determines whether to hide billing surfaces from a deploy-time mode signal, not from the user's tier.
+3. The frontend determines whether to hide billing surfaces from a deploy-time mode signal, not from the user's tier. <!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
 4. When `ENTERPRISE_MODE` is unset, the subscription UI and `/app/subscribe` behave byte-identically to current behavior.
 
 **Constraints:**
@@ -107,21 +100,16 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: src/__tests__/routes/session-agent-allowlist.test.ts (enterprise agent allowlist describe -> session creation accepts only copilot/pi/bash when enterprise + rejects the other four (claude-code/codex/antigravity/opencode) + accepts all seven when flag unset -> AC1..AC4) -->
 ### REQ-ENTERPRISE-003: Agent Allowlist in Enterprise Mode
 
-<!-- @impl: src/lib/agent-allowlist.ts::allowedAgents -->
-<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
-<!-- @impl: src/routes/session/crud.ts -->
-<!-- @impl: src/types.ts::AgentTypeSchema -->
-
 **Intent:** Enterprise deployments standardize on a curated agent set, so session creation must restrict the selectable agents when the flag is set.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. When `ENTERPRISE_MODE` is set, the selectable agent set is exactly `{copilot, pi, bash}`.
-2. When `ENTERPRISE_MODE` is set, session creation rejects any agent type outside the enterprise allowlist.
+1. When `ENTERPRISE_MODE` is set, the selectable agent set is exactly `{copilot, pi, bash}`. <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents -->
+2. When `ENTERPRISE_MODE` is set, session creation rejects any agent type outside the enterprise allowlist. <!-- @impl: src/lib/agent-allowlist.ts::allowedAgents -->
 3. When `ENTERPRISE_MODE` is set, the session-creation UI offers only the allowlisted agents.
-4. When `ENTERPRISE_MODE` is unset, all seven agent types from [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents) remain selectable, byte-identical to current behavior.
+4. When `ENTERPRISE_MODE` is unset, all seven agent types from [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents) remain selectable, byte-identical to current behavior. <!-- @impl: src/types.ts::AgentTypeSchema -->
 
 **Constraints:**
 
@@ -144,11 +132,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: src/__tests__/container/index.test.ts (enterprise LLM interception wiring describe -> "stamps the user email (not the bucket id) as the interceptor per-user prop" -> AC4; the describe is labelled REQ-ENTERPRISE-011 for the wiring-ordering subject, but this it() also verifies REQ-ENTERPRISE-004 AC4 email attribution) -->
 ### REQ-ENTERPRISE-004: Outbound-Interception LLM Routing to Customer AI Gateway
 
-<!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
-<!-- @impl: src/llm-interceptor.ts::sanitizeGroupKey -->
-<!-- @impl: src/container/index.ts::setupEnterpriseInterception -->
 <!-- @impl: src/lib/access.ts::resolveSessionAccessGroup -->
-<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
 
 **Intent:** Enterprise deployments route all agent LLM traffic to the customer's AI Gateway via platform outbound-HTTPS interception, so the gateway credentials never reach the container, nothing is exposed over a public route, and all usage is attributable.
 
@@ -156,13 +140,13 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. The container DO routes the container's outbound HTTPS to the real LLM provider host (`api.openai.com`) through a `WorkerEntrypoint` (`LlmInterceptor`) via `ctx.container.interceptOutboundHttps` + `ctx.exports`; the interceptor forwards each request to the customer's AI Gateway **REST API** (`https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/*`), mapping the OpenAI path verbatim under `/ai`. If the REST API returns `404` for a model-routable request (a `POST` to a `/chat/completions` or `/responses` path, whose body is buffered so it can be replayed), the interceptor replays the buffered request to the deprecated compat path (`https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/compat/<path>`) with `cf-aig-authorization: Bearer <AIG_TOKEN>` in place of `Authorization: Bearer`; non-model-routable paths and non-404 responses do not trigger the fallback. On this compat replay the interceptor strips OpenAI-only request fields (`store`, `prompt_cache_key`) that non-OpenAI providers (e.g. `google-ai-studio`) reject with a `400`; the REST API leg keeps them so OpenAI prompt caching is unaffected.
-2. The AI Gateway URL and token are read only from the interceptor's Worker env (`AIG_GATEWAY_URL`, `AIG_TOKEN`) and are never sent to or readable from the container; there is no public Worker route carrying LLM traffic, so the path never traverses Cloudflare Access. The account id (URL path) and gateway id (`cf-aig-gateway-id` header) are parsed from `AIG_GATEWAY_URL`.
-3. Streaming responses are preserved end-to-end (the upstream stream is piped through without buffering the full body). A streamed chat-completions response whose terminal `finish_reason` chunk is missing — as the AI Gateway dynamic-route wrapper omits it on the wire — is normalized: a synthetic terminator chunk (`finish_reason` `stop`, or `tool_calls` when the stream carried tool-call deltas) is injected before `data: [DONE]` so strict OpenAI-wire clients (Pi, Copilot) see a complete stream and do not error/retry. Idempotent — when the upstream already sends a non-null `finish_reason` nothing is injected; only streamed `chat/completions` responses are touched.
-4. Each forwarded request stamps `cf-aig-gateway-id` with the gateway id and `cf-aig-metadata` with the user's email (a per-session DO prop) for per-user analytics, falling back to the deterministic bucket id when no email is set; when Access groups are configured, **every** matched group is stamped as a per-group `group_<sanitized>=1` tag (no scalar `group` key) within CF's 5-entry metadata cap — `user` + up to 4 groups, excess truncated deterministically in configured order with a `console.warn` — so gateway rules can branch routing/cost/rate-limit policies per group. On the REST API leg the gateway auth is `Authorization: Bearer <AIG_TOKEN>`; on the compat fallback leg it is `cf-aig-authorization: Bearer <AIG_TOKEN>` (the compat endpoint requires this header instead).
-5. The container's placeholder credential (`Authorization` / `x-api-key`) is stripped before forwarding so it never reaches the gateway; gateway auth is stamped separately.
-6. The interceptor maps only the known provider host (`api.openai.com`); an unmapped host (including `api.anthropic.com`, which is not an enterprise agent host) fails closed (400) and an unconfigured/unparseable gateway fails closed (503) — neither forwards anywhere.
-7. When `ENTERPRISE_MODE` is unset, the DO never wires interception, the interceptor is never instantiated, and agent LLM traffic follows the current direct-key path, byte-identical to current behavior.
+1. The container DO routes the container's outbound HTTPS to the real LLM provider host (`api.openai.com`) through a `WorkerEntrypoint` (`LlmInterceptor`) via `ctx.container.interceptOutboundHttps` + `ctx.exports`; the interceptor forwards each request to the customer's AI Gateway **REST API** (`https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/*`), mapping the OpenAI path verbatim under `/ai`. If the REST API returns `404` for a model-routable request (a `POST` to a `/chat/completions` or `/responses` path, whose body is buffered so it can be replayed), the interceptor replays the buffered request to the deprecated compat path (`https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/compat/<path>`) with `cf-aig-authorization: Bearer <AIG_TOKEN>` in place of `Authorization: Bearer`; non-model-routable paths and non-404 responses do not trigger the fallback. On this compat replay the interceptor strips OpenAI-only request fields (`store`, `prompt_cache_key`) that non-OpenAI providers (e.g. `google-ai-studio`) reject with a `400`; the REST API leg keeps them so OpenAI prompt caching is unaffected. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+2. The AI Gateway URL and token are read only from the interceptor's Worker env (`AIG_GATEWAY_URL`, `AIG_TOKEN`) and are never sent to or readable from the container; there is no public Worker route carrying LLM traffic, so the path never traverses Cloudflare Access. The account id (URL path) and gateway id (`cf-aig-gateway-id` header) are parsed from `AIG_GATEWAY_URL`. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+3. Streaming responses are preserved end-to-end (the upstream stream is piped through without buffering the full body). A streamed chat-completions response whose terminal `finish_reason` chunk is missing — as the AI Gateway dynamic-route wrapper omits it on the wire — is normalized: a synthetic terminator chunk (`finish_reason` `stop`, or `tool_calls` when the stream carried tool-call deltas) is injected before `data: [DONE]` so strict OpenAI-wire clients (Pi, Copilot) see a complete stream and do not error/retry. Idempotent — when the upstream already sends a non-null `finish_reason` nothing is injected; only streamed `chat/completions` responses are touched. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+4. Each forwarded request stamps `cf-aig-gateway-id` with the gateway id and `cf-aig-metadata` with the user's email (a per-session DO prop) for per-user analytics, falling back to the deterministic bucket id when no email is set; when Access groups are configured, **every** matched group is stamped as a per-group `group_<sanitized>=1` tag (no scalar `group` key) within CF's 5-entry metadata cap — `user` + up to 4 groups, excess truncated deterministically in configured order with a `console.warn` — so gateway rules can branch routing/cost/rate-limit policies per group. On the REST API leg the gateway auth is `Authorization: Bearer <AIG_TOKEN>`; on the compat fallback leg it is `cf-aig-authorization: Bearer <AIG_TOKEN>` (the compat endpoint requires this header instead). <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+5. The container's placeholder credential (`Authorization` / `x-api-key`) is stripped before forwarding so it never reaches the gateway; gateway auth is stamped separately. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+6. The interceptor maps only the known provider host (`api.openai.com`); an unmapped host (including `api.anthropic.com`, which is not an enterprise agent host) fails closed (400) and an unconfigured/unparseable gateway fails closed (503) — neither forwards anywhere. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+7. When `ENTERPRISE_MODE` is unset, the DO never wires interception, the interceptor is never instantiated, and agent LLM traffic follows the current direct-key path, byte-identical to current behavior. <!-- @impl: src/container/index.ts::startAndWaitForPorts -->
 
 **Constraints:**
 
@@ -184,9 +168,6 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005 enterprise env injection describe -> emits ENTERPRISE_MODE=active AC1 + fans ENTERPRISE_ROUTE_CATALOG/DEFAULT_ROUTE/DEFAULT_REASONING when enterprise+catalog present, omits them when catalog unset AC1 + never fans COPILOT_MODEL/PI_MODEL or a gateway URL/token/base-URL AC1/AC5 + ENTERPRISE_MODE + route vars omitted when flag unset/non-active AC6) -->
 ### REQ-ENTERPRISE-005: Container-Side Enterprise Routing (CA Trust + Constant Base-URLs)
 
-<!-- @impl: src/container/container-env.ts::buildEnvVars -->
-<!-- @impl: entrypoint.sh -->
-<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
 <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (AC4 Pi models.json build: one model per catalog route + empty-catalog fallback to default + guard against reserved-keyword jq args that crash the container) -->
 
 **Intent:** Agents in Enterprise Mode must be work-ready against the AI Gateway with zero manual login and zero injected credentials, so the container only learns it is in enterprise mode and configures itself to use the intercepted provider hosts.
@@ -195,11 +176,11 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. When `ENTERPRISE_MODE` is set, the container env pipeline emits `ENTERPRISE_MODE=active` plus — when a route catalog is configured — the non-secret routing hints `ENTERPRISE_ROUTE_CATALOG`/`ENTERPRISE_DEFAULT_ROUTE`/`ENTERPRISE_DEFAULT_REASONING`; it never injects a gateway URL/token, account id, per-agent base-URL, or a resolved gateway model id (`COPILOT_MODEL`/`PI_MODEL`).
+1. When `ENTERPRISE_MODE` is set, the container env pipeline emits `ENTERPRISE_MODE=active` plus — when a route catalog is configured — the non-secret routing hints `ENTERPRISE_ROUTE_CATALOG`/`ENTERPRISE_DEFAULT_ROUTE`/`ENTERPRISE_DEFAULT_REASONING`; it never injects a gateway URL/token, account id, per-agent base-URL, or a resolved gateway model id (`COPILOT_MODEL`/`PI_MODEL`). <!-- @impl: src/container/container-env.ts::buildEnvVars -->
 2. When `ENTERPRISE_MODE=active`, the Cloudflare containers CA is installed into the system trust store and the Node/Python CA env vars (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`) are prepended to `.bashrc` (idempotent, enterprise-gated) so the PTY-spawned agent shells inherit them and all agent HTTPS clients trust the intercepted (TLS-terminated) connections — a process-only export does not reach the agents.
 3. When `ENTERPRISE_MODE=active`, Copilot is configured via the complete BYOK contract pointing at the constant real provider base-URL (`api.openai.com`) with a non-secret placeholder credential and the configured default route's slash-free handle (`ENTERPRISE_DEFAULT_ROUTE`, re-asserted each start so a changed default overwrites a stale persisted value); the BYOK vars (`COPILOT_PROVIDER_BASE_URL`, `COPILOT_PROVIDER_API_KEY`, `COPILOT_MODEL`) plus the token-limit hints (`COPILOT_PROVIDER_MAX_PROMPT_TOKENS`, `COPILOT_PROVIDER_MAX_OUTPUT_TOKENS`) are prepended to `.bashrc` so the copilot PTY inherits them — a process-only export does not reach the agent and leaves Copilot to fall back to GitHub-hosted models; the token-limit hints suppress Copilot's "model not in catalog" warning and right-size the context to the routed model's window (gpt-5.5: 1,050,000 / 128,000), since the slash-free route handle is a dynamic-route alias absent from Copilot's built-in catalog (Copilot cannot enumerate multiple BYOK models — GitHub #3282 — so it launches on the default route only; switching routes requires a relaunch); the interceptor maps the handle to `dynamic/<route>` on egress ([REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning) AC1).
 4. When `ENTERPRISE_MODE=active`, Pi is configured with a custom provider entry pointing at `api.openai.com` using the `openai-completions` adapter (`api: "openai-completions"`). `models.json` registers **one model per catalog route** (Pi natively switches between them via `/model`), each with `reasoning: true` so the thinking-level selector stays available (Shift+Tab / `/settings`); `settings.json` overwrites only `defaultProvider`/`defaultModel`/`defaultThinkingLevel` each start (authoritative for those three keys, everything else preserved), pinning `defaultModel` to the configured default route and `defaultThinkingLevel` to that route's reasoning grade (container-side; default `off`) — so every session starts at the configured default and a user `/model`/thinking change does not persist across restarts. Starting with thinking off keeps gpt-5.5 at 200 (it rejects `reasoning_effort` + function tools together on `/v1/chat/completions`, and the CF AI Gateway's `/ai/v1/responses` endpoint currently rejects valid Responses bodies, "Required value missing: messages", which blocks the `openai-responses` adapter). Raising the level lets a route model that supports reasoning over chat/completions (e.g. Gemini) think; gpt-5.5 returns HTTP 400 for any thinking level above "off" until CF fixes `/ai/v1/responses`. The provider uses the same placeholder credential and the slash-free route handles, and an empty catalog falls back to the default route so Pi always boots work-ready with no manual login step.
-5. The container never receives the AI Gateway URL, the gateway token, or any per-session secret; routing to the gateway is done entirely by the DO's outbound interception ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)).
+5. The container never receives the AI Gateway URL, the gateway token, or any per-session secret; routing to the gateway is done entirely by the DO's outbound interception ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)). <!-- @impl: src/container/container-env.ts::buildEnvVars -->
 6. When `ENTERPRISE_MODE` is unset, `ENTERPRISE_MODE` is not emitted, no agent configuration block runs, and the container env is byte-identical to current behavior.
 
 **Constraints:**
@@ -223,11 +204,6 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: src/__tests__/routes/setup/access.test.ts (handleCreateAccessApp describe -> enterprise mode creates a host-scoped app (bare host domain + whole-host destination) AC5 + default/SaaS app stays path-scoped (/app/* primary + path destinations) regression) -->
 ### REQ-ENTERPRISE-006: Deploy-Time AIG Secrets and ENTERPRISE_MODE Var
 
-<!-- @impl: wrangler.toml -->
-<!-- @impl: .github/workflows/deploy.yml -->
-<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
-<!-- @impl: src/routes/setup/access.ts::getManagedAppDomain -->
-<!-- @impl: src/routes/setup/access.ts::upsertSwBypassAccessApp -->
 <!-- @test: src/__tests__/routes/setup/access.test.ts (handleCreateAccessApp describe -> enterprise mode provisions a higher-precedence SW-bypass Access app with decision 'bypass' + include everyone scoped to the SW path AC6 + default/non-enterprise mode does NOT create a SW-bypass app) -->
 
 **Intent:** Enterprise configuration must be supplied at deploy time through Worker bindings, kept secret where appropriate, and default to off.
@@ -238,10 +214,10 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 1. `AIG_GATEWAY_URL` and `AIG_TOKEN` are configured as Worker secrets so they are not stored in plaintext config or exposed to the container. `AIG_TOKEN` must carry **both** the Workers AI permission (required for the REST API path, `Authorization: Bearer`) and the AI Gateway Run permission (required for the compat fallback path, `cf-aig-authorization: Bearer`); a token missing either scope is rejected with `error 10000` on the corresponding transport.
 2. `ENTERPRISE_MODE` is configured as a non-secret Worker var. The dynamic-route catalog and default route are NOT deploy-time vars — they are configured in the setup wizard and stored in KV ([REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list)), editable with no redeploy; the former static `AIG_LANGUAGE_MODEL` route-pin var (and its `deploy.yml` plumbing) is removed.
-3. Enterprise Mode is off by default: an absent or empty `ENTERPRISE_MODE` binding resolves to disabled.
+3. Enterprise Mode is off by default: an absent or empty `ENTERPRISE_MODE` binding resolves to disabled. <!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
 4. When `ENTERPRISE_MODE` is enabled, the interceptor fails closed (503) if the `AIG_GATEWAY_URL` secret is missing or unparseable (no `/v1/{account_id}/{gateway_id}` segments), rather than silently routing to nowhere, and the DO logs a warning when it skips interception wiring.
-5. When `ENTERPRISE_MODE` is configured, the CF Access application created by the setup wizard is host-scoped (bare custom domain, no path suffix) so the session cookie covers all paths uniformly; non-enterprise deployments retain the path-scoped (`/app/*`) application.
-6. When `ENTERPRISE_MODE` is configured, the setup wizard also provisions a higher-precedence Access app + `decision:'bypass'` (include everyone) policy scoped to `/api/vault/*/service_worker.js`, so the credential-less SW registration fetch reaches the Worker's short-circuit ([REQ-VAULT-017](vault.md#req-vault-017-silverbullet-native-service-worker)) instead of a host-wide-Access 302 to the IdP. Best-effort: it never aborts the host-wide Access setup, persists the app id (`SETUP_KEYS.ACCESS_SW_BYPASS_APP_ID`) only after the policy succeeds, and rolls back a freshly-created app on policy failure (a policy-less self-hosted app would deny the path). Non-enterprise leaves the SW path reachable, so no bypass app is created.
+5. When `ENTERPRISE_MODE` is configured, the CF Access application created by the setup wizard is host-scoped (bare custom domain, no path suffix) so the session cookie covers all paths uniformly; non-enterprise deployments retain the path-scoped (`/app/*`) application. <!-- @impl: src/routes/setup/access.ts::handleCreateAccessApp -->
+6. When `ENTERPRISE_MODE` is configured, the setup wizard also provisions a higher-precedence Access app + `decision:'bypass'` (include everyone) policy scoped to `/api/vault/*/service_worker.js`, so the credential-less SW registration fetch reaches the Worker's short-circuit ([REQ-VAULT-017](vault.md#req-vault-017-silverbullet-native-service-worker)) instead of a host-wide-Access 302 to the IdP. Best-effort: it never aborts the host-wide Access setup, persists the app id (`SETUP_KEYS.ACCESS_SW_BYPASS_APP_ID`) only after the policy succeeds, and rolls back a freshly-created app on policy failure (a policy-less self-hosted app would deny the path). Non-enterprise leaves the SW path reachable, so no bypass app is created. <!-- @impl: src/routes/setup/access.ts::handleCreateAccessApp -->
 7. `deploy.yml` exposes `enterprise` and `enterprise integration` as manual-dispatch environments deployable from any branch, separate from production and integration.
 
 **Constraints:**
@@ -263,18 +239,14 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: src/__tests__/llm-interceptor.test.ts (Feature C: catalog-driven dynamic-route mapping describe -> maps a known slash-free handle to dynamic/<route> AC1 + fails safe to the default route on an unknown handle AC1 + resolves the default to the first catalog entry when none configured AC1 + tolerates a pre-prefixed dynamic/<handle> AC1 + forwards unchanged when the catalog is empty / non-model-routable path / non-JSON / model-less body AC2 + preserves the rest of the payload AC1) -->
 ### REQ-ENTERPRISE-007: Gateway Route-Pinning
 
-<!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
-<!-- @impl: src/llm-interceptor.ts::loadRouteCatalog -->
-<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
-
 **Intent:** The gateway route must be selected Worker-side from the Setup-configured catalog so agents carry only a slash-free model handle, eliminating agent-side model-string parsing (e.g. Pi reading a `dynamic/<route>` slash as `provider/model`) that would misroute traffic away from the interceptor.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. When a route catalog is configured (KV `SETUP_KEYS.DYNAMIC_ROUTES`), the interceptor maps the request body's slash-free `model` handle to `dynamic/<route>` before forwarding, on the model-routable endpoints `/chat/completions` and `/responses`: a handle in the catalog maps to itself; an unknown handle fails safe to the resolved default route (the configured default if it is in the catalog, else the first catalog entry). A pre-prefixed `dynamic/<handle>` is tolerated and re-resolved through the catalog.
-2. When the catalog is empty, or the body is non-JSON, has no `model` field, or the path is not model-routable, the request body is forwarded unchanged.
+1. When a route catalog is configured (KV `SETUP_KEYS.DYNAMIC_ROUTES`), the interceptor maps the request body's slash-free `model` handle to `dynamic/<route>` before forwarding, on the model-routable endpoints `/chat/completions` and `/responses`: a handle in the catalog maps to itself; an unknown handle fails safe to the resolved default route (the configured default if it is in the catalog, else the first catalog entry). A pre-prefixed `dynamic/<handle>` is tolerated and re-resolved through the catalog. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
+2. When the catalog is empty, or the body is non-JSON, has no `model` field, or the path is not model-routable, the request body is forwarded unchanged. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
 
 **Constraints:**
 
@@ -298,28 +270,19 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (Enterprise mode surface suppression describe -> setup wizard hides Regular Users section when enterpriseMode set + still renders Admin Users + Access Group field AC7 + Regular Users renders when flag unset, default render tests) -->
 ### REQ-ENTERPRISE-008: Enterprise Frontend Surface Suppression
 
-<!-- @impl: web-ui/src/components/SettingsPanel.tsx -->
-<!-- @impl: web-ui/src/components/Header.tsx -->
-<!-- @impl: web-ui/src/components/Dashboard.tsx -->
-<!-- @impl: web-ui/src/components/Layout.tsx -->
-<!-- @impl: web-ui/src/components/settings/SessionSection.tsx -->
-<!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx -->
-<!-- @impl: web-ui/src/App.tsx -->
-<!-- @impl: src/routes/auth.ts -->
-
 **Intent:** Frontend surfaces are suppressed along two axes. (a) The SaaS-billing surfaces — subscription, usage, plans, the monthly-quota / "Upgrade" banners, the subscription-tier admin, and the Standard/Pro session-mode selector — are meaningful only in SaaS mode, so they render only when `SAAS_MODE` is active and are hidden in enterprise, onboarding, and default deployments alike (a non-SaaS deployment showing a "choose your plan" / "upgrade" surface is misleading; onboarding originally inherited these because the gate was `!enterprise`, which this REQ corrects to `saasMode`). (b) In-product user administration, first-login routing, and the setup "Regular Users" section are enterprise-specific suppressions keyed off `ENTERPRISE_MODE`.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The "Manage Subscriptions" entry in Settings → Administration renders only when `SAAS_MODE` is active (hidden in enterprise, onboarding, and default). The "Manage Users" entry renders in every mode except enterprise (hidden only when `ENTERPRISE_MODE` is set).
-2. The username dropdown — in both the Header menu and the Dashboard menu — renders the "Usage" and "Subscription" entries only when `SAAS_MODE` is active.
-3. The Standard/Pro session-mode selector renders only when `SAAS_MODE` is active; in enterprise every user is implicitly Pro (advanced) per [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC2, and onboarding / default deployments have no Standard/Pro plans.
-4. The monthly-quota warning banners and their "Upgrade" calls-to-action render only when `SAAS_MODE` is active.
-5. When `ENTERPRISE_MODE` is set, a first-time (auto-provisioned) user is routed to the application home, never to `/app/subscribe` or the self-serve onboarding/waitlist flow.
-6. Three-mode parity: in SaaS mode every surface in AC1–AC4 renders; in onboarding and default deployments the SaaS-billing surfaces (AC1 "Manage Subscriptions", AC2, AC3, AC4) do not render while AC1 "Manage Users" does; in enterprise mode every surface in AC1–AC5 is suppressed. `/app/subscribe` is reachable only in SaaS mode — the client `SubscribeGuard` redirects to `/app/` whenever `saasMode` is not active.
-7. When `ENTERPRISE_MODE` is set, the setup wizard's "Regular Users" section is not rendered — setup configures only Admin Users and the optional Cloudflare Access group, since regular users are provisioned via Cloudflare Access on first sign-in per [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning); when unset, the section renders unchanged.
+1. The "Manage Subscriptions" entry in Settings → Administration renders only when `SAAS_MODE` is active (hidden in enterprise, onboarding, and default). The "Manage Users" entry renders in every mode except enterprise (hidden only when `ENTERPRISE_MODE` is set). <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel -->
+2. The username dropdown — in both the Header menu and the Dashboard menu — renders the "Usage" and "Subscription" entries only when `SAAS_MODE` is active. <!-- @impl: web-ui/src/components/Header.tsx::Header -->
+3. The Standard/Pro session-mode selector renders only when `SAAS_MODE` is active; in enterprise every user is implicitly Pro (advanced) per [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode) AC2, and onboarding / default deployments have no Standard/Pro plans. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection -->
+4. The monthly-quota warning banners and their "Upgrade" calls-to-action render only when `SAAS_MODE` is active. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
+5. When `ENTERPRISE_MODE` is set, a first-time (auto-provisioned) user is routed to the application home, never to `/app/subscribe` or the self-serve onboarding/waitlist flow. <!-- @impl: web-ui/src/App.tsx::App -->
+6. Three-mode parity: in SaaS mode every surface in AC1–AC4 renders; in onboarding and default deployments the SaaS-billing surfaces (AC1 "Manage Subscriptions", AC2, AC3, AC4) do not render while AC1 "Manage Users" does; in enterprise mode every surface in AC1–AC5 is suppressed. `/app/subscribe` is reachable only in SaaS mode — the client `SubscribeGuard` redirects to `/app/` whenever `saasMode` is not active. <!-- @impl: web-ui/src/App.tsx::App -->
+7. When `ENTERPRISE_MODE` is set, the setup wizard's "Regular Users" section is not rendered — setup configures only Admin Users and the optional Cloudflare Access group, since regular users are provisioned via Cloudflare Access on first sign-in per [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning); when unset, the section renders unchanged. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep -->
 
 **Constraints:**
 
@@ -340,11 +303,6 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (enterprise route hardening describe -> user-mgmt routes 403 AC1 + billing checkout/portal/switch 403 & status empty AC2 + auth subscribe/request-access 403 no email AC3 + stripe webhook no-op no KV mutation AC4 + admin tier/sub config 403 AC5 + PATCH preferences not fail-closed, accepts sessionMode AC6 (entitlement-gate detail in preferences-enterprise.test.ts) + every route byte-identical when flag unset AC7) -->
 ### REQ-ENTERPRISE-009: Enterprise Backend Route Hardening
 
-<!-- @impl: src/routes/users.ts -->
-<!-- @impl: src/routes/billing.ts -->
-<!-- @impl: src/routes/stripe-webhook.ts -->
-<!-- @impl: src/routes/auth.ts -->
-<!-- @impl: src/routes/preferences.ts -->
 <!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
 
 **Intent:** Hiding a SaaS or admin surface in the frontend is not sufficient; in Enterprise Mode the corresponding routes must fail closed so the disabled capabilities cannot be reached by direct API call, URL manipulation, or a stray external event.
@@ -382,12 +340,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: src/__tests__/lib/enterprise-jit-provisioning.test.ts (REQ-ENTERPRISE-010: Access-gated JIT provisioning describe -> AC2 (any-of): admits a user who is in ANY one of several configured groups + AC2 (any-of): denies a user who is in NONE of several configured groups) -->
 ### REQ-ENTERPRISE-010: Access-Gated JIT User Provisioning
 
-<!-- @impl: src/lib/access.ts::authenticateRequest -->
-<!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser -->
-<!-- @impl: src/lib/jwt.ts -->
-<!-- @impl: src/routes/setup/index.ts -->
+<!-- @impl: src/lib/jwt.ts::verifyAccessJWT -->
 <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS -->
-<!-- @impl: src/lib/subscription.ts::isEnterpriseMode -->
 
 **Intent:** In Enterprise Mode users are managed by the customer's Cloudflare Access, not inside Codeflare, so any Access-authenticated user entitled to the deployment must be provisioned automatically on first access — a fresh user lands work-ready with no in-product allowlisting or approval step.
 
@@ -395,12 +349,12 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. When `ENTERPRISE_MODE` is set and an authenticated request presents a valid (RS256-verified, audience-checked) Cloudflare Access JWT for an `email` with no existing user record, Codeflare auto-creates a record `{ addedBy: 'enterprise-jit', role: 'user', accessTier: 'advanced', subscriptionTier: 'unlimited' }` keyed by the JWT's IdP-verified `email`, and the request proceeds as that user. (`accessTier` tops out at `advanced`; `unlimited` is the *subscription* tier — `getEffectiveTier` already resolves enterprise users to `unlimited` per REQ-ENTERPRISE-001.)
-2. When the optional `ENTERPRISE_ACCESS_GROUP` (set at setup, stored in KV) is configured, provisioning first resolves the user's group membership via the Access `get-identity` endpoint (derived from the JWT `iss`, authenticated with the request's `CF_Authorization` token) and, when the user is in none of the configured groups, denies the request with Codeflare's standard not-authorized response (the existing `ForbiddenError` 403 path — the same one a non-allowlisted user hits in Cloudflare-Access mode) and creates no record.
-3. When `ENTERPRISE_ACCESS_GROUP` is unset, a valid Access JWT alone is sufficient to provision; the group gate is delegated to the customer's Access application policy.
-4. Provisioning is idempotent: concurrent first-logins converge on a single record, and an existing record — whether a setup admin or a prior JIT user — is returned unchanged (JIT never overwrites a role or downgrades an admin).
-5. Enterprise JIT sends no welcome or subscription email; the per-user R2 bucket and scoped token continue to be created lazily on first session start, unchanged.
-6. When `ENTERPRISE_MODE` is unset, an Access-authenticated user with no record still receives 403 with no auto-provisioning, and the authentication path is byte-identical to current behavior.
+1. When `ENTERPRISE_MODE` is set and an authenticated request presents a valid (RS256-verified, audience-checked) Cloudflare Access JWT for an `email` with no existing user record, Codeflare auto-creates a record `{ addedBy: 'enterprise-jit', role: 'user', accessTier: 'advanced', subscriptionTier: 'unlimited' }` keyed by the JWT's IdP-verified `email`, and the request proceeds as that user. (`accessTier` tops out at `advanced`; `unlimited` is the *subscription* tier — `getEffectiveTier` already resolves enterprise users to `unlimited` per REQ-ENTERPRISE-001.) <!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser -->
+2. When the optional `ENTERPRISE_ACCESS_GROUP` (set at setup, stored in KV) is configured, provisioning first resolves the user's group membership via the Access `get-identity` endpoint (derived from the JWT `iss`, authenticated with the request's `CF_Authorization` token) and, when the user is in none of the configured groups, denies the request with Codeflare's standard not-authorized response (the existing `ForbiddenError` 403 path — the same one a non-allowlisted user hits in Cloudflare-Access mode) and creates no record. <!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser -->
+3. When `ENTERPRISE_ACCESS_GROUP` is unset, a valid Access JWT alone is sufficient to provision; the group gate is delegated to the customer's Access application policy. <!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser -->
+4. Provisioning is idempotent: concurrent first-logins converge on a single record, and an existing record — whether a setup admin or a prior JIT user — is returned unchanged (JIT never overwrites a role or downgrades an admin). <!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser -->
+5. Enterprise JIT sends no welcome or subscription email; the per-user R2 bucket and scoped token continue to be created lazily on first session start, unchanged. <!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser -->
+6. When `ENTERPRISE_MODE` is unset, an Access-authenticated user with no record still receives 403 with no auto-provisioning, and the authentication path is byte-identical to current behavior. <!-- @impl: src/lib/access.ts::authenticateRequest -->
 
 **Constraints:**
 
@@ -423,17 +377,14 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: src/__tests__/container/index.test.ts (enterprise LLM interception wiring describe -> interceptOutboundHttps registered before super.startAndWaitForPorts so the ephemeral CA is mounted when entrypoint.sh trusts it + non-enterprise start performs no wiring -> AC1, AC2) -->
 ### REQ-ENTERPRISE-011: Container Start Interception Ordering
 
-<!-- @impl: src/container/index.ts::startAndWaitForPorts -->
-<!-- @impl: src/container/index.ts::setupEnterpriseInterception -->
-
 **Intent:** Enterprise LLM interception must be wired before the container boots, so the ephemeral Cloudflare containers CA exists when the container entrypoint installs it into the trust store; wiring it after boot makes the intercepted TLS handshake fail and no agent can reach the gateway.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The DO registers outbound interception (`interceptOutboundHttps`, [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC1) **before the container starts** — in the `startAndWaitForPorts` override, ahead of the SDK's `container.start()`, mirroring where the SDK applies its own pre-start interception — so the ephemeral Cloudflare containers CA at `/etc/cloudflare/certs/` is mounted in time for entrypoint.sh to install it into the trust store ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC2). Wiring after boot (e.g. in `onStart`) leaves the entrypoint with no cert to trust, so every intercepted-TLS handshake to the provider host fails with a connection error.
-2. When `ENTERPRISE_MODE` is unset, the `startAndWaitForPorts` override performs no interception work and the container start path is byte-identical to current behavior.
+1. The DO registers outbound interception (`interceptOutboundHttps`, [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC1) **before the container starts** — in the `startAndWaitForPorts` override, ahead of the SDK's `container.start()`, mirroring where the SDK applies its own pre-start interception — so the ephemeral Cloudflare containers CA at `/etc/cloudflare/certs/` is mounted in time for entrypoint.sh to install it into the trust store ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC2). Wiring after boot (e.g. in `onStart`) leaves the entrypoint with no cert to trust, so every intercepted-TLS handshake to the provider host fails with a connection error. <!-- @impl: src/container/index.ts::startAndWaitForPorts -->
+2. When `ENTERPRISE_MODE` is unset, the `startAndWaitForPorts` override performs no interception work and the container start path is byte-identical to current behavior. <!-- @impl: src/container/index.ts::startAndWaitForPorts -->
 
 **Constraints:**
 
@@ -459,12 +410,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (first route added auto-becomes the default + default falls back to the new first route on removal AC2) -->
 ### REQ-ENTERPRISE-012: Setup-Configured Dynamic-Route Catalog and Access-Group List
 
-<!-- @impl: src/routes/setup/index.ts -->
-<!-- @impl: src/routes/setup/handlers.ts -->
 <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS -->
-<!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig -->
-<!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx -->
-<!-- @impl: web-ui/src/stores/setup.ts -->
 
 **Intent:** An enterprise admin must manage an unlimited set of Cloudflare Access groups and an unlimited set of gateway dynamic routes from the setup wizard with no redeploy — the same way admin users are managed — so adding a team or a route is a wizard edit, not a code or deploy-var change.
 
@@ -472,12 +418,12 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. The setup wizard edits the access-group list and the dynamic-route catalog as add/Enter/chip-with-x lists (cloning the admin-user interaction), batch-saved through the existing `POST /api/setup/configure` (no new endpoint). Names validate 1–256 chars, trimmed, comma/newline forbidden (so a name with spaces like `Agentic AI Test Account` is allowed); access groups persist comma/newline-joined under `SETUP_KEYS.ENTERPRISE_ACCESS_GROUP`, split back via `parseAccessGroups`.
-2. The route catalog persists as a JSON `string[]` (`SETUP_KEYS.DYNAMIC_ROUTES`) and one `{route, reasoning}` default (`SETUP_KEYS.DEFAULT_ROUTE`) where the first route added auto-becomes the default; `defaultRoute.route` must be a member of the catalog (rejected `400` otherwise). An unset default resolves at read time to the first catalog route with reasoning off.
+1. The setup wizard edits the access-group list and the dynamic-route catalog as add/Enter/chip-with-x lists (cloning the admin-user interaction), batch-saved through the existing `POST /api/setup/configure` (no new endpoint). Names validate 1–256 chars, trimmed, comma/newline forbidden (so a name with spaces like `Agentic AI Test Account` is allowed); access groups persist comma/newline-joined under `SETUP_KEYS.ENTERPRISE_ACCESS_GROUP`, split back via `parseAccessGroups`. <!-- @impl: web-ui/src/stores/setup.ts::setupStore -->
+2. The route catalog persists as a JSON `string[]` (`SETUP_KEYS.DYNAMIC_ROUTES`) and one `{route, reasoning}` default (`SETUP_KEYS.DEFAULT_ROUTE`) where the first route added auto-becomes the default; `defaultRoute.route` must be a member of the catalog (rejected `400` otherwise). An unset default resolves at read time to the first catalog route with reasoning off. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig -->
 3. `GET /api/setup/prefill` round-trips the stored groups, catalog, and default route so a setup re-run shows the current configuration; a malformed stored value degrades to empty defaults rather than failing the prefill.
-4. The catalog/default feed the interceptor's route mapping ([REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning)) and the container env fan ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC1) via the shared `loadEnterpriseRouteConfig` resolver; the group list feeds the JIT gate ([REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning)) and the per-group metadata tags ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC4).
-5. When `ENTERPRISE_MODE` is unset, the dynamic-route catalog UI and KV reads add no behavior; the access-group field already existed and is unchanged for non-enterprise deployments.
-6. In enterprise mode, the setup wizard blocks "Continue" until at least one dynamic route is added.
+4. The catalog/default feed the interceptor's route mapping ([REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning)) and the container env fan ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC1) via the shared `loadEnterpriseRouteConfig` resolver; the group list feeds the JIT gate ([REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning)) and the per-group metadata tags ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC4). <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig -->
+5. When `ENTERPRISE_MODE` is unset, the dynamic-route catalog UI and KV reads add no behavior; the access-group field already existed and is unchanged for non-enterprise deployments. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig -->
+6. In enterprise mode, the setup wizard blocks "Continue" until at least one dynamic route is added. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep -->
 7. `POST /api/setup/configure` rejects empty or absent `dynamicRoutes` with `400` before any KV write. The interceptor's empty-catalog passthrough ([REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning) AC2) is defensive only.
 
 **Constraints:**

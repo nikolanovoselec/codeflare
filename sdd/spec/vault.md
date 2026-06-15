@@ -38,8 +38,6 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-001: Persistent vault directory survives across sessions
 
-<!-- @impl: entrypoint.sh::init_user_vault -->
-<!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
 <!-- @test: host/__audits__/entrypoint-vault.audit.js (filter order + init function presence + Uploads/Temporary mkdir + supervisor uses $HOME/Vault → AC1-AC5) -->
 <!-- @test: web-ui/src/__tests__/lib/special-folders.test.ts (special-folders registry describe → Workspace/Vault/Uploads/Temporary entries + tooltips → AC6) -->
 
@@ -49,11 +47,11 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. The vault directory tree is included in the rclone sync filter set with an explicit include rule ordered before the global `graphify-out` exclude so the vault's own `graphify-out/` subdirectory rides along.
-2. The ephemeral global-graph workspace directory is excluded from sync so the merged graph is regenerated on boot from the per-source `graphify-out/` files rather than carrying stale state across sessions.
-3. The vault initializer creates the standard vault subdirectories (raw-sessions, raw-pasted, notes, graphify-out, silverbullet config) on every boot so a user who deletes any of them cannot leave the agent hooks or the editor in a broken state on the next session start.
-4. The vault initializer runs after the bisync baseline is established and before the daemon launch block so the empty skeleton never overwrites R2-restored content.
-5. The vault initializer also creates the persistent Uploads and Temporary folders alongside the vault; both are covered by the same include-before-exclude rule order so files dropped into either survive session restart and appear in the storage panel.
+1. The vault directory tree is included in the rclone sync filter set with an explicit include rule ordered before the global `graphify-out` exclude so the vault's own `graphify-out/` subdirectory rides along. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
+2. The ephemeral global-graph workspace directory is excluded from sync so the merged graph is regenerated on boot from the per-source `graphify-out/` files rather than carrying stale state across sessions. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
+3. The vault initializer creates the standard vault subdirectories (raw-sessions, raw-pasted, notes, graphify-out, silverbullet config) on every boot so a user who deletes any of them cannot leave the agent hooks or the editor in a broken state on the next session start. <!-- @impl: entrypoint.sh::init_user_vault -->
+4. The vault initializer runs after the bisync baseline is established and before the daemon launch block so the empty skeleton never overwrites R2-restored content. <!-- @impl: entrypoint.sh::init_user_vault -->
+5. The vault initializer also creates the persistent Uploads and Temporary folders alongside the vault; both are covered by the same include-before-exclude rule order so files dropped into either survive session restart and appear in the storage panel. <!-- @impl: entrypoint.sh::init_user_vault -->
 6. The storage panel surfaces Workspace, Vault, Uploads, and Temporary as special folders at the bucket root: each appears unconditionally (Workspace gated by the workspace-sync preference) with an info-icon tooltip showing the folder's purpose and the in-container path it materializes at.
 
 **Constraints:**
@@ -74,7 +72,6 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-010: Codeflare-authoritative files preseeded into the vault on every boot
 
-<!-- @impl: entrypoint.sh::init_user_vault -->
 <!-- @test: host/__audits__/entrypoint-vault.audit.js (per-boot preseed-page sync loop + graph.json recreate-if-missing guard + preseed-page existence on disk → AC1-AC5) -->
 
 **Intent:** A defined set of vault files are codeflare-authoritative: SilverBullet widgets, wikilink handlers, theming, and the graph build all depend on their contents being current at boot. User edits to these files are intentionally not preserved, and stale build artefacts that mislead the user must be cleared on every boot.
@@ -83,11 +80,11 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. The vault initializer copies the four codeflare-authoritative root pages (Index, CONFIG, README, STYLES) from the preseed source into the vault root on every boot, gated so identical files are not rewritten.
-2. User content lives in dedicated user-owned subdirectories (notes, inbox, journal, raw-pasted, raw-sessions) and is never touched by the preseed sync; only the four codeflare-authoritative pages are overwritten.
-3. The entrypoint must not write a partial copy of the editor's built-in plug library onto disk because the editor binary serves those files from its built-in overlay, and a partial on-disk copy would shadow the overlay with incomplete files and break widget rendering.
-4. The vault graph file is seeded with an empty-graph stub only when absent; a populated graph from a prior session is never overwritten by the entrypoint.
-5. The vault initializer removes stale globally-rendered graph artifacts on every boot when present (idempotent removal, guarded so it fires only when the preseed counterpart is also absent).
+1. The vault initializer copies the four codeflare-authoritative root pages (Index, CONFIG, README, STYLES) from the preseed source into the vault root on every boot, gated so identical files are not rewritten. <!-- @impl: entrypoint.sh::init_user_vault -->
+2. User content lives in dedicated user-owned subdirectories (notes, inbox, journal, raw-pasted, raw-sessions) and is never touched by the preseed sync; only the four codeflare-authoritative pages are overwritten. <!-- @impl: entrypoint.sh::init_user_vault -->
+3. The entrypoint must not write a partial copy of the editor's built-in plug library onto disk because the editor binary serves those files from its built-in overlay, and a partial on-disk copy would shadow the overlay with incomplete files and break widget rendering. <!-- @impl: entrypoint.sh::init_user_vault -->
+4. The vault graph file is seeded with an empty-graph stub only when absent; a populated graph from a prior session is never overwritten by the entrypoint. <!-- @impl: entrypoint.sh::init_user_vault -->
+5. The vault initializer removes stale globally-rendered graph artifacts on every boot when present (idempotent removal, guarded so it fires only when the preseed counterpart is also absent). <!-- @impl: entrypoint.sh::init_user_vault -->
 
 **Constraints:**
 
@@ -144,7 +141,6 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-003: User-curated edits are detected and ingested within ~60s
 
-<!-- @impl: entrypoint.sh::start_vault_monitor_daemon -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-monitor-hook.sh -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md -->
 <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts -->
@@ -158,8 +154,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. The vault-monitor daemon polls the vault on a short fixed cadence, excluding the agent-written capture directory, the derived graph-output directory, the editor's internal config directory, and the four preseed-managed root pages. The four pages are codeflare-authoritative; the per-boot preseed copy must not count as a user edit, otherwise every preseed sync at boot would re-trigger extraction.
-2. The daemon uses a three-marker pattern - a heartbeat marker, a high-water marker, and a trigger marker. The change-detection scan compares against the high-water marker (not the heartbeat) so a daemon that advances the wrong marker cannot lose work.
+1. The vault-monitor daemon polls the vault on a short fixed cadence, excluding the agent-written capture directory, the derived graph-output directory, the editor's internal config directory, and the four preseed-managed root pages. The four pages are codeflare-authoritative; the per-boot preseed copy must not count as a user edit, otherwise every preseed sync at boot would re-trigger extraction. <!-- @impl: entrypoint.sh::start_vault_monitor_daemon -->
+2. The daemon uses a three-marker pattern - a heartbeat marker, a high-water marker, and a trigger marker. The change-detection scan compares against the high-water marker (not the heartbeat) so a daemon that advances the wrong marker cannot lose work. <!-- @impl: entrypoint.sh::start_vault_monitor_daemon -->
 3. The hook handler exits immediately when the trigger marker is absent (zero-cost on idle prompts) or when an in-flight sentinel exists and is younger than 5 minutes. When neither exit condition applies, it creates the in-flight sentinel and emits an additional-context directive instructing the main agent to dispatch the vault-extract subagent.
 4. The vault-extract subagent deletes the trigger marker as its first step (dedup gate), runs graph extraction per changed file, merges via the shared global-graph add command, touches the high-water marker, and removes the in-flight sentinel as its final step.
 5. If any of the extract-merge-advance steps fail, the high-water marker is not advanced; the next daemon tick re-discovers the same files.
@@ -215,7 +211,6 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-004: Unified global graph merges vault and active repos
 
-<!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py::_resolve_active -->
 <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh -->
 <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts -->
 <!-- @test: host/__audits__/entrypoint-vault.audit.js (mcp-lazy resolution chain + active-repo hook structure + vault basename exclusion + fast-path skip → AC1-AC4) -->
@@ -227,7 +222,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. The MCP wrapper's active-graph resolver prefers the unified global graph when present, falling back to the sentinel-pinned per-repo graph and then to the freshest workspace-by-mtime graph.
+1. The MCP wrapper's active-graph resolver prefers the unified global graph when present, falling back to the sentinel-pinned per-repo graph and then to the freshest workspace-by-mtime graph. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py::_resolve_active -->
 2. The active-repo hook adds the resolved repo's graph to the unified graph (under the shared multi-writer lock) whenever the active repo has a graph and either the manifest does not yet record this repo's tag or the manifest's recorded source hash does not match the current graph hash.
 3. The vault directory is explicitly excluded from active-repo candidate resolution; when the walk-up loop reaches that path, the hook exits without rewriting the sentinel or invoking the global add, so the vault is never re-tagged as a repo by a tool call that happens to touch a vault file.
 4. A cheap fast-path skip avoids spawning the graph tool on every routine bash/edit/write call: when the resolved active-repo path equals the prior sentinel value and the per-repo graph file's mtime is not newer than the sentinel's mtime, the hook returns immediately. The sentinel is touched at the end of every non-fast-path fire so subsequent fires can short-circuit until the next graph rebuild.
@@ -251,9 +246,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-005: Worker proxy exposes the in-container vault editor
 
-<!-- @impl: src/routes/vault.ts::handleVaultRequest -->
 <!-- @impl: src/routes/vault-validation.ts::validateVaultRoute -->
-<!-- @impl: entrypoint.sh::start_silverbullet_supervisor -->
 <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute boundary cases describe → AC3/AC5) -->
 <!-- @test: host/__audits__/entrypoint-vault.audit.js (vault WS rate-limit key contract describe → AC4) -->
 
@@ -264,9 +257,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Acceptance Criteria:**
 
 1. The container image installs the SilverBullet server binary pinned by version and digest so the running editor is identical across deploys.
-2. The container entrypoint supervises the editor on a localhost-only port with a short-interval restart loop so an editor crash never requires a container restart.
-3. The vault-route handler applies the same auth chain as the terminal WebSocket upgrade: authentication, origin allowlist, effective-tier active-user check, session ownership, container health probe, then container fetch.
-4. WebSocket upgrades for live-edit sync are rate-limited under the same per-user budget as terminal WebSockets so a separate budget cannot be discovered.
+2. The container entrypoint supervises the editor on a localhost-only port with a short-interval restart loop so an editor crash never requires a container restart. <!-- @impl: entrypoint.sh::start_silverbullet_supervisor -->
+3. The vault-route handler applies the same auth chain as the terminal WebSocket upgrade: authentication, origin allowlist, effective-tier active-user check, session ownership, container health probe, then container fetch. <!-- @impl: src/routes/vault.ts::handleVaultRequest -->
+4. WebSocket upgrades for live-edit sync are rate-limited under the same per-user budget as terminal WebSockets so a separate budget cannot be discovered. <!-- @impl: src/routes/vault.ts::handleVaultRequest -->
 5. The in-container terminal server exposes an HTTP branch that strips the vault path prefix and forwards to the localhost editor, plus a WebSocket upgrade passthrough scoped to vault paths only.
 
 **Constraints:**
@@ -287,9 +280,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-012: Vault button render and readiness gating
 
-<!-- @impl: web-ui/src/components/Header.tsx -->
-<!-- @impl: web-ui/src/components/Layout.tsx -->
-<!-- @impl: web-ui/src/lib/vault-readiness.ts::startVaultReadinessProbe -->
+<!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header describe → Vault button gating + readiness probe state machine → AC1-AC5) -->
 <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012) describe → onVaultOpen wired only for advanced-mode active sessions → AC1) -->
 <!-- @test: web-ui/src/__tests__/lib/vault-readiness.test.ts (startVaultReadinessProbe describe → no-give-up retry / first-success latch / SB-crash recovery / cancel / mid-probe cancel → AC5) -->
@@ -300,11 +291,11 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. The Vault control in the header renders only when an active session exists, the session is in advanced mode, and the parent surface has wired up the vault-open handler; the control is scoped to the terminal view alongside the related Bookmarks and Storage entrypoints. In default mode the handler is not wired up, so the control does not render.
+1. The Vault control in the header renders only when an active session exists, the session is in advanced mode, and the parent surface has wired up the vault-open handler; the control is scoped to the terminal view alongside the related Bookmarks and Storage entrypoints. In default mode the handler is not wired up, so the control does not render. <!-- @impl: web-ui/src/components/Header.tsx::Header -->
 2. The editor opens to the codeflare dashboard page on every Vault click; the supervisor explicitly pins the dashboard as the editor's index page before launching the binary.
 3. The README page is reachable from the dashboard via a link at the top.
-4. The Vault control is rendered disabled with an "initializing" tooltip until a per-session readiness probe against the vault proxy succeeds.
-5. The probe retries on a short interval until the first success, then enables the control; readiness state is keyed per session so switching the active session resets it.
+4. The Vault control is rendered disabled with an "initializing" tooltip until a per-session readiness probe against the vault proxy succeeds. <!-- @impl: web-ui/src/components/Header.tsx::Header -->
+5. The probe retries on a short interval until the first success, then enables the control; readiness state is keyed per session so switching the active session resets it. <!-- @impl: web-ui/src/lib/vault-readiness.ts::startVaultReadinessProbe -->
 
 **Constraints:**
 
@@ -322,9 +313,6 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-013: SilverBullet subpath adapter
 
-<!-- @impl: src/routes/vault.ts::handleVaultRequest -->
-<!-- @impl: src/routes/vault-html.ts::rewriteVaultBaseHref -->
-<!-- @impl: src/routes/vault-html.ts::rewriteVaultHtmlResponse -->
 <!-- @test: src/__tests__/routes/vault.test.ts (rewriteVaultBaseHref / rewriteVaultHtmlResponse (REQ-VAULT-013 AC1-AC4) → AC1-AC4) -->
 
 **Intent:** SilverBullet ships an SPA shell with `<base href="/" />` and assumes it owns its origin; under the `/api/vault/:sid/` per-session proxy, every relative asset request would otherwise resolve against the Worker root and 404. The Worker injects a per-session base href on every text/html response so the editor's relative asset references resolve back through the subpath proxy. The companion native-service-worker contract (registration short-circuit, key delivery, precache) is [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker).
@@ -333,10 +321,10 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. The vault proxy rewrites the bare HTML base-href to the per-session vault-proxy path on every HTML response (not gated to the root path), so the editor's relative asset references resolve back through the subpath proxy regardless of which page the user reloaded onto.
-2. Non-HTML responses (JS bundles, images, manifests, markdown page bodies, JSON API replies, binary assets) pass through unchanged; the HTML-only guard is sufficient because the editor's API endpoints return non-HTML content types.
-3. When the body is rewritten, both the content-length and content-encoding headers are dropped because the rewrite path auto-decompresses upstream compression, and the original headers would otherwise trigger a browser decoding failure.
-4. When the rewrite runs but the body did not contain the expected base-href substring (no-op rewrite), a warning is logged so a future editor-template change surfaces as a logged signal instead of a silent white-screen regression.
+1. The vault proxy rewrites the bare HTML base-href to the per-session vault-proxy path on every HTML response (not gated to the root path), so the editor's relative asset references resolve back through the subpath proxy regardless of which page the user reloaded onto. <!-- @impl: src/routes/vault-html.ts::rewriteVaultBaseHref -->
+2. Non-HTML responses (JS bundles, images, manifests, markdown page bodies, JSON API replies, binary assets) pass through unchanged; the HTML-only guard is sufficient because the editor's API endpoints return non-HTML content types. <!-- @impl: src/routes/vault.ts::handleVaultRequest -->
+3. When the body is rewritten, both the content-length and content-encoding headers are dropped because the rewrite path auto-decompresses upstream compression, and the original headers would otherwise trigger a browser decoding failure. <!-- @impl: src/routes/vault-html.ts::rewriteVaultHtmlResponse -->
+4. When the rewrite runs but the body did not contain the expected base-href substring (no-op rewrite), a warning is logged so a future editor-template change surfaces as a logged signal instead of a silent white-screen regression. <!-- @impl: src/routes/vault-html.ts::rewriteVaultHtmlResponse -->
 
 **Constraints:**
 
@@ -358,8 +346,6 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ### REQ-VAULT-017: SilverBullet native service worker
 
 <!-- @impl: src/routes/vault.ts::handleVaultRequest -->
-<!-- @impl: src/routes/vault-native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS -->
-<!-- @impl: src/routes/vault-html.ts::isServiceWorkerContextFetch -->
 
 **Intent:** SilverBullet's native service worker (not a stripped shim) is served for the editor's service-worker registration fetch so the editor keeps its persistent local file-sync store and indexes incrementally (AD69). The Worker short-circuits the auth chain for the registration GET (the browser sends no credentials on that fetch, so the cookie-gated path would 401), serves the version-locked native worker body, and suppresses the bootstrap-hop redirect for Service-Worker-context fetches so the worker's precache resolves. The per-session encryption key reaches the worker via postMessage from the bootstrap-hop page ([REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5).
 
@@ -367,10 +353,10 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. Browser-initiated Service Worker registration GETs for the editor's service-worker script short-circuit the auth chain and receive SilverBullet's native service worker from the Worker (vendored verbatim, AD69), so the editor keeps its persistent local file-sync store and indexes incrementally. Cold-boot encryption rides the native worker's own `set-encryption-key`/`get-encryption-key` handlers, fed by the bootstrap-hop page (see [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5 for the key-delivery contract).
+1. Browser-initiated Service Worker registration GETs for the editor's service-worker script short-circuit the auth chain and receive SilverBullet's native service worker from the Worker (vendored verbatim, AD69), so the editor keeps its persistent local file-sync store and indexes incrementally. Cold-boot encryption rides the native worker's own `set-encryption-key`/`get-encryption-key` handlers, fed by the bootstrap-hop page (see [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5 for the key-delivery contract). <!-- @impl: src/routes/vault-native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS -->
 2. The short-circuit selector requires all of: GET method, exact path match for the service-worker script, and the browser-only Service-Worker request header (a Fetch-spec forbidden header name not settable from page JavaScript). Cookie presence is intentionally not checked because Samsung Internet and other Chromium forks may send cookies on SW registration fetches; rejecting those requests would force the registration through the cookie-gated proxy chain and 401.
-3. The native service-worker script body is identical across sessions (version-locked to the SilverBullet binary, guarded by a recorded SHA-256 drift hash); the per-session vault encryption key is delivered to it via postMessage from the bootstrap-hop page ([REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5), never baked into the script.
-4. The native worker precaches the shell `/` via `cache.addAll` during install, BEFORE the bootstrap-hop sets the bootstrap cookie. The shell-path redirect to the bootstrap-hop is suppressed for Service-Worker-context fetches (identified by a `Sec-Fetch-Mode` header present and not equal to `navigate`) so the precache resolves against the real shell instead of a 302 that would make `cache.addAll` reject and hang the SW install. Top-level navigations (`Sec-Fetch-Mode: navigate`) and clients with no `Sec-Fetch-Mode` header still receive the redirect (fail-safe), so a real first navigation never boots without the encryption key wired.
+3. The native service-worker script body is identical across sessions (version-locked to the SilverBullet binary, guarded by a recorded SHA-256 drift hash); the per-session vault encryption key is delivered to it via postMessage from the bootstrap-hop page ([REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5), never baked into the script. <!-- @impl: src/routes/vault-native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS -->
+4. The native worker precaches the shell `/` via `cache.addAll` during install, BEFORE the bootstrap-hop sets the bootstrap cookie. The shell-path redirect to the bootstrap-hop is suppressed for Service-Worker-context fetches (identified by a `Sec-Fetch-Mode` header present and not equal to `navigate`) so the precache resolves against the real shell instead of a 302 that would make `cache.addAll` reject and hang the SW install. Top-level navigations (`Sec-Fetch-Mode: navigate`) and clients with no `Sec-Fetch-Mode` header still receive the redirect (fail-safe), so a real first navigation never boots without the encryption key wired. <!-- @impl: src/routes/vault-html.ts::isServiceWorkerContextFetch -->
 
 **Notes:** Documented in [AD69](../../documentation/decisions/README.md) and the [vault lane](../../documentation/lanes/vault.md#service-worker-registration-noop-bypass). Under enterprise Cloudflare Access the host-wide Access app would 302 this credential-less registration fetch to the IdP login before the Worker runs; the setup wizard auto-provisions a higher-precedence bypass app scoped to the SW path so the request reaches this short-circuit ([REQ-ENTERPRISE-006](enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC6). The `/.client/*` precache-auth exemption was evaluated and left unimplemented (the integration deploy showed `cache.addAll` resolves because the precache fetches carry the session cookie); it is reserved only as a future fallback if a browser strips credentials on precache fetches.
 
@@ -421,8 +407,6 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-006: Shutdown bisync completes vault writes before SIGKILL
 
-<!-- @impl: entrypoint.sh::shutdown_handler -->
-<!-- @impl: src/container/container-lifecycle.ts::destroy -->
 <!-- @test: src/__tests__/container/index.test.ts (135s SIGKILL fallback + shutdownElapsedMs telemetry describe → AC4/AC5) -->
 <!-- @test: host/__audits__/entrypoint-vault.audit.js (120s watchdog + vault-monitor and SilverBullet PID kill in shutdown handler → AC1-AC3) -->
 
@@ -432,10 +416,10 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. The entrypoint shutdown handler wraps the final bisync in a background subshell with a watchdog that hard-kills on timeout, so the orchestrator's destroy budget always lands after bisync finishes or gives up cleanly.
-2. The shutdown handler also terminates the vault-monitor daemon and the editor supervisor so neither lingers past container shutdown.
-3. The shutdown elapsed time is logged so operators can tune the watchdog over time if user edit volumes grow large enough to need more headroom.
-4. The Container DO's destroy budget is sized to cover the bisync watchdog plus enough additional time for clean process exit.
+1. The entrypoint shutdown handler wraps the final bisync in a background subshell with a watchdog that hard-kills on timeout, so the orchestrator's destroy budget always lands after bisync finishes or gives up cleanly. <!-- @impl: entrypoint.sh::shutdown_handler -->
+2. The shutdown handler also terminates the vault-monitor daemon and the editor supervisor so neither lingers past container shutdown. <!-- @impl: entrypoint.sh::shutdown_handler -->
+3. The shutdown elapsed time is logged so operators can tune the watchdog over time if user edit volumes grow large enough to need more headroom. <!-- @impl: entrypoint.sh::shutdown_handler -->
+4. The Container DO's destroy budget is sized to cover the bisync watchdog plus enough additional time for clean process exit. <!-- @impl: src/container/container-lifecycle.ts::destroy -->
 5. The container's stop handler logs the total shutdown elapsed time so operators have telemetry on whether the budget is right.
 
 **Constraints:**
@@ -488,14 +472,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-008: Zero-UI vault encryption
 
-<!-- @impl: src/container/container-config.ts::ensureVaultKey -->
-<!-- @impl: src/routes/vault-native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS -->
-<!-- @impl: src/routes/vault-native-sw.ts::graftVaultKeyRecovery -->
-<!-- @impl: src/routes/vault-html.ts::injectVaultBootstrapHopHtml -->
 <!-- @impl: src/routes/vault-html.ts::injectVaultIdbRecorder -->
-<!-- @impl: src/routes/vault-html.ts::VAULT_BOOTSTRAP_COOKIE -->
 <!-- @impl: src/routes/vault-html.ts::VAULT_SW_ACTIVATION_TIMEOUT_MS -->
-<!-- @impl: src/routes/vault.ts::handleVaultRequest -->
 <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache -->
 <!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches -->
 <!-- @test: src/__tests__/container/index.test.ts (ensureVaultKey persistence + idempotency describe → AC1/AC2) -->
@@ -509,13 +487,13 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. The Container DO generates a high-entropy random vault key on first start, persists it in its own storage, and returns the same key on every subsequent read.
-2. The key is never rotated; it is wiped only when the container is destroyed (session delete).
-3. The Worker's vault-config proxy fetches the vault key via DO RPC and merges it (plus the enable-encryption flag) into the editor's runtime boot config.
-4. The editor uses the vault key to symmetrically encrypt its per-vault IndexedDB store via its built-in encrypted-KV wrapper.
-5. The Worker delivers the key through a one-time bootstrap-hop page that registers SilverBullet's native service worker, posts the key to its native `set-encryption-key` handler, persists an enable-encryption flag, and sets a bootstrap-completed cookie before redirecting to the shell; the hop is issued only for GET requests, while HEAD and other methods fall through to the SB proxy so the readiness probe reports ready only when SB is serving. On failure it shows an error and aborts without setting the cookie or flag.
-6. Subsequent shell-path requests bypass the bootstrap hop via the cookie, and no passphrase prompt is shown to the user.
-7. The service worker recovers its encryption key from the Worker when its in-memory key is gone - whether the browser idle-terminated the SW, or the native worker flushed the key after the last client disconnected, or the key was simply never present yet at shell boot. A codeflare graft (`graftVaultKeyRecovery`) injects a `__cfRecover()` helper that re-fetches the key from the auth-gated `.vault-key` endpoint (a same-origin SW fetch carries the session cookie) and decodes it with the worker's own decoder, and calls it at BOTH of the worker's key-empty failure points before either gives up: the `config` message handler's `enableClientEncryption && !y` auth-gate (the path that actually fires - it posts an auth-error and the client navigates to `.auth` / "Authentication not enabled"), and the `get-encryption-key` reply. Without the graft the native worker bounces to `.auth` on cold boot, not just after idle, because the client posts `config` while the key is still absent from the bootstrap-hop -> shell transition flush.
+1. The Container DO generates a high-entropy random vault key on first start, persists it in its own storage, and returns the same key on every subsequent read. <!-- @impl: src/container/container-config.ts::ensureVaultKey -->
+2. The key is never rotated; it is wiped only when the container is destroyed (session delete). <!-- @impl: src/container/container-config.ts::ensureVaultKey -->
+3. The Worker's vault-config proxy fetches the vault key via DO RPC and merges it (plus the enable-encryption flag) into the editor's runtime boot config. <!-- @impl: src/routes/vault.ts::handleVaultRequest -->
+4. The editor uses the vault key to symmetrically encrypt its per-vault IndexedDB store via its built-in encrypted-KV wrapper. <!-- @impl: src/routes/vault-native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS -->
+5. The Worker delivers the key through a one-time bootstrap-hop page that registers SilverBullet's native service worker, posts the key to its native `set-encryption-key` handler, persists an enable-encryption flag, and sets a bootstrap-completed cookie before redirecting to the shell; the hop is issued only for GET requests, while HEAD and other methods fall through to the SB proxy so the readiness probe reports ready only when SB is serving. On failure it shows an error and aborts without setting the cookie or flag. <!-- @impl: src/routes/vault-html.ts::injectVaultBootstrapHopHtml -->
+6. Subsequent shell-path requests bypass the bootstrap hop via the cookie, and no passphrase prompt is shown to the user. <!-- @impl: src/routes/vault-html.ts::VAULT_BOOTSTRAP_COOKIE -->
+7. The service worker recovers its encryption key from the Worker when its in-memory key is gone - whether the browser idle-terminated the SW, or the native worker flushed the key after the last client disconnected, or the key was simply never present yet at shell boot. A codeflare graft (`graftVaultKeyRecovery`) injects a `__cfRecover()` helper that re-fetches the key from the auth-gated `.vault-key` endpoint (a same-origin SW fetch carries the session cookie) and decodes it with the worker's own decoder, and calls it at BOTH of the worker's key-empty failure points before either gives up: the `config` message handler's `enableClientEncryption && !y` auth-gate (the path that actually fires - it posts an auth-error and the client navigates to `.auth` / "Authentication not enabled"), and the `get-encryption-key` reply. Without the graft the native worker bounces to `.auth` on cold boot, not just after idle, because the client posts `config` while the key is still absent from the bootstrap-hop -> shell transition flush. <!-- @impl: src/routes/vault-native-sw.ts::graftVaultKeyRecovery -->
 
 **Constraints:**
 
@@ -539,11 +517,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-015: Vault IDB lifecycle and listing filters
 
-<!-- @impl: src/routes/vault-html.ts::filterVaultFsListing -->
 <!-- @impl: src/routes/vault-html.ts::injectVaultIdbRecorder -->
 <!-- @impl: src/routes/vault-html.ts::VAULT_IDB_RECORDER_MARKER -->
-<!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache -->
-<!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches -->
 <!-- @test: src/__tests__/routes/vault.test.ts (filterVaultFsListing + injectVaultIdbRecorder describes → AC1/AC3) -->
 <!-- @test: web-ui/src/__tests__/lib/vault-cache.test.ts (cleanupSessionVaultCache + sweepOrphanVaultCaches real IDB deletion describe → AC3/AC4) -->
 <!-- @test: host/__tests__/preseed-config-treeview.test.js (CONFIG.md treeview exclusions describe → AC2) -->
@@ -554,10 +529,10 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. The vendored editor's filesystem-listing endpoint filters out the derived graph-output directory so build artifacts never reach the browser.
+1. The vendored editor's filesystem-listing endpoint filters out the derived graph-output directory so build artifacts never reach the browser. <!-- @impl: src/routes/vault-html.ts::filterVaultFsListing -->
 2. The preseed configuration page declares a treeview-exclusions block hiding the plug library, the library-manager mirror, the derived graph-output directory, and the four codeflare-authoritative root pages from the navigation tree.
-3. The frontend runs a session-vault-cache cleanup on session delete (not on stop), which deletes every editor-owned IDB recorded for the session in browser storage (the recorder is populated at boot by a shim that wraps the IndexedDB open call), unregisters the vault service worker scoped to that session, and removes the session's persisted IDB-recorder entries.
-4. On dashboard mount and on every session-list refresh, the frontend sweeps the persisted IDB-recorder entries and, for any session no longer in the user's active sessions list, deletes the recorded IDBs and drops the corresponding storage entries (covers the case where the session was deleted from another device).
+3. The frontend runs a session-vault-cache cleanup on session delete (not on stop), which deletes every editor-owned IDB recorded for the session in browser storage (the recorder is populated at boot by a shim that wraps the IndexedDB open call), unregisters the vault service worker scoped to that session, and removes the session's persisted IDB-recorder entries. <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache -->
+4. On dashboard mount and on every session-list refresh, the frontend sweeps the persisted IDB-recorder entries and, for any session no longer in the user's active sessions list, deletes the recorded IDBs and drops the corresponding storage entries (covers the case where the session was deleted from another device). <!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches -->
 
 **Constraints:**
 
@@ -576,8 +551,6 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-009: Vault writes succeed end-to-end for SilverBullet attachment uploads
 
-<!-- @impl: src/routes/vault-html.ts::maybeSynthesizeCsrfHeader -->
-<!-- @impl: src/routes/vault-html.ts::inferOriginValidated -->
 <!-- @impl: src/routes/vault-html.ts::maybeIssueCsrfCookie -->
 <!-- @test: src/__tests__/routes/vault.test.ts (missing-Origin PUT path describe → AC1-AC4) -->
 
@@ -587,10 +560,10 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. A state-changing request to a vault path with no Origin header is treated as same-origin and proceeds through CSRF synthesis. The synthesis adds the XHR-marker header so the downstream auth CSRF guard does not reject the write.
-2. A state-changing request with an Origin header that fails the allowlist still returns a 403; the missing-Origin fallback does not widen the allowlist.
-3. The forward chain preserves the request body bytes end-to-end (no double-read, no disturbed stream) on both the with-Origin and the no-Origin paths.
-4. Existing read-only and preflight requests behave unchanged; only state-changing methods enter the fallback path.
+1. A state-changing request to a vault path with no Origin header is treated as same-origin and proceeds through CSRF synthesis. The synthesis adds the XHR-marker header so the downstream auth CSRF guard does not reject the write. <!-- @impl: src/routes/vault-html.ts::maybeSynthesizeCsrfHeader -->
+2. A state-changing request with an Origin header that fails the allowlist still returns a 403; the missing-Origin fallback does not widen the allowlist. <!-- @impl: src/routes/vault-html.ts::inferOriginValidated -->
+3. The forward chain preserves the request body bytes end-to-end (no double-read, no disturbed stream) on both the with-Origin and the no-Origin paths. <!-- @impl: src/routes/vault-html.ts::maybeSynthesizeCsrfHeader -->
+4. Existing read-only and preflight requests behave unchanged; only state-changing methods enter the fallback path. <!-- @impl: src/routes/vault-html.ts::inferOriginValidated -->
 
 **Constraints:**
 

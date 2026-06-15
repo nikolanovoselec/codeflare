@@ -66,16 +66,14 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 <!-- @test: web-ui/src/__tests__/lib/token-scopes.test.ts (Cloudflare scopes describe -> Browser Rendering - Edit scope present in token template + existing scopes unchanged -> AC1..AC3) -->
 ### REQ-BROWSER-002: Browser Rendering Scope in the Cloudflare Token Template
 
-<!-- @impl: web-ui/src/lib/token-scopes.ts -->
-
 **Intent:** Driving Browser Run requires a Cloudflare API-token permission, so the user-pasted token template must request the `Browser Rendering - Edit` scope.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The Cloudflare token template adds the `Browser Rendering - Edit` scope.
-2. The addition is additive: every scope already present in the template remains unchanged.
+1. The Cloudflare token template adds the `Browser Rendering - Edit` scope. <!-- @impl: web-ui/src/lib/token-scopes.ts::getCloudflareTokenUrl -->
+2. The addition is additive: every scope already present in the template remains unchanged. <!-- @impl: web-ui/src/lib/token-scopes.ts::getCloudflareTokenUrl -->
 3. Tokens created before this scope was added continue to work for all existing functionality (the scope is required only for Browser Run).
 
 **Constraints:**
@@ -97,7 +95,6 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 ### REQ-BROWSER-003: Pi Native Browser Run Wrapper
 
 <!-- @impl: preseed/agents/pi/extensions/browser-run.ts -->
-<!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts -->
 <!-- @impl: preseed/agents/pi/skills/browser-run/SKILL.md -->
 <!-- @impl: preseed/agents/pi/manifest.json -->
 <!-- @impl: scripts/generate-agent-seed.mjs -->
@@ -108,9 +105,9 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Acceptance Criteria:**
 
-1. A Pi extension registers native `browser_markdown`, `browser_content`, and `browser_scrape` tools (via `pi.registerTool`) that call the Cloudflare Browser Run REST Quick Actions (`/markdown`, `/content`, `/scrape`).
+1. A Pi extension registers native `browser_markdown`, `browser_content`, and `browser_scrape` tools (via `pi.registerTool`) that call the Cloudflare Browser Run REST Quick Actions (`/markdown`, `/content`, `/scrape`). <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::executeBrowserAction -->
 2. The extension registers nothing unless `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are present, and is seeded only in Pro (advanced) session mode — so Standard mode and token-less deploys are byte-identical to today.
-3. The tools load public targets only, cap their output to protect the context window, and surface errors as tool errors rather than throwing.
+3. The tools load public targets only, cap their output to protect the context window, and surface errors as tool errors rather than throwing. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::truncate -->
 4. A `browser-run` skill is seeded (advanced mode) positioning these tools in an explicit web-fetch decision tree (pi-web-access → `ctx_fetch_and_index` → `curl` → `browser_markdown`) as the cheap read step for JS-rendered or bot-blocked pages the agent only needs to READ — with the interactive `chrome-devtools` surface as the next step up for pages that must be driven ([REQ-BROWSER-006](#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter)); the native tool names are added to the Pi tool allowlist in the seed generator so subagents may use them.
 
 **Constraints:**
@@ -167,7 +164,6 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 ### REQ-BROWSER-005: Claude browser-run MCP server (read-surface parity)
 
 <!-- @impl: preseed/agents/claude/browser-run-mcp/index.mjs -->
-<!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs -->
 <!-- @impl: preseed/agents/claude/browser-run-mcp/core.d.mts -->
 <!-- @impl: preseed/agents/claude/browser-run-mcp/package.json -->
 <!-- @impl: Dockerfile -->
@@ -180,9 +176,9 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Acceptance Criteria:**
 
-1. A Claude-side MCP server (`preseed/agents/claude/browser-run-mcp/`) exposes `browser_markdown` / `browser_content` / `browser_scrape` tools that call the Cloudflare Browser Run REST Quick Actions, mirroring the Pi native wrapper's behavior (same endpoints, ~120k output cap, empty-render hint, `wait_until`).
+1. A Claude-side MCP server (`preseed/agents/claude/browser-run-mcp/`) exposes `browser_markdown` / `browser_content` / `browser_scrape` tools that call the Cloudflare Browser Run REST Quick Actions, mirroring the Pi native wrapper's behavior (same endpoints, ~120k output cap, empty-render hint, `wait_until`). <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::TOOLS -->
 2. It is built into the image (Dockerfile) and registered in `~/.claude.json` by `entrypoint.sh` only in Pro (advanced) mode AND when `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` are present (Standard / token-less sessions are byte-identical to today), with the token + account passed in the server's scoped env.
-3. The tools load public targets only and surface errors as tool errors rather than throwing.
+3. The tools load public targets only and surface errors as tool errors rather than throwing. <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::executeBrowserAction -->
 4. The Claude `browser-run` skill positions this read surface (cheap, one-shot) ahead of the interactive `chrome-devtools` surface in its decision order.
 
 **Constraints:**

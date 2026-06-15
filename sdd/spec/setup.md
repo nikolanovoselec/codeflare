@@ -29,20 +29,17 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-001 describe -> publicly accessible when setup:complete unset + only CLOUDFLARE_API_TOKEN required + token from env not body + R2/DNS/Access app resources created + status shape -> AC1..AC5) -->
 ### REQ-SETUP-001: First-time setup requires zero pre-configuration
 
-<!-- @impl: src/routes/setup/index.ts -->
-<!-- @impl: src/routes/setup/handlers.ts -->
-
 **Intent:** A freshly deployed Codeflare instance must be configurable through the setup wizard without any prior manual setup of authentication, DNS, or storage.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. Before setup completes, the setup-configure endpoint is publicly accessible (no authentication required).
-2. The deployer needs only a Cloudflare API token configured as a Worker secret; no other pre-configuration is required.
-3. The Cloudflare API token is read from a Worker environment binding, not from the request body.
-4. The setup wizard provisions all necessary Cloudflare resources (R2 credentials, DNS records, Access applications, Turnstile widgets) from scratch.
-5. The setup-status endpoint is always public and returns the configured flag, optional custom domain, and SaaS mode flag.
+1. Before setup completes, the setup-configure endpoint is publicly accessible (no authentication required). <!-- @impl: src/routes/setup/index.ts::default -->
+2. The deployer needs only a Cloudflare API token configured as a Worker secret; no other pre-configuration is required. <!-- @impl: src/routes/setup/index.ts::default -->
+3. The Cloudflare API token is read from a Worker environment binding, not from the request body. <!-- @impl: src/routes/setup/index.ts::default -->
+4. The setup wizard provisions all necessary Cloudflare resources (R2 credentials, DNS records, Access applications, Turnstile widgets) from scratch. <!-- @impl: src/routes/setup/index.ts::default -->
+5. The setup-status endpoint is always public and returns the configured flag, optional custom domain, and SaaS mode flag. <!-- @impl: src/routes/setup/handlers.ts::default -->
 
 **Constraints:**
 
@@ -134,19 +131,16 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 <!-- @test: src/__tests__/lib/onboarding.test.ts (isSaasModeActive describe + deployment mode helpers describe -> SAAS_MODE=active case-insensitive + undefined defaults to CF Access + independence from ONBOARDING_LANDING_PAGE -> AC1..AC4) -->
 ### REQ-SETUP-003: Three deployment modes
 
-<!-- @impl: src/lib/onboarding.ts -->
-<!-- @impl: src/lib/access.ts -->
-
 **Intent:** Codeflare supports three deployment modes that determine authentication strategy and user provisioning.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. Default mode uses Cloudflare Access authentication with manually allowlisted users via the setup wizard, gated by CF Access policies and a persistent allowlist.
-2. Onboarding mode uses CF Access authentication with a public waitlist landing page for unauthenticated visitors; authenticated users are routed into the application.
-3. SaaS mode replaces the CF Access interstitial with a branded login page; when GitHub OAuth is configured it uses session credentials for authentication, auto-provisions new users with a pending tier, and manages user state without CF Access groups or policies.
-4. Deployment mode is determined at deploy time via Worker bindings (not at runtime from request data).
+1. Default mode uses Cloudflare Access authentication with manually allowlisted users via the setup wizard, gated by CF Access policies and a persistent allowlist. <!-- @impl: src/lib/access.ts::getUserFromRequest -->
+2. Onboarding mode uses CF Access authentication with a public waitlist landing page for unauthenticated visitors; authenticated users are routed into the application. <!-- @impl: src/lib/onboarding.ts::isOnboardingLandingPageActive -->
+3. SaaS mode replaces the CF Access interstitial with a branded login page; when GitHub OAuth is configured it uses session credentials for authentication, auto-provisions new users with a pending tier, and manages user state without CF Access groups or policies. <!-- @impl: src/lib/onboarding.ts::isSaasModeActive -->
+4. Deployment mode is determined at deploy time via Worker bindings (not at runtime from request data). <!-- @impl: src/lib/onboarding.ts::isSessionOidcMode -->
 5. The frontend detects the active mode on load and renders the appropriate initial view: branded login for SaaS, setup wizard if unconfigured, or workspace redirect for default mode.
 
 **Constraints:**
@@ -168,7 +162,6 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 ### REQ-SETUP-004: Setup is idempotent
 
 <!-- @impl: src/routes/setup/handlers.ts -->
-<!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain -->
 <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-004 describe -> idempotent setup semantics) + src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-004 describe -> AC1/AC2/AC3/AC4/AC5 create-or-update + retry-resume + Already-Exists handling + latest-version-not-yet-deployed redeploy) -->
 
 **Intent:** Re-running the setup wizard with the same or updated inputs must safely update existing resources without creating duplicates or leaving orphaned state.
@@ -180,7 +173,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 1. Every step uses create-or-update semantics: reads are non-mutating, derived values are deterministic from the token, secrets overwrite, DNS/route/Access/Turnstile provisioning is upsert-shaped.
 2. If a previous run partially completed, a retry updates existing resources and continues from the first step.
 3. Partial progress from failed runs is retained so the next call can resume. Setup is not marked complete on failure.
-4. "Already exists" errors on Worker routes and DNS records are handled by updating the existing resource rather than failing.
+4. "Already exists" errors on Worker routes and DNS records are handled by updating the existing resource rather than failing. <!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain -->
 5. The "latest version not yet deployed" error class on secret writes triggers an automatic redeploy of the latest Worker version followed by a retry.
 
 **Constraints:**
@@ -200,8 +193,6 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ### REQ-SETUP-005: Post-setup reconfiguration requires admin auth
 
-<!-- @impl: src/routes/setup/index.ts -->
-<!-- @impl: src/lib/access.ts::authenticateRequest -->
 <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers describe → post-setup admin gate + GET status public → AC1-AC5) -->
 
 **Intent:** After initial setup is complete, only authenticated administrators can reconfigure the deployment.
@@ -210,11 +201,11 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. Once setup is marked complete, the setup-route auth middleware requires valid authentication for all configure/detect/prefill endpoints.
-2. The authenticated principal must have the admin role.
-3. The admin gate applies to the configure endpoint, the token-detection endpoint, and the prefill endpoint.
+1. Once setup is marked complete, the setup-route auth middleware requires valid authentication for all configure/detect/prefill endpoints. <!-- @impl: src/routes/setup/index.ts::default -->
+2. The authenticated principal must have the admin role. <!-- @impl: src/lib/access.ts::authenticateRequest -->
+3. The admin gate applies to the configure endpoint, the token-detection endpoint, and the prefill endpoint. <!-- @impl: src/routes/setup/index.ts::default -->
 4. The setup-status endpoint remains always public and never returns secrets.
-5. Authentication accepts either Cloudflare Access tokens or Worker-issued session credentials, verified through the shared auth middleware.
+5. Authentication accepts either Cloudflare Access tokens or Worker-issued session credentials, verified through the shared auth middleware. <!-- @impl: src/lib/access.ts::authenticateRequest -->
 
 **Constraints:**
 
@@ -296,8 +287,6 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 <!-- @test: src/__tests__/setup-007-custom-domain-ac.test.ts (REQ-SETUP-007 describe -> ccTLD zone suffix walk + proxied CNAME + Worker route pattern + 10020 update path + lowercased KV write + cors-cache TTL + workersDevUrl/customDomainUrl in summary -> AC1..AC7) -->
 ### REQ-SETUP-007: Custom domain with DNS validation
 
-<!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain -->
-<!-- @impl: src/lib/cors-cache.ts -->
 <!-- @test: src/__tests__/setup-007-custom-domain-ac.test.ts (REQ-SETUP-007 describe -> AC1/AC2/AC3/AC4/AC5/AC7 zone resolution + CNAME + Worker route + Already-Exists + normalized persistence + workers.dev fallback) + src/__tests__/lib/cors-cache.test.ts (cors-cache describe -> AC6 dynamic-origin cache TTL) -->
 
 **Intent:** The setup wizard must configure a custom domain with proper DNS records and Worker routes, supporting nested subdomains and ccTLDs.
@@ -306,12 +295,12 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. Zone resolution walks progressively shorter suffixes of the requested hostname so multi-label TLDs are handled correctly.
-2. A proxied CNAME record is created or updated, pointing the custom domain at the Worker's default workers.dev hostname.
-3. A Worker route covering the custom domain is created and mapped to the deployed Worker script.
-4. "Already exists" errors on Worker routes are handled by updating the existing route rather than failing.
+1. Zone resolution walks progressively shorter suffixes of the requested hostname so multi-label TLDs are handled correctly. <!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain -->
+2. A proxied CNAME record is created or updated, pointing the custom domain at the Worker's default workers.dev hostname. <!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain -->
+3. A Worker route covering the custom domain is created and mapped to the deployed Worker script. <!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain -->
+4. "Already exists" errors on Worker routes are handled by updating the existing route rather than failing. <!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain -->
 5. The custom domain is persisted in normalized (lowercased) form so origin comparisons are deterministic.
-6. Dynamic origins (the custom domain plus any additional origins configured via setup) are cached in-memory for a short TTL; the persistent store is the source of truth.
+6. Dynamic origins (the custom domain plus any additional origins configured via setup) are cached in-memory for a short TTL; the persistent store is the source of truth. <!-- @impl: src/lib/cors-cache.ts::isAllowedOrigin -->
 7. After setup completes, the workers.dev hostname is treated as an initialization-only fallback; production traffic flows through the custom domain.
 
 **Constraints:**
@@ -331,8 +320,6 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ### REQ-SETUP-008: Setup helper endpoints support prefill and detection
 
-<!-- @impl: src/routes/setup/handlers.ts -->
-<!-- @impl: src/routes/setup/index.ts -->
 <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers describe → prefill + detect-token + shared setupRateLimiter → AC1-AC4) -->
 
 **Intent:** The setup UI must be able to pre-populate fields from existing configuration and detect the API token's capabilities.
@@ -341,10 +328,10 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. The prefill endpoint reads existing CF Access group membership and persistent configuration so the setup form repopulates correctly on redeployment.
-2. The token-detection endpoint validates the API token and returns its capabilities (account info, permissions).
-3. Both helper endpoints share the same rate limiter as the configure endpoint, so they cannot bypass setup-route throttling.
-4. Both endpoints require admin auth after setup is complete, using the same conditional gate as the configure endpoint.
+1. The prefill endpoint reads existing CF Access group membership and persistent configuration so the setup form repopulates correctly on redeployment. <!-- @impl: src/routes/setup/handlers.ts::default -->
+2. The token-detection endpoint validates the API token and returns its capabilities (account info, permissions). <!-- @impl: src/routes/setup/handlers.ts::default -->
+3. Both helper endpoints share the same rate limiter as the configure endpoint, so they cannot bypass setup-route throttling. <!-- @impl: src/routes/setup/index.ts::default -->
+4. Both endpoints require admin auth after setup is complete, using the same conditional gate as the configure endpoint. <!-- @impl: src/routes/setup/index.ts::default -->
 
 **Constraints:**
 
@@ -364,7 +351,6 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SETUP-009 AC coverage describe -> all 5 tiers visible + two-phase navigation + Turnstile init + Standard/Pro mode toggle + free tier no-Stripe direct subscribe + paid tier Start Trial CTA -> AC1..AC6) -->
 ### REQ-SETUP-009: Subscribe page with tier selection
 
-<!-- @impl: web-ui/src/components/SubscribePage.tsx -->
 <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (SubscribePage / REQ-SETUP-009 describe + AC coverage block -> AC1/AC2/AC3/AC4/AC5/AC6 tier listing + two-phase wizard + CAPTCHA + mode toggle + free-immediate + paid-handoff) -->
 
 **Intent:** Users can choose their subscription tier with a clear comparison of features and pricing.
@@ -373,12 +359,12 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. The subscribe page shows the available tiers with their features, included hours, session limits, storage, and pricing.
-2. The flow is a two-phase wizard: an overview phase and a tier-selection phase; checkout is an external payment-provider handoff, not an internal phase.
-3. New subscriptions are gated by a CAPTCHA challenge.
-4. The page exposes a mode toggle between the two subscription mode families.
-5. The free tier activates immediately without an external checkout step.
-6. Paid tiers hand off to the external payment provider's hosted checkout.
+1. The subscribe page shows the available tiers with their features, included hours, session limits, storage, and pricing. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage -->
+2. The flow is a two-phase wizard: an overview phase and a tier-selection phase; checkout is an external payment-provider handoff, not an internal phase. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage -->
+3. New subscriptions are gated by a CAPTCHA challenge. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage -->
+4. The page exposes a mode toggle between the two subscription mode families. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage -->
+5. The free tier activates immediately without an external checkout step. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage -->
+6. Paid tiers hand off to the external payment provider's hosted checkout. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage -->
 
 **Constraints:** None.
 

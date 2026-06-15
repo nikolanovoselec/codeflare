@@ -27,18 +27,15 @@ None. Authentication is foundational; other domains depend on it.
 <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-001 SaaS mode mutual exclusivity describe -> AuthError when OAUTH_JWT_SECRET missing + no fallthrough to CF Access + valid SaaS cookie authenticates -> AC2,3) -->
 ### REQ-AUTH-001: Two authentication modes
 
-<!-- @impl: src/lib/access.ts::getUserFromRequest -->
-<!-- @impl: src/lib/onboarding.ts::isSaasModeActive -->
-
 **Intent:** Codeflare supports two mutually exclusive authentication mechanisms: Cloudflare Access (CF Access) and Direct GitHub OAuth, selected by deployment configuration.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. When GitHub OAuth is not configured, authentication is handled by Cloudflare Access; the Worker verifies CF Access JWTs against the deployment's CF Access JWKS endpoint.
-2. When the deployment is configured as SaaS with GitHub OAuth, the Worker manages the entire OAuth flow and issues its own session cookies signed against an operator-provided JWT secret.
-3. The two modes are mutually exclusive at runtime: when the Direct GitHub OAuth branch is entered, CF Access is never checked.
+1. When GitHub OAuth is not configured, authentication is handled by Cloudflare Access; the Worker verifies CF Access JWTs against the deployment's CF Access JWKS endpoint. <!-- @impl: src/lib/access.ts::getUserFromRequest -->
+2. When the deployment is configured as SaaS with GitHub OAuth, the Worker manages the entire OAuth flow and issues its own session cookies signed against an operator-provided JWT secret. <!-- @impl: src/lib/onboarding.ts::isSaasModeActive -->
+3. The two modes are mutually exclusive at runtime: when the Direct GitHub OAuth branch is entered, CF Access is never checked. <!-- @impl: src/lib/access.ts::getUserFromRequest -->
 4. The frontend always calls a single logout endpoint; the backend dispatches to the correct logout flow based on mode.
 
 **Constraints:**
@@ -60,7 +57,6 @@ None. Authentication is foundational; other domains depend on it.
 ### REQ-AUTH-002: SaaS mode uses Direct GitHub OAuth
 
 <!-- @impl: src/routes/github-auth.ts -->
-<!-- @impl: src/lib/oauth-state.ts -->
 
 **Intent:** When the deployment is configured as SaaS with GitHub OAuth, Codeflare presents a branded login page and handles the OAuth flow directly, with no Cloudflare Access involvement.
 
@@ -69,11 +65,11 @@ None. Authentication is foundational; other domains depend on it.
 **Acceptance Criteria:**
 
 1. Visiting the root URL in SaaS mode shows the Codeflare login page with a "Sign in with GitHub" button.
-2. The login endpoint initiates a GitHub OAuth flow with a signed, self-contained state token (no cookie required during the redirect).
-3. The OAuth callback validates the state token, rejecting tokens not issued by this server, issued more than 30 minutes ago, or already redeemed.
+2. The login endpoint initiates a GitHub OAuth flow with a signed, self-contained state token (no cookie required during the redirect). <!-- @impl: src/lib/oauth-state.ts::signOauthState -->
+3. The OAuth callback validates the state token, rejecting tokens not issued by this server, issued more than 30 minutes ago, or already redeemed. <!-- @impl: src/lib/oauth-state.ts::verifyOauthState -->
 4. Successful callback validation creates an authenticated session and redirects the user to their workspace if their subscription is active, or to the subscription page if pending or blocked; the GitHub access token used during the exchange is held only for the duration of the callback and never persisted to KV, DO storage, or any session record.
 5. State-validation failure redirects to the login page with an error indicator.
-6. The OAuth handshake works on browsers that drop or partition cross-site cookies during the github.com bounce-back, including iOS WebKit (Safari, Brave) in standard, private, and ephemeral browsing modes.
+6. The OAuth handshake works on browsers that drop or partition cross-site cookies during the github.com bounce-back, including iOS WebKit (Safari, Brave) in standard, private, and ephemeral browsing modes. <!-- @impl: src/lib/oauth-state.ts::signOauthState -->
 7. Only verified primary GitHub emails are accepted.
 
 **Constraints:**
@@ -96,9 +92,7 @@ None. Authentication is foundational; other domains depend on it.
 <!-- @test: src/__tests__/routes/setup/access.test.ts (setup access wizard describe -> creates Access Application with 5 destinations + per-worker Access Groups admins/users -> AC5) -->
 ### REQ-AUTH-003: CF Access mode for all other deployments
 
-<!-- @impl: src/lib/jwt.ts::verifyAccessJWT -->
 <!-- @impl: src/lib/jwt.ts::resetJWKSCache -->
-<!-- @impl: src/routes/setup/access.ts -->
 
 **Intent:** When the deployment is not configured for SaaS, Cloudflare Access provides the authentication layer, supporting multiple identity providers managed through the CF Access dashboard.
 
@@ -107,10 +101,10 @@ None. Authentication is foundational; other domains depend on it.
 **Acceptance Criteria:**
 
 1. Accessing protected application pages or API endpoints triggers a CF Access redirect to the configured identity provider.
-2. After IdP authentication, CF Access issues a session credential that the Worker validates on every request.
-3. The Worker verifies the credential signature against the CF Access JWKS endpoint.
-4. User email is extracted from the credential claims, normalized, and resolved from persistent storage.
-5. The setup wizard provisions a CF Access Application covering all protected paths and creates Access Groups scoped to admin and regular user roles.
+2. After IdP authentication, CF Access issues a session credential that the Worker validates on every request. <!-- @impl: src/lib/jwt.ts::verifyAccessJWT -->
+3. The Worker verifies the credential signature against the CF Access JWKS endpoint. <!-- @impl: src/lib/jwt.ts::verifyAccessJWT -->
+4. User email is extracted from the credential claims, normalized, and resolved from persistent storage. <!-- @impl: src/lib/jwt.ts::verifyAccessJWT -->
+5. The setup wizard provisions a CF Access Application covering all protected paths and creates Access Groups scoped to admin and regular user roles. <!-- @impl: src/routes/setup/access.ts::handleCreateAccessApp -->
 
 **Constraints:**
 
@@ -131,7 +125,6 @@ None. Authentication is foundational; other domains depend on it.
 <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-004 Service token describe -> X-Service-Auth checked first beats SaaS + constant-time comparison rejects wrong/length-mismatch + admin role + SERVICE_TOKEN_EMAIL normalization + AC5 ignored when secret unset -> AC1..AC3,AC5) -->
 ### REQ-AUTH-004: Service token authentication for E2E testing
 
-<!-- @impl: src/lib/access.ts::getUserFromRequest -->
 <!-- @test: src/__tests__/lib/service-token-auth.test.ts (service-token-auth describe → X-Service-Auth precedence + constant-time compare + admin mapping → AC1/AC2/AC3/AC5) -->
 
 **Intent:** Automated E2E tests can authenticate without a browser-based OAuth flow by presenting a service token header.
@@ -140,11 +133,11 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. The service-token header is checked first, before any other authentication method, regardless of deployment mode.
-2. The header value is compared against the configured service-auth secret using constant-time comparison.
-3. Successful service-token auth returns an admin user with a preconfigured test identity.
-4. The secret source varies by deployment mode but is unified under a single shared secret name at runtime.
-5. When no service-token secret is configured, service auth is disabled (no fallback).
+1. The service-token header is checked first, before any other authentication method, regardless of deployment mode. <!-- @impl: src/lib/access.ts::getUserFromRequest -->
+2. The header value is compared against the configured service-auth secret using constant-time comparison. <!-- @impl: src/lib/access.ts::getUserFromRequest -->
+3. Successful service-token auth returns an admin user with a preconfigured test identity. <!-- @impl: src/lib/access.ts::getUserFromRequest -->
+4. The secret source varies by deployment mode but is unified under a single shared secret name at runtime. <!-- @impl: src/lib/access.ts::getUserFromRequest -->
+5. When no service-token secret is configured, service auth is disabled (no fallback). <!-- @impl: src/lib/access.ts::getUserFromRequest -->
 
 **Constraints:**
 
@@ -163,9 +156,6 @@ None. Authentication is foundational; other domains depend on it.
 
 ### REQ-AUTH-005: Three-tier authorization middleware
 
-<!-- @impl: src/middleware/auth.ts::requireIdentity -->
-<!-- @impl: src/middleware/auth.ts::requireActiveUser -->
-<!-- @impl: src/middleware/auth.ts::requireAdmin -->
 <!-- @impl: src/lib/subscription.ts::isActiveTier -->
 <!-- @test: src/__tests__/middleware/auth-saas.test.ts (SaaS auth middleware describe → identity + active + admin tiers + PENDING/BLOCKED → AC1-AC4) -->
 
@@ -175,9 +165,9 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. The identity middleware resolves the authenticated user from the active auth mechanism and auto-provisions first-time SaaS users with a pending subscription tier.
-2. The active-user middleware additionally verifies the user holds an active subscription tier; pending users are rejected with code PENDING, blocked users with code BLOCKED; tier checking is skipped outside SaaS mode for backward compatibility.
-3. The admin middleware restricts access to users with the admin role and must be composed after one of the user-identity middlewares.
+1. The identity middleware resolves the authenticated user from the active auth mechanism and auto-provisions first-time SaaS users with a pending subscription tier. <!-- @impl: src/middleware/auth.ts::requireIdentity -->
+2. The active-user middleware additionally verifies the user holds an active subscription tier; pending users are rejected with code PENDING, blocked users with code BLOCKED; tier checking is skipped outside SaaS mode for backward compatibility. <!-- @impl: src/middleware/auth.ts::requireActiveUser -->
+3. The admin middleware restricts access to users with the admin role and must be composed after one of the user-identity middlewares. <!-- @impl: src/middleware/auth.ts::requireAdmin -->
 
 **Constraints:**
 
@@ -196,8 +186,6 @@ None. Authentication is foundational; other domains depend on it.
 
 ### REQ-AUTH-006: User email normalized
 
-<!-- @impl: src/lib/access.ts::getBucketName -->
-<!-- @impl: src/lib/access.ts::resolveUserFromKV -->
 <!-- @test: src/__tests__/lib/access.test.ts (getBucketName + authenticateRequest describes → trim + lowercase + deterministic bucket name → AC1/AC2/AC3) -->
 
 **Intent:** User email addresses are normalized before any lookup, comparison, or storage operation to prevent case-sensitive duplicates and whitespace-related mismatches.
@@ -206,9 +194,9 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. All email addresses are trimmed (leading/trailing whitespace removed) and lowercased before use.
-2. Normalization is applied before KV lookup, role resolution, bucket name derivation, and CF Access group membership operations.
-3. User storage resources are named deterministically from the normalized email address.
+1. All email addresses are trimmed (leading/trailing whitespace removed) and lowercased before use. <!-- @impl: src/lib/access.ts::resolveUserFromKV -->
+2. Normalization is applied before KV lookup, role resolution, bucket name derivation, and CF Access group membership operations. <!-- @impl: src/lib/access.ts::resolveUserFromKV -->
+3. User storage resources are named deterministically from the normalized email address. <!-- @impl: src/lib/access.ts::getBucketName -->
 
 **Constraints:**
 
@@ -228,17 +216,14 @@ None. Authentication is foundational; other domains depend on it.
 <!-- @test: src/__tests__/middleware/auth-saas.test.ts (requireActiveUser describe -> 403 PENDING for pending tier + allows identity-only routes -> AC2 pending-blocked-from-IDE) -->
 ### REQ-AUTH-007: JIT user provisioning in SaaS mode
 
-<!-- @impl: src/lib/access.ts::resolveOrProvisionUser -->
-<!-- @impl: src/middleware/auth.ts::requireIdentity -->
-
 **Intent:** In SaaS mode, users who authenticate via GitHub OAuth for the first time are automatically provisioned in KV with a `pending` subscription tier, eliminating manual allowlisting.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A new user record is created with a pending subscription tier on first SaaS login.
-2. Pending users can access identity-only endpoints but are blocked from the IDE.
+1. A new user record is created with a pending subscription tier on first SaaS login. <!-- @impl: src/lib/access.ts::resolveOrProvisionUser -->
+2. Pending users can access identity-only endpoints but are blocked from the IDE. <!-- @impl: src/middleware/auth.ts::requireIdentity -->
 3. The frontend detects the pending state and redirects the user to the subscription page.
 4. After subscription (self-service or admin approval), the user record is updated with an active tier.
 5. First-time active users are redirected to onboarding for guided setup.
@@ -327,8 +312,6 @@ None. Authentication is foundational; other domains depend on it.
 <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-010 Auth bypass prevention sentinel describe -> pre-setup header trust before config fetched + header trust permanently disabled once authConfigFetched=true + resetAuthConfigCache restores pre-setup -> AC1,2,4) -->
 ### REQ-AUTH-010: Auth bypass prevention
 
-<!-- @impl: src/lib/access.ts::resetAuthConfigCache -->
-<!-- @impl: src/lib/access.ts::getUserFromRequest -->
 <!-- @test: src/__tests__/lib/access.test.ts (getUserFromRequest describe → authConfigFetched sentinel + pre-setup-header-trust gate + resetAuthConfigCache → AC1-AC4) -->
 
 **Intent:** A transient KV failure must not permanently degrade a configured deployment to the pre-setup header-trust model, which would allow unauthenticated access.
@@ -337,10 +320,10 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. Once auth configuration has been successfully fetched from persistent storage at least once, the isolate records that fact for its lifetime.
-2. Once that flag is set, the pre-setup header-trust fallback is permanently disabled for the isolate.
-3. Subsequent transient storage failures do not revert the flag.
-4. The cached state can be explicitly invalidated for test purposes.
+1. Once auth configuration has been successfully fetched from persistent storage at least once, the isolate records that fact for its lifetime. <!-- @impl: src/lib/access.ts::getUserFromRequest -->
+2. Once that flag is set, the pre-setup header-trust fallback is permanently disabled for the isolate. <!-- @impl: src/lib/access.ts::getUserFromRequest -->
+3. Subsequent transient storage failures do not revert the flag. <!-- @impl: src/lib/access.ts::getUserFromRequest -->
+4. The cached state can be explicitly invalidated for test purposes. <!-- @impl: src/lib/access.ts::resetAuthConfigCache -->
 
 **Constraints:**
 
@@ -360,7 +343,6 @@ None. Authentication is foundational; other domains depend on it.
 <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-011 Auth resolution order describe -> service token beats SaaS OIDC + SaaS beats CF Access + service-token early-return skips SaaS branch (no AuthError thrown without OAUTH_JWT_SECRET) + pre-setup fallback is last + SaaS no-fallthrough on bad cookie -> AC1,2,3) -->
 ### REQ-AUTH-011: Auth resolution order
 
-<!-- @impl: src/lib/access.ts::getUserFromRequest -->
 <!-- @test: src/__tests__/lib/access.test.ts (getUserFromRequest describe → strict priority order + no-fall-through-on-failure → AC1/AC2/AC3) -->
 
 **Intent:** Authentication methods are checked in a strict priority order to prevent ambiguity and ensure the most specific credential takes precedence.
@@ -369,9 +351,9 @@ None. Authentication is foundational; other domains depend on it.
 
 **Acceptance Criteria:**
 
-1. Authentication is resolved in strict priority order: (a) service token, (b) SaaS session credential, (c) CF Access JWT, (d) pre-setup header fallback.
-2. Once a method succeeds, subsequent methods are not checked.
-3. Once a method's branch is entered, it does not fall through to the next method on failure.
+1. Authentication is resolved in strict priority order: (a) service token, (b) SaaS session credential, (c) CF Access JWT, (d) pre-setup header fallback. <!-- @impl: src/lib/access.ts::getUserFromRequest -->
+2. Once a method succeeds, subsequent methods are not checked. <!-- @impl: src/lib/access.ts::getUserFromRequest -->
+3. Once a method's branch is entered, it does not fall through to the next method on failure. <!-- @impl: src/lib/access.ts::getUserFromRequest -->
 
 **Constraints:**
 
@@ -392,19 +374,16 @@ None. Authentication is foundational; other domains depend on it.
 <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-012 describe -> resolveOrProvisionUser fires sendWelcomeEmail fire-and-forget + dedupes via KV flag -> AC2 fire-and-forget, AC3 dedup) -->
 ### REQ-AUTH-012: Welcome email on first login
 
-<!-- @impl: src/lib/email.ts::sendWelcomeEmail -->
-<!-- @impl: src/lib/access.ts::resolveOrProvisionUser -->
-
 **Intent:** New users in SaaS mode receive a welcome email on first login, providing a professional onboarding touchpoint and confirming their account was created.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. When a user is JIT-provisioned on first login, a welcome email is sent.
-2. Email sending is fire-and-forget; delivery failure does not block login.
-3. Email is sent only once per user (deduplicated via a per-user flag in storage).
-4. When the email provider is not configured, the send is silently skipped.
+1. When a user is JIT-provisioned on first login, a welcome email is sent. <!-- @impl: src/lib/email.ts::sendWelcomeEmail -->
+2. Email sending is fire-and-forget; delivery failure does not block login. <!-- @impl: src/lib/access.ts::resolveOrProvisionUser -->
+3. Email is sent only once per user (deduplicated via a per-user flag in storage). <!-- @impl: src/lib/access.ts::resolveOrProvisionUser -->
+4. When the email provider is not configured, the send is silently skipped. <!-- @impl: src/lib/email.ts::sendWelcomeEmail -->
 
 **Constraints:**
 
@@ -424,17 +403,15 @@ None. Authentication is foundational; other domains depend on it.
 <!-- @test: web-ui/src/__tests__/components/LoginPage.test.tsx (LoginPage / REQ-AUTH-013 describe -> renders Codeflare branding + animated logo + Sign in with GitHub button + lists auth providers -> AC1, AC2, AC3) -->
 ### REQ-AUTH-013: Custom branded login page
 
-<!-- @impl: web-ui/src/components/LoginPage.tsx -->
-
 **Intent:** SaaS mode provides a branded login experience instead of the raw CF Access login page.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The SaaS login page shows Codeflare branding with an animated logo.
-2. A "Continue with <provider>" button is displayed for the configured identity provider.
-3. Available auth providers are listed.
+1. The SaaS login page shows Codeflare branding with an animated logo. <!-- @impl: web-ui/src/components/LoginPage.tsx::LoginPage -->
+2. A "Continue with <provider>" button is displayed for the configured identity provider. <!-- @impl: web-ui/src/components/LoginPage.tsx::LoginPage -->
+3. Available auth providers are listed. <!-- @impl: web-ui/src/components/LoginPage.tsx::LoginPage -->
 
 **Constraints:**
 
@@ -455,7 +432,6 @@ None.
 ### REQ-AUTH-014: Auth expiry detection mid-session
 
 <!-- @impl: web-ui/src/api/client.ts -->
-<!-- @impl: web-ui/src/components/Layout.tsx -->
 
 **Intent:** Users are warned when their auth session expires during active use instead of silently failing.
 
@@ -463,8 +439,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. When API calls return 401, an amber re-auth banner appears in the UI.
-2. Clicking the banner refreshes auth.
+1. When API calls return 401, an amber re-auth banner appears in the UI. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
+2. Clicking the banner refreshes auth. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 3. Session polling stops on expiry to prevent noise.
 
 **Constraints:**
@@ -484,16 +460,14 @@ None.
 <!-- @test: web-ui/src/__tests__/components/OnboardingPage.test.tsx (OnboardingPage / REQ-AUTH-015 describe -> renders 4-step flow (idle timeout, GitHub PAT, Cloudflare API token, agent subscription) + free-tier 15m locked + paying-tier 5m-2h selector + auto-redirect for first-time users + onboardingComplete flag prevents re-redirect -> AC1, AC2, AC3, AC4) -->
 ### REQ-AUTH-015: Guided onboarding flow
 
-<!-- @impl: web-ui/src/components/OnboardingPage.tsx -->
-
 **Intent:** First-time users are walked through connecting their accounts step by step.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The onboarding page shows four steps: idle timeout selector, GitHub PAT, Cloudflare API token, and agent subscription.
-2. The idle timeout step explains compute usage and lets users choose their auto-sleep duration. Free-tier users see a locked 15m selector with upgrade hint; paying users can select 5m-2h.
+1. The onboarding page shows four steps: idle timeout selector, GitHub PAT, Cloudflare API token, and agent subscription. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::OnboardingPage -->
+2. The idle timeout step explains compute usage and lets users choose their auto-sleep duration. Free-tier users see a locked 15m selector with upgrade hint; paying users can select 5m-2h. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::OnboardingPage -->
 3. First-time users are auto-redirected to onboarding.
 4. Once onboarding has been completed, the user is not redirected there again.
 
@@ -514,17 +488,15 @@ None.
 <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component describe -> header-user-menu testid renders + dropdown items header-user-dropdown-usage etc. + user name display -> AC1 dropdown with Profile/Guided Setup/Logout, AC3 desktop positioning) -->
 ### REQ-AUTH-016: Header user dropdown
 
-<!-- @impl: web-ui/src/components/Header.tsx -->
-
 **Intent:** Quick access to account actions from any page.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Clicking avatar/username in header opens dropdown with Profile, Guided Setup, Logout.
-2. Mobile renders as bottom sheet.
-3. Desktop positioned below avatar.
+1. Clicking avatar/username in header opens dropdown with Profile, Guided Setup, Logout. <!-- @impl: web-ui/src/components/Header.tsx::Header -->
+2. Mobile renders as bottom sheet. <!-- @impl: web-ui/src/components/Header.tsx::Header -->
+3. Desktop positioned below avatar. <!-- @impl: web-ui/src/components/Header.tsx::Header -->
 
 **Constraints:**
 
@@ -544,18 +516,15 @@ None.
 <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Header Component describe -> shows default avatar when no user name (outline-icon fallback path) -> AC2 fallback) -->
 ### REQ-AUTH-017: Gravatar integration
 
-<!-- @impl: web-ui/src/components/Header.tsx -->
-<!-- @impl: web-ui/src/lib/gravatar.ts -->
-
 **Intent:** Visual user identification via avatar.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. User avatar from Gravatar displayed in header and dashboard.
-2. Falls back to outline icon when no Gravatar exists.
-3. The hashed normalized email is used for the Gravatar lookup.
+1. User avatar from Gravatar displayed in header and dashboard. <!-- @impl: web-ui/src/components/Header.tsx::Header -->
+2. Falls back to outline icon when no Gravatar exists. <!-- @impl: web-ui/src/components/Header.tsx::Header -->
+3. The hashed normalized email is used for the Gravatar lookup. <!-- @impl: web-ui/src/lib/gravatar.ts::getGravatarUrl -->
 
 **Constraints:**
 
@@ -577,8 +546,6 @@ None.
 
 <!-- @impl: src/routes/admin -->
 <!-- @impl: src/routes/users.ts -->
-<!-- @impl: web-ui/src/components/admin/UserManagement.tsx -->
-<!-- @impl: src/lib/user-cleanup.ts::cleanupUserData -->
 <!-- @test: src/__tests__/routes/users.test.ts (Users Routes + GET/DELETE + Admin-only access control describes -> AC1/AC2/AC3 admin panel listing + tier mutations + delete cascade; onboarding-mode PATCH approval + default-mode PATCH rejection -> AC2/AC4 gate) -->
 
 **Intent:** Admins can manage users, approve access, and configure tiers without CLI tools. Approval is a tier mutation (`PATCH /api/users/:email`); the control surface adapts to the deployment mode — SaaS exposes the full subscription-tier picker, while onboarding (which has no paid tiers) collapses it to a plain Approve / Block decision.
@@ -587,10 +554,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. `/admin/users` shows all users grouped by tier.
-2. Admin can search, approve pending users, change tiers, delete users (triggers full cleanup: KV + R2 + sessions + scoped tokens).
-3. User count vs capacity displayed.
-4. In SaaS mode the admin panel renders the full tier + session-mode selectors per user; in onboarding mode it renders a per-user Approve (grants full access: `unlimited` tier + `advanced` session mode) / Block (`blocked` tier) control, and the bulk action approves all pending users to that same full-access tier.
+1. `/admin/users` shows all users grouped by tier. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement -->
+2. Admin can search, approve pending users, change tiers, delete users (triggers full cleanup: KV + R2 + sessions + scoped tokens). <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData -->
+3. User count vs capacity displayed. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement -->
+4. In SaaS mode the admin panel renders the full tier + session-mode selectors per user; in onboarding mode it renders a per-user Approve (grants full access: `unlimited` tier + `advanced` session mode) / Block (`blocked` tier) control, and the bulk action approves all pending users to that same full-access tier. <!-- @impl: web-ui/src/components/admin/UserManagement.tsx::UserManagement -->
 
 **Constraints:**
 
@@ -608,7 +575,6 @@ None.
 
 ### REQ-AUTH-019: User identity and account-status API
 
-<!-- @impl: src/routes/user-profile.ts -->
 <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes / REQ-AUTH-019 describe -> GET /user identity + onboarding-complete + r2-status + ensure-r2-token 503/500 + 401 -> AC1-AC5) -->
 <!-- @test: src/__tests__/routes/rate-limits.test.ts (POST /user/ensure-r2-token 5/min describe -> AC6) -->
 
@@ -656,16 +622,13 @@ None.
 <!-- @impl: src/index.ts -->
 <!-- @impl: wrangler.toml -->
 <!-- @impl: src/routes/github-auth.ts -->
-<!-- @impl: src/lib/email.ts -->
 <!-- @impl: landing/src/components/ContactForm.astro -->
 <!-- @impl: landing/src/components/LoginCard.astro -->
 <!-- @impl: landing/src/components/SsoAccordion.astro -->
 <!-- @impl: landing/src/components/RequestedPanel.astro -->
 <!-- @impl: landing/src/components/Header.astro -->
-<!-- @impl: landing/src/scripts/contact-controller.ts -->
 <!-- @impl: src/lib/onboarding.ts::isSessionOidcMode -->
-<!-- @impl: src/lib/access.ts::validateSessionOidc -->
-<!-- @impl: src/middleware/auth.ts::requireActiveUser -->
+<!-- @impl: src/lib/access.ts::getUserFromRequest -->
 
 **Intent:** In onboarding mode, sign-in shares the marketing landing's design system: visitors get a GitHub sign-in plus enterprise-SSO request affordances on a landing-built `/login` page, and a GitHub OAuth that does not resolve to an approved user records an access request and tells the visitor it was received, rather than dropping them at a subscribe page.
 
@@ -674,10 +637,10 @@ None.
 **Acceptance Criteria:**
 
 1. In onboarding mode (`ONBOARDING_LANDING_PAGE` active, `SAAS_MODE` not active) the Worker serves the landing-built Astro login page at `/login` (rewriting the asset request to `/landing/login/`), carrying the same design tokens, fonts, and mouse-splash signature as the marketing landing; in SaaS mode `/login` is unchanged and continues to serve the SPA login.
-2. The page offers a GitHub sign-in linking to `/auth/github/login` and four enterprise SSO buttons (Microsoft Entra ID, Okta, Ping Identity, Google Workspace) rendered as expand-to-CTA controls that deep-link to the contact form with `topic=enterprise-deployment` (preselected via `pickDeepLinkTopic`); these controls never start an OIDC flow.
-3. After GitHub OAuth, an active-tier user is redirected to `/app/`; a non-approved user in onboarding mode has an access request recorded on their stored record (pending tier plus `requestedAt`, idempotent across repeat sign-ins), admin and user confirmation emails are sent via Resend (`sendAccessRequestConfirmation`), and the user is redirected to `/login?status=requested`, which the page reshapes into a "request submitted" confirmation state.
+2. The page offers a GitHub sign-in linking to `/auth/github/login` and four enterprise SSO buttons (Microsoft Entra ID, Okta, Ping Identity, Google Workspace) rendered as expand-to-CTA controls that deep-link to the contact form with `topic=enterprise-deployment` (preselected via `pickDeepLinkTopic`); these controls never start an OIDC flow. <!-- @impl: landing/src/scripts/contact-controller.ts::pickDeepLinkTopic -->
+3. After GitHub OAuth, an active-tier user is redirected to `/app/`; a non-approved user in onboarding mode has an access request recorded on their stored record (pending tier plus `requestedAt`, idempotent across repeat sign-ins), admin and user confirmation emails are sent via Resend (`sendAccessRequestConfirmation`), and the user is redirected to `/login?status=requested`, which the page reshapes into a "request submitted" confirmation state. <!-- @impl: src/lib/email.ts::sendAccessRequestConfirmation -->
 4. The onboarding access-request branch never runs in SaaS mode (which keeps the existing `/app/subscribe` redirect for pending users) or in enterprise mode.
-5. In onboarding mode the app trusts and refreshes the `codeflare_session` cookie that the GitHub callback issues, via the same app-owned GitHub-OIDC path used in SaaS mode (gated by `isSessionOidcMode` = `SAAS_MODE` active OR `ONBOARDING_LANDING_PAGE` active). So an approved (active) user reaches `/app` after sign-in, and the active-tier middleware (`requireActiveUser`) also applies in onboarding, keeping `/app` approved-users-only (a pending visitor holding a session is still gated out of app APIs). Enterprise / default deployments continue to authenticate via Cloudflare Access and are unaffected.
+5. In onboarding mode the app trusts and refreshes the `codeflare_session` cookie that the GitHub callback issues, via the same app-owned GitHub-OIDC path used in SaaS mode (gated by `isSessionOidcMode` = `SAAS_MODE` active OR `ONBOARDING_LANDING_PAGE` active). So an approved (active) user reaches `/app` after sign-in, and the active-tier middleware (`requireActiveUser`) also applies in onboarding, keeping `/app` approved-users-only (a pending visitor holding a session is still gated out of app APIs). Enterprise / default deployments continue to authenticate via Cloudflare Access and are unaffected. <!-- @impl: src/middleware/auth.ts::requireActiveUser -->
 
 **Constraints:**
 

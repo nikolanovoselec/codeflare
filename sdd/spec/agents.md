@@ -34,7 +34,6 @@ Multi-agent support, preseed system, and session modes.
 
 <!-- @impl: Dockerfile -->
 <!-- @impl: entrypoint.sh -->
-<!-- @impl: src/types.ts::AgentTypeSchema -->
 <!-- @test: src/__tests__/lib/agent-config.test.ts (AGENT_COMMANDS exhaustiveness describe → AC1/AC2) -->
 <!-- @test: host/__tests__/dockerfile-graphify.test.js (npm install + V8 warm-up + Pi npm warm-cache behavior → AC3/AC4/AC5) -->
 
@@ -44,8 +43,8 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. Seven agent types are defined: `claude-code`, `codex`, `copilot`, `antigravity`, `opencode`, `pi`, `bash`.
-2. The `AgentType` type is enforced via Zod schema (`AgentTypeSchema`).
+1. Seven agent types are defined: `claude-code`, `codex`, `copilot`, `antigravity`, `opencode`, `pi`, `bash`. <!-- @impl: src/types.ts::AgentTypeSchema -->
+2. The `AgentType` type is enforced via Zod schema (`AgentTypeSchema`). <!-- @impl: src/types.ts::AgentTypeSchema -->
 3. Each agent's CLI is pre-installed in the container image as a global npm package (or native binary for Go-based agents).
 4. Node.js-based agent CLIs (Codex, Copilot, Pi) are pre-warmed at image build time so V8's compile cache is populated before the user's first interactive launch. Claude Code is installed as a global npm package and is warmed by the version smoke-test run at install time, so it is excluded from the dedicated warm-up block; Go-based agents (OpenCode, Antigravity) are natively compiled.
 5. Pi extension npm dependencies are installed into an image-local cache at build time; the entrypoint symlinks `node_modules` to the cache (zero-copy, instant) so Pi starts without a first-launch package install.
@@ -69,7 +68,6 @@ Multi-agent support, preseed system, and session modes.
 ### REQ-AGENT-002: Agent Selection at Session Creation
 
 <!-- @impl: src/routes/session/crud.ts -->
-<!-- @impl: src/types.ts::AgentTypeSchema -->
 <!-- @test: src/__tests__/lib/agent-config.test.ts (getDefaultTabConfig describe → AC1/AC2/AC5) -->
 
 **Intent:** Users must be able to choose which AI agent to use when creating a session.
@@ -79,7 +77,7 @@ Multi-agent support, preseed system, and session modes.
 **Acceptance Criteria:**
 
 1. `POST /api/sessions` accepts an optional `agentType` field in the request body.
-2. Invalid agent types are rejected at session creation.
+2. Invalid agent types are rejected at session creation. <!-- @impl: src/types.ts::AgentTypeSchema -->
 3. The selected agent type is persisted in the session record.
 4. The UI defaults to the agent type used in the user's most recent session.
 5. When `agentType` is not specified, it defaults to `claude-code`.
@@ -103,20 +101,17 @@ Multi-agent support, preseed system, and session modes.
 <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (configure_tab_autostart / REQ-AGENT-003 describe -> bash harness extracts the real function from entrypoint.sh and reads generated .bashrc; claude --dangerously-skip-permissions emitted + PATH=/usr/local/bin:/usr/bin:/bin set + MANUAL_TAB skip branch present + TAB_CONFIG honored + invalid tab ids rejected + idempotent on re-run -> AC1, AC2, AC3, AC4) -->
 ### REQ-AGENT-003: Agent CLI Auto-Started in Tab 1
 
-<!-- @impl: entrypoint.sh::configure_tab_autostart -->
-<!-- @impl: host/src/prewarm-config.ts -->
-
 **Intent:** When a session starts, the selected agent's CLI must be running and ready in the first terminal tab without manual user intervention.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The container entrypoint configures the selected agent's launch command to run automatically when tab 1's shell starts.
-2. Claude Code starts in permissions-bypass mode appropriate for an isolated sandbox container.
-3. User-opened tabs beyond tab 1 do not auto-start an agent.
-4. The agent CLI is findable on the system PATH in all terminal sessions.
-5. Pre-warm readiness is detected by first PTY output (any terminal output means the agent is ready).
+1. The container entrypoint configures the selected agent's launch command to run automatically when tab 1's shell starts. <!-- @impl: entrypoint.sh::configure_tab_autostart -->
+2. Claude Code starts in permissions-bypass mode appropriate for an isolated sandbox container. <!-- @impl: entrypoint.sh::configure_tab_autostart -->
+3. User-opened tabs beyond tab 1 do not auto-start an agent. <!-- @impl: entrypoint.sh::configure_tab_autostart -->
+4. The agent CLI is findable on the system PATH in all terminal sessions. <!-- @impl: entrypoint.sh::configure_tab_autostart -->
+5. Pre-warm readiness is detected by first PTY output (any terminal output means the agent is ready). <!-- @impl: host/src/prewarm-config.ts::getPrewarmConfig -->
 6. A 20-second hard timeout exists as a safety net if the PTY produces no output.
 
 **Constraints:**
@@ -138,8 +133,6 @@ Multi-agent support, preseed system, and session modes.
 <!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-004 reconcileAgentConfigs describe -> overwrite:false skips + overwrite:true writes + cleanup:true deletes advanced-only + cleanup:false leaves + DELETE failure non-fatal warnings -> AC4..AC6) -->
 ### REQ-AGENT-004: Two Session Modes: Standard and Pro
 
-<!-- @impl: src/lib/session-mode.ts::resolveSessionMode -->
-<!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
 <!-- @test: src/__tests__/lib/session-mode.test.ts (resolveSessionMode describe → AC1/AC2/AC4/AC5/AC6) -->
 
 **Intent:** Users must be able to choose between a Standard mode (essential configs) and a Pro (Advanced) mode (full agent enhancement suite).
@@ -149,11 +142,11 @@ Multi-agent support, preseed system, and session modes.
 **Acceptance Criteria:**
 
 1. Session mode (Standard or Pro) is stored durably in the user's preferences record; the value is absent for users who have never expressed a preference.
-2. A single resolver provides the default-to-Standard fallback when no preference is recorded; all callers read through the resolver rather than checking the raw field directly.
+2. A single resolver provides the default-to-Standard fallback when no preference is recorded; all callers read through the resolver rather than checking the raw field directly. <!-- @impl: src/lib/session-mode.ts::resolveSessionMode -->
 3. Mode selection is available in Settings under the session-defaults area.
-4. Mode takes effect on any of: explicit "Recreate AI agent skills & rules" action, new bucket creation, payment-provider mode change (upgrade or downgrade via webhook), subscription termination, or Settings toggle of the session-mode preference.
-5. On webhook-driven or Settings-driven reconciliation, preseed files are overwritten to match the new mode; user-created files are never deleted (see [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) Constraints).
-6. Reconciliation triggered by webhooks or Settings is non-fatal: failure does not block the webhook response or the preference write.
+4. Mode takes effect on any of: explicit "Recreate AI agent skills & rules" action, new bucket creation, payment-provider mode change (upgrade or downgrade via webhook), subscription termination, or Settings toggle of the session-mode preference. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+5. On webhook-driven or Settings-driven reconciliation, preseed files are overwritten to match the new mode; user-created files are never deleted (see [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) Constraints). <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+6. Reconciliation triggered by webhooks or Settings is non-fatal: failure does not block the webhook response or the preference write. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
 
 **Constraints:**
 
@@ -284,7 +277,6 @@ Multi-agent support, preseed system, and session modes.
 <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (plugin enablement describe -> advanced mode includes PreToolUse/PostToolUse/UserPromptSubmit hook registrations + default mode omits them -> AC4 advanced-mode hook registrations) -->
 ### REQ-AGENT-008: Preseed Deployed to Container on Start
 
-<!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
 <!-- @impl: entrypoint.sh -->
 <!-- @test: src/__tests__/lib/r2-seed.test.ts (seedAgentConfigs describe -> AC1/AC2/AC5/AC6 preseed write + sync + plugin enable + malformed-file handling) -->
 
@@ -294,7 +286,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. On first bucket creation, mode-appropriate preseed files are written to the user's R2 bucket without overwriting any existing objects and without removing anything.
+1. On first bucket creation, mode-appropriate preseed files are written to the user's R2 bucket without overwriting any existing objects and without removing anything. <!-- @impl: src/lib/r2-seed.ts::seedAgentConfigs -->
 2. During container startup, the initial R2-to-local sync restores preseed files into each supported agent's per-user config directory before the agent launches.
 3. The container entrypoint merges agent settings using a hooks-aware merge: non-hook fields use recursive merge; hook arrays are rebuilt per event type by preserving user-added hooks and replacing managed (codeflare-owned) hooks with the current platform version. The managed-hook detector identifies a stable, enumerable set of codeflare-owned hook surfaces; per-path inventory lives in [documentation/lanes/preseed.md](../../documentation/lanes/preseed.md).
 4. In Pro mode, the settings merge includes the codeflare-owned hook registrations across the PreToolUse, PostToolUse, and UserPromptSubmit event families; Standard mode omits them.
@@ -321,7 +313,6 @@ Multi-agent support, preseed system, and session modes.
 ### REQ-AGENT-009: LLM API Key Storage (Encrypted in KV)
 
 <!-- @impl: src/routes/llm-keys.ts -->
-<!-- @impl: src/lib/kv-crypto.ts -->
 <!-- @test: src/__tests__/routes/llm-keys.test.ts (LLM Keys routes describe → AC1-AC5) -->
 
 **Intent:** Users must be able to store LLM provider API keys so that cross-model consultation features work without re-entering keys each session.
@@ -333,7 +324,7 @@ Multi-agent support, preseed system, and session modes.
 1. Users can store one or both supported LLM provider keys (OpenAI and Gemini) through a single management endpoint.
 2. The update interface supports three semantics per key: a new value replaces, an explicit null deletes, an absent field leaves the existing value unchanged.
 3. Keys are persisted in durable storage scoped to the user's bucket so two users cannot read each other's keys.
-4. When platform-level credential encryption is configured, values are encrypted before persistence.
+4. When platform-level credential encryption is configured, values are encrypted before persistence. <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore -->
 5. Read responses return masked values (only the trailing characters are visible); the full key is never returned to the client.
 
 **Constraints:**
@@ -357,7 +348,6 @@ Multi-agent support, preseed system, and session modes.
 ### REQ-AGENT-010: Deploy Credential Storage (GitHub PAT, CF API Token)
 
 <!-- @impl: src/routes/deploy-keys.ts -->
-<!-- @impl: src/lib/kv-crypto.ts -->
 <!-- @test: src/__tests__/routes/deploy-keys.test.ts (deploy-keys routes describe → AC1-AC4) -->
 <!-- @test: web-ui/src/__tests__/lib/token-scopes.test.ts (token-scopes describe → scope tier definitions → AC1 contract) -->
 
@@ -370,7 +360,7 @@ Multi-agent support, preseed system, and session modes.
 1. Tokens are validated against the provider's own API before being stored, so an invalid or expired token is rejected up front rather than discovered at use time.
 2. Read responses return masked tokens; the full value is never returned to the client.
 3. Users can clear all stored deploy credentials in a single action.
-4. Deploy credentials are persisted in durable storage scoped to the user's bucket and are encrypted at rest when platform-level credential encryption is configured.
+4. Deploy credentials are persisted in durable storage scoped to the user's bucket and are encrypted at rest when platform-level credential encryption is configured. <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore -->
 
 **Constraints:**
 
@@ -389,7 +379,6 @@ Multi-agent support, preseed system, and session modes.
 ### REQ-AGENT-011: Agent Skills & Rules Manually Recreatable from Settings
 
 <!-- @impl: src/routes/storage/seed.ts -->
-<!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
 <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes describe → AC1/AC3/AC6/AC7 recreate endpoint + rate limit + storage-stats KV cache invalidation) + src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-011 reconcileAgentConfigs describe → AC2/AC4/AC5 overwrite-and-cleanup with user-file preservation) -->
 
 **Intent:** Users must be able to reset their agent skills and rules to the platform defaults at any time, recovering from accidental deletion or corruption.
@@ -399,10 +388,10 @@ Multi-agent support, preseed system, and session modes.
 **Acceptance Criteria:**
 
 1. A "Recreate AI agent skills & rules" action in the settings UI triggers a reseed of preseed-managed agent configuration.
-2. The reseed performs a full overwrite-and-cleanup of all preseed-managed files for the user's current session mode.
-3. Overwrite replaces every preseed-managed file with the current default content.
-4. Cleanup removes preseed-managed files that are not part of the user's current session mode.
-5. User-created files (files not generated by the preseed pipeline) are never overwritten or deleted.
+2. The reseed performs a full overwrite-and-cleanup of all preseed-managed files for the user's current session mode. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+3. Overwrite replaces every preseed-managed file with the current default content. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+4. Cleanup removes preseed-managed files that are not part of the user's current session mode. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+5. User-created files (files not generated by the preseed pipeline) are never overwritten or deleted. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
 6. The endpoint is rate-limited (3/min).
 7. After seeding, the storage stats KV cache is invalidated.
 
@@ -426,7 +415,6 @@ Multi-agent support, preseed system, and session modes.
 ### REQ-AGENT-012: Fast CLI Start (Configurable)
 
 <!-- @impl: entrypoint.sh -->
-<!-- @impl: src/container/container-env.ts -->
 <!-- @test: src/__tests__/routes/preferences.test.ts (fastStartEnabled preference describe -> AC1/AC5 settings toggle + KV persistence) + src/__tests__/container/container-env.test.ts (buildEnvVars describe -> AC1 fast-start propagation to container runtime env) + src/__tests__/routes/container-restart-prefs.test.ts (REQ-SESSION-008 AC5 describe -> AC4 fast-start applied on restart) + host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-012 Fast Start controls Pi update checks + Fast Start OFF removes settings-file update suppressors -> AC2/AC3/AC4) -->
 
 **Intent:** Agent CLIs must start quickly by default, with an option for users who want automatic updates.
@@ -435,7 +423,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. A fast-start preference (default: enabled) controls whether agent CLIs skip auto-update checks at launch, and the user's choice is propagated into the container's runtime environment.
+1. A fast-start preference (default: enabled) controls whether agent CLIs skip auto-update checks at launch, and the user's choice is propagated into the container's runtime environment. <!-- @impl: src/container/container-env.ts::buildEnvVars -->
 2. When enabled, auto-update checks are disabled for all supported agent CLIs, eliminating 5-30s startup delay.
 3. Every supported agent CLI has a corresponding disable mechanism: each tool's native auto-update path is suppressed by the channel that tool exposes (environment variable for tools that expose one, on-disk settings file for tools that don't). For settings-file tools, user customizations are preserved across container restarts.
 4. When the fast-start preference is disabled, the suppression channels are not applied, Codeflare-managed settings-file suppressors are removed, and each CLI runs its normal update or package-reconciliation path before the session starts.
@@ -459,8 +447,6 @@ Multi-agent support, preseed system, and session modes.
 ### REQ-AGENT-013: Browser Shim for OAuth Flows
 
 <!-- @impl: Dockerfile -->
-<!-- @impl: web-ui/src/lib/terminal-link-provider.ts -->
-<!-- @impl: web-ui/src/stores/terminal-url-detection.ts -->
 <!-- @test: web-ui/src/__tests__/stores/terminal-url-detection.test.ts -->
 
 **Intent:** Agent CLIs that attempt to open a browser for OAuth must degrade gracefully to printing clickable URLs in the terminal.
@@ -472,7 +458,7 @@ Multi-agent support, preseed system, and session modes.
 1. A browser-shim is installed in the container that intercepts browser-launch attempts and exits with a non-zero code, causing the calling CLI to fall back to plain-text URL output.
 2. The XDG browser-launch entry-point is similarly shimmed so any tool that bypasses the BROWSER convention also degrades to text output.
 3. CLIs fall back to printing auth URLs as plain text in the PTY when the browser fails to open.
-4. The xterm.js link provider detects URLs in terminal output and makes them clickable, joining continuation rows for URLs that span multiple terminal rows (soft-wrap or application-inserted newlines) so long OAuth URLs on narrow or mobile-keyboard-shrunk viewports are assembled and offered in full, never truncated mid-URL.
+4. The xterm.js link provider detects URLs in terminal output and makes them clickable, joining continuation rows for URLs that span multiple terminal rows (soft-wrap or application-inserted newlines) so long OAuth URLs on narrow or mobile-keyboard-shrunk viewports are assembled and offered in full, never truncated mid-URL. <!-- @impl: web-ui/src/lib/terminal-link-provider.ts::registerMultiLineLinkProvider --> <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::getLastUrlFromBuffer -->
 
 **Constraints:**
 
@@ -783,7 +769,7 @@ None.
 
 ### REQ-AGENT-049: Auto-upgrade preseed on release
 
-<!-- @impl: scripts/generate-agent-seed.mjs, src/routes/session/lifecycle.ts, src/routes/storage/seed.ts, web-ui/src/stores/session.ts -->
+<!-- @impl: scripts/generate-agent-seed.mjs, src/routes/session/lifecycle.ts, src/routes/storage/seed.ts -->
 <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-AGENT-049 describe -> AC3 preseedNeedsUpgrade) + src/__tests__/routes/storage-seed.test.ts (REQ-AGENT-049 -> AC2 lastPreseedHash persistence + AC7 mode/tier propagation) + web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049 -> AC4 upgrade trigger + AC5 preseedUpgrading flag lifecycle + AC6 failure path) + web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-049 -> AC5 Dashboard button disabled/Upgrading text) + web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-AGENT-049 AC5 -> SessionDropdown disabled during upgrade) + web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-AGENT-049 AC5 -> stopped card dimmed/click-disabled) + src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-049 AC1 -> PRESEED_CONTENT_HASH determinism) -->
 
 **Intent:** When a new codeflare release ships changed preseed content (agent skills, rules, plugins), the user's R2 bucket should be reconciled automatically on first dashboard load - no manual "Recreate Agent Skills & Rules" click required. Session creation and stopped-session access are prevented in the UI during the brief upgrade.
@@ -792,12 +778,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. The preseed generation script computes a deterministic SHA-256 content hash over all preseed documents (sorted by key) and emits it as a build-time constant accessible to the runtime.
+1. The preseed generation script computes a deterministic SHA-256 content hash over all preseed documents (sorted by key) and emits it as a build-time constant accessible to the runtime. <!-- @impl: src/lib/agent-seed.generated.ts::PRESEED_CONTENT_HASH -->
 2. After a successful reconcile (manual or auto), the applied hash is persisted in the user's preferences store.
 3. On initial dashboard load, the backend compares the stored hash against the build-time constant and returns whether an upgrade is needed. This check is omitted from periodic polling to avoid overhead.
-4. On initial dashboard load, if an upgrade is needed, the frontend triggers the reconcile in the background.
+4. On initial dashboard load, if an upgrade is needed, the frontend triggers the reconcile in the background. <!-- @impl: web-ui/src/stores/session.ts::applyMetricsUpdate -->
 5. While the upgrade is in progress, the "+ New Session" button is disabled and displays "Upgrading..." (both Dashboard and SessionDropdown), and stopped session cards are visually dimmed (reduced opacity) and click-disabled.
-6. If the auto-upgrade fails, the error is logged but the dashboard remains fully usable. A page refresh retries the check.
+6. If the auto-upgrade fails, the error is logged but the dashboard remains fully usable. A page refresh retries the check. <!-- @impl: web-ui/src/stores/session.ts::applyMetricsUpdate -->
 7. The reconcile respects the user's current session mode and tier (standard/pro/unlimited) - identical behavior to the manual "Recreate" button.
 
 **Constraints:** None.
@@ -1933,13 +1919,6 @@ None.
 
 ### REQ-AGENT-031: consult-llm Key Isolation, Subscription Backend, and Multi-Agent Parity
 
-<!-- @impl: src/container/container-env.ts -->
-<!-- @impl: entrypoint.sh -->
-<!-- @impl: src/routes/llm-keys.ts -->
-<!-- @impl: web-ui/src/components/SettingsPanel.tsx -->
-<!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md -->
-<!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md -->
-<!-- @impl: preseed/agents/pi/manifest.json -->
 <!-- @impl: scripts/generate-agent-seed.mjs -->
 <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars describe → AC1 CODEFLARE_-namespaced injection + bare-name regression + AC6 enterprise no-inject) -->
 <!-- @test: host/__tests__/entrypoint-consult-llm.test.js (entrypoint consult-llm configuration describe → AC2 scoped env mapping + AC3 codex-cli/API backend selection + AC4 Pi directTools + AC6 enterprise gate) -->
@@ -1952,12 +1931,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. LLM provider keys are injected into the container ONLY under a `CODEFLARE_`-namespaced name (`CODEFLARE_OPENAI_API_KEY` / `CODEFLARE_GEMINI_API_KEY`); the bare `OPENAI_API_KEY` / `GEMINI_API_KEY` names NEVER appear in the container's global environment. Keys are read fresh from KV on each container start and are not persisted in DO storage. <!-- @impl: src/container/container-env.ts -->
+1. LLM provider keys are injected into the container ONLY under a `CODEFLARE_`-namespaced name (`CODEFLARE_OPENAI_API_KEY` / `CODEFLARE_GEMINI_API_KEY`); the bare `OPENAI_API_KEY` / `GEMINI_API_KEY` names NEVER appear in the container's global environment. Keys are read fresh from KV on each container start and are not persisted in DO storage. <!-- @impl: src/container/container-env.ts::buildEnvVars -->
 2. The entrypoint maps the namespaced keys back to the standard `OPENAI_API_KEY` / `GEMINI_API_KEY` names ONLY inside the `consult-llm-mcp` MCP server's scoped `env` block (in `~/.claude.json` and `~/.pi/agent/mcp.json`), never as a global export. <!-- @impl: entrypoint.sh -->
 3. Per provider the entrypoint prefers the subscription over the API key: OpenAI uses the Codex CLI backend (`CONSULT_LLM_OPENAI_BACKEND=codex-cli`, `CONSULT_LLM_CODEX_REASONING_EFFORT=high`) when the user is logged into Codex (`~/.codex/auth.json` present), passing the API key only as a fallback; otherwise it uses the API key. Gemini always uses the API key. When no provider is usable, no MCP server is written. <!-- @impl: entrypoint.sh -->
 4. The `consult-llm` tooling is available to Claude Code AND Pi only: Claude reads it from `~/.claude.json`; Pi reads `~/.pi/agent/mcp.json` with `directTools:["consult_llm"]` promoting it to a first-class tool, and is seeded a native Pi `consult-llm` skill. The Pi server sets `lifecycle:"keep-alive"` so pi-mcp-adapter connects it on startup and auto-reconnects rather than lapsing to a `0/1 servers … cached` footer after the default idle timeout; the Claude server carries no `lifecycle` field (a pi-mcp-adapter-only concept). No other agent (codex/opencode/antigravity) receives the skill or the server. <!-- @impl: entrypoint.sh --> <!-- @impl: preseed/agents/pi/manifest.json -->
 5. When the user invokes the consult-llm skill without naming a model, the agent shows a single-select dialog (`AskUserQuestion` on Claude, `ask_user_question` on Pi) of four explicit choices plus the tool's automatic "Other" write-in (five total): latest Google/Gemini, latest OpenAI/GPT, both, and "list all available models". For "list all available models" the skill surfaces **concrete** model IDs, never the bare provider selectors: consult-llm-mcp (v2.13.x) exposes no model-list tool and no schema enum (the concrete IDs were deliberately replaced by selectors), so the skill reads the latest `AVAILABLE MODELS:` block from the server startup log (`~/.local/state/consult-llm-mcp/mcp.log`), keeps only Gemini (`gemini-*`) and OpenAI (`gpt-*`) IDs, and falls back to clearly-labelled selectors only when the log is unreadable. "Latest" is resolved by the server-side `"openai"` / `"gemini"` model selectors — the skill never hardcodes a flagship ID and never performs a live provider model-list fetch with the raw key. When the user names a specific model, no dialog is shown and that exact ID is passed. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md -->
-6. In enterprise mode the entire LLM-keys-and-consult-llm surface is unavailable: the keys are not injected (AC1 suppressed), the `/api/llm-keys` routes return 403 on every method, the Settings "LLM API Keys" section is hidden, and the entrypoint writes no consult-llm MCP config and removes any seeded `consult-llm` skill dirs for both Claude and Pi. <!-- @impl: src/container/container-env.ts --> <!-- @impl: src/routes/llm-keys.ts --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx --> <!-- @impl: entrypoint.sh -->
+6. In enterprise mode the entire LLM-keys-and-consult-llm surface is unavailable: the keys are not injected (AC1 suppressed), the `/api/llm-keys` routes return 403 on every method, the Settings "LLM API Keys" section is hidden, and the entrypoint writes no consult-llm MCP config and removes any seeded `consult-llm` skill dirs for both Claude and Pi. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: src/routes/llm-keys.ts --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx --> <!-- @impl: entrypoint.sh -->
 
 **Constraints:**
 
@@ -2008,7 +1987,6 @@ None.
 
 ### REQ-AGENT-029: Deploy Credential Propagation to Container
 
-<!-- @impl: src/container/container-env.ts -->
 <!-- @impl: entrypoint.sh -->
 <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars describe → GH_TOKEN + CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID injection → AC1-AC4) -->
 
@@ -2018,8 +1996,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. Stored GitHub and Cloudflare deploy credentials are injected into the container as environment variables on session start.
-2. Credentials are sent as explicit `null` when absent (not omitted) so revocation propagates on session restart.
+1. Stored GitHub and Cloudflare deploy credentials are injected into the container as environment variables on session start. <!-- @impl: src/container/container-env.ts::buildEnvVars -->
+2. Credentials are sent as explicit `null` when absent (not omitted) so revocation propagates on session restart. <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart -->
 3. When a GitHub credential is present, the container configures git for authenticated HTTPS access.
 4. The Cloudflare account ID is resolved automatically from the API token when one is stored, so users need not supply it separately.
 
@@ -2039,7 +2017,6 @@ None.
 
 ### REQ-AGENT-028: Deploy Credential Token-Creation UX
 
-<!-- @impl: web-ui/src/lib/token-scopes.ts -->
 <!-- @impl: web-ui/src/components/settings/ProviderRow.tsx -->
 <!-- @test: web-ui/src/__tests__/lib/token-scopes.test.ts (GITHUB_TIERS + getGithubTokenUrl describes -> AC1 three-tier GitHub scope selector; CLOUDFLARE_TIERS + getCloudflareTokenUrl describes -> AC2 three-tier Cloudflare scope selector with 7/10/22 scope counts) -->
 
@@ -2049,9 +2026,9 @@ None.
 
 **Acceptance Criteria:**
 
-1. GitHub token creation offers three scope tiers (Minimal, Recommended, Advanced) via a selector in the connect flow, with Recommended pre-selected and the URL pre-filling the correct scopes per tier.
-2. Cloudflare token creation offers three scope tiers (Minimal, Recommended, Advanced) via the same selector pattern, with Recommended pre-selected and the URL pre-filling the correct permission group keys per tier.
-3. A documentation page lists all scopes per tier with explanations of why each is needed, linked from the UI via "See all scopes".
+1. GitHub token creation offers three scope tiers (Minimal, Recommended, Advanced) via a selector in the connect flow, with Recommended pre-selected and the URL pre-filling the correct scopes per tier. <!-- @impl: web-ui/src/lib/token-scopes.ts::GITHUB_TIERS --> <!-- @impl: web-ui/src/lib/token-scopes.ts::getGithubTokenUrl -->
+2. Cloudflare token creation offers three scope tiers (Minimal, Recommended, Advanced) via the same selector pattern, with Recommended pre-selected and the URL pre-filling the correct permission group keys per tier. <!-- @impl: web-ui/src/lib/token-scopes.ts::CLOUDFLARE_TIERS --> <!-- @impl: web-ui/src/lib/token-scopes.ts::getCloudflareTokenUrl -->
+3. A documentation page lists all scopes per tier with explanations of why each is needed, linked from the UI via "See all scopes". <!-- @impl: web-ui/src/lib/token-scopes.ts::SCOPES_DOCS_URL -->
 
 **Constraints:**
 

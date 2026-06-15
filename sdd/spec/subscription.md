@@ -30,7 +30,6 @@ Tiers, billing, usage tracking, and quotas.
 <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-001 describe -> 8 canonical IDs + 11 required fields + isDefault uniqueness + blocked/pending canLogin -> AC1..AC4) -->
 ### REQ-SUB-001: Eight-Tier Subscription System
 
-<!-- @impl: src/lib/subscription.ts::getDefaultTiers -->
 <!-- @test: src/__tests__/lib/subscription.test.ts (SubscriptionTierSchema + getDefaultTiers describes → 8 tier IDs + required fields → AC1/AC2) -->
 
 **Intent:** The platform must support a graduated set of subscription tiers that control access levels, compute quotas, session limits, and available features.
@@ -39,10 +38,10 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. Exactly 8 tier IDs exist: `blocked`, `pending`, `free`, `trial`, `standard`, `advanced`, `max`, `unlimited`.
-2. Each tier defines a full property set: monthly compute allotment, maximum concurrent sessions, allowed session modes, login permission, monthly price, trial compute cap, storage cap, display name, description, sort order, and a default-tier flag.
-3. The platform ships a hardcoded fallback containing the complete 8-tier set so configuration absence never produces an empty tier list.
-4. Tier IDs are stable identifiers; display names may differ (for example, the `standard` tier can display as "Starter").
+1. Exactly 8 tier IDs exist: `blocked`, `pending`, `free`, `trial`, `standard`, `advanced`, `max`, `unlimited`. <!-- @impl: src/lib/subscription.ts::getDefaultTiers -->
+2. Each tier defines a full property set: monthly compute allotment, maximum concurrent sessions, allowed session modes, login permission, monthly price, trial compute cap, storage cap, display name, description, sort order, and a default-tier flag. <!-- @impl: src/lib/subscription.ts::getDefaultTiers -->
+3. The platform ships a hardcoded fallback containing the complete 8-tier set so configuration absence never produces an empty tier list. <!-- @impl: src/lib/subscription.ts::getDefaultTiers -->
+4. Tier IDs are stable identifiers; display names may differ (for example, the `standard` tier can display as "Starter"). <!-- @impl: src/lib/subscription.ts::getDefaultTiers -->
 
 **Constraints:**
 
@@ -62,7 +61,6 @@ Tiers, billing, usage tracking, and quotas.
 <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-002 describe -> exact monthlySeconds + maxSessions + sessionModes + maxStorageBytes per tier from AC table -> AC1..AC4) -->
 ### REQ-SUB-002: Tier Property Definitions
 
-<!-- @impl: src/lib/subscription.ts::getDefaultTiers -->
 <!-- @test: src/__tests__/lib/subscription.test.ts (SubscriptionTierConfig interface + getDefaultTiers describes → AC1-AC3) -->
 
 **Intent:** Each tier must define a complete set of properties that drive quota enforcement, session limits, mode gating, and pricing.
@@ -82,9 +80,9 @@ Tiers, billing, usage tracking, and quotas.
 | max | 160 | 3 | Standard, Pro | 2 GB | true |
 | unlimited | null (unlimited) | 5 | Standard, Pro | null (unlimited) | true |
 
-1. An unset monthly compute allotment means unlimited compute.
-2. An unset storage cap means unlimited storage.
-3. The allowed session-modes field is a list of mode identifiers drawn from the supported set.
+1. An unset monthly compute allotment means unlimited compute. <!-- @impl: src/lib/subscription.ts::getDefaultTiers -->
+2. An unset storage cap means unlimited storage. <!-- @impl: src/lib/subscription.ts::getDefaultTiers -->
+3. The allowed session-modes field is a list of mode identifiers drawn from the supported set. <!-- @impl: src/lib/subscription.ts::getDefaultTiers -->
 
 **Constraints:**
 
@@ -144,7 +142,6 @@ Tiers, billing, usage tracking, and quotas.
 ### REQ-SUB-004: Paid Tiers Integrate with Stripe Checkout
 
 <!-- @impl: src/routes/billing.ts -->
-<!-- @impl: src/lib/stripe.ts::createCheckoutSession -->
 
 **Intent:** Paid tiers (standard, advanced, max) must collect payment via Stripe before activating the subscription.
 
@@ -153,7 +150,7 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. When the payment provider is configured, the direct-subscribe endpoint rejects paid tiers with a clear "checkout required" error; only the free tier remains directly subscribable.
-2. The checkout endpoint creates a hosted checkout session pre-populated with the visitor's email and the tier/mode metadata, and returns the externally-hosted checkout URL.
+2. The checkout endpoint creates a hosted checkout session pre-populated with the visitor's email and the tier/mode metadata, and returns the externally-hosted checkout URL. <!-- @impl: src/lib/stripe.ts::createCheckoutSession -->
 3. After payment, the provider sends a checkout-completed webhook that records the checkout outcome and triggers an authoritative state sync.
 4. The frontend polls the auth-status endpoint after the checkout redirect on a fixed interval with no bounded total wait (the poll has no deadline and continues until activation is observed) so subscription activation feels immediate to the user.
 5. The webhook handler covers the three relevant lifecycle events: checkout completion, subscription update, and subscription deletion.
@@ -184,8 +181,6 @@ Tiers, billing, usage tracking, and quotas.
 <!-- @test: src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState describe -> sets trialUsed=true when transitioning away from trialing, prevents re-trial loop -> AC6) -->
 ### REQ-SUB-005: Trial Is Compute-Based, Not Time-Based
 
-<!-- @impl: src/timekeeper/index.ts -->
-<!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
 <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted + handleSubscriptionUpdated + handleSubscriptionDeleted + auto-recreate-on-downgrade describes -> AC2/AC4/AC5/AC6 trial state transitions + cap consumption + first-charge handling + trial-used marker) + src/__tests__/routes/stripe-webhook-sync.test.ts (syncSubscriptionState describe -> AC3 trial quota enforcement) -->
 
 **Intent:** Trial periods must be capped by actual compute usage, not calendar days, so that inactive users do not burn through their trial.
@@ -196,10 +191,10 @@ Tiers, billing, usage tracking, and quotas.
 
 1. Each paid tier has an admin-configurable trial compute cap.
 2. Subscriptions are created with a maximum billing window so the trial cannot exceed a hard calendar limit even if the user never uses any compute.
-3. Timekeeper enforces the trial compute cap as the active quota while the subscription is in trial state.
-4. When the trial compute cap is consumed, Timekeeper ends the trial early at the payment provider, triggering the first real charge.
-5. If the first charge succeeds the full monthly compute quota unlocks; if it fails the subscription enters the past-due state and the user is downgraded to the free tier.
-6. A trial-used marker is recorded when the subscription transitions out of trial state so users cannot loop subscribe-cancel-resubscribe to obtain unlimited free trials.
+3. Timekeeper enforces the trial compute cap as the active quota while the subscription is in trial state. <!-- @impl: src/timekeeper/index.ts::Timekeeper -->
+4. When the trial compute cap is consumed, Timekeeper ends the trial early at the payment provider, triggering the first real charge. <!-- @impl: src/timekeeper/index.ts::Timekeeper -->
+5. If the first charge succeeds the full monthly compute quota unlocks; if it fails the subscription enters the past-due state and the user is downgraded to the free tier. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
+6. A trial-used marker is recorded when the subscription transitions out of trial state so users cannot loop subscribe-cancel-resubscribe to obtain unlimited free trials. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
 
 **Constraints:**
 
@@ -218,8 +213,6 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-006: Real-Time Usage Tracking via Timekeeper DO
 
-<!-- @impl: src/timekeeper/index.ts::Timekeeper -->
-<!-- @impl: src/container/container-metrics.ts -->
 <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO describe → 60s pings + alarm flush + per-period counters → AC1-AC7) -->
 
 **Intent:** Compute usage must be tracked accurately in real time so that quota enforcement and billing decisions use current data.
@@ -228,13 +221,13 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. Exactly one Timekeeper Durable Object instance exists per user.
-2. Container DOs ping their user's Timekeeper with a monotonic per-session total on a short fixed cadence whenever the deployment runs in a billed mode.
-3. Timekeeper computes per-session deltas, accumulates pending usage in memory, and periodically flushes it to durable storage.
-4. Timekeeper exposes a usage-read interface that returns flushed-plus-pending totals for live consumption.
-5. The durable record tracks rolling daily, weekly, monthly, yearly, and all-time totals with automatic rollovers.
-6. The flush handler retries on durable-storage write failure on a fixed 30-second interval (not exponential backoff).
-7. Pending usage is cleared only after a durable-storage write succeeds.
+1. Exactly one Timekeeper Durable Object instance exists per user. <!-- @impl: src/timekeeper/index.ts::Timekeeper -->
+2. Container DOs ping their user's Timekeeper with a monotonic per-session total on a short fixed cadence whenever the deployment runs in a billed mode. <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
+3. Timekeeper computes per-session deltas, accumulates pending usage in memory, and periodically flushes it to durable storage. <!-- @impl: src/timekeeper/index.ts::Timekeeper -->
+4. Timekeeper exposes a usage-read interface that returns flushed-plus-pending totals for live consumption. <!-- @impl: src/timekeeper/index.ts::Timekeeper -->
+5. The durable record tracks rolling daily, weekly, monthly, yearly, and all-time totals with automatic rollovers. <!-- @impl: src/timekeeper/index.ts::Timekeeper -->
+6. The flush handler retries on durable-storage write failure on a fixed 30-second interval (not exponential backoff). <!-- @impl: src/timekeeper/index.ts::Timekeeper -->
+7. Pending usage is cleared only after a durable-storage write succeeds. <!-- @impl: src/timekeeper/index.ts::Timekeeper -->
 
 **Constraints:**
 
@@ -254,7 +247,6 @@ Tiers, billing, usage tracking, and quotas.
 ### REQ-SUB-007: Quota Enforcement at Session Start (402)
 
 <!-- @impl: src/routes/container/lifecycle.ts -->
-<!-- @impl: src/timekeeper/index.ts::Timekeeper -->
 <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO describe → quota gate + 402 + fail-open + non-SaaS skip → AC1-AC6) -->
 
 **Intent:** Users who have consumed their monthly compute quota must be prevented from starting new sessions.
@@ -268,7 +260,7 @@ Tiers, billing, usage tracking, and quotas.
 3. When usage exceeds the allotment, the handler returns a 402 response with a machine-readable quota-exceeded code.
 4. The frontend recognizes the quota-exceeded code and surfaces an upgrade call-to-action instead of a generic error.
 5. Enforcement is skipped in non-billed deployment modes and in stress-test mode.
-6. Enforcement fails open on durable-storage errors so a transient backing-store outage does not lock all users out.
+6. Enforcement fails open on durable-storage errors so a transient backing-store outage does not lock all users out. <!-- @impl: src/timekeeper/index.ts::Timekeeper -->
 
 **Constraints:**
 
@@ -289,18 +281,15 @@ Tiers, billing, usage tracking, and quotas.
 <!-- @test: src/__tests__/timekeeper/index.test.ts (POST /ping describe -> returns { quotaExceeded, totalMonthlySeconds } shape + trial quota enforcement returns quotaExceeded=true when over trialQuotaHours -> AC3 ping response shape) -->
 ### REQ-SUB-008: Mid-Session Quota Enforcement (Graceful Stop)
 
-<!-- @impl: src/container/container-metrics.ts::collectMetrics -->
-<!-- @impl: src/timekeeper/index.ts -->
-
 **Intent:** Sessions that exceed quota while running must be stopped gracefully, not left running indefinitely.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. When Timekeeper's ping response indicates the user has exceeded quota, the Container DO initiates a graceful stop rather than a hard kill.
-2. The graceful stop signal allows the container to run its shutdown handler (including the final sync) before exiting.
-3. The ping response carries both the cumulative monthly usage and the quota-exceeded flag in a single round trip.
+1. When Timekeeper's ping response indicates the user has exceeded quota, the Container DO initiates a graceful stop rather than a hard kill. <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
+2. The graceful stop signal allows the container to run its shutdown handler (including the final sync) before exiting. <!-- @impl: src/container/container-metrics.ts::collectMetrics -->
+3. The ping response carries both the cumulative monthly usage and the quota-exceeded flag in a single round trip. <!-- @impl: src/timekeeper/index.ts::Timekeeper -->
 
 **Constraints:**
 
@@ -322,7 +311,6 @@ Tiers, billing, usage tracking, and quotas.
 ### REQ-SUB-009: Admin-Configurable Tiers via Management Panel
 
 <!-- @impl: src/routes/admin -->
-<!-- @impl: src/lib/subscription.ts::getTierConfig -->
 <!-- @test: src/__tests__/lib/stripe.test.ts (resolveTierFromPriceId describe → tier resolution from Stripe price metadata → AC1/AC4) -->
 
 **Intent:** Administrators must be able to customize tier properties (quotas, prices, sessions, storage) without code changes.
@@ -333,8 +321,8 @@ Tiers, billing, usage tracking, and quotas.
 
 1. The admin tier-update endpoint accepts a full tier-configuration array and persists it to durable storage.
 2. The admin Subscription Management panel exposes editable fields for all tier properties, including storage cap, monthly compute, maximum concurrent sessions, trial cap, and external price IDs.
-3. Tier-configuration reads return the persisted admin configuration when present and fall back to the hardcoded defaults when absent.
-4. Admin-saved values always take priority over defaults; absent fields fall back to defaults, present fields override.
+3. Tier-configuration reads return the persisted admin configuration when present and fall back to the hardcoded defaults when absent. <!-- @impl: src/lib/subscription.ts::getTierConfig -->
+4. Admin-saved values always take priority over defaults; absent fields fall back to defaults, present fields override. <!-- @impl: src/lib/subscription.ts::getTierConfig -->
 5. The admin tier-update endpoint validates its input against a schema that covers every persisted tier property, so a save never silently drops a field.
 6. All tier-management endpoints are admin-gated.
 
@@ -356,8 +344,6 @@ Tiers, billing, usage tracking, and quotas.
 <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-010 describe -> cache hit within 59s + miss after 61s + resetTierConfigCache forces re-read -> AC1..AC4) -->
 ### REQ-SUB-010: Tier Config Cached with 60-Second TTL
 
-<!-- @impl: src/lib/subscription.ts::getTierConfig -->
-<!-- @impl: src/lib/subscription.ts::resetTierConfigCache -->
 <!-- @test: src/__tests__/lib/subscription.test.ts (getTierConfig describe → KV fallback + module cache single-KV-read + resetTierConfigCache cache-bust → AC1-AC5) -->
 
 **Intent:** Tier configuration reads must be fast (avoid KV round-trip on every request) while still reflecting admin changes within a bounded delay.
@@ -366,11 +352,11 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. Tier-configuration reads are served from an in-process cache with a short TTL.
-2. Within the TTL window, calls return the cached value without a durable-storage read.
-3. After the TTL expires, the next call refreshes the cache from durable storage.
-4. A test-only cache-invalidation hook is available so unit tests can exercise post-update behavior deterministically.
-5. Admin changes take effect within one TTL window across all Worker isolates.
+1. Tier-configuration reads are served from an in-process cache with a short TTL. <!-- @impl: src/lib/subscription.ts::getTierConfig -->
+2. Within the TTL window, calls return the cached value without a durable-storage read. <!-- @impl: src/lib/subscription.ts::getTierConfig -->
+3. After the TTL expires, the next call refreshes the cache from durable storage. <!-- @impl: src/lib/subscription.ts::getTierConfig -->
+4. A test-only cache-invalidation hook is available so unit tests can exercise post-update behavior deterministically. <!-- @impl: src/lib/subscription.ts::resetTierConfigCache -->
+5. Admin changes take effect within one TTL window across all Worker isolates. <!-- @impl: src/lib/subscription.ts::getTierConfig -->
 
 **Constraints:**
 
@@ -422,7 +408,6 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-012: Billing Status Enforcement (Effective Tier)
 
-<!-- @impl: src/lib/subscription.ts::getEffectiveTier -->
 <!-- @impl: src/lib/subscription.ts::isActiveTier -->
 <!-- @test: src/__tests__/lib/subscription.test.ts (getEffectiveTier describe → billing-status-driven downgrade matrix → AC1-AC7) -->
 
@@ -432,13 +417,13 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. A single resolver combines the user's subscription tier, the legacy access-tier field, and the current billing state into the canonical effective tier.
-2. A canceled billing state results in an immediate downgrade to the free tier with no grace period.
-3. A past-due billing state with a future billing-period end retains the paid tier for the duration of the grace window.
-4. A past-due billing state with an expired or absent billing-period end downgrades to the free tier.
-5. An expired billing-period end with an otherwise-active billing state downgrades to the free tier so missed webhooks do not leave paid access stuck open.
-6. The stored subscription tier is preserved through downgrades so resubscription restores the correct plan without admin intervention.
-7. Tier enforcement is read-time (computed on access), not write-time (the stored tier is not mutated by the enforcement path).
+1. A single resolver combines the user's subscription tier, the legacy access-tier field, and the current billing state into the canonical effective tier. <!-- @impl: src/lib/subscription.ts::getEffectiveTier -->
+2. A canceled billing state results in an immediate downgrade to the free tier with no grace period. <!-- @impl: src/lib/subscription.ts::getEffectiveTier -->
+3. A past-due billing state with a future billing-period end retains the paid tier for the duration of the grace window. <!-- @impl: src/lib/subscription.ts::getEffectiveTier -->
+4. A past-due billing state with an expired or absent billing-period end downgrades to the free tier. <!-- @impl: src/lib/subscription.ts::getEffectiveTier -->
+5. An expired billing-period end with an otherwise-active billing state downgrades to the free tier so missed webhooks do not leave paid access stuck open. <!-- @impl: src/lib/subscription.ts::getEffectiveTier -->
+6. The stored subscription tier is preserved through downgrades so resubscription restores the correct plan without admin intervention. <!-- @impl: src/lib/subscription.ts::getEffectiveTier -->
+7. Tier enforcement is read-time (computed on access), not write-time (the stored tier is not mutated by the enforcement path). <!-- @impl: src/lib/subscription.ts::getEffectiveTier -->
 
 **Constraints:**
 
@@ -458,8 +443,6 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-013: Concurrent Session Limits
 
-<!-- @impl: src/lib/subscription.ts::getUserTier -->
-<!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits -->
 <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (Session limits describe → per-tier maxSessions enforcement + STRESS_TEST_MODE bypass → AC1-AC4) -->
 
 **Intent:** Each tier must enforce a maximum number of simultaneously running sessions to control resource consumption.
@@ -468,9 +451,9 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. The tier-configuration lookup exposes the maximum-concurrent-sessions value for any tier.
-2. Session creation is rejected when the count of running plus initializing sessions has reached the configured maximum.
-3. The frontend disables the start-session control when the user is at the session limit and surfaces a popup explaining the limit.
+1. The tier-configuration lookup exposes the maximum-concurrent-sessions value for any tier. <!-- @impl: src/lib/subscription.ts::getUserTier -->
+2. Session creation is rejected when the count of running plus initializing sessions has reached the configured maximum. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits -->
+3. The frontend prevents starting a new session once the session limit is reached: at the limit the start-session control does not open the create dialog, and the limit is surfaced to the user via the session-limit popup ([REQ-SUB-019](#req-sub-019-session-limit-popup-in-frontend)). <!-- @impl: web-ui/src/stores/session.ts::isAtSessionLimit --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
 4. The session-status batch endpoint returns the tier maximum so the frontend can enforce limits client-side without a separate fetch.
 
 **Constraints:**
@@ -491,7 +474,6 @@ Tiers, billing, usage tracking, and quotas.
 ### REQ-SUB-014: Session Mode Gating by Tier
 
 <!-- @impl: src/lib/session-mode.ts::resolveSessionMode -->
-<!-- @impl: src/lib/subscription.ts -->
 <!-- @test: src/__tests__/lib/pro-mode-gating.test.ts (Pro-mode gating describe → per-tier allowed modes + rejection on unsupported → AC1-AC4) -->
 
 **Intent:** Only tiers that include Pro (advanced) mode in their `sessionModes` array may create Pro sessions.
@@ -500,9 +482,9 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. The tier-configuration lookup exposes the list of session modes allowed for any tier.
-2. Free and trial tiers only allow Standard mode.
-3. Standard, advanced, max, and unlimited tiers allow both Standard and Pro modes.
+1. The tier-configuration lookup exposes the list of session modes allowed for any tier. <!-- @impl: src/lib/subscription.ts::getAllowedSessionModes -->
+2. Free and trial tiers only allow Standard mode. <!-- @impl: src/lib/subscription.ts::getAllowedSessionModes -->
+3. Standard, advanced, max, and unlimited tiers allow both Standard and Pro modes. <!-- @impl: src/lib/subscription.ts::getAllowedSessionModes -->
 4. Session creation and mode-change requests for a mode the tier does not allow are rejected.
 
 **Constraints:**
@@ -533,7 +515,6 @@ Tiers, billing, usage tracking, and quotas.
 ### REQ-SUB-015: Stripe Webhook Signal-and-Sync Pattern
 
 <!-- @impl: src/routes/stripe-webhook.ts -->
-<!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
 
 **Intent:** KV billing state must always reflect the latest Stripe state to prevent race conditions from incremental patching.
 
@@ -541,12 +522,12 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. Webhooks are treated as signals that trigger a fresh fetch from the payment provider, not as the authoritative data source themselves.
-2. The state-sync routine fetches the latest subscription (with price items expanded) directly from the payment provider.
-3. A last-synced timestamp guard prevents stale webhooks from overwriting newer state.
-4. Persisted updates are built from the fetched snapshot; the persisted tier is updated only when price tier-metadata is present, so absent metadata preserves the existing tier. The subscribed mode is resolved per AC6.
-5. Writes use an atomic read-merge-write helper to prevent concurrent webhook writes from clobbering unrelated fields.
-6. On any mode change (upgrade or downgrade), the agent-config reconciler runs to seed the new mode's config set - recreating the new mode's skills and removing the previous mode's - and the session-mode preference (the UI mode) flips. The mode is resolved from the Stripe price even when the price carries no `mode` metadata: the price ID is matched against the tier configuration's Standard and Pro price slots (`stripePriceId` / `stripeAdvancedPriceId`) to recover it, so a Standard<->Pro subscription change always updates the subscribed mode and triggers this reconcile even when admins configure prices via slots rather than per-price metadata. The change is lazy: a running session is unaffected until its next start.
+1. Webhooks are treated as signals that trigger a fresh fetch from the payment provider, not as the authoritative data source themselves. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
+2. The state-sync routine fetches the latest subscription (with price items expanded) directly from the payment provider. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
+3. A last-synced timestamp guard prevents stale webhooks from overwriting newer state. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
+4. Persisted updates are built from the fetched snapshot; the persisted tier is updated only when price tier-metadata is present, so absent metadata preserves the existing tier. The subscribed mode is resolved per AC6. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
+5. Writes use an atomic read-merge-write helper to prevent concurrent webhook writes from clobbering unrelated fields. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
+6. On any mode change (upgrade or downgrade), the agent-config reconciler runs to seed the new mode's config set - recreating the new mode's skills and removing the previous mode's - and the session-mode preference (the UI mode) flips. The mode is resolved from the Stripe price even when the price carries no `mode` metadata: the price ID is matched against the tier configuration's Standard and Pro price slots (`stripePriceId` / `stripeAdvancedPriceId`) to recover it, so a Standard<->Pro subscription change always updates the subscribed mode and triggers this reconcile even when admins configure prices via slots rather than per-price metadata. The change is lazy: a running session is unaffected until its next start. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState -->
 7. On subscription termination, after resetting the persisted tier to free, the agent-config reconciler runs with the default mode to restore Standard configs.
 
 **Constraints:**
@@ -572,7 +553,6 @@ Tiers, billing, usage tracking, and quotas.
 <!-- @test: src/__tests__/routes/billing.test.ts (REQ-SUB-016 AC6 describe -> portal endpoint is rate-limited 5/min -> AC6) -->
 ### REQ-SUB-016: Customer Portal and Plan Switching
 
-<!-- @impl: src/lib/stripe.ts::createPortalSession -->
 <!-- @impl: src/routes/billing.ts -->
 
 **Intent:** Active subscribers must be able to manage their subscription (cancel, switch plans, update payment) via Stripe's billing portal.
@@ -581,7 +561,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. The billing-portal endpoint creates a hosted billing-portal session and returns the portal URL.
+1. The billing-portal endpoint creates a hosted billing-portal session and returns the portal URL. <!-- @impl: src/lib/stripe.ts::createPortalSession -->
 2. The plan-switch endpoint creates a portal session deep-linked into the subscription-update-confirmation flow with the new price pre-selected.
 3. Plan switching requires the active subscription-item identifier, which the switch endpoint resolves from the payment provider before opening the portal session.
 4. If the subscription no longer exists at the payment provider, stale fields are cleaned up locally and the response asks the frontend to restart at checkout.
@@ -606,17 +586,15 @@ Tiers, billing, usage tracking, and quotas.
 <!-- @test: src/__tests__/routes/contact-team.test.ts (POST /auth/contact-team describe -> sendAccessRequestNotification called with userEmail+adminEmails+plan + defaults to Custom + 429 second-request + email-failure non-fatal + 401 unauth -> AC2,4,5) -->
 ### REQ-SUB-017: Enterprise tier contact flow
 
-<!-- @impl: web-ui/src/components/SubscribePage.tsx -->
-
 **Intent:** The Custom (enterprise) tier is not self-service. Users interested in enterprise-grade access can send an inquiry to admins without leaving the subscribe page.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The subscribe page shows a contact-style call-to-action for the Custom tier in place of a checkout button.
-2. Activating the call-to-action sends an inquiry email to admins through a dedicated contact-team endpoint.
-3. After activation, the control switches to a disabled confirmation state to prevent duplicate submissions.
+1. The subscribe page shows a contact-style call-to-action for the Custom tier in place of a checkout button. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage -->
+2. Activating the call-to-action sends an inquiry email to admins through a dedicated contact-team endpoint. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage -->
+3. After activation, the control switches to a disabled confirmation state to prevent duplicate submissions. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage -->
 4. The endpoint is rate-limited to one inquiry per hour per user.
 5. When the email-provider integration is not configured, the endpoint still returns success and the inquiry is silently dropped.
 
@@ -639,7 +617,6 @@ Tiers, billing, usage tracking, and quotas.
 <!-- @test: web-ui/src/__tests__/stores/session-usage.test.ts (session-usage dismissed quota level / REQ-SUB-018 describe -> persists 80/95 dismissals to localStorage under month-scoped keys + ignores dismissal from previous UTC month + clears on month advance + no throw without localStorage -> AC4 dismiss per UTC month, AC5 95-dismiss-implies-80) -->
 ### REQ-SUB-018: Usage dashboard page
 
-<!-- @impl: web-ui/src/components/UsagePage.tsx -->
 <!-- @impl: web-ui/src/components/UsageInlineBadge.tsx -->
 <!-- @impl: src/routes/usage.ts -->
 
@@ -649,8 +626,8 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. The usage page shows a progress ring for monthly usage and stat cards for today, this month, and the tier quota.
-2. The page polls the usage endpoint for real-time data from Timekeeper with a durable-store fallback when Timekeeper is unavailable.
+1. The usage page shows a progress ring for monthly usage and stat cards for today, this month, and the tier quota. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage -->
+2. The page polls the usage endpoint for real-time data from Timekeeper with a durable-store fallback when Timekeeper is unavailable. <!-- @impl: web-ui/src/components/UsagePage.tsx::UsagePage -->
 3. Layout-level warning banners surface at the 80%, 95%, and 100% utilization thresholds.
 4. The 80% and 95% banners include a dismiss control that hides the banner until the next monthly quota rollover; dismissal is persisted per calendar month so a page reload does not resurface the warning, and the warning returns automatically when the quota resets.
 5. Dismissing the 95% banner also hides the 80% banner because reaching 95% implies the 80% threshold.
@@ -671,7 +648,6 @@ Tiers, billing, usage tracking, and quotas.
 <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 describe -> session limit popup explains tier limit + lists running sessions with stop buttons + New Session button disabled when running+initializing >= maxSessions -> AC1, AC2, AC3) -->
 ### REQ-SUB-019: Session limit popup in frontend
 
-<!-- @impl: web-ui/src/components/Dashboard.tsx -->
 <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 describe -> AC1/AC2/AC3 New-Session disable at cap + popup with running sessions + tier max from batch-status) -->
 
 **Intent:** Users understand why they can't start more sessions and which ones to stop.
@@ -680,7 +656,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. When the count of running plus initializing sessions reaches the tier maximum, the "New Session" control stays enabled but diverts to the session-limit popup instead of starting a session.
+1. When the count of running plus initializing sessions reaches the tier maximum, the "New Session" control stays enabled but diverts to the session-limit popup instead of starting a session. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
 2. The popup explains the tier limit, showing the running-session count and a progress bar, with a dismiss control; it does not list individual sessions with per-session stop controls.
 3. The tier maximum is sourced from the session-status batch endpoint so the frontend and backend agree without an additional request.
 
@@ -698,8 +674,6 @@ Tiers, billing, usage tracking, and quotas.
 
 ### REQ-SUB-020: Multi-Currency Pricing
 
-<!-- @impl: src/lib/currency.ts -->
-<!-- @impl: src/lib/stripe.ts -->
 <!-- @test: src/__tests__/lib/stripe.test.ts (multi-currency describe → currency_options + Checkout currency passthrough → AC1/AC3) -->
 <!-- @test: src/__tests__/routes/auth.test.ts (auth tiers route → CF-IPCountry detection → AC2/AC4) -->
 <!-- @test: src/__tests__/routes/billing.test.ts (billing checkout route → currency passthrough → AC3/AC5) -->
@@ -710,11 +684,11 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. Each payment-provider price object carries multi-currency options for USD, EUR, and GBP alongside the base currency CHF, all at the same nominal amount.
-2. The public tiers endpoint detects visitor currency from the Cloudflare-provided country header and returns prices in that currency.
-3. The checkout endpoint detects visitor currency from the same country header and passes it through to the hosted checkout session so the payment provider charges in the visitor's local currency.
-4. Country-to-currency mapping: Switzerland/Liechtenstein to CHF, United Kingdom to GBP, all other European countries to EUR, rest of world to USD.
-5. Currency detection is server-side only; there is no user-facing currency switcher.
+1. Each payment-provider price object carries multi-currency options for USD, EUR, and GBP alongside the base currency CHF, all at the same nominal amount. <!-- @impl: src/lib/stripe.ts::getStripePrices -->
+2. The public tiers endpoint detects visitor currency from the Cloudflare-provided country header and returns prices in that currency. <!-- @impl: src/lib/currency.ts::getCurrencyForCountry -->
+3. The checkout endpoint detects visitor currency from the same country header and passes it through to the hosted checkout session so the payment provider charges in the visitor's local currency. <!-- @impl: src/lib/stripe.ts::createCheckoutSession -->
+4. Country-to-currency mapping: Switzerland/Liechtenstein to CHF, United Kingdom to GBP, all other European countries to EUR, rest of world to USD. <!-- @impl: src/lib/currency.ts::getCurrencyForCountry -->
+5. Currency detection is server-side only; there is no user-facing currency switcher. <!-- @impl: src/lib/currency.ts::getCurrencyForCountry -->
 
 **Constraints:**
 
@@ -734,7 +708,6 @@ Tiers, billing, usage tracking, and quotas.
 ### REQ-SUB-021: Billing Cycle Alignment
 
 <!-- @impl: src/routes/stripe-webhook.ts -->
-<!-- @impl: src/timekeeper/index.ts -->
 <!-- @test: src/__tests__/routes/billing.test.ts (billing-cycle-anchor describe → 1st-of-UTC-month anchor + proration + trial-end anchor → AC1-AC6) -->
 
 **Intent:** New paid subscriptions are billed on the 1st of each UTC calendar month so that recurring charges and monthly quota resets happen on the same date, eliminating the mid-cycle quota refresh that previously gave users roughly twice the paid quota between two billing charges.
@@ -746,7 +719,7 @@ Tiers, billing, usage tracking, and quotas.
 1. When a user starts checkout for a paid tier, the resulting subscription is anchored so that all recurring charges occur at the start of each calendar month (UTC).
 2. The first charge is prorated for the partial period between the subscription's effective start (creation date for non-trial subscriptions, or trial end for trial subscriptions) and the next calendar-month boundary.
 3. Subsequent monthly charges occur at the start of each calendar month.
-4. The monthly compute-quota reset and the billing-cycle charge both occur on the same calendar date so users never see a half-cycle where one resets and the other does not.
+4. The monthly compute-quota reset and the billing-cycle charge both occur on the same calendar date so users never see a half-cycle where one resets and the other does not. <!-- @impl: src/timekeeper/index.ts::Timekeeper -->
 5. Subscriptions created before this behavior was introduced retain their original billing anniversary; the spec does not require backfilling the new anchor.
 6. When a free trial is active, the billing-cycle anchor is the first calendar-month boundary strictly after the trial ends, so billing begins on that anchor date once the trial completes (whether naturally or by early termination on quota consumption). Trial length itself is unaffected.
 

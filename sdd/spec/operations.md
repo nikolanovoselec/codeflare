@@ -365,8 +365,6 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-006: Idle containers hibernate and cost zero
 
-<!-- @impl: src/container/index.ts -->
-<!-- @impl: src/container/container-metrics.ts -->
 <!-- @test: src/__tests__/container-metrics.test.ts (idle timeout resolution AC8/AC9 describe -> AC1 configurable idle period) + src/__tests__/container/index.test.ts (onStop lifecycle + collectMetrics idle-stop describes -> AC2 hibernated zero-cost) -->
 
 **Intent:** Containers that are not actively in use must hibernate and incur zero compute cost. The cost model anchors the entire pricing strategy, so the hibernation guarantee is operator-facing.
@@ -375,8 +373,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Containers hibernate after a configurable idle period of no user input (default 30 minutes, range 5 minutes to 2 hours).
-2. Hibernated containers consume zero CPU, memory, and disk cost.
+1. Containers hibernate after a configurable idle period of no user input (default 30 minutes, range 5 minutes to 2 hours). <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs -->
+2. Hibernated containers consume zero CPU, memory, and disk cost. <!-- @impl: src/container/index.ts::collectMetrics -->
 3. Active-container cost is approximately $11/user/month for a typical workload on the default tier.
 
 **Constraints:**
@@ -399,7 +397,6 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-016: sleepAfter preference persistence and lifecycle
 
-<!-- @impl: src/container/index.ts -->
 <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014 AC4 describe -> AC1/AC2 sleepAfter persisted in KV across initial set and updates) + src/__tests__/routes/container-restart-prefs.test.ts (REQ-SESSION-008 AC3 describe -> AC3 stored preference loaded on startup) + src/__tests__/container/index.test.ts (destroy describe -> AC4 preference removed on session destruction) -->
 
 **Intent:** The user-configurable idle-timeout preference must survive container-orchestration resets; on startup the stored preference is validated; on shutdown it is cleaned up.
@@ -410,8 +407,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The idle-timeout preference is persisted durably so it survives container-orchestration resets.
 2. The preference is persisted on both initial bucket configuration and any subsequent updates.
-3. On startup, the stored preference is loaded and validated.
-4. On session destruction, the persisted preference is removed.
+3. On startup, the stored preference is loaded and validated. <!-- @impl: src/container/index.ts::onStart -->
+4. On session destruction, the persisted preference is removed. <!-- @impl: src/container/index.ts::destroy -->
 
 **Constraints:**
 
@@ -429,7 +426,6 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-017: sleepAfter fail-safe invariants
 
-<!-- @impl: src/container/index.ts -->
 <!-- @test: src/__tests__/container-metrics.test.ts (idle timeout resolution AC8/AC9 describe -> AC1/AC4 fail-safe to 2h on corruption + fail-loud-not-substitute) + src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014 AC4 describe -> AC2 preference change takes effect within one cycle) -->
 
 **Intent:** Three invariants protect user work from a misconfigured or silently broken idle-detection layer: fail to the maximum (not minimum) on corruption, propagate preference changes within one cycle, and fail loudly rather than substituting a default. A container that dies before its configured timer destroys an hour of unpushed work and breaks the product's core promise.
@@ -439,8 +435,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. The idle-detection layer fails safe in the direction of preserving user work, not minimizing compute. When the configured idle timeout cannot be resolved (storage corrupted, schema-validated value missing, parser fed garbage, code path skipped the user-pref resolution), the system falls back to the maximum supported value (2h) rather than the minimum.
-2. A change to the persisted idle-timeout preference takes effect within one idle-check cycle, regardless of which code path wrote it.
-3. In-memory copies of the preference do not outlive a single idle-check cycle.
+2. A change to the persisted idle-timeout preference takes effect within one idle-check cycle, regardless of which code path wrote it. <!-- @impl: src/container/index.ts::collectMetrics -->
+3. In-memory copies of the preference do not outlive a single idle-check cycle. <!-- @impl: src/container/index.ts::collectMetrics -->
 4. Any code path that hands the resolved idle timeout to the container init must fail loudly when the value is missing, rather than substituting a fallback. The user's configured timer is never silently replaced by a shorter default.
 
 **Constraints:**
@@ -498,7 +494,6 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 ### REQ-OPS-008: Stress testing validates rate limits and concurrency
 
 <!-- @impl: .github/workflows/stress-test.yml -->
-<!-- @impl: src/middleware/rate-limit.ts -->
 <!-- @impl: src/index.ts -->
 <!-- @impl: src/lib/rate-limit-core.ts -->
 <!-- @test: host/__tests__/workflow-stress-test.test.js (workflow shape + manual dispatch describe -> AC1-AC3) + src/__tests__/index.test.ts (REQ-OPS-008 AC6 SAAS+STRESS conflict guard describe -> AC6) + src/__tests__/middleware/rate-limit.test.ts (stress test mode bypass + REQ-OPS-008 AC5 one-time warning describes -> AC4/AC5) -->
@@ -512,8 +507,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. The stress-test workflow runs on manual dispatch against the integration environment.
 2. Load tests cover API throughput, rate-limit validation, session lifecycle, and storage operations.
 3. Concurrency is configurable per run; disabled by default, latency thresholds loosen when enabled.
-4. In stress-test deployment mode, all HTTP and WebSocket rate limits are bypassed to allow high virtual-user counts through a single service-token identity.
-5. A one-time warning is logged per worker instance when the rate-limit bypass activates.
+4. In stress-test deployment mode, all HTTP and WebSocket rate limits are bypassed to allow high virtual-user counts through a single service-token identity. <!-- @impl: src/middleware/rate-limit.ts::createRateLimiter -->
+5. A one-time warning is logged per worker instance when the rate-limit bypass activates. <!-- @impl: src/middleware/rate-limit.ts::createRateLimiter -->
 6. Stress-test mode must not be active alongside SaaS mode; the combination returns 503 to all requests.
 
 **Constraints:**
@@ -570,8 +565,6 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 ### REQ-OPS-010: Graceful container shutdown preserves data
 
 <!-- @impl: Dockerfile -->
-<!-- @impl: entrypoint.sh::shutdown_handler -->
-<!-- @impl: entrypoint.sh::bisync_with_r2 -->
 
 **Intent:** Container shutdown must complete a final sync to R2 before termination to prevent data loss.
 
@@ -580,11 +573,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. The container image declares a graceful-stop signal that the entrypoint trap can catch.
-2. The container entrypoint's trap handler catches the graceful-stop signal.
-3. The trap handler terminates the background sync daemon using a durable PID record as the sole mechanism.
-4. A final bidirectional sync to R2 runs before exit, with deletion safeguards to prevent accidental mass deletion.
-5. The shutdown sync runs even when the initial sync timed out.
-6. The terminal server is terminated after the final sync completes.
+2. The container entrypoint's trap handler catches the graceful-stop signal. <!-- @impl: entrypoint.sh::shutdown_handler -->
+3. The trap handler terminates the background sync daemon using a durable PID record as the sole mechanism. <!-- @impl: entrypoint.sh::shutdown_handler -->
+4. A final bidirectional sync to R2 runs before exit, with deletion safeguards to prevent accidental mass deletion. <!-- @impl: entrypoint.sh::bisync_with_r2 -->
+5. The shutdown sync runs even when the initial sync timed out. <!-- @impl: entrypoint.sh::shutdown_handler -->
+6. The terminal server is terminated after the final sync completes. <!-- @impl: entrypoint.sh::shutdown_handler -->
 
 **Constraints:**
 
