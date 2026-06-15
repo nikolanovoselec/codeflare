@@ -1,0 +1,197 @@
+# GitHub Integration
+
+Connecting a user's GitHub account, browsing repositories, cloning them into sessions, and letting the in-session agent act on GitHub with the user's own permissions — without the raw token sitting in the container in enterprise mode.
+
+**Domain owner:** Backend (Worker) + Frontend
+
+### Key Concepts
+
+- **Connect GitHub** -- An explicit, additive action (a button in the GitHub panel) that authorizes Codeflare to act as the user on GitHub. It is never the Codeflare login; login stays Cloudflare Access (enterprise) or the existing auth mode.
+- **GitHub App (user-to-server)** -- An internal GitHub App, registered and installed on the customer's org, whose user-to-server tokens act **as the user** (commits attributed to them), expire (~8h), and are refreshable. The EMU-reliable path. Codeflare only configures it (Client ID + Secret); no app code and no private key are needed.
+- **OAuth App** -- The existing hosted OAuth App, used for non-EMU SaaS. Long-lived token.
+- **Provider seam** -- One `GithubOAuthProvider` interface with two implementations (App, OAuth) selected by deploy config; everything downstream is provider-agnostic.
+- **DeployKeys.githubToken** -- The existing per-user encrypted KV field (`deploy-keys:<bucket>`) that already flows to the container as `GH_TOKEN`. Connect GitHub populates the same field the manual PAT UI fills. No new KV key.
+- **Egress injection** -- In enterprise mode the container holds a non-secret placeholder `GH_TOKEN`; the real per-user token is injected into outbound `github.com` / `api.github.com` requests by a Worker interceptor at the container egress boundary (reusing the AI-Gateway interception layer).
+
+### Out of Scope
+
+- GitHub as a Codeflare login/IdP (login is Cloudflare Access in enterprise; see [Authentication](authentication.md)).
+- Webhooks, PR/issue management UI, code review surfaces inside the panel (the panel is connect + repo list + clone only).
+- GitHub App installation/bot (server-to-server) tokens — only user-to-server tokens are used, so the agent acts as the user.
+
+### Domain Dependencies
+
+[Authentication](authentication.md) (identity + the OAuth callback), [Enterprise Mode](enterprise-mode.md) (the egress interception layer), [Storage](storage.md) (`bucketName` keying, workspace sync), [Session Lifecycle](session-lifecycle.md) (clone-on-start).
+
+---
+
+<!-- @test: src/__tests__/lib/github-token.test.ts (github-token storage & status, getValidGithubToken, getGithubProvider, authorizeUrl, connectGithub, disconnectGithub -> AC1..AC5) -->
+### REQ-GITHUB-001: GitHub token capture and storage
+
+<!-- @impl: src/lib/github-token.ts::connectGithub -->
+<!-- @impl: src/lib/github-token.ts::getGithubProvider -->
+<!-- @impl: src/lib/github-token.ts::getValidGithubToken -->
+**Intent:** A user connects their GitHub account once; Codeflare obtains a per-user token (GitHub App user-to-server in enterprise/EMU, OAuth App in SaaS) and stores it encrypted so the agent can act as the user.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. "Connect GitHub" starts the selected provider's authorize web flow (link mode) and, on callback, exchanges the code for a token persisted to the **existing** deploy-keys entry (`DeployKeys.githubToken`) with a `githubTokenSource` marker; no new KV key is introduced. <!-- @impl: src/lib/github-token.ts::connectGithub -->
+2. The token is encrypted at rest with the existing KV crypto (AES-256-GCM, AAD bound to the KV key) and is never returned to the browser. <!-- @impl: src/lib/github-token.ts::storeGithubConnection -->
+3. GitHub App tokens carry an expiry and refresh token; resolving a token returns a currently-valid one, refreshing within the skew window and **failing closed** (returning none) when an expired App token cannot be refreshed — never a stale token. <!-- @impl: src/lib/github-token.ts::getValidGithubToken -->
+4. The provider is selected by deploy config: a configured GitHub App takes precedence over the OAuth App; with neither configured the integration is unavailable. <!-- @impl: src/lib/github-token.ts::getGithubProvider -->
+5. A manually-pasted fine-grained PAT (existing deploy-keys flow) coexists, marked source `'pat'`, and is never sent to the App/OAuth refresh or revoke endpoints. <!-- @impl: src/routes/deploy-keys.ts -->
+
+**Constraints:**
+
+- Scopes: the OAuth App requests `repo read:org workflow`; the GitHub App's equivalent permissions (Contents R/W, Pull requests R/W, Workflows W, Metadata R) are set at registration.
+- Enterprise GitHub Apps must be **internal** to the customer's enterprise — EMU managed users cannot authorize third-party apps.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AUTH-002](authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth), [CON-GH-001](constraints.md#con-gh-001-github-token-encrypted-at-rest-and-never-returned-to-the-browser), [CON-GH-002](constraints.md#con-gh-002-the-real-github-token-never-enters-the-enterprise-container)
+
+**Verification:** [Unit test](../../src/__tests__/lib/github-token.test.ts)
+
+**Status:** Planned
+
+---
+
+### REQ-GITHUB-002: GitHub panel and repository listing
+
+<!-- @impl: src/routes/github.ts -->
+<!-- @impl: web-ui/src/components/github/GitHubPanel.tsx -->
+**Intent:** A panel beside the R2 storage panel lets a user connect GitHub and browse the repositories they can access, gated by deployment mode and tier.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `GET /api/github/status` reports connection state (connected, login, source) without exposing the token. <!-- @impl: src/routes/github.ts -->
+2. `GET /api/github/repos` returns the repos the user can access (personal + org via `read:org`), searchable and paginated, fetched server-side with the stored token; the token never reaches the browser. <!-- @impl: src/routes/github.ts -->
+3. The panel renders beside the storage panel and is gated: enterprise always; SaaS only at the `advanced` tier; other modes only when a per-user toggle is enabled (default off). <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx -->
+4. Not-connected shows a "Connect GitHub" action that starts the authorize flow; connected shows the account + a Disconnect action and the searchable repo list.
+5. The panel is mobile-first / responsive — it stacks with the storage panel at the existing narrow breakpoint.
+
+**Constraints:**
+
+- `/repos` and `/connect` are rate-limited; repo responses never include the token.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)
+
+**Verification:** Planned — `src/__tests__/routes/github.test.ts` + `web-ui/src/__tests__/GitHubPanel.test.tsx`
+
+**Status:** Planned
+
+---
+
+### REQ-GITHUB-003: Enterprise egress-injected GitHub credentials
+
+<!-- @impl: src/github-interceptor.ts -->
+<!-- @impl: src/container/index.ts::setupEnterpriseInterception -->
+**Intent:** In enterprise mode the agent's git/`gh`/API calls to GitHub are authenticated by injecting the user's token at the container egress boundary, so the real token never enters the container.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. `github.com` and `api.github.com` are registered for outbound HTTPS interception and handled by a GitHub interceptor; AI hosts continue to route to the LLM interceptor. <!-- @impl: src/container/index.ts::setupEnterpriseInterception -->
+2. On each intercepted request the interceptor resolves + decrypts the user's token for the bound session, strips any client-supplied auth, and stamps the correct credential (git Basic vs `gh` Bearer/`token`; `X-GitHub-Api-Version` for the API host). <!-- @impl: src/github-interceptor.ts -->
+3. When no valid token exists, the interceptor fails closed with a clear error and performs no upstream request.
+4. The container holds only a non-secret placeholder `GH_TOKEN` identical for all users; user-scoping comes solely from the per-session interceptor binding (`props.bucket`), never from the request — a session can only ever inject its own user's token.
+5. In non-enterprise modes the token reaches the container via the existing deploy-keys→`GH_TOKEN` path, unchanged (see [REQ-GITHUB-006](#req-github-006-other-mode-container-transport)).
+
+**Constraints:**
+
+- Enterprise interception is wired only when `ENTERPRISE_MODE=active`, at container start (CA-mount timing — see [REQ-ENTERPRISE-005](enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls)).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [CON-GH-002](constraints.md#con-gh-002-the-real-github-token-never-enters-the-enterprise-container), [CON-GH-003](constraints.md#con-gh-003-egress-injection-is-scoped-by-the-per-session-binding)
+
+**Verification:** Planned — `src/__tests__/github-interceptor.test.ts`
+
+**Status:** Planned
+
+---
+
+### REQ-GITHUB-004: Clone a repository into a session
+
+<!-- @impl: src/routes/github.ts -->
+<!-- @impl: entrypoint.sh -->
+**Intent:** From the panel a user clones a repository into a new or running session, into the workspace, ready for the agent.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The clone action offers a session picker: running sessions first (e.g. "Pi #1"), then a separator, then "Clone into a new session".
+2. New session → the repo is cloned before the agent process starts; running session → cloned via an authenticated internal RPC into the live container.
+3. The repo is cloned into `$USER_WORKSPACE/<repo-name-verbatim>`; the clone is refused with a clear message if that folder already exists.
+4. The clone targets the chosen branch (default branch preselected); authentication uses the per-mode credential path (egress injection in enterprise, `GH_TOKEN` otherwise).
+5. The cloned working tree is ephemeral by default and participates in workspace sync when the user has it enabled.
+
+**Constraints:**
+
+- The running-session clone is authenticated by the existing `CONTAINER_AUTH_TOKEN` Worker→DO mechanism.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type)
+
+**Verification:** Planned — `src/__tests__/routes/github.test.ts` + `src/__tests__/container` clone RPC tests
+
+**Status:** Planned
+
+---
+
+### REQ-GITHUB-005: Disconnect and offboarding revocation
+
+<!-- @impl: src/lib/github-token.ts::disconnectGithub -->
+<!-- @impl: src/lib/user-cleanup.ts -->
+**Intent:** Disconnecting (or offboarding) revokes and removes the user's GitHub token.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `POST /api/github/disconnect` revokes the token at GitHub (App/OAuth sources) and clears the github fields from the deploy-keys entry, removing the entry entirely when nothing else remains. <!-- @impl: src/lib/github-token.ts::disconnectGithub -->
+2. A manually-pasted PAT is cleared but not sent to the GitHub revoke endpoint.
+3. User offboarding revokes and clears the GitHub token on the same cleanup path as the scoped R2 token. <!-- @impl: src/lib/user-cleanup.ts -->
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)
+
+**Verification:** [Unit test](../../src/__tests__/lib/github-token.test.ts) (disconnectGithub) — offboarding path planned
+
+**Status:** Planned
+
+---
+
+### REQ-GITHUB-006: Other-mode container transport
+
+<!-- @impl: src/container/container-env.ts::buildEnvVars -->
+**Intent:** In SaaS / non-enterprise modes the GitHub token reaches the container through the existing deploy-keys→`GH_TOKEN` env path, with no transport change.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. With a connected token in a non-enterprise session, `GH_TOKEN` is present in the container env exactly as for a manually-pasted PAT today.
+2. In enterprise mode the container receives a non-secret placeholder `GH_TOKEN` (no real token); the real token is injected at egress per [REQ-GITHUB-003](#req-github-003-enterprise-egress-injected-github-credentials).
+
+**Constraints:**
+
+- For non-enterprise modes this is documented as leakage-hygiene, not agent-containment: the agent can read its own user's token (which the user already has).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-003](#req-github-003-enterprise-egress-injected-github-credentials)
+
+**Verification:** Planned — `src/__tests__/lib/container-env` GH_TOKEN placeholder/real assertions
+
+**Status:** Planned

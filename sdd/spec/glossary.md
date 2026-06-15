@@ -14,6 +14,10 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | Durable Object (DO) | Cloudflare's stateful compute primitive. Container DO manages per-session state; Timekeeper DO tracks per-user usage. |
 | KV | Cloudflare Workers KV - globally distributed key-value store for session metadata, user records, and preferences. |
 | Worker | The Cloudflare Worker running the Hono router - handles all HTTP/WebSocket requests. |
+| Connect GitHub | An explicit action authorizing Codeflare to act as the user on GitHub (a GitHub App or OAuth App authorization). Never the Codeflare login. |
+| GitHub App (user-to-server) | An internal GitHub App whose user-to-server token acts as the user, expires (~8h), and is refreshable; the EMU-reliable connect path. Distinct from installation/bot tokens, which are not used. |
+| Egress injection | Replacing a container's placeholder credential with the real secret at the outbound HTTPS boundary (a Worker interceptor), so the real token never enters the container. Used for AI keys and, in enterprise, GitHub tokens. |
+| DeployKeys | The per-user encrypted KV entry (`deploy-keys:<bucket>`) holding the user's GitHub + Cloudflare deploy tokens; `githubToken` flows to the container as `GH_TOKEN`. |
 | Bisync | rclone's bidirectional sync mode - keeps container local files and R2 bucket in sync. |
 | sleepAfter | Configurable idle timeout (5m-2h) before a container is stopped. Input-based detection. |
 | PTY | Pseudo-terminal - the terminal server multiplexes up to 6 PTY sessions per container. |
