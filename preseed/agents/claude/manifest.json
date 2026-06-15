@@ -254,6 +254,11 @@
       "advanced"
     ]
   },
+  "rules/frontend-components.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "rules/git-workflow.md": {
     "modes": [
       "default",
@@ -440,6 +445,11 @@
     ]
   },
   "skills/doc-enforce/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-components/SKILL.md": {
     "modes": [
       "advanced"
     ]
