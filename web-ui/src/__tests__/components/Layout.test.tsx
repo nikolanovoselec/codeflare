@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, cleanup, waitFor } from '@solidjs/testing-library';
+import { createSignal } from 'solid-js';
 
 // Mock all child components to isolate Layout testing
 vi.mock('../../components/Header', () => ({
@@ -68,15 +69,17 @@ vi.mock('../../lib/vault-prewarm', () => ({
 let mockSessions: any[] = [];
 let mockActiveSessionId: string | null = null;
 let mockPreferences: Record<string, any> = {};
+let readSessionStoreVersion = () => 0;
+let bumpSessionStoreVersion = () => {};
 
 vi.mock('../../stores/session', () => ({
   sessionStore: {
-    get sessions() { return mockSessions; },
-    get activeSessionId() { return mockActiveSessionId; },
+    get sessions() { readSessionStoreVersion(); return mockSessions; },
+    get activeSessionId() { readSessionStoreVersion(); return mockActiveSessionId; },
     get error() { return null; },
     get loading() { return false; },
     loadSessions: vi.fn(),
-    setActiveSession: vi.fn((id: string | null) => { mockActiveSessionId = id; }),
+    setActiveSession: vi.fn((id: string | null) => { mockActiveSessionId = id; bumpSessionStoreVersion(); }),
     getActiveSession: vi.fn(() => {
       if (!mockActiveSessionId) return null;
       return mockSessions.find((s: any) => s.id === mockActiveSessionId) || null;
@@ -108,7 +111,7 @@ vi.mock('../../stores/session', () => ({
     startSessionListPolling: vi.fn(),
     stopSessionListPolling: vi.fn(),
     presets: [],
-    get preferences() { return mockPreferences; },
+    get preferences() { readSessionStoreVersion(); return mockPreferences; },
   },
   getUsageWarningLevel: vi.fn(() => 'none'),
   isAtUsageQuota: vi.fn(() => false),
@@ -155,6 +158,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     mockSessions = [];
     mockActiveSessionId = null;
     mockPreferences = {};
+    const [sessionStoreVersion, setSessionStoreVersion] = createSignal(0);
+    readSessionStoreVersion = sessionStoreVersion;
+    bumpSessionStoreVersion = () => setSessionStoreVersion((value) => value + 1);
     mockIsSamsungBrowser = false;
     vaultProbeMock.start.mockClear();
     vaultProbeMock.cancel.mockClear();
@@ -242,7 +248,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   });
 
   // =========================================================================
-  // CF-075 // REQ-VAULT-012: the vault affordance is advanced-mode-only.
+  // CF-075 // REQ-VAULT-012 / REQ-VAULT-018: advanced-mode affordance + readiness gates.
   //
   // The Header renders its vault button only when it receives an onVaultOpen
   // prop. Layout passes onVaultOpen only when there is an active session AND
@@ -251,7 +257,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   // We assert the gating by inspecting the prop Layout hands to Header.
   // =========================================================================
 
-  describe('Vault button gating (CF-075 / REQ-VAULT-012)', () => {
+  describe('Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018)', () => {
     it('does NOT pass onVaultOpen (vault button hidden) when active session is default mode', () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
@@ -360,7 +366,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(vaultPrewarmMock.cancel).toHaveBeenCalled();
     });
 
-    it('clears only stale in-flight prewarm state when a session leaves mid-prewarm', () => {
+    it('clearPrewarmingVaultStatus removes only stale in-flight prewarm state', () => {
       const before = {
         sess1: 'prewarming' as const,
         sess2: 'ready' as const,
@@ -368,6 +374,26 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
 
       expect(clearPrewarmingVaultStatus(before, 'sess1')).toEqual({ sess2: 'ready' });
       expect(clearPrewarmingVaultStatus(before, 'sess2')).toBe(before);
+    });
+
+    it('starts a fresh prewarm when the user returns after leaving mid-prewarm', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+
+      render(() => <Layout />);
+      vaultProbeMock.latestOptions.setLatch();
+      await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(1));
+
+      mockActiveSessionId = null;
+      bumpSessionStoreVersion();
+      await waitFor(() => expect(vaultPrewarmMock.cancel).toHaveBeenCalled());
+
+      mockActiveSessionId = 'sess1';
+      bumpSessionStoreVersion();
+      await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(2));
+      expect((window as any).__headerProps.vaultReady).toBe(false);
+      expect((window as any).__headerProps.vaultStatus).toBe('prewarming');
     });
 
     it('does NOT pass onVaultOpen in advanced mode when there is no active session', () => {

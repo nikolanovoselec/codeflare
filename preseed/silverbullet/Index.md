@@ -1,10 +1,11 @@
 This is your Codeflare vault. Notes here persist across sessions and feed the cross-session memory that your AI agent uses to remember decisions, code references, and prior conversations.
 
-New to this? Read [[README]] for what the vault is, why it exists, and how to use SilverBullet.
+New to this? Read [[README]] for what the vault is, why it exists, and how to use SilverBullet. <!-- dashboard-readme-link -->
 
 > _First-load tip: Codeflare prepares the browser-side Vault index before the Vault button enables. Once it opens, SilverBullet should already have its IndexedDB cache ready._
 
 # Notes and references
+<!-- dashboard-notes-references -->
 
 - [[Notes]] — durable notes saved when you ask the agent to take a note.
 - [[References]] — source material and references you want to keep close.
