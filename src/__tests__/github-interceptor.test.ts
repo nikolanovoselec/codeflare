@@ -130,8 +130,10 @@ describe('REQ-GITHUB-003: fail closed', () => {
   });
 
   it('returns 401 and makes NO upstream fetch when no per-session bucket is bound', async () => {
-    await connect('gho_x');
-    const res = await makeInterceptor(makeEnv(), undefined).fetch(new Request('https://api.github.com/user'));
+    await connect('gho_x'); // a token exists, but with no bound session it must NOT be reachable
+    // No props at all -> ctx.props is undefined -> no bound bucket.
+    const interceptor = new GitHubInterceptor({} as unknown as ExecutionContext, makeEnv());
+    const res = await interceptor.fetch(new Request('https://api.github.com/user'));
     expect(res.status).toBe(401);
     expect((await res.json() as Record<string, unknown>).code).toBe('GITHUB_NO_SESSION');
     expect(globalThis.fetch).not.toHaveBeenCalled();

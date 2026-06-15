@@ -1296,8 +1296,10 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
         return null;
       });
       const instance = new ContainerClass(ctx as any, enterpriseEnv());
+      // Wait for userEmail (loaded AFTER bucketName in the constructor) so _bucketName
+      // is guaranteed assigned before we wire interception.
       await vi.waitFor(() => {
-        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
+        expect(mockStorage.get).toHaveBeenCalledWith('userEmail');
       });
 
       await instance.startAndWaitForPorts(8080);
@@ -1329,8 +1331,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       });
       // Enterprise mode on, but AIG_GATEWAY_URL / AIG_TOKEN absent.
       const instance = new ContainerClass(ctx as any, { ...mockEnv, ENTERPRISE_MODE: 'active' } as any);
+      // Wait for userEmail (loaded after bucketName) so _bucketName is set before wiring.
       await vi.waitFor(() => {
-        expect(mockStorage.get).toHaveBeenCalledWith('bucketName');
+        expect(mockStorage.get).toHaveBeenCalledWith('userEmail');
       });
 
       await instance.startAndWaitForPorts(8080);
