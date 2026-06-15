@@ -51,7 +51,10 @@ function baseState(): ContainerEnvState {
     _defaultRoute: null,
     _defaultReasoning: null,
     _userTimezone: null,
-  };
+    // Cast covers ContainerEnvState fields this enterprise-LLM fixture does not
+    // exercise (e.g. _gitCloneRepo/_gitCloneRef), matching the sibling fixtures
+    // so a new state field doesn't rebreak this file's typecheck.
+  } as unknown as ContainerEnvState;
 }
 
 describe('REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)', () => {
