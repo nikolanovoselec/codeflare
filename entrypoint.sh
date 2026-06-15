@@ -2621,18 +2621,26 @@ fi
 # the user lands. Best-effort: a clone failure is logged but never aborts start.
 if [ -n "${GIT_CLONE_REPO:-}" ]; then
     clone_repo="${GIT_CLONE_REPO%.git}"
-    repo_name="${clone_repo##*/}"
-    CLONE_DIR="$USER_WORKSPACE/$repo_name"
-    if [ -e "$CLONE_DIR" ]; then
-        echo "[entrypoint] Skipping clone: $CLONE_DIR already exists (collision refuse)"
+    # Defense-in-depth: re-validate repo/ref shape here (mirrors
+    # host/src/git-clone.ts) so the new-session path fails closed like the
+    # running-session path; rejects an option-leading dash in the ref.
+    if ! printf '%s' "$clone_repo" | grep -qE '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$' \
+       || { [ -n "${GIT_CLONE_REF:-}" ] && ! printf '%s' "$GIT_CLONE_REF" | grep -qE '^[A-Za-z0-9._/][A-Za-z0-9._/-]*$'; }; then
+        echo "[entrypoint] Skipping clone: invalid repo/ref"
     else
-        echo "[entrypoint] Cloning $clone_repo into $CLONE_DIR"
-        if [ -n "${GIT_CLONE_REF:-}" ]; then
-            git clone --branch "$GIT_CLONE_REF" "https://${GITHUB_HOST:-github.com}/${clone_repo}.git" "$CLONE_DIR" \
-                || echo "[entrypoint] clone failed for $clone_repo (ref $GIT_CLONE_REF); continuing startup"
+        repo_name="${clone_repo##*/}"
+        CLONE_DIR="$USER_WORKSPACE/$repo_name"
+        if [ -e "$CLONE_DIR" ]; then
+            echo "[entrypoint] Skipping clone: $CLONE_DIR already exists (collision refuse)"
         else
-            git clone "https://${GITHUB_HOST:-github.com}/${clone_repo}.git" "$CLONE_DIR" \
-                || echo "[entrypoint] clone failed for $clone_repo; continuing startup"
+            echo "[entrypoint] Cloning $clone_repo into $CLONE_DIR"
+            if [ -n "${GIT_CLONE_REF:-}" ]; then
+                git clone --branch "$GIT_CLONE_REF" -- "https://${GITHUB_HOST:-github.com}/${clone_repo}.git" "$CLONE_DIR" \
+                    || echo "[entrypoint] clone failed for $clone_repo (ref $GIT_CLONE_REF); continuing startup"
+            else
+                git clone -- "https://${GITHUB_HOST:-github.com}/${clone_repo}.git" "$CLONE_DIR" \
+                    || echo "[entrypoint] clone failed for $clone_repo; continuing startup"
+            fi
         fi
     fi
 fi

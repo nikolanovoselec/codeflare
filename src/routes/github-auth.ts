@@ -266,8 +266,20 @@ app.get('/connect/callback', callbackRateLimiter, async (c) => {
     return c.redirect(`${appUrl}?github=unavailable`);
   }
 
+  // Re-derive identity from the live session FIRST: the state is bound to the
+  // initiating user's bucket, so the bucket must be known before the state can
+  // be verified. This closes the OAuth token-fixation CSRF — a state minted for
+  // another user (or by the unbound /login flow) cannot verify against this
+  // session's bucket, so an attacker's code+state cannot plant their token here.
+  let bucketName: string;
+  try {
+    ({ bucketName } = await authenticateRequest(c.req.raw, c.env));
+  } catch {
+    return c.redirect(`${base}/?error=session-expired`);
+  }
+
   const queryState = url.searchParams.get('state');
-  if (!queryState || !(await verifyOauthState(queryState, secret))) {
+  if (!queryState || !(await verifyOauthState(queryState, secret, 1800, bucketName))) {
     return c.redirect(`${appUrl}?github=expired`);
   }
   const parsed = parseOauthState(queryState);
@@ -278,14 +290,6 @@ app.get('/connect/callback', callbackRateLimiter, async (c) => {
   const code = url.searchParams.get('code');
   if (!code) {
     return c.redirect(`${appUrl}?github=error`);
-  }
-
-  // Re-derive identity from the live session, then store against that bucket.
-  let bucketName: string;
-  try {
-    ({ bucketName } = await authenticateRequest(c.req.raw, c.env));
-  } catch {
-    return c.redirect(`${base}/?error=session-expired`);
   }
 
   try {

@@ -18,8 +18,15 @@ import path from 'node:path';
 
 /** owner/name — same shape the Worker's clone schemas validate. */
 const REPO_PATTERN = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
-/** branch/tag ref — allows nested refs (feature/x) but no spaces/shell chars. */
-const REF_PATTERN = /^[A-Za-z0-9._/-]+$/;
+/**
+ * branch/tag ref — allows nested refs (feature/x) but no spaces/shell chars,
+ * and the first character may not be `-` so a ref can never be parsed by git as
+ * an option (e.g. `--upload-pack=`). The charset alone is not enough: it permits
+ * `-`, so the leading-character class is separated out to reject option-leading
+ * dashes. Pairs with the `--branch=<ref>` + `--` end-of-options form in
+ * buildCloneArgs (defense-in-depth against git argument injection).
+ */
+const REF_PATTERN = /^[A-Za-z0-9._/][A-Za-z0-9._/-]*$/;
 
 export type GitCloneResolution =
   | { ok: true; repo: string; ref?: string; repoName: string; dir: string }
@@ -65,9 +72,13 @@ export function resolveWorkspaceRoot(env: NodeJS.ProcessEnv): string {
 }
 
 /**
- * Build the `git clone` argv (no shell). `--branch <ref>` is inserted only when
- * a ref is present. The clone URL uses GITHUB_HOST when set so *.ghe.com
- * data-residency tenants resolve to their own host.
+ * Build the `git clone` argv (no shell). `--branch=<ref>` (joined form) is
+ * inserted only when a ref is present, and a `--` end-of-options separator
+ * precedes the positional URL + dir, so neither a ref nor the URL/dir can be
+ * parsed by git as an option (guards against git argument injection such as
+ * `--upload-pack=`, on top of REF_PATTERN's leading-dash rejection). The clone
+ * URL uses GITHUB_HOST when set so *.ghe.com data-residency tenants resolve to
+ * their own host.
  */
 export function buildCloneArgs(
   repo: string,
@@ -76,5 +87,5 @@ export function buildCloneArgs(
   githubHost: string,
 ): string[] {
   const url = `https://${githubHost}/${repo}.git`;
-  return ['clone', ...(ref ? ['--branch', ref] : []), url, dir];
+  return ['clone', ...(ref ? [`--branch=${ref}`] : []), '--', url, dir];
 }

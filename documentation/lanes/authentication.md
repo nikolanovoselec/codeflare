@@ -82,16 +82,18 @@ User clicks "Sign in with GitHub" on /login
 ```
 User clicks "Connect GitHub" in the GitHub panel
   -> GET /api/github/connect (browser-navigated, carries the session cookie)
-  -> Sign an HMAC OAuth state
+  -> Sign an HMAC OAuth state BOUND to the caller's bucket (anti-CSRF)
   -> 302 to the provider's authorize URL
   -> User authorizes on GitHub
   -> GitHub redirects to the stable callback GET /auth/github/connect/callback
      (src/routes/github-auth.ts)
-  -> Exchange code for a token
   -> Re-derive the caller's identity from the EXISTING session
      (Access email header in enterprise; session JWT in SaaS) -
      no new codeflare_session cookie is minted
-  -> Resolve the identity's bucket
+  -> Verify the OAuth state against THIS session's bucket: a state minted
+     for another user (or the unbound /login flow) is rejected, so an
+     attacker's code+state cannot plant their token in this bucket
+  -> Exchange code for a token
   -> Persist the token to the existing deploy-keys entry (DeployKeys.githubToken)
 ```
 

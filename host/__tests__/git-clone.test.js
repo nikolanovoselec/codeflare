@@ -58,7 +58,12 @@ describe('REQ-GITHUB-004: resolveGitClone validation + dir computation', () => {
   });
 
   it('rejects a ref starting with a dash (option-injection guard)', () => {
+    // Both the `=`-bearing form AND a bare option-leading dash must be rejected:
+    // a ref like `--upload-pack` (no `=`) is the git argument-injection vector
+    // and the charset alone (which permits `-`) would let it through.
     assert.equal(resolveGitClone('octo/repo', '--upload-pack=evil', WS).ok, false);
+    assert.equal(resolveGitClone('octo/repo', '--upload-pack', WS).ok, false);
+    assert.equal(resolveGitClone('octo/repo', '-rf', WS).ok, false);
   });
 
   it('accepts a missing ref (undefined / null) as ref-less', () => {
@@ -82,14 +87,16 @@ describe('REQ-GITHUB-004: resolveWorkspaceRoot', () => {
 });
 
 describe('REQ-GITHUB-004: buildCloneArgs (argv, never a shell string)', () => {
-  it('builds clone <url> <dir> without --branch when ref absent', () => {
+  it('builds clone -- <url> <dir> without --branch when ref absent', () => {
     const args = buildCloneArgs('octo/repo', undefined, '/ws/repo', 'github.com');
-    assert.deepEqual(args, ['clone', 'https://github.com/octo/repo.git', '/ws/repo']);
+    // `--` terminates option parsing so the URL/dir can never be read as flags.
+    assert.deepEqual(args, ['clone', '--', 'https://github.com/octo/repo.git', '/ws/repo']);
   });
 
-  it('inserts --branch <ref> when ref present', () => {
+  it('inserts --branch=<ref> (joined) before the -- separator when ref present', () => {
     const args = buildCloneArgs('octo/repo', 'develop', '/ws/repo', 'github.com');
-    assert.deepEqual(args, ['clone', '--branch', 'develop', 'https://github.com/octo/repo.git', '/ws/repo']);
+    // Joined form so a ref can never become a standalone option token.
+    assert.deepEqual(args, ['clone', '--branch=develop', '--', 'https://github.com/octo/repo.git', '/ws/repo']);
   });
 
   it('uses the supplied GitHub host (data-residency tenants)', () => {

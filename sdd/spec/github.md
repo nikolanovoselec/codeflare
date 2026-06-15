@@ -25,9 +25,9 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 ---
 
-<!-- @test: src/__tests__/lib/github-token.test.ts (github-token storage & status, getValidGithubToken, getGithubProvider, authorizeUrl, connectGithub, disconnectGithub -> AC1..AC5) -->
 ### REQ-GITHUB-001: GitHub token capture and storage
 
+<!-- @test: src/__tests__/lib/github-token.test.ts (github-token storage & status, getValidGithubToken, getGithubProvider, authorizeUrl, connectGithub, disconnectGithub -> AC1..AC5) -->
 <!-- @impl: src/lib/github-token.ts::connectGithub -->
 <!-- @impl: src/lib/github-token.ts::getGithubProvider -->
 <!-- @impl: src/lib/github-token.ts::getValidGithubToken -->
@@ -72,13 +72,14 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 1. `GET /api/github/status` reports connection state (connected, login, source) without exposing the token. <!-- @impl: src/routes/github.ts -->
 2. `GET /api/github/repos` returns the repos the user can access (personal + org via `read:org`), searchable and paginated, fetched server-side with the stored token; the token never reaches the browser. <!-- @impl: src/routes/github.ts -->
-3. The panel renders beside the storage panel and is gated to enterprise mode. Broadening the gate to the SaaS `advanced` tier and a per-user toggle (default off) is tracked as [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise). <!-- @impl: src/routes/github.ts::githubFeatureEnabled --> <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx -->
+3. The panel renders beside the storage panel and is gated to enterprise mode (`githubFeatureEnabled`). <!-- @impl: src/routes/github.ts::githubFeatureEnabled --> <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx -->
 4. Not-connected shows a "Connect GitHub" action that starts the authorize flow; connected shows the account + a Disconnect action and the searchable repo list.
 5. The panel is mobile-first / responsive — it stacks with the storage panel at the existing narrow breakpoint.
 
 **Constraints:**
 
 - `/repos` and `/connect` are rate-limited; repo responses never include the token.
+- The panel gate is currently enterprise-only; broadening to the SaaS `advanced` tier and a per-user toggle (default off) is tracked as [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise).
 
 **Priority:** P1
 
@@ -136,6 +137,8 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 <!-- @test: src/__tests__/routes/github.test.ts (POST /clone forward+relay -> AC2) -->
 <!-- @test: src/__tests__/container/container-env.test.ts (GIT_CLONE_REPO/REF env -> AC2,AC3) -->
 <!-- @test: host/__tests__/git-clone.test.js (repo/ref validation + dir computation -> AC3,AC4) -->
+<!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (running-group then new-session separator, ordering/counts -> AC1) -->
+<!-- @test: web-ui/src/__tests__/components/RepoRow.test.tsx (Clone button opens the picker -> AC1) -->
 **Intent:** From the panel a user clones a repository into a new or running session, into the workspace, ready for the agent.
 
 **Applies To:** User
@@ -156,7 +159,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** [Session-create clone field](../../src/__tests__/routes/session-creation.test.ts) + [POST /clone forward](../../src/__tests__/routes/github.test.ts) + [clone env](../../src/__tests__/container/container-env.test.ts) + [clone resolution](../../host/__tests__/git-clone.test.js)
+**Verification:** [Session-create clone field](../../src/__tests__/routes/session-creation.test.ts) + [POST /clone forward](../../src/__tests__/routes/github.test.ts) + [clone env](../../src/__tests__/container/container-env.test.ts) + [clone resolution](../../host/__tests__/git-clone.test.js) + [picker UI](../../web-ui/src/__tests__/components/ClonePicker.test.tsx) + [RepoRow opens picker](../../web-ui/src/__tests__/components/RepoRow.test.tsx)
 
 **Status:** Implemented
 
@@ -177,7 +180,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Acceptance Criteria:**
 
 1. `POST /api/github/disconnect` revokes the token at GitHub (App/OAuth sources) and clears the github fields from the deploy-keys entry, removing the entry entirely when nothing else remains. <!-- @impl: src/lib/github-token.ts::disconnectGithub -->
-2. A manually-pasted PAT is cleared but not sent to the GitHub revoke endpoint.
+2. A manually-pasted PAT is cleared but not sent to the GitHub revoke endpoint. <!-- @impl: src/lib/github-token.ts::disconnectGithub -->
 3. User offboarding revokes and clears the GitHub token on the same cleanup path as the scoped R2 token. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData -->
 
 **Priority:** P1

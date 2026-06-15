@@ -149,7 +149,11 @@ app.get('/connect', connectRateLimiter, async (c) => {
   if (!secret) return c.json({ error: 'GitHub integration not configured', code: 'GITHUB_NOT_CONFIGURED' }, 503);
 
   const base = await getBaseUrl(c.env.KV, c.req.url);
-  const state = await signOauthState(secret);
+  // Bind the state to the initiating user's bucket so the callback can only
+  // redeem it against the same session — closes the OAuth token-fixation CSRF
+  // where an attacker's code+state plants the attacker's token in a victim's
+  // bucket (the callback re-derives identity from the ambient cookie).
+  const state = await signOauthState(secret, c.get('bucketName'));
   const redirectUri = `${base}${CONNECT_CALLBACK_PATH}`;
   return c.redirect(provider.authorizeUrl({ state, redirectUri }));
 });
