@@ -17,7 +17,7 @@ Workflows covering deploy, testing, fuzzing, penetration testing, stress testing
 
 ### Dependabot Configuration
 
-Dependabot runs weekly against the `develop` branch for three npm package directories (`/`, `/web-ui`, `/host`), Docker images, and GitHub Actions.
+Dependabot runs weekly against the `develop` branch for four npm package directories (`/`, `/web-ui`, `/host`, `/landing`), Docker images, and GitHub Actions.
 
 **Node Docker image major updates are ignored.** The `docker.io/library/node` and `public.ecr.aws/docker/library/node` images are pinned to suppress semver-major proposals. Dependabot would otherwise propose Node Current (odd, non-LTS) releases such as Node 25. Node major upgrades are handled manually when a new LTS version is released (even major: 22, 24, 26, ...).
 
@@ -79,6 +79,8 @@ The Pi preseed job is data-driven: it diffs **every** dependency in `preseed/age
 | `STRESS_TEST_CONCURRENCY` | `0` (disabled) | `stress-test.yml` | k6 virtual user scaling factor. When >0, scales VU targets proportionally and loosens latency thresholds. | Set per `integration` environment |
 
 ### Deploy Workflow Detail
+
+**Workflow permissions:** top-level is `contents: read` (read-only default); the `deploy` job adds `actions: write` (required only for `type=gha` BuildKit cache writes). Code-scanning least-privilege hardening (#56).
 
 1. Install dependencies (cached via `actions/cache`)
 2. Build frontend, then build landing page (`landing/` → `web-ui/dist/landing/`; order matters — the web-ui build wipes `dist/`), run backend + frontend + landing tests, generate Workers runtime types (`wrangler types`), typecheck both
