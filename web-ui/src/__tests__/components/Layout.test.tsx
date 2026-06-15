@@ -135,7 +135,7 @@ vi.mock('../../lib/mobile', () => ({
 
 import { forceResetKeyboardState } from '../../lib/mobile';
 import { reconnectOnVisibilityReturn } from '../../stores/terminal';
-import Layout from '../../components/Layout';
+import Layout, { clearPrewarmingVaultStatus } from '../../components/Layout';
 
 // Helper to create a mock session
 function createMockSession(overrides: Partial<any> = {}) {
@@ -358,6 +358,16 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
 
       unmount();
       expect(vaultPrewarmMock.cancel).toHaveBeenCalled();
+    });
+
+    it('clears only stale in-flight prewarm state when a session leaves mid-prewarm', () => {
+      const before = {
+        sess1: 'prewarming' as const,
+        sess2: 'ready' as const,
+      };
+
+      expect(clearPrewarmingVaultStatus(before, 'sess1')).toEqual({ sess2: 'ready' });
+      expect(clearPrewarmingVaultStatus(before, 'sess2')).toBe(before);
     });
 
     it('does NOT pass onVaultOpen in advanced mode when there is no active session', () => {

@@ -52,10 +52,10 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 1. The vault directory tree is included in the rclone sync filter set with an explicit include rule ordered before the global `graphify-out` exclude so the vault's own `graphify-out/` subdirectory rides along. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
 2. The ephemeral global-graph workspace directory is excluded from sync so the merged graph is regenerated on boot from the per-source `graphify-out/` files rather than carrying stale state across sessions. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
-3. The vault initializer creates the standard vault subdirectories (raw-sessions, raw-pasted, notes, references, graphify-out, silverbullet config) on every boot so a user who deletes any of them cannot leave the agent hooks or the editor in a broken state on the next session start. <!-- @impl: entrypoint.sh::init_user_vault -->
+3. The vault initializer creates raw-sessions, raw-pasted, notes, references, graphify-out, and SilverBullet config subdirectories on every boot. <!-- @impl: entrypoint.sh::init_user_vault -->
 4. The vault initializer runs after the bisync baseline is established and before the daemon launch block so the empty skeleton never overwrites R2-restored content. <!-- @impl: entrypoint.sh::init_user_vault -->
-5. The vault initializer also creates the persistent Uploads and Temporary folders alongside the vault; both are covered by the same include-before-exclude rule order so files dropped into either survive session restart and appear in the storage panel. <!-- @impl: entrypoint.sh::init_user_vault -->
-6. The storage panel surfaces Workspace, Vault, Uploads, and Temporary as special folders at the bucket root: each appears unconditionally (Workspace gated by the workspace-sync preference) with an info-icon tooltip showing the folder's purpose and the in-container path it materializes at.
+5. The vault initializer creates persistent Uploads and Temporary folders alongside the vault; both are R2-synced and visible in the storage panel. <!-- @impl: entrypoint.sh::init_user_vault -->
+6. The storage panel surfaces Workspace, Vault, Uploads, and Temporary as special folders with path-and-purpose tooltips.
 
 **Constraints:**
 
@@ -288,12 +288,12 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton -->
 <!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmBridge -->
 <!-- @impl: src/routes/vault.ts::handleVaultRequest -->
-<!-- @impl: preseed/silverbullet/Index.md -->
-<!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Vault button behavior describe → disabled until prewarm ready, ready click opens, timeout/error disabled → AC1, AC4, AC6) -->
-<!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012) describe → onVaultOpen wired only for advanced-mode active sessions, prewarm starts after server latch, header ready only after prewarm ready, timeout remains disabled and retries → AC1, AC4-AC6) -->
-<!-- @test: web-ui/src/__tests__/lib/vault-readiness.test.ts (startVaultReadinessProbe describe → no-give-up retry / first-success latch / SB-crash recovery / cancel / mid-probe cancel → AC5) -->
-<!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (vault browser prewarm protocol describe → iframe URL/session scoping, origin + prewarmId validation, ready/timeout/cancel cleanup → AC6) -->
-<!-- @test: src/__tests__/routes/vault-html-direct.test.ts (vault prewarm helpers describe → sanitized prewarm query propagation + generic shell bridge injection for service-worker-cached shell → AC6) -->
+<!-- @impl: preseed/silverbullet/Index.md::Notes and references -->
+<!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Vault button behavior describe → disabled until prewarm ready, ready click opens, timeout/error disabled → AC1, AC5, AC7) -->
+<!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012) describe → onVaultOpen wired only for advanced-mode active sessions, prewarm starts after server latch, header ready only after prewarm ready, timeout remains disabled and retries, cleanup clears stale prewarming → AC1, AC5-AC9) -->
+<!-- @test: web-ui/src/__tests__/lib/vault-readiness.test.ts (startVaultReadinessProbe describe → no-give-up retry / first-success latch / SB-crash recovery / cancel / mid-probe cancel → AC6) -->
+<!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (vault browser prewarm protocol describe → iframe URL/session scoping, origin + prewarmId validation, ready/timeout/cancel cleanup → AC7-AC8) -->
+<!-- @test: src/__tests__/routes/vault-html-direct.test.ts (vault prewarm helpers describe → sanitized prewarm query propagation + generic shell bridge injection for service-worker-cached shell → AC9) -->
 
 **Intent:** The Vault button only appears when usable and only enables after both readiness layers pass: a per-session server probe confirms the in-container editor is reachable, then a hidden same-origin browser prewarm runs the real SilverBullet client until IndexedDB and the object index are ready. Users should never land on `VAULT_UPSTREAM_UNREACHABLE` or on a slow first-click indexing screen. SilverBullet's landing page is the codeflare dashboard, focused on notes and references. SilverBullet subpath asset adaptation lives in [REQ-VAULT-013](#req-vault-013-silverbullet-subpath-adapter).
 
@@ -301,18 +301,21 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. The Vault control in the header renders only when an active session exists, the session is in advanced mode, and the parent surface has wired up the vault-open handler; the control is scoped to the terminal view alongside the related Bookmarks and Storage entrypoints. In default mode the handler is not wired up, so the control does not render. <!-- @impl: web-ui/src/components/Header.tsx::Header -->
-2. The editor opens to the codeflare dashboard page on every Vault click; the supervisor explicitly pins the dashboard as the editor's index page before launching the binary. <!-- @impl: entrypoint.sh::start_silverbullet_supervisor -->
-3. The README page is reachable from the dashboard via a link at the top, and the dashboard prominently surfaces the `Notes/` and `References/` areas before generic recent-content widgets. <!-- @impl: preseed/silverbullet/Index.md -->
-4. The Vault control is rendered disabled with a preparing tooltip until a per-session readiness probe against the vault proxy succeeds. <!-- @impl: web-ui/src/components/Header.tsx::Header -->
-5. The server probe retries on a short interval until the first success and is keyed per session so switching the active session resets it. A later failed steady probe clears the server latch and invalidates the browser prewarm latch. <!-- @impl: web-ui/src/lib/vault-readiness.ts::startVaultReadinessProbe -->
-6. After the server probe succeeds, the dashboard starts a hidden same-origin browser prewarm for the active advanced session and retries failed or timed-out attempts without enabling the control. The control remains disabled until a prewarm reports the live SilverBullet client ready; readiness is based on SilverBullet's own widget-ready path after IndexedDB open, service-worker configuration, full object-index completion, and page-list load, not mere HTTP availability. Wrong-origin or wrong-attempt prewarm messages are ignored, and timeout/error states leave the control disabled. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
+1. The header renders the Vault control only for active advanced-mode sessions when the parent wires `onVaultOpen`; default-mode sessions never receive the handler. <!-- @impl: web-ui/src/components/Header.tsx::Header -->
+2. The editor opens to the codeflare dashboard page on every Vault click; the supervisor pins that page before launching the binary. <!-- @impl: entrypoint.sh::start_silverbullet_supervisor -->
+3. The README page is reachable from a link at the top of the dashboard. <!-- @impl: preseed/silverbullet/Index.md::README -->
+4. The dashboard surfaces `Notes/` and `References/` before generic recent-content widgets. <!-- @impl: preseed/silverbullet/Index.md::Notes and references -->
+5. The Vault control is disabled with a preparing tooltip until the per-session vault proxy probe succeeds. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton -->
+6. The server probe retries until first success, is keyed per session, and clears both readiness latches after a later steady-probe failure. <!-- @impl: web-ui/src/lib/vault-readiness.ts::startVaultReadinessProbe -->
+7. After the server probe succeeds, `Layout` starts hidden browser prewarm and retries failed or timed-out attempts without enabling the control. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
+8. `startVaultPrewarm` ignores messages unless origin and prewarm id match the current attempt. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm -->
+9. The injected bridge stays inert without valid prewarm parameters and emits ready only after `window.sbRuntime.ready === true`. <!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmBridge -->
 
 **Constraints:**
 
-- The server readiness probe guards two distinct races - the cold-boot race (the editor supervisor binds its localhost port later than terminal readiness flips) and the crashed-editor scenario (container up, editor process dead); without the probe both surface as an unreachable-upstream error to the user.
-- The browser prewarm intentionally waits for the full current SilverBullet index. Raw session captures and other folders remain visible in SilverBullet in this phase; partial priority indexing is out of scope because stock SilverBullet treats the full visible file list as the object-index workload.
-- The prewarm bridge must be safe to inject into the generic shell because SilverBullet's service worker can serve the precached shell for the prewarm URL. It must stay inert unless the prewarm query and identifier are valid.
+- The server readiness probe covers cold-boot and crashed-editor races.
+- Raw session captures and other folders remain visible in SilverBullet during prewarm; priority indexing is out of scope.
+- The generic shell bridge stays inert unless the prewarm query and identifier are valid.
 
 **Priority:** P0
 

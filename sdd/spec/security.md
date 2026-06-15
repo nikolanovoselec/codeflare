@@ -388,7 +388,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 - Headers are applied globally; every response path inherits them.
 - Preflight (OPTIONS) responses receive HSTS directly in the CORS middleware.
 - Coverage of non-standard response paths (redirect responses, helper-emitted responses) lives in [REQ-SEC-021](#req-sec-021-hsts-coverage-on-redirect-response-paths).
-- The vault proxy content path is exempt from AC2's restrictive `default-src 'none'` policy and from AC4's `DENY` value only: proxied SilverBullet responses (same-origin, authenticated, user-owned content) carry the transport headers, `X-Frame-Options: SAMEORIGIN`, and a narrow `Content-Security-Policy: frame-ancestors 'self'`. This lets the dashboard run the hidden same-origin prewarm iframe while keeping cross-site framing blocked. Vault route-validation error responses and `/api/vault/:sid/status` still carry the full default set.
+- Proxied SilverBullet vault content uses `X-Frame-Options: SAMEORIGIN` and `Content-Security-Policy: frame-ancestors 'self'` so same-origin prewarm works while cross-site framing stays blocked.
+- Vault route-validation errors and `/api/vault/:sid/status` still carry the full default security header set.
 
 **Priority:** P0
 

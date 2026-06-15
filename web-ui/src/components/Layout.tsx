@@ -18,6 +18,16 @@ import { DEFAULT_VAULT_PREWARM_TIMEOUT_MS, startVaultPrewarm, type VaultPrewarmS
 
 type ViewState = 'dashboard' | 'expanding' | 'terminal' | 'collapsing';
 
+export function clearPrewarmingVaultStatus(
+  statuses: Record<string, VaultPrewarmStatus>,
+  sessionId: string,
+): Record<string, VaultPrewarmStatus> {
+  if (statuses[sessionId] !== 'prewarming') return statuses;
+  const next = { ...statuses };
+  delete next[sessionId];
+  return next;
+}
+
 interface LayoutProps {
   userName?: string;
   userRole?: 'admin' | 'user';
@@ -174,7 +184,10 @@ const Layout: Component<LayoutProps> = (props) => {
       onReady: () => setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' })),
       onError: (status) => setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: status })),
     });
-    onCleanup(() => handle?.cancel());
+    onCleanup(() => {
+      handle?.cancel();
+      setVaultPrewarmBySession((prev) => clearPrewarmingVaultStatus(prev, sid));
+    });
   });
 
   createEffect(() => {
