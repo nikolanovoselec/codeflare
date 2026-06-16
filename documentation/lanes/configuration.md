@@ -170,6 +170,7 @@ KV values written by the setup wizard that can be changed without redeploying th
 | KV key | Purpose | Set via |
 |--------|---------|---------|
 | `setup:enterprise_access_group` | Comma/newline-separated list of Cloudflare Access group names/ids (any-of gate). When set, JIT provisioning admits only users in a configured group (non-members: 403); matched groups are forwarded to AI Gateway metadata. See [details](#enterprise-access-group-configuration) below. | Setup wizard → KV (re-run setup to change; no redeploy) |
+| `setup:enterprise_admin_access_group` | Comma/newline-separated list of Cloudflare Access group names/ids whose members are granted admin (= Setup / user-administration) access, parallel to the email-based Admin Users list. Resolved live per-request in `requireAdmin` (never the hot auth path); excluded from per-group routing. See [details](#admin-access-group-configuration) below. | Setup wizard → KV (re-run setup to change; no redeploy) |
 | `setup:dynamic_routes` | JSON string array of AI Gateway dynamic-route handles that the interceptor maps to `dynamic/<name>` and exposes to container agents as selectable routes. | Setup wizard → KV (re-run setup to change; no redeploy) |
 | `setup:default_route` | JSON `{route, reasoning}` default route. When unset, runtime resolves the first catalog route with reasoning `off`; when set, `route` must exist in `setup:dynamic_routes`. | Setup wizard → KV (re-run setup to change; no redeploy) |
 | `setup:group_routing` | Optional JSON map `{ [group]: { routes: string[], defaultRoute, reasoning } }` of per-Access-group route overrides. A session resolves the first of its matched groups (in configured order) with a non-empty entry, else the global catalog; `configure` rejects a group whose default isn't in its routes, whose routes aren't a subset of `setup:dynamic_routes`, or whose key isn't a configured group, and deletes an empty map. See [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing). | Setup wizard → KV (re-run setup to change; no redeploy) |
@@ -183,6 +184,14 @@ Every matched group is forwarded to the customer's AI Gateway as a per-group `cf
 The value is matched **case-sensitively** against the group name or ID exactly as it appears in the Cloudflare dashboard — a mismatch denies every user. Prefer the immutable Access group **ID** over the display name: membership is matched against the group's id, name, or email, and a display name can be renamed or reused.
 
 See [User Provisioning — Enterprise Mode Provisioning](user-provisioning.md#enterprise-mode-provisioning), [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) (group-gated JIT provisioning), and [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) (gateway metadata forwarding).
+
+### Admin Access Group Configuration
+
+`setup:enterprise_admin_access_group` accepts a comma- or newline-separated list of Cloudflare Access group names or IDs (same format as `setup:enterprise_access_group`) whose members are granted **admin** access — Setup, user administration, and every other admin-gated route — in addition to the email-based Admin Users list. Leave it unset to keep admin access limited to the named admins.
+
+Membership is resolved **live** on each admin-gated request (a single Cloudflare Access get-identity call) inside `requireAdmin`, never in the hot authentication path, and it short-circuits for a user already resolved as admin — so non-admin requests and non-admin routes carry no extra cost, and removing a user from the group revokes their admin access on the very next request. The elevation lives only on the request context (no KV `role:'admin'` record is written), and the check fails closed (treated as non-member) on any missing token, non-`*.cloudflareaccess.com` domain, or fetch error.
+
+Admin groups widen the entry gate too: when `setup:enterprise_access_group` is set, membership is tested against the **union** of user-access + admin groups, so an admin in no user-access group is still admitted; admin groups never arm the entry gate by themselves. Admin groups are **excluded from per-group routing** — only user-access groups appear in `setup:group_routing`. See [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) and [Authentication — Admin authorization](authentication.md).
 
 ## CORS
 
@@ -338,6 +347,7 @@ You can adjust scopes anytime from your [GitHub token settings](https://github.c
 - [REQ-ENTERPRISE-012](../../sdd/spec/enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list) - Setup-configured dynamic-route catalog and access-group list (KV, no redeploy)
 - [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing) - Per-group dynamic routing (setup:group_routing, first-match by configured order)
 - [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) - Access-gated JIT user provisioning (setup:enterprise_access_group)
+- [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) - Admin access via Cloudflare Access groups (setup:enterprise_admin_access_group)
 - [REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-and-access-request-flow) - Onboarding login (OAuth secrets) and access-request confirmation email (Resend)
 - [REQ-BROWSER-002](../../sdd/spec/browser-run.md#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template) - Browser Rendering scope in the Cloudflare token template
 - [REQ-BROWSER-005](../../sdd/spec/browser-run.md#req-browser-005-claude-browser-run-mcp-server-read-surface-parity) - Claude browser-run MCP server (read-surface parity)

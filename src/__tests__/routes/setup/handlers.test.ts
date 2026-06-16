@@ -166,6 +166,15 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
       expect(body.enterpriseAccessGroup).toEqual(['team_a', 'team_b']);
     });
 
+    it('REQ-ENTERPRISE-014: GET /prefill splits the stored admin-group CSV back into an array', async () => {
+      mockKV._store.set('setup:enterprise_admin_access_group', 'ops_admins,security_admins');
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      expect(res.status).toBe(200);
+      const body = await res.json() as { adminAccessGroup?: string[] };
+      expect(body.adminAccessGroup).toEqual(['ops_admins', 'security_admins']);
+    });
+
     it('GET /prefill round-trips the stored dynamicRoutes', async () => {
       mockKV._store.set('setup:dynamic_routes', JSON.stringify(['development']));
       const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
@@ -187,10 +196,12 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
       const res = await app.request('/setup/prefill');
       const body = await res.json() as {
         enterpriseAccessGroup?: string[];
+        adminAccessGroup?: string[];
         dynamicRoutes?: string[];
         defaultRoute?: unknown;
       };
       expect(body.enterpriseAccessGroup).toEqual([]);
+      expect(body.adminAccessGroup).toEqual([]);
       expect(body.dynamicRoutes).toEqual([]);
       expect(body.defaultRoute).toBeNull();
     });
@@ -221,6 +232,7 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
       expect(res.status).toBe(200);
       const body = await res.json() as Record<string, unknown>;
       expect(body).not.toHaveProperty('enterpriseAccessGroup');
+      expect(body).not.toHaveProperty('adminAccessGroup');
       expect(body).not.toHaveProperty('dynamicRoutes');
       expect(body).not.toHaveProperty('defaultRoute');
     });

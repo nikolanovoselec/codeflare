@@ -40,10 +40,17 @@ const RepoRow: Component<RepoRowProps> = (props) => {
       data-private={isPrivate() ? 'true' : 'false'}
     >
       <Icon path={mdiSourceBranch} size={16} class="github-repo-icon" />
-      <div class="github-repo-main">
+      <a
+        class="github-repo-main"
+        data-testid="github-repo-link"
+        href={`https://github.com/${props.repo.full_name}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+      >
         <span class="github-repo-name">{props.repo.name}</span>
         <span class="github-repo-fullname">{props.repo.full_name}</span>
-      </div>
+      </a>
       <span
         class="github-repo-badge"
         classList={{

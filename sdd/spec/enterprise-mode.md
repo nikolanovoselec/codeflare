@@ -288,7 +288,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (Enterprise mode surface suppression describe -> setup wizard hides Regular Users section when enterpriseMode set + still renders Admin Users + Access Group field AC7 + Regular Users renders when flag unset, default render tests) -->
 ### REQ-ENTERPRISE-008: Enterprise Frontend Surface Suppression
 
-**Intent:** Frontend surfaces are suppressed along two axes. (a) The SaaS-billing surfaces — subscription, usage, plans, the monthly-quota / "Upgrade" banners, the subscription-tier admin, and the Standard/Pro session-mode selector — are meaningful only in SaaS mode, so they render only when `SAAS_MODE` is active and are hidden in enterprise, onboarding, and default deployments alike (a non-SaaS deployment showing a "choose your plan" / "upgrade" surface is misleading; onboarding originally inherited these because the gate was `!enterprise`, which this REQ corrects to `saasMode`). (b) In-product user administration, first-login routing, and the setup "Regular Users" section are enterprise-specific suppressions keyed off `ENTERPRISE_MODE`.
+**Intent:** Frontend surfaces are suppressed along two axes. (a) The SaaS-billing surfaces — subscription, usage, plans, the monthly-quota / "Upgrade" banners, the subscription-tier admin, and the Standard/Pro session-mode selector — are meaningful only in SaaS mode, so they render only when `SAAS_MODE` is active and are hidden in enterprise, onboarding, and default deployments alike (a non-SaaS deployment showing a "choose your plan" / "upgrade" surface is misleading; onboarding originally inherited these because the gate was `!enterprise`, which this REQ corrects to `saasMode`). (b) In-product user administration, first-login routing, the username dropdown's "Guided Setup" (per-user onboarding) entry, and the setup "Regular Users" section are enterprise-specific suppressions keyed off `ENTERPRISE_MODE`.
 
 **Applies To:** User
 
@@ -301,10 +301,11 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 5. When `ENTERPRISE_MODE` is set, a first-time (auto-provisioned) user is routed to the application home, never to `/app/subscribe` or the self-serve onboarding/waitlist flow. <!-- @impl: web-ui/src/App.tsx::App -->
 6. Three-mode parity: in SaaS mode every surface in AC1–AC4 renders; in onboarding and default deployments the SaaS-billing surfaces (AC1 "Manage Subscriptions", AC2, AC3, AC4) do not render while AC1 "Manage Users" does; in enterprise mode every surface in AC1–AC5 is suppressed. `/app/subscribe` is reachable only in SaaS mode — the client `SubscribeGuard` redirects to `/app/` whenever `saasMode` is not active. <!-- @impl: web-ui/src/App.tsx::App -->
 7. When `ENTERPRISE_MODE` is set, the setup wizard's "Regular Users" section is not rendered — setup configures only Admin Users and the optional Cloudflare Access group, since regular users are provisioned via Cloudflare Access on first sign-in per [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning); when unset, the section renders unchanged. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep -->
+8. When `ENTERPRISE_MODE` is set, the username dropdown's "Guided Setup" (per-user onboarding) entry is hidden — enterprise instances are configured by an admin via Setup, not per-user onboarding; when unset it renders unchanged. <!-- @impl: web-ui/src/components/Header.tsx::Header -->
 
 **Constraints:**
 
-- The frontend gates the SaaS-billing surfaces (AC1 "Manage Subscriptions", AC2, AC3, AC4) on the deploy-time `saasMode` signal, and the admin / routing surfaces (AC1 "Manage Users", AC5, AC7) on the `enterpriseMode` signal; never on the user's tier or role. Both signals are exposed by `GET /api/user` (consumed via `sessionStore`); `saasMode` is additionally exposed by `GET /api/auth/status` for the `SubscribeGuard` redirect.
+- The frontend gates the SaaS-billing surfaces (AC1 "Manage Subscriptions", AC2, AC3, AC4) on the deploy-time `saasMode` signal, and the admin / routing surfaces (AC1 "Manage Users", AC5, AC7, AC8) on the `enterpriseMode` signal; never on the user's tier or role. Both signals are exposed by `GET /api/user` (consumed via `sessionStore`); `saasMode` is additionally exposed by `GET /api/auth/status` for the `SubscribeGuard` redirect.
 - Suppression is render-gating only: it removes no component code path for non-enterprise deployments and deletes no stored user state.
 - This REQ concretizes the surface list implied by [REQ-ENTERPRISE-002](#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded) AC1 (which owns the server-side `/app/subscribe` route guard) and adds the client `SubscribeGuard` saasMode redirect plus the admin-button, mode-selector, quota-banner, and first-login-routing surfaces. Visibility only; the matching routes are made unreachable server-side in [REQ-ENTERPRISE-009](#req-enterprise-009-enterprise-backend-route-hardening).
 
@@ -312,7 +313,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-002](#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded), [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning)
 
-**Verification:** [Automated test](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx) (AC1–AC3, AC6); [enterprise-layout-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx) (AC4); [enterprise-app-routing.test.tsx](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx) (AC5); [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx) (AC7)
+**Verification:** [Automated test](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx) (AC1–AC3, AC6); [enterprise-layout-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx) (AC4); [enterprise-app-routing.test.tsx](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx) (AC5); [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx) (AC7); [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx) (AC8) <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Guided Setup gating (enterprise) describe -> AC8) -->
 
 **Status:** Implemented
 
@@ -468,12 +469,16 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @impl: src/routes/setup/handlers.ts -->
 <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS -->
 <!-- @impl: web-ui/src/components/setup/PerGroupRoutingCard.tsx -->
+<!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep -->
+<!-- @impl: web-ui/src/components/ui/PillToggle.tsx -->
 <!-- @impl: web-ui/src/stores/setup.ts::setupStore -->
 <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (per-group routing REQ-ENTERPRISE-013 describe -> AC1..AC4) -->
 <!-- @test: src/__tests__/llm-interceptor.test.ts (per-group catalog resolution -> AC2,AC4) -->
 <!-- @test: src/__tests__/routes/setup.test.ts (groupRouting persist, clear, validation 400s -> AC3,AC5) -->
 <!-- @test: src/__tests__/routes/setup/handlers.test.ts (groupRouting prefill echo + non-enterprise guard -> AC5,AC6) -->
-<!-- @test: web-ui/src/__tests__/components/PerGroupRoutingCard.test.tsx (route checklist + default constraint + apply-to-all -> AC5) -->
+<!-- @test: web-ui/src/__tests__/components/PerGroupRoutingCard.test.tsx (route pills on/off + default constraint + apply-to-all gating -> AC5) -->
+<!-- @test: web-ui/src/__tests__/components/PillToggle.test.tsx (pill on/off state, click toggles + fires -> AC5) -->
+<!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (global Default Route hidden once a group exists, apply-to-all gating -> AC5) -->
 <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (seed-on-add, apply-to-all, save + prefill round-trip -> AC5) -->
 **Intent:** An enterprise admin can scope the dynamic-route catalog per Cloudflare Access group — which routes a group's members may use, and the group's default route + reasoning — so different teams get different model access from one deployment, while a deployment with no per-group config behaves exactly as the global catalog does today.
 
@@ -485,7 +490,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 2. When per-group routing is configured, a session resolves the routes/default/reasoning of the **first** of its matched Access groups (in the admin's configured group-list order) that has a non-empty entry; a matched group with no entry, or no matched group at all, falls back to the global catalog. <!-- @impl: src/lib/access.ts::resolveRouteCatalog -->
 3. Per-group config persists under `SETUP_KEYS.GROUP_ROUTING` as a JSON map `{ [group]: { routes, defaultRoute, reasoning } }` saved through `POST /api/setup/configure`; `configure` rejects (`400`) a group whose `defaultRoute` is not one of its `routes`, whose `routes` are not a subset of the global catalog, or whose key is not a configured Access group; an empty map is deleted rather than stored. <!-- @impl: src/routes/setup/index.ts -->
 4. Both routing sinks — the LLM interceptor's per-request route enforcement ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC4) and the container env fan ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC1) — read the same group-aware `resolveRouteCatalog` core, so they cannot drift; the existing default-drift rule (default not in the resolved catalog → first route, reasoning off) is preserved. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig -->
-5. The Setup wizard renders one per-group routing card per Access group (only when ≥1 group and ≥1 route exist): a route checklist, a default-route selector constrained to the group's active routes, a reasoning selector, and an "Apply to all groups" shortcut that copies one group's config to the rest; `GET /api/setup/prefill` round-trips the stored map. <!-- @impl: web-ui/src/components/setup/PerGroupRoutingCard.tsx --> <!-- @impl: web-ui/src/stores/setup.ts::setupStore -->
+5. The Setup wizard renders one per-group routing card per Access group (only when ≥1 group and ≥1 route exist): toggleable route **pills** (selected = green, deselected = gray) rather than checkboxes, a default-route selector constrained to the group's active routes, a reasoning selector, and an "Apply to all groups" shortcut — shown only when more than one group exists — that copies one group's config to the rest. The global "Default Route" editor renders only while **no** Access group exists; once any group is added it is hidden (routing is configured per-group), though the stored global default remains the backend fallback for users who match no configured group. `GET /api/setup/prefill` round-trips the stored map. <!-- @impl: web-ui/src/components/setup/PerGroupRoutingCard.tsx --> <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @impl: web-ui/src/components/ui/PillToggle.tsx --> <!-- @impl: web-ui/src/stores/setup.ts::setupStore -->
 6. All reads/writes are inside the existing `isEnterpriseMode` gate; in non-enterprise modes the Setup request/response shape and route resolution are byte-identical to before. <!-- @impl: src/routes/setup/handlers.ts -->
 
 **Constraints:**
@@ -497,6 +502,52 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning), [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list)
 
-**Verification:** [Resolver tests](../../src/__tests__/lib/enterprise-route-config.test.ts), [interceptor tests](../../src/__tests__/llm-interceptor.test.ts), [Setup configure tests](../../src/__tests__/routes/setup.test.ts), [prefill tests](../../src/__tests__/routes/setup/handlers.test.ts), [per-group card](../../web-ui/src/__tests__/components/PerGroupRoutingCard.test.tsx), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts)
+**Verification:** [Resolver tests](../../src/__tests__/lib/enterprise-route-config.test.ts), [interceptor tests](../../src/__tests__/llm-interceptor.test.ts), [Setup configure tests](../../src/__tests__/routes/setup.test.ts), [prefill tests](../../src/__tests__/routes/setup/handlers.test.ts), [per-group card](../../web-ui/src/__tests__/components/PerGroupRoutingCard.test.tsx), [pill toggle](../../web-ui/src/__tests__/components/PillToggle.test.tsx), [ConfigureStep gating](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-014: Admin access via Cloudflare Access groups
+
+<!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS -->
+<!-- @impl: src/routes/setup/index.ts -->
+<!-- @impl: src/routes/setup/handlers.ts -->
+<!-- @impl: src/middleware/auth.ts::requireAdmin -->
+<!-- @impl: src/lib/access.ts::resolveAdminAccessGroup -->
+<!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser -->
+<!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep -->
+<!-- @impl: web-ui/src/stores/setup.ts::setupStore -->
+<!-- @test: src/__tests__/middleware/auth.test.ts (requireAdmin enterprise admin-by-group describe -> AC1,AC2,AC3,AC5) -->
+<!-- @test: src/__tests__/lib/enterprise-jit-provisioning.test.ts (REQ-ENTERPRISE-014 entry-gate union admits admin-group member, denies non-member, admin groups alone do not arm the gate -> AC4) -->
+<!-- @test: src/__tests__/routes/setup.test.ts (REQ-ENTERPRISE-014 adminAccessGroup persist joined, clear empty, non-enterprise ignore -> AC6,AC7) -->
+<!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-ENTERPRISE-014 prefill split + non-enterprise omit -> AC6,AC7) -->
+<!-- @test: web-ui/src/__tests__/stores/setup.test.ts (admin-group add/remove without routing seeding, configure body, prefill round-trip -> AC6) -->
+<!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (admin-groups field render/route + no per-group card -> AC6) -->
+
+**Intent:** An enterprise admin can grant admin (= Setup / user-administration) access to members of one or more named Cloudflare Access groups, parallel to the email-based admin list, so admin rights track the customer's directory instead of a hand-maintained email list. Admin groups govern administration only — they never participate in per-group model routing.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. When `ENTERPRISE_MODE` is set and admin Access groups are configured, a non-admin user who belongs to **any** configured admin group is elevated to `admin` for the request, granting access to admin-gated routes (including re-running Setup). The membership check is **live** (one Cloudflare Access get-identity call) so removing a user from the group revokes their admin access on the next request. <!-- @impl: src/middleware/auth.ts::requireAdmin --> <!-- @impl: src/lib/access.ts::resolveAdminAccessGroup -->
+2. A non-admin user who is in none of the configured admin groups still receives `403` from admin-gated routes. <!-- @impl: src/middleware/auth.ts::requireAdmin -->
+3. The admin-group check runs **only** inside `requireAdmin` (an admin-gated path), never in the hot `authenticateRequest`/`requireIdentity` identity path — and it short-circuits for a user already resolved as `admin` — so every non-admin request and every request on a non-admin route stays byte-identical (no extra get-identity cost). It is a no-op (returns `[]`) outside enterprise mode or when no admin groups are configured. <!-- @impl: src/lib/access.ts::resolveAdminAccessGroup -->
+4. The entry-entitlement gate ([REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning)) admits admin-group members too: when the user-access gate is active (`ENTERPRISE_ACCESS_GROUP` non-empty) it tests membership against the union of user-access + admin groups, so an admin in no *user* group is not locked out. Admin groups never arm the gate by themselves — with no user-access groups configured, entry stays open exactly as before. <!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser -->
+5. Admin groups persist under `SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP`, comma-joined (the format `parseAccessGroups` reads), saved through `POST /api/setup/configure`; an empty list deletes the key. They are excluded from per-group routing by construction — only `ENTERPRISE_ACCESS_GROUP` keys may carry a `GROUP_ROUTING` entry. <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS --> <!-- @impl: src/routes/setup/index.ts -->
+6. The Setup wizard renders a "Cloudflare Admin Access Groups (optional)" chip field beside the user-access groups field; the email-based "Admin Users" list stays. `GET /api/setup/prefill` round-trips the stored list. Admin groups produce no per-group routing card. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @impl: web-ui/src/stores/setup.ts::setupStore --> <!-- @impl: src/routes/setup/handlers.ts -->
+7. All reads/writes are inside the existing `isEnterpriseMode` gate; in non-enterprise modes the Setup request/response shape and admin authorization are byte-identical to before. <!-- @impl: src/routes/setup/handlers.ts -->
+
+**Constraints:**
+
+- Elevation is per-request and lives only on the Hono context; no KV `role:'admin'` record is written for a group-admin (so revocation is immediate and leaves no residue). The email-based admin list remains the durable admin source.
+- The live get-identity check fails CLOSED (treated as non-member) on any missing token, non-`*.cloudflareaccess.com` domain, or fetch error — an admin gate must never elevate on uncertainty.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning), [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list)
+
+**Verification:** [requireAdmin admin-by-group](../../src/__tests__/middleware/auth.test.ts), [entry-gate union](../../src/__tests__/lib/enterprise-jit-provisioning.test.ts), [Setup persist/ignore](../../src/__tests__/routes/setup.test.ts), [prefill](../../src/__tests__/routes/setup/handlers.test.ts), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts), [ConfigureStep field](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx)
 
 **Status:** Implemented

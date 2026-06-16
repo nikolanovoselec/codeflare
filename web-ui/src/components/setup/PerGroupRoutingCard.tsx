@@ -1,12 +1,12 @@
-import { Component, For, Show } from 'solid-js';
+import { Component, Show } from 'solid-js';
 import Button from '../ui/Button';
-import Checkbox from '../ui/Checkbox';
+import PillToggle from '../ui/PillToggle';
 import Select from '../ui/Select';
 import type { ReasoningLevel } from '../../stores/setup';
 
 interface PerGroupRoutingCardProps {
   groupName: string;
-  /** The global dynamic-route catalog the checklist draws from. */
+  /** The global dynamic-route catalog the pills draw from. */
   availableRoutes: string[];
   /** This group's active routes (subset of availableRoutes). */
   selectedRoutes: string[];
@@ -16,6 +16,8 @@ interface PerGroupRoutingCardProps {
   onDefaultChange: (route: string) => void;
   onReasoningChange: (level: ReasoningLevel) => void;
   onApplyToAll: () => void;
+  /** Show the "Apply to all groups" shortcut (only when >1 group exists). */
+  showApplyToAll?: boolean;
 }
 
 const REASONING_OPTIONS = [
@@ -26,28 +28,24 @@ const REASONING_OPTIONS = [
 ];
 
 /**
- * REQ-ENTERPRISE-013: per-group routing editor. A checklist of the catalog routes
- * (which are active for this group), the group's default route (constrained to its
- * active routes) + reasoning level, and an "Apply to all groups" shortcut. Pure
- * props/callbacks — all state lives in the setup store.
+ * REQ-ENTERPRISE-013: per-group routing editor. Toggleable route pills (green =
+ * active, gray = off), the group's default route (constrained to its active
+ * routes) + reasoning level, and an "Apply to all groups" shortcut shown only
+ * when more than one group exists. Pure props/callbacks — state lives in the store.
  */
 const PerGroupRoutingCard: Component<PerGroupRoutingCardProps> = (props) => (
   <div class="group-routing-card">
     <div class="group-routing-card-header">
       <span class="group-routing-card-title">{props.groupName}</span>
-      <Button onClick={() => props.onApplyToAll()} variant="ghost" size="sm">Apply to all groups</Button>
+      <Show when={props.showApplyToAll}>
+        <Button onClick={() => props.onApplyToAll()} variant="ghost" size="sm">Apply to all groups</Button>
+      </Show>
     </div>
-    <div class="group-routing-routes">
-      <For each={props.availableRoutes}>
-        {(route) => (
-          <Checkbox
-            checked={props.selectedRoutes.includes(route)}
-            label={route}
-            onChange={() => props.onToggleRoute(route)}
-          />
-        )}
-      </For>
-    </div>
+    <PillToggle
+      items={props.availableRoutes}
+      selected={props.selectedRoutes}
+      onToggle={(route) => props.onToggleRoute(route)}
+    />
     <Show when={props.selectedRoutes.length > 0}>
       <div class="route-default-row">
         <Select

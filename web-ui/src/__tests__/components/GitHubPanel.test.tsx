@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
+import { mdiConnection } from '@mdi/js';
 
 // API mocks (hoisted so the vi.mock factory can reference them).
 const mockGetGithubStatus = vi.hoisted(() => vi.fn());
@@ -184,5 +185,85 @@ describe('GitHubPanel Component', () => {
     await waitFor(() => expect(screen.getByTestId('github-return-error')).toBeInTheDocument());
     // The query param is stripped (history.replaceState to pathname).
     expect(window.location.search).toBe('');
+  });
+
+  it('refresh control reloads the repo list', async () => {
+    mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: true, login: 'octocat' });
+    mockGetGithubRepos.mockResolvedValue({ repos: [makeRepo()], page: 1, hasMore: false });
+
+    render(() => <GitHubPanel />);
+
+    await waitFor(() => expect(screen.getByTestId('github-refresh-btn')).toBeInTheDocument());
+    const before = mockGetGithubRepos.mock.calls.length;
+    fireEvent.click(screen.getByTestId('github-refresh-btn'));
+    await waitFor(() => expect(mockGetGithubRepos.mock.calls.length).toBeGreaterThan(before));
+  });
+
+  it('disconnect control is an icon button using the connection icon', async () => {
+    mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: true, login: 'octocat' });
+
+    render(() => <GitHubPanel />);
+
+    const btn = await waitFor(() => screen.getByTestId('github-disconnect-btn'));
+    expect(btn.querySelector('path')?.getAttribute('d')).toBe(mdiConnection);
+  });
+
+  it('connected login links out to the GitHub profile in a new tab', async () => {
+    mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: true, login: 'octocat' });
+
+    render(() => <GitHubPanel />);
+
+    const link = (await waitFor(() => screen.getByTestId('github-connected-login'))) as HTMLAnchorElement;
+    expect(link.tagName).toBe('A');
+    expect(link.getAttribute('href')).toBe('https://github.com/octocat');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toContain('noopener');
+  });
+
+  it('repo name links to the repo on GitHub in a new tab', async () => {
+    mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: true, login: 'octocat' });
+    mockGetGithubRepos.mockResolvedValueOnce({
+      repos: [makeRepo({ full_name: 'octocat/hello' })],
+      page: 1,
+      hasMore: false,
+    });
+
+    render(() => <GitHubPanel />);
+
+    const link = (await waitFor(() => screen.getByTestId('github-repo-link'))) as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('https://github.com/octocat/hello');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toContain('noopener');
+  });
+
+  it('renders every repo inside the scroll container (the 10-row cap is a CSS viewport, not truncation)', async () => {
+    mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: true, login: 'octocat' });
+    const repos = Array.from({ length: 15 }, (_, i) => makeRepo({ full_name: `octocat/r${i}`, name: `r${i}` }));
+    mockGetGithubRepos.mockResolvedValueOnce({ repos, page: 1, hasMore: false });
+
+    render(() => <GitHubPanel />);
+
+    await waitFor(() => expect(screen.getByTestId('github-repo-rows')).toBeInTheDocument());
+    expect(screen.getAllByTestId('github-repo-row')).toHaveLength(15);
+  });
+
+  it('renders the mobile flip control only when onFlip is provided, and fires it', async () => {
+    mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: false });
+    const onFlip = vi.fn();
+
+    render(() => <GitHubPanel onFlip={onFlip} />);
+
+    await waitFor(() => expect(screen.getByTestId('github-flip-btn')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('github-flip-btn'));
+    expect(onFlip).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits the flip control when onFlip is not provided', async () => {
+    mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: false });
+
+    render(() => <GitHubPanel />);
+
+    await waitFor(() => expect(screen.getByTestId('github-panel')).toBeInTheDocument());
+    expect(screen.queryByTestId('github-flip-btn')).not.toBeInTheDocument();
   });
 });

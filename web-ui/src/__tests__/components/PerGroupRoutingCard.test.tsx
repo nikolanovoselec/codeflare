@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
+import { render, fireEvent, cleanup } from '@solidjs/testing-library';
 import PerGroupRoutingCard from '../../components/setup/PerGroupRoutingCard';
 
 afterEach(() => cleanup());
@@ -16,23 +16,24 @@ const base = {
   onApplyToAll: () => {},
 };
 
+const applyBtn = () => document.querySelector('.group-routing-card-header button');
+
 describe('PerGroupRoutingCard', () => {
-  it('renders a checkbox per available route', () => {
+  it('renders a route pill per available route', () => {
     render(() => <PerGroupRoutingCard {...base} />);
-    expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(2);
+    expect(document.querySelectorAll('.pill').length).toBe(2);
   });
 
-  it('reflects selected routes as checked', () => {
+  it('marks selected routes on and the rest off', () => {
     render(() => <PerGroupRoutingCard {...base} selectedRoutes={['prod']} />);
-    const boxes = Array.from(document.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
-    expect(boxes[0].checked).toBe(false); // development
-    expect(boxes[1].checked).toBe(true);  // prod
+    expect(document.querySelector('[data-value="development"]')?.getAttribute('data-state')).toBe('off');
+    expect(document.querySelector('[data-value="prod"]')?.getAttribute('data-state')).toBe('on');
   });
 
-  it('calls onToggleRoute with the route on checkbox click', () => {
+  it('calls onToggleRoute with the route on pill click', () => {
     const onToggleRoute = vi.fn();
     render(() => <PerGroupRoutingCard {...base} onToggleRoute={onToggleRoute} />);
-    fireEvent.click(document.querySelectorAll('input[type="checkbox"]')[0]);
+    fireEvent.click(document.querySelector('[data-value="development"]')!);
     expect(onToggleRoute).toHaveBeenCalledWith('development');
   });
 
@@ -53,10 +54,17 @@ describe('PerGroupRoutingCard', () => {
     expect(reasoningSel.disabled).toBe(true);
   });
 
-  it('fires onApplyToAll when the button is clicked', () => {
+  it('shows the Apply-to-all control only when showApplyToAll is set, and fires it', () => {
     const onApplyToAll = vi.fn();
-    render(() => <PerGroupRoutingCard {...base} onApplyToAll={onApplyToAll} />);
-    fireEvent.click(screen.getByText('Apply to all groups'));
-    expect(onApplyToAll).toHaveBeenCalled();
+
+    render(() => <PerGroupRoutingCard {...base} onApplyToAll={onApplyToAll} showApplyToAll />);
+    expect(applyBtn()).not.toBeNull();
+    fireEvent.click(applyBtn()!);
+    expect(onApplyToAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the Apply-to-all control when showApplyToAll is falsy', () => {
+    render(() => <PerGroupRoutingCard {...base} />);
+    expect(applyBtn()).toBeNull();
   });
 });

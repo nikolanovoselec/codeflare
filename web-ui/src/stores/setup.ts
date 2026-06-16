@@ -43,6 +43,9 @@ interface SetupState {
   enterpriseMode: boolean;
   // Enterprise-only: customer-managed Cloudflare Access group NAMES (chip list)
   enterpriseAccessGroups: string[];
+  // REQ-ENTERPRISE-014: enterprise admin Access group NAMES (chip list). Members are
+  // granted admin (= Setup access); never used for per-group routing.
+  adminAccessGroups: string[];
   // Feature C: enterprise gateway dynamic-route catalog + optional default.
   dynamicRoutes: string[];
   defaultRouteName: string;            // '' = no default
@@ -86,6 +89,7 @@ const initialState: SetupState = {
   saasMode: false,
   enterpriseMode: false,
   enterpriseAccessGroups: [],
+  adminAccessGroups: [],
   dynamicRoutes: [],
   defaultRouteName: '',
   defaultRouteReasoning: 'off',
@@ -202,6 +206,21 @@ function removeAccessGroup(name: string): void {
     const i = s.enterpriseAccessGroups.indexOf(name);
     if (i !== -1) s.enterpriseAccessGroups.splice(i, 1);
     delete s.groupRouting[name];
+  }));
+}
+
+// ─── REQ-ENTERPRISE-014: admin Access groups (Setup access, NOT routing) ───────
+// Deliberately no groupRouting seeding — admin groups never appear in per-group
+// routing; they only grant admin/Setup access.
+function addAdminAccessGroup(name: string): void {
+  if (name && !state.adminAccessGroups.includes(name)) {
+    setState(produce((s) => { s.adminAccessGroups.push(name); }));
+  }
+}
+function removeAdminAccessGroup(name: string): void {
+  setState(produce((s) => {
+    const i = s.adminAccessGroups.indexOf(name);
+    if (i !== -1) s.adminAccessGroups.splice(i, 1);
   }));
 }
 
@@ -351,6 +370,7 @@ async function loadExistingConfig(): Promise<void> {
             }
             s.adminUsers = Array.from(new Set(prefill.adminUsers.map((email) => email.trim().toLowerCase())));
             s.enterpriseAccessGroups = prefill.enterpriseAccessGroup;
+            s.adminAccessGroups = prefill.adminAccessGroup;
             s.dynamicRoutes = prefill.dynamicRoutes;
             s.defaultRouteName = prefill.defaultRoute?.route ?? prefill.dynamicRoutes[0] ?? '';
             s.defaultRouteReasoning = prefill.defaultRoute?.reasoning ?? 'off';
@@ -403,6 +423,7 @@ async function loadExistingConfig(): Promise<void> {
         s.adminUsers = admins;
         s.allowedUsers = regularUsers;
         s.enterpriseAccessGroups = prefill.enterpriseAccessGroup;
+        s.adminAccessGroups = prefill.adminAccessGroup;
         s.dynamicRoutes = prefill.dynamicRoutes;
         s.defaultRouteName = prefill.defaultRoute?.route ?? prefill.dynamicRoutes[0] ?? '';
         s.defaultRouteReasoning = prefill.defaultRoute?.reasoning ?? 'off';
@@ -437,6 +458,8 @@ async function configure(): Promise<boolean> {
         // request body is byte-identical to today.
         ...(state.enterpriseMode ? {
           enterpriseAccessGroup: state.enterpriseAccessGroups,
+          // REQ-ENTERPRISE-014: admin Access groups (Setup access; not routing).
+          adminAccessGroup: state.adminAccessGroups,
           dynamicRoutes: state.dynamicRoutes,
           defaultRoute: state.defaultRouteName || state.dynamicRoutes[0]
             ? { route: state.defaultRouteName || state.dynamicRoutes[0], reasoning: state.defaultRouteName ? state.defaultRouteReasoning : 'off' }
@@ -552,7 +575,7 @@ async function configure(): Promise<boolean> {
 
 function reset(): void {
   configLoaded = false;
-  setState({ ...initialState, adminUsers: [], allowedUsers: [], enterpriseAccessGroups: [], dynamicRoutes: [], configureSteps: [], groupRouting: {} });
+  setState({ ...initialState, adminUsers: [], allowedUsers: [], enterpriseAccessGroups: [], adminAccessGroups: [], dynamicRoutes: [], configureSteps: [], groupRouting: {} });
 }
 
 export const setupStore = {
@@ -609,6 +632,7 @@ export const setupStore = {
     return state.enterpriseMode;
   },
   get enterpriseAccessGroups() { return state.enterpriseAccessGroups; },
+  get adminAccessGroups() { return state.adminAccessGroups; },
   get dynamicRoutes() { return state.dynamicRoutes; },
   get defaultRouteName() { return state.defaultRouteName; },
   get defaultRouteReasoning() { return state.defaultRouteReasoning; },
@@ -634,6 +658,8 @@ export const setupStore = {
   setCustomDomain,
   addAccessGroup,
   removeAccessGroup,
+  addAdminAccessGroup,
+  removeAdminAccessGroup,
   addDynamicRoute,
   removeDynamicRoute,
   setDefaultRouteName,

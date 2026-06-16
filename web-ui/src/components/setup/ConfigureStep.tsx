@@ -54,6 +54,15 @@ const ConfigureStep: Component = () => {
     return false;
   };
 
+  const addAdminGroup = (raw: string): boolean => {
+    const name = raw.trim();
+    if (name && !setupStore.adminAccessGroups.includes(name)) {
+      setupStore.addAdminAccessGroup(name);
+      return true;
+    }
+    return false;
+  };
+
   const addRoute = (raw: string): boolean => {
     const name = raw.trim();
     if (name && !setupStore.dynamicRoutes.includes(name)) {
@@ -118,6 +127,20 @@ const ConfigureStep: Component = () => {
           onRemove={(name) => setupStore.removeAccessGroup(name)}
         />
 
+        {/* REQ-ENTERPRISE-014: admin Access groups — members get admin (= Setup)
+            access, parallel to the email-based "Admin Users" list above. These
+            groups are NOT used for per-group routing (only the user-access groups
+            below appear there); they only widen who can administer the instance. */}
+        <ChipListField
+          label="Cloudflare Admin Access Groups (optional)"
+          description="Grant admin access (including Setup and user management) to members of one or more Cloudflare Access groups, in addition to the Admin Users listed above. Leave blank to keep admin access limited to those named admins. Not used for per-group model routing."
+          items={setupStore.adminAccessGroups}
+          placeholder="e.g. codeflare_admins"
+          accent
+          onAdd={addAdminGroup}
+          onRemove={(name) => setupStore.removeAdminAccessGroup(name)}
+        />
+
         {/* Feature C: Dynamic-route catalog (chip list) */}
         <ChipListField
           label="Dynamic Routes"
@@ -129,8 +152,11 @@ const ConfigureStep: Component = () => {
           onRemove={(name) => setupStore.removeDynamicRoute(name)}
         />
 
-        {/* Feature C: optional default route + reasoning level */}
-        <Show when={setupStore.dynamicRoutes.length > 0}>
+        {/* Feature C: optional default route + reasoning level. Shown only when no
+            Access groups exist — once groups are added, routing is configured
+            per-group below (the stored global default still serves as the
+            fallback for users who match no configured group). */}
+        <Show when={setupStore.dynamicRoutes.length > 0 && setupStore.enterpriseAccessGroups.length === 0}>
           <div class="setup-field">
             <label class="setup-field-label">Default Route</label>
             <p class="setup-field-description">
@@ -172,6 +198,7 @@ const ConfigureStep: Component = () => {
                   onDefaultChange={(route) => setupStore.setGroupDefaultRoute(group, route)}
                   onReasoningChange={(level) => setupStore.setGroupReasoning(group, level)}
                   onApplyToAll={() => setupStore.applyGroupRoutingToAll(group)}
+                  showApplyToAll={setupStore.enterpriseAccessGroups.length > 1}
                 />
               )}
             </For>

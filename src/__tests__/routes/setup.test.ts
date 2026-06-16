@@ -2293,6 +2293,53 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         await readNdjson(res);
         expect(mockKV.put).toHaveBeenCalledWith('setup:enterprise_access_group', 'team_a');
       });
+
+      // ─── REQ-ENTERPRISE-014: admin Access groups ────────────────────────────
+      it('REQ-ENTERPRISE-014: persists the admin access groups comma-joined', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ adminAccessGroup: ['ops_admins', 'security_admins'] })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:enterprise_admin_access_group', 'ops_admins,security_admins');
+      });
+
+      it('REQ-ENTERPRISE-014: clears the admin access-group key when the array is empty', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ adminAccessGroup: [] })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.delete).toHaveBeenCalledWith('setup:enterprise_admin_access_group');
+      });
+
+      it('REQ-ENTERPRISE-014: ignores adminAccessGroup in non-enterprise mode (regression)', async () => {
+        const app = createTestApp();
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ adminAccessGroup: ['ops_admins'] })),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(getNdjsonSummary(lines).success).toBe(true);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:enterprise_admin_access_group', expect.anything());
+      });
     });
   });
 

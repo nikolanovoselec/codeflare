@@ -35,7 +35,7 @@ const RepoList: Component = () => {
       </Show>
 
       <Show when={!githubStore.loading && !githubStore.error && githubStore.filteredRepos.length > 0}>
-        <div class="github-repo-rows">
+        <div class="github-repo-rows" data-testid="github-repo-rows">
           <For each={githubStore.filteredRepos}>
             {(repo) => <RepoRow repo={repo} />}
           </For>

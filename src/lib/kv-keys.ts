@@ -268,6 +268,12 @@ export const SETUP_KEYS = {
   ACCESS_GROUP_ADMIN_NAME: 'setup:access_group_admin_name',
   ACCESS_GROUP_USER_NAME: 'setup:access_group_user_name',
   ENTERPRISE_ACCESS_GROUP: 'setup:enterprise_access_group',
+  // REQ-ENTERPRISE-014: enterprise ADMIN access groups. Comma/newline-joined Access
+  // group NAMES (same format as ENTERPRISE_ACCESS_GROUP) whose members are granted
+  // admin (= Setup access). Resolved live in requireAdmin (not the hot auth path) so
+  // membership changes take effect immediately. Distinct from ENTERPRISE_ACCESS_GROUP
+  // (which gates entry + per-group routing); admin groups never participate in routing.
+  ENTERPRISE_ADMIN_ACCESS_GROUP: 'setup:enterprise_admin_access_group',
   // Feature C: enterprise dynamic-route catalog. DYNAMIC_ROUTES is a JSON string[]
   // of gateway route names (slash-free handles agents send, e.g. "development").
   // DEFAULT_ROUTE is a JSON { route, reasoning } the container applies on start

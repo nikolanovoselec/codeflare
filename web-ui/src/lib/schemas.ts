@@ -202,6 +202,8 @@ export const SetupPrefillResponseSchema = z.object({
   allowedUsers: z.array(z.string()).default([]),
   // Feature A: Access-group chip list (was a single CSV string).
   enterpriseAccessGroup: z.array(z.string()).default([]),
+  // REQ-ENTERPRISE-014: admin Access-group chip list (Setup access, not routing).
+  adminAccessGroup: z.array(z.string()).default([]),
   // Feature C: route catalog + optional default route.
   dynamicRoutes: z.array(z.string()).default([]),
   defaultRoute: z.object({ route: z.string(), reasoning: RouteReasoningSchema }).nullable().default(null),

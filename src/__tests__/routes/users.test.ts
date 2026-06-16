@@ -16,6 +16,9 @@ vi.mock('../../lib/access', () => ({
     user: { ...mockAuthUser },
     bucketName: 'codeflare-test',
   })),
+  // requireAdmin calls this for the enterprise admin-by-group path; default to no
+  // matched group so non-admin users are still rejected (REQ-ENTERPRISE-014).
+  resolveAdminAccessGroup: vi.fn(async () => []),
   getBucketName: vi.fn((email: string, workerName?: string) => {
     const sanitized = email
       .toLowerCase()

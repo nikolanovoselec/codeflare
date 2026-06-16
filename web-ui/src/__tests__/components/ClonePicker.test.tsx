@@ -13,7 +13,7 @@ vi.mock('../../api/github', () => ({
 // reads `enterpriseMode`. AGENT_OPTIONS is a plain const imported from
 // CreateSessionDialog (no component render), so this mock covers the whole tree.
 const sessionStoreState = vi.hoisted(() => ({
-  sessions: [] as Array<{ id: string; name: string; status: string }>,
+  sessions: [] as Array<{ id: string; name: string; status: string; agentType?: string }>,
   enterpriseMode: false as boolean,
 }));
 const mockCreateSessionWithClone = vi.hoisted(() => vi.fn());
@@ -39,6 +39,7 @@ vi.mock('../../components/Icon', () => ({
   ),
 }));
 
+import { mdiPi } from '@mdi/js';
 import ClonePicker from '../../components/github/ClonePicker';
 
 const REPO = {
@@ -222,5 +223,26 @@ describe('ClonePicker', () => {
     expect(screen.getByTestId('clone-picker-agent-bash')).toBeInTheDocument();
     expect(screen.queryByTestId('clone-picker-agent-claude-code')).not.toBeInTheDocument();
     expect(screen.queryByTestId('clone-picker-agent-codex')).not.toBeInTheDocument();
+  });
+
+  it('a running-session row shows the session agent icon and a session-type subtitle', () => {
+    sessionStoreState.sessions = [{ id: 's1', name: 'ai-news-digest', status: 'running', agentType: 'pi' }];
+
+    renderPicker();
+
+    const row = screen.getByTestId('clone-picker-session-row');
+    // Reuses the session-mode agent icon (Pi) rather than a generic console icon.
+    expect(row.querySelector('[data-testid="mock-icon"]')?.getAttribute('data-path')).toBe(mdiPi);
+    // Subtitle states which agent the session runs.
+    expect(row.querySelector('.clone-picker-option-desc')?.textContent).toContain('Pi');
+  });
+
+  it('running-session rows and new-session rows share the option-row layout', () => {
+    sessionStoreState.sessions = [{ id: 's1', name: 'x', status: 'running', agentType: 'pi' }];
+
+    renderPicker();
+
+    expect(screen.getByTestId('clone-picker-session-row').classList.contains('clone-picker-option-btn')).toBe(true);
+    expect(screen.getByTestId('clone-picker-agent-pi').classList.contains('clone-picker-option-btn')).toBe(true);
   });
 });

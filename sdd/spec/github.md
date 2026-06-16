@@ -63,8 +63,14 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 <!-- @impl: src/routes/github.ts -->
 <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx -->
+<!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx -->
+<!-- @impl: web-ui/src/components/github/RepoList.tsx -->
+<!-- @impl: web-ui/src/components/github/RepoRow.tsx -->
+<!-- @impl: web-ui/src/components/ui/IconButton.tsx -->
+<!-- @impl: web-ui/src/components/Dashboard.tsx -->
 <!-- @test: src/__tests__/routes/github.test.ts (status/repos/connect/disconnect -> AC1,AC2) -->
-<!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (panel gating + states -> AC3,AC4,AC5) -->
+<!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (panel gating + states, refresh, icon-disconnect, external links, repo-row scroll container, mobile flip -> AC3,AC4,AC5,AC6,AC7,AC8) -->
+<!-- @test: web-ui/src/__tests__/components/IconButton.test.tsx (icon path, onClick, disabled, active/spin -> AC4,AC6) -->
 **Intent:** A panel beside the R2 storage panel lets a user connect GitHub and browse the repositories they can access, gated by deployment mode and tier.
 
 **Applies To:** User
@@ -74,13 +80,17 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 1. `GET /api/github/status` reports connection state (connected, login, source) without exposing the token. <!-- @impl: src/routes/github.ts -->
 2. `GET /api/github/repos` returns the repos the user can access (personal + org via `read:org`), searchable and paginated, fetched server-side with the stored token; the token never reaches the browser. <!-- @impl: src/routes/github.ts -->
 3. The panel renders beside the storage panel and is gated to enterprise mode (`githubFeatureEnabled`). <!-- @impl: src/routes/github.ts::githubFeatureEnabled --> <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx -->
-4. Not-connected shows a "Connect GitHub" action that starts the authorize flow; connected shows the account + a Disconnect action and the searchable repo list.
+4. Not-connected shows a "Connect GitHub" action that starts the authorize flow; connected shows the account, a refresh control (reloads the repo list, the same `mdiSync` icon as the storage panel) and an icon-only Disconnect control (`mdiConnection`), and the searchable repo list. The refresh and disconnect controls reuse one tested `IconButton` primitive. <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx --> <!-- @impl: web-ui/src/components/ui/IconButton.tsx -->
 5. The panel is mobile-first / responsive — it stacks with the storage panel at the existing narrow breakpoint.
+6. The repo list is a scroll container, not a truncating list: every fetched repo is rendered, but the viewport caps the visible rows at ~10 on desktop (`--repo-row-h` × 10, hidden scrollbar) and on mobile grows to fill the available vertical space while never showing fewer than 3 rows. <!-- @impl: web-ui/src/styles/github-panel.css --> <!-- @impl: web-ui/src/components/github/RepoList.tsx -->
+7. The owner/login label and each repo name are external links to GitHub (`https://github.com/<login>` and `https://github.com/<full_name>`), opening in a new tab (`target="_blank" rel="noopener noreferrer"`); a repo-name click does not trigger the row/clone action. <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx --> <!-- @impl: web-ui/src/components/github/RepoRow.tsx -->
+8. On mobile a flip control (`mdiFlipVertical`) at the right of the panel header swaps the GitHub panel with the R2 storage panel in place (animated, `prefers-reduced-motion` → instant); on desktop both panels stack as before and the flip control is hidden. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx --> <!-- @impl: web-ui/src/components/Dashboard.tsx -->
 
 **Constraints:**
 
 - `/repos` and `/connect` are rate-limited; repo responses never include the token.
 - The panel gate is currently enterprise-only; broadening to the SaaS `advanced` tier and a per-user toggle (default off) is tracked as [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise).
+- The 10-row desktop cap is a CSS viewport (max-height), not a data limit — all fetched repos remain in the scroll container and searchable; the px cap is not unit-asserted in jsdom.
 
 **Priority:** P1
 
@@ -132,6 +142,9 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 <!-- @impl: src/routes/session/crud.ts -->
 <!-- @impl: src/container/container-env.ts::buildEnvVars -->
 <!-- @impl: web-ui/src/components/github/ClonePicker.tsx -->
+<!-- @impl: web-ui/src/components/github/ClonePickerOptionRow.tsx -->
+<!-- @impl: web-ui/src/components/github/ClonePickerSessionRow.tsx -->
+<!-- @impl: web-ui/src/components/github/ClonePickerNewSession.tsx -->
 <!-- @impl: entrypoint.sh -->
 <!-- @impl: host/src/git-clone.ts -->
 <!-- @impl: host/src/server.ts -->
@@ -139,7 +152,8 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 <!-- @test: src/__tests__/routes/github.test.ts (POST /clone forward+relay -> AC2) -->
 <!-- @test: src/__tests__/container/container-env.test.ts (GIT_CLONE_REPO/REF env -> AC2,AC3) -->
 <!-- @test: host/__tests__/git-clone.test.js (repo/ref validation + dir computation -> AC3,AC4) -->
-<!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (running-group then new-session separator, ordering/counts -> AC1) -->
+<!-- @test: web-ui/src/__tests__/components/ClonePicker.test.tsx (running-group then new-session separator, ordering/counts, running-row agent-icon + "Running in <agent>" subtitle, shared option-row layout -> AC1) -->
+<!-- @test: web-ui/src/__tests__/components/ClonePickerOptionRow.test.tsx (icon/label/description/badge slots, onClick, disabled -> AC1) -->
 <!-- @test: web-ui/src/__tests__/components/RepoRow.test.tsx (Clone button opens the picker -> AC1) -->
 **Intent:** From the panel a user clones a repository into a new or running session, into the workspace, ready for the agent.
 
@@ -147,7 +161,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Acceptance Criteria:**
 
-1. The clone action offers a session picker: running sessions first (e.g. "Pi #1"), then a separator, then "Clone into a new session".
+1. The clone action offers a session picker: running sessions first, then a separator, then "Clone into a new session". A running-session row matches the new-session agent rows below it — same option-row layout/left edge (one shared `ClonePickerOptionRow`), the session's own agent icon (e.g. the Pi icon for a Pi session, from the agent options) and a "Running in <agent>" subtitle. <!-- @impl: web-ui/src/components/github/ClonePickerOptionRow.tsx --> <!-- @impl: web-ui/src/components/github/ClonePickerSessionRow.tsx -->
 2. New session → the repo is cloned before the agent process starts (entrypoint.sh, from the `clone` field on session create); running session → cloned via an authenticated internal RPC into the live container. <!-- @impl: src/routes/container/lifecycle.ts -->
 3. The repo is cloned into `$USER_WORKSPACE/<repo-name-verbatim>`; the clone is refused with a clear message if that folder already exists. <!-- @impl: host/src/git-clone.ts::resolveGitClone -->
 4. The clone targets the chosen branch (default branch preselected); authentication uses the per-mode credential path (egress injection in enterprise, `GH_TOKEN` otherwise). <!-- @impl: host/src/git-clone.ts::buildCloneArgs -->

@@ -273,6 +273,27 @@ describe('Setup Store', () => {
       expect(setupStore.enterpriseAccessGroups).toEqual(['team_a']);
     });
 
+    // REQ-ENTERPRISE-014: admin Access groups grant Setup access, never routing.
+    it('should add and remove an admin access group WITHOUT seeding per-group routing', () => {
+      setupStore.addDynamicRoute('development');
+      setupStore.addAdminAccessGroup('ops_admins');
+      setupStore.addAdminAccessGroup('security_admins');
+      expect(setupStore.adminAccessGroups).toEqual(['ops_admins', 'security_admins']);
+      // Admin groups must NEVER produce a per-group routing card/entry.
+      expect(setupStore.groupRouting).not.toHaveProperty('ops_admins');
+      expect(setupStore.groupRouting).not.toHaveProperty('security_admins');
+
+      setupStore.removeAdminAccessGroup('ops_admins');
+      expect(setupStore.adminAccessGroups).toEqual(['security_admins']);
+    });
+
+    it('should not add a duplicate or empty admin access group', () => {
+      setupStore.addAdminAccessGroup('ops_admins');
+      setupStore.addAdminAccessGroup('ops_admins');
+      setupStore.addAdminAccessGroup('');
+      expect(setupStore.adminAccessGroups).toEqual(['ops_admins']);
+    });
+
     it('should add and remove a dynamic route', () => {
       setupStore.addDynamicRoute('development');
       setupStore.addDynamicRoute('prod');
@@ -421,6 +442,7 @@ describe('Setup Store', () => {
 
       setupStore.addDynamicRoute('development');
       setupStore.addAccessGroup('team_a');
+      setupStore.addAdminAccessGroup('ops_admins');
       setupStore.setGithubProviderType('oauth');
       setupStore.setGithubOauthClientId('oauth-id');
       setupStore.setGithubOauthClientSecret('oauth-secret');
@@ -435,6 +457,8 @@ describe('Setup Store', () => {
       expect(body.groupRouting).toEqual({
         team_a: { routes: ['development'], defaultRoute: 'development', reasoning: 'off' },
       });
+      // REQ-ENTERPRISE-014: admin groups ride the enterprise body, separate from routing.
+      expect(body.adminAccessGroup).toEqual(['ops_admins']);
     });
 
     it('omits the GitHub provider config + groupRouting in non-enterprise mode (regression)', async () => {
@@ -447,6 +471,7 @@ describe('Setup Store', () => {
       expect(body.githubProviderType).toBeUndefined();
       expect(body.githubAppClientId).toBeUndefined();
       expect(body.groupRouting).toBeUndefined();
+      expect(body.adminAccessGroup).toBeUndefined();
     });
 
     it('round-trips the GitHub provider config + groupRouting from prefill', async () => {
@@ -463,6 +488,7 @@ describe('Setup Store', () => {
               adminUsers: [],
               allowedUsers: [],
               enterpriseAccessGroup: ['team_a'],
+              adminAccessGroup: ['ops_admins'],
               dynamicRoutes: ['development', 'prod'],
               githubProviderType: 'oauth',
               githubOauthClientId: 'stored-oauth-id',
@@ -489,6 +515,8 @@ describe('Setup Store', () => {
         defaultRoute: 'prod',
         reasoning: 'low',
       });
+      // REQ-ENTERPRISE-014: admin groups round-trip from prefill, separate from routing.
+      expect(setupStore.adminAccessGroups).toEqual(['ops_admins']);
     });
   });
 
@@ -849,6 +877,7 @@ describe('Setup Store', () => {
       setupStore.setCustomDomain('test.com');
       setupStore.addAllowedUser('user@example.com');
       setupStore.addAccessGroup('team_a');
+      setupStore.addAdminAccessGroup('ops_admins');
       setupStore.addDynamicRoute('development');
       setupStore.setDefaultRouteName('development');
       setupStore.setDefaultRouteReasoning('high');
@@ -875,6 +904,7 @@ describe('Setup Store', () => {
       expect(setupStore.customDomainError).toBeNull();
       expect(setupStore.allowedUsers).toEqual([]);
       expect(setupStore.enterpriseAccessGroups).toEqual([]);
+      expect(setupStore.adminAccessGroups).toEqual([]);
       expect(setupStore.dynamicRoutes).toEqual([]);
       expect(setupStore.defaultRouteName).toBe('');
       expect(setupStore.defaultRouteReasoning).toBe('off');

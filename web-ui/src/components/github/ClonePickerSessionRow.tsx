@@ -1,6 +1,7 @@
 import { Component } from 'solid-js';
 import { mdiConsole } from '@mdi/js';
-import Icon from '../Icon';
+import ClonePickerOptionRow from './ClonePickerOptionRow';
+import { AGENT_OPTIONS } from '../CreateSessionDialog';
 import type { SessionWithStatus } from '../../types';
 
 interface ClonePickerSessionRowProps {
@@ -10,20 +11,21 @@ interface ClonePickerSessionRowProps {
 }
 
 // One running-session row in the ClonePicker. Selecting it clones the target
-// repo into that live container. Presentational — the parent owns the action.
+// repo into that live container. Renders through the shared ClonePickerOptionRow
+// so it aligns with the "new session" agent rows, showing the session's agent
+// icon and a "Running in <agent>" subtitle.
 const ClonePickerSessionRow: Component<ClonePickerSessionRowProps> = (props) => {
+  const agent = () => AGENT_OPTIONS.find((a) => a.type === props.session.agentType);
   return (
-    <button
-      type="button"
-      class="clone-picker-session-btn"
-      data-testid="clone-picker-session-row"
-      data-session-id={props.session.id}
+    <ClonePickerOptionRow
+      icon={agent()?.icon ?? mdiConsole}
+      label={props.session.name}
+      description={agent() ? `Running in ${agent()!.label}` : 'Running session'}
       disabled={props.disabled}
       onClick={() => props.onSelect(props.session.id)}
-    >
-      <Icon path={mdiConsole} size={16} class="clone-picker-session-icon" />
-      <span class="clone-picker-session-name">{props.session.name}</span>
-    </button>
+      testId="clone-picker-session-row"
+      sessionId={props.session.id}
+    />
   );
 };
 

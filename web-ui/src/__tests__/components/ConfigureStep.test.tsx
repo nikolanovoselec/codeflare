@@ -10,6 +10,7 @@ const storeState = vi.hoisted(() => ({
   saasMode: false,
   enterpriseMode: false,
   enterpriseAccessGroups: [] as string[],
+  adminAccessGroups: [] as string[],
   dynamicRoutes: [] as string[],
   defaultRouteName: '',
   defaultRouteReasoning: 'off' as 'off' | 'low' | 'medium' | 'high',
@@ -34,6 +35,8 @@ const storeMethods = vi.hoisted(() => ({
   removeAllowedUser: vi.fn((email: string) => { storeState.allowedUsers = storeState.allowedUsers.filter(e => e !== email); }),
   addAccessGroup: vi.fn((name: string) => { storeState.enterpriseAccessGroups.push(name); }),
   removeAccessGroup: vi.fn((name: string) => { storeState.enterpriseAccessGroups = storeState.enterpriseAccessGroups.filter(g => g !== name); }),
+  addAdminAccessGroup: vi.fn((name: string) => { storeState.adminAccessGroups.push(name); }),
+  removeAdminAccessGroup: vi.fn((name: string) => { storeState.adminAccessGroups = storeState.adminAccessGroups.filter(g => g !== name); }),
   addDynamicRoute: vi.fn((name: string) => { storeState.dynamicRoutes.push(name); }),
   removeDynamicRoute: vi.fn((name: string) => { storeState.dynamicRoutes = storeState.dynamicRoutes.filter(r => r !== name); }),
   setDefaultRouteName: vi.fn((name: string) => { storeState.defaultRouteName = name; }),
@@ -62,6 +65,7 @@ vi.mock('../../stores/setup', () => ({
     get saasMode() { return storeState.saasMode; },
     get enterpriseMode() { return storeState.enterpriseMode; },
     get enterpriseAccessGroups() { return storeState.enterpriseAccessGroups; },
+    get adminAccessGroups() { return storeState.adminAccessGroups; },
     get dynamicRoutes() { return storeState.dynamicRoutes; },
     get defaultRouteName() { return storeState.defaultRouteName; },
     get defaultRouteReasoning() { return storeState.defaultRouteReasoning; },
@@ -95,6 +99,7 @@ describe('ConfigureStep', () => {
     storeState.saasMode = false;
     storeState.enterpriseMode = false;
     storeState.enterpriseAccessGroups = [];
+    storeState.adminAccessGroups = [];
     storeState.dynamicRoutes = [];
     storeState.defaultRouteName = '';
     storeState.defaultRouteReasoning = 'off';
@@ -163,6 +168,39 @@ describe('ConfigureStep', () => {
       render(() => <ConfigureStep />);
       expect(screen.getByText('Admin Users')).toBeInTheDocument();
       expect(screen.getByText('Cloudflare Access Groups (optional)')).toBeInTheDocument();
+    });
+  });
+
+  // REQ-ENTERPRISE-014: admin Access groups field — Setup access, not routing.
+  describe('Admin Access groups (REQ-ENTERPRISE-014)', () => {
+    it('renders the admin Access groups field in enterprise mode', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      expect(screen.getByPlaceholderText('e.g. codeflare_admins')).toBeInTheDocument();
+    });
+
+    it('does not render the admin Access groups field outside enterprise mode', () => {
+      storeState.enterpriseMode = false;
+      render(() => <ConfigureStep />);
+      expect(screen.queryByPlaceholderText('e.g. codeflare_admins')).not.toBeInTheDocument();
+    });
+
+    it('routes the admin-group Add to addAdminAccessGroup', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      const input = screen.getByPlaceholderText('e.g. codeflare_admins');
+      fireEvent.input(input, { target: { value: 'ops_admins' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(storeMethods.addAdminAccessGroup).toHaveBeenCalledWith('ops_admins');
+    });
+
+    it('admin groups never produce a per-group routing card (routing is user-groups only)', () => {
+      storeState.enterpriseMode = true;
+      storeState.adminAccessGroups = ['ops_admins'];
+      storeState.enterpriseAccessGroups = [];
+      storeState.dynamicRoutes = ['development'];
+      render(() => <ConfigureStep />);
+      expect(document.querySelector('.group-routing-card')).toBeNull();
     });
   });
 
@@ -425,13 +463,13 @@ describe('ConfigureStep', () => {
 
   // REQ-ENTERPRISE-013: per-group routing cards render once groups + routes exist.
   describe('Per-group routing', () => {
-    it('renders one card per group, each with a checkbox per catalog route', () => {
+    it('renders one card per group, each with a route pill per catalog route', () => {
       storeState.enterpriseMode = true;
       storeState.enterpriseAccessGroups = ['team_a'];
       storeState.dynamicRoutes = ['development', 'prod'];
       render(() => <ConfigureStep />);
       expect(document.querySelectorAll('.group-routing-card').length).toBe(1);
-      expect(document.querySelectorAll('.group-routing-card input[type="checkbox"]').length).toBe(2);
+      expect(document.querySelectorAll('.group-routing-card .pill').length).toBe(2);
     });
 
     it('does not render per-group routing when there are no groups', () => {
@@ -442,23 +480,56 @@ describe('ConfigureStep', () => {
       expect(document.querySelector('.group-routing-card')).toBeNull();
     });
 
-    it('toggles a group route when its checkbox is clicked', () => {
+    it('toggles a group route when its pill is clicked', () => {
       storeState.enterpriseMode = true;
       storeState.enterpriseAccessGroups = ['team_a'];
       storeState.dynamicRoutes = ['development'];
       render(() => <ConfigureStep />);
-      const cb = document.querySelector('.group-routing-card input[type="checkbox"]') as HTMLElement;
-      fireEvent.click(cb);
+      const pill = document.querySelector('.group-routing-card [data-value="development"]') as HTMLElement;
+      fireEvent.click(pill);
       expect(storeMethods.toggleGroupRoute).toHaveBeenCalledWith('team_a', 'development');
     });
 
-    it('applies one group config to all groups via the button', () => {
+    // Item 10: "Apply to all groups" is only meaningful with more than one group.
+    it('omits the per-card Apply-to-all control when only one group exists', () => {
       storeState.enterpriseMode = true;
       storeState.enterpriseAccessGroups = ['team_a'];
       storeState.dynamicRoutes = ['development'];
       render(() => <ConfigureStep />);
-      fireEvent.click(screen.getByText('Apply to all groups'));
+      expect(document.querySelector('.group-routing-card-header button')).toBeNull();
+    });
+
+    it('shows a per-card Apply-to-all control once >1 group exists and applies that card config', () => {
+      storeState.enterpriseMode = true;
+      storeState.enterpriseAccessGroups = ['team_a', 'team_b'];
+      storeState.dynamicRoutes = ['development'];
+      render(() => <ConfigureStep />);
+      const applyButtons = document.querySelectorAll('.group-routing-card-header button');
+      expect(applyButtons.length).toBe(2);
+      fireEvent.click(applyButtons[0] as HTMLElement);
       expect(storeMethods.applyGroupRoutingToAll).toHaveBeenCalledWith('team_a');
+    });
+
+    // Item 11: once any group exists the global Default Route editor disappears —
+    // routing is configured per-group (the stored global default remains the
+    // backend fallback for users who match no configured group).
+    it('hides the global Default Route editor once a group exists', () => {
+      storeState.enterpriseMode = true;
+      storeState.enterpriseAccessGroups = ['team_a'];
+      storeState.dynamicRoutes = ['development'];
+      render(() => <ConfigureStep />);
+      // team_a has no selected routes, so neither the global editor nor any
+      // per-group default row renders — zero route-default-rows total.
+      expect(document.querySelectorAll('.route-default-row').length).toBe(0);
+      expect(screen.queryByText('Default Route')).not.toBeInTheDocument();
+    });
+
+    it('shows the global Default Route editor when no group exists', () => {
+      storeState.enterpriseMode = true;
+      storeState.enterpriseAccessGroups = [];
+      storeState.dynamicRoutes = ['development'];
+      render(() => <ConfigureStep />);
+      expect(document.querySelectorAll('.route-default-row').length).toBe(1);
     });
   });
 

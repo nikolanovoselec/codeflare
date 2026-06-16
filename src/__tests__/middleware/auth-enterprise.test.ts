@@ -23,6 +23,8 @@ const mockAuthResult = {
 
 vi.mock('../../lib/access', () => ({
   authenticateRequest: vi.fn(async () => ({ ...mockAuthResult, user: { ...mockAuthResult.user } })),
+  // auth.ts imports this for requireAdmin; requireActiveUser (under test) never calls it.
+  resolveAdminAccessGroup: vi.fn(async () => []),
 }));
 
 import { requireActiveUser } from '../../middleware/auth';

@@ -57,6 +57,11 @@ const ConfigureBodySchema = z.object({
   // comma-joined so access.ts parseAccessGroups keeps reading it. Absent for
   // non-enterprise setups.
   enterpriseAccessGroup: z.array(accessNameSchema).optional(),
+  // REQ-ENTERPRISE-014 (enterprise-only): admin Access group NAMES whose members are
+  // granted admin (= Setup access), parallel to the email-based adminUsers list.
+  // Persisted comma-joined (parseAccessGroups reads it); excluded from per-group
+  // routing by construction (only enterpriseAccessGroup keys may carry routing).
+  adminAccessGroup: z.array(accessNameSchema).optional(),
   // Feature C (enterprise-only): the gateway dynamic-route catalog (route names)
   // plus an optional default route + reasoning level applied container-side.
   dynamicRoutes: z.array(accessNameSchema).optional(),
@@ -156,7 +161,7 @@ app.post('/configure', async (c) => {
   // Validate body synchronously before starting the stream
   const body = await parseJsonBody(c, ConfigureBodySchema);
 
-  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, dynamicRoutes, defaultRoute, browserRenderToken, browserRenderAccountId, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, groupRouting } = body;
+  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, browserRenderToken, browserRenderAccountId, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, groupRouting } = body;
   const token = c.env.CLOUDFLARE_API_TOKEN;
 
   // During reconfiguration, prevent admin from removing themselves
@@ -358,6 +363,17 @@ app.post('/configure', async (c) => {
           await c.env.KV.put(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, joinedGroups);
         } else {
           await c.env.KV.delete(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP);
+        }
+      }
+
+      // REQ-ENTERPRISE-014: persist (or clear) the optional admin Access groups,
+      // same comma-joined format and enterprise gate as the user-access groups above.
+      if (isEnterpriseMode(c.env) && adminAccessGroup !== undefined) {
+        const joinedAdminGroups = adminAccessGroup.join(',');
+        if (joinedAdminGroups) {
+          await c.env.KV.put(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP, joinedAdminGroups);
+        } else {
+          await c.env.KV.delete(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP);
         }
       }
 

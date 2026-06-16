@@ -569,6 +569,26 @@ export async function resolveSessionAccessGroup(request: Request, env: Env): Pro
 }
 
 /**
+ * Resolve which configured ADMIN Access groups the current request's user belongs
+ * to. Parallel to {@link resolveSessionAccessGroup} but reads
+ * SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP — membership grants admin (= Setup
+ * access in enterprise). Enterprise-mode only; returns [] when not enterprise,
+ * when no admin groups are configured, or when the user matches none. Live (no
+ * caching) so removing a user from the admin group revokes their Setup access on
+ * the very next request. Fails CLOSED. Invoked only from {@link requireAdmin}, so
+ * the at-most-one get-identity fetch is confined to admin-gated routes (rare) and
+ * every non-admin request stays byte-identical. REQ-ENTERPRISE-014.
+ */
+export async function resolveAdminAccessGroup(request: Request, env: Env): Promise<string[]> {
+  if (!isEnterpriseMode(env)) return [];
+  const adminGroups = parseAccessGroups(await env.KV.get(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP));
+  if (adminGroups.length === 0) return [];
+  const { authDomain } = await loadAuthConfig(env);
+  const accessToken = extractAccessJwt(request);
+  return resolveUserAccessGroup(accessToken, authDomain, adminGroups);
+}
+
+/**
  * Resolve the enterprise dynamic-route config from Setup→KV for the container:
  * the full route catalog (Pi models.json lists all routes), the resolved default
  * route (Copilot COPILOT_MODEL + Pi defaultModel), and its reasoning grade (Pi
@@ -718,7 +738,14 @@ export async function resolveOrProvisionEnterpriseUser(
   // user in ANY configured group may use the deployment (REQ-ENTERPRISE-010).
   const configuredGroups = parseAccessGroups(await kv.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP));
   if (configuredGroups.length > 0) {
-    const matchedGroups = await resolveUserAccessGroup(accessToken, authDomain, configuredGroups);
+    // REQ-ENTERPRISE-014: an admin-group member must be admitted even when they
+    // belong to no user-access group, so the gate tests membership against the union
+    // of user + admin groups. Admin groups never turn the gate ON by themselves —
+    // that stays conditioned on a non-empty ENTERPRISE_ACCESS_GROUP above, so a deploy
+    // with only admin groups configured leaves entry open (byte-identical to before).
+    const adminGroups = parseAccessGroups(await kv.get(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP));
+    const gateGroups = adminGroups.length > 0 ? [...configuredGroups, ...adminGroups] : configuredGroups;
+    const matchedGroups = await resolveUserAccessGroup(accessToken, authDomain, gateGroups);
     if (matchedGroups.length === 0) {
       throw new ForbiddenError('User not in allowlist');
     }

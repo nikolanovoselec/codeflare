@@ -126,6 +126,9 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
   let enterpriseExtras: Record<string, unknown> = {};
   if (isEnterpriseMode(c.env)) {
     const enterpriseAccessGroup = parseAccessGroups(await c.env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP));
+    // REQ-ENTERPRISE-014: surface the stored admin Access groups so the wizard
+    // round-trips on re-run (same CSV→chip parse as the user-access groups).
+    const adminAccessGroup = parseAccessGroups(await c.env.KV.get(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP));
     // KV.get(...,'json') throws on malformed stored JSON; degrade to empty/null like
     // the runtime route-config reader does (loadEnterpriseRouteConfig in lib/access).
     let dynamicRoutes: string[] = [];
@@ -152,7 +155,7 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
       groupRouting = (await c.env.KV.get<Record<string, { routes: string[]; defaultRoute: string; reasoning: string }>>(SETUP_KEYS.GROUP_ROUTING, 'json')) ?? {};
     } catch { /* malformed stored JSON → wizard starts from empty */ }
     enterpriseExtras = {
-      enterpriseAccessGroup, dynamicRoutes, defaultRoute, browserRenderTokenSet, browserRenderAccountId,
+      enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, browserRenderTokenSet, browserRenderAccountId,
       githubProviderType, githubAppClientId, githubAppClientSecretSet, githubOauthClientId, githubOauthClientSecretSet,
       groupRouting,
     };

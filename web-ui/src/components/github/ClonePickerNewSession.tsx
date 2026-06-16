@@ -1,5 +1,5 @@
-import { Component, For, Show } from 'solid-js';
-import Icon from '../Icon';
+import { Component, For } from 'solid-js';
+import ClonePickerOptionRow from './ClonePickerOptionRow';
 import type { AgentType } from '../../types';
 import { sessionStore } from '../../stores/session';
 import { AGENT_OPTIONS, ENTERPRISE_AGENT_TYPES } from '../CreateSessionDialog';
@@ -26,24 +26,15 @@ const ClonePickerNewSession: Component<ClonePickerNewSessionProps> = (props) => 
       <div class="clone-picker-agents">
         <For each={agentOptions()}>
           {(agent) => (
-            <button
-              type="button"
-              class="clone-picker-agent-btn"
-              data-testid={`clone-picker-agent-${agent.type}`}
+            <ClonePickerOptionRow
+              icon={agent.icon}
+              label={agent.label}
+              description={agent.description}
+              badge={agent.badge}
               disabled={props.disabled}
               onClick={() => props.onSelect(agent.type)}
-            >
-              <Icon path={agent.icon} size={18} class="clone-picker-agent-icon" />
-              <div class="clone-picker-agent-info">
-                <span class="clone-picker-agent-label">
-                  {agent.label}
-                  <Show when={agent.badge}>
-                    <span class="clone-picker-agent-badge">{agent.badge}</span>
-                  </Show>
-                </span>
-                <span class="clone-picker-agent-desc">{agent.description}</span>
-              </div>
-            </button>
+              testId={`clone-picker-agent-${agent.type}`}
+            />
           )}
         </For>
       </div>
