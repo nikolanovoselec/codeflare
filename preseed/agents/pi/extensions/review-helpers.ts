@@ -360,6 +360,13 @@ export function mergeCommandTarget(command: string): MergeCommandTarget {
   return result;
 }
 
+export type PostCommandReconcileDecision = { reconcile: boolean; freshPrState: boolean };
+
+export function postCommandReconcileDecision(command: string): PostCommandReconcileDecision {
+  const invokesGitOrGh = /(?:^|[\n;&|])\s*(?:[A-Za-z_]\w*=(?:'[^']*'|"[^"]*"|\S*)\s+)*(?:(?:env|command|nice(?:\s+-n\s*\S+)?|timeout(?:\s+-\S+)*\s+\S+)\s+)*(?:git|gh)\b/.test(command);
+  return invokesGitOrGh ? { reconcile: true, freshPrState: true } : { reconcile: false, freshPrState: false };
+}
+
 export function commandTextFromEvent(event: any): string {
   const inputs = [event?.input, event?.params, event?.args, event?.arguments, event?.toolCall?.arguments, event?.toolCall?.input, event?.toolCall?.params];
   const commands: string[] = [];

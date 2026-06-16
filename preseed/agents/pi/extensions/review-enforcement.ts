@@ -57,7 +57,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
-import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, prBoundaryCommandBase, prEnforcedForPush, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
+import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prEnforcedForPush, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
 import { actionableReviewCount, activeRepoCandidateForReview, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, mergeGateDecision, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewAnnouncement, type ReviewSeverityCounts } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, ensureReviewAnnouncementPending, failedDurableReviewLanes, readDurableReviewJob, readReviewAnnouncement, reapDurableReviewLanes, reviewAnnouncementKinds, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes, writeReviewAnnouncement } from "./review-jobs";
 
@@ -643,10 +643,6 @@ function isLocalGitPushCommand(command: string): boolean {
 
 function isGitPushCommand(command: string): boolean {
   return isLocalGitPushCommand(command) || /(^|[;&|\n]\s*)gh\s+repo\s+sync\b/.test(command);
-}
-
-function mentionsGitOrGhCommand(command: string): boolean {
-  return /(?:^|[\n;&|])\s*(?:[A-Za-z_]\w*=(?:'[^']*'|"[^"]*"|\S*)\s+)*(?:(?:env|command|nice(?:\s+-n\s*\S+)?|timeout(?:\s+-\S+)*\s+\S+)\s+)*(?:git|gh)\b/.test(command);
 }
 
 function prForBoundaryCommand(repo: string, command: string, pr: PrState | undefined): PrState | undefined {
@@ -1605,7 +1601,7 @@ export default function (pi: ExtensionAPI) {
   // shouldReconcileOpenPr; genuine near-misses (breaker-latched, unresolvable head) are logged as
   // boundary_candidate_ignored so a stuck PR is never silent (AC4). `force` bypasses the network
   // throttle for once-per-turn ticks. Returns true when a window was created or acked.
-  async function reconcileOpenPrReview(ctx: any, force: boolean): Promise<boolean> {
+  async function reconcileOpenPrReview(ctx: any, force: boolean, options?: { freshPrState?: boolean }): Promise<boolean> {
     const repo = reviewRepoForCtx(ctx);
     const nowTs = Date.now();
     const lifecycle = shouldCheckOpenPrReconciliation({
@@ -1619,7 +1615,7 @@ export default function (pi: ExtensionAPI) {
     lastReconcileCheckAt = nowTs;
 
     const resolvedRepo = repo as string;
-    const pr = prState(resolvedRepo);
+    const pr = options?.freshPrState ? prStateFreshResult(resolvedRepo).pr : prState(resolvedRepo);
     const enforced = isEnforcedPr(pr);
     const head = enforced ? resolveEnforcedHead(resolvedRepo, pr) : "";
     const durableJob = head ? readDurableReviewJob(resolvedRepo, head) : undefined;
@@ -1973,14 +1969,15 @@ export default function (pi: ExtensionAPI) {
         const repo = reviewRepoForCtx(ctx, cwdFromCommand(command));
         if (repo && isSddProject(repo)) {
           appendReviewEvent(repo, { event: "boundary_candidate_ignored", reason: "pr_create_url_not_parsed" });
-          await reconcileOpenPrReview(ctx, true);
+          await reconcileOpenPrReview(ctx, true, { freshPrState: true });
         }
       }
       // Simple truth backstop: after ANY successful shell command that actually invokes git/gh, re-read
-      // GitHub PR state. Regex/tool parsing is only an accelerator; `gh pr view` owns the truth. This
-      // catches wrapper/compound commands whose exact boundary verb was not classified, and it makes a
-      // missed push self-heal immediately instead of waiting for the next lifecycle tick.
-      if (mentionsGitOrGhCommand(command)) await reconcileOpenPrReview(ctx, true);
+      // GitHub PR state FRESH (bypassing prCache). Regex/tool parsing is only an accelerator; `gh pr view`
+      // owns the truth. This catches wrapper/compound commands whose exact boundary verb was not
+      // classified, and it makes a missed push self-heal immediately instead of waiting for a cache TTL.
+      const postCommandDecision = postCommandReconcileDecision(command);
+      if (postCommandDecision.reconcile) await reconcileOpenPrReview(ctx, true, { freshPrState: postCommandDecision.freshPrState });
       return;
     }
 
