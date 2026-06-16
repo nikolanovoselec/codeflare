@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isPrBoundaryTrigger, isPrBoundaryCommand, isGhPrMergeCommand, isGitPushOnlyCommand, mergeCommandTarget, prBoundaryCommandBase, prEditBoundaryBase, prEnforcedForPush, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { isPrBoundaryTrigger, isPrBoundaryCommand, isGhPrMergeCommand, isGitPushOnlyCommand, mergeCommandTarget, prBoundaryCommandBase, prEditBoundaryBase, prEnforcedForPush, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision, ghPrCreateBase } from '../../../preseed/agents/pi/extensions/review-helpers';
 
 /**
  * isPrBoundaryTrigger is the single "should this command start a review?" predicate.
@@ -28,6 +28,7 @@ describe('isPrBoundaryTrigger', () => {
   });
 
   it('does NOT treat gh pr create targeting a non-main base as a boundary', () => {
+    expect(ghPrCreateBase('gh pr create --base develop --title x')).toBe('develop');
     expect(isPrBoundaryTrigger('gh pr create --base develop --title x')).toBe(false);
   });
 

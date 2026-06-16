@@ -6,6 +6,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 - **Pi PR-boundary reconciliation parses shell wrappers structurally** ([REQ-AGENT-058](agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery) AC1; stays Implemented). The post-command reconcile backstop now tokenizes shell commands and unwraps `env`, `command`, `nice`, and `timeout` wrappers before looking for `git` or `gh`, so `env -u NAME VAR=value gh ...` and timeout-wrapped commands force fresh PR-state reconciliation without relying on a wrapper-heavy regex.
 
+- **Pi review-summary delivery no longer burns an off-turn no-op attempt** ([REQ-AGENT-062](agents.md#req-agent-062-pi-pr-boundary-review-result-delivery) AC6; stays Implemented). A display summary now waits for a live session context before calling plain `pi.sendMessage`; the off-turn reaper leaves the durable announcement pending instead of recording an attempted send that cannot be proven in the main transcript.
+
 ## 2026-06-15
 
 - **Pi PR-boundary reconciliation now refreshes PR state after git/gh commands** ([REQ-AGENT-058](agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery) AC1; stays Implemented). Successful shell commands that invoke `git` or `gh` force a fresh PR-state reconcile, so wrapper or unclassified pushes cannot hide behind a stale cached PR head.

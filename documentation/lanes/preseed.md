@@ -467,7 +467,7 @@ All preseed content is deployed via the manifest pipeline:
   fallback if automatic delivery never lands. The summary itself is sent with a plain
   `pi.sendMessage` (no `triggerTurn`/`deliverAs`) — the same synchronous append path
   `/review-results` uses, which persists the nonce-bearing content AND displays it in one
-  step — gated on `pi.isIdle()` so it is never taken during a streaming turn: mid-stream the
+  step — gated on a live session context plus `pi.isIdle()` so it is never taken during a stale off-turn sender or a streaming turn: mid-stream the
   plain send would steer the summary into the running turn, where the agent reads it
   mid-reasoning (the idle-gated delivery rule in [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery) AC6 guards against this). When the agent is mid-turn `sendAnnouncement` returns
   `{ sent: false }` and the per-tick drain loop re-attempts on the next idle lifecycle event

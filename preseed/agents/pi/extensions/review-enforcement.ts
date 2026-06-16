@@ -1301,8 +1301,8 @@ export default function (pi: ExtensionAPI) {
       if (record.kind === "summary") {
         const summaryPath = join(reviewResultsDir(state.repo, state.head), "summary.md");
         try { mkdirSync(dirname(summaryPath), { recursive: true }); writeFileSync(summaryPath, `${reviewSummaryMarkdown(state)}\n`, "utf8"); } catch { /* persisted copy best-effort; chat copy is authoritative */ }
-        // Deliver the (display-only) summary the SAME way /review-results does: a plain pi.sendMessage
-        // with NO options. That takes Pi's append path (appendCustomMessageEntry), which SYNCHRONOUSLY
+        // Deliver the (display-only) summary the SAME way /review-results does, but only on a ctx-bearing
+        // live tick: a plain pi.sendMessage with NO options. That takes Pi's append path (appendCustomMessageEntry), which SYNCHRONOUSLY
         // writes the nonce-bearing content into the session transcript AND displays it in one step — so
         // the nonce reliably lands and the next reconcile proves delivery. The old `{ triggerTurn:true,
         // deliverAs:"followUp" }` instead routed the message through _runAgentPrompt / agent.followUp /
@@ -1312,6 +1312,7 @@ export default function (pi: ExtensionAPI) {
         // when no turn is streaming — mid-stream it would STEER the summary into the running turn
         // (agent-readable mid-reasoning, the REQ-AGENT-058 AC7 hazard); when streaming we stay pending and
         // the next idle tick (agent_end / turn_end / session_start) delivers it.
+        if (!ctx?.sessionManager) return { sent: false };
         let idle = true;
         // A THROW (runtime tearing down → assertActive) is reported as a failed attempt, NOT a silent
         // defer: it burns an attempt so a persistently-throwing isIdle still escalates to /review-results
