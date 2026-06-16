@@ -201,7 +201,7 @@ function isBoundaryWords(words: ShellCommand): boolean {
   const unwrapped = unwrapCommandWords(words);
   if (unwrapped[0] !== "gh") return false;
   if (unwrapped[1] === "repo" && unwrapped[2] === "sync") return true;
-  if (unwrapped[1] === "pr" && unwrapped[2] === "edit") return Boolean(prEditBaseFromWords(unwrapped));
+  if (unwrapped[1] === "pr" && unwrapped[2] === "edit") return Boolean(prProtectedBaseFromWords(unwrapped));
   return unwrapped[1] === "pr" && ["create", "merge", "update-branch"].includes(unwrapped[2]);
 }
 
@@ -242,16 +242,19 @@ export function cwdFromBoundaryCommand(command: string): string | undefined {
   return undefined;
 }
 
-function prEditBaseFromWords(words: ShellCommand): string | undefined {
-  let base: string | undefined;
+function prBaseFromWords(words: ShellCommand): string | undefined {
   for (let index = 3; index < words.length; index += 1) {
     const word = words[index];
-    if ((word === "--base" || word === "-B") && words[index + 1]) { base = words[index + 1]; break; }
-    if (word.startsWith("--base=")) { base = word.slice("--base=".length); break; }
-    if (word.startsWith("-B=") && word.length > 3) { base = word.slice(3); break; }
+    if ((word === "--base" || word === "-B") && words[index + 1]) return words[index + 1];
+    if (word.startsWith("--base=")) return word.slice("--base=".length);
+    if (word.startsWith("-B=") && word.length > 3) return word.slice(3);
   }
-  if (!base || (base !== "main" && base !== "master")) return undefined;
-  return base;
+  return undefined;
+}
+
+function prProtectedBaseFromWords(words: ShellCommand): string | undefined {
+  const base = prBaseFromWords(words);
+  return base === "main" || base === "master" ? base : undefined;
 }
 
 // A `gh pr edit --base main|master` retargets an EXISTING PR onto a protected base — the same
@@ -263,7 +266,7 @@ function prEditBaseFromWords(words: ShellCommand): string | undefined {
 export function prEditBoundaryBase(command: string): string | undefined {
   for (const words of reviewBoundaryCommands(command).map(unwrapCommandWords)) {
     if (words[0] !== "gh" || words[1] !== "pr" || words[2] !== "edit") continue;
-    const base = prEditBaseFromWords(words);
+    const base = prProtectedBaseFromWords(words);
     if (base) return base;
   }
   return undefined;
@@ -275,7 +278,7 @@ export function isGhPrCreateCommand(command: string): boolean {
 
 export function ghPrCreateBase(command: string): string | undefined {
   const words = firstGhWords(command, ["pr", "create"]);
-  return words ? prEditBaseFromWords(words) : undefined;
+  return words ? prBaseFromWords(words) : undefined;
 }
 
 export function prCreateBoundaryBase(command: string, knownBase?: string): string | undefined {
