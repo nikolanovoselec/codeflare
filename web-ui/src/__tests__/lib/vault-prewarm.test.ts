@@ -15,6 +15,16 @@ const readyProof = {
   ready: true,
   recordedDbs: ['sb_data_abc', 'sb_files_def'],
   hasIndexedDbDatabasesApi: true,
+  contentReady: true,
+  spaceSyncCompleted: true,
+  requiredFiles: ['CONFIG.md', 'Index.md', 'STYLES.md'],
+  listedFileCount: 12,
+};
+
+const localOnlyProof = {
+  ready: true,
+  recordedDbs: ['sb_data_abc', 'sb_files_def'],
+  hasIndexedDbDatabasesApi: true,
 };
 
 describe('vault browser prewarm protocol', () => {
@@ -90,6 +100,21 @@ describe('vault browser prewarm protocol', () => {
     window.dispatchEvent(new MessageEvent('message', {
       origin: window.location.origin,
       data: { source: VAULT_PREWARM_SOURCE, prewarmId: 'warm-1', status: 'ready' },
+    }));
+
+    expect(onReady).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(currentIframe()).toBeInstanceOf(HTMLIFrameElement);
+  });
+
+  it('ignores ready messages that only prove IndexedDB/service-worker readiness without content readiness', () => {
+    const onReady = vi.fn();
+    const onError = vi.fn();
+
+    startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: window.location.origin,
+      data: { source: VAULT_PREWARM_SOURCE, prewarmId: 'warm-1', status: 'ready', proof: localOnlyProof },
     }));
 
     expect(onReady).not.toHaveBeenCalled();

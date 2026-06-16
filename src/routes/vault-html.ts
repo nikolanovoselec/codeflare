@@ -297,6 +297,7 @@ export const VAULT_IDB_RECORDER_MARKER = '/*codeflare-vault-idb-recorder*/';
 const VAULT_PREWARM_QUERY = 'codeflarePrewarm';
 const VAULT_PREWARM_ID_QUERY = 'prewarmId';
 export const VAULT_PREWARM_BRIDGE_MARKER = 'data-codeflare-vault-prewarm-bridge';
+export const VAULT_PREWARM_REQUIRED_FILES = ['CONFIG.md', 'Index.md', 'STYLES.md'] as const;
 
 export function injectVaultIdbRecorder(html: string): string {
   if (html.includes(VAULT_IDB_RECORDER_MARKER)) {
@@ -371,10 +372,13 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
       .replace(/<\//g, '<\\/')
       .replace(/<!--/g, '<\\!--')
       .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
+  const requiredFilesJson = JSON.stringify(VAULT_PREWARM_REQUIRED_FILES);
   const script = '<script ' + VAULT_PREWARM_BRIDGE_MARKER + '="1">(function () {' +
     'var prewarmId = ' + escapedId + ';' +
     'var source = "codeflare-vault-prewarm";' +
     'var sid = null;' +
+    'var requiredFiles = ' + requiredFilesJson + ';' +
+    'var spaceSyncCompleted = false;' +
     'try {' +
     'if (!prewarmId) {' +
     'var params = new URLSearchParams(window.location.search);' +
@@ -395,6 +399,29 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     '}' +
     'function proof(recordedDbs, hasDbApi, reason, swState) {' +
     'return { ready: !reason, reason: reason, recordedDbs: recordedDbs, hasIndexedDbDatabasesApi: hasDbApi, serviceWorkerState: swState };' +
+    '}' +
+    'function hasSpaceSyncCompleted() {' +
+    'if (spaceSyncCompleted) return true;' +
+    'try { return !!(window.client && window.client.fullSyncCompleted === true); } catch (_) { return false; }' +
+    '}' +
+    'if (navigator.serviceWorker && typeof navigator.serviceWorker.addEventListener === "function") {' +
+    'navigator.serviceWorker.addEventListener("message", function (event) {' +
+    'var data = event.data;' +
+    'if (data && data.type === "space-sync-complete") spaceSyncCompleted = true;' +
+    '});' +
+    '}' +
+    'async function checkContentReadiness() {' +
+    'if (!hasSpaceSyncCompleted()) return null;' +
+    'try {' +
+    'var res = await fetch(".fs/", { cache: "no-store" });' +
+    'if (!res || !res.ok) return null;' +
+    'var list = await res.json();' +
+    'if (!Array.isArray(list)) return null;' +
+    'var names = {};' +
+    'list.forEach(function (entry) { if (entry && typeof entry.name === "string") names[entry.name] = true; });' +
+    'for (var i = 0; i < requiredFiles.length; i++) { if (!names[requiredFiles[i]]) return null; }' +
+    'return { contentReady: true, spaceSyncCompleted: true, requiredFiles: requiredFiles.slice(), listedFileCount: list.length };' +
+    '} catch (_) { return null; }' +
     '}' +
     'function readRecorded(storage, sid) {' +
     'try {' +
@@ -452,7 +479,12 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'try {' +
     'if (window.sbRuntime && window.sbRuntime.ready === true) {' +
     'var localProof = await checkLocalReadiness(sid);' +
-    'if (localProof.ready === true) {' +
+    'var contentProof = localProof.ready === true ? await checkContentReadiness() : null;' +
+    'if (localProof.ready === true && contentProof) {' +
+    'localProof.contentReady = contentProof.contentReady;' +
+    'localProof.spaceSyncCompleted = contentProof.spaceSyncCompleted;' +
+    'localProof.requiredFiles = contentProof.requiredFiles;' +
+    'localProof.listedFileCount = contentProof.listedFileCount;' +
     'window.clearInterval(timer);' +
     'post("ready", null, localProof);' +
     '}' +

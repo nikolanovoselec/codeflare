@@ -7,12 +7,19 @@ export const DEFAULT_VAULT_PREWARM_TIMEOUT_MS = 300_000;
 
 export type VaultPrewarmStatus = 'idle' | 'prewarming' | 'ready' | 'timeout' | 'error';
 
+export type VaultPrewarmProof = VaultLocalReadinessResult & {
+  contentReady: true;
+  spaceSyncCompleted: true;
+  requiredFiles: string[];
+  listedFileCount: number;
+};
+
 export type VaultPrewarmMessage =
   | {
     source: typeof VAULT_PREWARM_SOURCE;
     prewarmId: string;
     status: 'ready';
-    proof: VaultLocalReadinessResult;
+    proof: VaultPrewarmProof;
   }
   | {
     source: typeof VAULT_PREWARM_SOURCE;
@@ -23,7 +30,7 @@ export type VaultPrewarmMessage =
 
 export interface VaultPrewarmOptions {
   sessionId: string;
-  onReady: (proof: VaultLocalReadinessResult) => void;
+  onReady: (proof: VaultPrewarmProof) => void;
   onError: (status: Exclude<VaultPrewarmStatus, 'idle' | 'prewarming' | 'ready'>, message: string) => void;
   timeoutMs?: number;
   prewarmId?: string;
@@ -52,12 +59,19 @@ export function buildVaultPrewarmUrl(sessionId: string, prewarmId: string): stri
   return `/api/vault/${encodeURIComponent(sessionId)}/.codeflare-bootstrap?${params.toString()}`;
 }
 
-function isVaultLocalReadinessProof(value: unknown): value is VaultLocalReadinessResult {
+function isVaultPrewarmProof(value: unknown): value is VaultPrewarmProof {
   if (value == null || typeof value !== 'object') return false;
-  const candidate = value as Partial<VaultLocalReadinessResult>;
+  const candidate = value as Partial<VaultPrewarmProof>;
   return candidate.ready === true
     && Array.isArray(candidate.recordedDbs)
-    && typeof candidate.hasIndexedDbDatabasesApi === 'boolean';
+    && typeof candidate.hasIndexedDbDatabasesApi === 'boolean'
+    && candidate.contentReady === true
+    && candidate.spaceSyncCompleted === true
+    && Array.isArray(candidate.requiredFiles)
+    && candidate.requiredFiles.every((entry) => typeof entry === 'string')
+    && typeof candidate.listedFileCount === 'number'
+    && Number.isFinite(candidate.listedFileCount)
+    && candidate.listedFileCount >= candidate.requiredFiles.length;
 }
 
 function isVaultPrewarmMessage(value: unknown): value is VaultPrewarmMessage {
@@ -66,7 +80,7 @@ function isVaultPrewarmMessage(value: unknown): value is VaultPrewarmMessage {
   if (candidate.source !== VAULT_PREWARM_SOURCE) return false;
   if (typeof candidate.prewarmId !== 'string') return false;
   if (candidate.status === 'error') return true;
-  return candidate.status === 'ready' && isVaultLocalReadinessProof(candidate.proof);
+  return candidate.status === 'ready' && isVaultPrewarmProof(candidate.proof);
 }
 
 export function startVaultPrewarm(opts: VaultPrewarmOptions): VaultPrewarmHandle | null {
@@ -94,7 +108,7 @@ export function startVaultPrewarm(opts: VaultPrewarmOptions): VaultPrewarmHandle
     iframe.remove();
   };
 
-  const finishReady = (proof: VaultLocalReadinessResult) => {
+  const finishReady = (proof: VaultPrewarmProof) => {
     if (finished) return;
     finished = true;
     cleanup();

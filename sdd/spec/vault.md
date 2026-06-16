@@ -330,10 +330,10 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Vault button behavior describe → guarded prewarm/timeout/error click feedback + ready click opens → AC1/AC3) -->
 <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018) describe → server latch starts prewarm, timeout retries, mid-prewarm leave starts fresh on return, click-time local readiness recheck → AC1-AC4/AC7) -->
 <!-- @test: web-ui/src/__tests__/lib/vault-readiness.test.ts (startVaultReadinessProbe describe → no-give-up retry / first-success latch / SB-crash recovery / cancel / mid-probe cancel → AC2) -->
-<!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (vault browser prewarm protocol describe → iframe URL/session scoping, origin + prewarmId + local-proof validation, ready/timeout/cancel cleanup → AC3/AC5) -->
+<!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (vault browser prewarm protocol describe → iframe URL/session scoping, origin + prewarmId + local+content-proof validation, ready/timeout/cancel cleanup → AC3/AC5) -->
 <!-- @test: web-ui/src/__tests__/lib/vault-local-readiness.test.ts (checkVaultLocalReadiness describe → recorded sb_data/sb_files + active service worker + optional databases API proof → AC6/AC7) -->
 <!-- @test: web-ui/src/__tests__/lib/browser-storage-persistence.test.ts (requestBrowserStoragePersistence describe → already persisted / grant / denial / unsupported / estimate failure → AC3) -->
-<!-- @test: src/__tests__/routes/vault-html-direct.test.ts (vault prewarm helpers describe → sanitized prewarm query propagation + generic shell bridge injection for service-worker-cached shell → AC6) -->
+<!-- @test: src/__tests__/routes/vault-html-direct.test.ts (vault prewarm helpers describe → sanitized prewarm query propagation + generic shell bridge injection + space-sync/content canary guard → AC6) -->
 
 **Intent:** The Vault control stays guarded until the current browser/device has completed the real SilverBullet startup path for the active session. A user should not land on an unreachable editor or a slow first-click indexing screen.
 
@@ -345,8 +345,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 2. The server probe retries until first success, is keyed per session, and clears readiness after a later steady-probe failure. <!-- @impl: web-ui/src/lib/vault-readiness.ts::startVaultReadinessProbe -->
 3. Browser prewarm starts only after server readiness, requests best-effort persistent browser storage, and timeout/error attempts retry while the control stays guarded. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 4. Leaving a session during in-flight prewarm clears stale pending state so returning starts a fresh attempt. <!-- @impl: web-ui/src/components/Layout.tsx::clearPrewarmingVaultStatus -->
-5. Prewarm messages are accepted only from the same origin and current attempt, and ready messages must include current-browser local readiness proof. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm -->
-6. The bridge is inert without valid prewarm parameters and emits ready only after the SilverBullet runtime is ready and the current browser has recorded `sb_data_*`, recorded `sb_files_*`, and an active per-session service worker. <!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmBridge -->
+5. Prewarm messages are accepted only from the same origin and current attempt, and ready messages must include current-browser local readiness proof plus content readiness proof. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm -->
+6. The bridge is inert without valid prewarm parameters and emits ready only after the SilverBullet runtime is ready, the current browser has recorded `sb_data_*`, recorded `sb_files_*`, and an active per-session service worker, SilverBullet's service worker has completed a full space sync, and the local `/.fs/` listing contains the codeflare-authoritative vault files. <!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmBridge -->
 7. Clicking the ready control rechecks the current browser's local readiness before opening the editor; if the local cache is missing or evicted, the app restarts prewarm instead of opening a stale tab. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 
 **Constraints:**

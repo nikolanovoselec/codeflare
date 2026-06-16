@@ -72,6 +72,16 @@ vi.mock('../../lib/vault-local-readiness', () => ({
   checkVaultLocalReadiness: (sessionId: string) => vaultLocalReadinessMock.check(sessionId),
 }));
 
+const vaultPrewarmProof = {
+  ready: true,
+  recordedDbs: ['sb_data_a', 'sb_files_b'],
+  hasIndexedDbDatabasesApi: true,
+  contentReady: true,
+  spaceSyncCompleted: true,
+  requiredFiles: ['CONFIG.md', 'Index.md', 'STYLES.md'],
+  listedFileCount: 42,
+};
+
 // Session store mock with controllable state.
 // Module-level variables allow tests to set up specific states before rendering.
 let mockSessions: any[] = [];
@@ -313,7 +323,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect((window as any).__headerProps.vaultStatus).toBe('prewarming');
       expect((window as any).__headerProps.vaultReady).toBe(false);
 
-      vaultPrewarmMock.latestOptions.onReady({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
+      vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
       await waitFor(() => expect((window as any).__headerProps.vaultReady).toBe(true));
       expect((window as any).__headerProps.vaultStatus).toBe('ready');
     });
@@ -328,7 +338,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         render(() => <Layout />);
         vaultProbeMock.latestOptions.setLatch();
         await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
-        vaultPrewarmMock.latestOptions.onReady({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
+        vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
         await waitFor(() => expect((window as any).__headerProps.vaultReady).toBe(true));
 
         await (window as any).__headerProps.onVaultOpen();
@@ -356,7 +366,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         render(() => <Layout />);
         vaultProbeMock.latestOptions.setLatch();
         await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(1));
-        vaultPrewarmMock.latestOptions.onReady({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
+        vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
         await waitFor(() => expect((window as any).__headerProps.vaultReady).toBe(true));
 
         await (window as any).__headerProps.onVaultOpen();
