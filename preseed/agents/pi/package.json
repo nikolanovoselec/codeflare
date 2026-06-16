@@ -11,6 +11,7 @@
     "pi-web-access": "0.10.7"
   },
   "overrides": {
-    "@mozilla/readability": "0.6.0"
+    "@mozilla/readability": "0.6.0",
+    "hono": "^4.12.25"
   }
 }
