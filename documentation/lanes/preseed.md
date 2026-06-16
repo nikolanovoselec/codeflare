@@ -452,37 +452,36 @@ All preseed content is deployed via the manifest pipeline:
 
   Delivering that summary back into the live session is a separate, durable phase.
   The review can finalize off-turn (the idle reaper has no live session loop), where
-  `pi.sendMessage` silently no-ops — a custom message only persists into the session
-  transcript when the live session emits its `message_end` event. So finalizing arms
-  a per-`(head, kind)` durable announcement record on disk under
-  `.git/codeflare-review-jobs/<head>/announcements/` (`summary.json` and `autofix.json`)
-  rather than firing a one-shot
-  message: each summary/autofix message embeds a nonce and is marked delivered ONLY
-  when that nonce is later found in the session transcript — a `sendMessage` return is
-  never assumed delivered. Pending or unverified announcements are retried on every
-  live lifecycle tick (bounded by a retry delay and an attempt cap, then marked failed
-  with a notice). A completed review whose summary is not yet delivered shows a
-  persistent `results ready (not shown) — /review-results` footer status, and the
-  `/review-results` command displays the persisted summary on demand — the guaranteed
-  fallback if automatic delivery never lands. The summary itself is sent with a plain
-  `pi.sendMessage` (no `triggerTurn`/`deliverAs`) — the same synchronous append path
-  `/review-results` uses, which persists the nonce-bearing content AND displays it in one
-  step — gated on a live session context plus `pi.isIdle()` so it is never taken during a stale off-turn sender or a streaming turn: mid-stream the
-  plain send would steer the summary into the running turn, where the agent reads it
-  mid-reasoning (the idle-gated delivery rule in [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery) AC6 guards against this). When the agent is mid-turn `sendAnnouncement` returns
-  `{ sent: false }` and the per-tick drain loop re-attempts on the next idle lifecycle event
-  (`agent_end` / `turn_end` / `session_start`); a summary still undelivered past 30 minutes
-  escalates to the `/review-results` fallback so it can never strand silently. This age backstop
-  is **summary-only**: the idle-gated summary can defer indefinitely while the agent streams
-  (burning no attempts), so age is its sole escalation path; the autofix announcement is exempt —
-  aging it would mark it `failed` at `attempts:0` before the fix turn ever fired, so an undelivered
-  autofix instead terminates via head-supersede (a newer push retires the stale head) or the attempt
-  cap — never on age alone. That makes the
-  nonce-verify/retry phase a backstop rather than the primary delivery path: the earlier
-  `triggerTurn`/`followUp` send routed through agent-core queues whose custom-message
-  persistence depended on a live loop, so off-turn or post-reload it no-op'd and the summary
-  never surfaced. The autofix request still uses `triggerTurn`/`followUp` because it
-  intentionally triggers a fix/commit/push turn. Implements
+  `pi.sendMessage` silently no-ops. Finalization therefore arms a per-`(head, kind)`
+  durable announcement record under `.git/codeflare-review-jobs/<head>/announcements/`
+  instead of firing a one-shot message.
+
+  Each summary/autofix message embeds a nonce and is marked delivered only when that
+  nonce is later found in the session transcript. A `sendMessage` return is never
+  assumed delivered. Pending or unverified announcements are retried on live lifecycle
+  ticks, with retry delay and attempt caps.
+
+  A completed review whose summary is not yet delivered shows a persistent
+  `results ready (not shown) — /review-results` footer status. The `/review-results`
+  command displays the persisted summary on demand, which is the guaranteed fallback
+  if automatic delivery never lands.
+
+  The summary itself is sent with plain `pi.sendMessage` and no `triggerTurn` /
+  `deliverAs`, using the same synchronous append path as `/review-results`. That send
+  only runs when a live session context exists and `pi.isIdle()` is true, so stale
+  off-turn senders and streaming turns leave the announcement pending. Implements
+  [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
+  AC6.
+
+  If the agent is mid-turn, `sendAnnouncement` returns `{ sent: false }` and the drain
+  loop retries on the next idle lifecycle event. A summary still undelivered past
+  30 minutes escalates to `/review-results`. That age backstop is summary-only; the
+  autofix announcement terminates by head supersede or the attempt cap, never age alone.
+  Implements [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
+  AC7.
+
+  The autofix request still uses `triggerTurn`/`followUp` because it intentionally
+  triggers a fix/commit/push turn. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery).
 
   Partial lane results, including any missing, failed, timed-out, or still-running
@@ -701,7 +700,8 @@ predicates) and the pipe-alternated MCP matcher
 This keeps attribution blocking and push detection effective whether
 context-mode is active or not. Implements
 [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) AC3,
-[REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC1+AC2+AC8,
+[REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC1+AC7,
+[REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing) AC1,
 and [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) AC1+AC2+AC4-AC7.
 Hooks registered in settings.json, scripts delivered via plugin.
 
@@ -849,7 +849,7 @@ The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode w
 
 On Pi's boundary fast path, the push command's start-args are captured on BOTH the `tool_call` and `tool_execution_start` events (keyed by the same tool id), so a boundary push is still recovered at `tool_result` when `tool_execution_start` is lost across a Pi reload or turn boundary. This is a Pi-only mechanism; the Claude `Stop` hook is unaffected because it receives the completed command from the shell rather than from Pi's event sequencing. This closes a prior silent miss: when only `tool_execution_start` seeded the cache and that event dropped, the command arrived empty, was not recognised as a boundary, and `onToolEnd` returned without creating a review window or recording anything.
 
-If a successful `bash` result still arrives with no recoverable command, Pi writes a deduped `boundary_tool_end_ignored` row with reason `missing_command_text_after_success` (distinct from the `no_resolvable_head` / `dedupe_skipped` reasons the confirmed-enforced near-miss path stamps under the same event name — see [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery) AC6 for those two reasons) to the repo's review-event log (`.git/codeflare-review-events.jsonl`) instead of returning silently. The reconcile backstop remains the catch-all, but the miss is diagnosable rather than invisible. Implements [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC8.
+If a successful `bash` result still arrives with no recoverable command, Pi writes a deduped `boundary_tool_end_ignored` row with reason `missing_command_text_after_success` (distinct from the `no_resolvable_head` / `dedupe_skipped` reasons the confirmed-enforced near-miss path stamps under the same event name — see [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery) AC6 for those two reasons) to the repo's review-event log (`.git/codeflare-review-events.jsonl`) instead of returning silently. The reconcile backstop remains the catch-all, but the miss is diagnosable rather than invisible. Implements [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC7.
 
 Pi's broader post-command backstop runs after successful shell commands that invoke `git` or `gh`, including wrapper forms such as `env VAR=value git ...`, `env -u NAME VAR=value gh ...`, and `timeout 60 gh ...`. That path bypasses the PR cache before reading GitHub PR state, so an unclassified push cannot be hidden behind a stale cached PR head. Implements [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery) AC1; source: `review-helpers.ts::postCommandReconcileDecision` and `review-enforcement.ts::reconcileOpenPrReview`.
 

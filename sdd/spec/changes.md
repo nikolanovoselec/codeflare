@@ -6,7 +6,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 - **Pi PR-boundary reconciliation parses shell wrappers structurally** ([REQ-AGENT-058](agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery) AC1; stays Implemented). The post-command reconcile backstop now tokenizes shell commands and unwraps `env`, `command`, `nice`, and `timeout` wrappers before looking for `git` or `gh`, so `env -u NAME VAR=value gh ...` and timeout-wrapped commands force fresh PR-state reconciliation without relying on a wrapper-heavy regex.
 
-- **Pi review-summary delivery no longer burns an off-turn no-op attempt** ([REQ-AGENT-062](agents.md#req-agent-062-pi-pr-boundary-review-result-delivery) AC6; stays Implemented). A display summary now waits for a live session context before calling plain `pi.sendMessage`; the off-turn reaper leaves the durable announcement pending instead of recording an attempted send that cannot be proven in the main transcript.
+- **Pi review summaries wait for a live session before posting** ([REQ-AGENT-062](agents.md#req-agent-062-pi-pr-boundary-review-result-delivery) AC6-AC7; stays Implemented). Review results remain pending until Pi can display them in the active session, reducing false `/review-results` fallbacks after off-turn review completion.
 
 ## 2026-06-15
 
