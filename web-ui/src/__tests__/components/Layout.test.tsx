@@ -64,6 +64,25 @@ vi.mock('../../lib/vault-prewarm', () => ({
   },
 }));
 
+const vaultLocalReadinessMock = vi.hoisted(() => ({
+  check: vi.fn(async (_sessionId?: string) => ({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true } as any)),
+}));
+
+vi.mock('../../lib/vault-local-readiness', () => ({
+  checkVaultLocalReadiness: (sessionId: string) => vaultLocalReadinessMock.check(sessionId),
+}));
+
+const vaultPrewarmProof = {
+  ready: true,
+  recordedDbs: ['sb_data_a', 'sb_files_b'],
+  hasIndexedDbDatabasesApi: true,
+  contentReady: true,
+  spaceSyncCompleted: true,
+  indexReady: true,
+  requiredFiles: ['CONFIG.md', 'Index.md', 'STYLES.md'],
+  listedFileCount: 42,
+};
+
 // Session store mock with controllable state.
 // Module-level variables allow tests to set up specific states before rendering.
 let mockSessions: any[] = [];
@@ -168,6 +187,8 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     vaultPrewarmMock.start.mockClear();
     vaultPrewarmMock.cancel.mockClear();
     vaultPrewarmMock.latestOptions = null;
+    vaultLocalReadinessMock.check.mockClear();
+    vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
     delete (window as any).__terminalAreaProps;
     delete (window as any).__headerProps;
   });
@@ -303,9 +324,61 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect((window as any).__headerProps.vaultStatus).toBe('prewarming');
       expect((window as any).__headerProps.vaultReady).toBe(false);
 
-      vaultPrewarmMock.latestOptions.onReady();
+      vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
       await waitFor(() => expect((window as any).__headerProps.vaultReady).toBe(true));
       expect((window as any).__headerProps.vaultStatus).toBe('ready');
+    });
+
+    it('rechecks this browser cache before opening the Vault tab', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      try {
+        render(() => <Layout />);
+        vaultProbeMock.latestOptions.setLatch();
+        await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
+        vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
+        await waitFor(() => expect((window as any).__headerProps.vaultReady).toBe(true));
+
+        await (window as any).__headerProps.onVaultOpen();
+
+        expect(vaultLocalReadinessMock.check).toHaveBeenCalledWith('sess1');
+        expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/', '_blank', 'noopener');
+      } finally {
+        openSpy.mockRestore();
+      }
+    });
+
+    it('restarts browser prewarm instead of opening when local Vault DB proof disappeared', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      vaultLocalReadinessMock.check.mockResolvedValue({
+        ready: false,
+        reason: 'missing-idb-database',
+        recordedDbs: ['sb_data_a', 'sb_files_b'],
+        hasIndexedDbDatabasesApi: true,
+      });
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      try {
+        render(() => <Layout />);
+        vaultProbeMock.latestOptions.setLatch();
+        await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(1));
+        vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
+        await waitFor(() => expect((window as any).__headerProps.vaultReady).toBe(true));
+
+        await (window as any).__headerProps.onVaultOpen();
+
+        expect(openSpy).not.toHaveBeenCalled();
+        await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(2));
+        expect((window as any).__headerProps.vaultReady).toBe(false);
+        expect((window as any).__headerProps.vaultStatus).toBe('prewarming');
+      } finally {
+        openSpy.mockRestore();
+      }
     });
 
     it('keeps Header vaultReady false when browser prewarm times out', async () => {

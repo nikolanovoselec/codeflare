@@ -148,15 +148,30 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
       expect(screen.queryByTestId('header-vault-button')).not.toBeInTheDocument();
     });
 
-    it('keeps the Vault button disabled while browser prewarm is still running', () => {
+    it('keeps the Vault button visible and explains when browser prewarm is still running', () => {
       const onVaultOpen = vi.fn();
       render(() => <Header {...defaultSessionProps} onVaultOpen={onVaultOpen} vaultStatus="prewarming" />);
 
       const button = screen.getByTestId('header-vault-button');
       fireEvent.click(button);
 
-      expect(button).toBeDisabled();
+      expect(button).not.toBeDisabled();
+      expect(button).toHaveAttribute('aria-disabled', 'true');
       expect(button).toHaveAttribute('data-vault-status', 'prewarming');
+      expect(screen.getByTestId('header-vault-status')).toHaveTextContent('Preparing Vault on this device');
+      expect(onVaultOpen).not.toHaveBeenCalled();
+    });
+
+    it('dismisses the guarded Vault feedback when the user clicks elsewhere', () => {
+      const onVaultOpen = vi.fn();
+      render(() => <Header {...defaultSessionProps} onVaultOpen={onVaultOpen} vaultStatus="prewarming" />);
+
+      fireEvent.click(screen.getByTestId('header-vault-button'));
+      expect(screen.getByTestId('header-vault-status')).toBeInTheDocument();
+
+      fireEvent.click(document.body);
+
+      expect(screen.queryByTestId('header-vault-status')).not.toBeInTheDocument();
       expect(onVaultOpen).not.toHaveBeenCalled();
     });
 
@@ -168,24 +183,29 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
       fireEvent.click(button);
 
       expect(button).not.toBeDisabled();
+      expect(button).toHaveAttribute('aria-disabled', 'false');
       expect(button).toHaveAttribute('data-vault-status', 'ready');
       expect(onVaultOpen).toHaveBeenCalledOnce();
     });
 
-    it('keeps timeout and error states disabled', () => {
+    it('keeps timeout and error states guarded while still exposing click feedback', () => {
       const onVaultOpen = vi.fn();
       const { unmount } = render(() => <Header {...defaultSessionProps} onVaultOpen={onVaultOpen} vaultStatus="timeout" />);
       const timeoutButton = screen.getByTestId('header-vault-button');
       fireEvent.click(timeoutButton);
-      expect(timeoutButton).toBeDisabled();
+      expect(timeoutButton).not.toBeDisabled();
+      expect(timeoutButton).toHaveAttribute('aria-disabled', 'true');
       expect(timeoutButton).toHaveAttribute('data-vault-status', 'timeout');
+      expect(screen.getByTestId('header-vault-status')).toHaveTextContent('still running on this device');
       unmount();
 
       render(() => <Header {...defaultSessionProps} onVaultOpen={onVaultOpen} vaultStatus="error" />);
       const errorButton = screen.getByTestId('header-vault-button');
       fireEvent.click(errorButton);
-      expect(errorButton).toBeDisabled();
+      expect(errorButton).not.toBeDisabled();
+      expect(errorButton).toHaveAttribute('aria-disabled', 'true');
       expect(errorButton).toHaveAttribute('data-vault-status', 'error');
+      expect(screen.getByTestId('header-vault-status')).toHaveTextContent('failed on this device');
       expect(onVaultOpen).not.toHaveBeenCalled();
     });
   });

@@ -4,6 +4,7 @@ import { mdiXml } from '@mdi/js';
 import Dashboard from '../../components/Dashboard';
 import { sessionStore } from '../../stores/session';
 import { storageStore } from '../../stores/storage';
+import * as vaultCache from '../../lib/vault-cache';
 import type { SessionWithStatus } from '../../types';
 
 // Mock child components to isolate Dashboard testing
@@ -113,6 +114,10 @@ vi.mock('../../api/storage', () => ({
   getDownloadUrl: vi.fn(() => 'https://example.com/download'),
 }));
 
+vi.mock('../../lib/vault-cache', () => ({
+  sweepOrphanVaultCaches: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('../../components/TipsRotator', () => ({
   default: () => <div data-testid="tips-card" />
 }));
@@ -156,6 +161,12 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     render(() => <Dashboard {...defaultProps} />);
 
     expect(sessionStore.startR2Polling).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not sweep Vault IndexedDB caches from the non-authoritative dashboard session props', () => {
+    render(() => <Dashboard {...defaultProps} sessions={[]} />);
+
+    expect(vaultCache.sweepOrphanVaultCaches).not.toHaveBeenCalled();
   });
 
   // === Structural Tests ===

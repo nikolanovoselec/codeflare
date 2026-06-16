@@ -17,19 +17,22 @@ import {
   getVaultPrewarmRedirectSearch,
   VAULT_BOOTSTRAP_COOKIE,
   VAULT_PREWARM_BRIDGE_MARKER,
+  VAULT_PREWARM_REQUIRED_FILES,
 } from '../../routes/vault-html';
 
 describe('CF-045: vault-html direct unit tests', () => {
   // REQ-VAULT-015 AC1: graphify-out artifacts are stripped from the SB listing
   describe('filterVaultFsListing', () => {
-    it('removes entries whose name starts with graphify-out/', () => {
+    it('removes derived graph artifacts that should not enter the SilverBullet index queue', () => {
       const body = JSON.stringify([
         { name: 'Notes/foo.md' },
         { name: 'graphify-out/graph.html' },
+        { name: 'Raw/Graphs/vault-graph.html' },
+        { name: 'Raw/Graphs/Vault Graph.md' },
         { name: 'Index.md' },
       ]);
       const filtered = JSON.parse(filterVaultFsListing(body)) as Array<{ name: string }>;
-      expect(filtered.map((e) => e.name)).toEqual(['Notes/foo.md', 'Index.md']);
+      expect(filtered.map((e) => e.name)).toEqual(['Notes/foo.md', 'Raw/Graphs/Vault Graph.md', 'Index.md']);
     });
 
     it('returns the body byte-for-byte unchanged when nothing is filtered', () => {
@@ -127,6 +130,17 @@ describe('CF-045: vault-html direct unit tests', () => {
       return count;
     }
 
+    async function readPrewarmBridgeScript(html: string): Promise<string> {
+      let script = '';
+      await new HTMLRewriter()
+        .on(`script[${VAULT_PREWARM_BRIDGE_MARKER}]`, {
+          text(text) { script += text.text; },
+        })
+        .transform(new Response(html))
+        .text();
+      return script;
+    }
+
     it('preserves only valid prewarm handshake parameters for bootstrap redirects', () => {
       const req = new Request('https://x/api/vault/aabbccdd/.codeflare-bootstrap?codeflarePrewarm=1&prewarmId=warm-1');
       const search = getVaultPrewarmRedirectSearch(req);
@@ -156,6 +170,23 @@ describe('CF-045: vault-html direct unit tests', () => {
       const rewritten = injectVaultPrewarmBridge(html);
 
       expect(await countPrewarmBridgeScripts(rewritten)).toBe(1);
+    });
+
+    it('requires SilverBullet space sync and expected vault files before the bridge can report ready', async () => {
+      const html = '<html><head></head><body></body></html>';
+      const script = await readPrewarmBridgeScript(injectVaultPrewarmBridge(html, 'warm-1'));
+
+      for (const file of VAULT_PREWARM_REQUIRED_FILES) {
+        expect(script).toContain(`"${file}"`);
+      }
+      expect(script).toContain('space-sync-complete');
+      expect(script).toContain('hasFullIndexCompleted');
+      expect(script).toContain('getQueueStats("indexQueue")');
+      expect(script).toContain('isQueueEmpty("indexQueue")');
+      expect(script).toContain('fetch(".fs/", { cache: "no-store" })');
+      expect(script.indexOf('checkContentReadiness')).toBeLessThan(
+        script.indexOf('post("ready"'),
+      );
     });
   });
 

@@ -273,9 +273,11 @@ export function injectVaultBootScript(html: string, config: VaultBootConfig): st
  * recorder lands before `</head>` AFTER the boot-config script (so
  * `window.__codeflareVaultBoot.sessionId` is defined when it runs).
  *
- * It wraps `indexedDB.open` to capture every database name SilverBullet
- * opens that starts with `sb_` and persists the names into
- * `localStorage["vault-session-<sid>-idbs"]` as a JSON array. The
+ * It wraps page-context `indexedDB.open` and listens for matching
+ * `codeflare-vault-idb-open` messages from the native service worker to
+ * capture every database name SilverBullet opens that starts with `sb_`.
+ * It persists the names into `localStorage["vault-session-<sid>-idbs"]`
+ * as a JSON array. The
  * dashboard's `cleanupSessionVaultCache` / `sweepOrphanVaultCaches`
  * functions read that array and call `indexedDB.deleteDatabase(name)`
  * on session DELETE / dashboard mount - the real fix for the
@@ -295,6 +297,7 @@ export const VAULT_IDB_RECORDER_MARKER = '/*codeflare-vault-idb-recorder*/';
 const VAULT_PREWARM_QUERY = 'codeflarePrewarm';
 const VAULT_PREWARM_ID_QUERY = 'prewarmId';
 export const VAULT_PREWARM_BRIDGE_MARKER = 'data-codeflare-vault-prewarm-bridge';
+export const VAULT_PREWARM_REQUIRED_FILES = ['CONFIG.md', 'Index.md', 'STYLES.md'] as const;
 
 export function injectVaultIdbRecorder(html: string): string {
   if (html.includes(VAULT_IDB_RECORDER_MARKER)) {
@@ -311,9 +314,8 @@ export function injectVaultIdbRecorder(html: string): string {
     'var sid = boot.sessionId;' +
     'if (!/^[a-z0-9]{8,24}$/.test(sid)) return;' +
     'var key = "vault-session-" + sid + "-idbs";' +
-    'var origOpen = indexedDB.open.bind(indexedDB);' +
-    'indexedDB.open = function (name, version) {' +
-    'if (typeof name === "string" && name.indexOf("sb_") === 0) {' +
+    'function record(name) {' +
+    'if (typeof name !== "string" || name.indexOf("sb_") !== 0) return;' +
     'try {' +
     'var arr = JSON.parse(localStorage.getItem(key) || "[]");' +
     'if (!Array.isArray(arr)) arr = [];' +
@@ -323,8 +325,17 @@ export function injectVaultIdbRecorder(html: string): string {
     '}' +
     '} catch (_) {}' +
     '}' +
+    'var origOpen = indexedDB.open.bind(indexedDB);' +
+    'indexedDB.open = function (name, version) {' +
+    'record(name);' +
     'return origOpen(name, version);' +
     '};' +
+    'if (navigator.serviceWorker && typeof navigator.serviceWorker.addEventListener === "function") {' +
+    'navigator.serviceWorker.addEventListener("message", function (event) {' +
+    'var data = event.data;' +
+    'if (data && data.type === "codeflare-vault-idb-open") record(data.name);' +
+    '});' +
+    '}' +
     '} catch (_) {}' +
     '})();</script>';
   return html.replace('</head>', `${script}</head>`);
@@ -361,33 +372,141 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
       .replace(/<\//g, '<\\/')
       .replace(/<!--/g, '<\\!--')
       .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
+  const requiredFilesJson = JSON.stringify(VAULT_PREWARM_REQUIRED_FILES);
   const script = '<script ' + VAULT_PREWARM_BRIDGE_MARKER + '="1">(function () {' +
     'var prewarmId = ' + escapedId + ';' +
     'var source = "codeflare-vault-prewarm";' +
+    'var sid = null;' +
+    'var requiredFiles = ' + requiredFilesJson + ';' +
+    'var spaceSyncCompleted = false;' +
     'try {' +
     'if (!prewarmId) {' +
     'var params = new URLSearchParams(window.location.search);' +
     'if (params.get("codeflarePrewarm") === "1") prewarmId = params.get("prewarmId");' +
     '}' +
     'if (!prewarmId || prewarmId.length > 128 || !/^[A-Za-z0-9._~-]+$/.test(prewarmId)) return;' +
+    'var boot = window.__codeflareVaultBoot;' +
+    'sid = boot && typeof boot.sessionId === "string" ? boot.sessionId : null;' +
+    'if (!sid || !/^[a-z0-9]{8,24}$/.test(sid)) return;' +
     'window.sbRuntime = window.sbRuntime || {}; window.sbRuntime.headless = true;' +
     '} catch (_) { return; }' +
-    'function post(status, message) {' +
+    'function post(status, message, proof) {' +
     'if (!window.parent || window.parent === window) return;' +
     'var payload = { source: source, prewarmId: prewarmId, status: status };' +
     'if (message) payload.message = message;' +
+    'if (proof) payload.proof = proof;' +
     'window.parent.postMessage(payload, window.location.origin);' +
     '}' +
-    'var timer = window.setInterval(function () {' +
+    'function proof(recordedDbs, hasDbApi, reason, swState) {' +
+    'return { ready: !reason, reason: reason, recordedDbs: recordedDbs, hasIndexedDbDatabasesApi: hasDbApi, serviceWorkerState: swState };' +
+    '}' +
+    'function hasSpaceSyncCompleted() {' +
+    'if (spaceSyncCompleted) return true;' +
+    'try { return !!(window.client && window.client.fullSyncCompleted === true); } catch (_) { return false; }' +
+    '}' +
+    'if (navigator.serviceWorker && typeof navigator.serviceWorker.addEventListener === "function") {' +
+    'navigator.serviceWorker.addEventListener("message", function (event) {' +
+    'var data = event.data;' +
+    'if (data && data.type === "space-sync-complete") spaceSyncCompleted = true;' +
+    '});' +
+    '}' +
+    'async function checkIndexReadiness() {' +
+    'try {' +
+    'var client = window.client;' +
+    'if (!client || client.systemReady !== true || client.pageListLoaded !== true) return false;' +
+    'if (!client.clientSystem || client.clientSystem.scriptsLoaded !== true) return false;' +
+    'if (!client.objectIndex || typeof client.objectIndex.hasFullIndexCompleted !== "function") return false;' +
+    'if (client.mq && typeof client.mq.getQueueStats === "function") {' +
+    'var stats = await client.mq.getQueueStats("indexQueue");' +
+    'if (!stats || stats.queued !== 0 || stats.processing !== 0 || stats.dlq !== 0) return false;' +
+    '} else if (client.mq && typeof client.mq.isQueueEmpty === "function" && !(await client.mq.isQueueEmpty("indexQueue"))) return false;' +
+    'return await client.objectIndex.hasFullIndexCompleted();' +
+    '} catch (_) { return false; }' +
+    '}' +
+    'async function checkContentReadiness() {' +
+    'if (!hasSpaceSyncCompleted() || !(await checkIndexReadiness())) return null;' +
+    'try {' +
+    'var res = await fetch(".fs/", { cache: "no-store" });' +
+    'if (!res || !res.ok) return null;' +
+    'var list = await res.json();' +
+    'if (!Array.isArray(list)) return null;' +
+    'var names = {};' +
+    'list.forEach(function (entry) { if (entry && typeof entry.name === "string") names[entry.name] = true; });' +
+    'for (var i = 0; i < requiredFiles.length; i++) { if (!names[requiredFiles[i]]) return null; }' +
+    'return { contentReady: true, spaceSyncCompleted: true, indexReady: true, requiredFiles: requiredFiles.slice(), listedFileCount: list.length };' +
+    '} catch (_) { return null; }' +
+    '}' +
+    'function readRecorded(storage, sid) {' +
+    'try {' +
+    'var raw = storage.getItem("vault-session-" + sid + "-idbs");' +
+    'if (!raw) return [];' +
+    'var parsed = JSON.parse(raw);' +
+    'if (!Array.isArray(parsed)) return [];' +
+    'return parsed.filter(function (entry) { return typeof entry === "string"; });' +
+    '} catch (_) { return []; }' +
+    '}' +
+    'function hasPrefix(recordedDbs, prefix) {' +
+    'return recordedDbs.some(function (name) { return name.indexOf(prefix) === 0; });' +
+    '}' +
+    'async function findRegistration(sid) {' +
+    'if (!navigator.serviceWorker) return null;' +
+    'var scopePath = "/api/vault/" + encodeURIComponent(sid) + "/";' +
+    'try { var direct = await navigator.serviceWorker.getRegistration(scopePath); if (direct) return direct; } catch (_) {}' +
+    'try {' +
+    'var regs = await navigator.serviceWorker.getRegistrations();' +
+    'for (var i = 0; i < regs.length; i++) { if (regs[i].scope.indexOf(scopePath) !== -1) return regs[i]; }' +
+    '} catch (_) {}' +
+    'return null;' +
+    '}' +
+    'async function checkLocalReadiness(sid) {' +
+    'var storage = null;' +
+    'try { storage = window.localStorage || null; } catch (_) {}' +
+    'var idb = null;' +
+    'try { idb = window.indexedDB || null; } catch (_) {}' +
+    'var hasDbApi = !!(idb && typeof idb.databases === "function");' +
+    'var recordedDbs = storage ? readRecorded(storage, sid) : [];' +
+    'if (!storage) return proof(recordedDbs, hasDbApi, "no-local-storage");' +
+    'if (!idb) return proof(recordedDbs, hasDbApi, "no-indexeddb");' +
+    'if (recordedDbs.length === 0) return proof(recordedDbs, hasDbApi, "no-recorder");' +
+    'if (!hasPrefix(recordedDbs, "sb_data_")) return proof(recordedDbs, hasDbApi, "missing-sb-data");' +
+    'if (!hasPrefix(recordedDbs, "sb_files_")) return proof(recordedDbs, hasDbApi, "missing-sb-files");' +
+    'var reg = await findRegistration(sid);' +
+    'var active = reg && reg.active ? reg.active : null;' +
+    'if (!active) return proof(recordedDbs, hasDbApi, "missing-service-worker");' +
+    'if (hasDbApi) {' +
+    'try {' +
+    'var dbs = await idb.databases();' +
+    'var names = {};' +
+    'dbs.forEach(function (db) { if (db && typeof db.name === "string") names[db.name] = true; });' +
+    'var hasExistingDataDb = recordedDbs.some(function (name) { return name.indexOf("sb_data_") === 0 && names[name]; });' +
+    'var hasExistingFilesDb = recordedDbs.some(function (name) { return name.indexOf("sb_files_") === 0 && names[name]; });' +
+    'if (!hasExistingDataDb || !hasExistingFilesDb) return proof(recordedDbs, hasDbApi, "missing-idb-database", active.state);' +
+    '} catch (_) { return proof(recordedDbs, hasDbApi, "missing-idb-database", active.state); }' +
+    '}' +
+    'return proof(recordedDbs, hasDbApi, null, active.state);' +
+    '}' +
+    'var inFlight = false;' +
+    'var timer = window.setInterval(async function () {' +
+    'if (inFlight) return;' +
+    'inFlight = true;' +
     'try {' +
     'if (window.sbRuntime && window.sbRuntime.ready === true) {' +
+    'var localProof = await checkLocalReadiness(sid);' +
+    'var contentProof = localProof.ready === true ? await checkContentReadiness() : null;' +
+    'if (localProof.ready === true && contentProof) {' +
+    'localProof.contentReady = contentProof.contentReady;' +
+    'localProof.spaceSyncCompleted = contentProof.spaceSyncCompleted;' +
+    'localProof.indexReady = contentProof.indexReady;' +
+    'localProof.requiredFiles = contentProof.requiredFiles;' +
+    'localProof.listedFileCount = contentProof.listedFileCount;' +
     'window.clearInterval(timer);' +
-    'post("ready");' +
+    'post("ready", null, localProof);' +
+    '}' +
     '}' +
     '} catch (e) {' +
     'window.clearInterval(timer);' +
     'post("error", e && e.message ? e.message : String(e));' +
-    '}' +
+    '} finally { inFlight = false; }' +
     '}, 250);' +
     '})();</script>';
   return html.replace('</head>', `${script}</head>`);
@@ -475,6 +594,7 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     'try {' +
     'step("Registering service worker...");' +
     'var reg = await navigator.serviceWorker.register(scope + "service_worker.js", { scope: scope });' +
+    'try { reg = await reg.update(); } catch (_) {}' +
     'step("Registered. SW state: " + (reg.active ? "active" : reg.installing ? "installing" : reg.waiting ? "waiting" : "none"));' +
     'var sw = reg.active || reg.installing || reg.waiting;' +
     'if (!sw) { fail("no service worker instance after registration"); return; }' +
@@ -530,10 +650,11 @@ export function hasVaultBootstrapCookie(request: Request): boolean {
 
 /**
  * Filter a SilverBullet `/.fs` JSON listing response, removing entries
- * whose `name` starts with `graphify-out/`. The vault contains agent-
- * derived graph artifacts (sometimes multi-MB graph.html) that must
- * not appear in the SB UI's space listing - they would clutter the
- * tree, slow initial sync, and confuse the user.
+ * whose `name` starts with `graphify-out/` plus generated
+ * `Raw/Graphs/*.html` visualisations. The vault contains agent-derived
+ * graph artifacts (sometimes multi-MB graph.html) that must not appear
+ * in the SB UI's space listing - they would clutter the tree, slow
+ * initial sync, trigger useless document indexing, and confuse the user.
  *
  * Server-side filter (here) is the canonical enforcement point because
  * the SB binary embeds its own listing logic and we cannot reach in
@@ -546,6 +667,11 @@ export function hasVaultBootstrapCookie(request: Request): boolean {
  *
  * Implements REQ-VAULT-015 AC1.
  */
+function isFilteredVaultListingName(name: string): boolean {
+  if (name.startsWith('graphify-out/')) return true;
+  return /^Raw\/Graphs\/[^/]+\.html$/i.test(name);
+}
+
 export function filterVaultFsListing(body: string): string {
   try {
     const parsed = JSON.parse(body);
@@ -554,7 +680,7 @@ export function filterVaultFsListing(body: string): string {
       if (entry == null || typeof entry !== 'object') return true;
       const name = (entry as { name?: unknown }).name;
       if (typeof name !== 'string') return true;
-      return !name.startsWith('graphify-out/');
+      return !isFilteredVaultListingName(name);
     });
     // Pass through the original body byte-for-byte when nothing was
     // filtered so any upstream ETag / cache-validation key the SB

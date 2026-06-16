@@ -375,6 +375,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       // path that actually fires the .auth bounce), and get-encryption-key calls
       // it before replying. The verbatim worker has none of these.
       expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('async function __cfRecover()');
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('codeflare-vault-idb-open');
       expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain(
         'if(t.enableClientEncryption&&!y){await __cfRecover()}if(t.enableClientEncryption&&!y){console.error("Supposed',
       );
@@ -383,7 +384,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
     });
 
     it('T9: the drift guard hashes the VERBATIM upstream worker', async () => {
-      // The guard pins the upstream SB 2.8.1 bytes (pre-graft); a SilverBullet
+      // The guard pins the upstream SB 2.9.0 bytes (pre-graft); a SilverBullet
       // version bump that changes the worker must be a deliberate re-vendor
       // (update the constant AND the hash), never a silent drift. The verbatim
       // bytes are what is hashed - the graft is applied deterministically on top.
@@ -523,6 +524,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       const html = '<html><head></head><body></body></html>';
       const out = injectVaultIdbRecorder(html);
       expect(out).toContain('indexedDB.open');
+      expect(out).toContain('codeflare-vault-idb-open');
       expect(out).toContain('vault-session-');
       expect(out).toContain('-idbs');
       expect(out.indexOf('<script>')).toBeLessThan(out.indexOf('</head>'));
@@ -756,17 +758,20 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
   });
 
   describe('filterVaultFsListing (REQ-VAULT-015 AC1)', () => {
-    it('removes entries with names starting with graphify-out/', () => {
+    it('removes entries that are derived graph artifacts', () => {
       const body = JSON.stringify([
         { name: 'Notes/foo.md', size: 10 },
         { name: 'graphify-out/graph.json', size: 5000 },
         { name: 'graphify-out/vault-graph.html', size: 200000 },
+        { name: 'Raw/Graphs/vault-graph.html', size: 200000 },
+        { name: 'Raw/Graphs/Vault Graph.md', size: 1000 },
         { name: 'Raw/Sessions/x.md', size: 100 },
       ]);
       const filtered = JSON.parse(filterVaultFsListing(body));
-      expect(filtered).toHaveLength(2);
+      expect(filtered).toHaveLength(3);
       expect(filtered.map((e: { name: string }) => e.name)).toEqual([
         'Notes/foo.md',
+        'Raw/Graphs/Vault Graph.md',
         'Raw/Sessions/x.md',
       ]);
     });
@@ -787,18 +792,21 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       expect(out).toHaveLength(2);
     });
 
-    it('only filters top-level graphify-out/ entries; substring or nested matches are kept', () => {
+    it('keeps graph substrings and non-HTML Raw/Graphs pages visible', () => {
       const body = JSON.stringify([
         { name: 'graphify-out/x.json' },               // top-level: filtered
+        { name: 'Raw/Graphs/vault-callflow.HTML' },    // generated HTML: filtered
         { name: 'Notes/graphify-out-notes.md' },       // substring: kept
         { name: 'Notes/sub/file.md' },                 // unrelated: kept
-        { name: 'Raw/graphify-out/derived.json' },     // nested: kept (filter is top-level only)
+        { name: 'Raw/graphify-out/derived.json' },     // nested: kept
+        { name: 'Raw/Graphs/Vault Graph.md' },         // markdown index page: kept
       ]);
       const out = JSON.parse(filterVaultFsListing(body));
       expect(out.map((e: { name: string }) => e.name)).toEqual([
         'Notes/graphify-out-notes.md',
         'Notes/sub/file.md',
         'Raw/graphify-out/derived.json',
+        'Raw/Graphs/Vault Graph.md',
       ]);
     });
   });

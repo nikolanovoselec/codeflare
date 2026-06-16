@@ -53,12 +53,18 @@ vi.mock('../../api/storage', () => ({
   recreateAgentConfigs: vi.fn().mockResolvedValue({ success: true, written: [], skipped: [], deleted: [], warnings: [] }),
 }));
 
+vi.mock('../../lib/vault-cache', () => ({
+  cleanupSessionVaultCache: vi.fn().mockResolvedValue(undefined),
+  sweepOrphanVaultCaches: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Import after mocks
 import { sessionStore } from '../../stores/session';
 import { applyMetricsUpdate } from '../../stores/session';
 import * as api from '../../api/client';
 import * as storageApi from '../../api/storage';
 import * as terminal from '../../stores/terminal';
+import * as vaultCache from '../../lib/vault-cache';
 
 // Get typed mocks
 const mockGetSessions = vi.mocked(api.getSessions);
@@ -69,6 +75,8 @@ const mockGetStartupStatus = vi.mocked(api.getStartupStatus);
 const mockStopSession = vi.mocked(api.stopSession);
 const mockRecreateAgentConfigs = vi.mocked(storageApi.recreateAgentConfigs);
 const mockSendInputToTerminal = vi.mocked(terminal.sendInputToTerminal);
+const mockCleanupSessionVaultCache = vi.mocked(vaultCache.cleanupSessionVaultCache);
+const mockSweepOrphanVaultCaches = vi.mocked(vaultCache.sweepOrphanVaultCaches);
 
 describe('Session Store', () => {
   beforeEach(() => {
@@ -112,6 +120,36 @@ describe('Session Store', () => {
       expect(sessionStore.sessions.length).toBe(2);
       expect(sessionStore.sessions[0].id).toBe('session-1');
       expect(sessionStore.sessions[1].id).toBe('session-2');
+    });
+
+    it('sweeps orphan Vault caches after an authoritative session-list fetch succeeds', async () => {
+      const mockSessions = [
+        {
+          id: 'session-1',
+          name: 'Test Session 1',
+          createdAt: new Date().toISOString(),
+          lastAccessedAt: new Date().toISOString(),
+        },
+        {
+          id: 'session-2',
+          name: 'Test Session 2',
+          createdAt: new Date().toISOString(),
+          lastAccessedAt: new Date().toISOString(),
+        },
+      ];
+      mockGetSessions.mockResolvedValue(mockSessions);
+
+      await sessionStore.loadSessions();
+
+      expect(mockSweepOrphanVaultCaches).toHaveBeenCalledWith(['session-1', 'session-2']);
+    });
+
+    it('does not sweep Vault caches when the session-list fetch fails', async () => {
+      mockGetSessions.mockRejectedValue(new Error('Network error'));
+
+      await sessionStore.loadSessions();
+
+      expect(mockSweepOrphanVaultCaches).not.toHaveBeenCalled();
     });
 
     it('should set loading state during fetch', async () => {
@@ -275,9 +313,12 @@ describe('Session Store', () => {
       resolveFirst!([{ id: 'session-old', name: 'Old', createdAt: 'then', lastAccessedAt: 'then' }]);
       await firstCall;
 
-      // Only the newer generation's sessions should be in state
+      // Only the newer generation's sessions should be in state, and only
+      // that authoritative result may drive Vault cache sweeping.
       expect(sessionStore.sessions.some(s => s.id === 'session-new')).toBe(true);
       expect(sessionStore.sessions.some(s => s.id === 'session-old')).toBe(false);
+      expect(mockSweepOrphanVaultCaches).toHaveBeenCalledTimes(1);
+      expect(mockSweepOrphanVaultCaches).toHaveBeenCalledWith(['session-new']);
     });
 
     // REQ-AGENT-049: auto-upgrade preseed on stale hash
@@ -419,6 +460,14 @@ describe('Session Store', () => {
       await sessionStore.deleteSession('session-1');
 
       expect(sessionStore.getTerminalsForSession('session-1')).toBeNull();
+    });
+
+    it('cleans the deleted session Vault cache without waiting on the UI path', async () => {
+      mockDeleteSession.mockResolvedValue(undefined);
+
+      await sessionStore.deleteSession('session-1');
+
+      expect(mockCleanupSessionVaultCache).toHaveBeenCalledWith('session-1');
     });
   });
 

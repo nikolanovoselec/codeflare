@@ -517,6 +517,13 @@
           }
         }
 
+        .header-vault-button-wrap {
+          position: relative;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
         .header-vault-button,
         .header-storage-button,
         .header-settings-button,
@@ -532,7 +539,7 @@
           transition: background var(--transition-fast), color var(--transition-fast);
         }
 
-        .header-vault-button:hover:not(:disabled),
+        .header-vault-button:hover:not([aria-disabled="true"]),
         .header-storage-button:hover,
         .header-settings-button:hover,
         .header-logout-button:hover {
@@ -540,9 +547,40 @@
           color: var(--color-text-primary);
         }
 
-        .header-vault-button:disabled {
+        .header-vault-button[aria-disabled="true"] {
           opacity: 0.4;
           cursor: not-allowed;
+        }
+
+        .header-vault-status {
+          position: absolute;
+          top: calc(100% + var(--space-2));
+          right: 0;
+          z-index: 70;
+          width: max-content;
+          max-width: 240px;
+          padding: var(--space-2) var(--space-3);
+          border: 1px solid var(--color-border);
+          border-radius: var(--radius-md);
+          background: var(--color-bg-elevated);
+          color: var(--color-text-primary);
+          box-shadow: var(--shadow-lg);
+          font-size: var(--text-xs);
+          line-height: 1.35;
+          text-align: left;
+        }
+
+        .header-vault-status::before {
+          content: '';
+          position: absolute;
+          top: -5px;
+          right: 13px;
+          width: 8px;
+          height: 8px;
+          border-left: 1px solid var(--color-border);
+          border-top: 1px solid var(--color-border);
+          background: var(--color-bg-elevated);
+          transform: rotate(45deg);
         }
 
         .header-vault-button:focus-visible,

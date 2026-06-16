@@ -286,8 +286,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 <!-- @impl: web-ui/src/components/Header.tsx::Header -->
 <!-- @impl: entrypoint.sh::start_silverbullet_supervisor -->
-<!-- @impl: preseed/silverbullet/Index.md::dashboard-readme-link -->
-<!-- @impl: preseed/silverbullet/Index.md::dashboard-notes-references -->
+<!-- @impl: preseed/silverbullet/Index.md -->
 <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating describe → default/unset/advanced session-mode gate -> AC1) -->
 <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Vault button behavior describe → ready click opens → AC2) -->
 <!-- @test: host/__audits__/entrypoint-vault.audit.js (supervisor exports SB_INDEX_PAGE=Index → AC3) -->
@@ -301,8 +300,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 1. The app shell passes a Vault opener to the header only for active advanced-mode sessions. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 2. Clicking the Vault control opens the current session's proxied editor. <!-- @impl: web-ui/src/components/Header.tsx::Header -->
 3. The editor opens on the codeflare dashboard page. <!-- @impl: entrypoint.sh::start_silverbullet_supervisor -->
-4. The dashboard links to the README near the top. <!-- @impl: preseed/silverbullet/Index.md::dashboard-readme-link -->
-5. The dashboard surfaces `Notes/` and `References/` before generic recent-content widgets. <!-- @impl: preseed/silverbullet/Index.md::dashboard-notes-references -->
+4. The dashboard links to the README near the top. <!-- @impl: preseed/silverbullet/Index.md -->
+5. The dashboard surfaces `Notes/` and `References/` before generic recent-content widgets. <!-- @impl: preseed/silverbullet/Index.md -->
 
 **Constraints:**
 
@@ -323,27 +322,32 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 <!-- @impl: web-ui/src/lib/vault-readiness.ts::startVaultReadinessProbe -->
 <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm -->
+<!-- @impl: web-ui/src/lib/vault-local-readiness.ts::checkVaultLocalReadiness -->
+<!-- @impl: web-ui/src/lib/browser-storage-persistence.ts::requestBrowserStoragePersistence -->
 <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton -->
 <!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmBridge -->
 <!-- @impl: src/routes/vault.ts::handleVaultRequest -->
-<!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Vault button behavior describe → disabled until prewarm ready + timeout/error disabled → AC1/AC3) -->
-<!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018) describe → server latch starts prewarm, timeout retries, mid-prewarm leave starts fresh on return → AC1-AC4) -->
+<!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Vault button behavior describe → guarded prewarm/timeout/error click feedback + ready click opens → AC1/AC3) -->
+<!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018) describe → server latch starts prewarm, timeout retries, mid-prewarm leave starts fresh on return, click-time local readiness recheck → AC1-AC4/AC7) -->
 <!-- @test: web-ui/src/__tests__/lib/vault-readiness.test.ts (startVaultReadinessProbe describe → no-give-up retry / first-success latch / SB-crash recovery / cancel / mid-probe cancel → AC2) -->
-<!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (vault browser prewarm protocol describe → iframe URL/session scoping, origin + prewarmId validation, ready/timeout/cancel cleanup → AC3/AC5) -->
-<!-- @test: src/__tests__/routes/vault-html-direct.test.ts (vault prewarm helpers describe → sanitized prewarm query propagation + generic shell bridge injection for service-worker-cached shell → AC6) -->
+<!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (vault browser prewarm protocol describe → iframe URL/session scoping, origin + prewarmId + local+content-proof validation, ready/timeout/cancel cleanup → AC3/AC5) -->
+<!-- @test: web-ui/src/__tests__/lib/vault-local-readiness.test.ts (checkVaultLocalReadiness describe → recorded sb_data/sb_files + active service worker + optional databases API proof → AC6/AC7) -->
+<!-- @test: web-ui/src/__tests__/lib/browser-storage-persistence.test.ts (requestBrowserStoragePersistence describe → already persisted / grant / denial / unsupported / estimate failure → AC3) -->
+<!-- @test: src/__tests__/routes/vault-html-direct.test.ts (vault prewarm helpers describe → sanitized prewarm query propagation + generic shell bridge injection + space-sync/content canary guard → AC6) -->
 
-**Intent:** The Vault control stays disabled until the browser has completed the real SilverBullet startup path for the active session. A user should not land on an unreachable editor or a slow first-click indexing screen.
+**Intent:** The Vault control stays guarded until the current browser/device has completed the real SilverBullet startup path for the active session. A user should not land on an unreachable editor or a slow first-click indexing screen.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The Vault control remains disabled until the per-session vault proxy probe succeeds. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton -->
+1. The Vault control remains guarded until the per-session vault proxy probe succeeds, stays visible, and exposes click/tap feedback while unavailable. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton -->
 2. The server probe retries until first success, is keyed per session, and clears readiness after a later steady-probe failure. <!-- @impl: web-ui/src/lib/vault-readiness.ts::startVaultReadinessProbe -->
-3. Browser prewarm starts only after server readiness, and timeout/error attempts retry while the control stays disabled. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
+3. Browser prewarm starts only after server readiness, requests best-effort persistent browser storage, and timeout/error attempts retry while the control stays guarded. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 4. Leaving a session during in-flight prewarm clears stale pending state so returning starts a fresh attempt. <!-- @impl: web-ui/src/components/Layout.tsx::clearPrewarmingVaultStatus -->
-5. Prewarm messages are accepted only from the same origin and current attempt. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm -->
-6. The bridge is inert without valid prewarm parameters and emits ready only after the SilverBullet runtime readiness signal. <!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmBridge -->
+5. Prewarm messages are accepted only from the same origin and current attempt, and ready messages must include current-browser local readiness proof plus content readiness proof. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm -->
+6. The bridge is inert without valid prewarm parameters and emits ready only after the SilverBullet runtime is ready, the current browser has recorded `sb_data_*`, recorded `sb_files_*`, and an active per-session service worker, SilverBullet's service worker has completed a full space sync, the current object index version is complete with an empty index queue, and the local `/.fs/` listing contains the codeflare-authoritative vault files. <!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmBridge -->
+7. Clicking the ready control rechecks the current browser's local readiness before opening the editor; if the local cache is missing or evicted, the app restarts prewarm instead of opening a stale tab. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 
 **Constraints:**
 
@@ -354,7 +358,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-012](#req-vault-012-vault-button-render-and-dashboard-landing)
 
-**Verification:** [Automated test](../../web-ui/src/__tests__/lib/vault-readiness.test.ts), [prewarm protocol test](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx)
+**Verification:** [Automated test](../../web-ui/src/__tests__/lib/vault-readiness.test.ts), [prewarm protocol test](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [local readiness test](../../web-ui/src/__tests__/lib/vault-local-readiness.test.ts), [browser storage persistence test](../../web-ui/src/__tests__/lib/browser-storage-persistence.test.ts), [layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx)
 
 **Status:** Implemented
 
@@ -396,7 +400,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 <!-- @impl: src/routes/vault.ts::handleVaultRequest -->
 
-**Intent:** SilverBullet's native service worker (not a stripped shim) is served for the editor's service-worker registration fetch so the editor keeps its persistent local file-sync store and indexes incrementally (AD69). The Worker short-circuits the auth chain for the registration GET (the browser sends no credentials on that fetch, so the cookie-gated path would 401), serves the version-locked native worker body, and suppresses the bootstrap-hop redirect for Service-Worker-context fetches so the worker's precache resolves. The per-session encryption key reaches the worker via postMessage from the bootstrap-hop page ([REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5).
+**Intent:** SilverBullet's native service worker (not a stripped shim) is served for the editor's service-worker registration fetch so the editor keeps its persistent local file-sync store and indexes incrementally (AD69). The Worker short-circuits the auth chain for the registration GET (the browser sends no credentials on that fetch, so the cookie-gated path would 401), serves the SilverBullet 2.9.0 native worker body locked to the Dockerfile-pinned binary, and suppresses the bootstrap-hop redirect for Service-Worker-context fetches so the worker's precache resolves. The per-session encryption key reaches the worker via postMessage from the bootstrap-hop page ([REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5).
 
 **Applies To:** User
 
@@ -404,7 +408,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 1. Browser-initiated Service Worker registration GETs for the editor's service-worker script short-circuit the auth chain and receive SilverBullet's native service worker from the Worker (vendored verbatim, AD69), so the editor keeps its persistent local file-sync store and indexes incrementally. Cold-boot encryption rides the native worker's own `set-encryption-key`/`get-encryption-key` handlers, fed by the bootstrap-hop page (see [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5 for the key-delivery contract). <!-- @impl: src/routes/vault-native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS -->
 2. The short-circuit selector requires all of: GET method, exact path match for the service-worker script, and the browser-only Service-Worker request header (a Fetch-spec forbidden header name not settable from page JavaScript). Cookie presence is intentionally not checked because Samsung Internet and other Chromium forks may send cookies on SW registration fetches; rejecting those requests would force the registration through the cookie-gated proxy chain and 401.
-3. The native service-worker script body is identical across sessions (version-locked to the SilverBullet binary, guarded by a recorded SHA-256 drift hash); the per-session vault encryption key is delivered to it via postMessage from the bootstrap-hop page ([REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5), never baked into the script. <!-- @impl: src/routes/vault-native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS -->
+3. The native service-worker script body is identical across sessions (version-locked to the Dockerfile-pinned SilverBullet 2.9.0 binary, guarded by a recorded SHA-256 drift hash); the per-session vault encryption key is delivered to it via postMessage from the bootstrap-hop page ([REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5), never baked into the script. <!-- @impl: src/routes/vault-native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS -->
 4. The native worker precaches the shell `/` via `cache.addAll` during install, BEFORE the bootstrap-hop sets the bootstrap cookie. The shell-path redirect to the bootstrap-hop is suppressed for Service-Worker-context fetches (identified by a `Sec-Fetch-Mode` header present and not equal to `navigate`) so the precache resolves against the real shell instead of a 302 that would make `cache.addAll` reject and hang the SW install. Top-level navigations (`Sec-Fetch-Mode: navigate`) and clients with no `Sec-Fetch-Mode` header still receive the redirect (fail-safe), so a real first navigation never boots without the encryption key wired. <!-- @impl: src/routes/vault-html.ts::isServiceWorkerContextFetch -->
 
 **Notes:** Documented in [AD69](../../documentation/decisions/README.md) and the [vault lane](../../documentation/lanes/vault.md#service-worker-registration-noop-bypass). Under enterprise Cloudflare Access the host-wide Access app would 302 this credential-less registration fetch to the IdP login before the Worker runs; the setup wizard auto-provisions a higher-precedence bypass app scoped to the SW path so the request reaches this short-circuit ([REQ-ENTERPRISE-006](enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC6). The `/.client/*` precache-auth exemption was evaluated and left unimplemented (the integration deploy showed `cache.addAll` resolves because the precache fetches carry the session cookie); it is reserved only as a future fallback if a browser strips credentials on precache fetches.
@@ -571,19 +575,22 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: src/routes/vault-html.ts::injectVaultIdbRecorder -->
 <!-- @impl: src/routes/vault-html.ts::VAULT_IDB_RECORDER_MARKER -->
 <!-- @test: src/__tests__/routes/vault.test.ts (filterVaultFsListing + injectVaultIdbRecorder describes → AC1/AC3) -->
+<!-- @test: src/__tests__/routes/vault-html-direct.test.ts (filterVaultFsListing describe → derived graphify-out + Raw/Graphs HTML artifacts filtered from SB listings → AC1) -->
 <!-- @test: web-ui/src/__tests__/lib/vault-cache.test.ts (cleanupSessionVaultCache + sweepOrphanVaultCaches real IDB deletion describe → AC3/AC4) -->
+<!-- @test: web-ui/src/__tests__/stores/session.test.ts (loadSessions describe → authoritative session-list sweep only after success + stale generation ignored → AC4) -->
+<!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (initialization tests → dashboard mount does not sweep Vault caches → AC4) -->
 <!-- @test: host/__tests__/preseed-config-treeview.test.js (CONFIG.md treeview exclusions describe → AC2) -->
 
-**Intent:** SilverBullet's IndexedDB caches and on-disk listings would otherwise persist across deletion and expose derived/internal directories to the user. This REQ covers cleanup on session DELETE, dashboard-mount sweeping for orphaned IDBs, and the listing filters that keep derived output and internal preseed pages out of the vault tree.
+**Intent:** SilverBullet's IndexedDB caches and on-disk listings would otherwise persist across deletion and expose derived/internal directories to the user. This REQ covers cleanup on session DELETE, authoritative session-list sweeping for orphaned IDBs, and the listing filters that keep derived output and internal preseed pages out of the vault tree.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The vendored editor's filesystem-listing endpoint filters out the derived graph-output directory so build artifacts never reach the browser. <!-- @impl: src/routes/vault-html.ts::filterVaultFsListing -->
+1. The vendored editor's filesystem-listing endpoint filters out the derived graph-output directory and generated `Raw/Graphs/*.html` visualisations so build artifacts never reach the browser listing or SilverBullet index queue. <!-- @impl: src/routes/vault-html.ts::filterVaultFsListing -->
 2. The preseed configuration page declares a treeview-exclusions block hiding the plug library, the library-manager mirror, the derived graph-output directory, and the four codeflare-authoritative root pages from the navigation tree.
-3. The frontend runs a session-vault-cache cleanup on session delete (not on stop), which deletes every editor-owned IDB recorded for the session in browser storage (the recorder is populated at boot by a shim that wraps the IndexedDB open call), unregisters the vault service worker scoped to that session, and removes the session's persisted IDB-recorder entries. <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache -->
-4. On dashboard mount and on every session-list refresh, the frontend sweeps the persisted IDB-recorder entries and, for any session no longer in the user's active sessions list, deletes the recorded IDBs and drops the corresponding storage entries (covers the case where the session was deleted from another device). <!-- @impl: web-ui/src/lib/vault-cache.ts::sweepOrphanVaultCaches -->
+3. The frontend runs a session-vault-cache cleanup on session delete (not on stop), which deletes every editor-owned IDB recorded for the session in browser storage (the recorder is populated at boot by a shim that wraps page-context IndexedDB opens and by native-worker IDB-open messages), unregisters the vault service worker scoped to that session, and removes the session's persisted IDB-recorder entries. <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache -->
+4. After an authoritative session-list fetch succeeds, the frontend sweeps persisted IDB-recorder entries and, for any session no longer in the user's active sessions list, deletes the recorded IDBs and drops the corresponding storage entries (covers the case where the session was deleted from another device). Dashboard mount alone must not trigger a sweep because the initial store may be empty before the fetch resolves. <!-- @impl: web-ui/src/stores/session.ts::loadSessions -->
 
 **Constraints:**
 
@@ -594,7 +601,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption), [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts)
+**Verification:** [Route test](../../src/__tests__/routes/vault.test.ts), [cache helper test](../../web-ui/src/__tests__/lib/vault-cache.test.ts), [session store test](../../web-ui/src/__tests__/stores/session.test.ts), [dashboard mount test](../../web-ui/src/__tests__/components/Dashboard.test.tsx)
 
 **Status:** Implemented
 
