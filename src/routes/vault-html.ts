@@ -410,8 +410,21 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'if (data && data.type === "space-sync-complete") spaceSyncCompleted = true;' +
     '});' +
     '}' +
+    'async function checkIndexReadiness() {' +
+    'try {' +
+    'var client = window.client;' +
+    'if (!client || client.systemReady !== true || client.pageListLoaded !== true) return false;' +
+    'if (!client.clientSystem || client.clientSystem.scriptsLoaded !== true) return false;' +
+    'if (!client.objectIndex || typeof client.objectIndex.hasFullIndexCompleted !== "function") return false;' +
+    'if (client.mq && typeof client.mq.getQueueStats === "function") {' +
+    'var stats = await client.mq.getQueueStats("indexQueue");' +
+    'if (!stats || stats.queued !== 0 || stats.processing !== 0 || stats.dlq !== 0) return false;' +
+    '} else if (client.mq && typeof client.mq.isQueueEmpty === "function" && !(await client.mq.isQueueEmpty("indexQueue"))) return false;' +
+    'return await client.objectIndex.hasFullIndexCompleted();' +
+    '} catch (_) { return false; }' +
+    '}' +
     'async function checkContentReadiness() {' +
-    'if (!hasSpaceSyncCompleted()) return null;' +
+    'if (!hasSpaceSyncCompleted() || !(await checkIndexReadiness())) return null;' +
     'try {' +
     'var res = await fetch(".fs/", { cache: "no-store" });' +
     'if (!res || !res.ok) return null;' +
@@ -420,7 +433,7 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'var names = {};' +
     'list.forEach(function (entry) { if (entry && typeof entry.name === "string") names[entry.name] = true; });' +
     'for (var i = 0; i < requiredFiles.length; i++) { if (!names[requiredFiles[i]]) return null; }' +
-    'return { contentReady: true, spaceSyncCompleted: true, requiredFiles: requiredFiles.slice(), listedFileCount: list.length };' +
+    'return { contentReady: true, spaceSyncCompleted: true, indexReady: true, requiredFiles: requiredFiles.slice(), listedFileCount: list.length };' +
     '} catch (_) { return null; }' +
     '}' +
     'function readRecorded(storage, sid) {' +
@@ -483,6 +496,7 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'if (localProof.ready === true && contentProof) {' +
     'localProof.contentReady = contentProof.contentReady;' +
     'localProof.spaceSyncCompleted = contentProof.spaceSyncCompleted;' +
+    'localProof.indexReady = contentProof.indexReady;' +
     'localProof.requiredFiles = contentProof.requiredFiles;' +
     'localProof.listedFileCount = contentProof.listedFileCount;' +
     'window.clearInterval(timer);' +
@@ -636,10 +650,11 @@ export function hasVaultBootstrapCookie(request: Request): boolean {
 
 /**
  * Filter a SilverBullet `/.fs` JSON listing response, removing entries
- * whose `name` starts with `graphify-out/`. The vault contains agent-
- * derived graph artifacts (sometimes multi-MB graph.html) that must
- * not appear in the SB UI's space listing - they would clutter the
- * tree, slow initial sync, and confuse the user.
+ * whose `name` starts with `graphify-out/` plus generated
+ * `Raw/Graphs/*.html` visualisations. The vault contains agent-derived
+ * graph artifacts (sometimes multi-MB graph.html) that must not appear
+ * in the SB UI's space listing - they would clutter the tree, slow
+ * initial sync, trigger useless document indexing, and confuse the user.
  *
  * Server-side filter (here) is the canonical enforcement point because
  * the SB binary embeds its own listing logic and we cannot reach in
@@ -652,6 +667,11 @@ export function hasVaultBootstrapCookie(request: Request): boolean {
  *
  * Implements REQ-VAULT-015 AC1.
  */
+function isFilteredVaultListingName(name: string): boolean {
+  if (name.startsWith('graphify-out/')) return true;
+  return /^Raw\/Graphs\/[^/]+\.html$/i.test(name);
+}
+
 export function filterVaultFsListing(body: string): string {
   try {
     const parsed = JSON.parse(body);
@@ -660,7 +680,7 @@ export function filterVaultFsListing(body: string): string {
       if (entry == null || typeof entry !== 'object') return true;
       const name = (entry as { name?: unknown }).name;
       if (typeof name !== 'string') return true;
-      return !name.startsWith('graphify-out/');
+      return !isFilteredVaultListingName(name);
     });
     // Pass through the original body byte-for-byte when nothing was
     // filtered so any upstream ETag / cache-validation key the SB

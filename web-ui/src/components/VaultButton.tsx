@@ -1,4 +1,4 @@
-import { Component, Show, createMemo, createSignal } from 'solid-js';
+import { Component, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
 import { mdiChartGantt } from '@mdi/js';
 import Icon from './Icon';
 import type { VaultPrewarmStatus } from '../lib/vault-prewarm';
@@ -40,9 +40,28 @@ const VaultButton: Component<VaultButtonProps> = (props) => {
   const meta = createMemo(() => VAULT_BUTTON_META[props.status]);
   const [showMessage, setShowMessage] = createSignal(false);
   const messageId = 'header-vault-button-status';
+  let wrapRef: HTMLDivElement | undefined;
+
+  createEffect(() => {
+    if (!showMessage() || typeof document === 'undefined') return;
+    const dismissOnOutsideClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (target instanceof Node && wrapRef?.contains(target)) return;
+      setShowMessage(false);
+    };
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowMessage(false);
+    };
+    document.addEventListener('click', dismissOnOutsideClick);
+    document.addEventListener('keydown', dismissOnEscape);
+    onCleanup(() => {
+      document.removeEventListener('click', dismissOnOutsideClick);
+      document.removeEventListener('keydown', dismissOnEscape);
+    });
+  });
 
   return (
-    <div class="header-vault-button-wrap">
+    <div class="header-vault-button-wrap" ref={(el) => { wrapRef = el; }}>
       <button
         class={`header-vault-button header-vault-button--${props.status}`}
         data-testid="header-vault-button"

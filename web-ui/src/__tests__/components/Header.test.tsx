@@ -157,6 +157,19 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
       expect(onVaultOpen).not.toHaveBeenCalled();
     });
 
+    it('dismisses the guarded Vault feedback when the user clicks elsewhere', () => {
+      const onVaultOpen = vi.fn();
+      render(() => <Header {...defaultSessionProps} onVaultOpen={onVaultOpen} vaultStatus="prewarming" />);
+
+      fireEvent.click(screen.getByTestId('header-vault-button'));
+      expect(screen.getByTestId('header-vault-status')).toBeInTheDocument();
+
+      fireEvent.click(document.body);
+
+      expect(screen.queryByTestId('header-vault-status')).not.toBeInTheDocument();
+      expect(onVaultOpen).not.toHaveBeenCalled();
+    });
+
     it('opens the Vault only after prewarm reaches ready', () => {
       const onVaultOpen = vi.fn();
       render(() => <Header {...defaultSessionProps} onVaultOpen={onVaultOpen} vaultStatus="ready" />);

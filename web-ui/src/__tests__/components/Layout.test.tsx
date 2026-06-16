@@ -78,6 +78,7 @@ const vaultPrewarmProof = {
   hasIndexedDbDatabasesApi: true,
   contentReady: true,
   spaceSyncCompleted: true,
+  indexReady: true,
   requiredFiles: ['CONFIG.md', 'Index.md', 'STYLES.md'],
   listedFileCount: 42,
 };

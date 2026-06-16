@@ -10,6 +10,7 @@ export type VaultPrewarmStatus = 'idle' | 'prewarming' | 'ready' | 'timeout' | '
 export type VaultPrewarmProof = VaultLocalReadinessResult & {
   contentReady: true;
   spaceSyncCompleted: true;
+  indexReady: true;
   requiredFiles: string[];
   listedFileCount: number;
 };
@@ -67,6 +68,7 @@ function isVaultPrewarmProof(value: unknown): value is VaultPrewarmProof {
     && typeof candidate.hasIndexedDbDatabasesApi === 'boolean'
     && candidate.contentReady === true
     && candidate.spaceSyncCompleted === true
+    && candidate.indexReady === true
     && Array.isArray(candidate.requiredFiles)
     && candidate.requiredFiles.every((entry) => typeof entry === 'string')
     && typeof candidate.listedFileCount === 'number'

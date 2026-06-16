@@ -17,6 +17,7 @@ const readyProof = {
   hasIndexedDbDatabasesApi: true,
   contentReady: true,
   spaceSyncCompleted: true,
+  indexReady: true,
   requiredFiles: ['CONFIG.md', 'Index.md', 'STYLES.md'],
   listedFileCount: 12,
 };

@@ -346,7 +346,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 3. Browser prewarm starts only after server readiness, requests best-effort persistent browser storage, and timeout/error attempts retry while the control stays guarded. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 4. Leaving a session during in-flight prewarm clears stale pending state so returning starts a fresh attempt. <!-- @impl: web-ui/src/components/Layout.tsx::clearPrewarmingVaultStatus -->
 5. Prewarm messages are accepted only from the same origin and current attempt, and ready messages must include current-browser local readiness proof plus content readiness proof. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm -->
-6. The bridge is inert without valid prewarm parameters and emits ready only after the SilverBullet runtime is ready, the current browser has recorded `sb_data_*`, recorded `sb_files_*`, and an active per-session service worker, SilverBullet's service worker has completed a full space sync, and the local `/.fs/` listing contains the codeflare-authoritative vault files. <!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmBridge -->
+6. The bridge is inert without valid prewarm parameters and emits ready only after the SilverBullet runtime is ready, the current browser has recorded `sb_data_*`, recorded `sb_files_*`, and an active per-session service worker, SilverBullet's service worker has completed a full space sync, the current object index version is complete with an empty index queue, and the local `/.fs/` listing contains the codeflare-authoritative vault files. <!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmBridge -->
 7. Clicking the ready control rechecks the current browser's local readiness before opening the editor; if the local cache is missing or evicted, the app restarts prewarm instead of opening a stale tab. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 
 **Constraints:**
@@ -575,6 +575,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: src/routes/vault-html.ts::injectVaultIdbRecorder -->
 <!-- @impl: src/routes/vault-html.ts::VAULT_IDB_RECORDER_MARKER -->
 <!-- @test: src/__tests__/routes/vault.test.ts (filterVaultFsListing + injectVaultIdbRecorder describes → AC1/AC3) -->
+<!-- @test: src/__tests__/routes/vault-html-direct.test.ts (filterVaultFsListing describe → derived graphify-out + Raw/Graphs HTML artifacts filtered from SB listings → AC1) -->
 <!-- @test: web-ui/src/__tests__/lib/vault-cache.test.ts (cleanupSessionVaultCache + sweepOrphanVaultCaches real IDB deletion describe → AC3/AC4) -->
 <!-- @test: web-ui/src/__tests__/stores/session.test.ts (loadSessions describe → authoritative session-list sweep only after success + stale generation ignored → AC4) -->
 <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (initialization tests → dashboard mount does not sweep Vault caches → AC4) -->
@@ -586,7 +587,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. The vendored editor's filesystem-listing endpoint filters out the derived graph-output directory so build artifacts never reach the browser. <!-- @impl: src/routes/vault-html.ts::filterVaultFsListing -->
+1. The vendored editor's filesystem-listing endpoint filters out the derived graph-output directory and generated `Raw/Graphs/*.html` visualisations so build artifacts never reach the browser listing or SilverBullet index queue. <!-- @impl: src/routes/vault-html.ts::filterVaultFsListing -->
 2. The preseed configuration page declares a treeview-exclusions block hiding the plug library, the library-manager mirror, the derived graph-output directory, and the four codeflare-authoritative root pages from the navigation tree.
 3. The frontend runs a session-vault-cache cleanup on session delete (not on stop), which deletes every editor-owned IDB recorded for the session in browser storage (the recorder is populated at boot by a shim that wraps page-context IndexedDB opens and by native-worker IDB-open messages), unregisters the vault service worker scoped to that session, and removes the session's persisted IDB-recorder entries. <!-- @impl: web-ui/src/lib/vault-cache.ts::cleanupSessionVaultCache -->
 4. After an authoritative session-list fetch succeeds, the frontend sweeps persisted IDB-recorder entries and, for any session no longer in the user's active sessions list, deletes the recorded IDBs and drops the corresponding storage entries (covers the case where the session was deleted from another device). Dashboard mount alone must not trigger a sweep because the initial store may be empty before the fetch resolves. <!-- @impl: web-ui/src/stores/session.ts::loadSessions -->
