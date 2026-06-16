@@ -186,7 +186,7 @@ describe('renderReviewStatus (REQ-AGENT-057 AC2): command is read-only and never
     expect(out1).toBe(out2);
   });
 
-  it('returns a string (not void, not Promise) — confirming no write-side-effect path is reachable', () => {
+  it('returns a non-empty string and emits no write-target paths (ack/breaker/events files)', () => {
     // renderReviewStatus accepts only pre-resolved value inputs. Its return type is string,
     // not Promise<void> or void. Any implementation that tried to write to disk inside this
     // function would need to return void or accept a write-callback — neither is the case.
