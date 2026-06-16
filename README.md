@@ -1,17 +1,19 @@
 # <img src="documentation/images/logo-icon.svg" width="28" align="absmiddle" alt="Codeflare logo"> Codeflare
 
-![Codeflare](documentation/images/login-hero.png)
+![Codeflare](documentation/images/og.png)
 
-**The enterprise agentic coding engine.** This is not a coding assistant. Codeflare runs autonomous coding agents inside your own cloud, where every change is backed by a spec, proven by tests, documented, and handed to your team as a pull request to merge.
+**Not a coding assistant. The enterprise agentic engine.**
 
-The engineer specifies, steers, and judges; the agents do everything else — build, review, test, and ship — subject to your git, your CI, and your zero-trust boundary. Spec-driven and test-driven development run as enforced, self-healing loops, so drift is caught as a blocking finding instead of shipping. Every model call is inspected and every token of spend is attributed.
+Codeflare runs governed engineering agents inside your own estate. They build, test, review, and operate. The engineer specifies, steers, and judges; the agents do the rest, under your git, your CI, and your zero-trust boundary.
+
+The governance is the product. Spec-driven and test-driven development run as enforced, self-healing loops: every change is checked against its specification at the pull-request boundary, and drift is a blocking finding instead of something that ships. Each session runs in its own isolated, ephemeral container with no standing infrastructure to persist on. Model traffic never goes direct. It is intercepted at the platform layer and routed through your AI Gateway, where guardrails and DLP apply, every call is inspected, and every token of spend is attributed to a user, team, and route.
 
 ![Codeflare on a foldable tablet](documentation/images/mobile-foldable.jpg)
-*One governed run, from intent to merge — reachable from any screen with a browser, zero setup.*
+*One governed run, from intent to merge. Reachable from any screen with a browser, zero setup.*
 
 **Try it:** [codeflare.ch](https://codeflare.ch)
 
-Every session comes pre-loaded with your choice of AI coding agent:
+Every session comes pre-loaded with your choice of agent:
 
 | Agent | Description |
 |---|---|
@@ -56,7 +58,7 @@ Cloudflare Containers run as root, and both Claude Code and Antigravity launch w
 ![Dashboard](documentation/images/dashboard.png)
 *Manage sessions, browse persistent storage, and monitor live resource usage — all from one view.*
 
-**Native integrations, wired in — not bolted on.**
+**Native integrations, wired in, not bolted on.**
 
 - **Native GitHub integration** — connect once. Every session gets automatic `git push`, `gh` CLI, and CI/CD access. No SSH keys, no per-session auth.
 - **Native Cloudflare integration** — connect once. Deploy Workers and manage D1, R2, KV, and DNS from the terminal, already authenticated.
@@ -141,9 +143,9 @@ These two are the **only** required configuration. Everything in [Configuration]
 Find your worker URL at [dash.cloudflare.com](https://dash.cloudflare.com/) → **Compute → Workers & Pages →** your worker (default name: `codeflare`, so `codeflare.<your-subdomain>.workers.dev`). Open it; the wizard verifies your token, configures a custom domain and allowed users, and sets up authentication (Cloudflare Access for all modes; SaaS mode can use GitHub OAuth instead).
 
 ![Guided setup](documentation/images/guided-setup.png)
-*Connect your accounts and pick a coding agent — no prior Cloudflare or GitHub knowledge required.*
+*Connect your accounts and pick an agent. No prior Cloudflare or GitHub knowledge required.*
 
-That's it — you're live. You'll need an active subscription to at least one supported coding agent; log in directly from the terminal.
+That's it, you're live. You'll need an active subscription to at least one supported agent; log in directly from the terminal.
 
 <details>
 <summary><strong id="api-token-scopes">API token scopes</strong></summary>

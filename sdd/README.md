@@ -1,6 +1,6 @@
 # Codeflare Specification
 
-Codeflare is the enterprise agentic coding engine: it runs autonomous AI coding agents in isolated containers on Cloudflare's edge. Each session spins up a dedicated container pre-loaded with the user's choice of agent (Claude Code, Codex, Antigravity, GitHub Copilot, OpenCode, Pi, or Bash), provides a browser-native terminal accessible from any device, and tears itself down when idle. Files persist in per-user R2 storage via bidirectional sync; containers do not. The product targets teams who want zero-setup AI coding from any screen -- phone, tablet, or laptop -- without touching their local machine.
+Codeflare is the enterprise agentic engine: it runs autonomous AI coding agents in isolated containers on Cloudflare's edge. Each session spins up a dedicated container pre-loaded with the user's choice of agent (Claude Code, Codex, Antigravity, GitHub Copilot, OpenCode, Pi, or Bash), provides a browser-native terminal accessible from any device, and tears itself down when idle. Files persist in per-user R2 storage via bidirectional sync; containers do not. The product targets teams who want zero-setup AI coding from any screen -- phone, tablet, or laptop -- without touching their local machine.
 
 ## Principles
 

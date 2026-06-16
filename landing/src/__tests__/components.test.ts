@@ -224,8 +224,8 @@ describe('Section + SectionHead', () => {
   });
 
   it('SectionHead leadHtml renders inline markup; no lead renders no .lead; the slot trails the lead', async () => {
-    const withHtml = dom(await container.renderToString(SectionHead, { props: { kicker: 'k', title: 't', leadHtml: 'Deployed in <strong>your own cloud</strong>.' } })).querySelector('.section-head')!;
-    expect(withHtml.querySelector('.lead strong')?.textContent).toBe('your own cloud');
+    const withHtml = dom(await container.renderToString(SectionHead, { props: { kicker: 'k', title: 't', leadHtml: 'Deployed in <strong>your own estate</strong>.' } })).querySelector('.section-head')!;
+    expect(withHtml.querySelector('.lead strong')?.textContent).toBe('your own estate');
 
     const noLead = dom(await container.renderToString(SectionHead, { props: { kicker: 'k', title: 't' } })).querySelector('.section-head')!;
     expect(noLead.querySelector('.lead')).toBeNull();

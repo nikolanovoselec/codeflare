@@ -126,8 +126,8 @@ const LoginPage: Component = () => {
         </h1>
 
         <p class="login-subtitle">
-          The enterprise agentic coding engine. Autonomous agents build,
-          review, test, and ship inside your own cloud boundary.
+          The enterprise agentic engine. Engineering agents build,
+          test, review, and operate inside your own estate.
         </p>
 
         {/* Feature highlights */}

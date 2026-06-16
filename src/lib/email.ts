@@ -141,7 +141,7 @@ export async function sendWelcomeEmail(opts: {
       '<h2>Welcome to Codeflare</h2>',
       `<p>Hi ${safeEmail},</p>`,
       '<p>Your account has been created. To get started, choose a subscription plan that fits your needs.</p>',
-      '<p>Codeflare is the enterprise agentic coding engine: autonomous agents that build, review, test, and ship inside your own cloud boundary, governed, attributed, and encrypted. Persistent memory across sessions, advanced skills and workflows, voice input, and more. All from any device with a browser.</p>',
+      '<p>Codeflare is the enterprise agentic engine: autonomous agents that build, review, test, and ship inside your own cloud boundary, governed, attributed, and encrypted. Persistent memory across sessions, advanced skills and workflows, voice input, and more. All from any device with a browser.</p>',
       subscribeLink,
     ].filter(Boolean).join('\n'),
     env: opts.env,

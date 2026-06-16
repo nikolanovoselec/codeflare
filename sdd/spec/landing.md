@@ -71,7 +71,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 <!-- @test: landing/src/__tests__/agentfoot.script.test.ts (REQ-LANDING-001 describe -> statusline context tick + 41->12 wrap + compaction beat restores original reason + reduced-motion static) -->
 ### REQ-LANDING-001: Mode-aware public landing serving
 
-**Intent:** Unauthenticated visitors to the deployment root in SaaS or onboarding mode see the enterprise marketing landing page — positioning Codeflare as the enterprise agentic coding engine — while authenticated users and default-mode deployments keep their existing app entry flow.
+**Intent:** Unauthenticated visitors to the deployment root in SaaS or onboarding mode see the enterprise marketing landing page — positioning Codeflare as the enterprise agentic engine — while authenticated users and default-mode deployments keep their existing app entry flow.
 
 **Applies To:** User
 
@@ -166,7 +166,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 1. The landing exposes the full Open Graph set: `og:type`, `og:site_name`, `og:title`, `og:description`, `og:url`, `og:image` (1200x630 with type/alt), `og:locale`.
 2. Twitter Card metadata is set with `summary_large_image` plus title, description, image, and image alt.
 3. The canonical URL is the served root (`https://codeflare.ch/`), not the `/landing/` asset path.
-4. The meta description and OG description carry the enterprise positioning ("enterprise agentic coding engine") as the canonical external description of the product.
+4. The meta description and OG description carry the enterprise positioning ("enterprise agentic engine") as the canonical external description of the product.
 5. The landing emits a JSON-LD `@graph` of schema.org structured data: a site-wide `Organization` (named, logo, `sameAs` the public repo) and `WebSite`, with the home page grafting on a `SoftwareApplication` entity, so search engines and LLMs resolve Codeflare to a named entity.
 6. The Worker serves discoverability documents at the deployment root, gated on the public landing being active (SaaS or onboarding): `robots.txt` (allows the marketing surface, excludes `/app`, `/api`, `/auth`, `/login`, `/setup`, and points at the sitemap), `sitemap.xml` (the indexable routes at the canonical origin, login excluded), and `llms.txt` (the llms.txt-convention product summary). In a private (default/enterprise) deployment `robots.txt` disallows all crawling and `sitemap.xml` / `llms.txt` return 404.
 7. The landing declares a `theme-color` and an `apple-touch-icon` for mobile share/install surfaces.

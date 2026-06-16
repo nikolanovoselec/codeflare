@@ -551,7 +551,7 @@ const SubscribePage: Component = () => {
         </h1>
 
         <p class="login-subtitle">
-          The enterprise agentic coding engine. Autonomous agents build,
+          The enterprise agentic engine. Autonomous agents build,
           review, test, and ship inside your own cloud boundary.
         </p>
 

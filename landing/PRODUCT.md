@@ -22,7 +22,7 @@ enough to book a demo.
 
 ## Product Purpose
 
-Codeflare is **the enterprise agentic coding engine** — the platform where completely
+Codeflare is **the enterprise agentic engine** — the platform where completely
 autonomous coding happens inside the enterprise boundary. The page must carry every
 load-bearing selling point (verbatim from the founder):
 

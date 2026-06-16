@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="Codeflare: the enterprise agentic coding engine.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="Codeflare: the enterprise agentic engine.">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#0a0a0c"/>
@@ -25,9 +25,9 @@
        (JetBrains Mono), three sizes (52 headline / 34 wordmark / 20 the rest). -->
   <text x="80" y="236" font-family="JetBrains Mono" font-size="20" font-weight="600" fill="#ff5c3c" letter-spacing="3">NOT A CODING ASSISTANT</text>
   <text x="80" y="306" font-family="JetBrains Mono" font-size="52" font-weight="700" fill="#fafafa" letter-spacing="-1.6">The enterprise agentic</text>
-  <text x="80" y="370" font-family="JetBrains Mono" font-size="52" font-weight="700" fill="#fafafa" letter-spacing="-1.6">coding engine.</text>
-  <text x="80" y="424" font-family="JetBrains Mono" font-size="20" font-weight="400" fill="#a1a1aa" letter-spacing="0">Coding agents that run where your code already lives.</text>
-  <text x="80" y="454" font-family="JetBrains Mono" font-size="20" font-weight="400" fill="#a1a1aa" letter-spacing="0">Spec-driven, tested, and attributed end to end.</text>
+  <text x="80" y="370" font-family="JetBrains Mono" font-size="52" font-weight="700" fill="#fafafa" letter-spacing="-1.6">engine.</text>
+  <text x="80" y="424" font-family="JetBrains Mono" font-size="20" font-weight="400" fill="#a1a1aa" letter-spacing="0">Governed engineering agents that build, test, review, and operate.</text>
+  <text x="80" y="454" font-family="JetBrains Mono" font-size="20" font-weight="400" fill="#a1a1aa" letter-spacing="0">Inside your own estate. Spec-driven and attributed.</text>
 
   <!-- Foot: separated by space, no rule. -->
   <text x="80" y="588" font-family="JetBrains Mono" font-size="20" font-weight="600" fill="#fafafa" letter-spacing="3">CODEFLARE.CH</text>

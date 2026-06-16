@@ -1,7 +1,7 @@
 {
   "name": "Codeflare",
   "short_name": "Codeflare",
-  "description": "The enterprise agentic coding engine.",
+  "description": "The enterprise agentic engine.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0f1a",

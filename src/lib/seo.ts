@@ -56,12 +56,12 @@ export function buildSitemapXml(): string {
 export function buildLlmsTxt(): string {
   return `# Codeflare
 
-> Codeflare is the enterprise agentic coding engine: autonomous coding agents that build, review, test, and ship inside your own cloud boundary, governed, attributed, and encrypted. It is not a coding assistant. The engineer specifies, steers, and judges; the agents do everything else, subject to your git, your CI, and your zero-trust boundary.
+> Codeflare is the enterprise agentic engine: autonomous coding agents that build, review, test, and ship inside your own cloud boundary, governed, attributed, and encrypted. It is not a coding assistant. The engineer specifies, steers, and judges; the agents do everything else, subject to your git, your CI, and your zero-trust boundary.
 
 Codeflare runs spec-driven development (SDD) and test-driven development (TDD) as enforced, self-healing loops: every change is checked against its specification and acceptance criteria at the pull-request boundary, drift is a blocking finding, and a parallel board of specialist review agents converges on a single human triage gate. Agents read the open web through a throwaway isolated browser (heavy pages distilled to clean markdown), every model call is inspected at your AI Gateway with guardrails and DLP, and every token of spend is attributed. Codeflare Enterprise deploys into the customer's own cloud account, where their identity provider and access policies govern who can do what.
 
 ## Product
-- [Codeflare](${CANONICAL_ORIGIN}/): The enterprise agentic coding engine, its zero-trust security model, and how one governed run moves from intent to merge.
+- [Codeflare](${CANONICAL_ORIGIN}/): The enterprise agentic engine, its zero-trust security model, and how one governed run moves from intent to merge.
 - [Privacy](${CANONICAL_ORIGIN}/landing/privacy/): How the demo-request contact form handles data (relayed as email, never stored).
 
 ## Source

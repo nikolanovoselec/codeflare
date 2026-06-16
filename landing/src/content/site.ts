@@ -164,7 +164,7 @@ export const HERO = {
   // build -> ship), where (your trust boundary), and the differentiator a coding
   // assistant cannot claim (an enforcement loop that makes drift impossible).
   definition:
-    'Codeflare runs autonomous coding agents inside your own cloud. Each change is backed by a ' +
+    'Codeflare runs governed engineering agents inside your own estate. Each change is backed by a ' +
     'spec, proven by tests, documented, and handed to your team as a pull request to merge.',
   primaryCta: { label: 'Book a demo', href: '#contact' } satisfies Cta,
   secondaryCta: { label: 'See the shift', href: '#shift' } satisfies Cta,
@@ -505,7 +505,7 @@ export const BROWSER = {
   tag: 'platform/runs-everywhere',
   title: 'No client to install. Just a browser.',
   lead:
-    'Codeflare runs in your cloud. The laptop or phone in front of an engineer is only a window ' +
+    'Codeflare runs in your own estate. The laptop or phone in front of an engineer is only a window ' +
     'onto the session, with no local toolchain to install, patch, or wipe.',
   cards: [
     {
@@ -703,7 +703,7 @@ export const COST = {
   title: 'Every spend has a known actor.',
   lead:
     'Codeflare records cost where it is created: container time, browser work, tool calls, and ' +
-    'model tokens. Each line rolls up to a user, team, agent, and route in your own cloud account.',
+    'model tokens. Each line rolls up to a user, team, agent, and route in your own estate.',
   // The attribution claim made concrete: an audited ledger where every line
   // carries an owner, and the last total reads zero unattributed.
   ledger: {
@@ -732,7 +732,7 @@ export const COST = {
       title: 'Environment',
       body:
         'Containers run in your tenancy, exist only while a session is active, and hibernate to ' +
-        'zero when idle. The spend lands in your cloud account as line items, not in a vendor black box.',
+        'zero when idle. The spend lands in your own estate as line items, not in a vendor black box.',
     },
     {
       title: 'Inference',
@@ -753,9 +753,9 @@ export const COST = {
 export const TENANCY = {
   id: 'tenancy',
   tag: 'cost/tenancy',
-  title: 'Deployed in your own cloud account.',
+  title: 'Deployed in your own estate.',
   lead:
-    'Codeflare deploys into <strong>your own cloud account</strong>, with no vendor in the ' +
+    'Codeflare deploys into <strong>your own estate</strong>, with no vendor in the ' +
     'data path. Source, sessions, and model traffic stay inside your trust boundary, and a ' +
     'guided setup takes a fresh account to a running engine.',
 };
@@ -769,7 +769,7 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: 'Where does our code and data live?',
     answer:
-      'Inside your own cloud account. Workspace storage uses your object-storage buckets, metadata ' +
+      'Inside your own estate. Workspace storage uses your object-storage buckets, metadata ' +
       'your key-value store, and sessions run in containers under your tenancy. Codeflare is software ' +
       'you operate, so we never hold your code. Storage is encrypted at rest, with customer-provided key options.',
   },
@@ -795,7 +795,7 @@ export const FAQ_ITEMS: FaqItem[] = [
       'When the session ends, the container is destroyed.',
   },
   {
-    question: 'Which coding agents are supported?',
+    question: 'Which agents are supported?',
     answer:
       'Claude Code, OpenAI Codex, GitHub Copilot, Pi, Google Antigravity, and OpenCode, ' +
       'selectable per session with the same isolation and governance regardless of choice.',
@@ -803,7 +803,7 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: 'What does it cost to run?',
     answer:
-      'Pay-per-use on your own cloud bill: container minutes while sessions run, storage ' +
+      'Pay-per-use on your own bill: container minutes while sessions run, storage ' +
       'per byte, and your negotiated model rates through the AI Gateway. No per-seat licenses, no ' +
       'idle fleet, and no vendor margin on your inference.',
   },
@@ -851,8 +851,8 @@ export const CONTACT_FORM = {
   id: 'contact',
   title: 'Deploy Codeflare in your environment.',
   aside: [
-    "Whether you're new to autonomous coding agents, scoping a pilot, or reviewing the security " +
-      "model, tell us about your environment and we'll take it from there.",
+    "New to engineering agents, scoping a pilot, or reviewing the security model? Tell us about " +
+      "your environment and we'll take it from there.",
     'Your message goes directly to the team that builds Codeflare. Expect a reply within 1 to 2 ' +
       'business days. Submissions are protected against bots and are not stored. ' +
       'Your data is never sold or shared.',
@@ -880,7 +880,7 @@ export interface SsoProvider {
  */
 export const LOGIN = {
   title: 'Sign in to Codeflare',
-  sub: 'Autonomous coding agents, running in your own cloud, under your control.',
+  sub: 'Engineering agents, running in your own estate, under your control.',
   github: { label: 'Continue with GitHub', href: '/auth/github/login' },
   ssoHeading: 'Enterprise SSO',
   ssoProviders: [
@@ -891,7 +891,7 @@ export const LOGIN = {
   ] satisfies SsoProvider[],
   sso: {
     body:
-      "comes with Codeflare Enterprise, set up when it's deployed into your own cloud account " +
+      "comes with Codeflare Enterprise, set up when it's deployed into your own estate " +
       'alongside your identity provider and access policies. That is why it starts with a conversation.',
     cta: { label: 'Get in touch', href: '/landing/?topic=enterprise-deployment#contact' },
   },
