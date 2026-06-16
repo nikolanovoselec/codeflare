@@ -454,7 +454,10 @@ All preseed content is deployed via the manifest pipeline:
   The review can finalize off-turn (the idle reaper has no live session loop), where
   `pi.sendMessage` silently no-ops. Finalization therefore arms a per-`(head, kind)`
   durable announcement record under `.git/codeflare-review-jobs/<head>/announcements/`
-  instead of firing a one-shot message.
+  instead of firing a one-shot message. Implements
+  [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
+  AC1; source: `review-enforcement.ts::finalizeCompletedReview` and
+  `review-jobs.ts::ensureReviewAnnouncementPending`.
 
   Each summary/autofix message embeds a nonce and is marked delivered only when that
   nonce is later found in the session transcript. A `sendMessage` return is never
@@ -909,6 +912,7 @@ To inspect enforcement state without reading `.git/` by hand, Pi exposes a read-
 - [REQ-AGENT-060](../../sdd/spec/agents.md#req-agent-060-pi-durable-review-lane-tool-surface) - Pi Durable Review Lane Tool Surface
 - [REQ-AGENT-061](../../sdd/spec/agents.md#req-agent-061-pi-idle-durable-review-reaper) - Pi Idle Durable Review Reaper
 - [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery) - Pi PR-Boundary Review Result Delivery
+- [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing) - PR-Boundary Command Parsing
 - [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-pr-boundary-review-window-advancement) - Pi PR-Boundary Review Window Advancement
 - [REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer) - Pi Local Statusline Footer
 - [REQ-AGENT-057](../../sdd/spec/agents.md#req-agent-057-pi-review-status-command) - Pi Review-Status Command

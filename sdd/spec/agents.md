@@ -1040,7 +1040,7 @@ None.
 ### REQ-AGENT-063: PR-Boundary Command Parsing
 
 <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts -->
-<!-- @test: src/__tests__/lib/review-trigger.test.ts (isPrBoundaryTrigger/isGitPushOnlyCommand robustness; wrapper forms; heredoc bodies; false-positive guards; dry-run/delete exclusion; --tags boundary -> AC1-AC6) -->
+<!-- @test: src/__tests__/lib/review-trigger.test.ts (isPrBoundaryTrigger/isGitPushOnlyCommand robustness; wrapper forms; heredoc bodies; false-positive guards; dry-run/delete exclusion; --tags boundary -> AC1-AC7) -->
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (commandTextFromEvent shell-only gate; ctx_batch shell commands; non-shell ctx_execute and legacy script excluded -> AC1) -->
 
 **Intent:** PR-boundary trigger code needs a deterministic shell-command parser that recognizes real boundary commands across Pi tool surfaces without treating source-code literals or PR body text as commands.
@@ -1054,7 +1054,8 @@ None.
 3. GitHub CLI parsing recognizes `gh pr create`, `gh pr merge`, `gh pr update-branch`, `gh repo sync`, and protected-base `gh pr edit`. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isPrBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prEditBoundaryBase --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (GitHub CLI boundary command cases -> AC3) -->
 4. Here-doc bodies are stripped before command tokenization so markdown PR bodies cannot hide a following boundary command. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::stripHeredocs --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (heredoc body robustness -> AC4) -->
 5. Non-advancing push forms (`--dry-run`, `-n`, `--delete`, `-d`) are excluded; `--tags` remains a boundary. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isGitPushOnlyCommand --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (dry-run/delete exclusion and --tags boundary -> AC5) -->
-6. Quoted text and non-shell tool bodies containing boundary-looking strings are ignored, and wrapper handling uses structural token parsing rather than wrapper-heavy regular expressions. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::unwrapCommandWords --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (printf/rg false-positive guards and wrapper parsing -> AC6) -->
+6. Quoted text and non-shell tool bodies containing boundary-looking strings are ignored. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::commandTextFromEvent --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (printf/rg false-positive guards -> AC6) -->
+7. Command wrappers are parsed structurally rather than with wrapper-heavy regular expressions. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::unwrapCommandWords --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (wrapper parsing -> AC7) -->
 
 **Constraints:**
 
@@ -1062,7 +1063,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
+**Dependencies:** None
 
 **Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [`review-trigger.test.ts`](../../src/__tests__/lib/review-trigger.test.ts)
 
