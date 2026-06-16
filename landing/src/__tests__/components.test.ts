@@ -39,9 +39,9 @@ describe('HeroKicker', () => {
     const words = kicker.querySelectorAll('[data-hero-kicker-word]');
     expect(words).toHaveLength(HERO.kicker.words.length);
     expect(words[0].textContent?.trim()).toBe(HERO.kicker.words[0]);
-    expect(words[0]).toHaveAttribute('data-active', 'true');
-    expect(words[1]).toHaveStyle({ opacity: '0.36' });
-    expect(kicker.querySelector('.hero-kicker-reel')).toHaveAttribute('aria-hidden', 'true');
+    expect(words[0].getAttribute('data-active')).toBe('true');
+    expect((words[1] as HTMLElement).style.opacity).toBe('0.36');
+    expect(kicker.querySelector('.hero-kicker-reel')?.getAttribute('aria-hidden')).toBe('true');
   });
 });
 

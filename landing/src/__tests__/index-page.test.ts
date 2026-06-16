@@ -96,7 +96,7 @@ describe('hero top line (capability ticker)', () => {
   it('is the first hero-copy element and keeps the headline directly below it', () => {
     const heroCopy = body.querySelector('.hero-copy')!;
     const children = Array.from(heroCopy.children);
-    expect(children[0]).toHaveAttribute('data-hero-kicker');
+    expect(children[0].hasAttribute('data-hero-kicker')).toBe(true);
     expect(children[1].classList.contains('hero-headline')).toBe(true);
   });
 
@@ -104,7 +104,7 @@ describe('hero top line (capability ticker)', () => {
     const ticker = body.querySelector('[data-hero-kicker]')!;
     const words = ticker.querySelectorAll('[data-hero-kicker-word]');
     expect(words).toHaveLength(HERO.kicker.words.length);
-    expect(words[0]).toHaveAttribute('data-active', 'true');
+    expect(words[0].getAttribute('data-active')).toBe('true');
     expect(Array.from(words).map((word) => word.textContent?.trim())).toEqual(HERO.kicker.words);
   });
 });
