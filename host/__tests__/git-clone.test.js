@@ -48,6 +48,14 @@ describe('REQ-GITHUB-004: resolveGitClone validation + dir computation', () => {
     assert.equal(resolveGitClone('octo/../../etc', undefined, WS).ok, false);
   });
 
+  it('rejects a single-segment .. / . repo name that would escape the workspace dir', () => {
+    // These pass the owner/name regex but their dir would escape via path.join:
+    // octo/.. -> <ws>/.., octo/. -> <ws>, a/..git -> (after .git strip) <ws>/.
+    assert.equal(resolveGitClone('octo/..', undefined, WS).ok, false);
+    assert.equal(resolveGitClone('octo/.', undefined, WS).ok, false);
+    assert.equal(resolveGitClone('a/..git', undefined, WS).ok, false);
+  });
+
   it('rejects a non-string repo', () => {
     assert.equal(resolveGitClone(42, undefined, WS).ok, false);
     assert.equal(resolveGitClone(undefined, undefined, WS).ok, false);

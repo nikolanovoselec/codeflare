@@ -57,6 +57,12 @@ export function resolveGitClone(
     }
   }
   const repoName = repo.split('/')[1].replace(/\.git$/, '');
+  // REPO_PATTERN permits `.` / `..` as the name segment (e.g. `octo/..`, or
+  // `a/..git` which becomes `.` after the .git strip), which would make `dir`
+  // escape the workspace via path.join. No real repo is named ``/`.`/`..`.
+  if (repoName === '' || repoName === '.' || repoName === '..') {
+    return { ok: false, error: 'invalid repo' };
+  }
   const dir = path.join(workspace, repoName);
   const resolution: GitCloneResolution = { ok: true, repo, repoName, dir };
   if (typeof ref === 'string') resolution.ref = ref;

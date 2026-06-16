@@ -2623,8 +2623,10 @@ if [ -n "${GIT_CLONE_REPO:-}" ]; then
     clone_repo="${GIT_CLONE_REPO%.git}"
     # Defense-in-depth: re-validate repo/ref shape here (mirrors
     # host/src/git-clone.ts) so the new-session path fails closed like the
-    # running-session path; rejects an option-leading dash in the ref.
+    # running-session path; rejects an option-leading dash in the ref and a
+    # . / .. repo name that would escape the workspace dir.
     if ! printf '%s' "$clone_repo" | grep -qE '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$' \
+       || [ "${clone_repo##*/}" = '.' ] || [ "${clone_repo##*/}" = '..' ] \
        || { [ -n "${GIT_CLONE_REF:-}" ] && ! printf '%s' "$GIT_CLONE_REF" | grep -qE '^[A-Za-z0-9._/][A-Za-z0-9._/-]*$'; }; then
         echo "[entrypoint] Skipping clone: invalid repo/ref"
     else
