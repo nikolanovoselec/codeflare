@@ -47,6 +47,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 - Scopes: the OAuth App requests `repo read:org workflow`; the GitHub App's equivalent permissions (Contents R/W, Pull requests R/W, Workflows W, Metadata R) are set at registration.
 - Enterprise GitHub Apps must be **internal** to the customer's enterprise — EMU managed users cannot authorize third-party apps.
+- In enterprise mode the per-user "Push & Deploy" settings accordion (the manual PAT entry) is hidden — GitHub is connected via the panel and Cloudflare via the admin-global Setup token ([REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)). The PAT backend path (source `'pat'`) itself is unchanged.
 
 **Priority:** P1
 

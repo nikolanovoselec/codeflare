@@ -166,6 +166,13 @@ sudo apt-get install -yqq --no-install-recommends \
 | `429` from connect / repos / clone | Per-user rate limits: connect/disconnect 20/min, repos 60/min, clone 20/min | Wait for the window — the `Retry-After` and `X-RateLimit-*` response headers give the retry delay and the ceiling/remaining count — then retry. |
 | In enterprise, the in-session `GH_TOKEN` env shows `codeflare-enterprise` instead of a real token | By design — the container holds only a non-secret placeholder; the real token is injected at the egress boundary ([REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials)) | Not a bug. git/`gh`/API calls to github.com still authenticate because injection happens at egress. If they fail, the token isn't connected — see the `401 NOT_CONNECTED` row above. |
 
+## Browser Run
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| In an advanced session the browser tools (`browser_markdown` / `chrome-devtools`) are missing and the `browser-run` / `browser-e2e` skills are absent | No Cloudflare Browser Rendering token is configured, so the whole browser-run surface is withheld — the MCP servers and the Pi extension self-gate, and the skills are stripped ([REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)) | Enterprise: an admin sets the Browser Rendering token (+ account id) in the Setup wizard. Other modes: paste a Cloudflare token carrying `Browser Rendering - Edit` in Push & Deploy settings. Takes effect on the next session start. |
+| Browser tools missing in a Standard (default) session | Browser Run is advanced-mode only | Switch the session to advanced/Pro mode (enterprise sessions are always advanced). |
+
 ## Diagnostic Commands
 
 **Check container status:**

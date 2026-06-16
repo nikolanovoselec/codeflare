@@ -38,6 +38,12 @@ interface SetupState {
   dynamicRoutes: string[];
   defaultRouteName: string;            // '' = no default
   defaultRouteReasoning: 'off' | 'low' | 'medium' | 'high';
+  // REQ-BROWSER-007: admin-global Cloudflare Browser Rendering token + account id.
+  // cloudflareBrowserToken holds only a freshly-typed value (the stored token is
+  // never returned); cloudflareBrowserTokenSet reflects whether one is already saved.
+  cloudflareBrowserToken: string;
+  cloudflareBrowserTokenSet: boolean;
+  cloudflareBrowserAccountId: string;
 }
 
 const initialState: SetupState = {
@@ -62,6 +68,9 @@ const initialState: SetupState = {
   dynamicRoutes: [],
   defaultRouteName: '',
   defaultRouteReasoning: 'off',
+  cloudflareBrowserToken: '',
+  cloudflareBrowserTokenSet: false,
+  cloudflareBrowserAccountId: '',
 };
 
 const [state, setState] = createStore<SetupState>({ ...initialState });
@@ -187,6 +196,13 @@ function setDefaultRouteReasoning(level: 'off' | 'low' | 'medium' | 'high'): voi
   setState('defaultRouteReasoning', level);
 }
 
+function setCloudflareBrowserToken(token: string): void {
+  setState('cloudflareBrowserToken', token);
+}
+function setCloudflareBrowserAccountId(accountId: string): void {
+  setState('cloudflareBrowserAccountId', accountId);
+}
+
 function setCustomDomain(domain: string): void {
   setState({ customDomain: domain, customDomainError: null });
 }
@@ -240,6 +256,8 @@ async function loadExistingConfig(): Promise<void> {
             s.dynamicRoutes = prefill.dynamicRoutes;
             s.defaultRouteName = prefill.defaultRoute?.route ?? prefill.dynamicRoutes[0] ?? '';
             s.defaultRouteReasoning = prefill.defaultRoute?.reasoning ?? 'off';
+            s.cloudflareBrowserTokenSet = prefill.browserRenderTokenSet;
+            s.cloudflareBrowserAccountId = prefill.browserRenderAccountId;
           })
         );
         return;
@@ -284,6 +302,8 @@ async function loadExistingConfig(): Promise<void> {
         s.dynamicRoutes = prefill.dynamicRoutes;
         s.defaultRouteName = prefill.defaultRoute?.route ?? prefill.dynamicRoutes[0] ?? '';
         s.defaultRouteReasoning = prefill.defaultRoute?.reasoning ?? 'off';
+        s.cloudflareBrowserTokenSet = prefill.browserRenderTokenSet;
+        s.cloudflareBrowserAccountId = prefill.browserRenderAccountId;
       })
     );
   } catch {
@@ -317,6 +337,9 @@ async function configure(): Promise<boolean> {
           defaultRoute: state.defaultRouteName || state.dynamicRoutes[0]
             ? { route: state.defaultRouteName || state.dynamicRoutes[0], reasoning: state.defaultRouteName ? state.defaultRouteReasoning : 'off' }
             : null,
+          // REQ-BROWSER-007: a blank token => backend keeps the existing one (no clobber).
+          browserRenderToken: state.cloudflareBrowserToken,
+          browserRenderAccountId: state.cloudflareBrowserAccountId,
         } : {}),
       }),
     });
@@ -476,6 +499,9 @@ export const setupStore = {
   get dynamicRoutes() { return state.dynamicRoutes; },
   get defaultRouteName() { return state.defaultRouteName; },
   get defaultRouteReasoning() { return state.defaultRouteReasoning; },
+  get cloudflareBrowserToken() { return state.cloudflareBrowserToken; },
+  get cloudflareBrowserTokenSet() { return state.cloudflareBrowserTokenSet; },
+  get cloudflareBrowserAccountId() { return state.cloudflareBrowserAccountId; },
 
   // Actions
   detectToken,
@@ -491,6 +517,8 @@ export const setupStore = {
   removeDynamicRoute,
   setDefaultRouteName,
   setDefaultRouteReasoning,
+  setCloudflareBrowserToken,
+  setCloudflareBrowserAccountId,
   nextStep,
   prevStep,
   goToStep,

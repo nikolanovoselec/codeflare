@@ -134,7 +134,12 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
       dynamicRoutes = (await c.env.KV.get<string[]>(SETUP_KEYS.DYNAMIC_ROUTES, 'json')) ?? [];
       defaultRoute = (await c.env.KV.get<{ route: string; reasoning: string }>(SETUP_KEYS.DEFAULT_ROUTE, 'json')) ?? null;
     } catch { /* malformed stored JSON → wizard starts from empty */ }
-    enterpriseExtras = { enterpriseAccessGroup, dynamicRoutes, defaultRoute };
+    // REQ-BROWSER-007: surface whether the admin Browser Rendering token is set
+    // (masked — never return the token itself) + the non-secret account id so the
+    // wizard round-trips on re-run.
+    const browserRenderTokenSet = Boolean(await c.env.KV.get(SETUP_KEYS.BROWSER_RENDER_TOKEN));
+    const browserRenderAccountId = (await c.env.KV.get(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID)) ?? '';
+    enterpriseExtras = { enterpriseAccessGroup, dynamicRoutes, defaultRoute, browserRenderTokenSet, browserRenderAccountId };
   }
   if (!token) {
     return c.json({ adminUsers: [], allowedUsers: [], ...enterpriseExtras });

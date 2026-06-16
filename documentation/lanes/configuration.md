@@ -267,6 +267,8 @@ Users connect their Cloudflare account by creating an API token. Codeflare offer
 
 The connect flow pre-fills the Cloudflare dashboard token creation form with the correct permissions for the selected tier. Cloudflare API tokens do not expire by default but can be set to expire during creation. Scope tokens to specific accounts and zones, or use "All accounts" and "All zones" for convenience. Implements [REQ-AGENT-028](../../sdd/spec/agents.md#req-agent-028-deploy-credential-token-creation-ux) AC2.
 
+**Enterprise mode:** the per-user "Push & Deploy" accordion is hidden, so an admin instead sets one Cloudflare **Browser Rendering** token (+ account id) in the Setup wizard, applied to every session. It is stored encrypted (`setup:browser_render_token`; account id at `setup:browser_render_account_id`) and is the only Cloudflare credential a session receives in enterprise. See [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token).
+
 ### GitHub Fine-Grained PAT (User)
 
 Users connect their GitHub account by creating a fine-grained personal access token. Codeflare offers three scope tiers -- choose based on your workflow:
@@ -328,6 +330,7 @@ You can adjust scopes anytime from your [GitHub token settings](https://github.c
 - [REQ-BROWSER-002](../../sdd/spec/browser-run.md#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template) - Browser Rendering scope in the Cloudflare token template
 - [REQ-BROWSER-005](../../sdd/spec/browser-run.md#req-browser-005-claude-browser-run-mcp-server-read-surface-parity) - Claude browser-run MCP server (read-surface parity)
 - [REQ-BROWSER-006](../../sdd/spec/browser-run.md#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter) - Pi interactive browser via chrome-devtools through the pi-mcp-adapter
+- [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token) - Enterprise admin-configured Browser Rendering token (Setup wizard)
 - [REQ-OPS-012](../../sdd/spec/operations.md#req-ops-012-per-environment-container-concurrency-limit) - Per-environment container concurrency limit
 - [REQ-SETUP-004](../../sdd/spec/setup.md#req-setup-004-setup-is-idempotent) - Setup is idempotent
 - [REQ-SETUP-006](../../sdd/spec/setup.md#req-setup-006-setup-streams-progress-via-ndjson) - Setup streams progress via NDJSON

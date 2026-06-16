@@ -205,6 +205,10 @@ export const SetupPrefillResponseSchema = z.object({
   // Feature C: route catalog + optional default route.
   dynamicRoutes: z.array(z.string()).default([]),
   defaultRoute: z.object({ route: z.string(), reasoning: RouteReasoningSchema }).nullable().default(null),
+  // REQ-BROWSER-007: admin Browser Rendering token state (masked — the server returns
+  // only whether it is set, never the token) + the non-secret account id.
+  browserRenderTokenSet: z.boolean().default(false),
+  browserRenderAccountId: z.string().default(''),
 });
 
 // User management schemas - moved from client.ts (strict versions)

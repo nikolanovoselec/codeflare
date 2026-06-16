@@ -241,6 +241,35 @@ const ConfigureStep: Component = () => {
             </div>
           </div>
         </Show>
+
+        {/* REQ-BROWSER-007: admin-global Cloudflare Browser Rendering token. In
+            enterprise the per-user deploy-keys accordion is hidden, so the browser-run
+            feature's Cloudflare token is configured once here for every user. */}
+        <div class="setup-field">
+          <label class="setup-field-label">Cloudflare Browser Rendering Token (optional)</label>
+          <p class="setup-field-description">
+            Enables the in-session browser tools for everyone. Use a Cloudflare API token scoped to Browser Rendering — Edit only; it is stored encrypted. Leave blank to keep the browser tools off.
+            <Show when={setupStore.cloudflareBrowserTokenSet}> A token is already saved — leave blank to keep it, or enter a new one to replace it.</Show>
+          </p>
+          <Input
+            type="password"
+            value={setupStore.cloudflareBrowserToken}
+            onInput={(value) => setupStore.setCloudflareBrowserToken(value)}
+            placeholder={setupStore.cloudflareBrowserTokenSet ? 'Saved — enter a new token to replace' : 'Cloudflare API token...'}
+          />
+        </div>
+
+        <div class="setup-field">
+          <label class="setup-field-label">Cloudflare Account ID (for Browser Rendering)</label>
+          <p class="setup-field-description">
+            The account that owns Browser Rendering — required for the token above to work.
+          </p>
+          <Input
+            value={setupStore.cloudflareBrowserAccountId}
+            onInput={(value) => setupStore.setCloudflareBrowserAccountId(value)}
+            placeholder="32-character account ID"
+          />
+        </div>
       </Show>
 
       {/* Navigation */}

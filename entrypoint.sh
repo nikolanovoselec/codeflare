@@ -1835,7 +1835,14 @@ configure_consult_llm() {
         ok=1
         echo "[entrypoint] consult-llm: Gemini -> API key"
     fi
-    [ "$ok" = "1" ] || { echo "[entrypoint] consult-llm: no usable provider; skipping"; return 0; }
+    if [ "$ok" != "1" ]; then
+        # No usable provider: strip the consult-llm skill so the agent is not left
+        # holding a skill for an MCP server that was never registered. Mirrors the
+        # enterprise branch above and the browser-run skill gate.
+        rm -rf "$USER_HOME/.claude/skills/consult-llm" "$USER_HOME/.pi/agent/skills/consult-llm" 2>/dev/null || true
+        echo "[entrypoint] consult-llm: no usable provider; skipping (skill not seeded)"
+        return 0
+    fi
 
     # consult-llm-mcp is installed globally at image build (Dockerfile, pinned +
     # shadow-tracked in bump-shadow-pins.yml), so the MCP server invokes the global
@@ -2372,6 +2379,16 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
         echo "$BROWSER_RUN_MCP_CLAUDE" | jq '.' > "$USER_CLAUDE_JSON"
     fi
     echo "[entrypoint] browser-run MCP server registered in .claude.json (Cloudflare Browser Run markdown/content/scrape)"
+else
+    # No Browser Run token configured (or not an advanced session): do not leave the
+    # agents holding skills for browser tools they cannot use (REQ-BROWSER-007). The
+    # MCP servers above already self-gate on the token and Pi's browser-run extension
+    # registers nothing without it; but the browser-run / browser-e2e SKILL.md files
+    # are seeded unconditionally by the agent-config sync, so strip them here. Mirrors
+    # the consult-llm skill removal in configure_consult_llm.
+    rm -rf "$USER_HOME/.claude/skills/browser-run" "$USER_HOME/.claude/skills/browser-e2e" \
+           "$USER_HOME/.pi/agent/skills/browser-run" "$USER_HOME/.pi/agent/skills/browser-e2e" 2>/dev/null || true
+    echo "[entrypoint] Browser Run not configured; browser-run/browser-e2e skills not seeded"
 fi
 
 # Configure Claude Code settings.json with hooks (advanced) or just settings (default)

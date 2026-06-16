@@ -278,6 +278,13 @@ export const SETUP_KEYS = {
   MAX_USERS: 'setup:max_users',
   TURNSTILE_SITE_KEY: 'setup:turnstile_site_key',
   TURNSTILE_SECRET_KEY: 'setup:turnstile_secret_key',
+  // REQ-BROWSER-007: admin-global Cloudflare Browser Rendering credentials used by
+  // every enterprise session's browser-run (the per-user Push & Deploy accordion is
+  // hidden in enterprise). The token is stored encrypted (kv-crypto); the account id
+  // is non-secret. Distinct from ACCOUNT_ID ('setup:account_id'), which is the
+  // deployment's own Cloudflare account.
+  BROWSER_RENDER_TOKEN: 'setup:browser_render_token',
+  BROWSER_RENDER_ACCOUNT_ID: 'setup:browser_render_account_id',
 } as const;
 
 /**

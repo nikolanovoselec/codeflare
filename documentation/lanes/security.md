@@ -46,6 +46,8 @@ The email dispatch detail (which helpers send the operator alert and the user re
 
 The `CLOUDFLARE_API_TOKEN` never enters the container. It stays in the Worker/DO environment (GitHub Secrets -> Worker secrets). Containers only receive R2 credentials (scoped key pair), never the master API token.
 
+The container's own `CLOUDFLARE_API_TOKEN` env var, when present, is a **different, narrowly-scoped** credential — the user- or admin-provided **Browser Rendering** token that powers browser-run — not the master deploy token. In enterprise mode the per-user "Push & Deploy" accordion is hidden, so this value is the admin-global Browser Rendering token configured once in the Setup wizard ([REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)): stored encrypted at rest (kv-crypto, AAD-bound to its KV key) and injected at session start by `applyEnterpriseBrowserToken`. Unlike the GitHub token (egress-injected so it never enters the container), this token is deliberately allowed inside the container because it is scoped to `Browser Rendering - Edit` only — it grants nothing the agent cannot already do through its own browser tools, so the blast radius of a prompt-injected read is one low-privilege capability (and its quota), never R2/Workers/DNS/account access. When no Browser Rendering token is configured the entire browser-run surface (the MCP servers, the Pi extension, and the `browser-run`/`browser-e2e` skills) is withheld from the agents.
+
 ## Enterprise Mode: Credential Containment and CA Trust
 
 In Enterprise Mode, two additional invariants apply on top of the standard API token containment policy:

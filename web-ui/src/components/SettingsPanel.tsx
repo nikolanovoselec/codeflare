@@ -359,16 +359,20 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             />
           </AccordionSection>
 
-          {/* ── Push & Deploy ── */}
-          <AccordionSection
-            group="deploy"
-            title="Push & Deploy"
-            subtitle={ACCORDION_SUBTITLES.deploy}
-            isOpen={openGroup() === 'deploy'}
-            onToggle={() => handleAccordionClick('deploy')}
-          >
-            <DeployKeysSection />
-          </AccordionSection>
+          {/* ── Push & Deploy (hidden in enterprise: GitHub is managed via Connect
+               GitHub and the Cloudflare Browser Rendering token is admin-configured
+               in Setup, so users never manage deploy credentials — REQ-BROWSER-007) ── */}
+          <Show when={!props.enterpriseMode}>
+            <AccordionSection
+              group="deploy"
+              title="Push & Deploy"
+              subtitle={ACCORDION_SUBTITLES.deploy}
+              isOpen={openGroup() === 'deploy'}
+              onToggle={() => handleAccordionClick('deploy')}
+            >
+              <DeployKeysSection />
+            </AccordionSection>
+          </Show>
 
           {/* ── LLM API Keys (advanced session mode only; never in enterprise mode) ── */}
           <Show when={canUseAdvanced() && currentSessionMode() === 'advanced' && !props.enterpriseMode}>

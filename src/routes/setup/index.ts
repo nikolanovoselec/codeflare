@@ -6,6 +6,7 @@ import { parseJsonBody } from '../../lib/request-helpers';
 import { resetSetupCache } from '../../lib/cache-reset';
 import { listAllKvKeys, emailFromKvKey, getPreferencesKey, SETUP_KEYS } from '../../lib/kv-keys';
 import { getBucketName } from '../../lib/access';
+import { getOrImportKey, encryptAndStore } from '../../lib/kv-crypto';
 import { cleanupUserData } from '../../lib/user-cleanup';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
 import { setupRateLimiter, logger, getWorkerNameFromHostname } from './shared';
@@ -63,6 +64,11 @@ const ConfigureBodySchema = z.object({
     .object({ route: accessNameSchema, reasoning: reasoningSchema })
     .nullable()
     .optional(),
+  // REQ-BROWSER-007 (enterprise-only): the admin-global Cloudflare Browser Rendering
+  // token + account id used by every enterprise session's browser-run. The token is
+  // masked on prefill; a blank/masked value on save leaves the stored token in place.
+  browserRenderToken: z.string().max(512).optional(),
+  browserRenderAccountId: z.string().max(128).optional(),
 }).refine(
   (data) => data.adminUsers.every((admin) => data.allowedUsers.includes(admin)),
   { message: 'All adminUsers must also be in allowedUsers', path: ['adminUsers'] }
@@ -114,7 +120,7 @@ app.post('/configure', async (c) => {
   // Validate body synchronously before starting the stream
   const body = await parseJsonBody(c, ConfigureBodySchema);
 
-  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, dynamicRoutes, defaultRoute } = body;
+  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, dynamicRoutes, defaultRoute, browserRenderToken, browserRenderAccountId } = body;
   const token = c.env.CLOUDFLARE_API_TOKEN;
 
   // During reconfiguration, prevent admin from removing themselves
@@ -321,6 +327,30 @@ app.post('/configure', async (c) => {
           await c.env.KV.put(SETUP_KEYS.DEFAULT_ROUTE, JSON.stringify(defaultRoute));
         } else {
           await c.env.KV.delete(SETUP_KEYS.DEFAULT_ROUTE);
+        }
+      }
+
+      // REQ-BROWSER-007: persist the admin-global Cloudflare Browser Rendering token
+      // (encrypted at rest) + its account id, used by every enterprise session's
+      // browser-run. The token is masked on prefill, so only overwrite when a real new
+      // value is sent; a blank or masked ('****') value leaves the stored token in
+      // place (no clobber). The account id is non-secret. Enterprise-gated, mirroring
+      // the read in applyEnterpriseBrowserToken.
+      if (isEnterpriseMode(c.env)) {
+        if (browserRenderAccountId !== undefined) {
+          const acct = browserRenderAccountId.trim();
+          if (acct) {
+            await c.env.KV.put(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID, acct);
+          } else {
+            await c.env.KV.delete(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID);
+          }
+        }
+        if (browserRenderToken !== undefined) {
+          const tok = browserRenderToken.trim();
+          if (tok && !tok.startsWith('****')) {
+            const cryptoKey = await getOrImportKey(c.env);
+            await encryptAndStore(c.env.KV, SETUP_KEYS.BROWSER_RENDER_TOKEN, { token: tok }, cryptoKey);
+          }
         }
       }
 

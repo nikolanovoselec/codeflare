@@ -1974,6 +1974,42 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).toHaveBeenCalledWith('setup:dynamic_routes', JSON.stringify(['development', 'prod']));
       });
 
+      it('REQ-BROWSER-007: persists the Browser Rendering token + account id', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ browserRenderToken: 'cf-br-token', browserRenderAccountId: 'acct123' })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        // Account id is non-secret -> stored verbatim. The token is written through
+        // encryptAndStore (kv.put at the dedicated key); in production a configured
+        // ENCRYPTION_KEY makes that ciphertext at rest.
+        expect(mockKV.put).toHaveBeenCalledWith('setup:browser_render_account_id', 'acct123');
+        expect(mockKV.put).toHaveBeenCalledWith('setup:browser_render_token', expect.any(String));
+      });
+
+      it('REQ-BROWSER-007: a blank token leaves the stored token untouched (no clobber)', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ browserRenderToken: '', browserRenderAccountId: 'acct123' })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        // Account id still written, but a blank token must not overwrite the stored one.
+        expect(mockKV.put).toHaveBeenCalledWith('setup:browser_render_account_id', 'acct123');
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:browser_render_token', expect.anything());
+      });
+
       it('returns 400 and writes nothing when enterprise mode has no dynamic routes (AC6)', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active' });
 

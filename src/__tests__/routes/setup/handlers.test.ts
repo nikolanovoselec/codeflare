@@ -240,4 +240,35 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
     });
   });
 
+  describe('REQ-BROWSER-007: admin Browser Rendering token prefill (masked)', () => {
+    it('GET /prefill reports the token as set + returns the account id, never the token', async () => {
+      mockKV._store.set('setup:browser_render_token', 'encrypted-blob-never-returned');
+      mockKV._store.set('setup:browser_render_account_id', 'acct123');
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.browserRenderTokenSet).toBe(true);
+      expect(body.browserRenderAccountId).toBe('acct123');
+      // The token value itself is never surfaced to the browser.
+      expect(JSON.stringify(body)).not.toContain('encrypted-blob-never-returned');
+    });
+
+    it('GET /prefill reports the token unset + empty account when nothing is stored', async () => {
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.browserRenderTokenSet).toBe(false);
+      expect(body.browserRenderAccountId).toBe('');
+    });
+
+    it('GET /prefill omits the browser-token fields when ENTERPRISE_MODE is unset', async () => {
+      mockKV._store.set('setup:browser_render_token', 'x');
+      const app = createApp();
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body).not.toHaveProperty('browserRenderTokenSet');
+      expect(body).not.toHaveProperty('browserRenderAccountId');
+    });
+  });
+
 });

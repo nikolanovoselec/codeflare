@@ -13,6 +13,9 @@ const storeState = vi.hoisted(() => ({
   dynamicRoutes: [] as string[],
   defaultRouteName: '',
   defaultRouteReasoning: 'off' as 'off' | 'low' | 'medium' | 'high',
+  cloudflareBrowserToken: '',
+  cloudflareBrowserTokenSet: false,
+  cloudflareBrowserAccountId: '',
 }));
 
 const storeMethods = vi.hoisted(() => ({
@@ -27,6 +30,8 @@ const storeMethods = vi.hoisted(() => ({
   removeDynamicRoute: vi.fn((name: string) => { storeState.dynamicRoutes = storeState.dynamicRoutes.filter(r => r !== name); }),
   setDefaultRouteName: vi.fn((name: string) => { storeState.defaultRouteName = name; }),
   setDefaultRouteReasoning: vi.fn((level: 'off' | 'low' | 'medium' | 'high') => { storeState.defaultRouteReasoning = level; }),
+  setCloudflareBrowserToken: vi.fn((val: string) => { storeState.cloudflareBrowserToken = val; }),
+  setCloudflareBrowserAccountId: vi.fn((val: string) => { storeState.cloudflareBrowserAccountId = val; }),
   nextStep: vi.fn(),
   prevStep: vi.fn(),
   loadExistingConfig: vi.fn().mockResolvedValue(undefined),
@@ -43,6 +48,9 @@ vi.mock('../../stores/setup', () => ({
     get dynamicRoutes() { return storeState.dynamicRoutes; },
     get defaultRouteName() { return storeState.defaultRouteName; },
     get defaultRouteReasoning() { return storeState.defaultRouteReasoning; },
+    get cloudflareBrowserToken() { return storeState.cloudflareBrowserToken; },
+    get cloudflareBrowserTokenSet() { return storeState.cloudflareBrowserTokenSet; },
+    get cloudflareBrowserAccountId() { return storeState.cloudflareBrowserAccountId; },
     ...storeMethods,
   },
 }));
@@ -65,6 +73,9 @@ describe('ConfigureStep', () => {
     storeState.dynamicRoutes = [];
     storeState.defaultRouteName = '';
     storeState.defaultRouteReasoning = 'off';
+    storeState.cloudflareBrowserToken = '';
+    storeState.cloudflareBrowserTokenSet = false;
+    storeState.cloudflareBrowserAccountId = '';
   });
 
   afterEach(() => {
@@ -240,6 +251,42 @@ describe('ConfigureStep', () => {
 
       const continueBtn = screen.getByText('Continue').closest('button') as HTMLButtonElement;
       expect(continueBtn.disabled).toBe(false);
+    });
+  });
+
+  // REQ-BROWSER-007: the admin-global Cloudflare Browser Rendering token + account id
+  // are enterprise-only fields (the per-user Push & Deploy accordion is hidden in
+  // enterprise). Asserted via the password input type + the account-id placeholder so
+  // no prose copy is pinned.
+  describe('Browser Rendering token (enterprise admin-global)', () => {
+    it('renders the Browser Rendering token + account fields in enterprise mode', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      expect(document.querySelector('input[type="password"]')).not.toBeNull();
+      expect(screen.getByPlaceholderText('32-character account ID')).toBeInTheDocument();
+    });
+
+    it('does not render the Browser Rendering fields outside enterprise mode', () => {
+      storeState.enterpriseMode = false;
+      render(() => <ConfigureStep />);
+      expect(document.querySelector('input[type="password"]')).toBeNull();
+      expect(screen.queryByPlaceholderText('32-character account ID')).not.toBeInTheDocument();
+    });
+
+    it('routes token input to setCloudflareBrowserToken', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      const tokenInput = document.querySelector('input[type="password"]') as HTMLInputElement;
+      fireEvent.input(tokenInput, { target: { value: 'cf-browser-token' } });
+      expect(storeMethods.setCloudflareBrowserToken).toHaveBeenCalledWith('cf-browser-token');
+    });
+
+    it('routes account-id input to setCloudflareBrowserAccountId', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      const acctInput = screen.getByPlaceholderText('32-character account ID');
+      fireEvent.input(acctInput, { target: { value: 'acct123' } });
+      expect(storeMethods.setCloudflareBrowserAccountId).toHaveBeenCalledWith('acct123');
     });
   });
 
