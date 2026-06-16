@@ -70,6 +70,10 @@ async function hmacKey(secret: string, usage: 'sign' | 'verify'): Promise<Crypto
  * returned token. Omit for unbound flows (SaaS login).
  */
 export async function signOauthState(secret: string, bind?: string): Promise<string> {
+  // The ':' delimiter must not appear inside `bind` or the payload segmentation
+  // (DOMAIN:nonce:iat:bind) becomes ambiguous. Bucket names never contain ':',
+  // so fail loud if one ever does rather than sign an ambiguous payload.
+  if (bind?.includes(':')) throw new Error('oauth-state bind must not contain ":"');
   const nonce = crypto.randomUUID();
   const iat = Math.floor(Date.now() / 1000);
   const payload = bind ? `${DOMAIN}:${nonce}:${iat}:${bind}` : `${DOMAIN}:${nonce}:${iat}`;
@@ -96,6 +100,9 @@ export async function verifyOauthState(state: string, secret: string, maxAgeSec 
   const now = Math.floor(Date.now() / 1000);
   const age = now - iat;
   if (age < -CLOCK_SKEW_SEC || age > maxAgeSec) return false;
+  // Mirror the signing-side invariant: a ':' in `bind` is never legitimate, so
+  // fail closed rather than reconstruct an ambiguous payload (see signOauthState).
+  if (bind?.includes(':')) return false;
   const payload = bind ? `${DOMAIN}:${nonce}:${iat}:${bind}` : `${DOMAIN}:${nonce}:${iat}`;
   let sigBytes: Uint8Array;
   try {

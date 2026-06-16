@@ -27,6 +27,8 @@ interface StoredBrowserToken {
  * In enterprise mode, override the Cloudflare deploy-key fields with the admin-global
  * Browser Rendering token + account id from Setup. The GitHub token and every other
  * field pass through unchanged. Returns the input untouched in non-enterprise modes.
+ * In enterprise mode the return is always a fresh object (never null/undefined); the
+ * nullable return type reflects only the non-enterprise passthrough of the input.
  *
  * When nothing is configured the Cloudflare fields resolve to `null`, which the
  * container env path treats as "no Cloudflare token" — browser-run then stays

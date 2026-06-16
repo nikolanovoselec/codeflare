@@ -32,6 +32,14 @@ describe('oauth-state', () => {
     expect(await verifyOauthState(bound, SECRET)).toBe(false);
   });
 
+  it('rejects a bind containing the payload delimiter on both sign and verify', async () => {
+    // ':' would make the DOMAIN:nonce:iat:bind payload ambiguous; bucket names
+    // never contain it, so signing must fail loud and verification fail closed.
+    await expect(signOauthState(SECRET, 'bucket:a')).rejects.toThrow();
+    const token = await signOauthState(SECRET, 'bucket-a');
+    expect(await verifyOauthState(token, SECRET, 1800, 'bucket:a')).toBe(false);
+  });
+
   it('rejects a token signed with a different secret', async () => {
     const token = await signOauthState(SECRET);
     expect(await verifyOauthState(token, 'different-secret')).toBe(false);

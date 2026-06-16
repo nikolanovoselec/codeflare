@@ -172,7 +172,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 <!-- @impl: src/lib/github-token.ts::disconnectGithub -->
 <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData -->
 <!-- @impl: src/routes/github.ts -->
-<!-- @test: src/__tests__/routes/github.test.ts (POST /disconnect revoke+clear -> AC1) -->
+<!-- @test: src/__tests__/routes/github.test.ts (POST /api/github/disconnect > revokes + clears the token and returns success -> AC1) -->
 <!-- @test: src/__tests__/lib/github-token.test.ts (disconnectGithub revoke vs pat -> AC1,AC2) -->
 <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-GITHUB-005: revokes the GitHub token at GitHub, then deletes the deploy-keys entry -> AC3) -->
 **Intent:** Disconnecting (or offboarding) revokes and removes the user's GitHub token.
@@ -246,6 +246,6 @@ None.
 
 **Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-006](#req-github-006-other-mode-container-transport)
 
-**Verification:** Planned
+**Verification:** None
 
 **Status:** Planned

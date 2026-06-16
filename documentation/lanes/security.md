@@ -391,11 +391,17 @@ Every entry carries an inline comment recording the affected package, the impact
 - [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) - Container-side CA trust and constant base-URLs
 - [REQ-ENTERPRISE-009](../../sdd/spec/enterprise-mode.md#req-enterprise-009-enterprise-backend-route-hardening) - Enterprise backend route hardening (billing, tier-config, subscribe, Stripe webhook fail closed with 403)
 - [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) - Access-gated JIT provisioning; get-identity gate fails closed on error or non-membership
+- [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token) - Enterprise admin-configured Browser Rendering token (blast-radius rationale; why it is allowed inside the container)
+- [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) - GitHub panel and repository listing (token never returned to the browser)
+- [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials) - Enterprise egress-injected GitHub credentials (GitHubInterceptor, AD81)
+- [REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation) - Disconnect and offboarding revocation
+- [REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport) - Other-mode container transport (leakage-hygiene characterisation)
 
 ---
 
 ## Related Documentation
 - [Authentication - Auth Modes](authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
+- [Configuration - GitHub Integration](configuration.md#github-integration) - GitHub App/OAuth env vars, GH_TOKEN placeholder, Browser Rendering token setup
 - [Billing - Subscription Tiers](billing.md) - Tier-based access control
 - [API Reference - Common Headers](api-reference.md#common-response-headers) - Security headers on responses
 - [pentest.md](pentest.md) - Penetration testing results

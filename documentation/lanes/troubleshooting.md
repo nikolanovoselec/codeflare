@@ -202,6 +202,8 @@ wrangler tail codeflare --status error
 - [Container](container.md#container-startup) - Container startup sequence
 - [Storage & Sync](storage-and-sync.md) - Sync mechanics
 - [Authentication](security.md#authentication-gate) - Auth flow
+- [Security - GitHub Token Handling](security.md#github-token-handling) - Egress-injection model, placeholder token, non-enterprise behaviour
+- [Configuration - GitHub Integration](configuration.md#github-integration) - GitHub App vs OAuth provider, env var reference
 
 ---
 
