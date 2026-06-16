@@ -352,7 +352,7 @@ describe('GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)'
 
   describe('GET /connect/callback — OAuth state bound to session', () => {
     beforeEach(() => {
-      vi.mocked(connectGithub).mockResolvedValue(undefined);
+      vi.mocked(connectGithub).mockResolvedValue(undefined as unknown as Awaited<ReturnType<typeof connectGithub>>);
       vi.mocked(authenticateRequest).mockResolvedValue({ bucketName: 'bucket-victim' } as Awaited<ReturnType<typeof authenticateRequest>>);
     });
 
