@@ -134,32 +134,12 @@ function markBoundaryActed(repo: string, branch?: string): void {
 function boundaryActedThisSession(repo: string): boolean {
   return boundaryActedMemory().has(boundaryActedKey(repo, currentBranch(repo) ?? ""));
 }
-// clearBoundaryActed (R7): a completed/acked review spends the "this session pushed" signal for that
-// branch. Clearing it means a LATER unacked head reaching this branch from a REMOTE actor (a CI bot, or
-// a concurrent Claude in another container — explicitly supported) is treated as inherited → OFFER, not
-// auto-started on work this session never did. A genuine in-session follow-up push re-marks it (onToolEnd
-// runs before the window guards), and an in-session descendant push is still caught by the branch-keyed
-// baseline backstop, so nothing legitimate degrades to an offer.
+// clearBoundaryActed spends the explicit "this session pushed" signal after a head is acked. The
+// branch baseline remains active for the whole session, so a later descendant head still autostarts if a
+// fix-push tool event is lost; a fresh Pi process still offers inherited heads because it re-baselines to
+// the current PR head on first observation.
 function clearBoundaryActed(repo: string, branch?: string): void {
   boundaryActedMemory().delete(boundaryActedKey(repo, branch ?? currentBranch(repo) ?? ""));
-}
-// ackedBranchMemory: per-SESSION record of which repo+branch were ACKED this session. Once a branch is
-// acked, the baseline backstop (reviewBaselineContinuation) must STOP auto-starting descendants of the
-// session baseline — a later descendant is either an in-session push (caught by boundaryActed, the strong
-// signal) or a head FETCHED from a remote actor (a CI bot / a concurrent Claude) which must OFFER, not be
-// re-reviewed (R7). Without this, a `git pull` of a remote descendant AFTER an in-session ack wrongly
-// auto-started a duplicate review. globalThis-scoped (survives a /ctx reload, resets per OS process).
-const ACKED_BRANCH_KEY = Symbol.for("codeflare.reviewAckedBranchThisSession");
-function ackedBranchMemory(): Set<string> {
-  const g = globalThis as unknown as Record<symbol, Set<string> | undefined>;
-  if (!g[ACKED_BRANCH_KEY]) g[ACKED_BRANCH_KEY] = new Set<string>();
-  return g[ACKED_BRANCH_KEY]!;
-}
-function markBranchAcked(repo: string, branch: string | undefined): void {
-  if (repo) ackedBranchMemory().add(boundaryActedKey(repo, branch ?? currentBranch(repo) ?? ""));
-}
-function branchAckedThisSession(repo: string): boolean {
-  return ackedBranchMemory().has(boundaryActedKey(repo, currentBranch(repo) ?? ""));
 }
 // offerSurfacedMemory: per-SESSION dedup for the missed-boundary offer. The offer must re-surface
 // ONCE PER SESSION — a new `pi` started on a still-unchosen offer (the user quit without choosing) must
@@ -490,14 +470,11 @@ function writeAck(repo: string, head: string): void {
   // long-lived branch leaves its result dir behind forever. writeAck is the single choke point every
   // finalize/skip path funnels through, so pruning here keeps exactly the current head and nothing else.
   pruneReviewResults(repo, head);
-  // R7: acking spends this branch's "this session pushed" signal AND records that this branch was acked
-  // this session (so the baseline backstop stops auto-starting descendants — only an explicit boundaryActed
-  // does, post-ack). Key BOTH by the pending PR's branch, which is still on disk here (clearPending runs
-  // after writeAck in every finalize path), so an OFF-TURN reaper finalizing while another branch is
-  // checked out clears/marks the RIGHT branch — not currentBranch-at-finalize-time (the finding-9 miss).
+  // Acking spends this branch's explicit "this session pushed" signal. The branch baseline is NOT spent:
+  // if a follow-up fix push loses its tool event, the descendant baseline must still autostart durable
+  // review lanes instead of degrading to a passive offer.
   const ackBranch = loadPending(repo)?.headBranch ?? currentBranch(repo);
   clearBoundaryActed(repo, ackBranch);
-  markBranchAcked(repo, ackBranch);
 }
 
 // The "offered" dedup that used to live here as an on-disk per-head-EVER marker now lives in the
@@ -666,6 +643,10 @@ function isLocalGitPushCommand(command: string): boolean {
 
 function isGitPushCommand(command: string): boolean {
   return isLocalGitPushCommand(command) || /(^|[;&|\n]\s*)gh\s+repo\s+sync\b/.test(command);
+}
+
+function mentionsGitOrGhCommand(command: string): boolean {
+  return /(?:^|[\n;&|])\s*(?:[A-Za-z_]\w*=(?:'[^']*'|"[^"]*"|\S*)\s+)*(?:(?:env|command|nice(?:\s+-n\s*\S+)?|timeout(?:\s+-\S+)*\s+\S+)\s+)*(?:git|gh)\b/.test(command);
 }
 
 function prForBoundaryCommand(repo: string, command: string, pr: PrState | undefined): PrState | undefined {
@@ -1683,9 +1664,6 @@ export default function (pi: ExtensionAPI) {
       baseline: priorBaseline,
       head,
       isAncestor: (a, b) => isAncestor(resolvedRepo, a, b),
-      // Suppress the baseline backstop once this branch was acked this session — a fetched remote
-      // descendant must OFFER, not auto-start (R7); an in-session push still autostarts via boundaryActed.
-      ackedThisSession: branchAckedThisSession(resolvedRepo),
     });
     const action = reconcileBoundaryAction({
       reconcile: decision.reconcile,
@@ -1998,6 +1976,11 @@ export default function (pi: ExtensionAPI) {
           await reconcileOpenPrReview(ctx, true);
         }
       }
+      // Simple truth backstop: after ANY successful shell command that actually invokes git/gh, re-read
+      // GitHub PR state. Regex/tool parsing is only an accelerator; `gh pr view` owns the truth. This
+      // catches wrapper/compound commands whose exact boundary verb was not classified, and it makes a
+      // missed push self-heal immediately instead of waiting for the next lifecycle tick.
+      if (mentionsGitOrGhCommand(command)) await reconcileOpenPrReview(ctx, true);
       return;
     }
 

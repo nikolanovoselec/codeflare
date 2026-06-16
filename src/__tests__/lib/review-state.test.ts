@@ -237,15 +237,12 @@ describe('reviewInSessionContinuation (boundaryActed primary, baseline backstop)
     expect(reviewInSessionContinuation({ boundaryActed: false, baseline: 'h1', head: 'h9', isAncestor: unrelated })).toBe(false);
   });
 
-  it('suppresses the baseline backstop once the branch was acked this session (offers a fetched remote head)', () => {
-    // After an in-session ack, a descendant of the session baseline reached WITHOUT a boundary command is
-    // a remote-actor head fetched via `git pull` (a CI bot / concurrent Claude) — it must OFFER, not
-    // auto-start a duplicate review. Without the ackedThisSession suppression the baseline backstop fired.
-    expect(reviewInSessionContinuation({ boundaryActed: false, baseline: 'h1', head: 'h3', isAncestor: descends, ackedThisSession: true })).toBe(false);
-    // A genuine in-session push after the ack still autostarts: boundaryActed is the strong signal and is
-    // checked BEFORE the suppression, so ackedThisSession never blocks a real push.
+  it('keeps the baseline backstop active after an ack so fix-push rounds still autostart if a tool event is lost', () => {
+    // A fix-push immediately after an ack is the normal autofix/review loop. If the push event is lost,
+    // the descendant baseline is the only remaining signal; suppressing it caused a real pushed head to
+    // degrade to boundary_offered instead of creating durable lanes.
+    expect(reviewInSessionContinuation({ boundaryActed: false, baseline: 'h1', head: 'h3', isAncestor: descends, ackedThisSession: true })).toBe(true);
     expect(reviewInSessionContinuation({ boundaryActed: true, baseline: 'h1', head: 'h3', isAncestor: descends, ackedThisSession: true })).toBe(true);
-    // Before any ack this session, the backstop still works (the reload-ate-the-tool-event case).
     expect(reviewInSessionContinuation({ boundaryActed: false, baseline: 'h1', head: 'h3', isAncestor: descends, ackedThisSession: false })).toBe(true);
   });
 });
