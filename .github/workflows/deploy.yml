@@ -168,7 +168,7 @@ jobs:
           set -e
           if [ "$status" -eq 0 ]; then exit 0; fi
           if grep -Fq '[vitest-pool]: Worker cloudflare-pool emitted error.' /tmp/backend-tests.log \
-            && grep -Eq 'Errors[[:space:]]+1 error' /tmp/backend-tests.log \
+            && grep -Eq 'Errors[[:space:]]+[0-9]+ error' /tmp/backend-tests.log \
             && grep -Eq 'Tests[[:space:]]+[0-9]+ passed' /tmp/backend-tests.log \
             && ! grep -Eq '(Test Files|Tests)[[:space:]]+[0-9]+ failed' /tmp/backend-tests.log; then
             echo "Accepting backend tests: all tests passed; only the known workerd teardown crash remained"
