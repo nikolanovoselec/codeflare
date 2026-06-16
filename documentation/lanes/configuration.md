@@ -113,9 +113,10 @@ Connect uses one of two providers, selected by precedence ([REQ-GITHUB-001](../.
 |----------|---------|---------|----------|-------------|------------|
 | `GITHUB_APP_CLIENT_ID` | GitHub App client ID. Non-secret; the preferred Connect provider when set. Used in enterprise/EMU. | - | no | wrangler.toml `[vars]` | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) |
 | `GITHUB_APP_CLIENT_SECRET` | GitHub App client secret. Pairs with `GITHUB_APP_CLIENT_ID` for the code-for-token exchange. Used in enterprise/EMU. | - | no | Wrangler secret (never in wrangler.toml) | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) |
-| `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET` | Existing SaaS-login GitHub OAuth App credentials (see [Worker Environment](#worker-environment)); reused as the OAuth-App Connect provider in non-EMU SaaS when no GitHub App is configured. | - | no | Wrangler secret | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) |
 | `GITHUB_HOST` | Web host for OAuth authorize/token. Override only for GitHub Enterprise Server-style hosts. | `github.com` | no | wrangler.toml | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) |
 | `GITHUB_API_HOST` | REST API host. Override paired with `GITHUB_HOST`. | `api.github.com` | no | wrangler.toml | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) |
+
+`OAUTH_CLIENT_ID` and `OAUTH_CLIENT_SECRET` (documented in [Worker Environment](#worker-environment)) are reused as the OAuth-App Connect provider in non-EMU SaaS when no GitHub App is configured ([REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage)).
 
 **Token storage.** No new KV key is introduced. The token is stored in the existing per-user encrypted deploy-keys entry as `DeployKeys.githubToken` at `deploy-keys:<bucket>`, encrypted via the existing kv-crypto (plaintext fallback when no `ENCRYPTION_KEY`). A `githubTokenSource` marker distinguishes `'app' | 'oauth' | 'pat'`; App tokens additionally carry a refresh token and expiry.
 
