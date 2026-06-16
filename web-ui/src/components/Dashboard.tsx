@@ -19,6 +19,7 @@ import ScrambleText from './ScrambleText';
 import KittScanner from './KittScanner';
 import DashboardCard from './TipsRotator';
 import { sessionStore, isAtUsageQuota } from '../stores/session';
+import { githubStore } from '../stores/github';
 import { getBrowserTimezone, syncBrowserTimezone } from '../lib/timezone-sync';
 import UsageInlineBadge from './UsageInlineBadge';
 import '../styles/dashboard.css';
@@ -41,6 +42,11 @@ const Dashboard: Component<DashboardProps> = (props) => {
   // Mobile-only: which right-column face is shown (GitHub vs R2 storage). The
   // flip control in each panel header toggles it; desktop shows both stacked.
   const [panelFace, setPanelFace] = createSignal<'github' | 'storage'>('github');
+  // On mobile only one right-column face is visible at a time. The GitHub face is
+  // only a valid target when GitHub is enabled; when it is not (non-enterprise /
+  // onboarding) force the storage (R2) face so the empty GitHub panel can never
+  // become the active face and cover the file browser. (REQ-GITHUB-002)
+  const effectiveFace = () => (githubStore.enabled ? panelFace() : 'storage');
   const [showCreateDialog, setShowCreateDialog] = createSignal(false);
   const [showLimitPopup, setShowLimitPopup] = createSignal(false);
   const [showUserMenu, setShowUserMenu] = createSignal(false);
@@ -308,18 +314,20 @@ const Dashboard: Component<DashboardProps> = (props) => {
           </div>
 
           {/* Right Column — on mobile the two panels flip; on desktop they stack. */}
-          <div class="dashboard-panel-right" data-testid="dashboard-panel-right" data-face={panelFace()}>
-            <div class="panel-flip-face panel-flip-face--github" data-active={panelFace() === 'github'}>
+          <div class="dashboard-panel-right" data-testid="dashboard-panel-right" data-face={effectiveFace()}>
+            <div class="panel-flip-face panel-flip-face--github" data-active={effectiveFace() === 'github'}>
               <GitHubPanel onFlip={() => setPanelFace('storage')} />
             </div>
-            <div class="panel-flip-face panel-flip-face--storage" data-active={panelFace() === 'storage'}>
-              <IconButton
-                icon={mdiFlipVertical}
-                label="Show GitHub"
-                onClick={() => setPanelFace('github')}
-                class="panel-flip-back-btn"
-                testId="storage-flip-btn"
-              />
+            <div class="panel-flip-face panel-flip-face--storage" data-active={effectiveFace() === 'storage'}>
+              <Show when={githubStore.enabled}>
+                <IconButton
+                  icon={mdiFlipVertical}
+                  label="Show GitHub"
+                  onClick={() => setPanelFace('github')}
+                  class="panel-flip-back-btn"
+                  testId="storage-flip-btn"
+                />
+              </Show>
             <Show when={sessionStore.r2Ready} fallback={
               <div class="storage-skeleton" data-testid="storage-skeleton">
                 <div class="storage-skeleton-header">

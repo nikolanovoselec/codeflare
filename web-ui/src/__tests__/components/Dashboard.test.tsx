@@ -4,6 +4,7 @@ import { mdiXml } from '@mdi/js';
 import Dashboard from '../../components/Dashboard';
 import { sessionStore } from '../../stores/session';
 import { storageStore } from '../../stores/storage';
+import { githubStore } from '../../stores/github';
 import * as vaultCache from '../../lib/vault-cache';
 import type { SessionWithStatus } from '../../types';
 
@@ -24,6 +25,27 @@ vi.mock('../../components/ScrambleText', () => ({
 vi.mock('../../components/StorageBrowser', () => ({
   default: () => <div data-testid="storage-browser" />
 }));
+
+// Stub GitHubPanel so its onMount status load does not run; expose the flip
+// callback so the mobile face-swap can be exercised structurally.
+vi.mock('../../components/github/GitHubPanel', () => ({
+  default: (props: any) => (
+    <div data-testid="github-panel-stub">
+      <button data-testid="gh-stub-flip" onClick={() => props.onFlip?.()}>flip</button>
+    </div>
+  )
+}));
+
+// Controllable GitHub enablement for the right-column face logic.
+vi.mock('../../stores/github', () => {
+  let _enabled = false;
+  return {
+    githubStore: {
+      get enabled() { return _enabled; },
+      _setEnabled: (v: boolean) => { _enabled = v; },
+    },
+  };
+});
 
 vi.mock('../../components/StatCards', () => ({
   default: (props: any) => (
@@ -147,6 +169,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+    (githubStore as any)._setEnabled(false);
   });
 
   // === Initialization Tests ===
@@ -258,6 +281,48 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
     const right = screen.getByTestId('dashboard-panel-right');
     expect(right.classList.contains('dashboard-panel-right')).toBe(true);
+  });
+
+  // === Mobile right-column flip face (REQ-GITHUB-002) ===
+
+  it('forces the storage face active when GitHub is disabled so the empty GitHub panel cannot cover R2', () => {
+    (githubStore as any)._setEnabled(false);
+    render(() => <Dashboard {...defaultProps} />);
+
+    const right = screen.getByTestId('dashboard-panel-right');
+    const githubFace = right.querySelector('.panel-flip-face--github')!;
+    const storageFace = right.querySelector('.panel-flip-face--storage')!;
+    expect(githubFace.getAttribute('data-active')).toBe('false');
+    expect(storageFace.getAttribute('data-active')).toBe('true');
+    expect(right.getAttribute('data-face')).toBe('storage');
+    // Nothing to flip to, so no "Show GitHub" back control is offered.
+    expect(screen.queryByTestId('storage-flip-btn')).not.toBeInTheDocument();
+  });
+
+  it('defaults to the GitHub face and offers the storage back-button when GitHub is enabled', () => {
+    (githubStore as any)._setEnabled(true);
+    render(() => <Dashboard {...defaultProps} />);
+
+    const right = screen.getByTestId('dashboard-panel-right');
+    const githubFace = right.querySelector('.panel-flip-face--github')!;
+    const storageFace = right.querySelector('.panel-flip-face--storage')!;
+    expect(githubFace.getAttribute('data-active')).toBe('true');
+    expect(storageFace.getAttribute('data-active')).toBe('false');
+    expect(right.getAttribute('data-face')).toBe('github');
+    expect(screen.getByTestId('storage-flip-btn')).toBeInTheDocument();
+  });
+
+  it('flips GitHub <-> storage when enabled and the flip controls are used', () => {
+    (githubStore as any)._setEnabled(true);
+    render(() => <Dashboard {...defaultProps} />);
+
+    const right = screen.getByTestId('dashboard-panel-right');
+    // Flip to storage from the GitHub panel header control.
+    fireEvent.click(screen.getByTestId('gh-stub-flip'));
+    expect(right.getAttribute('data-face')).toBe('storage');
+    // Flip back to GitHub from the storage back-button.
+    fireEvent.click(screen.getByTestId('storage-flip-btn'));
+    expect(right.getAttribute('data-face')).toBe('github');
   });
 
   // === Expansion Tests ===

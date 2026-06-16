@@ -71,6 +71,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 <!-- @test: src/__tests__/routes/github.test.ts (status/repos/connect/disconnect -> AC1,AC2) -->
 <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (panel gating + states, refresh, icon-disconnect, external links, repo-row scroll container, mobile flip -> AC3,AC4,AC5,AC6,AC7,AC8) -->
 <!-- @test: web-ui/src/__tests__/components/IconButton.test.tsx (icon path, onClick, disabled, active/spin -> AC4,AC6) -->
+<!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (mobile right-column flip face: storage forced when GitHub disabled, flip round-trip when enabled -> AC8) -->
 **Intent:** A panel beside the R2 storage panel lets a user connect GitHub and browse the repositories they can access, gated by deployment mode and tier.
 
 **Applies To:** User
@@ -84,7 +85,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 5. The panel is mobile-first / responsive — it stacks with the storage panel at the existing narrow breakpoint.
 6. The repo list is a scroll container, not a truncating list: every fetched repo is rendered, but the viewport caps the visible rows at ~10 on desktop (`--repo-row-h` × 10, hidden scrollbar) and on mobile grows to fill the available vertical space while never showing fewer than 3 rows. <!-- @impl: web-ui/src/styles/github-panel.css --> <!-- @impl: web-ui/src/components/github/RepoList.tsx -->
 7. The owner/login label and each repo name are external links to GitHub (`https://github.com/<login>` and `https://github.com/<full_name>`), opening in a new tab (`target="_blank" rel="noopener noreferrer"`); a repo-name click does not trigger the row/clone action. <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx --> <!-- @impl: web-ui/src/components/github/RepoRow.tsx -->
-8. On mobile a flip control (`mdiFlipVertical`) at the right of the panel header swaps the GitHub panel with the R2 storage panel in place (animated, `prefers-reduced-motion` → instant); on desktop both panels stack as before and the flip control is hidden. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx --> <!-- @impl: web-ui/src/components/Dashboard.tsx -->
+8. On mobile a flip control (`mdiFlipVertical`) at the right of the panel header swaps the GitHub panel with the R2 storage panel in place (animated, `prefers-reduced-motion` → instant); on desktop both panels stack as before and the flip control is hidden. The flip applies only when the GitHub panel is enabled; when GitHub is disabled (non-enterprise / onboarding) the R2 storage panel is the sole mobile right-column face and no flip control is shown, so the empty GitHub panel can never become the active face and cover the file browser. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace -->
 
 **Constraints:**
 
