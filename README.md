@@ -1,6 +1,6 @@
 # <img src="documentation/images/logo-icon.svg" width="28" align="absmiddle" alt="Codeflare logo"> Codeflare
 
-![Codeflare](documentation/images/og.png)
+![Codeflare: the enterprise agentic engine. Governed engineering agents inside your own estate.](documentation/images/og.png)
 
 **Not a coding assistant. The enterprise agentic engine.**
 
