@@ -15,7 +15,7 @@ export interface VaultLocalReadinessResult {
   serviceWorkerState?: ServiceWorkerState;
 }
 
-interface IndexedDbWithDatabases extends IDBFactory {
+interface IndexedDbWithDatabases {
   databases?: () => Promise<Array<{ name?: string | null }>>;
 }
 

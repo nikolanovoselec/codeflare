@@ -65,11 +65,11 @@ vi.mock('../../lib/vault-prewarm', () => ({
 }));
 
 const vaultLocalReadinessMock = vi.hoisted(() => ({
-  check: vi.fn(async () => ({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true })),
+  check: vi.fn(async () => ({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true } as any)),
 }));
 
 vi.mock('../../lib/vault-local-readiness', () => ({
-  checkVaultLocalReadiness: (...args: any[]) => vaultLocalReadinessMock.check(...args),
+  checkVaultLocalReadiness: (sessionId: string) => vaultLocalReadinessMock.check(sessionId),
 }));
 
 // Session store mock with controllable state.
