@@ -96,7 +96,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)
 
-**Verification:** [Route test](../../src/__tests__/routes/github.test.ts) + [Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx)
+**Verification:** [Route test](../../src/__tests__/routes/github.test.ts) + [Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx) + [IconButton test](../../web-ui/src/__tests__/components/IconButton.test.tsx) (AC4, AC6)
 
 **Status:** Implemented
 
@@ -162,7 +162,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Acceptance Criteria:**
 
 1. The clone action offers a session picker: running sessions first, then a separator, then "Clone into a new session". A running-session row matches the new-session agent rows below it — same option-row layout/left edge (one shared `ClonePickerOptionRow`), the session's own agent icon (e.g. the Pi icon for a Pi session, from the agent options) and a "Running in <agent>" subtitle. <!-- @impl: web-ui/src/components/github/ClonePickerOptionRow.tsx --> <!-- @impl: web-ui/src/components/github/ClonePickerSessionRow.tsx -->
-2. New session → the repo is cloned before the agent process starts (entrypoint.sh, from the `clone` field on session create); running session → cloned via an authenticated internal RPC into the live container. <!-- @impl: src/routes/container/lifecycle.ts -->
+2. New session → the repo is cloned before the agent process starts (entrypoint.sh, from the `clone` field on session create); running session → cloned via an authenticated internal RPC into the live container. <!-- @impl: src/routes/container/lifecycle.ts --> <!-- @impl: src/routes/github.ts -->
 3. The repo is cloned into `$USER_WORKSPACE/<repo-name-verbatim>`; the clone is refused with a clear message if that folder already exists. <!-- @impl: host/src/git-clone.ts::resolveGitClone -->
 4. The clone targets the chosen branch (default branch preselected); authentication uses the per-mode credential path (egress injection in enterprise, `GH_TOKEN` otherwise). <!-- @impl: host/src/git-clone.ts::buildCloneArgs -->
 5. The cloned working tree is ephemeral by default and participates in workspace sync when the user has it enabled.
@@ -175,7 +175,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-SESSION-001](session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** [Session-create clone field](../../src/__tests__/routes/session-creation.test.ts) + [POST /clone forward](../../src/__tests__/routes/github.test.ts) + [clone env](../../src/__tests__/container/container-env.test.ts) + [clone resolution](../../host/__tests__/git-clone.test.js) + [picker UI](../../web-ui/src/__tests__/components/ClonePicker.test.tsx) + [RepoRow opens picker](../../web-ui/src/__tests__/components/RepoRow.test.tsx)
+**Verification:** [Session-create clone field](../../src/__tests__/routes/session-creation.test.ts) + [POST /clone forward](../../src/__tests__/routes/github.test.ts) + [clone env](../../src/__tests__/container/container-env.test.ts) + [clone resolution](../../host/__tests__/git-clone.test.js) + [picker UI](../../web-ui/src/__tests__/components/ClonePicker.test.tsx) + [option row](../../web-ui/src/__tests__/components/ClonePickerOptionRow.test.tsx) + [RepoRow opens picker](../../web-ui/src/__tests__/components/RepoRow.test.tsx)
 
 **Status:** Implemented
 

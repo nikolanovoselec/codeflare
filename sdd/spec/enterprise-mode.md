@@ -518,7 +518,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @impl: src/lib/access.ts::resolveOrProvisionEnterpriseUser -->
 <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep -->
 <!-- @impl: web-ui/src/stores/setup.ts::setupStore -->
-<!-- @test: src/__tests__/middleware/auth.test.ts (requireAdmin enterprise admin-by-group describe -> AC1,AC2,AC3,AC5) -->
+<!-- @test: src/__tests__/middleware/auth.test.ts (requireAdmin enterprise admin-by-group describe -> AC1,AC2,AC3,AC7) -->
 <!-- @test: src/__tests__/lib/enterprise-jit-provisioning.test.ts (REQ-ENTERPRISE-014 entry-gate union admits admin-group member, denies non-member, admin groups alone do not arm the gate -> AC4) -->
 <!-- @test: src/__tests__/routes/setup.test.ts (REQ-ENTERPRISE-014 adminAccessGroup persist joined, clear empty, non-enterprise ignore -> AC6,AC7) -->
 <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-ENTERPRISE-014 prefill split + non-enterprise omit -> AC6,AC7) -->
