@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import { authMiddleware, requireAdmin, AuthVariables } from '../../middleware/auth';
 import { authenticateRequest, resetAuthConfigCache } from '../../lib/access';
