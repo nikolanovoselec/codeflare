@@ -72,6 +72,17 @@ export const WS_RATE_LIMIT_TTL_SECONDS = 120;
  */
 export const PROTECTED_PATHS: string[] = [];
 
+/**
+ * REQ-GITHUB-003: non-secret placeholder GH_TOKEN handed to enterprise containers.
+ * git / `gh` / Copilot run in authed mode with this, but the real per-user token
+ * never enters the container — the GitHubInterceptor strips this placeholder and
+ * stamps the real token at the github.com / api.github.com boundary. It is
+ * identical for all users by design: per-user scoping is the interceptor's
+ * per-session bucket binding, never this value. Matches entrypoint.sh's
+ * ENTERPRISE_PLACEHOLDER_TOKEN.
+ */
+export const ENTERPRISE_GH_TOKEN_PLACEHOLDER = 'codeflare-enterprise';
+
 /** Default max concurrent running sessions for regular users */
 const DEFAULT_MAX_SESSIONS_USER = 3;
 

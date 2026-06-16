@@ -384,6 +384,41 @@ describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE
     expect(JSON.parse(lastFetch?.body as string).model).toBe('dynamic/development');
   });
 
+  // REQ-ENTERPRISE-013: the per-request mapping resolves through the SAME shared
+  // resolver as the container env fan, so a matched group's catalog/default applies.
+  it('maps using the matched group catalog/default (group overrides global)', async () => {
+    const env = {
+      __kv: {
+        'setup:dynamic_routes': JSON.stringify(['general_usage', 'development', 'code_review']),
+        'setup:default_route': JSON.stringify({ route: 'general_usage', reasoning: 'off' }),
+        'setup:group_routing': JSON.stringify({
+          developers: { routes: ['code_review', 'development'], defaultRoute: 'code_review', reasoning: 'high' },
+        }),
+      },
+    } as unknown as Partial<Env>;
+    // Unknown handle for this group → the GROUP default (code_review), not the global one.
+    await makeInterceptor(env, { user: SESSION_USER, groups: ['developers'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: 'bogus' }) }),
+    );
+    expect(JSON.parse(lastFetch?.body as string).model).toBe('dynamic/code_review');
+  });
+
+  it('a user whose groups have no per-group config falls back to the global default', async () => {
+    const env = {
+      __kv: {
+        'setup:dynamic_routes': JSON.stringify(['general_usage', 'development']),
+        'setup:default_route': JSON.stringify({ route: 'general_usage', reasoning: 'off' }),
+        'setup:group_routing': JSON.stringify({
+          developers: { routes: ['development'], defaultRoute: 'development', reasoning: 'high' },
+        }),
+      },
+    } as unknown as Partial<Env>;
+    await makeInterceptor(env, { user: SESSION_USER, groups: ['unconfigured'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: 'bogus' }) }),
+    );
+    expect(JSON.parse(lastFetch?.body as string).model).toBe('dynamic/general_usage');
+  });
+
   it('forwards a non-JSON body unchanged (no crash) on a routable path with a catalog', async () => {
     await makeInterceptor(withCatalog(['development'], 'development')).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: 'not-json' }),

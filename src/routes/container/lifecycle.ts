@@ -22,6 +22,7 @@ import { getAndDecrypt, getOrImportKey } from '../../lib/kv-crypto';
 import { resolveEffectiveSleepAfter, validateSessionAndCheckLimits } from './lifecycle-validation';
 import { setupR2Credentials, ensureBucketAndSeed, configureContainerDO } from './lifecycle-init';
 import { resolveSessionAccessGroup, loadEnterpriseRouteConfig } from '../../lib/access';
+import { applyEnterpriseBrowserToken } from '../../lib/browser-render-token';
 
 // Re-exported so existing importers (and the spec-anchored unit tests that
 // import these from './lifecycle') keep resolving them after the CF-024b split
@@ -197,6 +198,12 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       getAndDecrypt<DeployKeys>(c.env.KV, getDeployKeysKey(bucketName), cryptoKey),
     ]);
 
+    // REQ-BROWSER-007: in enterprise the per-user Push & Deploy accordion is hidden,
+    // so the Cloudflare Browser Rendering token + account that browser-run needs come
+    // from the admin-global Setup value rather than per-user deploy-keys. No-op in
+    // every other mode (returns deployKeys unchanged).
+    const effectiveDeployKeys = await applyEnterpriseBrowserToken(c.env, deployKeys, cryptoKey);
+
     // Step 2: Ensure R2 bucket exists and seed if new
     const { r2Config } = await ensureBucketAndSeed({
       env: c.env,
@@ -234,7 +241,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     // forward it to the DO so buildEnvVars emits ENTERPRISE_ROUTE_CATALOG /
     // ENTERPRISE_DEFAULT_ROUTE / ENTERPRISE_DEFAULT_REASONING for entrypoint.sh.
     // Empty when non-enterprise. REQ-ENTERPRISE-005 (revised).
-    const routeConfig = await loadEnterpriseRouteConfig(c.env);
+    const routeConfig = await loadEnterpriseRouteConfig(c.env, userGroups);
 
     // Step 4: Configure the container DO
     const { needsBucketUpdate, setBucketBody } = await configureContainerDO({
@@ -256,11 +263,15 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       sleepAfter,
       encryptionKey: c.env.ENCRYPTION_KEY,
       llmKeys: llmKeys ?? undefined,
-      deployKeys: deployKeys ?? undefined,
+      deployKeys: effectiveDeployKeys ?? undefined,
       // REQ-MEM-001 AC4: forward the browser's IANA timezone (captured
       // on createSession) into the container so capture filenames reflect
       // the user's wall-clock instead of UTC.
       userTimezone: preferences.userTimezone,
+      // REQ-GITHUB-004: forward the one-shot clone directive recorded on the
+      // session at create time. entrypoint.sh clones the repo at start.
+      gitCloneRepo: sessionData.clone?.repo,
+      gitCloneRef: sessionData.clone?.ref,
       logger: reqLogger,
     });
 

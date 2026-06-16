@@ -18,6 +18,16 @@
  *
  * CSRF protection: attacker cannot forge a state without OAUTH_JWT_SECRET,
  * and the iat timestamp bounds the replay window.
+ *
+ * Session binding (`bind`): a caller that already has an authenticated identity
+ * (e.g. the Connect-GitHub link flow) passes its bucket as `bind`; the value is
+ * folded into the signed payload but NOT placed in the token string. The
+ * callback re-derives the identity from its own session and verifies with the
+ * same `bind`, so a state minted for one user (or by the unbound /login flow)
+ * cannot be redeemed against another user's session — closing the OAuth
+ * token-fixation CSRF where an attacker plants their token in a victim's bucket.
+ * Unbound callers (SaaS login) omit `bind`; their payload is byte-identical to
+ * the pre-binding format, so in-flight login tokens are unaffected.
  */
 
 const DOMAIN = 'oauth-state:v1';
@@ -52,11 +62,21 @@ async function hmacKey(secret: string, usage: 'sign' | 'verify'): Promise<Crypto
   );
 }
 
-/** Sign a fresh OAuth state token. */
-export async function signOauthState(secret: string): Promise<string> {
+/**
+ * Sign a fresh OAuth state token.
+ *
+ * `bind` (optional): an identity the redeeming callback must also present
+ * (the initiating user's bucket). Folded into the signed payload but not the
+ * returned token. Omit for unbound flows (SaaS login).
+ */
+export async function signOauthState(secret: string, bind?: string): Promise<string> {
+  // The ':' delimiter must not appear inside `bind` or the payload segmentation
+  // (DOMAIN:nonce:iat:bind) becomes ambiguous. Bucket names never contain ':',
+  // so fail loud if one ever does rather than sign an ambiguous payload.
+  if (bind?.includes(':')) throw new Error('oauth-state bind must not contain ":"');
   const nonce = crypto.randomUUID();
   const iat = Math.floor(Date.now() / 1000);
-  const payload = `${DOMAIN}:${nonce}:${iat}`;
+  const payload = bind ? `${DOMAIN}:${nonce}:${iat}:${bind}` : `${DOMAIN}:${nonce}:${iat}`;
   const key = await hmacKey(secret, 'sign');
   const sig = await crypto.subtle.sign('HMAC', key, enc.encode(payload));
   return `${nonce}.${iat}.${b64url(sig)}`;
@@ -73,14 +93,17 @@ export async function signOauthState(secret: string): Promise<string> {
  */
 const CLOCK_SKEW_SEC = 60;
 
-export async function verifyOauthState(state: string, secret: string, maxAgeSec = 1800): Promise<boolean> {
+export async function verifyOauthState(state: string, secret: string, maxAgeSec = 1800, bind?: string): Promise<boolean> {
   const parsed = parseOauthState(state);
   if (!parsed) return false;
   const { nonce, iat, sigB64 } = parsed;
   const now = Math.floor(Date.now() / 1000);
   const age = now - iat;
   if (age < -CLOCK_SKEW_SEC || age > maxAgeSec) return false;
-  const payload = `${DOMAIN}:${nonce}:${iat}`;
+  // Mirror the signing-side invariant: a ':' in `bind` is never legitimate, so
+  // fail closed rather than reconstruct an ambiguous payload (see signOauthState).
+  if (bind?.includes(':')) return false;
+  const payload = bind ? `${DOMAIN}:${nonce}:${iat}:${bind}` : `${DOMAIN}:${nonce}:${iat}`;
   let sigBytes: Uint8Array;
   try {
     sigBytes = b64urlDecode(sigB64);

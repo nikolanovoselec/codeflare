@@ -202,9 +202,30 @@ export const SetupPrefillResponseSchema = z.object({
   allowedUsers: z.array(z.string()).default([]),
   // Feature A: Access-group chip list (was a single CSV string).
   enterpriseAccessGroup: z.array(z.string()).default([]),
+  // REQ-ENTERPRISE-014: admin Access-group chip list (Setup access, not routing).
+  adminAccessGroup: z.array(z.string()).default([]),
   // Feature C: route catalog + optional default route.
   dynamicRoutes: z.array(z.string()).default([]),
   defaultRoute: z.object({ route: z.string(), reasoning: RouteReasoningSchema }).nullable().default(null),
+  // REQ-BROWSER-007: admin Browser Rendering token state (masked — the server returns
+  // only whether it is set, never the token) + the non-secret account id.
+  browserRenderTokenSet: z.boolean().default(false),
+  browserRenderAccountId: z.string().default(''),
+  // REQ-GITHUB-008: enterprise GitHub provider config (masked — the server returns only
+  // whether each client secret is set, never the secrets) + the non-secret client ids.
+  githubProviderType: z.enum(['app', 'oauth']).nullable().default(null),
+  githubAppClientId: z.string().default(''),
+  githubAppClientSecretSet: z.boolean().default(false),
+  githubOauthClientId: z.string().default(''),
+  githubOauthClientSecretSet: z.boolean().default(false),
+  // REQ-ENTERPRISE-013: per-group routing map (route names only, no secrets).
+  groupRouting: z
+    .record(z.string(), z.object({
+      routes: z.array(z.string()),
+      defaultRoute: z.string(),
+      reasoning: RouteReasoningSchema,
+    }))
+    .default({}),
 });
 
 // User management schemas - moved from client.ts (strict versions)
@@ -346,4 +367,41 @@ export const SessionsSyncResponseSchema = z.object({
     })
   ),
   count: z.number(),
+});
+
+// GitHub connect status. Matches GET /api/github/status. When `enabled`
+// is false the panel renders nothing; the other fields describe the
+// current connection (source = which credential backs it).
+export const GithubStatusResponseSchema = z.object({
+  enabled: z.boolean(),
+  configured: z.boolean().optional(),
+  connected: z.boolean(),
+  login: z.string().optional(),
+  source: z.union([z.literal('app'), z.literal('oauth'), z.literal('pat')]).optional(),
+});
+
+// A single repository from GET /api/github/repos.
+export const GithubRepoSchema = z.object({
+  full_name: z.string(),
+  name: z.string(),
+  owner: z.string(),
+  private: z.boolean(),
+  visibility: z.string(),
+  default_branch: z.string(),
+  updated_at: z.string(),
+});
+
+// Paginated repo listing. Matches GET /api/github/repos?page=N.
+export const GithubReposResponseSchema = z.object({
+  repos: z.array(GithubRepoSchema),
+  page: z.number(),
+  hasMore: z.boolean(),
+});
+
+// Success body of POST /api/github/clone (200). Non-2xx responses surface as
+// ApiError (with .code) via baseFetch; cloneIntoSession maps those to a
+// discriminated result rather than validating an error schema here.
+export const GithubCloneResponseSchema = z.object({
+  status: z.literal('cloned'),
+  path: z.string(),
 });

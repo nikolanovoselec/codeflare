@@ -265,6 +265,35 @@ describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () =>
       expect(body.cloudflareApiToken).toMatch(/^\*{4}/);
     });
 
+    it('drops a stale OAuth/App githubLogin (and refresh/expiry) when a PAT overwrites the connection', async () => {
+      // A PAT may be for a different account and carries no login metadata, so a
+      // leftover githubLogin would make /api/github/status report the wrong account.
+      mockKV._set('deploy-keys:test-bucket', {
+        githubToken: 'gho_prior_oauth_token',
+        githubTokenSource: 'oauth',
+        githubLogin: 'octo',
+        githubRefreshToken: 'ghr_refresh',
+        githubTokenExpiresAt: 9999999999,
+      });
+      // validateGithubToken calls GitHub; the PAT is valid.
+      mockGlobalFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ login: 'newuser' }) });
+
+      const app = createTestApp();
+      const res = await app.request('/api/deploy-keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ githubToken: 'github_pat_new_account_token' }),
+      });
+      expect(res.status).toBe(200);
+
+      const stored = await mockKV.get('deploy-keys:test-bucket', 'json') as DeployKeys;
+      expect(stored.githubToken).toBe('github_pat_new_account_token');
+      expect(stored.githubTokenSource).toBe('pat');
+      expect(stored.githubLogin).toBeUndefined();
+      expect(stored.githubRefreshToken).toBeUndefined();
+      expect(stored.githubTokenExpiresAt).toBeUndefined();
+    });
+
     it('clears Cloudflare token and account ID when null is sent', async () => {
       mockKV._set('deploy-keys:test-bucket', {
         cloudflareApiToken: 'cf-existing',

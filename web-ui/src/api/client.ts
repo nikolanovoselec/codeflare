@@ -54,10 +54,24 @@ export async function getSessions(): Promise<Session[]> {
   return response.sessions || [];
 }
 
-export async function createSession(name: string, agentType?: AgentType, tabConfig?: TabConfig[]): Promise<Session> {
+// Optional repo to clone into the new container at start (REQ-GITHUB-004).
+// `ref` is omitted today (backend defaults to the repo's default branch);
+// kept optional so a future branch picker is a one-line change.
+export interface CreateSessionClone {
+  repo: string;
+  ref?: string;
+}
+
+export async function createSession(
+  name: string,
+  agentType?: AgentType,
+  tabConfig?: TabConfig[],
+  clone?: CreateSessionClone,
+): Promise<Session> {
   const body: Record<string, unknown> = { name };
   if (agentType) body.agentType = agentType;
   if (tabConfig) body.tabConfig = tabConfig;
+  if (clone) body.clone = clone;
 
   const response = await fetchApi('/sessions', {
     method: 'POST',

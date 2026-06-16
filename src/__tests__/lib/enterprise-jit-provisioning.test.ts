@@ -103,6 +103,44 @@ describe('REQ-ENTERPRISE-010: Access-gated JIT provisioning', () => {
       expect(mockKV._store.get('user:outsider@example.com')).toBeUndefined();
     });
 
+    // ─── REQ-ENTERPRISE-014: admin Access groups widen the entry gate ──────────
+    it('REQ-ENTERPRISE-014: admits an admin-group member who is in no user-access group', async () => {
+      mockKV._store.set(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, 'engineers');
+      mockKV._store.set(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP, 'ops_admins');
+      // The user is in the admin group only — a user-group-only gate would deny.
+      vi.stubGlobal('fetch', vi.fn(async () => identityOk([{ name: 'ops_admins' }])));
+
+      const result = await resolveOrProvisionEnterpriseUser(mockKV as unknown as KVNamespace, 'opsadmin@example.com', TOKEN, AUTH_DOMAIN);
+
+      expect(result.subscriptionTier).toBe('unlimited');
+      expect(mockKV._store.get('user:opsadmin@example.com')).toBeDefined();
+    });
+
+    it('REQ-ENTERPRISE-014: denies a user in neither a user-access nor an admin group', async () => {
+      mockKV._store.set(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, 'engineers');
+      mockKV._store.set(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP, 'ops_admins');
+      vi.stubGlobal('fetch', vi.fn(async () => identityOk([{ name: 'random' }])));
+
+      await expect(
+        resolveOrProvisionEnterpriseUser(mockKV as unknown as KVNamespace, 'outsider@example.com', TOKEN, AUTH_DOMAIN),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      expect(mockKV._store.get('user:outsider@example.com')).toBeUndefined();
+    });
+
+    it('REQ-ENTERPRISE-014: admin groups alone do NOT turn the entry gate on (open entry, no get-identity)', async () => {
+      // Only admin groups configured, no user-access groups => the gate stays off, so
+      // a user in NEITHER group is still admitted, with no get-identity call.
+      mockKV._store.set(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP, 'ops_admins');
+      const fetchSpy = vi.fn();
+      vi.stubGlobal('fetch', fetchSpy);
+
+      const result = await resolveOrProvisionEnterpriseUser(mockKV as unknown as KVNamespace, 'anyone@example.com', TOKEN, AUTH_DOMAIN);
+
+      expect(result.subscriptionTier).toBe('unlimited');
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(mockKV._store.get('user:anyone@example.com')).toBeDefined();
+    });
+
     it('AC3: with no group configured, provisions on a valid token alone (get-identity not called)', async () => {
       const fetchSpy = vi.fn();
       vi.stubGlobal('fetch', fetchSpy);

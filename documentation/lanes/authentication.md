@@ -73,6 +73,47 @@ User clicks "Sign in with GitHub" on /login
 - Missing `OAUTH_JWT_SECRET` throws `AuthError` (fail-loud - never silently falls through to CF Access)
 - Cookie auto-refreshed by middleware when < 15 min remaining
 
+### Connect GitHub (link mode)
+
+"Connect GitHub" is an explicit, additive action - a button in the GitHub panel, separate from login. It is **never** the Codeflare login. Login stays Cloudflare Access (enterprise) or the existing mode; Connect only authorizes Codeflare to act as the user on GitHub. Availability is currently enterprise-only (`githubFeatureEnabled` = `isEnterpriseMode`); broadening the gate is Planned ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)).
+
+**Flow** ([REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage)):
+
+```
+User clicks "Connect GitHub" in the GitHub panel
+  -> GET /api/github/connect (browser-navigated, carries the session cookie)
+  -> Sign an HMAC OAuth state BOUND to the caller's bucket (anti-CSRF)
+  -> 302 to the provider's authorize URL
+  -> User authorizes on GitHub
+  -> GitHub redirects to the stable callback GET /auth/github/connect/callback
+     (src/routes/github-auth.ts)
+  -> Re-derive the caller's identity from the EXISTING session
+     (Access email header in enterprise; session JWT in SaaS) -
+     no new codeflare_session cookie is minted
+  -> Verify the OAuth state against THIS session's bucket: a state minted
+     for another user (or the unbound /login flow) is rejected, so an
+     attacker's code+state cannot plant their token in this bucket
+  -> Exchange code for a token
+  -> Persist the token to the existing deploy-keys entry (DeployKeys.githubToken)
+```
+
+**Two providers behind one seam (`getGithubProvider`):**
+
+| Provider | Used for | Token behavior |
+|---|---|---|
+| **GitHub App user-to-server** | Enterprise / EMU | Acts as the user, expires ~8h, refreshable. `getValidGithubToken` refreshes within the skew window and fails closed when an expired App token cannot be refreshed (never returns a stale token). |
+| **OAuth App** (existing) | Non-EMU SaaS | Long-lived token. |
+
+A configured GitHub App takes precedence. With neither configured, Connect is unavailable (`503 GITHUB_NOT_CONFIGURED`).
+
+**Provider configuration source.** `getGithubProvider` is async. In **enterprise** mode the provider type + credentials are admin-configured in the Setup wizard and stored in KV (client id plain, client secret encrypted): the resolver reads that config first and only falls back to the deploy-config env vars (`GITHUB_APP_*` / `OAUTH_*`) when KV is unconfigured — so enterprise GitHub works without GitHub-Actions/Cloudflare-secret access. In **non-enterprise** modes the resolver uses the env vars only (unchanged). A stored client secret that cannot be decrypted (no `ENCRYPTION_KEY`) is treated as unconfigured (fails closed). See [REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup) and the [Configuration](configuration.md#github-integration) lane.
+
+**Scopes / permissions:** the OAuth App requests `repo read:org workflow`. The GitHub App's equivalent permissions (Contents R/W, Pull requests R/W, Workflows W, Metadata R) are set at registration. Enterprise GitHub Apps must be **internal** to the customer's enterprise - EMU managed users cannot authorize third-party apps.
+
+**At rest:** the token is encrypted (kv-crypto) and never returned to the browser. Disconnect/offboarding revokes it ([REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation)). For the enterprise egress-injection security model and at-rest detail, see [Security](security.md) rather than duplicating it here.
+
+Connect reuses the OAuth App from [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth) (SaaS login OAuth) in SaaS mode, but is distinct from login.
+
 ### CF Access Flow
 
 When `OAUTH_CLIENT_ID` is NOT set, Cloudflare Access handles authentication:
@@ -198,6 +239,15 @@ SaaS mode uses a layered middleware stack on every request to protected routes (
 
 3. **`requireAdmin`** - Checks `role === 'admin'`. Must be used AFTER `requireIdentity` or `requireActiveUser`.
 
+#### Admin authorization (admin-by-email and admin-by-group)
+
+Admin authorization has two sources:
+
+- **Admin-by-email (durable):** a KV `user:<email>` record with `role: 'admin'`, seeded from the Setup wizard's Admin Users list. `requireAdmin` passes immediately when the resolved user is already `admin`.
+- **Admin-by-group (enterprise, live):** in enterprise mode, if the user is not already admin, `requireAdmin` calls `resolveAdminAccessGroup()` to test the user's Cloudflare Access group membership (a single get-identity call) against the Setup-configured `setup:enterprise_admin_access_group`. A match elevates the user to `admin` for that request only (set on the Hono context — no KV record written), so removing them from the group revokes admin access on the next request. The check is confined to `requireAdmin` (never the hot `authenticateRequest` path), is a no-op outside enterprise mode or when no admin groups are configured, and fails closed on any get-identity error. See [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) and [Configuration — Admin Access Group Configuration](configuration.md#admin-access-group-configuration).
+
+Admin groups also widen the JIT entry gate (union of user-access + admin groups) so an admin in no user-access group is not locked out; see [User Provisioning](user-provisioning.md#enterprise-mode-provisioning).
+
 ### Root Redirect
 
 - Setup incomplete -> redirect to `/setup`
@@ -250,6 +300,8 @@ Both `SAAS_MODE` and `ONBOARDING_LANDING_PAGE` are passed to the Worker via `--v
 - [REQ-AUTH-016](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown) - Header user dropdown
 - [REQ-AUTH-017](../../sdd/spec/authentication.md#req-auth-017-gravatar-integration) - Gravatar integration
 - [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) - Access-gated JIT provisioning runs before SaaS path in enterprise mode
+- [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) - Admin authorization via Cloudflare Access groups (live requireAdmin elevation)
+- [REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup) - Enterprise GitHub provider config (admin-configured in Setup, KV-first resolution)
 
 ---
 

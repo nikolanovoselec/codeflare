@@ -7,6 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildEnvVars, applyBucketName, applyPrefsOnRestart, type ContainerEnvState } from '../../container/container-env';
 import type { Env } from '../../types';
+import { ENTERPRISE_GH_TOKEN_PLACEHOLDER } from '../../lib/constants';
 
 function baseState(): ContainerEnvState {
   return {
@@ -141,6 +142,40 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
     expect(vars.ENCRYPTION_KEY).toBeUndefined();
   });
 
+  // REQ-GITHUB-004: the one-shot clone directive flows DO state -> container env.
+  // entrypoint.sh clones GIT_CLONE_REPO (with optional GIT_CLONE_REF) at start.
+  it('REQ-GITHUB-004: emits GIT_CLONE_REPO when state._gitCloneRepo is set', () => {
+    const state = baseState();
+    (state as unknown as { _gitCloneRepo: string | null })._gitCloneRepo = 'octo/repo';
+    const vars = buildEnvVars(state, baseEnv) as Record<string, string | undefined>;
+    expect(vars.GIT_CLONE_REPO).toBe('octo/repo');
+  });
+
+  it('REQ-GITHUB-004: emits GIT_CLONE_REF when state._gitCloneRef is set', () => {
+    const state = baseState();
+    const s = state as unknown as { _gitCloneRepo: string | null; _gitCloneRef: string | null };
+    s._gitCloneRepo = 'octo/repo';
+    s._gitCloneRef = 'develop';
+    const vars = buildEnvVars(state, baseEnv) as Record<string, string | undefined>;
+    expect(vars.GIT_CLONE_REPO).toBe('octo/repo');
+    expect(vars.GIT_CLONE_REF).toBe('develop');
+  });
+
+  it('REQ-GITHUB-004: omits both GIT_CLONE vars when unset', () => {
+    const state = baseState();
+    const vars = buildEnvVars(state, baseEnv) as Record<string, string | undefined>;
+    expect(vars.GIT_CLONE_REPO).toBeUndefined();
+    expect(vars.GIT_CLONE_REF).toBeUndefined();
+  });
+
+  it('REQ-GITHUB-004: omits GIT_CLONE_REF when only the repo is set', () => {
+    const state = baseState();
+    (state as unknown as { _gitCloneRepo: string | null })._gitCloneRepo = 'octo/repo';
+    const vars = buildEnvVars(state, baseEnv) as Record<string, string | undefined>;
+    expect(vars.GIT_CLONE_REPO).toBe('octo/repo');
+    expect(vars.GIT_CLONE_REF).toBeUndefined();
+  });
+
   // CF-063 / REQ-AGENT-029 AC2: deploy credentials (GitHub + Cloudflare) are
   // forwarded from DO state to the container env vars when set, and OMITTED
   // (not emitted empty) when cleared to null so a revoked credential is unset
@@ -173,6 +208,30 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
     expect(vars.GH_TOKEN).toBeUndefined();
     expect(vars.CLOUDFLARE_API_TOKEN).toBeUndefined();
     expect(vars.CLOUDFLARE_ACCOUNT_ID).toBeUndefined();
+  });
+
+  // REQ-GITHUB-003: the real GitHub token must never enter an enterprise container.
+  // @test buildEnvVars emits a placeholder GH_TOKEN (not the real token) in enterprise mode
+  it('REQ-GITHUB-003 / REQ-GITHUB-006: emits a NON-SECRET placeholder GH_TOKEN in enterprise mode (real token never enters the container)', () => {
+    const state = baseState();
+    (state as unknown as { _githubToken: string | null })._githubToken = 'gho_real_secret';
+    const vars = buildEnvVars(state, { ENTERPRISE_MODE: 'active' } as Env);
+    expect(vars.GH_TOKEN).toBe(ENTERPRISE_GH_TOKEN_PLACEHOLDER);
+    expect(vars.GH_TOKEN).not.toBe('gho_real_secret');
+  });
+
+  // @test buildEnvVars emits the real GH_TOKEN verbatim in non-enterprise mode (byte-identical to today)
+  it('REQ-GITHUB-003 / REQ-GITHUB-006: emits the real GH_TOKEN unchanged in non-enterprise mode', () => {
+    const state = baseState();
+    (state as unknown as { _githubToken: string | null })._githubToken = 'gho_real_secret';
+    const vars = buildEnvVars(state, baseEnv);
+    expect(vars.GH_TOKEN).toBe('gho_real_secret');
+  });
+
+  // @test buildEnvVars omits GH_TOKEN entirely (no placeholder) in enterprise when not connected
+  it('REQ-GITHUB-003: omits GH_TOKEN entirely in enterprise mode when not connected (no token to inject)', () => {
+    const vars = buildEnvVars(baseState(), { ENTERPRISE_MODE: 'active' } as Env);
+    expect('GH_TOKEN' in vars).toBe(false);
   });
 });
 

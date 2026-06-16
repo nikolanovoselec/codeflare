@@ -154,6 +154,17 @@ describe('entrypoint consult-llm configuration / REQ-AGENT-031 (key isolation, s
     assert.match(h.stdout, /no usable provider/);
   });
 
+  // No usable provider also strips the seeded consult-llm skill dirs, so the agent
+  // is not left with a skill for a server that was never registered (parity with the
+  // enterprise gate and the browser-run skill gate).
+  it('no codex and no keys: removes the seeded consult-llm skill dirs', () => {
+    const h = buildHarness(baseTmp, { seedSkills: true });
+    assert.equal(h.claudeJson, null, 'no consult-llm config written');
+    assert.equal(h.claudeSkillExists, false, 'Claude consult-llm skill dir removed');
+    assert.equal(h.piSkillExists, false, 'Pi consult-llm skill dir removed');
+    assert.match(h.stdout, /no usable provider/);
+  });
+
   // AC1: merge preserves any pre-existing mcpServers (jq `. * $mcp` deep-merge).
   it('preserves existing mcpServers entries when merging consult-llm', () => {
     const initial = JSON.stringify({

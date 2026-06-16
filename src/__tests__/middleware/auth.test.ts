@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import { authMiddleware, requireAdmin, AuthVariables } from '../../middleware/auth';
-import { authenticateRequest } from '../../lib/access';
+import { authenticateRequest, resetAuthConfigCache } from '../../lib/access';
 import { AppError, AuthError, ForbiddenError } from '../../lib/error-types';
+import { SETUP_KEYS } from '../../lib/kv-keys';
 import type { Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 
@@ -304,6 +305,120 @@ describe('Auth Middleware', () => {
       expect(res.status).toBe(403);
       const body = await res.json() as { code: string };
       expect(body.code).toBe('FORBIDDEN');
+    });
+  });
+
+  // =========================================================================
+  // requireAdmin — enterprise admin-by-group (REQ-ENTERPRISE-014)
+  //
+  // A non-admin user who belongs to a configured admin Access group is elevated
+  // to admin for the request via a LIVE get-identity check, but only in
+  // enterprise mode and only when admin groups are configured. Setting AUTH_DOMAIN
+  // (but no ACCESS_AUD) keeps auth "not configured" so the pre-setup email-header
+  // fallback authenticates the test user, while still giving resolveAdminAccessGroup
+  // an auth domain to call get-identity against. The CF_Authorization cookie carries
+  // the token the live check reads.
+  // =========================================================================
+  describe('requireAdmin — enterprise admin-by-group (REQ-ENTERPRISE-014)', () => {
+    const AUTH_DOMAIN = 'team.cloudflareaccess.com';
+
+    function mockGetIdentity(groups: unknown) {
+      return vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+        new Response(JSON.stringify({ groups }), { status: 200, headers: { 'content-type': 'application/json' } }),
+      );
+    }
+
+    function createAdminApp(envOverrides: Partial<Env> = { ENTERPRISE_MODE: 'active' }) {
+      const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+      app.use('*', async (c, next) => {
+        c.env = { KV: mockKV as unknown as KVNamespace, ...envOverrides } as Env;
+        return next();
+      });
+      app.use('*', authMiddleware);
+      app.get('/admin', requireAdmin, (c) => c.json({ ok: true, role: c.get('user').role }));
+      app.onError((err, c) => {
+        if (err instanceof AppError) return c.json(err.toJSON(), err.statusCode as 400 | 401 | 403 | 404);
+        return c.json({ error: 'Unexpected error' }, 500);
+      });
+      return app;
+    }
+
+    const adminHeaders = (email: string) => ({
+      'cf-access-authenticated-user-email': email,
+      Cookie: 'CF_Authorization=tok',
+    });
+
+    beforeEach(() => resetAuthConfigCache());
+    afterEach(() => {
+      vi.restoreAllMocks();
+      resetAuthConfigCache();
+    });
+
+    it('elevates a non-admin who is in a configured admin group to admin (200)', async () => {
+      mockKV._store.set(SETUP_KEYS.AUTH_DOMAIN, AUTH_DOMAIN);
+      mockKV._store.set(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP, 'ops_admins');
+      const spy = mockGetIdentity([{ name: 'ops_admins' }]);
+
+      const app = createAdminApp();
+      const res = await app.request('/admin', { headers: adminHeaders('groupadmin@example.com') });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { role: string };
+      expect(body.role).toBe('admin');
+      expect(spy).toHaveBeenCalled();
+    });
+
+    it('denies a non-admin who is in no configured admin group (403)', async () => {
+      mockKV._store.set(SETUP_KEYS.AUTH_DOMAIN, AUTH_DOMAIN);
+      mockKV._store.set(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP, 'ops_admins');
+      mockGetIdentity([{ name: 'some_other_group' }]);
+
+      const app = createAdminApp();
+      const res = await app.request('/admin', { headers: adminHeaders('nonmember@example.com') });
+
+      expect(res.status).toBe(403);
+      const body = await res.json() as { code: string };
+      expect(body.code).toBe('FORBIDDEN');
+    });
+
+    it('makes NO get-identity call and 403s when no admin groups are configured', async () => {
+      mockKV._store.set(SETUP_KEYS.AUTH_DOMAIN, AUTH_DOMAIN);
+      const spy = vi.spyOn(globalThis, 'fetch');
+
+      const app = createAdminApp();
+      const res = await app.request('/admin', { headers: adminHeaders('nonmember@example.com') });
+
+      expect(res.status).toBe(403);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('a real KV-role admin passes WITHOUT any get-identity call (short-circuit)', async () => {
+      const email = 'kvadmin@example.com';
+      mockKV._store.set(`user:${email}`, JSON.stringify({ addedBy: 'setup', addedAt: '2024-01-01', role: 'admin' }));
+      mockKV._store.set(SETUP_KEYS.AUTH_DOMAIN, AUTH_DOMAIN);
+      mockKV._store.set(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP, 'ops_admins');
+      const spy = vi.spyOn(globalThis, 'fetch');
+
+      const app = createAdminApp();
+      const res = await app.request('/admin', { headers: adminHeaders(email) });
+
+      expect(res.status).toBe(200);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('non-enterprise: an admin-group member is NOT elevated (403, no get-identity)', async () => {
+      const email = 'groupadmin@example.com';
+      // Non-enterprise allowlist user (role user) — must stay non-admin.
+      mockKV._store.set(`user:${email}`, JSON.stringify({ addedBy: 'setup', addedAt: '2024-01-01', role: 'user' }));
+      mockKV._store.set(SETUP_KEYS.AUTH_DOMAIN, AUTH_DOMAIN);
+      mockKV._store.set(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP, 'ops_admins');
+      const spy = vi.spyOn(globalThis, 'fetch');
+
+      const app = createAdminApp({ ENTERPRISE_MODE: undefined });
+      const res = await app.request('/admin', { headers: adminHeaders(email) });
+
+      expect(res.status).toBe(403);
+      expect(spy).not.toHaveBeenCalled();
     });
   });
 });

@@ -16,8 +16,8 @@ CVE-2026-33186
 # These are CLI tools in sandboxed container, not processing untrusted JSON.
 #
 # GHSA-6g7g-w4f8-9c9x: buger/jsonparser — unvalidated offset in Delete() yields a negative slice index causing a runtime panic (DoS) on malformed JSON.
-# CVE-2026-32285: the CVE for the GHSA above — same buger/jsonparser Delete() negative-index panic.
 GHSA-6g7g-w4f8-9c9x
+# CVE-2026-32285: the CVE for the GHSA above — same buger/jsonparser Delete() negative-index panic.
 CVE-2026-32285
 
 # lazygit v0.60.0 built with Go 1.25.x — may still need Go 1.25.8+ for fix.
@@ -28,8 +28,8 @@ CVE-2025-68121
 # These are CLI tools in sandboxed container, not processing untrusted URLs.
 #
 # CVE-2026-25679: Go net/url.Parse — improper host validation accepts an IPv6 IP-literal not at the start of the host.
-# CVE-2026-27142: Go html/template — XSS via improper URL escaping in a meta http-equiv=refresh content attribute.
 CVE-2026-25679
+# CVE-2026-27142: Go html/template — XSS via improper URL escaping in a meta http-equiv=refresh content attribute.
 CVE-2026-27142
 
 # node-tar transitive dependency in globally-installed npm CLIs
@@ -38,12 +38,12 @@ CVE-2026-27142
 # Fix available (tar 7.5.3-7.5.8) but upstream packages haven't updated.
 #
 # CVE-2026-23745: node-tar — missing linkpath sanitization on Link/SymbolicLink entries allows arbitrary file overwrite and symlink poisoning.
-# CVE-2026-23950: node-tar — TOCTOU race in PathReservations from Unicode (NFD) path-collision mishandling enables symlink poisoning.
-# CVE-2026-24842: node-tar — hardlink security-check vs creation path-resolution mismatch enables hardlink path-traversal file write.
-# CVE-2026-26960: node-tar — hardlink target escapes the extraction root via a symlink chain, enabling arbitrary file read/write.
 CVE-2026-23745
+# CVE-2026-23950: node-tar — TOCTOU race in PathReservations from Unicode (NFD) path-collision mishandling enables symlink poisoning.
 CVE-2026-23950
+# CVE-2026-24842: node-tar — hardlink security-check vs creation path-resolution mismatch enables hardlink path-traversal file write.
 CVE-2026-24842
+# CVE-2026-26960: node-tar — hardlink target escapes the extraction root via a symlink chain, enabling arbitrary file read/write.
 CVE-2026-26960
 
 # glob/minimatch transitive deps in globally-installed npm CLIs.
@@ -52,12 +52,12 @@ CVE-2026-26960
 # minimatch 9.0.5-9.0.6 DoS via crafted patterns — CLIs use hardcoded patterns.
 #
 # CVE-2025-64756: glob CLI — command injection via -c/--cmd executing matched filenames through a shell (shell:true).
-# CVE-2026-26996: minimatch — ReDoS from many consecutive '*' wildcards followed by a non-matching literal (exponential backtracking).
-# CVE-2026-27903: minimatch — ReDoS in matchOne() via combinatorial recursive backtracking from multiple non-adjacent '**' GLOBSTAR segments.
-# CVE-2026-27904: minimatch — ReDoS from nested *()/+() extglobs producing regexes with nested unbounded quantifiers (catastrophic backtracking).
 CVE-2025-64756
+# CVE-2026-26996: minimatch — ReDoS from many consecutive '*' wildcards followed by a non-matching literal (exponential backtracking).
 CVE-2026-26996
+# CVE-2026-27903: minimatch — ReDoS in matchOne() via combinatorial recursive backtracking from multiple non-adjacent '**' GLOBSTAR segments.
 CVE-2026-27903
+# CVE-2026-27904: minimatch — ReDoS from nested *()/+() extglobs producing regexes with nested unbounded quantifiers (catastrophic backtracking).
 CVE-2026-27904
 
 # Debian bookworm base image system libraries — no fixes available in bookworm.
@@ -79,8 +79,8 @@ CVE-2026-4046
 # Container git is used by AI agents in sandboxed workspace. Users control their own repos.
 #
 # CVE-2025-48384: git — trailing CR in a submodule path causes checkout to the wrong location, enabling symlinked post-checkout hook execution.
-# CVE-2025-48385: git — insufficient validation of advertised bundle URIs allows protocol injection writing the bundle to an arbitrary path.
 CVE-2025-48384
+# CVE-2025-48385: git — insufficient validation of advertised bundle URIs allows protocol injection writing the bundle to an arbitrary path.
 CVE-2025-48385
 
 # openldap libldap 2.5.13: null pointer dereference in ber_memalloc_x
@@ -91,22 +91,22 @@ CVE-2023-2953
 # Container doesn't use mbedtls directly; it's a dependency of rclone/curl.
 #
 # CVE-2025-47917: mbedtls — use-after-free/double-free in mbedtls_x509_string_to_names() which deep-frees its output head argument.
-# CVE-2024-23775: mbedtls — integer overflow in mbedtls_x509_set_extension() causing a heap buffer overflow.
-# CVE-2025-48965: mbedtls — NULL pointer dereference in mbedtls_asn1_store_named_data() when val.p is NULL but val.len > 0.
-# CVE-2025-52496: mbedtls — race condition in AESNI detection (mbedtls_aesni_has_support) under compiler reordering.
 CVE-2025-47917
+# CVE-2024-23775: mbedtls — integer overflow in mbedtls_x509_set_extension() causing a heap buffer overflow.
 CVE-2024-23775
+# CVE-2025-48965: mbedtls — NULL pointer dereference in mbedtls_asn1_store_named_data() when val.p is NULL but val.len > 0.
 CVE-2025-48965
+# CVE-2025-52496: mbedtls — race condition in AESNI detection (mbedtls_aesni_has_support) under compiler reordering.
 CVE-2025-52496
 
 # mbedtls 2.28.3: TLS 1.3 client impersonation, buffer overflow RCE, FFDH shared secret manipulation
 # Container doesn't use mbedtls directly; it's a dependency of rclone/curl. No fix in bookworm.
 #
 # CVE-2026-34873: mbedtls — TLS 1.3 session resumption flaw allows client impersonation.
-# CVE-2026-34875: mbedtls — buffer overflow in public-key export for FFDH (finite-field Diffie-Hellman) keys.
-# CVE-2026-34872: mbedtls — improper FFDH input validation (missing contributory check) lets a peer constrain the shared secret.
 CVE-2026-34873
+# CVE-2026-34875: mbedtls — buffer overflow in public-key export for FFDH (finite-field Diffie-Hellman) keys.
 CVE-2026-34875
+# CVE-2026-34872: mbedtls — improper FFDH input validation (missing contributory check) lets a peer constrain the shared secret.
 CVE-2026-34872
 
 # sqlite 3.40.1: integer overflow
@@ -117,8 +117,8 @@ CVE-2025-7458
 # p7zip is used by yazi for archive preview only on user-owned files.
 #
 # CVE-2025-11001: 7-Zip — directory traversal via symbolic-link handling in ZIP parsing allows writing files outside the extraction dir.
-# CVE-2025-11002: 7-Zip — companion ZIP symlink-handling directory-traversal write-outside-extraction-dir (paired with CVE-2025-11001).
 CVE-2025-11001
+# CVE-2025-11002: 7-Zip — companion ZIP symlink-handling directory-traversal write-outside-extraction-dir (paired with CVE-2025-11001).
 CVE-2025-11002
 
 # p7zip 16.02 (really 25.01)/p7zip-full: heap buffer write overflow in the 7-Zip
@@ -152,10 +152,10 @@ CVE-2025-15558
 # CLIs don't process untrusted tar archives at runtime.
 #
 # GHSA-qffp-2rhf-9h96: node-tar — hardlink path traversal via drive-relative linkpath (e.g. C:../target.txt) in Unpack[STRIPABSOLUTEPATH] during tar.x().
-# CVE-2026-29786: node-tar — hardlink path traversal via drive-relative linkpath (e.g. C:../target.txt) writes outside the extraction cwd in tar.x().
-# CVE-2026-31802: node-tar — symlink path traversal via drive-relative linkpath (e.g. C:../../../target.txt) writes outside the extraction cwd in tar.x().
 GHSA-qffp-2rhf-9h96
+# CVE-2026-29786: node-tar — hardlink path traversal via drive-relative linkpath (e.g. C:../target.txt) writes outside the extraction cwd in tar.x().
 CVE-2026-29786
+# CVE-2026-31802: node-tar — symlink path traversal via drive-relative linkpath (e.g. C:../../../target.txt) writes outside the extraction cwd in tar.x().
 CVE-2026-31802
 
 # cpython 3.11 (Debian bookworm): python3 added for ECC observe hooks (stdlib only).
@@ -331,14 +331,14 @@ CVE-2026-7598
 # server, or untrusted email phrases.
 #
 # CVE-2026-33811: net.LookupCNAME with cgo DNS resolver miscounts answers.
-# CVE-2026-33814: HTTP/2 SETTINGS frame handling enters error state on peer input.
-# CVE-2026-39820: ParseAddress / ParseAddressList input handling DoS.
-# CVE-2026-39836: Dial / LookupPort panic when hostname contains NUL byte.
-# CVE-2026-42499: net/mail consumePhrase DoS on pathological inputs.
 CVE-2026-33811
+# CVE-2026-33814: HTTP/2 SETTINGS frame handling enters error state on peer input.
 CVE-2026-33814
+# CVE-2026-39820: ParseAddress / ParseAddressList input handling DoS.
 CVE-2026-39820
+# CVE-2026-39836: Dial / LookupPort panic when hostname contains NUL byte.
 CVE-2026-39836
+# CVE-2026-42499: net/mail consumePhrase DoS on pathological inputs.
 CVE-2026-42499
 
 # curl / libcurl3-gnutls / libcurl4 7.88.1-10+deb12u14: wrong file transfer
@@ -379,12 +379,12 @@ CVE-2026-44973
 # chains as a server.
 #
 # CVE-2025-58183: archive/tar unbounded allocation when parsing GNU sparse map.
-# CVE-2025-61726: net/url memory exhaustion in query-parameter parsing.
-# CVE-2025-61728: archive/zip excessive CPU when building zip with many entries.
-# CVE-2025-61729: crypto/x509 DoS via excessive work on crafted chains.
 CVE-2025-58183
+# CVE-2025-61726: net/url memory exhaustion in query-parameter parsing.
 CVE-2025-61726
+# CVE-2025-61728: archive/zip excessive CPU when building zip with many entries.
 CVE-2025-61728
+# CVE-2025-61729: crypto/x509 DoS via excessive work on crafted chains.
 CVE-2025-61729
 
 # gomarkdown/markdown v0.0.0-20250810172220 embedded in a third-party
@@ -538,6 +538,23 @@ CVE-2026-8643
 # CVE-2026-42497 / CVE-2026-9538). No fixed version available in Debian bookworm.
 CVE-2026-48962
 
+# protobufjs / ws transitive deps in globally-installed npm agent CLIs
+# (@openai/codex, opencode-ai, @github/copilot, @earendil-works/pi-coding-agent,
+# consult-llm-mcp, browser-run-mcp, context-mode). Not in our own package.json
+# (our host ws is already ^8.21.0); these are vendored-CLI transitives. Both are
+# fixable upstream but the consuming CLIs have not rebuilt yet. Same "transitive
+# dep of globally-installed npm CLIs, waiting for upstream" profile as the
+# picomatch / glob / minimatch / node-tar entries above.
+#
+# CVE-2026-48712: protobufjs 7.5.9 — DoS via unbounded `Any` expansion during JSON
+#   conversion. The CLIs decode protobuf only from trusted backends (gRPC/telemetry),
+#   never attacker-controlled Any messages. Fix: 7.6.1 / 8.4.1.
+CVE-2026-48712
+# CVE-2026-48779: ws 8.20.1 — memory-exhaustion DoS from many tiny fragments/chunks.
+#   The CLIs use ws as a client / local MCP transport in the single-tenant sandboxed
+#   container, not a public server accepting untrusted peers. Fix: 7.5.11 / 8.21.0.
+CVE-2026-48779
+
 # cpython 3.11 (libpython3.11-minimal, libpython3.11-stdlib, python3.11,
 # python3.11-minimal, python3.11-venv; 3.11.2-6+deb12u7, Debian bookworm): two
 # new stdlib advisories. python3 is added for ECC observe hooks only (stdlib,
@@ -547,9 +564,9 @@ CVE-2026-48962
 # No fixed version available in Debian bookworm.
 #
 # CVE-2026-3644: incomplete control character validation in the stdlib.
+CVE-2026-3644
 # CVE-2026-4224: stack overflow parsing XML with a deeply nested DTD (XML DoS;
 #                same no-untrusted-XML rationale as CVE-2026-7210 above).
-CVE-2026-3644
 CVE-2026-4224
 
 # cpython 3.11 (libpython3.11-minimal, libpython3.11-stdlib, python3.11,

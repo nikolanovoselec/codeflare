@@ -8,6 +8,8 @@ Diagnostic commands, common failure modes, and resolution steps.
 
 - [Common Issues](#common-issues)
 - [Common Failure Modes](#common-failure-modes)
+- [GitHub Integration](#github-integration)
+- [Browser Run](#browser-run)
 - [Diagnostic Commands](#diagnostic-commands)
 
 ---
@@ -153,6 +155,25 @@ sudo apt-get install -yqq --no-install-recommends \
 | Pi autofix never starts: `autofix.json` is `failed` with `attempts:0` and no delivery error, on a repo where the review completed more than 30 min before the fix session opened ([REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery) AC3/AC6) | The delivery age backstop was kind-blind and aged the autofix announcement to `failed` once older than its window, even though no delivery had ever been attempted — killing the fix/commit/push turn before it could fire. | Update the preseed (re-run `entrypoint.sh` or trigger an R2 sync) so the age backstop is summary-only; confirm with `grep -a 'kind === "summary"' ~/.pi/agent/extensions/review-job-helpers.ts`. Until the fixed preseed is deployed, the workaround is `/review-results` (displays the summary), then ask the agent to fix the findings. |
 | Graph stale after recent code edits ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify)) | AST portion of the graph was not refreshed since the edits | Run `graphify update .` from the project root. It re-extracts only changed files via tree-sitter (free, no LLM cost). Skip if the change was test-only or doc-only - the graph de-emphasises tests by design. |
 
+## GitHub Integration
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| GitHub panel not visible / `GET /api/github/status` returns `{ enabled: false }` (other `/api/github/*` routes return `403 GITHUB_DISABLED`) | The integration is enterprise-only right now: `githubFeatureEnabled` = `isEnterpriseMode` | Expected outside enterprise mode — the panel only appears in enterprise mode. Broadening the gate to SaaS-advanced plus a per-user toggle is Planned ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). |
+| `GET /api/github/connect` returns `503 GITHUB_NOT_CONFIGURED` | No provider configured — neither a GitHub App (`GITHUB_APP_CLIENT_ID` + `GITHUB_APP_CLIENT_SECRET`) nor the OAuth App (`OAUTH_CLIENT_ID` + `OAUTH_CLIENT_SECRET`) is set | Set the GitHub App secrets (enterprise/EMU) or the OAuth App secrets (SaaS). A configured GitHub App takes precedence over the OAuth App. |
+| `/api/github/repos` returns `401 NOT_CONNECTED`, or the agent's git/`gh` calls fail with auth errors in enterprise | No valid token for the session — never connected, or an expired GitHub App token that could not be refreshed. The system fails closed and never falls back to a stale token. | Click **Connect GitHub** again to re-authorize. |
+| Clone fails with "already exists" / `409 CLONE_TARGET_EXISTS` | `$USER_WORKSPACE/<repo-name>` already exists; clone refuses to overwrite it | Remove or rename the existing folder, or clone into a new session. |
+| Clone returns `503 NOT_RUNNING` | The target session's container is asleep, so `POST /api/github/clone` (running-session path) cannot reach it | Start/wake the session first, or use the new-session clone (`POST /api/sessions` with a `clone` field), which clones before the agent starts ([REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session)). |
+| `429` from connect / repos / clone | Per-user rate limits: connect/disconnect 20/min, repos 60/min, clone 20/min | Wait for the window — the `Retry-After` and `X-RateLimit-*` response headers give the retry delay and the ceiling/remaining count — then retry. |
+| In enterprise, the in-session `GH_TOKEN` env shows `codeflare-enterprise` instead of a real token | By design — the container holds only a non-secret placeholder; the real token is injected at the egress boundary ([REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials)) | Not a bug. git/`gh`/API calls to github.com still authenticate because injection happens at egress. If they fail, the token isn't connected — see the `401 NOT_CONNECTED` row above. |
+
+## Browser Run
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| In an advanced session the browser tools (`browser_markdown` / `chrome-devtools`) are missing and the `browser-run` / `browser-e2e` skills are absent | No Cloudflare Browser Rendering token is configured, so the whole browser-run surface is withheld — the MCP servers and the Pi extension self-gate, and the skills are stripped ([REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)) | Enterprise: an admin sets the Browser Rendering token (+ account id) in the Setup wizard. Other modes: paste a Cloudflare token carrying `Browser Rendering - Edit` in Push & Deploy settings. Takes effect on the next session start. |
+| Browser tools missing in a Standard (default) session | Browser Run is advanced-mode only | Switch the session to advanced/Pro mode (enterprise sessions are always advanced). |
+
 ## Diagnostic Commands
 
 **Check container status:**
@@ -181,6 +202,8 @@ wrangler tail codeflare --status error
 - [Container](container.md#container-startup) - Container startup sequence
 - [Storage & Sync](storage-and-sync.md) - Sync mechanics
 - [Authentication](security.md#authentication-gate) - Auth flow
+- [Security - GitHub Token Handling](security.md#github-token-handling) - Egress-injection model, placeholder token, non-enterprise behaviour
+- [Configuration - GitHub Integration](configuration.md#github-integration) - GitHub App vs OAuth provider, env var reference
 
 ---
 
@@ -188,8 +211,12 @@ wrangler tail codeflare --status error
 
 - [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) - Knowledge-Graph Capability (Graphify)
 - [REQ-AGENT-061](../../sdd/spec/agents.md#req-agent-061-pi-idle-durable-review-reaper) - Pi Idle Durable Review Reaper (review-repo resolution; graphify sentinel scope)
+- [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token) - Enterprise admin-configured Browser Rendering token
 - [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) - Outbound-interception LLM routing (enterprise CA trust, interceptor wiring)
 - [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) - Container-side enterprise routing (CA trust + agent base-URLs)
+- [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials) - Enterprise egress-injected GitHub credentials
+- [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session) - Clone a repository into a session
+- [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) - Broaden the panel gate beyond enterprise
 - [REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants) - sleepAfter fail-safe invariants
 - [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) - Container Port-Readiness Gating with Pre-Warm Pre-Condition
 - [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit) - Persisted status is authoritative on container exit

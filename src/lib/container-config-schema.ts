@@ -38,6 +38,9 @@ export const SetBucketNameBodySchema = z.object({
   defaultReasoning: z.string().optional(),
   /** REQ-MEM-001 AC4: forward the user's IANA timezone to the container. */
   userTimezone: z.string().optional(),
+  /** REQ-GITHUB-004: one-shot GitHub clone directive (repo owner/name + optional ref). */
+  gitCloneRepo: z.string().optional(),
+  gitCloneRef: z.string().optional(),
 }).passthrough();
 
 /**

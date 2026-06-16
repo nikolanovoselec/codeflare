@@ -273,6 +273,27 @@ describe('Setup Store', () => {
       expect(setupStore.enterpriseAccessGroups).toEqual(['team_a']);
     });
 
+    // REQ-ENTERPRISE-014: admin Access groups grant Setup access, never routing.
+    it('should add and remove an admin access group WITHOUT seeding per-group routing', () => {
+      setupStore.addDynamicRoute('development');
+      setupStore.addAdminAccessGroup('ops_admins');
+      setupStore.addAdminAccessGroup('security_admins');
+      expect(setupStore.adminAccessGroups).toEqual(['ops_admins', 'security_admins']);
+      // Admin groups must NEVER produce a per-group routing card/entry.
+      expect(setupStore.groupRouting).not.toHaveProperty('ops_admins');
+      expect(setupStore.groupRouting).not.toHaveProperty('security_admins');
+
+      setupStore.removeAdminAccessGroup('ops_admins');
+      expect(setupStore.adminAccessGroups).toEqual(['security_admins']);
+    });
+
+    it('should not add a duplicate or empty admin access group', () => {
+      setupStore.addAdminAccessGroup('ops_admins');
+      setupStore.addAdminAccessGroup('ops_admins');
+      setupStore.addAdminAccessGroup('');
+      expect(setupStore.adminAccessGroups).toEqual(['ops_admins']);
+    });
+
     it('should add and remove a dynamic route', () => {
       setupStore.addDynamicRoute('development');
       setupStore.addDynamicRoute('prod');
@@ -319,6 +340,183 @@ describe('Setup Store', () => {
       expect(setupStore.defaultRouteName).toBe('prod');
       // The removed route's reasoning grade must not carry over to the fallback.
       expect(setupStore.defaultRouteReasoning).toBe('off');
+    });
+  });
+
+  describe('per-group routing + GitHub provider config', () => {
+    it('seeds a new access group from the global catalog + default', () => {
+      setupStore.addDynamicRoute('development'); // first route → global default
+      setupStore.addDynamicRoute('prod');
+      setupStore.setDefaultRouteReasoning('high');
+
+      setupStore.addAccessGroup('team_a');
+
+      expect(setupStore.groupRouting['team_a']).toEqual({
+        routes: ['development', 'prod'],
+        defaultRoute: 'development',
+        reasoning: 'high',
+      });
+    });
+
+    it('drops a group routing entry when the group is removed', () => {
+      setupStore.addDynamicRoute('development');
+      setupStore.addAccessGroup('team_a');
+      expect(setupStore.groupRouting).toHaveProperty('team_a');
+
+      setupStore.removeAccessGroup('team_a');
+      expect(setupStore.groupRouting).not.toHaveProperty('team_a');
+    });
+
+    it('makes the first toggled route the group default and falls back when the default is removed', () => {
+      setupStore.addDynamicRoute('development');
+      setupStore.addDynamicRoute('prod');
+      setupStore.addAccessGroup('team_a'); // seeded with both routes, default development
+
+      // Clear the seeded routes back to an empty set.
+      setupStore.toggleGroupRoute('team_a', 'development');
+      setupStore.toggleGroupRoute('team_a', 'prod');
+      expect(setupStore.groupRouting['team_a'].routes).toEqual([]);
+      expect(setupStore.groupRouting['team_a'].defaultRoute).toBe('');
+
+      // First route toggled on becomes the default.
+      setupStore.toggleGroupRoute('team_a', 'prod');
+      expect(setupStore.groupRouting['team_a'].defaultRoute).toBe('prod');
+
+      // Add a second, raise reasoning, then remove the default → fall back, reasoning reset.
+      setupStore.toggleGroupRoute('team_a', 'development');
+      setupStore.setGroupReasoning('team_a', 'high');
+      setupStore.toggleGroupRoute('team_a', 'prod');
+      expect(setupStore.groupRouting['team_a'].defaultRoute).toBe('development');
+      expect(setupStore.groupRouting['team_a'].reasoning).toBe('off');
+    });
+
+    it('copies one group routing to every other group with independent arrays', () => {
+      setupStore.addDynamicRoute('development');
+      setupStore.addDynamicRoute('prod');
+      setupStore.addAccessGroup('team_a');
+      setupStore.addAccessGroup('team_b');
+
+      setupStore.toggleGroupRoute('team_a', 'prod'); // remove prod from team_a
+      setupStore.setGroupReasoning('team_a', 'medium');
+      setupStore.applyGroupRoutingToAll('team_a');
+
+      expect(setupStore.groupRouting['team_b']).toEqual(setupStore.groupRouting['team_a']);
+      // Independent copy: mutating team_b must not bleed into team_a.
+      setupStore.toggleGroupRoute('team_b', 'prod');
+      expect(setupStore.groupRouting['team_a'].routes).not.toContain('prod');
+    });
+
+    it('routes the GitHub provider setters into store state', () => {
+      setupStore.setGithubProviderType('oauth');
+      setupStore.setGithubAppClientId('app-id');
+      setupStore.setGithubOauthClientId('oauth-id');
+      setupStore.setGithubAppClientSecret('app-secret');
+      setupStore.setGithubOauthClientSecret('oauth-secret');
+
+      expect(setupStore.githubProviderType).toBe('oauth');
+      expect(setupStore.githubAppClientId).toBe('app-id');
+      expect(setupStore.githubOauthClientId).toBe('oauth-id');
+      expect(setupStore.githubAppClientSecret).toBe('app-secret');
+      expect(setupStore.githubOauthClientSecret).toBe('oauth-secret');
+    });
+
+    it('includes the GitHub provider config + groupRouting in the body in enterprise mode', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+      await setupStore.loadExistingConfig();
+
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+
+      setupStore.addDynamicRoute('development');
+      setupStore.addAccessGroup('team_a');
+      setupStore.addAdminAccessGroup('ops_admins');
+      setupStore.setGithubProviderType('oauth');
+      setupStore.setGithubOauthClientId('oauth-id');
+      setupStore.setGithubOauthClientSecret('oauth-secret');
+
+      await setupStore.configure();
+
+      const lastCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
+      const body = JSON.parse(lastCall[1].body);
+      expect(body.githubProviderType).toBe('oauth');
+      expect(body.githubOauthClientId).toBe('oauth-id');
+      expect(body.githubOauthClientSecret).toBe('oauth-secret');
+      expect(body.groupRouting).toEqual({
+        team_a: { routes: ['development'], defaultRoute: 'development', reasoning: 'off' },
+      });
+      // REQ-ENTERPRISE-014: admin groups ride the enterprise body, separate from routing.
+      expect(body.adminAccessGroup).toEqual(['ops_admins']);
+    });
+
+    it('omits the GitHub provider config + groupRouting in non-enterprise mode (regression)', async () => {
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+
+      await setupStore.configure();
+
+      const [, options] = mockFetch.mock.calls[0];
+      const body = JSON.parse(options.body);
+      expect(body.githubProviderType).toBeUndefined();
+      expect(body.githubAppClientId).toBeUndefined();
+      expect(body.groupRouting).toBeUndefined();
+      expect(body.adminAccessGroup).toBeUndefined();
+    });
+
+    it('round-trips the GitHub provider config + groupRouting from prefill', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({
+              adminUsers: [],
+              allowedUsers: [],
+              enterpriseAccessGroup: ['team_a'],
+              adminAccessGroup: ['ops_admins'],
+              dynamicRoutes: ['development', 'prod'],
+              githubProviderType: 'oauth',
+              githubOauthClientId: 'stored-oauth-id',
+              githubOauthClientSecretSet: true,
+              groupRouting: {
+                team_a: { routes: ['prod'], defaultRoute: 'prod', reasoning: 'low' },
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+
+      await setupStore.loadExistingConfig();
+
+      expect(setupStore.githubProviderType).toBe('oauth');
+      expect(setupStore.githubOauthClientId).toBe('stored-oauth-id');
+      expect(setupStore.githubOauthClientSecretSet).toBe(true);
+      // The secret itself is never returned by prefill — only the "is set" flag.
+      expect(setupStore.githubOauthClientSecret).toBe('');
+      expect(setupStore.groupRouting['team_a']).toEqual({
+        routes: ['prod'],
+        defaultRoute: 'prod',
+        reasoning: 'low',
+      });
+      // REQ-ENTERPRISE-014: admin groups round-trip from prefill, separate from routing.
+      expect(setupStore.adminAccessGroups).toEqual(['ops_admins']);
     });
   });
 
@@ -679,6 +877,7 @@ describe('Setup Store', () => {
       setupStore.setCustomDomain('test.com');
       setupStore.addAllowedUser('user@example.com');
       setupStore.addAccessGroup('team_a');
+      setupStore.addAdminAccessGroup('ops_admins');
       setupStore.addDynamicRoute('development');
       setupStore.setDefaultRouteName('development');
       setupStore.setDefaultRouteReasoning('high');
@@ -705,6 +904,7 @@ describe('Setup Store', () => {
       expect(setupStore.customDomainError).toBeNull();
       expect(setupStore.allowedUsers).toEqual([]);
       expect(setupStore.enterpriseAccessGroups).toEqual([]);
+      expect(setupStore.adminAccessGroups).toEqual([]);
       expect(setupStore.dynamicRoutes).toEqual([]);
       expect(setupStore.defaultRouteName).toBe('');
       expect(setupStore.defaultRouteReasoning).toBe('off');

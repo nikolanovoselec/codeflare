@@ -13,6 +13,9 @@ const mockAuthResult = {
 
 vi.mock('../../lib/access', () => ({
   authenticateRequest: vi.fn(async () => ({ ...mockAuthResult, user: { ...mockAuthResult.user } })),
+  // requireAdmin calls this for the enterprise admin-by-group path; default to no
+  // matched group so non-admin users stay rejected (REQ-ENTERPRISE-014).
+  resolveAdminAccessGroup: vi.fn(async () => []),
 }));
 
 // Import AFTER mock is set up

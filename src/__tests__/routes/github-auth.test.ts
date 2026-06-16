@@ -15,10 +15,26 @@ vi.mock('../../lib/logger', () => ({
   })),
 }));
 
+// github-token + access are mocked so the /connect/callback tests exercise the
+// REAL oauth-state HMAC verification (the security contract under test) while
+// stubbing the provider, token store, and identity derivation.
+vi.mock('../../lib/github-token', () => ({
+  connectGithub: vi.fn(async () => {}),
+  connectStateSecret: vi.fn(() => 'test-jwt-secret'),
+  getGithubProvider: vi.fn(() => ({ authorizeUrl: vi.fn(() => 'https://github.com/login/oauth/authorize') })),
+  CONNECT_CALLBACK_PATH: '/auth/github/connect/callback',
+}));
+
+vi.mock('../../lib/access', () => ({
+  authenticateRequest: vi.fn(async () => ({ bucketName: 'bucket-victim' })),
+}));
+
 // Import mocked functions after vi.mock so overrides work per-test
 import { signSessionJWT } from '../../lib/session-jwt';
 import githubAuthRoutes from '../../routes/github-auth';
 import { signOauthState } from '../../lib/oauth-state';
+import { connectGithub } from '../../lib/github-token';
+import { authenticateRequest } from '../../lib/access';
 
 const TEST_SECRET = 'test-jwt-secret';
 
@@ -326,6 +342,51 @@ describe('GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)'
 
       expect(res.status).toBe(302);
       expect(res.headers.get('Location')).toContain('error=no-verified-email');
+    });
+  });
+
+  // ─── Connect callback (REQ-GITHUB-001 link mode) ───────────────
+  // The OAuth state is bound to the initiating user's bucket; the callback
+  // re-derives identity from the live session and must reject a state that was
+  // not minted for THIS session (token-fixation CSRF).
+
+  describe('GET /connect/callback — OAuth state bound to session', () => {
+    beforeEach(() => {
+      vi.mocked(connectGithub).mockResolvedValue(undefined as unknown as Awaited<ReturnType<typeof connectGithub>>);
+      vi.mocked(authenticateRequest).mockResolvedValue({ bucketName: 'bucket-victim' } as Awaited<ReturnType<typeof authenticateRequest>>);
+    });
+
+    it('rejects a state bound to a DIFFERENT bucket and does not store a token (CSRF)', async () => {
+      const app = createApp();
+      // Attacker mints a state bound to their own bucket, then lures the victim
+      // (whose session resolves to bucket-victim) to the callback with the
+      // attacker's authorization code.
+      const attackerState = await signOauthState(TEST_SECRET, 'bucket-attacker');
+      const res = await app.request(`/connect/callback?code=attacker-code&state=${attackerState}`);
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('Location')).toContain('github=expired');
+      expect(connectGithub).not.toHaveBeenCalled();
+    });
+
+    it('rejects an unbound (login-style) state at the connect callback', async () => {
+      const app = createApp();
+      const unboundState = await signOauthState(TEST_SECRET); // as /login mints — no bind
+      const res = await app.request(`/connect/callback?code=x&state=${unboundState}`);
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('Location')).toContain('github=expired');
+      expect(connectGithub).not.toHaveBeenCalled();
+    });
+
+    it('connects when the state is bound to the session bucket', async () => {
+      const app = createApp();
+      const boundState = await signOauthState(TEST_SECRET, 'bucket-victim');
+      const res = await app.request(`/connect/callback?code=valid-code&state=${boundState}`);
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('Location')).toContain('github=connected');
+      expect(connectGithub).toHaveBeenCalledWith(expect.anything(), 'bucket-victim', 'valid-code', expect.any(String));
     });
   });
 

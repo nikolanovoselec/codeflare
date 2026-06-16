@@ -35,6 +35,7 @@ const sessionStoreState = vi.hoisted(() => ({
   presets: [] as Array<{ id: string; name: string; tabs: Array<{ id: string; command: string; label: string }>; createdAt: string }>,
   error: null as string | null,
   saasMode: false as boolean,
+  enterpriseMode: false as boolean,
   loadPresets: vi.fn(async () => undefined),
   saveBookmarkForSession: vi.fn(async () => ({ id: 'new-bookmark', name: 'My Bookmark', tabs: [], createdAt: new Date().toISOString() }) as { id: string; name: string; tabs: never[]; createdAt: string } | null),
   applyPresetToSession: vi.fn(async () => true),
@@ -61,6 +62,9 @@ vi.mock('../../stores/session', () => ({
     },
     get saasMode() {
       return sessionStoreState.saasMode;
+    },
+    get enterpriseMode() {
+      return sessionStoreState.enterpriseMode;
     },
     loadPresets: (...args: Parameters<typeof sessionStoreState.loadPresets>) =>
       sessionStoreState.loadPresets(...args),
@@ -92,6 +96,7 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     sessionStoreState.presets = [];
     sessionStoreState.error = null;
     sessionStoreState.saasMode = false;
+    sessionStoreState.enterpriseMode = false;
     isMobileMock.value = false;
     terminalStoreMock.authUrl = null;
     usageStateMock.value = { monthlySeconds: 0, monthlyQuotaSeconds: null };
@@ -670,20 +675,39 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
 
       expect(screen.queryByTestId('header-user-dropdown-profile')).not.toBeInTheDocument();
       expect(screen.queryByTestId('header-user-dropdown-usage')).not.toBeInTheDocument();
-      // Non-billing items remain present.
+      // Non-billing items remain present (Guided Setup shown outside enterprise).
       expect(screen.getByTestId('header-user-dropdown-onboarding')).toBeInTheDocument();
       expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
     });
 
     it('hides the Subscription and Usage menu items in enterprise mode', () => {
-      render(() => <Header {...defaultSessionProps} enterpriseMode={true} />);
+      sessionStoreState.enterpriseMode = true;
+      render(() => <Header {...defaultSessionProps} />);
 
       fireEvent.click(screen.getByTestId('header-user-menu'));
 
       expect(screen.queryByTestId('header-user-dropdown-profile')).not.toBeInTheDocument();
       expect(screen.queryByTestId('header-user-dropdown-usage')).not.toBeInTheDocument();
-      // Non-billing items remain present.
+      // Logout remains present.
+      expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
+    });
+  });
+
+  // REQ-ENTERPRISE-008: Guided Setup (per-user onboarding) is hidden in enterprise
+  // mode — enterprise instances are configured by an admin via Setup, not per-user.
+  describe('Guided Setup gating (enterprise)', () => {
+    it('shows Guided Setup outside enterprise mode', () => {
+      render(() => <Header {...defaultSessionProps} />);
+      fireEvent.click(screen.getByTestId('header-user-menu'));
       expect(screen.getByTestId('header-user-dropdown-onboarding')).toBeInTheDocument();
+    });
+
+    it('hides Guided Setup in enterprise mode', () => {
+      sessionStoreState.enterpriseMode = true;
+      render(() => <Header {...defaultSessionProps} />);
+      fireEvent.click(screen.getByTestId('header-user-menu'));
+      expect(screen.queryByTestId('header-user-dropdown-onboarding')).not.toBeInTheDocument();
+      // The rest of the dropdown still renders.
       expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
     });
   });

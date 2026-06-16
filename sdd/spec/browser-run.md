@@ -231,3 +231,44 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 **Status:** Implemented
 
 ---
+
+<!-- @test: web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx (REQ-BROWSER-007: Push & Deploy accordion gating -> AC2) -->
+<!-- @test: src/__tests__/routes/setup.test.ts (Feature A/C: enterprise groups chip list + dynamic routes > REQ-BROWSER-007: persists the Browser Rendering token + account id -> AC1) -->
+<!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-BROWSER-007: admin Browser Rendering token prefill (masked) -> AC1) -->
+<!-- @test: src/__tests__/lib/browser-render-token.test.ts (applyEnterpriseBrowserToken -> AC3) -->
+<!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (Browser Rendering token (enterprise admin-global) -> AC1) -->
+<!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring > advanced but no token: strips the browser-run/browser-e2e skills from both agents -> AC4) -->
+### REQ-BROWSER-007: Enterprise admin-configured Browser Rendering token
+
+<!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx -->
+<!-- @impl: src/routes/setup/index.ts -->
+<!-- @impl: web-ui/src/components/SettingsPanel.tsx -->
+<!-- @impl: src/lib/browser-render-token.ts::applyEnterpriseBrowserToken -->
+<!-- @impl: src/routes/container/lifecycle.ts -->
+<!-- @impl: entrypoint.sh -->
+
+**Intent:** In enterprise mode individual users do not manage deploy credentials, so the Cloudflare Browser Rendering token that browser-run needs is configured once by an admin in the Setup wizard and applied to every session — rather than each user pasting their own token into the per-user "Push & Deploy" settings accordion (which is hidden in enterprise). When no token is configured, the entire browser-run surface is withheld from the agents.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. The Setup wizard exposes (enterprise only) an admin-global Cloudflare Browser Rendering token + account id. The token is stored encrypted at rest (the same kv-crypto path as deploy-keys) and is masked on prefill — the wizard learns only whether a token is set, never its value; a blank or masked value on save leaves the stored token in place. <!-- @impl: src/routes/setup/index.ts --> <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx -->
+2. In enterprise mode the per-user "Push & Deploy" deploy-keys settings accordion is not rendered: GitHub is connected via the GitHub panel ([REQ-GITHUB-001](github.md#req-github-001-github-token-capture-and-storage)) and the Cloudflare token is the admin-global Setup value, so no per-user deploy-credential entry is shown. <!-- @impl: web-ui/src/components/SettingsPanel.tsx -->
+3. At session start in enterprise mode the admin-global token + account id override the (now unused) per-user Cloudflare deploy-key fields and reach the container as `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` via the existing env path; the GitHub token and every other field pass through unchanged. The narrowly-scoped (`Browser Rendering - Edit`) token is permitted in the container env — it grants only Browser Rendering, nothing the agent cannot already do through its own browser tools — so unlike the GitHub token it is not egress-injected. Non-enterprise modes are unchanged (per-user token via the accordion). <!-- @impl: src/lib/browser-render-token.ts::applyEnterpriseBrowserToken --> <!-- @impl: src/routes/container/lifecycle.ts -->
+4. When no Browser Rendering token is configured (any mode, or a non-advanced session), none of the browser-run surface is seeded to the agents: the `chrome-devtools` + `browser-run` MCP servers are not registered and the Pi native extension registers no tools (already gated), AND the `browser-run` / `browser-e2e` skills are stripped from both agents' skill dirs so an agent is never left with a skill for a tool it lacks. <!-- @impl: entrypoint.sh -->
+
+**Constraints:**
+
+- The admin token is shared across all enterprise users, so it must be scoped to `Browser Rendering - Edit` only ([REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template)); the wizard copy states this.
+- The skill-strip mirrors the consult-llm skill removal in `configure_consult_llm` (the same "no provider → no skill" parity, [REQ-AGENT-031](agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)).
+
+**Priority:** P2
+
+**Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template), [REQ-GITHUB-001](github.md#req-github-001-github-token-capture-and-storage), [REQ-SETUP-006](setup.md#req-setup-006-setup-streams-progress-via-ndjson)
+
+**Verification:** [Setup storage](../../src/__tests__/routes/setup.test.ts) + [masked prefill](../../src/__tests__/routes/setup/handlers.test.ts) + [enterprise injection](../../src/__tests__/lib/browser-render-token.test.ts) + [admin UI](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx) + [accordion hidden](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx) + [skill strip](../../host/__tests__/entrypoint-browser-run-mcp.test.js)
+
+**Status:** Implemented
+
+---

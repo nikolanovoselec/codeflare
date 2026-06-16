@@ -99,12 +99,25 @@ app.put('/', async (c) => {
   const updated: DeployKeys = { ...existing };
   let cloudflareAccounts: CloudflareAccount[] | undefined;
 
-  // GitHub token: null = delete, undefined = no change, string = validate + set
+  // GitHub token: null = delete, undefined = no change, string = validate + set.
+  // A manually-pasted token is marked source 'pat'; clearing also drops the
+  // OAuth/App-only fields so a later read/refresh can't act on stale metadata.
   if (body.githubToken === null) {
     delete updated.githubToken;
+    delete updated.githubTokenSource;
+    delete updated.githubRefreshToken;
+    delete updated.githubTokenExpiresAt;
+    delete updated.githubLogin;
   } else if (typeof body.githubToken === 'string') {
     await validateGithubToken(body.githubToken);
     updated.githubToken = body.githubToken;
+    updated.githubTokenSource = 'pat';
+    delete updated.githubRefreshToken;
+    delete updated.githubTokenExpiresAt;
+    // Drop a prior OAuth/App login handle: a pasted PAT may be a different
+    // account, and a PAT has no login metadata, so a stale githubLogin would
+    // make /api/github/status report the wrong account.
+    delete updated.githubLogin;
   }
 
   // Cloudflare token: null = delete, undefined = no change, string = validate + set

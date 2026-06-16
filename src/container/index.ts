@@ -31,6 +31,7 @@ import { toError, toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { isEnterpriseMode } from '../lib/subscription';
 import { INTERCEPTED_LLM_HOSTS } from '../llm-interceptor';
+import { interceptedGithubHosts } from '../github-interceptor';
 import {
   validateBucketNameInput,
   type ContainerEnvState,
@@ -169,6 +170,12 @@ export class container extends Container<Env> implements ContainerEnvState {
   _defaultReasoning: string | null = null;
   /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   _userTimezone: string | null = null;
+  /** REQ-GITHUB-004: one-shot clone directive (repo owner/name + optional ref),
+   * set at create→start. Instance memory only — buildEnvVars surfaces it as
+   * GIT_CLONE_REPO/GIT_CLONE_REF; not hydrated from storage on restart so the
+   * clone runs once. */
+  _gitCloneRepo: string | null = null;
+  _gitCloneRef: string | null = null;
   /**
    * Timestamp captured at the start of destroy(); read by onStop() to
    * log shutdown elapsed-ms. Helps telemetry decide whether the 135s
@@ -441,6 +448,14 @@ export class container extends Container<Env> implements ContainerEnvState {
    */
   private setupEnterpriseInterception(): void {
     if (!isEnterpriseMode(this.env)) return;
+    // Two independent egress-injection transports, each gated separately so one
+    // missing config (e.g. no AI Gateway) never disables the other.
+    this.wireLlmInterception();
+    this.wireGithubInterception();
+  }
+
+  /** Wire the LLM provider hosts -> LlmInterceptor (REQ-ENTERPRISE-004). */
+  private wireLlmInterception(): void {
     if (!this.env.AIG_GATEWAY_URL) {
       this.logger.warn('Enterprise mode active but AIG_GATEWAY_URL unset; skipping LLM interception');
       return;
@@ -470,6 +485,35 @@ export class container extends Container<Env> implements ContainerEnvState {
       this.logger.info('Enterprise LLM interception wired', { hostCount: INTERCEPTED_LLM_HOSTS.length });
     } catch (err) {
       this.logger.error('Failed to wire enterprise LLM interception', toError(err));
+    }
+  }
+
+  /**
+   * Wire the GitHub hosts -> GitHubInterceptor (REQ-GITHUB-003). The interceptor
+   * resolves the per-user token from the deploy-keys KV entry keyed by the BOUND
+   * session bucket (fixed here, never read from the request), so the real token
+   * never enters the container. Skipped without a bucket (no user to resolve).
+   */
+  private wireGithubInterception(): void {
+    const bucket = this._bucketName;
+    if (!bucket) {
+      this.logger.warn('Enterprise mode active but bucket name unset; skipping GitHub interception');
+      return;
+    }
+    const user = this._userEmail ?? bucket;
+    try {
+      const gctx = this.ctx as unknown as {
+        exports: { GitHubInterceptor(opts: { props: { user: string; bucket: string } }): Fetcher };
+        container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
+      };
+      const interceptor = gctx.exports.GitHubInterceptor({ props: { user, bucket } });
+      const hosts = interceptedGithubHosts(this.env);
+      for (const host of hosts) {
+        gctx.container?.interceptOutboundHttps(host, interceptor);
+      }
+      this.logger.info('Enterprise GitHub interception wired', { hostCount: hosts.length });
+    } catch (err) {
+      this.logger.error('Failed to wire enterprise GitHub interception', toError(err));
     }
   }
 

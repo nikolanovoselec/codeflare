@@ -1835,7 +1835,14 @@ configure_consult_llm() {
         ok=1
         echo "[entrypoint] consult-llm: Gemini -> API key"
     fi
-    [ "$ok" = "1" ] || { echo "[entrypoint] consult-llm: no usable provider; skipping"; return 0; }
+    if [ "$ok" != "1" ]; then
+        # No usable provider: strip the consult-llm skill so the agent is not left
+        # holding a skill for an MCP server that was never registered. Mirrors the
+        # enterprise branch above and the browser-run skill gate.
+        rm -rf "$USER_HOME/.claude/skills/consult-llm" "$USER_HOME/.pi/agent/skills/consult-llm" 2>/dev/null || true
+        echo "[entrypoint] consult-llm: no usable provider; skipping (skill not seeded)"
+        return 0
+    fi
 
     # consult-llm-mcp is installed globally at image build (Dockerfile, pinned +
     # shadow-tracked in bump-shadow-pins.yml), so the MCP server invokes the global
@@ -1972,13 +1979,17 @@ CA_TRUST_EOF
     # gateway route on egress. COPILOT_PROVIDER_TYPE defaults to "openai" (correct
     # for the gateway compat path), so it is left unset.
     #
-    # GH_TOKEN is intentionally LEFT in place (Option B): it powers Copilot's
-    # GitHub-hosted features (/delegate, GitHub MCP, Code Search) and git push.
-    # Per GitHub's docs a COMPLETE BYOK config is used for model requests
-    # regardless of GitHub auth status, so LLM traffic still flows to the gateway.
-    # Deterministic fallback if a deploy ever shows Copilot using GitHub-hosted
-    # models anyway: `export COPILOT_OFFLINE=true` (gateway-only; that also
-    # disables the GitHub-hosted features above).
+    # GH_TOKEN here is a NON-SECRET placeholder (REQ-GITHUB-003): buildEnvVars
+    # emits the constant placeholder in enterprise mode instead of the real token,
+    # so the real per-user credential never enters the container. It still powers
+    # Copilot's GitHub-hosted features (/delegate, GitHub MCP, Code Search) and git
+    # push because those hit github.com / api.github.com, where the DO's
+    # GitHubInterceptor (src/github-interceptor.ts) strips the placeholder and
+    # stamps the real per-user token at the boundary. Per GitHub's docs a COMPLETE
+    # BYOK config is used for model requests regardless of GitHub auth status, so
+    # LLM traffic still flows to the gateway. Deterministic fallback if a deploy
+    # ever shows Copilot using GitHub-hosted models anyway: `export
+    # COPILOT_OFFLINE=true` (gateway-only; that also disables the GitHub features above).
     export COPILOT_PROVIDER_BASE_URL="https://api.openai.com/v1"
     export COPILOT_PROVIDER_API_KEY="$ENTERPRISE_PLACEHOLDER_TOKEN"
     export COPILOT_MODEL="$ENTERPRISE_DEFAULT_ROUTE"
@@ -2368,6 +2379,16 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
         echo "$BROWSER_RUN_MCP_CLAUDE" | jq '.' > "$USER_CLAUDE_JSON"
     fi
     echo "[entrypoint] browser-run MCP server registered in .claude.json (Cloudflare Browser Run markdown/content/scrape)"
+else
+    # No Browser Run token configured (or not an advanced session): do not leave the
+    # agents holding skills for browser tools they cannot use (REQ-BROWSER-007). The
+    # MCP servers above already self-gate on the token and Pi's browser-run extension
+    # registers nothing without it; but the browser-run / browser-e2e SKILL.md files
+    # are seeded unconditionally by the agent-config sync, so strip them here. Mirrors
+    # the consult-llm skill removal in configure_consult_llm.
+    rm -rf "$USER_HOME/.claude/skills/browser-run" "$USER_HOME/.claude/skills/browser-e2e" \
+           "$USER_HOME/.pi/agent/skills/browser-run" "$USER_HOME/.pi/agent/skills/browser-e2e" 2>/dev/null || true
+    echo "[entrypoint] Browser Run not configured; browser-run/browser-e2e skills not seeded"
 fi
 
 # Configure Claude Code settings.json with hooks (advanced) or just settings (default)
@@ -2607,6 +2628,39 @@ else
     # run their normal update path.
     if [ -f "$USER_HOME/.codex/version.json" ] && grep -q '"dismissed_version"[[:space:]]*:[[:space:]]*"999\.0\.0"' "$USER_HOME/.codex/version.json"; then
         rm -f "$USER_HOME/.codex/version.json"
+    fi
+fi
+
+# REQ-GITHUB-004: one-shot repo clone at container start. Runs AFTER the git
+# credential helper above (so private repos authenticate via $GH_TOKEN, or the
+# enterprise egress GitHubInterceptor injects the real token) and BEFORE
+# configure_tab_autostart launches the agent, so the workspace is populated when
+# the user lands. Best-effort: a clone failure is logged but never aborts start.
+if [ -n "${GIT_CLONE_REPO:-}" ]; then
+    clone_repo="${GIT_CLONE_REPO%.git}"
+    # Defense-in-depth: re-validate repo/ref shape here (mirrors
+    # host/src/git-clone.ts) so the new-session path fails closed like the
+    # running-session path; rejects an option-leading dash in the ref and a
+    # . / .. repo name that would escape the workspace dir.
+    if ! printf '%s' "$clone_repo" | grep -qE '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$' \
+       || [ "${clone_repo##*/}" = '.' ] || [ "${clone_repo##*/}" = '..' ] \
+       || { [ -n "${GIT_CLONE_REF:-}" ] && ! printf '%s' "$GIT_CLONE_REF" | grep -qE '^[A-Za-z0-9._/][A-Za-z0-9._/-]*$'; }; then
+        echo "[entrypoint] Skipping clone: invalid repo/ref"
+    else
+        repo_name="${clone_repo##*/}"
+        CLONE_DIR="$USER_WORKSPACE/$repo_name"
+        if [ -e "$CLONE_DIR" ]; then
+            echo "[entrypoint] Skipping clone: $CLONE_DIR already exists (collision refuse)"
+        else
+            echo "[entrypoint] Cloning $clone_repo into $CLONE_DIR"
+            if [ -n "${GIT_CLONE_REF:-}" ]; then
+                git clone --branch "$GIT_CLONE_REF" -- "https://${GITHUB_HOST:-github.com}/${clone_repo}.git" "$CLONE_DIR" \
+                    || echo "[entrypoint] clone failed for $clone_repo (ref $GIT_CLONE_REF); continuing startup"
+            else
+                git clone -- "https://${GITHUB_HOST:-github.com}/${clone_repo}.git" "$CLONE_DIR" \
+                    || echo "[entrypoint] clone failed for $clone_repo; continuing startup"
+            fi
+        fi
     fi
 fi
 

@@ -15,6 +15,7 @@ Complete API endpoint reference for the Codeflare Worker.
 - [Admin](#admin)
 - [Billing](#billing)
 - [Deploy Keys](#deploy-keys)
+- [GitHub Integration](#github-integration)
 - [Public (Unauthenticated)](#public-unauthenticated)
 - [Discoverability Documents](#discoverability-documents)
 - [Setup](#setup)
@@ -130,6 +131,26 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 | GET | `/api/deploy-keys` | Session cookie | [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push-deploy-credential-management-ui) | Get encrypted deploy credentials (masked) |
 | PUT | `/api/deploy-keys` | Session cookie | [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push-deploy-credential-management-ui) | Save/update deploy credentials (GitHub PAT, CF API token) |
 | DELETE | `/api/deploy-keys` | Session cookie | [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push-deploy-credential-management-ui) | Erase all deploy credentials |
+
+### GitHub Integration
+
+The GitHub panel (Connect, repository list, clone). Mounted at `/api/github` (`src/routes/github.ts`); the OAuth callback is mounted separately under `/auth/github` (documented in its own table below). **Availability is enterprise-only** (`githubFeatureEnabled` = `isEnterpriseMode`, [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) AC3): in non-enterprise modes `/status` returns `{ enabled: false }` and the other routes return `403 GITHUB_DISABLED`. Broadening the gate is tracked by [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) (Planned). The token is never returned to the browser — `/repos` proxies GitHub server-side.
+
+| Method | Endpoint | Auth | Implements | Description |
+|--------|----------|------|------------|-------------|
+| GET | `/api/github/status` | Session cookie | [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) | Connection state (`enabled`, `configured`, `connected`, `login`, `source`); never the token |
+| GET | `/api/github/repos` | Session cookie | [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) | The user's accessible repos (owner + collaborator + org member), server-side proxy; `?page=<n>` paginates, 50/page (rate-limited 60/min); `401 NOT_CONNECTED` when no token |
+| GET | `/api/github/connect` | Session cookie | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) | Start the provider authorize flow (302 to GitHub); `503 GITHUB_NOT_CONFIGURED` when no provider configured (rate-limited 20/min) |
+| POST | `/api/github/disconnect` | Session cookie | [REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation) | Revoke at GitHub (App/OAuth) and clear the stored token (rate-limited 20/min) |
+| POST | `/api/github/clone` | Session cookie | [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session) | Clone `{repo, ref?, sessionId}` into a **running** session's workspace; relays the container's outcome verbatim (`200` cloned / `409 CLONE_TARGET_EXISTS` / `502 CLONE_FAILED` / `504`); `503 NOT_RUNNING` when the container is asleep (rate-limited 20/min) |
+
+The OAuth callback is mounted separately under `/auth/github` (`src/routes/github-auth.ts`, registered via `app.route('/auth/github', githubAuthRoutes)` in `src/index.ts`) — it is **not** an `/api/github` route:
+
+| Method | Endpoint | Auth | Implements | Description |
+|--------|----------|------|------------|-------------|
+| GET | `/auth/github/connect/callback` | Session cookie | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) | Connect-GitHub callback (distinct from the SaaS-login `/auth/github/callback`): re-derives identity from the live session, verifies the bucket-bound OAuth state, exchanges the code, and persists the repo token to the deploy-keys entry; never mints a session cookie. The GitHub App / OAuth App registers this exact URL. |
+
+The **new-session** clone path is not a GitHub route: `POST /api/sessions` accepts an optional `clone: { repo, ref? }` field ([REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session)) that clones the repo into the workspace before the agent process starts.
 
 ### Public (Unauthenticated)
 

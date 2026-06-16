@@ -324,9 +324,9 @@ async function loadSessions(): Promise<void> {
   }
 }
 
-async function createSession(name: string, agentType?: AgentType, tabConfig?: TabConfig[]): Promise<SessionWithStatus | null> {
+async function createSession(name: string, agentType?: AgentType, tabConfig?: TabConfig[], clone?: api.CreateSessionClone): Promise<SessionWithStatus | null> {
   try {
-    const session = await api.createSession(name, agentType, tabConfig);
+    const session = await api.createSession(name, agentType, tabConfig, clone);
     const sessionWithStatus: SessionWithStatus = {
       ...session,
       status: 'stopped',
@@ -341,6 +341,25 @@ async function createSession(name: string, agentType?: AgentType, tabConfig?: Ta
     setState('error', err instanceof Error ? err.message : 'Failed to create session');
     return null;
   }
+}
+
+// Create a new session that clones `repo` at container start, then open it via
+// the same create → activate → start path the dashboard "New Session" flow uses
+// (mirrors Layout.handleCreateSession). `ref` is omitted so the backend clones
+// the repo's default branch. Returns the session, or null on create failure.
+async function createSessionWithClone(repo: string, agentType?: AgentType): Promise<SessionWithStatus | null> {
+  // Name the session after the repo (owner/name -> name). An empty name would be
+  // rejected by the backend (name is min(1) when present; only OMISSION falls
+  // back to "Terminal"), and the repo name is a more useful label anyway.
+  const name = repo.split('/')[1] || repo;
+  const session = await createSession(name, agentType, undefined, { repo });
+  if (!session) return null;
+  setActiveSession(session.id);
+  if (agentType) {
+    void updateUserPreferences({ lastAgentType: agentType });
+  }
+  await startSession(session.id);
+  return session;
 }
 
 async function renameSession(id: string, name: string): Promise<void> {
@@ -568,6 +587,7 @@ export const sessionStore = {
   stopSessionListPolling,
   loadSessions,
   createSession,
+  createSessionWithClone,
   renameSession,
   deleteSession,
   startSession,

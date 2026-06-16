@@ -1,7 +1,8 @@
 import { Component, Show, For, onMount, createSignal, createMemo, createEffect } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { mdiXml, mdiCogOutline, mdiShieldAccount, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout } from '@mdi/js';
+import { mdiXml, mdiCogOutline, mdiShieldAccount, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout, mdiFlipVertical } from '@mdi/js';
 import Icon from './Icon';
+import IconButton from './ui/IconButton';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import { storageStore } from '../stores/storage';
 import { getDownloadUrl } from '../api/storage';
@@ -10,6 +11,7 @@ import SessionStatCard from './SessionStatCard';
 import SessionContextMenu from './SessionContextMenu';
 import StatCards from './StatCards';
 import StorageBrowser from './StorageBrowser';
+import GitHubPanel from './github/GitHubPanel';
 import FilePreview from './FilePreview';
 import CreateSessionDialog from './CreateSessionDialog';
 import SessionLimitPopup from './SessionLimitPopup';
@@ -37,6 +39,9 @@ interface DashboardProps {
 
 const Dashboard: Component<DashboardProps> = (props) => {
   const [collapseReady, setCollapseReady] = createSignal(false);
+  // Mobile-only: which right-column face is shown (GitHub vs R2 storage). The
+  // flip control in each panel header toggles it; desktop shows both stacked.
+  const [panelFace, setPanelFace] = createSignal<'github' | 'storage'>('github');
   const [showCreateDialog, setShowCreateDialog] = createSignal(false);
   const [showLimitPopup, setShowLimitPopup] = createSignal(false);
   const [showUserMenu, setShowUserMenu] = createSignal(false);
@@ -312,8 +317,19 @@ const Dashboard: Component<DashboardProps> = (props) => {
             </div>
           </div>
 
-          {/* Right Column */}
-          <div class="dashboard-panel-right" data-testid="dashboard-panel-right">
+          {/* Right Column — on mobile the two panels flip; on desktop they stack. */}
+          <div class="dashboard-panel-right" data-testid="dashboard-panel-right" data-face={panelFace()}>
+            <div class="panel-flip-face panel-flip-face--github" data-active={panelFace() === 'github'}>
+              <GitHubPanel onFlip={() => setPanelFace('storage')} />
+            </div>
+            <div class="panel-flip-face panel-flip-face--storage" data-active={panelFace() === 'storage'}>
+              <IconButton
+                icon={mdiFlipVertical}
+                label="Show GitHub"
+                onClick={() => setPanelFace('github')}
+                class="panel-flip-back-btn"
+                testId="storage-flip-btn"
+              />
             <Show when={sessionStore.r2Ready} fallback={
               <div class="storage-skeleton" data-testid="storage-skeleton">
                 <div class="storage-skeleton-header">
@@ -339,6 +355,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                 <FilePreview file={storageStore.previewFile} onBack={handlePreviewBack} onDownload={handlePreviewDownload} />
               </Show>
             </Show>
+            </div>
           </div>
         </div>
 

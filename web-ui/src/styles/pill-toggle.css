@@ -1,0 +1,37 @@
+/* Toggleable pill multi-select. Selected = green, deselected = gray. */
+.pill-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  border: 1px solid var(--color-border-subtle);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.pill--off {
+  background: rgba(24, 24, 27, 0.82);
+  color: var(--color-text-secondary);
+}
+
+.pill--off:hover:not(:disabled) {
+  color: var(--color-text-primary);
+}
+
+.pill--on {
+  background: var(--color-success-bg);
+  border-color: var(--color-success);
+  color: var(--color-text-primary);
+}
+
+.pill:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

@@ -1277,6 +1277,72 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       // session keeps its per-group attribution.
       expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch', groups: ['codeflare_admins'] } });
     });
+
+    it('REQ-GITHUB-003: wires the GitHubInterceptor for the github hosts with the per-session user + bucket props', async () => {
+      callOrder.length = 0;
+      const llmFetcher = { id: 'llm-interceptor-fetcher' };
+      const githubFetcher = { id: 'github-interceptor-fetcher' };
+      const LlmInterceptor = vi.fn(() => llmFetcher);
+      const GitHubInterceptor = vi.fn(() => githubFetcher);
+      const interceptOutboundHttps = vi.fn();
+      const ctx = {
+        ...mockCtx,
+        container: { ...mockContainerRuntime, interceptOutboundHttps },
+        exports: { LlmInterceptor, GitHubInterceptor },
+      };
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'userEmail') return 'nikola@novoselec.ch';
+        if (key === 'bucketName') return 'codeflare-enterprise-nikola-novoselec-ch';
+        return null;
+      });
+      const instance = new ContainerClass(ctx as any, enterpriseEnv());
+      // Wait for userEmail (loaded AFTER bucketName in the constructor) so _bucketName
+      // is guaranteed assigned before we wire interception.
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('userEmail');
+      });
+
+      await instance.startAndWaitForPorts(8080);
+
+      // The GitHub interceptor is bound to the per-session identity: the user email
+      // for audit + the bucket as the SOLE token-resolution key (no request input).
+      expect(GitHubInterceptor).toHaveBeenCalledWith({
+        props: { user: 'nikola@novoselec.ch', bucket: 'codeflare-enterprise-nikola-novoselec-ch' },
+      });
+      // Both github hosts route to the github fetcher (never the llm fetcher).
+      expect(interceptOutboundHttps).toHaveBeenCalledWith('github.com', githubFetcher);
+      expect(interceptOutboundHttps).toHaveBeenCalledWith('api.github.com', githubFetcher);
+    });
+
+    it('REQ-GITHUB-003: still wires GitHub interception when the AI gateway is unconfigured (independent transports)', async () => {
+      const githubFetcher = { id: 'github-interceptor-fetcher' };
+      const GitHubInterceptor = vi.fn(() => githubFetcher);
+      const interceptOutboundHttps = vi.fn();
+      const ctx = {
+        ...mockCtx,
+        container: { ...mockContainerRuntime, interceptOutboundHttps },
+        // No LlmInterceptor wiring possible (gateway unset), but GitHub must still wire.
+        exports: { LlmInterceptor: vi.fn(), GitHubInterceptor },
+      };
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'userEmail') return 'nikola@novoselec.ch';
+        if (key === 'bucketName') return 'codeflare-enterprise-nikola-novoselec-ch';
+        return null;
+      });
+      // Enterprise mode on, but AIG_GATEWAY_URL / AIG_TOKEN absent.
+      const instance = new ContainerClass(ctx as any, { ...mockEnv, ENTERPRISE_MODE: 'active' } as any);
+      // Wait for userEmail (loaded after bucketName) so _bucketName is set before wiring.
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('userEmail');
+      });
+
+      await instance.startAndWaitForPorts(8080);
+
+      expect(GitHubInterceptor).toHaveBeenCalledWith({
+        props: { user: 'nikola@novoselec.ch', bucket: 'codeflare-enterprise-nikola-novoselec-ch' },
+      });
+      expect(interceptOutboundHttps).toHaveBeenCalledWith('api.github.com', githubFetcher);
+    });
   });
 
   describe('onStart lifecycle', () => {

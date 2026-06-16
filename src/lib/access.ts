@@ -569,6 +569,26 @@ export async function resolveSessionAccessGroup(request: Request, env: Env): Pro
 }
 
 /**
+ * Resolve which configured ADMIN Access groups the current request's user belongs
+ * to. Parallel to {@link resolveSessionAccessGroup} but reads
+ * SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP — membership grants admin (= Setup
+ * access in enterprise). Enterprise-mode only; returns [] when not enterprise,
+ * when no admin groups are configured, or when the user matches none. Live (no
+ * caching) so removing a user from the admin group revokes their Setup access on
+ * the very next request. Fails CLOSED. Invoked only from {@link requireAdmin}, so
+ * the at-most-one get-identity fetch is confined to admin-gated routes (rare) and
+ * every non-admin request stays byte-identical. REQ-ENTERPRISE-014.
+ */
+export async function resolveAdminAccessGroup(request: Request, env: Env): Promise<string[]> {
+  if (!isEnterpriseMode(env)) return [];
+  const adminGroups = parseAccessGroups(await env.KV.get(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP));
+  if (adminGroups.length === 0) return [];
+  const { authDomain } = await loadAuthConfig(env);
+  const accessToken = extractAccessJwt(request);
+  return resolveUserAccessGroup(accessToken, authDomain, adminGroups);
+}
+
+/**
  * Resolve the enterprise dynamic-route config from Setup→KV for the container:
  * the full route catalog (Pi models.json lists all routes), the resolved default
  * route (Copilot COPILOT_MODEL + Pi defaultModel), and its reasoning grade (Pi
@@ -584,31 +604,90 @@ export async function resolveSessionAccessGroup(request: Request, env: Env): Pro
  */
 export async function loadEnterpriseRouteConfig(
   env: Env,
+  groups?: string[],
 ): Promise<{ routeCatalog: string[]; defaultRoute: string; defaultReasoning: string }> {
   if (!isEnterpriseMode(env)) return { routeCatalog: [], defaultRoute: '', defaultReasoning: '' };
+  return resolveRouteCatalog(env.KV, groups);
+}
+
+/** Per-group routing entry persisted under SETUP_KEYS.GROUP_ROUTING (REQ-ENTERPRISE-013). */
+interface GroupRoutingEntry {
+  routes: string[];
+  defaultRoute: string;
+  reasoning: string;
+}
+
+/**
+ * Apply the locked default-route rule to a (catalog, configuredDefault, reasoning)
+ * triple: the explicit default when it is in the catalog (keeping its reasoning grade);
+ * else the first catalog route with reasoning OFF (a drifted/unset default never
+ * inherits the discarded route's reasoning); else '' for an empty catalog.
+ */
+function applyDefaultDrift(
+  routeCatalog: string[],
+  configuredDefault: string | null,
+  defaultReasoning: string,
+): { routeCatalog: string[]; defaultRoute: string; defaultReasoning: string } {
+  if (configuredDefault !== null && routeCatalog.includes(configuredDefault)) {
+    return { routeCatalog, defaultRoute: configuredDefault, defaultReasoning };
+  }
+  return { routeCatalog, defaultRoute: routeCatalog[0] ?? '', defaultReasoning: '' };
+}
+
+/**
+ * Shared route-catalog resolver — the SINGLE source of truth used by both the
+ * container env fan ({@link loadEnterpriseRouteConfig}) and the interceptor's
+ * per-request mapping ({@link LlmInterceptor} `loadRouteCatalog`), so the two can
+ * never drift. NOT enterprise-gated (callers gate); reads KV directly.
+ *
+ * REQ-ENTERPRISE-013: when SETUP_KEYS.GROUP_ROUTING is configured and the user matches
+ * a configured group (groups arrive in configured-list order from
+ * {@link resolveUserAccessGroup}), the FIRST matched group with a non-empty route set
+ * overrides the global catalog/default for that user. No groups / no match ⇒ the global
+ * SETUP_KEYS.DYNAMIC_ROUTES + DEFAULT_ROUTE, byte-identical to pre-feature behavior.
+ */
+export async function resolveRouteCatalog(
+  kv: KVNamespace,
+  groups?: string[],
+): Promise<{ routeCatalog: string[]; defaultRoute: string; defaultReasoning: string }> {
+  if (groups && groups.length > 0) {
+    let groupRouting: Record<string, GroupRoutingEntry> | null = null;
+    try {
+      const raw = await kv.get(SETUP_KEYS.GROUP_ROUTING);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        groupRouting = parsed as Record<string, GroupRoutingEntry>;
+      }
+    } catch { /* malformed → no per-group override */ }
+    if (groupRouting) {
+      for (const g of groups) {
+        const entry = groupRouting[g];
+        if (entry && Array.isArray(entry.routes) && entry.routes.length > 0) {
+          const routes = entry.routes.filter((r): r is string => typeof r === 'string');
+          const def = typeof entry.defaultRoute === 'string' ? entry.defaultRoute : null;
+          const reasoning = typeof entry.reasoning === 'string' ? entry.reasoning : '';
+          return applyDefaultDrift(routes, def, reasoning);
+        }
+      }
+    }
+  }
+
   let routeCatalog: string[] = [];
   try {
-    const p = JSON.parse((await env.KV.get(SETUP_KEYS.DYNAMIC_ROUTES)) ?? '[]');
+    const p = JSON.parse((await kv.get(SETUP_KEYS.DYNAMIC_ROUTES)) ?? '[]');
     if (Array.isArray(p)) routeCatalog = p.filter((r): r is string => typeof r === 'string');
   } catch { /* malformed → empty */ }
   let configuredDefault: string | null = null;
   let defaultReasoning = '';
   try {
-    const d = JSON.parse((await env.KV.get(SETUP_KEYS.DEFAULT_ROUTE)) ?? 'null');
+    const d = JSON.parse((await kv.get(SETUP_KEYS.DEFAULT_ROUTE)) ?? 'null');
     if (d && typeof d === 'object') {
       const rec = d as { route?: unknown; reasoning?: unknown };
       if (typeof rec.route === 'string') configuredDefault = rec.route;
       if (typeof rec.reasoning === 'string') defaultReasoning = rec.reasoning;
     }
   } catch { /* malformed → none */ }
-  // The reasoning level belongs to the configured default route. If that route is
-  // not in the catalog (drift), we fall back to the first catalog route AND drop the
-  // reasoning — applying the discarded route's reasoning to the fallback is wrong;
-  // an unset default resolves to the first route with reasoning off (spec C5).
-  if (configuredDefault !== null && routeCatalog.includes(configuredDefault)) {
-    return { routeCatalog, defaultRoute: configuredDefault, defaultReasoning };
-  }
-  return { routeCatalog, defaultRoute: routeCatalog[0] ?? '', defaultReasoning: '' };
+  return applyDefaultDrift(routeCatalog, configuredDefault, defaultReasoning);
 }
 
 /**
@@ -659,7 +738,14 @@ export async function resolveOrProvisionEnterpriseUser(
   // user in ANY configured group may use the deployment (REQ-ENTERPRISE-010).
   const configuredGroups = parseAccessGroups(await kv.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP));
   if (configuredGroups.length > 0) {
-    const matchedGroups = await resolveUserAccessGroup(accessToken, authDomain, configuredGroups);
+    // REQ-ENTERPRISE-014: an admin-group member must be admitted even when they
+    // belong to no user-access group, so the gate tests membership against the union
+    // of user + admin groups. Admin groups never turn the gate ON by themselves —
+    // that stays conditioned on a non-empty ENTERPRISE_ACCESS_GROUP above, so a deploy
+    // with only admin groups configured leaves entry open (byte-identical to before).
+    const adminGroups = parseAccessGroups(await kv.get(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP));
+    const gateGroups = adminGroups.length > 0 ? [...configuredGroups, ...adminGroups] : configuredGroups;
+    const matchedGroups = await resolveUserAccessGroup(accessToken, authDomain, gateGroups);
     if (matchedGroups.length === 0) {
       throw new ForbiddenError('User not in allowlist');
     }

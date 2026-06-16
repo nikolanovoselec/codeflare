@@ -87,6 +87,18 @@ export interface Env {
   OAUTH_CLIENT_SECRET?: string;   // OAuth App client secret (wrangler secret)
   OAUTH_JWT_SECRET?: string;             // HMAC-SHA256 signing key for session JWTs (wrangler secret)
 
+  // GitHub App (enterprise / EMU). When set, the GitHub integration uses the App
+  // user-to-server provider (refreshable ~8h tokens, acts AS the user) instead of
+  // the OAuth App. Register an INTERNAL GitHub App in the customer's enterprise and
+  // install it on the org; we only need the client credentials (no private key —
+  // user-to-server tokens only).
+  GITHUB_APP_CLIENT_ID?: string;     // GitHub App client ID (wrangler.toml var, public)
+  GITHUB_APP_CLIENT_SECRET?: string; // GitHub App client secret (wrangler secret)
+  // Optional GitHub host overrides for data-residency (*.ghe.com) tenants.
+  // Default to public github.com / api.github.com.
+  GITHUB_HOST?: string;       // web host for OAuth authorize/token (default github.com)
+  GITHUB_API_HOST?: string;   // REST API host (default api.github.com)
+
   // Timekeeper Durable Object for per-user usage tracking
   TIMEKEEPER?: DurableObjectNamespace;
 
@@ -142,6 +154,8 @@ export interface Session {
   lastActiveAt?: string;
   agentType?: AgentType;
   tabConfig?: TabConfig[];
+  /** REQ-GITHUB-004: GitHub repo to clone into the workspace at container start. */
+  clone?: { repo: string; ref?: string };
   metrics?: {
     cpu?: string;
     mem?: string;
@@ -278,6 +292,18 @@ export interface DeployKeys {
    * `null` field revokes the previously-injected value. Distinguish the two.
    */
   githubToken?: string | null;
+  /**
+   * How `githubToken` was obtained. `'pat'` = manually pasted fine-grained PAT;
+   * `'oauth'` = OAuth App token (long-lived); `'app'` = GitHub App user-to-server
+   * token (refreshable). Drives the refresh + revoke paths. `null`/absent ⇒ `'pat'`.
+   */
+  githubTokenSource?: 'app' | 'oauth' | 'pat' | null;
+  /** GitHub App user-to-server refresh token (source `'app'` only). */
+  githubRefreshToken?: string | null;
+  /** Epoch ms when `githubToken` expires (source `'app'` only). */
+  githubTokenExpiresAt?: number | null;
+  /** Connected GitHub login (handle) for display. Never a secret. */
+  githubLogin?: string | null;
   /** Cloudflare API token. `null` clears (see githubToken). */
   cloudflareApiToken?: string | null;
   /** Cloudflare account ID. `null` clears (see githubToken). */
@@ -330,6 +356,9 @@ export interface ContainerConfigPayload {
   defaultReasoning?: string;
   /** REQ-MEM-001 AC4: user's IANA timezone forwarded to the container. */
   userTimezone?: string;
+  /** REQ-GITHUB-004: one-shot GitHub clone directive forwarded to the container. */
+  gitCloneRepo?: string;
+  gitCloneRef?: string;
 }
 
 interface StorageObject {

@@ -99,6 +99,17 @@
   background: rgba(5, 5, 8, 0.9);
 }
 
+/* Panel flip (GitHub ↔ R2). Desktop: faces are transparent wrappers so both
+   panels stack exactly as before, and the flip-back control is hidden. Mobile
+   rules below show one face at a time with a flip-in animation. */
+.panel-flip-face {
+  display: contents;
+}
+
+.panel-flip-back-btn {
+  display: none;
+}
+
 /* New Session Wrapper (for dialog positioning) */
 .dashboard-new-session-wrapper {
   position: relative;
@@ -195,5 +206,36 @@
     min-height: 300px;
     max-height: 50vh;
     overflow: hidden;
+  }
+
+  /* Mobile: one face at a time; flipping swaps GitHub ↔ R2 with an up→down flip. */
+  .panel-flip-face {
+    display: none;
+  }
+
+  .panel-flip-face[data-active="true"] {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    transform-origin: top center;
+    animation: panel-flip-in 260ms ease;
+  }
+
+  .panel-flip-back-btn {
+    display: flex;
+    align-self: flex-end;
+    margin: var(--space-2) var(--space-3) 0;
+  }
+}
+
+@keyframes panel-flip-in {
+  from { transform: rotateX(-90deg); opacity: 0; }
+  to { transform: rotateX(0); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-flip-face[data-active="true"] {
+    animation: none;
   }
 }

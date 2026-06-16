@@ -19,11 +19,13 @@ import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { parse as parseUrl } from 'node:url';
 import fs from 'node:fs';
+import { spawn } from 'node:child_process';
 import { createActivityTracker } from './activity-tracker.js';
 import { getPrewarmConfig } from './prewarm-config.js';
 import { getSyncStatus, getSystemMetrics } from './metrics.js';
 import { checkContainerAuth } from './auth-check.js';
 import { evaluateFinalSync } from './final-sync.js';
+import { resolveGitClone, resolveWorkspaceRoot, buildCloneArgs } from './git-clone.js';
 import { Session } from './session.js';
 import { SessionManager, PREWARM_SESSION_ID } from './session-manager.js';
 import type { LogLevel, Logger, WsEventLogger, WsEvent, TabConfigEntry, ActivityTracker, SessionOptions } from './types.js';
@@ -341,6 +343,84 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
       res.writeHead(503, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'not-running', error: 'sync daemon not started' }));
     }
+    return;
+  }
+
+  // REQ-GITHUB-004: live clone into a running container's workspace. Mirrors the
+  // new-session entrypoint clone, but for an already-running session reached via
+  // POST /api/github/clone -> DO -> here. Already behind the REQ-SEC-012 auth
+  // gate above. The repo/ref validation + dir computation are the pure
+  // resolveGitClone() helper (git-clone.ts) so this handler owns only fs/spawn
+  // I/O. git runs as an argv (never a shell string) and auth flows through the
+  // container's existing credential helper ($GH_TOKEN / enterprise interceptor).
+  if (pathname === '/internal/git-clone' && method === 'POST') {
+    const MAX_BODY_SIZE = 8 * 1024;
+    let body = '';
+    let bodySize = 0;
+    let tooLarge = false;
+    req.on('data', (chunk: Buffer) => {
+      bodySize += chunk.length;
+      if (bodySize > MAX_BODY_SIZE) {
+        tooLarge = true;
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Request body too large' }));
+        req.destroy();
+        return;
+      }
+      body += chunk;
+    });
+    req.on('end', () => {
+      if (tooLarge) return;
+      let parsed: { repo?: unknown; ref?: unknown };
+      try {
+        parsed = JSON.parse(body || '{}') as { repo?: unknown; ref?: unknown };
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON', code: 'INVALID_BODY' }));
+        return;
+      }
+      const resolution = resolveGitClone(parsed.repo, parsed.ref, resolveWorkspaceRoot(process.env));
+      if (!resolution.ok) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: resolution.error, code: 'INVALID_REQUEST' }));
+        return;
+      }
+      // Collision refuse: never overwrite an existing path.
+      if (fs.existsSync(resolution.dir)) {
+        res.writeHead(409, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Clone target already exists', code: 'CLONE_TARGET_EXISTS', path: resolution.dir }));
+        return;
+      }
+      const args = buildCloneArgs(resolution.repo, resolution.ref, resolution.dir, process.env.GITHUB_HOST || 'github.com');
+      const child = spawn('git', args);
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        child.kill('SIGKILL');
+        res.writeHead(504, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Clone timed out', code: 'CLONE_TIMEOUT' }));
+      }, 120_000);
+      child.on('error', () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Clone failed to start', code: 'CLONE_FAILED' }));
+      });
+      child.on('close', (code) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (code === 0) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ status: 'cloned', path: resolution.dir }));
+        } else {
+          res.writeHead(502, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Clone failed', code: 'CLONE_FAILED' }));
+        }
+      });
+    });
     return;
   }
 

@@ -16,6 +16,7 @@ For authentication modes and user identity flow, see [Authentication](authentica
 - [Onboarding Access Request (OAuth-Gated)](#onboarding-access-request-oauth-gated)
 - [API Token Containment](#api-token-containment)
 - [Enterprise Mode: Credential Containment and CA Trust](#enterprise-mode-credential-containment-and-ca-trust)
+- [GitHub Token Handling](#github-token-handling)
 - [Container Auth Token (REQ-SEC-012)](#container-auth-token-req-sec-012)
 - [Dual R2 Credential Architecture](#dual-r2-credential-architecture)
 - [Graceful Shutdown](#graceful-shutdown)
@@ -35,6 +36,10 @@ All authenticated surfaces (`/app`, `/api`, `/setup`) are protected by one of tw
 
 In SaaS mode the Cloudflare service token (`CF-Access-Client-Id`/`CF-Access-Client-Secret`) is accepted only for unattended admin automation and is never treated as a user identity (see [AD68](../decisions/README.md#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted) and [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-e2e-testing), [REQ-AUTH-011](../../sdd/spec/authentication.md#req-auth-011-auth-resolution-order)); user-facing surfaces still require a session cookie.
 
+### Admin elevation via Access group (enterprise)
+
+Admin authorization is normally a durable KV `role:'admin'` record (the Setup Admin Users list). In enterprise mode it can additionally be granted by Cloudflare Access group membership (`setup:enterprise_admin_access_group`), resolved **live** inside `requireAdmin` ([REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups)). Security properties: the get-identity membership check runs only on admin-gated routes (never the hot auth path) and short-circuits for an already-admin user, so the attack/cost surface is unchanged for non-admin traffic; the elevation lives only on the request context (no `role:'admin'` record is written), so removing a user from the group revokes admin access on the **next** request with no residue; and the check **fails closed** (treated as non-member) on any missing token, non-`*.cloudflareaccess.com` domain, or fetch error — an admin gate never elevates on uncertainty. The SSRF host guard on the get-identity domain is shared with the JIT gate ([REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning)).
+
 ## Onboarding Access Request (OAuth-Gated)
 
 In onboarding mode, a GitHub OAuth callback that resolves to a non-approved user records an access request and emails the operators ([REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-and-access-request-flow)). This auto-request path applies **no** Turnstile re-challenge — unlike the public contact / waitlist relay ([REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline)), where the submitter is anonymous and CAPTCHA is the abuse gate. Here the request is only reachable after a completed GitHub OAuth handshake, so the human is already IdP-authenticated and the GitHub identity is the abuse gate; a Turnstile prompt would be redundant. The four enterprise SSO buttons on the onboarding login page are contact-form deep links, not identity providers, and start no OIDC handshake.
@@ -43,7 +48,9 @@ The email dispatch detail (which helpers send the operator alert and the user re
 
 ## API Token Containment
 
-The `CLOUDFLARE_API_TOKEN` never enters the container. It stays in the Worker/DO environment (GitHub Secrets -> Worker secrets). Containers only receive R2 credentials (scoped key pair), never the master API token.
+The **master** `CLOUDFLARE_API_TOKEN` — the deploy / account-management token stored in Worker secrets (GitHub Secrets -> Worker secrets) — never enters the container. Containers receive R2 credentials (a scoped key pair) for storage, never that master token. A container *may* hold a separate, narrowly-scoped Browser Rendering token under the same `CLOUDFLARE_API_TOKEN` env-var name — a different credential entirely, described next.
+
+The container's own `CLOUDFLARE_API_TOKEN` env var, when present, is a **different, narrowly-scoped** credential — the user- or admin-provided **Browser Rendering** token that powers browser-run — not the master deploy token. In enterprise mode the per-user "Push & Deploy" accordion is hidden, so this value is the admin-global Browser Rendering token configured once in the Setup wizard ([REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)): stored encrypted at rest (kv-crypto, AAD-bound to its KV key) and injected at session start by `applyEnterpriseBrowserToken`. Unlike the GitHub token (egress-injected so it never enters the container), this token is deliberately allowed inside the container because it is scoped to `Browser Rendering - Edit` only — it grants nothing the agent cannot already do through its own browser tools, so the blast radius of a prompt-injected read is one low-privilege capability (and its quota), never R2/Workers/DNS/account access. When no Browser Rendering token is configured the entire browser-run surface (the MCP servers, the Pi extension, and the `browser-run`/`browser-e2e` skills) is withheld from the agents.
 
 ## Enterprise Mode: Credential Containment and CA Trust
 
@@ -60,6 +67,24 @@ In Enterprise Mode, two additional invariants apply on top of the standard API t
 **Per-user scoped R2 tokens:** Each container receives a scoped R2 API token restricted to its owner's bucket. Tokens are created on first login via `getOrCreateScopedR2Token()` in `r2-admin.ts` (called from `lifecycle-init.ts`), which calls `POST /accounts/{accountId}/tokens` with a bucket-specific Object Read + Write policy. Tokens are cached in KV as `r2token:{email}` (encrypted via AES-256-GCM when `ENCRYPTION_KEY` is set) and revoked on user deletion via `deleteScopedR2Token()`. This requires the `API Tokens: Edit` permission on the deploy token.
 
 **R2 token verification:** Cached tokens are validated before use via `verifyTokenExists()` in `r2-admin.ts`. This calls `GET /accounts/{accountId}/tokens/{tokenId}` through the circuit breaker. Only a 404 response (token definitively deleted) invalidates the cache and triggers fresh token creation. Transient errors (429, 500, 502, network errors, circuit breaker open) assume the token is still valid - this prevents a Cloudflare API blip from unnecessarily deleting a valid KV entry and causing rclone 401 errors. The verification runs on every `getOrCreateScopedR2Token()` cache hit.
+
+## GitHub Token Handling
+
+The per-user GitHub token authorizes the agent to act with the user's full GitHub permissions (clone/push/PR/merge). Its handling reuses the same primitives as the policies above — encryption at rest and the enterprise egress-injection layer — so a prompt-injected agent or malicious dependency cannot exfiltrate a raw token.
+
+**At rest.** The token lives in the existing encrypted deploy-keys KV entry (`DeployKeys.githubToken` at `deploy-keys:<bucket>`), encrypted with the same kv-crypto as other secrets (AES-256-GCM, AAD bound to the KV key); plaintext is used only when no `ENCRYPTION_KEY` is configured. It is never returned to the browser — `/api/github/repos` proxies GitHub server-side and status/list responses carry only non-secret metadata such as the login handle ([CON-GH-001](../../sdd/spec/constraints.md#con-gh-001-github-token-encrypted-at-rest-and-never-returned-to-the-browser), [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing)).
+
+**Provider client secret at rest (enterprise).** Distinct from the per-user token, the GitHub provider's *client secret* (the App/OAuth-app credential) is, in enterprise mode, configured in the Setup wizard and stored encrypted in KV under `setup:github_app_client_secret` / `setup:github_oauth_client_secret` (AES-256-GCM, AAD bound to its KV key); the provider type and client ids are stored plain. It is resolved and decrypted by `getGithubProvider` server-side and never returned to the browser — `GET /api/setup/prefill` returns only a per-provider `…ClientSecretSet` boolean. **Fail closed:** a secret submitted while no `ENCRYPTION_KEY` is configured is rejected at save (`400`) rather than written in plaintext, and a stored secret that cannot be decrypted is treated as unconfigured ([REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup)).
+
+**Enterprise egress injection (the security core).** In enterprise mode the container holds only a non-secret placeholder `GH_TOKEN` (`codeflare-enterprise`), identical for every user. A `GitHubInterceptor` WorkerEntrypoint sits on the container egress boundary, reusing the AI-Gateway `interceptOutboundHttps` layer (the Cloudflare containers CA is trusted container-wide, so TLS validates — see the CA-trust invariant above). For each outbound request to `github.com` / `api.github.com` it resolves and decrypts the user's token, strips any client-supplied auth (`authorization`, `x-api-key`, etc.), and stamps the correct credential: git over HTTPS gets `Authorization: Basic base64("x-access-token:"+token)`, while the REST API gets `Authorization: Bearer <token>` plus `X-GitHub-Api-Version: 2022-11-28`. It emits a per-user audit line. This satisfies [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials) and reuses the egress layer per [AD81](../decisions/README.md#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) ([CON-GH-002](../../sdd/spec/constraints.md#con-gh-002-the-real-github-token-never-enters-the-enterprise-container)).
+
+**No cross-user spoofing.** User-scoping comes solely from `props.bucket`, bound at container wiring time, never from the request. A session can therefore only ever inject its own user's token, regardless of the placeholder value or any identity the request claims ([CON-GH-003](../../sdd/spec/constraints.md#con-gh-003-egress-injection-is-scoped-by-the-per-session-binding)).
+
+**Fail closed.** When no valid token exists (not connected, or an expired App token that cannot be refreshed), the interceptor returns 401 and performs no upstream request — it never falls back to a stale token.
+
+**Non-enterprise modes.** The real token reaches the container as `GH_TOKEN` via the existing deploy-keys path, unchanged ([REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport)). This is documented honestly as leakage-hygiene, **not** agent-containment: the agent can read its own user's token (which that user already holds). Only enterprise mode keeps the real token out of the container.
+
+**Revocation and offboarding.** `POST /api/github/disconnect` revokes the token at GitHub (App/OAuth sources) and clears the github fields from the deploy-keys entry; a manually-pasted PAT is cleared but never sent to GitHub's revoke endpoint (Codeflare does not own it). User offboarding (`user-cleanup.ts`) revokes and clears on the same path as the scoped R2 token, before the deploy-keys entry is deleted, so a leaked-but-not-yet-deleted token cannot outlive the account ([REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation)).
 
 ## Container Auth Token (REQ-SEC-012)
 
@@ -177,9 +202,11 @@ The key must decode to exactly 32 bytes. Arbitrary strings, passwords, or non-ba
 | KV | `llm-keys:{bucket}` | OpenAI, Gemini API keys | AES-256-GCM |
 | KV | `deploy-keys:{bucket}` | GitHub PAT, Cloudflare API token, account ID | AES-256-GCM |
 | KV | `r2token:{email}` | Scoped R2 access key, secret key, token ID | AES-256-GCM |
+| KV | `setup:browser_render_token` | Enterprise admin-global Cloudflare Browser Rendering token | AES-256-GCM |
+| KV | `setup:github_app_client_secret`, `setup:github_oauth_client_secret` | Enterprise GitHub provider client secret (App / OAuth) | AES-256-GCM |
 | R2 | All objects in user buckets | Workspace files, agent configs, credentials | SSE-C (AES-256) |
 
-Everything else (`user-prefs:*`, `session:*`, `user:*`, `setup:*`, `storage-stats:*`) stays plaintext - no secrets in those entries.
+Everything else stays plaintext - no secrets in those entries. The exceptions in the `setup:*` namespace are the encrypted secret keys listed above (`setup:browser_render_token`, `setup:github_app_client_secret`, `setup:github_oauth_client_secret`); the rest of `setup:*` (provider type, client ids, route catalog, group routing, access groups) is non-secret config and stays plaintext.
 
 ### KV encryption (AES-256-GCM via Web Crypto API)
 
@@ -372,11 +399,19 @@ Every entry carries an inline comment recording the affected package, the impact
 - [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) - Container-side CA trust and constant base-URLs
 - [REQ-ENTERPRISE-009](../../sdd/spec/enterprise-mode.md#req-enterprise-009-enterprise-backend-route-hardening) - Enterprise backend route hardening (billing, tier-config, subscribe, Stripe webhook fail closed with 403)
 - [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) - Access-gated JIT provisioning; get-identity gate fails closed on error or non-membership
+- [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) - Admin elevation via Access group: live, context-only, fails closed; confined to admin routes
+- [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token) - Enterprise admin-configured Browser Rendering token (blast-radius rationale; why it is allowed inside the container)
+- [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) - GitHub panel and repository listing (token never returned to the browser)
+- [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials) - Enterprise egress-injected GitHub credentials (GitHubInterceptor, AD81)
+- [REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation) - Disconnect and offboarding revocation
+- [REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport) - Other-mode container transport (leakage-hygiene characterisation)
+- [REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup) - Enterprise GitHub provider config (client secret encrypted at rest, fail-closed without ENCRYPTION_KEY)
 
 ---
 
 ## Related Documentation
 - [Authentication - Auth Modes](authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
+- [Configuration - GitHub Integration](configuration.md#github-integration) - GitHub App/OAuth env vars, GH_TOKEN placeholder, Browser Rendering token setup
 - [Billing - Subscription Tiers](billing.md) - Tier-based access control
 - [API Reference - Common Headers](api-reference.md#common-response-headers) - Security headers on responses
 - [pentest.md](pentest.md) - Penetration testing results

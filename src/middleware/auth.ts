@@ -7,7 +7,7 @@
 //   requireAdmin      — requires admin role (must be used after requireIdentity or requireActiveUser)
 
 import { Context, Next } from 'hono';
-import { authenticateRequest } from '../lib/access';
+import { authenticateRequest, resolveAdminAccessGroup } from '../lib/access';
 import { ForbiddenError } from '../lib/error-types';
 import { isSessionOidcMode } from '../lib/onboarding';
 import { isActiveTier, getEffectiveTier, isEnterpriseMode } from '../lib/subscription';
@@ -87,11 +87,26 @@ export { requireActiveUser as authMiddleware };
  * Usage:
  *   app.use('*', authMiddleware);
  *   app.post('/admin-route', requireAdmin, async (c) => { ... });
+ *
+ * REQ-ENTERPRISE-014: in enterprise mode a non-admin user who belongs to a
+ * configured admin Access group is elevated to admin for this request. The
+ * membership check is live (resolveAdminAccessGroup → one get-identity call) and
+ * confined to admin-gated routes, so every non-admin request on non-admin routes
+ * stays byte-identical and group removal revokes Setup access immediately.
+ * resolveAdminAccessGroup is a no-op (returns []) outside enterprise mode or when
+ * no admin groups are configured, so non-enterprise behavior is unchanged.
  */
 export async function requireAdmin(c: Context<{ Bindings: Env; Variables: AuthVariables }>, next: Next) {
   const user = c.get('user');
-  if (user?.role !== 'admin') {
-    throw new ForbiddenError('Admin access required');
+  if (user?.role === 'admin') {
+    return next();
   }
-  return next();
+  if (user) {
+    const matchedAdminGroups = await resolveAdminAccessGroup(c.req.raw, c.env);
+    if (matchedAdminGroups.length > 0) {
+      c.set('user', { ...user, role: 'admin' });
+      return next();
+    }
+  }
+  throw new ForbiddenError('Admin access required');
 }

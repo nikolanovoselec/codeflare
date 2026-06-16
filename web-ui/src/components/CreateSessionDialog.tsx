@@ -45,7 +45,7 @@ export const AGENT_OPTIONS: AgentOption[] = [
 // OpenAI-wire-format harnesses + bash). Mirrors ENTERPRISE_AGENTS in
 // src/lib/agent-allowlist.ts. When enterpriseMode is unset/false, the full
 // AGENT_OPTIONS list renders.
-const ENTERPRISE_AGENT_TYPES: AgentType[] = ['copilot', 'pi', 'bash'];
+export const ENTERPRISE_AGENT_TYPES: AgentType[] = ['copilot', 'pi', 'bash'];
 
 const CreateSessionDialog: Component<CreateSessionDialogProps> = (props) => {
   let dialogRef: HTMLDivElement | undefined;

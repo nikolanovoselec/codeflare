@@ -24,6 +24,12 @@ const CreateSessionBody = z.object({
   name: z.string().trim().min(1, 'Session name cannot be blank').max(MAX_SESSION_NAME_LENGTH).optional(),
   agentType: AgentTypeSchema.optional(),
   tabConfig: z.array(TabConfigSchema).min(1).max(MAX_TABS).optional(),
+  // REQ-GITHUB-004: optional GitHub repo to clone at container start. The repo
+  // shape is owner/name; ref is an optional branch/tag. Cloning is best-effort
+  // in entrypoint.sh and uses the container's existing git credential helper.
+  // The ref pattern mirrors the entrypoint.sh clone allowlist so an invalid
+  // branch/tag is rejected with a 400 at the boundary, not silently skipped.
+  clone: z.object({ repo: z.string().regex(/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/), ref: z.string().max(255).regex(/^[A-Za-z0-9._/][A-Za-z0-9._/-]*$/).optional() }).optional(),
 }).strict();
 
 const UpdateSessionBody = z.object({
@@ -144,6 +150,7 @@ app.post('/', sessionCreateRateLimiter, async (c) => {
     lastAccessedAt: now,
     ...(body.agentType && { agentType: body.agentType }),
     ...(body.tabConfig && { tabConfig: body.tabConfig }),
+    ...(body.clone && { clone: body.clone }),
   };
 
   // Store session in KV

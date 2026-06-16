@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD79](#ad79-image-baked-pi-extension-transpile-cache) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD81](#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -90,6 +90,8 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD77](#ad77-enterprise-vault-service-worker-reached-via-a-higher-precedence-access-bypass-app) | Enterprise vault service-worker reached via a higher-precedence Access bypass app | Architecture, Security |
 | [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers) | PR-boundary review lanes run in parallel (report-only reviewers) | Agents |
 | [AD79](#ad79-image-baked-pi-extension-transpile-cache) | Image-baked Pi extension transpile cache | Performance |
+| [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) | Pi PR-boundary merge gate is report-only and defended in depth | Agents |
+| [AD81](#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) | Reuse the container egress-injection layer for per-user GitHub tokens | Architecture, Security |
 
 ---
 
@@ -1553,6 +1555,23 @@ Load only explicit `-e` extensions: `graphify-native.ts`, `review-lane-guards.ts
 - A reviewed head with unaddressed CRITICAL findings can still be merged; the findings are surfaced, not enforced. If that proves too weak, AD80 is the place to revisit.
 
 **Related:** [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-pr-boundary-review-window-advancement), [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery), [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers).
+
+---
+
+### AD81: Reuse the container egress-injection layer for per-user GitHub tokens
+
+**Decision:** In enterprise mode, authenticate the agent's GitHub traffic by injecting the user's token at the container egress boundary — reusing the existing AI-Gateway `interceptOutboundHttps` layer — rather than placing the token in the container. `github.com` and `api.github.com` are registered for outbound interception; a `GitHubInterceptor` WorkerEntrypoint resolves and decrypts the per-user token (`DeployKeys.githubToken`, keyed by the bound session's `bucket`), strips the container's placeholder credential, and stamps the real one. The container holds only a non-secret placeholder `GH_TOKEN`.
+
+**Context:** The agent must act with the user's full GitHub permissions (clone/push/PR/merge), but a prompt-injected agent or a malicious dependency could exfiltrate a raw token from the container environment. Codeflare already runs the platform egress-injection pattern for AI keys (placeholder in container → real secret stamped at the Worker boundary, with the Cloudflare containers CA trusted container-wide). Extending it to the GitHub hosts is ~90% reuse and covers git-over-HTTPS and the REST API uniformly — both are HTTPS to github hosts — which dissolves the "token in the container / `gh` has no per-call broker" problem.
+
+**Consequences:**
+
+- Enterprise gets real anti-exfiltration: the real token never enters the container; `printenv` shows only the placeholder, and a session can only ever inject its own user's token (scoping is by the per-session interceptor binding, never the request).
+- Non-enterprise (SaaS / other) modes keep the existing deploy-keys→`GH_TOKEN` path — the real token is in the container env, documented as leakage-hygiene, not agent-containment (the user already holds that token). Short-lived GitHub App tokens cap the exfiltration value there.
+- The interceptor resolves the token per request (supporting GitHub App refresh and connect-mid-session); a short in-isolate cache bounds KV reads.
+- Alternatives rejected: a git credential-helper callback (covers git but not `gh`/REST, and the agent can still request the token — security by obscurity); placing the real `GH_TOKEN` in the enterprise container (defeats the no-secret-in-container guarantee).
+
+**Related:** [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials), [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage), [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [CON-GH-002](../../sdd/spec/constraints.md#con-gh-002-the-real-github-token-never-enters-the-enterprise-container), [CON-GH-003](../../sdd/spec/constraints.md#con-gh-003-egress-injection-is-scoped-by-the-per-session-binding).
 
 ---
 

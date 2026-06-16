@@ -220,3 +220,30 @@ describe('REQ-ENTERPRISE-008 AC3: SessionSection mode selector', () => {
     expect(screen.queryByTestId('session-mode-control')).not.toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// REQ-BROWSER-007 — Push & Deploy accordion suppressed in enterprise.
+// In enterprise the per-user deploy-keys accordion is gone: GitHub is managed via
+// Connect GitHub and the Cloudflare Browser Rendering token is admin-set in Setup,
+// so users never manage deploy credentials. Outside enterprise it renders unchanged.
+// Asserted via the (mocked) DeployKeysSection's testid so no UI copy is pinned.
+// ---------------------------------------------------------------------------
+describe('REQ-BROWSER-007: Push & Deploy accordion gating', () => {
+  const panelProps = { isOpen: true, onClose: () => {}, currentUserEmail: 'admin@example.com', currentUserRole: 'admin' as const };
+
+  it('hides the Push & Deploy accordion in enterprise mode', () => {
+    render(() => <SettingsPanel {...panelProps} enterpriseMode />);
+    expect(screen.queryByTestId('deploy-section')).not.toBeInTheDocument();
+  });
+
+  it('renders the Push & Deploy accordion in onboarding/default mode', () => {
+    render(() => <SettingsPanel {...panelProps} />);
+    expect(screen.getByTestId('deploy-section')).toBeInTheDocument();
+  });
+
+  it('renders the Push & Deploy accordion in SaaS mode', () => {
+    sessionStoreState.saasMode = true;
+    render(() => <SettingsPanel {...panelProps} />);
+    expect(screen.getByTestId('deploy-section')).toBeInTheDocument();
+  });
+});

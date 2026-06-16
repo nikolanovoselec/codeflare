@@ -36,6 +36,20 @@ function run({ mode = 'advanced', token = 'tok_abc', account = 'acct123', claude
     writeFileSync(piMcpJson, piInitial);
   }
 
+  // The browser-run / browser-e2e skills are seeded unconditionally by the
+  // agent-config sync; the block must keep them when the token gate holds and strip
+  // them otherwise. Seed all four so the keep/strip behaviour is observable.
+  const skillPaths = {
+    claudeBrowserRun: join(userHome, '.claude', 'skills', 'browser-run'),
+    claudeBrowserE2e: join(userHome, '.claude', 'skills', 'browser-e2e'),
+    piBrowserRun: join(userHome, '.pi', 'agent', 'skills', 'browser-run'),
+    piBrowserE2e: join(userHome, '.pi', 'agent', 'skills', 'browser-e2e'),
+  };
+  for (const dir of Object.values(skillPaths)) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'SKILL.md'), '# browser skill\n');
+  }
+
   const env = [
     `SESSION_MODE='${mode}'`,
     token === null ? 'unset CLOUDFLARE_API_TOKEN || true' : `CLOUDFLARE_API_TOKEN='${token}'`,
@@ -50,6 +64,7 @@ function run({ mode = 'advanced', token = 'tok_abc', account = 'acct123', claude
   return {
     claude: JSON.parse(readFileSync(userClaudeJson, 'utf-8')),
     pi: existsSync(piMcpJson) ? JSON.parse(readFileSync(piMcpJson, 'utf-8')) : null,
+    skills: Object.fromEntries(Object.entries(skillPaths).map(([k, p]) => [k, existsSync(p)])),
   };
 }
 
@@ -111,5 +126,27 @@ describe('entrypoint Browser Run MCP wiring', () => {
     assert.ok(claude.mcpServers['browser-run'], 'browser-run added on Claude');
     assert.ok(pi.mcpServers['consult-llm'], 'consult-llm preserved on Pi');
     assert.ok(pi.mcpServers['chrome-devtools'], 'chrome-devtools added on Pi');
+  });
+
+  it('advanced + token: keeps the browser-run/browser-e2e skills for both agents', () => {
+    const { skills } = run({});
+    assert.equal(skills.claudeBrowserRun, true, 'Claude browser-run skill kept');
+    assert.equal(skills.claudeBrowserE2e, true, 'Claude browser-e2e skill kept');
+    assert.equal(skills.piBrowserRun, true, 'Pi browser-run skill kept');
+    assert.equal(skills.piBrowserE2e, true, 'Pi browser-e2e skill kept');
+  });
+
+  it('advanced but no token: strips the browser-run/browser-e2e skills from both agents', () => {
+    const { skills } = run({ token: null });
+    assert.equal(skills.claudeBrowserRun, false, 'Claude browser-run skill removed');
+    assert.equal(skills.claudeBrowserE2e, false, 'Claude browser-e2e skill removed');
+    assert.equal(skills.piBrowserRun, false, 'Pi browser-run skill removed');
+    assert.equal(skills.piBrowserE2e, false, 'Pi browser-e2e skill removed');
+  });
+
+  it('default (non-advanced) mode: strips the browser-run/browser-e2e skills too', () => {
+    const { skills } = run({ mode: 'default' });
+    assert.equal(skills.claudeBrowserRun, false, 'Claude browser-run skill removed in default mode');
+    assert.equal(skills.piBrowserRun, false, 'Pi browser-run skill removed in default mode');
   });
 });

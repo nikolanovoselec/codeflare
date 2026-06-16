@@ -15,6 +15,31 @@ describe('oauth-state', () => {
     expect(await verifyOauthState(token, SECRET)).toBe(true);
   });
 
+  it('verifies a bind-bound token only against the same bind value', async () => {
+    const token = await signOauthState(SECRET, 'bucket-a');
+    expect(await verifyOauthState(token, SECRET, 1800, 'bucket-a')).toBe(true);
+    // A different bind (another user's bucket) must NOT verify — this is the
+    // session binding that defeats the connect-flow token-fixation CSRF.
+    expect(await verifyOauthState(token, SECRET, 1800, 'bucket-b')).toBe(false);
+  });
+
+  it('does not cross-verify between bound and unbound tokens', async () => {
+    // An unbound (login-style) token must fail a bound verification...
+    const unbound = await signOauthState(SECRET);
+    expect(await verifyOauthState(unbound, SECRET, 1800, 'bucket-a')).toBe(false);
+    // ...and a bound token must fail an unbound verification.
+    const bound = await signOauthState(SECRET, 'bucket-a');
+    expect(await verifyOauthState(bound, SECRET)).toBe(false);
+  });
+
+  it('rejects a bind containing the payload delimiter on both sign and verify', async () => {
+    // ':' would make the DOMAIN:nonce:iat:bind payload ambiguous; bucket names
+    // never contain it, so signing must fail loud and verification fail closed.
+    await expect(signOauthState(SECRET, 'bucket:a')).rejects.toThrow();
+    const token = await signOauthState(SECRET, 'bucket-a');
+    expect(await verifyOauthState(token, SECRET, 1800, 'bucket:a')).toBe(false);
+  });
+
   it('rejects a token signed with a different secret', async () => {
     const token = await signOauthState(SECRET);
     expect(await verifyOauthState(token, 'different-secret')).toBe(false);
