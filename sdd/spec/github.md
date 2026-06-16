@@ -273,7 +273,7 @@ None.
 1. The Setup wizard offers a provider chooser (GitHub App vs OAuth App); selecting one reveals that provider's Client ID + Client Secret inputs. Each provider's credentials are stored under their own KV keys so switching providers preserves the other's. <!-- @impl: web-ui/src/components/setup/GitHubProviderChooser.tsx -->
 2. On save (enterprise mode only) the provider type + client ids are stored plain and each client secret is encrypted at rest (AES-256-GCM via the existing KV crypto); `getGithubProvider` resolves the active provider from these KV values, decrypting the secret, before any env-var fallback. <!-- @impl: src/routes/setup/index.ts --> <!-- @impl: src/lib/github-token.ts::getEnterpriseProviderFromKv -->
 3. A blank secret on save keeps the stored secret (no clobber); a secret submitted while no `ENCRYPTION_KEY` is configured is rejected with a validation error rather than written in plaintext, and a stored secret that cannot be decrypted is treated as unconfigured (fails closed). <!-- @impl: src/routes/setup/index.ts -->
-4. `GET /api/setup/status` (prefill) echoes the provider type, both client ids, and a `…ClientSecretSet` boolean per provider, but never returns a client secret. <!-- @impl: src/routes/setup/handlers.ts -->
+4. `GET /api/setup/prefill` echoes the provider type, both client ids, and a `…ClientSecretSet` boolean per provider, but never returns a client secret. <!-- @impl: src/routes/setup/handlers.ts -->
 5. All reads/writes are inside the existing `isEnterpriseMode` gate; in non-enterprise modes the Setup request/response shape and `getGithubProvider`'s env-var path are byte-identical to before. <!-- @impl: src/routes/setup/handlers.ts -->
 
 **Constraints:**
