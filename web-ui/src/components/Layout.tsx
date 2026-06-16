@@ -15,6 +15,8 @@ import type { TileLayout, AgentType, TabConfig } from '../types';
 import { VIEW_TRANSITION_DURATION_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS } from '../lib/constants';
 import { startVaultReadinessProbe } from '../lib/vault-readiness';
 import { DEFAULT_VAULT_PREWARM_TIMEOUT_MS, startVaultPrewarm, type VaultPrewarmStatus } from '../lib/vault-prewarm';
+import { checkVaultLocalReadiness } from '../lib/vault-local-readiness';
+import { requestBrowserStoragePersistence } from '../lib/browser-storage-persistence';
 
 type ViewState = 'dashboard' | 'expanding' | 'terminal' | 'collapsing';
 
@@ -76,6 +78,7 @@ const Layout: Component<LayoutProps> = (props) => {
   const [vaultReadyBySession, setVaultReadyBySession] = createSignal<Record<string, boolean>>({});
   const [vaultPrewarmBySession, setVaultPrewarmBySession] = createSignal<Record<string, VaultPrewarmStatus>>({});
   const [vaultPrewarmRetryBySession, setVaultPrewarmRetryBySession] = createSignal<Record<string, number>>({});
+  const [vaultPersistenceRequestedBySession, setVaultPersistenceRequestedBySession] = createSignal<Record<string, boolean>>({});
   // Memoize the running-flag so the effect only re-runs when running-ness
   // actually flips, not on every metrics/ptyActive churn from session
   // polling. Without this the probe chain restarts on every status tick.
@@ -178,10 +181,27 @@ const Layout: Component<LayoutProps> = (props) => {
     if (current === 'ready' || current === 'prewarming') return;
 
     setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'prewarming' }));
+    if (untrack(vaultPersistenceRequestedBySession)[sid] !== true) {
+      setVaultPersistenceRequestedBySession((prev) => ({ ...prev, [sid]: true }));
+      void requestBrowserStoragePersistence().then((result) => {
+        if (result.supported && result.granted === false) {
+          logger.warn('browser denied persistent storage for Vault cache', { sid });
+        }
+      }).catch((err) => logger.warn('browser storage persistence check failed', {
+        sid,
+        error: err instanceof Error ? err.message : String(err),
+      }));
+    }
     const handle = startVaultPrewarm({
       sessionId: sid,
       timeoutMs: DEFAULT_VAULT_PREWARM_TIMEOUT_MS,
-      onReady: () => setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' })),
+      onReady: (proof) => {
+        if (!proof.ready) {
+          setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'error' }));
+          return;
+        }
+        setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' }));
+      },
       onError: (status) => setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: status })),
     });
     onCleanup(() => {
@@ -212,6 +232,23 @@ const Layout: Component<LayoutProps> = (props) => {
     const sid = sessionStore.activeSessionId;
     return !!sid && vaultReadyBySession()[sid] === true && vaultPrewarmStatus() === 'ready';
   });
+
+  const restartVaultPrewarm = (sid: string) => {
+    setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'error' }));
+    setVaultPrewarmRetryBySession((prev) => ({ ...prev, [sid]: (prev[sid] ?? 0) + 1 }));
+  };
+
+  const handleVaultOpen = async () => {
+    const sid = sessionStore.activeSessionId;
+    if (!sid) return;
+    const proof = await checkVaultLocalReadiness(sid);
+    if (!proof.ready) {
+      logger.warn('vault local readiness disappeared before open; restarting prewarm', { sid, reason: proof.reason });
+      restartVaultPrewarm(sid);
+      return;
+    }
+    window.open(`/api/vault/${sid}/`, '_blank', 'noopener');
+  };
 
   // Load sessions and preferences on mount
   onMount(() => {
@@ -482,7 +519,7 @@ const Layout: Component<LayoutProps> = (props) => {
           onSettingsClick={handleSettingsClick}
           onStoragePanelToggle={handleStoragePanelToggle}
           onVaultOpen={sessionStore.activeSessionId && sessionStore.preferences.sessionMode === 'advanced'
-            ? () => window.open(`/api/vault/${sessionStore.activeSessionId}/`, '_blank', 'noopener')
+            ? handleVaultOpen
             : undefined}
           vaultReady={vaultReady()}
           vaultStatus={vaultPrewarmStatus()}

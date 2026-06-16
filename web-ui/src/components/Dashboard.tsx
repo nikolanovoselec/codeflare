@@ -18,7 +18,6 @@ import KittScanner from './KittScanner';
 import DashboardCard from './TipsRotator';
 import { sessionStore, isAtUsageQuota } from '../stores/session';
 import { getBrowserTimezone, syncBrowserTimezone } from '../lib/timezone-sync';
-import { sweepOrphanVaultCaches } from '../lib/vault-cache';
 import UsageInlineBadge from './UsageInlineBadge';
 import '../styles/dashboard.css';
 
@@ -59,15 +58,6 @@ const Dashboard: Component<DashboardProps> = (props) => {
   onMount(() => {
     sessionStore.startR2Polling();
     storageStore.fetchStats();
-
-    // REQ-VAULT-015 AC4: sweep orphan SilverBullet IDB caches whose
-    // sid is not in the user's current session list. Catches the case
-    // where a session was deleted via API in another tab or after a
-    // browser crash before cleanupSessionVaultCache could run.
-    const activeIds = (props.sessions ?? []).map((s) => s.id);
-    void sweepOrphanVaultCaches(activeIds).catch(() => {
-      // Best-effort; never block dashboard mount on cache sweep.
-    });
 
     // REQ-MEM-001 AC4: capture the browser's IANA timezone and sync it
     // to the user's preferences so the next session start propagates

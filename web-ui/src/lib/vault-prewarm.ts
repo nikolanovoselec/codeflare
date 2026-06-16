@@ -1,3 +1,5 @@
+import type { VaultLocalReadinessResult } from './vault-local-readiness';
+
 export const VAULT_PREWARM_QUERY = 'codeflarePrewarm';
 export const VAULT_PREWARM_ID_QUERY = 'prewarmId';
 export const VAULT_PREWARM_SOURCE = 'codeflare-vault-prewarm';
@@ -5,16 +7,23 @@ export const DEFAULT_VAULT_PREWARM_TIMEOUT_MS = 300_000;
 
 export type VaultPrewarmStatus = 'idle' | 'prewarming' | 'ready' | 'timeout' | 'error';
 
-export interface VaultPrewarmMessage {
-  source: typeof VAULT_PREWARM_SOURCE;
-  prewarmId: string;
-  status: 'ready' | 'error';
-  message?: string;
-}
+export type VaultPrewarmMessage =
+  | {
+    source: typeof VAULT_PREWARM_SOURCE;
+    prewarmId: string;
+    status: 'ready';
+    proof: VaultLocalReadinessResult;
+  }
+  | {
+    source: typeof VAULT_PREWARM_SOURCE;
+    prewarmId: string;
+    status: 'error';
+    message?: string;
+  };
 
 export interface VaultPrewarmOptions {
   sessionId: string;
-  onReady: () => void;
+  onReady: (proof: VaultLocalReadinessResult) => void;
   onError: (status: Exclude<VaultPrewarmStatus, 'idle' | 'prewarming' | 'ready'>, message: string) => void;
   timeoutMs?: number;
   prewarmId?: string;
@@ -43,12 +52,21 @@ export function buildVaultPrewarmUrl(sessionId: string, prewarmId: string): stri
   return `/api/vault/${encodeURIComponent(sessionId)}/.codeflare-bootstrap?${params.toString()}`;
 }
 
+function isVaultLocalReadinessProof(value: unknown): value is VaultLocalReadinessResult {
+  if (value == null || typeof value !== 'object') return false;
+  const candidate = value as Partial<VaultLocalReadinessResult>;
+  return candidate.ready === true
+    && Array.isArray(candidate.recordedDbs)
+    && typeof candidate.hasIndexedDbDatabasesApi === 'boolean';
+}
+
 function isVaultPrewarmMessage(value: unknown): value is VaultPrewarmMessage {
   if (value == null || typeof value !== 'object') return false;
-  const candidate = value as Partial<VaultPrewarmMessage>;
-  return candidate.source === VAULT_PREWARM_SOURCE
-    && typeof candidate.prewarmId === 'string'
-    && (candidate.status === 'ready' || candidate.status === 'error');
+  const candidate = value as Partial<VaultPrewarmMessage> & { proof?: unknown };
+  if (candidate.source !== VAULT_PREWARM_SOURCE) return false;
+  if (typeof candidate.prewarmId !== 'string') return false;
+  if (candidate.status === 'error') return true;
+  return candidate.status === 'ready' && isVaultLocalReadinessProof(candidate.proof);
 }
 
 export function startVaultPrewarm(opts: VaultPrewarmOptions): VaultPrewarmHandle | null {
@@ -76,11 +94,11 @@ export function startVaultPrewarm(opts: VaultPrewarmOptions): VaultPrewarmHandle
     iframe.remove();
   };
 
-  const finishReady = () => {
+  const finishReady = (proof: VaultLocalReadinessResult) => {
     if (finished) return;
     finished = true;
     cleanup();
-    opts.onReady();
+    opts.onReady(proof);
   };
 
   const finishError = (status: Exclude<VaultPrewarmStatus, 'idle' | 'prewarming' | 'ready'>, message: string) => {
@@ -95,7 +113,7 @@ export function startVaultPrewarm(opts: VaultPrewarmOptions): VaultPrewarmHandle
     if (!isVaultPrewarmMessage(event.data)) return;
     if (event.data.prewarmId !== prewarmId) return;
     if (event.data.status === 'ready') {
-      finishReady();
+      finishReady(event.data.proof);
       return;
     }
     finishError('error', event.data.message || 'Vault prewarm failed');

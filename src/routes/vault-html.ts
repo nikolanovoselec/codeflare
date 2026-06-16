@@ -273,9 +273,11 @@ export function injectVaultBootScript(html: string, config: VaultBootConfig): st
  * recorder lands before `</head>` AFTER the boot-config script (so
  * `window.__codeflareVaultBoot.sessionId` is defined when it runs).
  *
- * It wraps `indexedDB.open` to capture every database name SilverBullet
- * opens that starts with `sb_` and persists the names into
- * `localStorage["vault-session-<sid>-idbs"]` as a JSON array. The
+ * It wraps page-context `indexedDB.open` and listens for matching
+ * `codeflare-vault-idb-open` messages from the native service worker to
+ * capture every database name SilverBullet opens that starts with `sb_`.
+ * It persists the names into `localStorage["vault-session-<sid>-idbs"]`
+ * as a JSON array. The
  * dashboard's `cleanupSessionVaultCache` / `sweepOrphanVaultCaches`
  * functions read that array and call `indexedDB.deleteDatabase(name)`
  * on session DELETE / dashboard mount - the real fix for the
@@ -311,9 +313,8 @@ export function injectVaultIdbRecorder(html: string): string {
     'var sid = boot.sessionId;' +
     'if (!/^[a-z0-9]{8,24}$/.test(sid)) return;' +
     'var key = "vault-session-" + sid + "-idbs";' +
-    'var origOpen = indexedDB.open.bind(indexedDB);' +
-    'indexedDB.open = function (name, version) {' +
-    'if (typeof name === "string" && name.indexOf("sb_") === 0) {' +
+    'function record(name) {' +
+    'if (typeof name !== "string" || name.indexOf("sb_") !== 0) return;' +
     'try {' +
     'var arr = JSON.parse(localStorage.getItem(key) || "[]");' +
     'if (!Array.isArray(arr)) arr = [];' +
@@ -323,8 +324,17 @@ export function injectVaultIdbRecorder(html: string): string {
     '}' +
     '} catch (_) {}' +
     '}' +
+    'var origOpen = indexedDB.open.bind(indexedDB);' +
+    'indexedDB.open = function (name, version) {' +
+    'record(name);' +
     'return origOpen(name, version);' +
     '};' +
+    'if (navigator.serviceWorker && typeof navigator.serviceWorker.addEventListener === "function") {' +
+    'navigator.serviceWorker.addEventListener("message", function (event) {' +
+    'var data = event.data;' +
+    'if (data && data.type === "codeflare-vault-idb-open") record(data.name);' +
+    '});' +
+    '}' +
     '} catch (_) {}' +
     '})();</script>';
   return html.replace('</head>', `${script}</head>`);
@@ -364,30 +374,93 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
   const script = '<script ' + VAULT_PREWARM_BRIDGE_MARKER + '="1">(function () {' +
     'var prewarmId = ' + escapedId + ';' +
     'var source = "codeflare-vault-prewarm";' +
+    'var sid = null;' +
     'try {' +
     'if (!prewarmId) {' +
     'var params = new URLSearchParams(window.location.search);' +
     'if (params.get("codeflarePrewarm") === "1") prewarmId = params.get("prewarmId");' +
     '}' +
     'if (!prewarmId || prewarmId.length > 128 || !/^[A-Za-z0-9._~-]+$/.test(prewarmId)) return;' +
+    'var boot = window.__codeflareVaultBoot;' +
+    'sid = boot && typeof boot.sessionId === "string" ? boot.sessionId : null;' +
+    'if (!sid || !/^[a-z0-9]{8,24}$/.test(sid)) return;' +
     'window.sbRuntime = window.sbRuntime || {}; window.sbRuntime.headless = true;' +
     '} catch (_) { return; }' +
-    'function post(status, message) {' +
+    'function post(status, message, proof) {' +
     'if (!window.parent || window.parent === window) return;' +
     'var payload = { source: source, prewarmId: prewarmId, status: status };' +
     'if (message) payload.message = message;' +
+    'if (proof) payload.proof = proof;' +
     'window.parent.postMessage(payload, window.location.origin);' +
     '}' +
-    'var timer = window.setInterval(function () {' +
+    'function proof(recordedDbs, hasDbApi, reason, swState) {' +
+    'return { ready: !reason, reason: reason, recordedDbs: recordedDbs, hasIndexedDbDatabasesApi: hasDbApi, serviceWorkerState: swState };' +
+    '}' +
+    'function readRecorded(storage, sid) {' +
+    'try {' +
+    'var raw = storage.getItem("vault-session-" + sid + "-idbs");' +
+    'if (!raw) return [];' +
+    'var parsed = JSON.parse(raw);' +
+    'if (!Array.isArray(parsed)) return [];' +
+    'return parsed.filter(function (entry) { return typeof entry === "string"; });' +
+    '} catch (_) { return []; }' +
+    '}' +
+    'function hasPrefix(recordedDbs, prefix) {' +
+    'return recordedDbs.some(function (name) { return name.indexOf(prefix) === 0; });' +
+    '}' +
+    'async function findRegistration(sid) {' +
+    'if (!navigator.serviceWorker) return null;' +
+    'var scopePath = "/api/vault/" + encodeURIComponent(sid) + "/";' +
+    'try { var direct = await navigator.serviceWorker.getRegistration(scopePath); if (direct) return direct; } catch (_) {}' +
+    'try {' +
+    'var regs = await navigator.serviceWorker.getRegistrations();' +
+    'for (var i = 0; i < regs.length; i++) { if (regs[i].scope.indexOf(scopePath) !== -1) return regs[i]; }' +
+    '} catch (_) {}' +
+    'return null;' +
+    '}' +
+    'async function checkLocalReadiness(sid) {' +
+    'var storage = null;' +
+    'try { storage = window.localStorage || null; } catch (_) {}' +
+    'var idb = null;' +
+    'try { idb = window.indexedDB || null; } catch (_) {}' +
+    'var hasDbApi = !!(idb && typeof idb.databases === "function");' +
+    'var recordedDbs = storage ? readRecorded(storage, sid) : [];' +
+    'if (!storage) return proof(recordedDbs, hasDbApi, "no-local-storage");' +
+    'if (!idb) return proof(recordedDbs, hasDbApi, "no-indexeddb");' +
+    'if (recordedDbs.length === 0) return proof(recordedDbs, hasDbApi, "no-recorder");' +
+    'if (!hasPrefix(recordedDbs, "sb_data_")) return proof(recordedDbs, hasDbApi, "missing-sb-data");' +
+    'if (!hasPrefix(recordedDbs, "sb_files_")) return proof(recordedDbs, hasDbApi, "missing-sb-files");' +
+    'var reg = await findRegistration(sid);' +
+    'var active = reg && reg.active ? reg.active : null;' +
+    'if (!active) return proof(recordedDbs, hasDbApi, "missing-service-worker");' +
+    'if (hasDbApi) {' +
+    'try {' +
+    'var dbs = await idb.databases();' +
+    'var names = {};' +
+    'dbs.forEach(function (db) { if (db && typeof db.name === "string") names[db.name] = true; });' +
+    'var hasExistingDataDb = recordedDbs.some(function (name) { return name.indexOf("sb_data_") === 0 && names[name]; });' +
+    'var hasExistingFilesDb = recordedDbs.some(function (name) { return name.indexOf("sb_files_") === 0 && names[name]; });' +
+    'if (!hasExistingDataDb || !hasExistingFilesDb) return proof(recordedDbs, hasDbApi, "missing-idb-database", active.state);' +
+    '} catch (_) { return proof(recordedDbs, hasDbApi, "missing-idb-database", active.state); }' +
+    '}' +
+    'return proof(recordedDbs, hasDbApi, null, active.state);' +
+    '}' +
+    'var inFlight = false;' +
+    'var timer = window.setInterval(async function () {' +
+    'if (inFlight) return;' +
+    'inFlight = true;' +
     'try {' +
     'if (window.sbRuntime && window.sbRuntime.ready === true) {' +
+    'var localProof = await checkLocalReadiness(sid);' +
+    'if (localProof.ready === true) {' +
     'window.clearInterval(timer);' +
-    'post("ready");' +
+    'post("ready", null, localProof);' +
+    '}' +
     '}' +
     '} catch (e) {' +
     'window.clearInterval(timer);' +
     'post("error", e && e.message ? e.message : String(e));' +
-    '}' +
+    '} finally { inFlight = false; }' +
     '}, 250);' +
     '})();</script>';
   return html.replace('</head>', `${script}</head>`);
@@ -475,6 +548,7 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     'try {' +
     'step("Registering service worker...");' +
     'var reg = await navigator.serviceWorker.register(scope + "service_worker.js", { scope: scope });' +
+    'try { reg = await reg.update(); } catch (_) {}' +
     'step("Registered. SW state: " + (reg.active ? "active" : reg.installing ? "installing" : reg.waiting ? "waiting" : "none"));' +
     'var sw = reg.active || reg.installing || reg.waiting;' +
     'if (!sw) { fail("no service worker instance after registration"); return; }' +

@@ -375,6 +375,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       // path that actually fires the .auth bounce), and get-encryption-key calls
       // it before replying. The verbatim worker has none of these.
       expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('async function __cfRecover()');
+      expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('codeflare-vault-idb-open');
       expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain(
         'if(t.enableClientEncryption&&!y){await __cfRecover()}if(t.enableClientEncryption&&!y){console.error("Supposed',
       );
@@ -383,7 +384,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
     });
 
     it('T9: the drift guard hashes the VERBATIM upstream worker', async () => {
-      // The guard pins the upstream SB 2.8.1 bytes (pre-graft); a SilverBullet
+      // The guard pins the upstream SB 2.9.0 bytes (pre-graft); a SilverBullet
       // version bump that changes the worker must be a deliberate re-vendor
       // (update the constant AND the hash), never a silent drift. The verbatim
       // bytes are what is hashed - the graft is applied deterministically on top.
@@ -523,6 +524,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       const html = '<html><head></head><body></body></html>';
       const out = injectVaultIdbRecorder(html);
       expect(out).toContain('indexedDB.open');
+      expect(out).toContain('codeflare-vault-idb-open');
       expect(out).toContain('vault-session-');
       expect(out).toContain('-idbs');
       expect(out.indexOf('<script>')).toBeLessThan(out.indexOf('</head>'));

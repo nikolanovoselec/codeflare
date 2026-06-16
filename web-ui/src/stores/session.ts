@@ -5,7 +5,7 @@ import * as api from '../api/client';
 import { recreateAgentConfigs } from '../api/storage';
 import { terminalStore } from './terminal';
 import { logger } from '../lib/logger';
-import { cleanupSessionVaultCache } from '../lib/vault-cache';
+import { cleanupSessionVaultCache, sweepOrphanVaultCaches } from '../lib/vault-cache';
 import { MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, CONTEXT_EXPIRY_MS } from '../lib/constants';
 import {
   setTilingLayout,
@@ -263,6 +263,13 @@ async function loadSessions(): Promise<void> {
       status: existingStatuses.get(s.id) || ('stopped' as SessionStatus),
     }));
     setState('sessions', sessionsWithStatus);
+    // REQ-VAULT-015 AC4: sweep orphan SilverBullet IDB caches only after
+    // an authoritative session-list fetch succeeds. Dashboard mount can
+    // see the initial empty store before loadSessions resolves; sweeping
+    // there deleted the active browser's Vault cache by mistake.
+    void sweepOrphanVaultCaches(sessionsWithStatus.map((s) => s.id)).catch((err) =>
+      logger.warn('vault orphan cache sweep failed', { error: err instanceof Error ? err.message : String(err) }),
+    );
 
     const newIds = new Set(sessions.map(s => s.id));
     for (const id of oldIds) {

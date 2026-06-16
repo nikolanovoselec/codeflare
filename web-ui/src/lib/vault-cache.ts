@@ -8,17 +8,18 @@
 //     recorder captured into `vault-session-<sid>-idbs`, the
 //     `vault-session-<sid>` marker, and the service worker registration
 //     scoped to `/api/vault/<sid>/`.
-//   - sweepOrphanVaultCaches(activeSessionIds): called on Dashboard
-//     mount. For every `vault-session-<sid>` and
-//     `vault-session-<sid>-idbs` entry in localStorage, if the sid is
-//     not in activeSessionIds, drop the marker AND delete every recorded
-//     IDB for that sid. Handles sessions deleted from another tab or
-//     after a browser crash.
+//   - sweepOrphanVaultCaches(activeSessionIds): called only after an
+//     authoritative session-list fetch succeeds. For every
+//     `vault-session-<sid>` and `vault-session-<sid>-idbs` entry in
+//     localStorage, if the sid is not in activeSessionIds, drop the
+//     marker AND delete every recorded IDB for that sid. Handles sessions
+//     deleted from another tab or after a browser crash.
 //
 // The boot-injected recorder (src/routes/vault.ts injectVaultIdbRecorder)
-// is what makes this work: it captures every `sb_*` IDB name SilverBullet
-// opens into `vault-session-<sid>-idbs` as a JSON array, so the dashboard
-// can delete them by name without re-deriving SB's hash formula.
+// is what makes this work: it captures page-context `sb_*` opens directly
+// and worker-context `sb_*` opens via `codeflare-vault-idb-open` messages
+// into `vault-session-<sid>-idbs` as a JSON array, so the dashboard can
+// delete them by name without re-deriving SB's hash formula.
 //
 // Principled-rejection invariant (load-bearing): we NEVER call
 // `indexedDB.databases()` and never enumerate IDBs from the database
@@ -181,8 +182,9 @@ export async function cleanupSessionVaultCache(sid: string): Promise<void> {
 
 /**
  * REQ-VAULT-015 AC4: remove vault artefacts for sessions that are no
- * longer in `activeSessionIds`. Called on Dashboard mount; catches
- * sessions deleted from another tab or after a browser crash. Deletes
+ * longer in `activeSessionIds`. Called after an authoritative session-list
+ * fetch succeeds; catches sessions deleted from another tab or after a
+ * browser crash. Deletes
  * the recorded IDBs for orphan sids and drops both the marker and
  * `-idbs` mapping.
  *
