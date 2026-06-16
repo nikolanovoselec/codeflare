@@ -640,8 +640,12 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     // The post-command truth backstop is intentionally broader than the boundary classifier: any real
     // git/gh shell command forces a fresh PR-state reconcile so an unclassified push is not hidden behind
     // the 60s OPEN-pr cache.
+  });
+
+  it('REQ-AGENT-058: post-command git/gh truth backstop uses fresh PR state and handles env wrappers', () => {
     expect(postCommandReconcileDecision('gh pr view --json number')).toEqual({ reconcile: true, freshPrState: true });
     expect(postCommandReconcileDecision('env GH_TOKEN=x git status --short')).toEqual({ reconcile: true, freshPrState: true });
+    expect(postCommandReconcileDecision('env -u GH_TOKEN GH_TOKEN=x gh pr view --json number')).toEqual({ reconcile: true, freshPrState: true });
     expect(postCommandReconcileDecision("printf '%s' 'git push origin develop'")).toEqual({ reconcile: false, freshPrState: false });
   });
 

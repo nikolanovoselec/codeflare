@@ -363,7 +363,10 @@ export function mergeCommandTarget(command: string): MergeCommandTarget {
 export type PostCommandReconcileDecision = { reconcile: boolean; freshPrState: boolean };
 
 export function postCommandReconcileDecision(command: string): PostCommandReconcileDecision {
-  const invokesGitOrGh = /(?:^|[\n;&|])\s*(?:[A-Za-z_]\w*=(?:'[^']*'|"[^"]*"|\S*)\s+)*(?:(?:env|command|nice(?:\s+-n\s*\S+)?|timeout(?:\s+-\S+)*\s+\S+)\s+)*(?:git|gh)\b/.test(command);
+  const envAssignment = String.raw`[A-Za-z_]\w*=(?:'[^']*'|"[^"]*"|\S*)`;
+  const envWrapper = String.raw`env(?:\s+(?:-\S+|${envAssignment}))*`;
+  const wrapper = String.raw`(?:${envWrapper}|command|nice(?:\s+-n\s*\S+)?|timeout(?:\s+-\S+)*\s+\S+)`;
+  const invokesGitOrGh = new RegExp(String.raw`(?:^|[\n;&|])\s*(?:${envAssignment}\s+)*(?:${wrapper}\s+)*(?:git|gh)\b`).test(command);
   return invokesGitOrGh ? { reconcile: true, freshPrState: true } : { reconcile: false, freshPrState: false };
 }
 
