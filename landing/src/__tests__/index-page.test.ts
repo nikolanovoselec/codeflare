@@ -22,6 +22,7 @@ import {
   EGRESS,
   FAQ_ITEMS,
   FEATURE_TERMINALS,
+  HERO,
   METHOD,
   NAV_LINKS,
   ORCHESTRATION,
@@ -88,6 +89,23 @@ describe('landing page composition (REQ-LANDING-001)', () => {
     // hero + 4 feature + method gate + legacy + boundary + 2 context + board +
     // orch + ledger + platform seed + mcp + dogfood = 16.
     expect(body.querySelectorAll('.terminal[data-proof]')).toHaveLength(16);
+  });
+});
+
+describe('hero top line (capability ticker)', () => {
+  it('is the first hero-copy element and keeps the headline directly below it', () => {
+    const heroCopy = body.querySelector('.hero-copy')!;
+    const children = Array.from(heroCopy.children);
+    expect(children[0].hasAttribute('data-hero-kicker')).toBe(true);
+    expect(children[1].classList.contains('hero-headline')).toBe(true);
+  });
+
+  it('renders the rotating capability words as one data-driven stack', () => {
+    const ticker = body.querySelector('[data-hero-kicker]')!;
+    const words = ticker.querySelectorAll('[data-hero-kicker-word]');
+    expect(words).toHaveLength(HERO.kicker.words.length);
+    expect(words[0].getAttribute('data-active')).toBe('true');
+    expect(Array.from(words).map((word) => word.textContent?.trim())).toEqual(HERO.kicker.words);
   });
 });
 

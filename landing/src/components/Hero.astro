@@ -9,6 +9,7 @@
  * below names the run once as the page's quiet table of contents.
  */
 import { HERO, TERMINAL, SPINE } from '../content/site';
+import HeroKicker from './HeroKicker.astro';
 import HeroHeadline from './HeroHeadline.astro';
 import Terminal from './Terminal.astro';
 import Transcript from './Transcript.astro';
@@ -18,7 +19,7 @@ import Transcript from './Transcript.astro';
   <div class="hero-glow" aria-hidden="true"></div>
   <div class="container">
     <div class="hero-copy">
-      <p class="hero-kicker">{HERO.kicker}</p>
+      <HeroKicker />
       <HeroHeadline />
       <p class="hero-def">{HERO.definition}</p>
       <div class="hero-cta">

@@ -147,17 +147,72 @@ svg {
   color: var(--accent);
 }
 
-/* The hero's single product tagline keeps the classic eyebrow treatment (uppercase
-   coral): one deliberate kicker is brand voice, unlike the per-section eyebrow that
-   was the AI tell. It is NOT a terminal-path tag, so it does not use .kicker. */
+/* The hero's single product tagline keeps the classic eyebrow treatment, but the
+   capability word is a white vertical reel: Codeflare is not only a coding engine.
+   The reel extends upward so it does not consume the tight space above the h1. */
 .hero-kicker {
-  display: inline-block;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.34em;
+  position: relative;
+  z-index: 2;
+  margin-bottom: 1rem;
   font-size: var(--fs-kicker);
   font-weight: 600;
   letter-spacing: 0.16em;
+  line-height: 1;
   text-transform: uppercase;
   color: var(--accent);
-  margin-bottom: 1rem;
+}
+
+.hero-kicker-reel {
+  position: relative;
+  display: inline-block;
+  vertical-align: baseline;
+  width: var(--hero-kicker-width, auto);
+  color: var(--text-primary);
+  letter-spacing: inherit;
+  line-height: inherit;
+  transition: width 520ms var(--ease-out);
+}
+
+.hero-kicker-measure {
+  display: inline-block;
+  visibility: hidden;
+  white-space: nowrap;
+}
+
+.hero-kicker-word {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  letter-spacing: inherit;
+  line-height: inherit;
+  transform: translate3d(0, calc(var(--ticker-offset, 0) * -1.18em), 0);
+  transition:
+    transform 620ms var(--ease-out),
+    opacity 620ms var(--ease-out);
+  will-change: transform, opacity;
+}
+
+.hero-kicker-word[data-active="true"] {
+  opacity: 1;
+}
+
+.hero-kicker-word[data-resetting="true"] {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-kicker-reel {
+    transition: none;
+  }
+
+  .hero-kicker-word {
+    transition: none;
+  }
 }
 
 .section h2 {

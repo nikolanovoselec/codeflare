@@ -1,0 +1,30 @@
+---
+/**
+ * HeroKicker: the compact product-category line above the hero headline.
+ * Static words keep the coral brand voice; the capability word is a white
+ * vertical stack that feeds the sentence from above without pushing the h1 down.
+ */
+import { HERO } from '../content/site';
+import { buildHeroKickerLabel, getHeroKickerOpacity } from '../lib/hero-kicker';
+
+const { prefix, words, suffix } = HERO.kicker;
+const label = buildHeroKickerLabel(prefix, words, suffix);
+---
+
+<p class="hero-kicker" data-hero-kicker aria-label={label}>
+  <span class="hero-kicker-static">{prefix}</span>
+  <span class="hero-kicker-reel" aria-hidden="true">
+    <span class="hero-kicker-measure" data-hero-kicker-measure>{words[0]}</span>
+    {words.map((word, index) => (
+      <span
+        class="hero-kicker-word"
+        data-hero-kicker-word
+        data-active={index === 0 ? 'true' : 'false'}
+        style={`--ticker-offset: ${index}; opacity: ${getHeroKickerOpacity(index)};`}
+      >
+        {word}
+      </span>
+    ))}
+  </span>
+  <span class="hero-kicker-static">{suffix}</span>
+</p>
