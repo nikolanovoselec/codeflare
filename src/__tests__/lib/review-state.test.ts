@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, reviewInSessionContinuation, mergeGateDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput, type MergeGateInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, reviewInSessionContinuation, mergeGateDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, activeRepoSentinelForReview, activeRepoCandidateForReview, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput, type MergeGateInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 
 /**
  * computeReviewStateFrom is the canonical review-state definition (review.md §17.2).
@@ -237,15 +237,12 @@ describe('reviewInSessionContinuation (boundaryActed primary, baseline backstop)
     expect(reviewInSessionContinuation({ boundaryActed: false, baseline: 'h1', head: 'h9', isAncestor: unrelated })).toBe(false);
   });
 
-  it('suppresses the baseline backstop once the branch was acked this session (offers a fetched remote head)', () => {
-    // After an in-session ack, a descendant of the session baseline reached WITHOUT a boundary command is
-    // a remote-actor head fetched via `git pull` (a CI bot / concurrent Claude) — it must OFFER, not
-    // auto-start a duplicate review. Without the ackedThisSession suppression the baseline backstop fired.
-    expect(reviewInSessionContinuation({ boundaryActed: false, baseline: 'h1', head: 'h3', isAncestor: descends, ackedThisSession: true })).toBe(false);
-    // A genuine in-session push after the ack still autostarts: boundaryActed is the strong signal and is
-    // checked BEFORE the suppression, so ackedThisSession never blocks a real push.
+  it('keeps the baseline backstop active after an ack so fix-push rounds still autostart if a tool event is lost', () => {
+    // A fix-push immediately after an ack is the normal autofix/review loop. If the push event is lost,
+    // the descendant baseline is the only remaining signal; suppressing it caused a real pushed head to
+    // degrade to boundary_offered instead of creating durable lanes.
+    expect(reviewInSessionContinuation({ boundaryActed: false, baseline: 'h1', head: 'h3', isAncestor: descends, ackedThisSession: true })).toBe(true);
     expect(reviewInSessionContinuation({ boundaryActed: true, baseline: 'h1', head: 'h3', isAncestor: descends, ackedThisSession: true })).toBe(true);
-    // Before any ack this session, the backstop still works (the reload-ate-the-tool-event case).
     expect(reviewInSessionContinuation({ boundaryActed: false, baseline: 'h1', head: 'h3', isAncestor: descends, ackedThisSession: false })).toBe(true);
   });
 });
@@ -458,6 +455,51 @@ describe('activeRepoSentinelForDisplay (guarded on-disk sentinel fallback)', () 
   it('returns undefined for missing or empty sentinel content', () => {
     expect(activeRepoSentinelForDisplay({ sentinelContent: undefined, sessionRoots: ['/r'], hasGitDir: hasGit([]) })).toBeUndefined();
     expect(activeRepoSentinelForDisplay({ sentinelContent: '  \n', sessionRoots: ['/r'], hasGitDir: hasGit([]) })).toBeUndefined();
+  });
+});
+
+describe('activeRepoSentinelForReview (guarded persisted repo fallback for gh-pr-view reconciliation)', () => {
+  const hasGit = (real: string[]) => (path: string) => real.includes(path);
+  const hasSdd = (real: string[]) => (path: string) => real.includes(path);
+
+  it('accepts a nested SDD repo under the session workspace so commandless reconciliation can query gh pr view', () => {
+    expect(activeRepoSentinelForReview({
+      sentinelContent: '/home/user/workspace/codeflare\n',
+      sessionRoots: ['/home/user/workspace'],
+      hasGitDir: hasGit(['/home/user/workspace/codeflare']),
+      hasSddProject: hasSdd(['/home/user/workspace/codeflare']),
+    })).toBe('/home/user/workspace/codeflare');
+  });
+
+  it('rejects non-SDD repos, stale paths, and repos outside this session root', () => {
+    expect(activeRepoSentinelForReview({
+      sentinelContent: '/home/user/workspace/plain-repo\n',
+      sessionRoots: ['/home/user/workspace'],
+      hasGitDir: hasGit(['/home/user/workspace/plain-repo']),
+      hasSddProject: hasSdd([]),
+    })).toBeUndefined();
+    expect(activeRepoSentinelForReview({
+      sentinelContent: '/home/user/workspace/deleted\n',
+      sessionRoots: ['/home/user/workspace'],
+      hasGitDir: hasGit([]),
+      hasSddProject: hasSdd(['/home/user/workspace/deleted']),
+    })).toBeUndefined();
+    expect(activeRepoSentinelForReview({
+      sentinelContent: '/tmp/other/codeflare\n',
+      sessionRoots: ['/home/user/workspace'],
+      hasGitDir: hasGit(['/tmp/other/codeflare']),
+      hasSddProject: hasSdd(['/tmp/other/codeflare']),
+    })).toBeUndefined();
+  });
+
+  it('rejects an out-of-session remembered repo and still falls through to a guarded persisted repo', () => {
+    expect(activeRepoCandidateForReview({
+      rememberedActiveRepo: '/tmp/other/codeflare',
+      persistedSentinelContents: ['/home/user/workspace/codeflare\n'],
+      sessionRoots: ['/home/user/workspace'],
+      hasGitDir: hasGit(['/tmp/other/codeflare', '/home/user/workspace/codeflare']),
+      hasSddProject: hasSdd(['/tmp/other/codeflare', '/home/user/workspace/codeflare']),
+    })).toBe('/home/user/workspace/codeflare');
   });
 });
 

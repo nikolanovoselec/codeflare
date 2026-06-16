@@ -93,6 +93,44 @@ function shellWords(segment: string): string[] {
   return words;
 }
 
+function isEnvAssignment(word: string): boolean {
+  return /^[A-Za-z_]\w*=/.test(word);
+}
+
+function unwrapCommandWords(words: ShellCommand): ShellCommand {
+  let index = 0;
+  while (index < words.length && isEnvAssignment(words[index])) index += 1;
+  for (;;) {
+    const word = words[index];
+    if (word === "env") {
+      index += 1;
+      while (index < words.length) {
+        const current = words[index];
+        if (isEnvAssignment(current)) { index += 1; continue; }
+        if (current === "-u" || current === "--unset") { index += 2; continue; }
+        if (current.startsWith("-")) { index += 1; continue; }
+        break;
+      }
+      continue;
+    }
+    if (word === "command") { index += 1; continue; }
+    if (word === "nice") {
+      index += 1;
+      if (words[index] === "-n") index += 2;
+      else if (words[index]?.startsWith("-n")) index += 1;
+      continue;
+    }
+    if (word === "timeout") {
+      index += 1;
+      while (words[index]?.startsWith("-")) index += 1;
+      if (words[index]) index += 1; // duration
+      continue;
+    }
+    break;
+  }
+  return words.slice(index);
+}
+
 // Bash here-docs (`<<EOF … EOF`, `<<'EOF'`, `<<-EOF`) carry arbitrary DATA, not
 // shell commands — a PR body full of markdown pipes (`|`), apostrophes (`doesn't`),
 // ampersands, and `$(…)`. Left in place, that body desyncs the quote/separator
@@ -126,26 +164,30 @@ function reviewBoundaryCommands(command: string): ShellCommand[] {
 }
 
 function gitCwd(words: ShellCommand): string | undefined {
-  if (words[0] !== "git") return undefined;
-  for (let index = 1; index < words.length; index += 1) {
-    const word = words[index];
-    if (word === "-C") return words[index + 1];
+  const unwrapped = unwrapCommandWords(words);
+  if (unwrapped[0] !== "git") return undefined;
+  for (let index = 1; index < unwrapped.length; index += 1) {
+    const word = unwrapped[index];
+    if (word === "-C") return unwrapped[index + 1];
     if (word.startsWith("-C") && word.length > 2) return word.slice(2);
+    if (word === "-c" || word === "--git-dir" || word === "--work-tree") { index += 1; continue; }
+    if (word.startsWith("--git-dir=") || word.startsWith("--work-tree=")) continue;
     if (!word.startsWith("-")) return undefined;
   }
   return undefined;
 }
 
 function gitArgs(words: ShellCommand): ShellCommand | undefined {
+  words = unwrapCommandWords(words);
   if (words[0] !== "git") return undefined;
   let index = 1;
   while (index < words.length) {
     const word = words[index];
-    if (word === "-C") {
+    if (word === "-C" || word === "-c" || word === "--git-dir" || word === "--work-tree") {
       index += 2;
       continue;
     }
-    if (word.startsWith("-C") && word.length > 2) {
+    if ((word.startsWith("-C") && word.length > 2) || word.startsWith("--git-dir=") || word.startsWith("--work-tree=")) {
       index += 1;
       continue;
     }
@@ -155,60 +197,36 @@ function gitArgs(words: ShellCommand): ShellCommand | undefined {
 }
 
 function isBoundaryWords(words: ShellCommand): boolean {
-  const git = gitArgs(words);
-  if (git?.[0] === "push") return true;
-  if (words[0] !== "gh") return false;
-  if (words[1] === "repo" && words[2] === "sync") return true;
-  if (words[1] === "pr" && words[2] === "edit") return Boolean(prEditBaseFromWords(words));
-  return words[1] === "pr" && ["create", "merge", "update-branch"].includes(words[2]);
+  if (isAdvancingGitPushWords(words)) return true;
+  const unwrapped = unwrapCommandWords(words);
+  if (unwrapped[0] !== "gh") return false;
+  if (unwrapped[1] === "repo" && unwrapped[2] === "sync") return true;
+  if (unwrapped[1] === "pr" && unwrapped[2] === "edit") return Boolean(prProtectedBaseFromWords(unwrapped));
+  return unwrapped[1] === "pr" && ["create", "merge", "update-branch"].includes(unwrapped[2]);
 }
 
 // ---------------------------------------------------------------------------
-// PR-boundary detection — STATELESS regex, mirroring the Claude Stop hook's awk
-// approach (enforce-review-spawn.sh). A here-doc PR body (markdown table pipes,
-// an apostrophe in "doesn't") or any unbalanced quote desyncs a stateful shell
-// tokenizer, so a trailing `gh pr create --base main` on the line after the
-// here-doc is silently swallowed and the boundary is missed — the exact failure
-// behind a develop→main PR that never armed review. A regex anchored at
-// start-of-command / after a shell separator cannot be desynced by preceding
-// content. Loose-candidate false positives (e.g. a boundary command quoted
-// inside `rg "..."` or `printf '...'`) are filtered downstream by the gh-pr-view
-// truth layer (prForBoundaryCommand → isEnforcedPr), exactly as in Claude's
-// Layer-1-candidate / Layer-2-truth split. The shell tokenizer above is retained
-// ONLY for cwdFromBoundaryCommand (cd / git -C extraction), now here-doc-safe via
-// stripHeredocs.
+// PR-boundary detection — structural and here-doc-safe. Review correctness comes
+// from the `gh pr view` truth layer; these helpers only decide when to run that
+// truth layer immediately and how to extract command cwd/targets. Avoid regex
+// wrapper grammars here: they caused both misses (`env VAR=... git ...`) and a
+// CodeQL ReDoS warning around nested `timeout`/`env` wrappers.
 // ---------------------------------------------------------------------------
-// Start-of-string OR a shell separator (\n ; & |), optional whitespace, optional `VAR=val ` prefixes,
-// then optional command wrappers (`env`, `command`, `nice [-n N]`, `timeout [-flags] DURATION`). The
-// wrapper class is load-bearing for the MERGE gate especially: agents routinely emit `timeout 60 gh pr
-// merge …` / `env gh pr merge …`, and unlike detection (where the gh-pr-view reconcile backstops a
-// missed boundary) the gate has no second chance — a wrapper that slips past it is an unreviewed merge.
-// `bash -c '…'` / `xargs … gh pr merge` (gh inside quotes) is NOT covered here by design; the post-merge
-// retroactive "MERGED while unacked" audit in review-enforcement is the truth-layer backstop for those.
-const BOUNDARY_ANCHOR = String.raw`(?:^|[\n;&|])[ \t]*(?:[A-Za-z_]\w*=(?:'[^']*'|"[^"]*"|\S*)[ \t]+)*(?:(?:env|command|nice(?:[ \t]+-n[ \t]*\S+)?|timeout(?:[ \t]+-\S+)*[ \t]+\S+)[ \t]+)*`;
-// The matched verb must end at a separator / whitespace / quote / end-of-string (a whole word).
-const BOUNDARY_TAIL = String.raw`(?=[ \t"';&|]|$)`;
-// git global options that can sit between `git` and the `push` subcommand (e.g. `git -C /repo push`).
-const GIT_GLOBAL_OPTS = String.raw`(?:-C[ \t]*\S+[ \t]+|-c[ \t]+\S+[ \t]+|--git-dir[= \t]\S+[ \t]+|--work-tree[= \t]\S+[ \t]+)*`;
-const RE_GIT_PUSH = new RegExp(BOUNDARY_ANCHOR + String.raw`git[ \t]+` + GIT_GLOBAL_OPTS + String.raw`push` + BOUNDARY_TAIL);
-// A `git push` that cannot ADVANCE a PR head — a dry run (`--dry-run`/`-n`) or a branch DELETE
-// (`--delete`/`-d`) — is not a PR boundary. Excluded so a credential-probe dry-run or a branch teardown
-// doesn't arm review on an inherited unacked head (which would wrongly AUTOSTART where the design says
-// OFFER — finding from the third deep review). `--tags` is deliberately NOT excluded: `git push origin
-// main --tags` advances a head too, and the reconcile gh-pr-view backstop covers a rare tags-only push.
-const RE_GIT_PUSH_NONADVANCING = new RegExp(BOUNDARY_ANCHOR + String.raw`git[ \t]+` + GIT_GLOBAL_OPTS + String.raw`push\b[^\n;&|]*?[ \t](?:--dry-run|--delete|-n|-d)(?![\w-])`);
-function isAdvancingGitPush(command: string): boolean {
-  return RE_GIT_PUSH.test(command) && !RE_GIT_PUSH_NONADVANCING.test(command);
+function isAdvancingGitPushWords(words: ShellCommand): boolean {
+  const git = gitArgs(words);
+  if (git?.[0] !== "push") return false;
+  return !git.slice(1).some((arg) => arg === "--dry-run" || arg === "--delete" || arg === "-n" || arg === "-d");
 }
-const RE_GH_REPO_SYNC = new RegExp(BOUNDARY_ANCHOR + String.raw`gh[ \t]+repo[ \t]+sync` + BOUNDARY_TAIL);
-const RE_GH_PR_UPDATE_BRANCH = new RegExp(BOUNDARY_ANCHOR + String.raw`gh[ \t]+pr[ \t]+update-branch` + BOUNDARY_TAIL);
-const RE_GH_PR_CREATE = new RegExp(BOUNDARY_ANCHOR + String.raw`gh[ \t]+pr[ \t]+create` + BOUNDARY_TAIL);
-const RE_GH_PR_MERGE = new RegExp(BOUNDARY_ANCHOR + String.raw`gh[ \t]+pr[ \t]+merge` + BOUNDARY_TAIL);
-// `--base X` / `--base=X` / `-B X` / `-B=X`, value optionally single/double quoted. `[^\n;&|]*?` keeps
-// the flag scan within the same command segment (not bleeding across a separator into another command).
-const BASE_FLAG = String.raw`(?:--base[ \t]+|--base=|-B[ \t]+|-B=)["']?([\w./-]+)["']?`;
-const RE_PR_EDIT_BASE = new RegExp(BOUNDARY_ANCHOR + String.raw`gh[ \t]+pr[ \t]+edit[^\n;&|]*?[ \t]` + BASE_FLAG);
-const RE_PR_CREATE_BASE = new RegExp(BOUNDARY_ANCHOR + String.raw`gh[ \t]+pr[ \t]+create[^\n;&|]*?[ \t]` + BASE_FLAG);
+
+function firstGhWords(command: string, subcommands: string[]): ShellCommand | undefined {
+  return reviewBoundaryCommands(command)
+    .map(unwrapCommandWords)
+    .find((words) => words[0] === "gh" && subcommands.every((part, index) => words[index + 1] === part));
+}
+
+function firstGitPushWords(command: string): ShellCommand | undefined {
+  return reviewBoundaryCommands(command).find(isAdvancingGitPushWords);
+}
 
 export function cwdFromBoundaryCommand(command: string): string | undefined {
   let lastCd: string | undefined;
@@ -224,16 +242,19 @@ export function cwdFromBoundaryCommand(command: string): string | undefined {
   return undefined;
 }
 
-function prEditBaseFromWords(words: ShellCommand): string | undefined {
-  let base: string | undefined;
+function prBaseFromWords(words: ShellCommand): string | undefined {
   for (let index = 3; index < words.length; index += 1) {
     const word = words[index];
-    if ((word === "--base" || word === "-B") && words[index + 1]) { base = words[index + 1]; break; }
-    if (word.startsWith("--base=")) { base = word.slice("--base=".length); break; }
-    if (word.startsWith("-B=") && word.length > 3) { base = word.slice(3); break; }
+    if ((word === "--base" || word === "-B") && words[index + 1]) return words[index + 1];
+    if (word.startsWith("--base=")) return word.slice("--base=".length);
+    if (word.startsWith("-B=") && word.length > 3) return word.slice(3);
   }
-  if (!base || (base !== "main" && base !== "master")) return undefined;
-  return base;
+  return undefined;
+}
+
+function prProtectedBaseFromWords(words: ShellCommand): string | undefined {
+  const base = prBaseFromWords(words);
+  return base === "main" || base === "master" ? base : undefined;
 }
 
 // A `gh pr edit --base main|master` retargets an EXISTING PR onto a protected base — the same
@@ -243,18 +264,21 @@ function prEditBaseFromWords(words: ShellCommand): string | undefined {
 // an explicit `--base main|master` qualifies; a `gh pr edit` that changes title/body/labels is not
 // a boundary.
 export function prEditBoundaryBase(command: string): string | undefined {
-  const match = command.match(RE_PR_EDIT_BASE);
-  if (!match) return undefined;
-  return match[1] === "main" || match[1] === "master" ? match[1] : undefined;
+  for (const words of reviewBoundaryCommands(command).map(unwrapCommandWords)) {
+    if (words[0] !== "gh" || words[1] !== "pr" || words[2] !== "edit") continue;
+    const base = prProtectedBaseFromWords(words);
+    if (base) return base;
+  }
+  return undefined;
 }
 
 export function isGhPrCreateCommand(command: string): boolean {
-  return RE_GH_PR_CREATE.test(command);
+  return Boolean(firstGhWords(command, ["pr", "create"]));
 }
 
 export function ghPrCreateBase(command: string): string | undefined {
-  const match = command.match(RE_PR_CREATE_BASE);
-  return match ? match[1] : undefined;
+  const words = firstGhWords(command, ["pr", "create"]);
+  return words ? prBaseFromWords(words) : undefined;
 }
 
 export function prCreateBoundaryBase(command: string, knownBase?: string): string | undefined {
@@ -282,14 +306,7 @@ export function prEnforcedForPush(pr: { headRefOid?: string | null; state?: stri
 // `gh pr merge` (the merge gate) and a `gh pr create` at any base, mirroring the
 // old word-matcher's breadth.
 export function isPrBoundaryCommand(command: string): boolean {
-  return (
-    isAdvancingGitPush(command) ||
-    RE_GH_REPO_SYNC.test(command) ||
-    RE_GH_PR_UPDATE_BRANCH.test(command) ||
-    RE_GH_PR_CREATE.test(command) ||
-    RE_GH_PR_MERGE.test(command) ||
-    Boolean(prEditBoundaryBase(command))
-  );
+  return reviewBoundaryCommands(command).some(isBoundaryWords);
 }
 
 // THE single PR-boundary trigger predicate (review.md §17.5). A real boundary is a
@@ -301,17 +318,19 @@ export function isPrBoundaryCommand(command: string): boolean {
 export function isPrBoundaryTrigger(command: string): boolean {
   if (prCreateBoundaryBase(command)) return true;
   if (prEditBoundaryBase(command)) return true;
-  return isAdvancingGitPush(command) || RE_GH_REPO_SYNC.test(command) || RE_GH_PR_UPDATE_BRANCH.test(command);
+  return reviewBoundaryCommands(command).some((words) => {
+    if (isAdvancingGitPushWords(words)) return true;
+    const unwrapped = unwrapCommandWords(words);
+    return (unwrapped[0] === "gh" && unwrapped[1] === "repo" && unwrapped[2] === "sync")
+      || (unwrapped[0] === "gh" && unwrapped[1] === "pr" && unwrapped[2] === "update-branch");
+  });
 }
 
-// The merge gate and head-resolution predicates MUST share the same env-prefix-tolerant
-// anchored regexes as detection, or a command detection recognises (e.g. `GH_TOKEN=x gh pr
-// merge`, `GIT_SSH_COMMAND='…' git push`) slips past the gate / takes the wrong head branch.
 export function isGhPrMergeCommand(command: string): boolean {
-  return RE_GH_PR_MERGE.test(command);
+  return Boolean(firstGhWords(command, ["pr", "merge"]));
 }
 export function isGitPushOnlyCommand(command: string): boolean {
-  return isAdvancingGitPush(command);
+  return Boolean(firstGitPushWords(command));
 }
 
 // Which PR a `gh pr merge` command actually targets, so the merge gate can check THAT PR rather than
@@ -320,17 +339,13 @@ export function isGitPushOnlyCommand(command: string): boolean {
 // FALSE-ALLOWS (`gh pr merge <other-unreviewed-PR>` sails through when the current branch is clean) and
 // FALSE-BLOCKS (merging an unrelated ready PR by number from a no-PR checkout). Also surfaces `--auto`,
 // which arms a server-side merge that completes after checks pass and never re-consults this gate (P3).
-const RE_GH_PR_MERGE_ARGS = new RegExp(BOUNDARY_ANCHOR + String.raw`gh[ \t]+pr[ \t]+merge\b([^\n;&|]*)`);
 const stripQuotes = (s: string): string => s.replace(/^["']|["']$/g, "");
 export type MergeCommandTarget = { prNumber?: number; prBranch?: string; repoSlug?: string; auto: boolean };
 export function mergeCommandTarget(command: string): MergeCommandTarget {
   const result: MergeCommandTarget = { auto: false };
-  const m = RE_GH_PR_MERGE_ARGS.exec(command);
-  if (!m) return result;
-  // Tokenize with the quote-aware splitter, NOT a raw whitespace split: a quoted multi-word
-  // value (`gh pr merge -t "fix the gateway" 42`) must stay one token, else the value's tail
-  // ("gateway") is read as the PR selector and the gate is pointed at the wrong PR (fail open).
-  const toks = shellWords(m[1]);
+  const words = firstGhWords(command, ["pr", "merge"]);
+  if (!words) return result;
+  const toks = words.slice(3);
   for (let i = 0; i < toks.length; i++) {
     const t = toks[i];
     if (t === "--auto") { result.auto = true; continue; }
@@ -358,6 +373,15 @@ export function mergeCommandTarget(command: string): MergeCommandTarget {
     }
   }
   return result;
+}
+
+export type PostCommandReconcileDecision = { reconcile: boolean; freshPrState: boolean };
+
+export function postCommandReconcileDecision(command: string): PostCommandReconcileDecision {
+  const invokesGitOrGh = reviewBoundaryCommands(command)
+    .map(unwrapCommandWords)
+    .some((words) => words[0] === "git" || words[0] === "gh");
+  return invokesGitOrGh ? { reconcile: true, freshPrState: true } : { reconcile: false, freshPrState: false };
 }
 
 export function commandTextFromEvent(event: any): string {

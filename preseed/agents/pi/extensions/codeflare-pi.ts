@@ -46,6 +46,7 @@ type ExtensionAPI = {
 
 const CACHE_DIR = "/home/user/.cache/codeflare-hooks";
 const ACTIVE_REPO_FILE = join(CACHE_DIR, "graphify-active-cwd");
+const REVIEW_ACTIVE_REPO_FILE = join(CACHE_DIR, "review-active-cwd");
 const VAULT_ROOT = "/home/user/Vault";
 const GLOBAL_GRAPH_LOCK = "/tmp/graphify-global.lock";
 const PI_SETTINGS_FILE = "/home/user/.pi/agent/settings.json";
@@ -109,27 +110,57 @@ function repoIdentity(repo: string): string {
   return head ? `${basename(repo)}:${branch}@${head.slice(0, 12)}` : `${basename(repo)}:${branch}`;
 }
 
+function persistActiveRepo(repo: string): void {
+  ensureCacheDir();
+  writeFileSync(ACTIVE_REPO_FILE, repo + "\n", "utf8");
+  writeFileSync(REVIEW_ACTIVE_REPO_FILE, repo + "\n", "utf8");
+}
+
 function updateActiveRepoFromPath(path: string): string | undefined {
   const repo = findGitRoot(path);
   if (!repo) return undefined;
-  ensureCacheDir();
-  writeFileSync(ACTIVE_REPO_FILE, repo + "\n", "utf8");
+  persistActiveRepo(repo);
   // Also remember in-session (shared module state) so the local-statusline
   // footer can render repo:branch without trusting the shared on-disk sentinel.
   rememberActiveRepo(repo);
   return repo;
 }
 
-function activeRepo(ctx: ExtensionContext): string | undefined {
-  try {
-    if (existsSync(ACTIVE_REPO_FILE)) {
-      const value = readFileSync(ACTIVE_REPO_FILE, "utf8").trim();
-      if (value && existsSync(value)) return value;
+export function restoreActiveRepoFromPersistedFiles(
+  paths: string[],
+  read: (path: string) => string,
+  exists: (path: string) => boolean,
+  remember: (repo: string) => void,
+): string | undefined {
+  for (const path of paths) {
+    try {
+      const value = read(path).trim();
+      if (!value || !exists(value)) continue;
+      remember(value);
+      return value;
+    } catch {
+      // Try the next persisted source.
     }
-  } catch {
-    // Fall through to cwd discovery.
   }
-  return updateActiveRepoFromPath(ctx.sessionManager.getCwd());
+  return undefined;
+}
+
+function activeRepo(ctx: ExtensionContext): string | undefined {
+  const liveRepo = updateActiveRepoFromPath(ctx.sessionManager.getCwd());
+  if (liveRepo) return liveRepo;
+  const restored = restoreActiveRepoFromPersistedFiles(
+    [REVIEW_ACTIVE_REPO_FILE, ACTIVE_REPO_FILE],
+    (path) => readFileSync(path, "utf8"),
+    existsSync,
+    rememberActiveRepo,
+  );
+  if (restored) {
+    // Display/Graphify fallback only. PR-boundary review routing revalidates this memory against the
+    // session roots and SDD marker before it can influence review reconciliation or merge gating.
+    persistActiveRepo(restored);
+    return restored;
+  }
+  return undefined;
 }
 
 function hasGraph(repo: string): boolean {

@@ -14,8 +14,19 @@ import { loadSettings, applyAccentColor } from '../lib/settings';
 import type { TileLayout, AgentType, TabConfig } from '../types';
 import { VIEW_TRANSITION_DURATION_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS } from '../lib/constants';
 import { startVaultReadinessProbe } from '../lib/vault-readiness';
+import { DEFAULT_VAULT_PREWARM_TIMEOUT_MS, startVaultPrewarm, type VaultPrewarmStatus } from '../lib/vault-prewarm';
 
 type ViewState = 'dashboard' | 'expanding' | 'terminal' | 'collapsing';
+
+export function clearPrewarmingVaultStatus(
+  statuses: Record<string, VaultPrewarmStatus>,
+  sessionId: string,
+): Record<string, VaultPrewarmStatus> {
+  if (statuses[sessionId] !== 'prewarming') return statuses;
+  const next = { ...statuses };
+  delete next[sessionId];
+  return next;
+}
 
 interface LayoutProps {
   userName?: string;
@@ -61,7 +72,10 @@ const Layout: Component<LayoutProps> = (props) => {
   // the button disables itself and the warmup chain restarts.
   const WARMUP_INTERVAL_MS = 5000;
   const STEADY_INTERVAL_MS = 60000; // post-ready slow re-probe cadence
+  const VAULT_PREWARM_RETRY_INTERVAL_MS = 10000;
   const [vaultReadyBySession, setVaultReadyBySession] = createSignal<Record<string, boolean>>({});
+  const [vaultPrewarmBySession, setVaultPrewarmBySession] = createSignal<Record<string, VaultPrewarmStatus>>({});
+  const [vaultPrewarmRetryBySession, setVaultPrewarmRetryBySession] = createSignal<Record<string, number>>({});
   // Memoize the running-flag so the effect only re-runs when running-ness
   // actually flips, not on every metrics/ptyActive churn from session
   // polling. Without this the probe chain restarts on every status tick.
@@ -107,21 +121,96 @@ const Layout: Component<LayoutProps> = (props) => {
           return false;
         }
       },
-      setLatch: () => setVaultReadyBySession((prev) => ({ ...prev, [sid]: true })),
-      clearLatch: () => setVaultReadyBySession((prev) => {
-        const next = { ...prev };
-        delete next[sid];
-        return next;
+      setLatch: () => setVaultReadyBySession((prev) => {
+        if (prev[sid] === true) return prev;
+        return { ...prev, [sid]: true };
       }),
+      clearLatch: () => {
+        setVaultReadyBySession((prev) => {
+          if (prev[sid] !== true) return prev;
+          const next = { ...prev };
+          delete next[sid];
+          return next;
+        });
+        setVaultPrewarmBySession((prev) => {
+          if (!prev[sid]) return prev;
+          const next = { ...prev };
+          delete next[sid];
+          return next;
+        });
+        setVaultPrewarmRetryBySession((prev) => {
+          if (prev[sid] === undefined) return prev;
+          const next = { ...prev };
+          delete next[sid];
+          return next;
+        });
+      },
       initiallyReady: () => untrack(vaultReadyBySession)[sid] === true,
       warmupIntervalMs: WARMUP_INTERVAL_MS,
       steadyIntervalMs: STEADY_INTERVAL_MS,
     });
     onCleanup(cancel);
   });
+  createEffect(() => {
+    const sid = activeRunningSid();
+    if (!sid) {
+      const prevSid = untrack(() => sessionStore.activeSessionId);
+      if (prevSid && untrack(vaultPrewarmBySession)[prevSid]) {
+        setVaultPrewarmBySession((prev) => {
+          const next = { ...prev };
+          delete next[prevSid];
+          return next;
+        });
+        setVaultPrewarmRetryBySession((prev) => {
+          if (prev[prevSid] === undefined) return prev;
+          const next = { ...prev };
+          delete next[prevSid];
+          return next;
+        });
+      }
+      return;
+    }
+
+    if (vaultReadyBySession()[sid] !== true) return;
+    const retryNonce = vaultPrewarmRetryBySession()[sid] ?? 0;
+    void retryNonce;
+    const current = untrack(vaultPrewarmBySession)[sid];
+    if (current === 'ready' || current === 'prewarming') return;
+
+    setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'prewarming' }));
+    const handle = startVaultPrewarm({
+      sessionId: sid,
+      timeoutMs: DEFAULT_VAULT_PREWARM_TIMEOUT_MS,
+      onReady: () => setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' })),
+      onError: (status) => setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: status })),
+    });
+    onCleanup(() => {
+      handle?.cancel();
+      setVaultPrewarmBySession((prev) => clearPrewarmingVaultStatus(prev, sid));
+    });
+  });
+
+  createEffect(() => {
+    const sid = activeRunningSid();
+    if (!sid || vaultReadyBySession()[sid] !== true) return;
+    const status = vaultPrewarmBySession()[sid];
+    if (status !== 'timeout' && status !== 'error') return;
+
+    const retryTimer = setTimeout(() => {
+      setVaultPrewarmRetryBySession((prev) => ({ ...prev, [sid]: (prev[sid] ?? 0) + 1 }));
+    }, VAULT_PREWARM_RETRY_INTERVAL_MS);
+    onCleanup(() => clearTimeout(retryTimer));
+  });
+
+  const vaultPrewarmStatus = createMemo<VaultPrewarmStatus>(() => {
+    const sid = sessionStore.activeSessionId;
+    if (!sid || vaultReadyBySession()[sid] !== true) return 'idle';
+    return vaultPrewarmBySession()[sid] ?? 'prewarming';
+  });
+
   const vaultReady = createMemo(() => {
     const sid = sessionStore.activeSessionId;
-    return sid ? vaultReadyBySession()[sid] === true : false;
+    return !!sid && vaultReadyBySession()[sid] === true && vaultPrewarmStatus() === 'ready';
   });
 
   // Load sessions and preferences on mount
@@ -396,6 +485,7 @@ const Layout: Component<LayoutProps> = (props) => {
             ? () => window.open(`/api/vault/${sessionStore.activeSessionId}/`, '_blank', 'noopener')
             : undefined}
           vaultReady={vaultReady()}
+          vaultStatus={vaultPrewarmStatus()}
           onLogoClick={showDashboard() ? undefined : handleOpenDashboard}
           sessions={sessionStore.sessions}
           activeSessionId={sessionStore.activeSessionId}

@@ -13,7 +13,10 @@ import {
   inferOriginValidated,
   injectVaultEncryptionConfig,
   injectVaultBootScript,
+  injectVaultPrewarmBridge,
+  getVaultPrewarmRedirectSearch,
   VAULT_BOOTSTRAP_COOKIE,
+  VAULT_PREWARM_BRIDGE_MARKER,
 } from '../../routes/vault-html';
 
 describe('CF-045: vault-html direct unit tests', () => {
@@ -109,6 +112,50 @@ describe('CF-045: vault-html direct unit tests', () => {
 
     it('throws when the boot config is not a JSON object', () => {
       expect(() => injectVaultEncryptionConfig('[1,2,3]', 'KEY')).toThrow();
+    });
+  });
+
+  describe('vault prewarm helpers', () => {
+    async function countPrewarmBridgeScripts(html: string): Promise<number> {
+      let count = 0;
+      await new HTMLRewriter()
+        .on(`script[${VAULT_PREWARM_BRIDGE_MARKER}]`, {
+          element() { count += 1; },
+        })
+        .transform(new Response(html))
+        .text();
+      return count;
+    }
+
+    it('preserves only valid prewarm handshake parameters for bootstrap redirects', () => {
+      const req = new Request('https://x/api/vault/aabbccdd/.codeflare-bootstrap?codeflarePrewarm=1&prewarmId=warm-1');
+      const search = getVaultPrewarmRedirectSearch(req);
+      const parsed = new URL(`https://x/${search}`);
+
+      expect(parsed.searchParams.get('codeflarePrewarm')).toBe('1');
+      expect(parsed.searchParams.get('prewarmId')).toBe('warm-1');
+    });
+
+    it('drops malformed prewarm identifiers instead of redirecting them into the shell', () => {
+      const req = new Request('https://x/api/vault/aabbccdd/.codeflare-bootstrap?codeflarePrewarm=1&prewarmId=<script>');
+
+      expect(getVaultPrewarmRedirectSearch(req)).toBe('');
+    });
+
+    it('injects a single prewarm bridge script for a valid prewarm token', async () => {
+      const html = '<html><head></head><body></body></html>';
+      const once = injectVaultPrewarmBridge(html, 'warm-1');
+      const twice = injectVaultPrewarmBridge(once, 'warm-1');
+
+      expect(await countPrewarmBridgeScripts(once)).toBe(1);
+      expect(await countPrewarmBridgeScripts(twice)).toBe(1);
+    });
+
+    it('injects the inert bridge into the generic shell so the precached shell can prewarm later', async () => {
+      const html = '<html><head></head><body></body></html>';
+      const rewritten = injectVaultPrewarmBridge(html);
+
+      expect(await countPrewarmBridgeScripts(rewritten)).toBe(1);
     });
   });
 

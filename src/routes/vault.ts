@@ -46,6 +46,7 @@ import {
   injectVaultBootstrapHopHtml,
   hasVaultBootstrapCookie,
   filterVaultFsListing,
+  getVaultPrewarmRedirectSearch,
   rewriteVaultHtmlResponse,
 } from './vault-html';
 import { VAULT_NATIVE_SERVICE_WORKER_JS } from './vault-native-sw';
@@ -252,7 +253,11 @@ export async function handleVaultRequest(
     if (remainingPath === '/.codeflare-bootstrap' && !isWebSocket) {
       try {
         const vaultEncryptionKey = await getVaultEncryptionKey(container);
-        const html = injectVaultBootstrapHopHtml(sessionId, vaultEncryptionKey);
+        const html = injectVaultBootstrapHopHtml(
+          sessionId,
+          vaultEncryptionKey,
+          getVaultPrewarmRedirectSearch(request),
+        );
         const hopHeaders = new Headers({
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-store',
@@ -312,7 +317,7 @@ export async function handleVaultRequest(
       return new Response(null, {
         status: 302,
         headers: {
-          Location: `/api/vault/${sessionId}/.codeflare-bootstrap`,
+          Location: `/api/vault/${sessionId}/.codeflare-bootstrap${getVaultPrewarmRedirectSearch(request)}`,
           'Cache-Control': 'no-store',
           'X-Request-ID': requestId,
         },

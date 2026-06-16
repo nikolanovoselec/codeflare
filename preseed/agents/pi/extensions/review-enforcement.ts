@@ -57,8 +57,8 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
-import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, prBoundaryCommandBase, prEnforcedForPush, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { actionableReviewCount, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, mergeGateDecision, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewAnnouncement, type ReviewSeverityCounts } from "./review-job-helpers";
+import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prEnforcedForPush, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
+import { actionableReviewCount, activeRepoCandidateForReview, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, mergeGateDecision, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewAnnouncement, type ReviewSeverityCounts } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, ensureReviewAnnouncementPending, failedDurableReviewLanes, readDurableReviewJob, readReviewAnnouncement, reapDurableReviewLanes, reviewAnnouncementKinds, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes, writeReviewAnnouncement } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -134,32 +134,12 @@ function markBoundaryActed(repo: string, branch?: string): void {
 function boundaryActedThisSession(repo: string): boolean {
   return boundaryActedMemory().has(boundaryActedKey(repo, currentBranch(repo) ?? ""));
 }
-// clearBoundaryActed (R7): a completed/acked review spends the "this session pushed" signal for that
-// branch. Clearing it means a LATER unacked head reaching this branch from a REMOTE actor (a CI bot, or
-// a concurrent Claude in another container — explicitly supported) is treated as inherited → OFFER, not
-// auto-started on work this session never did. A genuine in-session follow-up push re-marks it (onToolEnd
-// runs before the window guards), and an in-session descendant push is still caught by the branch-keyed
-// baseline backstop, so nothing legitimate degrades to an offer.
+// clearBoundaryActed spends the explicit "this session pushed" signal after a head is acked. The
+// branch baseline remains active for the whole session, so a later descendant head still autostarts if a
+// fix-push tool event is lost; a fresh Pi process still offers inherited heads because it re-baselines to
+// the current PR head on first observation.
 function clearBoundaryActed(repo: string, branch?: string): void {
   boundaryActedMemory().delete(boundaryActedKey(repo, branch ?? currentBranch(repo) ?? ""));
-}
-// ackedBranchMemory: per-SESSION record of which repo+branch were ACKED this session. Once a branch is
-// acked, the baseline backstop (reviewBaselineContinuation) must STOP auto-starting descendants of the
-// session baseline — a later descendant is either an in-session push (caught by boundaryActed, the strong
-// signal) or a head FETCHED from a remote actor (a CI bot / a concurrent Claude) which must OFFER, not be
-// re-reviewed (R7). Without this, a `git pull` of a remote descendant AFTER an in-session ack wrongly
-// auto-started a duplicate review. globalThis-scoped (survives a /ctx reload, resets per OS process).
-const ACKED_BRANCH_KEY = Symbol.for("codeflare.reviewAckedBranchThisSession");
-function ackedBranchMemory(): Set<string> {
-  const g = globalThis as unknown as Record<symbol, Set<string> | undefined>;
-  if (!g[ACKED_BRANCH_KEY]) g[ACKED_BRANCH_KEY] = new Set<string>();
-  return g[ACKED_BRANCH_KEY]!;
-}
-function markBranchAcked(repo: string, branch: string | undefined): void {
-  if (repo) ackedBranchMemory().add(boundaryActedKey(repo, branch ?? currentBranch(repo) ?? ""));
-}
-function branchAckedThisSession(repo: string): boolean {
-  return ackedBranchMemory().has(boundaryActedKey(repo, currentBranch(repo) ?? ""));
 }
 // offerSurfacedMemory: per-SESSION dedup for the missed-boundary offer. The offer must re-surface
 // ONCE PER SESSION — a new `pi` started on a still-unchosen offer (the user quit without choosing) must
@@ -250,15 +230,33 @@ function cwdFromCommand(command: string): string | undefined {
 // The repo THIS Pi session is reviewing is remembered in the shared review-job-helpers module
 // (rememberReviewRepo/recallReviewRepo), so BOTH the no-ctx autonomous reaper AND the
 // local-statusline footer (a separate extension sharing the same module instance) recall the SAME
-// value. Deliberately replaces the old graphify active-cwd sentinel read: that sentinel is shared
-// across agents (Claude's hook + Pi's codeflare-pi.ts both write it) and flaps to whichever agent
-// acted last, so it cannot identify the repo THIS Pi session is reviewing. See resolveReviewRepo().
+// value. Commandless reconciliation also has a guarded persisted fallback below: without it, a Pi
+// session whose cwd is the parent workspace (`/home/user/workspace`) loses the nested repo after a
+// reload/compaction/pending cleanup and never reaches the authoritative `gh pr view` truth layer.
+const REVIEW_ACTIVE_REPO_FILE = "/home/user/.cache/codeflare-hooks/review-active-cwd";
+const GRAPHIFY_ACTIVE_REPO_FILE = "/home/user/.cache/codeflare-hooks/graphify-active-cwd";
+
+function activeRepoForReviewRouting(ctx: any): string | undefined {
+  const sessionCwd = ctx?.sessionManager?.getCwd?.();
+  const roots = [sessionCwd, ctx?.cwd, process.cwd()];
+  const persistedSentinelContents = [REVIEW_ACTIVE_REPO_FILE, GRAPHIFY_ACTIVE_REPO_FILE].map((file) => {
+    try { return readFileSync(file, "utf8"); } catch { return undefined; }
+  });
+  const repo = activeRepoCandidateForReview({
+    rememberedActiveRepo: recallActiveRepo(),
+    persistedSentinelContents,
+    sessionRoots: roots,
+    hasGitDir: (path) => existsSync(join(path, ".git")),
+    hasSddProject: isSddProject,
+  });
+  if (repo) rememberActiveRepo(repo);
+  return repo;
+}
 
 // Resolve + remember the review repo for a ctx-bearing handler: an explicit command cwd (`cd`/`-C`
 // in the boundary command) first, then the Pi session's own cwd, then the repo remembered earlier
 // this session (so a NESTED review clone still resolves when the session cwd is its parent
-// workspace — the on-turn summary-emit bug), then pi's process dir as a last resort. Never the
-// graphify sentinel.
+// workspace), then a guarded persisted active-repo fallback, then pi's process dir as a last resort.
 function reviewRepoForCtx(ctx: any, commandCwd?: string): string | undefined {
   const sessionCwd = ctx?.sessionManager?.getCwd?.();
   // A boundary command's cwd (`cd <dir>` / `git -C <dir>`) can be RELATIVE. Resolve it against the
@@ -269,8 +267,9 @@ function reviewRepoForCtx(ctx: any, commandCwd?: string): string | undefined {
   const resolvedCommandCwd = commandCwd && !isAbsolute(commandCwd)
     ? resolve(sessionCwd || process.cwd(), commandCwd)
     : commandCwd;
+  const activeRepo = activeRepoForReviewRouting(ctx);
   const repo = resolveReviewRepo(
-    { commandCwd: resolvedCommandCwd, sessionCwd, sessionReviewRepo: recallReviewRepo(), activeRepo: recallActiveRepo(), processCwd: process.cwd() },
+    { commandCwd: resolvedCommandCwd, sessionCwd, sessionReviewRepo: recallReviewRepo(), activeRepo, processCwd: process.cwd() },
     findGitRoot,
   );
   // Only PIN this repo as "the repo under review" when it actually has an active review window.
@@ -471,14 +470,11 @@ function writeAck(repo: string, head: string): void {
   // long-lived branch leaves its result dir behind forever. writeAck is the single choke point every
   // finalize/skip path funnels through, so pruning here keeps exactly the current head and nothing else.
   pruneReviewResults(repo, head);
-  // R7: acking spends this branch's "this session pushed" signal AND records that this branch was acked
-  // this session (so the baseline backstop stops auto-starting descendants — only an explicit boundaryActed
-  // does, post-ack). Key BOTH by the pending PR's branch, which is still on disk here (clearPending runs
-  // after writeAck in every finalize path), so an OFF-TURN reaper finalizing while another branch is
-  // checked out clears/marks the RIGHT branch — not currentBranch-at-finalize-time (the finding-9 miss).
+  // Acking spends this branch's explicit "this session pushed" signal. The branch baseline is NOT spent:
+  // if a follow-up fix push loses its tool event, the descendant baseline must still autostart durable
+  // review lanes instead of degrading to a passive offer.
   const ackBranch = loadPending(repo)?.headBranch ?? currentBranch(repo);
   clearBoundaryActed(repo, ackBranch);
-  markBranchAcked(repo, ackBranch);
 }
 
 // The "offered" dedup that used to live here as an on-disk per-head-EVER marker now lives in the
@@ -1305,8 +1301,8 @@ export default function (pi: ExtensionAPI) {
       if (record.kind === "summary") {
         const summaryPath = join(reviewResultsDir(state.repo, state.head), "summary.md");
         try { mkdirSync(dirname(summaryPath), { recursive: true }); writeFileSync(summaryPath, `${reviewSummaryMarkdown(state)}\n`, "utf8"); } catch { /* persisted copy best-effort; chat copy is authoritative */ }
-        // Deliver the (display-only) summary the SAME way /review-results does: a plain pi.sendMessage
-        // with NO options. That takes Pi's append path (appendCustomMessageEntry), which SYNCHRONOUSLY
+        // Deliver the (display-only) summary the SAME way /review-results does, but only on a ctx-bearing
+        // live tick: a plain pi.sendMessage with NO options. That takes Pi's append path (appendCustomMessageEntry), which SYNCHRONOUSLY
         // writes the nonce-bearing content into the session transcript AND displays it in one step — so
         // the nonce reliably lands and the next reconcile proves delivery. The old `{ triggerTurn:true,
         // deliverAs:"followUp" }` instead routed the message through _runAgentPrompt / agent.followUp /
@@ -1316,6 +1312,7 @@ export default function (pi: ExtensionAPI) {
         // when no turn is streaming — mid-stream it would STEER the summary into the running turn
         // (agent-readable mid-reasoning, the REQ-AGENT-058 AC7 hazard); when streaming we stay pending and
         // the next idle tick (agent_end / turn_end / session_start) delivers it.
+        if (!ctx?.sessionManager) return { sent: false };
         let idle = true;
         // A THROW (runtime tearing down → assertActive) is reported as a failed attempt, NOT a silent
         // defer: it burns an attempt so a persistently-throwing isIdle still escalates to /review-results
@@ -1605,7 +1602,7 @@ export default function (pi: ExtensionAPI) {
   // shouldReconcileOpenPr; genuine near-misses (breaker-latched, unresolvable head) are logged as
   // boundary_candidate_ignored so a stuck PR is never silent (AC4). `force` bypasses the network
   // throttle for once-per-turn ticks. Returns true when a window was created or acked.
-  async function reconcileOpenPrReview(ctx: any, force: boolean): Promise<boolean> {
+  async function reconcileOpenPrReview(ctx: any, force: boolean, options?: { freshPrState?: boolean }): Promise<boolean> {
     const repo = reviewRepoForCtx(ctx);
     const nowTs = Date.now();
     const lifecycle = shouldCheckOpenPrReconciliation({
@@ -1619,7 +1616,7 @@ export default function (pi: ExtensionAPI) {
     lastReconcileCheckAt = nowTs;
 
     const resolvedRepo = repo as string;
-    const pr = prState(resolvedRepo);
+    const pr = options?.freshPrState ? prStateFreshResult(resolvedRepo).pr : prState(resolvedRepo);
     const enforced = isEnforcedPr(pr);
     const head = enforced ? resolveEnforcedHead(resolvedRepo, pr) : "";
     const durableJob = head ? readDurableReviewJob(resolvedRepo, head) : undefined;
@@ -1664,9 +1661,6 @@ export default function (pi: ExtensionAPI) {
       baseline: priorBaseline,
       head,
       isAncestor: (a, b) => isAncestor(resolvedRepo, a, b),
-      // Suppress the baseline backstop once this branch was acked this session — a fetched remote
-      // descendant must OFFER, not auto-start (R7); an in-session push still autostarts via boundaryActed.
-      ackedThisSession: branchAckedThisSession(resolvedRepo),
     });
     const action = reconcileBoundaryAction({
       reconcile: decision.reconcile,
@@ -1976,9 +1970,15 @@ export default function (pi: ExtensionAPI) {
         const repo = reviewRepoForCtx(ctx, cwdFromCommand(command));
         if (repo && isSddProject(repo)) {
           appendReviewEvent(repo, { event: "boundary_candidate_ignored", reason: "pr_create_url_not_parsed" });
-          await reconcileOpenPrReview(ctx, true);
+          await reconcileOpenPrReview(ctx, true, { freshPrState: true });
         }
       }
+      // Simple truth backstop: after ANY successful shell command that actually invokes git/gh, re-read
+      // GitHub PR state FRESH (bypassing prCache). Regex/tool parsing is only an accelerator; `gh pr view`
+      // owns the truth. This catches wrapper/compound commands whose exact boundary verb was not
+      // classified, and it makes a missed push self-heal immediately instead of waiting for a cache TTL.
+      const postCommandDecision = postCommandReconcileDecision(command);
+      if (postCommandDecision.reconcile) await reconcileOpenPrReview(ctx, true, { freshPrState: postCommandDecision.freshPrState });
       return;
     }
 

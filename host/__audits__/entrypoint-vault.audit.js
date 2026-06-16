@@ -17,8 +17,10 @@
 //     node --test host/__audits__/*.audit.js
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { resolve, dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -27,6 +29,21 @@ const repoRoot = resolve(__dirname, '../..');
 const entrypoint = readFileSync(resolve(repoRoot, 'entrypoint.sh'), 'utf8');
 const dockerfile = readFileSync(resolve(repoRoot, 'Dockerfile'), 'utf8');
 const manifest = JSON.parse(readFileSync(resolve(repoRoot, 'preseed/agents/claude/manifest.json'), 'utf8'));
+
+function extractShellFunction(name) {
+  const start = entrypoint.indexOf(`${name}()`);
+  assert.notEqual(start, -1, `${name} function must exist`);
+  const lines = entrypoint.slice(start).split('\n');
+  let depth = 0;
+  const bodyLines = [];
+  for (const line of lines) {
+    bodyLines.push(line);
+    if (/\{/.test(line)) depth += (line.match(/\{/g) || []).length;
+    if (/\}/.test(line)) depth -= (line.match(/\}/g) || []).length;
+    if (depth <= 0 && bodyLines.length > 1) break;
+  }
+  return bodyLines.join('\n');
+}
 
 describe('vault bisync filter (REQ-VAULT-001 AC1, REQ-MEM-004 AC1)', () => {
   // REQ-VAULT-001 AC1, REQ-MEM-004 AC1
@@ -162,6 +179,40 @@ describe('vault skeleton + daemons (REQ-VAULT-001, REQ-VAULT-003, REQ-VAULT-005)
       entrypoint.includes('(init_user_vault) || echo'),
       'init_user_vault must be called from the bisync init subshell with non-fatal fallback'
     );
+  });
+
+  // REQ-VAULT-001 AC3, REQ-VAULT-010 AC2
+  it('init_user_vault creates the user-owned vault skeleton including References', () => {
+    const tempHome = mkdtempSync(join(tmpdir(), 'codeflare-vault-home-'));
+    try {
+      const script = [
+        'set -euo pipefail',
+        `USER_HOME=${JSON.stringify(tempHome)}`,
+        extractShellFunction('init_user_vault'),
+        'init_user_vault >/dev/null',
+      ].join('\n');
+      execFileSync('/bin/bash', ['-c', script], {
+        env: { ...process.env, PATH: '/usr/bin:/bin' },
+        stdio: 'pipe',
+      });
+
+      for (const dir of [
+        'Raw/Sessions',
+        'Raw/Pasted',
+        'Raw/Graphs',
+        'Notes',
+        'References',
+        'graphify-out',
+        '.silverbullet/_plug',
+      ]) {
+        assert.ok(
+          existsSync(join(tempHome, 'Vault', dir)),
+          `init_user_vault must create ~/Vault/${dir}`
+        );
+      }
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
   });
 
   // REQ-VAULT-003 AC1

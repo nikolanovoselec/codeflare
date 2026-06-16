@@ -2,13 +2,13 @@ import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
-import { bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, prCreateBoundaryBase, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, postCommandReconcileDecision, prCreateBoundaryBase, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
 import { actionableReviewCount, allDurableReviewLanesComplete, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, reviewAutofixRequest, sendReviewAutofixRequest, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { LOCAL_BUILD_BYPASS, attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { reviewLaneBlockReason, reviewScopeBlockReason } from '../../../preseed/agents/pi/extensions/review-lane-guards';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
-import { shouldHandleClonePrompt } from '../../../preseed/agents/pi/extensions/codeflare-pi';
+import { restoreActiveRepoFromPersistedFiles, shouldHandleClonePrompt } from '../../../preseed/agents/pi/extensions/codeflare-pi';
 import localStatuslineExtension from '../../../preseed/agents/pi/extensions/local-statusline';
 
 /**
@@ -471,6 +471,18 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(shouldHandleClonePrompt('git clone https://github.com/foo/bar /tmp/bar', true, 0)).toBe(false);
     expect(shouldHandleClonePrompt('git clone https://github.com/foo/bar /tmp/bar', false, 0)).toBe(true);
 
+    let remembered = '';
+    expect(restoreActiveRepoFromPersistedFiles(
+      ['/missing-review-active', '/graphify-active'],
+      (path) => {
+        if (path === '/missing-review-active') throw new Error('missing');
+        return '/home/user/workspace/codeflare\n';
+      },
+      (path) => path === '/home/user/workspace/codeflare',
+      (repo) => { remembered = repo; },
+    )).toBe('/home/user/workspace/codeflare');
+    expect(remembered).toBe('/home/user/workspace/codeflare');
+
     const decision = graphifyClonePromptDecision({
       command: 'git clone https://github.com/o/r.git',
       cwd: '/home/user/workspace',
@@ -594,6 +606,8 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
 
   it('REQ-AGENT-036: Pi PR-boundary command detection covers head-moving surfaces and ignores metadata-only PR commands', () => {
     expect(isPrBoundaryCommand('git push origin develop')).toBe(true);
+    expect(isPrBoundaryCommand('env GH_TOKEN=x git push origin develop')).toBe(true);
+    expect(isPrBoundaryCommand('timeout 60 gh pr merge 501 --squash')).toBe(true);
     expect(isPrBoundaryCommand('git -C /repo/codeflare push origin develop')).toBe(true);
     expect(isPrBoundaryCommand('gh repo sync owner/repo')).toBe(true);
     expect(isPrBoundaryCommand('gh pr create --base main')).toBe(true);
@@ -607,6 +621,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(cwdFromBoundaryCommand('cd /repo/codeflare && gh pr edit 12 --base main')).toBe('/repo/codeflare');
     expect(cwdFromBoundaryCommand('cd "/repo/with space" && gh pr create --base main')).toBe('/repo/with space');
     expect(cwdFromBoundaryCommand('git -C /repo/codeflare push origin develop')).toBe('/repo/codeflare');
+    expect(cwdFromBoundaryCommand('env GH_TOKEN=x git -C /repo/codeflare push origin develop')).toBe('/repo/codeflare');
     const batchedDependabotCommand = 'cd /home/user/workspace/codeflare\nset -euo pipefail\ngit status --short --branch\ngit add package.json package-lock.json\ngit commit -m "chore: merge dependabot dependency bumps"\ngit push origin develop\nfor pr in 487 489 490 491; do\n  gh pr close "$pr" --delete-branch --comment "Merged into develop via batched dependency update commit to resolve overlapping package-lock conflicts." || true\ndone';
     expect(isPrBoundaryCommand(batchedDependabotCommand)).toBe(true);
     expect(cwdFromBoundaryCommand(batchedDependabotCommand)).toBe('/home/user/workspace/codeflare');
@@ -624,6 +639,18 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(isPrBoundaryCommand('gh pr edit 12 --base develop')).toBe(false);
     expect(isPrBoundaryCommand('gh pr edit 12 --title metadata-only')).toBe(false);
     expect(isPrBoundaryCommand('gh pr view --json number')).toBe(false);
+
+    // The post-command truth backstop is intentionally broader than the boundary classifier: any real
+    // git/gh shell command forces a fresh PR-state reconcile so an unclassified push is not hidden behind
+    // the 60s OPEN-pr cache.
+  });
+
+  it('REQ-AGENT-058: post-command git/gh truth backstop uses fresh PR state and handles env wrappers', () => {
+    expect(postCommandReconcileDecision('gh pr view --json number')).toEqual({ reconcile: true, freshPrState: true });
+    expect(postCommandReconcileDecision('env GH_TOKEN=x git status --short')).toEqual({ reconcile: true, freshPrState: true });
+    expect(postCommandReconcileDecision('env -u GH_TOKEN GH_TOKEN=x gh pr view --json number')).toEqual({ reconcile: true, freshPrState: true });
+    expect(postCommandReconcileDecision('timeout 60 env GH_TOKEN=x gh pr view --json number')).toEqual({ reconcile: true, freshPrState: true });
+    expect(postCommandReconcileDecision("printf '%s' 'git push origin develop'")).toEqual({ reconcile: false, freshPrState: false });
   });
 
   it('REQ-AGENT-036 / REQ-AGENT-058: missed-boundary recovery reconciles only a real open enforced unacked PR, never from passive branch existence', () => {

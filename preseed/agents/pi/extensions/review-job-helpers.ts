@@ -1045,20 +1045,10 @@ export function reviewBaselineContinuation(
 }
 
 // reviewInSessionContinuation is the FULL autostart-vs-offer signal for missed-boundary reconciliation
-// (REQ-AGENT-058). The reconcile AUTOSTARTS reviewers for a missed boundary only
-// when THIS session is what advanced the head — never for a head merely inherited at launch (a fresh
-// clone, a relaunch, or a bare checkout), which instead OFFERS so reviewers are never silently spawned on
-// work the user did not do this session. Two independent signals, OR'd:
-//   • boundaryActed (PRIMARY): a real PR-boundary command (push / pr create / …) actually executed this
-//     session for this repo+branch. Recorded in onToolEnd BEFORE any window-creation guard, so even a
-//     dropped window (dedup, unresolved head, reload after the event fired) still leaves the fact for
-//     reconcile to autostart on. True exactly when we pushed — independent of head ancestry, so it covers
-//     the no-PR-at-launch + in-session push case that the baseline signal alone missed.
-//   • baseline backstop (reviewBaselineContinuation): covers the reload-ate-the-tool-event case where
-//     boundaryActed was never recorded but the head still advanced beyond the session's branch baseline.
-// A bare checkout sets neither (no boundary command ran; the new branch's baseline equals its inherited
-// head), so it correctly OFFERS — whereas advancing a repo-keyed baseline on ack made a mere
-// checkout of a descendant branch autostart.
+// (REQ-AGENT-058). Reconcile AUTOSTARTS reviewers when THIS session can see the PR head advanced beyond
+// the branch baseline it first observed. This intentionally stays true even after a prior ack in the same
+// session: fix-push rounds are the common path, and losing one tool event after an ack must not degrade to
+// a passive offer. A fresh launch still offers because its baseline is seeded to the inherited head.
 export function reviewInSessionContinuation(input: {
   boundaryActed: boolean;
   baseline: string | undefined;
@@ -1067,12 +1057,6 @@ export function reviewInSessionContinuation(input: {
   ackedThisSession?: boolean;
 }): boolean {
   if (input.boundaryActed) return true;
-  // Once this branch has been ACKED this session, the baseline backstop is SUPPRESSED: a further
-  // descendant of the session baseline is either an in-session push (already covered by boundaryActed
-  // above) or a remote-actor head FETCHED via `git pull`, which must OFFER, not auto-start a duplicate
-  // review (R7). The backstop only covers the pre-first-ack window, where a dropped boundary tool-event
-  // is the plausible reason boundaryActed is missing despite an in-session advance.
-  if (input.ackedThisSession) return false;
   return reviewBaselineContinuation(input.baseline, input.head, input.isAncestor);
 }
 
@@ -1211,18 +1195,60 @@ export function recallActiveRepo(): string | undefined {
 // of this session's roots (session cwd / ctx cwd), so an unrelated repo touched
 // by another agent elsewhere can never hijack this session's footer. Pure so the
 // guards are unit-testable; the caller injects file content and the .git check.
-export function activeRepoSentinelForDisplay(input: {
+function guardedActiveRepoSentinel(input: {
   sentinelContent: string | undefined;
   sessionRoots: (string | undefined)[];
   hasGitDir: (path: string) => boolean;
+  hasSddProject?: (path: string) => boolean;
 }): string | undefined {
   const value = input.sentinelContent?.trim();
   if (!value || !input.hasGitDir(value)) return undefined;
+  if (input.hasSddProject && !input.hasSddProject(value)) return undefined;
   const inside = input.sessionRoots.some((root) => {
     if (!root) return false;
     return value === root || value.startsWith(root.endsWith("/") ? root : `${root}/`);
   });
   return inside ? value : undefined;
+}
+
+export function activeRepoSentinelForDisplay(input: {
+  sentinelContent: string | undefined;
+  sessionRoots: (string | undefined)[];
+  hasGitDir: (path: string) => boolean;
+}): string | undefined {
+  return guardedActiveRepoSentinel(input);
+}
+
+// Guarded persisted active-repo fallback for PR-boundary REVIEW ROUTING. This is stricter than the
+// display fallback above: the path must be a git repo, live under this session's roots, and be an SDD
+// project. It lets commandless reconciliation reach `gh pr view` for nested repos after a reload while
+// still preventing another agent's flapping sentinel from hijacking review enforcement.
+export function activeRepoSentinelForReview(input: {
+  sentinelContent: string | undefined;
+  sessionRoots: (string | undefined)[];
+  hasGitDir: (path: string) => boolean;
+  hasSddProject: (path: string) => boolean;
+}): string | undefined {
+  return guardedActiveRepoSentinel(input);
+}
+
+export function activeRepoCandidateForReview(input: {
+  rememberedActiveRepo: string | undefined;
+  persistedSentinelContents: (string | undefined)[];
+  sessionRoots: (string | undefined)[];
+  hasGitDir: (path: string) => boolean;
+  hasSddProject: (path: string) => boolean;
+}): string | undefined {
+  for (const sentinelContent of [input.rememberedActiveRepo, ...input.persistedSentinelContents]) {
+    const repo = activeRepoSentinelForReview({
+      sentinelContent,
+      sessionRoots: input.sessionRoots,
+      hasGitDir: input.hasGitDir,
+      hasSddProject: input.hasSddProject,
+    });
+    if (repo) return repo;
+  }
+  return undefined;
 }
 
 // Npm package source strings a durable review lane should load as additionalExtensionPaths.

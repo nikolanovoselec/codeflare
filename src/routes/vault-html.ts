@@ -292,6 +292,9 @@ export function injectVaultBootScript(html: string, config: VaultBootConfig): st
  * a derivation that may drift.
  */
 export const VAULT_IDB_RECORDER_MARKER = '/*codeflare-vault-idb-recorder*/';
+const VAULT_PREWARM_QUERY = 'codeflarePrewarm';
+const VAULT_PREWARM_ID_QUERY = 'prewarmId';
+export const VAULT_PREWARM_BRIDGE_MARKER = 'data-codeflare-vault-prewarm-bridge';
 
 export function injectVaultIdbRecorder(html: string): string {
   if (html.includes(VAULT_IDB_RECORDER_MARKER)) {
@@ -323,6 +326,69 @@ export function injectVaultIdbRecorder(html: string): string {
     'return origOpen(name, version);' +
     '};' +
     '} catch (_) {}' +
+    '})();</script>';
+  return html.replace('</head>', `${script}</head>`);
+}
+
+function readVaultPrewarmId(request: Request): string | null {
+  const url = new URL(request.url);
+  if (url.searchParams.get(VAULT_PREWARM_QUERY) !== '1') return null;
+  const prewarmId = url.searchParams.get(VAULT_PREWARM_ID_QUERY);
+  if (!prewarmId || prewarmId.length > 128) return null;
+  if (!/^[A-Za-z0-9._~-]+$/.test(prewarmId)) return null;
+  return prewarmId;
+}
+
+export function getVaultPrewarmRedirectSearch(request: Request): string {
+  const prewarmId = readVaultPrewarmId(request);
+  if (!prewarmId) return '';
+  const params = new URLSearchParams({
+    [VAULT_PREWARM_QUERY]: '1',
+    [VAULT_PREWARM_ID_QUERY]: prewarmId,
+  });
+  return `?${params.toString()}`;
+}
+
+export function injectVaultPrewarmBridge(html: string, prewarmId?: string): string {
+  if (html.includes(VAULT_PREWARM_BRIDGE_MARKER)) return html;
+  if (!html.includes('</head>')) return html;
+  if (prewarmId !== undefined && (!prewarmId || prewarmId.length > 128 || !/^[A-Za-z0-9._~-]+$/.test(prewarmId))) {
+    throw new Error('injectVaultPrewarmBridge: prewarmId must be a safe non-empty token');
+  }
+  const escapedId = prewarmId === undefined
+    ? 'null'
+    : JSON.stringify(prewarmId)
+      .replace(/<\//g, '<\\/')
+      .replace(/<!--/g, '<\\!--')
+      .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
+  const script = '<script ' + VAULT_PREWARM_BRIDGE_MARKER + '="1">(function () {' +
+    'var prewarmId = ' + escapedId + ';' +
+    'var source = "codeflare-vault-prewarm";' +
+    'try {' +
+    'if (!prewarmId) {' +
+    'var params = new URLSearchParams(window.location.search);' +
+    'if (params.get("codeflarePrewarm") === "1") prewarmId = params.get("prewarmId");' +
+    '}' +
+    'if (!prewarmId || prewarmId.length > 128 || !/^[A-Za-z0-9._~-]+$/.test(prewarmId)) return;' +
+    'window.sbRuntime = window.sbRuntime || {}; window.sbRuntime.headless = true;' +
+    '} catch (_) { return; }' +
+    'function post(status, message) {' +
+    'if (!window.parent || window.parent === window) return;' +
+    'var payload = { source: source, prewarmId: prewarmId, status: status };' +
+    'if (message) payload.message = message;' +
+    'window.parent.postMessage(payload, window.location.origin);' +
+    '}' +
+    'var timer = window.setInterval(function () {' +
+    'try {' +
+    'if (window.sbRuntime && window.sbRuntime.ready === true) {' +
+    'window.clearInterval(timer);' +
+    'post("ready");' +
+    '}' +
+    '} catch (e) {' +
+    'window.clearInterval(timer);' +
+    'post("error", e && e.message ? e.message : String(e));' +
+    '}' +
+    '}, 250);' +
     '})();</script>';
   return html.replace('</head>', `${script}</head>`);
 }
@@ -360,12 +426,15 @@ export function injectVaultIdbRecorder(html: string): string {
 export const VAULT_BOOTSTRAP_COOKIE = 'codeflare_vault_bootstrap';
 export const VAULT_SW_ACTIVATION_TIMEOUT_MS = 10_000;
 
-export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKey: string): string {
+export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKey: string, redirectSearch = ''): string {
   if (!vaultEncryptionKey) {
     throw new Error('injectVaultBootstrapHopHtml: vaultEncryptionKey must be non-empty');
   }
   if (!SESSION_ID_PATTERN.test(sessionId)) {
     throw new Error('injectVaultBootstrapHopHtml: sessionId must match SESSION_ID_PATTERN');
+  }
+  if (redirectSearch && !/^\?codeflarePrewarm=1&prewarmId=[A-Za-z0-9._%~-]+$/.test(redirectSearch)) {
+    throw new Error('injectVaultBootstrapHopHtml: redirectSearch must be a sanitized prewarm query');
   }
   // Defence-in-depth escapes for the JS-string-literal boundary inside
   // <script>...</script>. The same escapes used by injectVaultBootScript.
@@ -377,6 +446,7 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
   const escapedKey = escape(vaultEncryptionKey);
   const escapedSid = escape(sessionId);
   const escapedCookie = escape(VAULT_BOOTSTRAP_COOKIE);
+  const escapedRedirectSearch = escape(redirectSearch);
   // The cookie and redirect run ONLY inside the SW-success branch.
   // If SW registration or the postMessage handoff fails (private mode,
   // SW disabled, exotic browser), we must NOT set the cookie or redirect
@@ -429,7 +499,7 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
     '}' +
     'try { localStorage.setItem("enableEncryption", "true"); } catch (_) {}' +
     'document.cookie = cookieName + "=1; Path=" + scope + "; SameSite=Lax; Secure";' +
-    'location.replace(scope);' +
+    'location.replace(scope + ' + escapedRedirectSearch + ');' +
     '})();' +
     '</script></body></html>';
 }
@@ -556,6 +626,7 @@ export async function rewriteVaultHtmlResponse(
     try {
       rewritten = injectVaultBootScript(rewritten, { sessionId });
       rewritten = injectVaultIdbRecorder(rewritten);
+      rewritten = injectVaultPrewarmBridge(rewritten, request ? readVaultPrewarmId(request) ?? undefined : undefined);
     } catch (err) {
       logger.warn('vault boot-script injection skipped', { error: toErrorMessage(err) });
     }
