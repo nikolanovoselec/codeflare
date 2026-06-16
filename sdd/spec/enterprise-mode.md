@@ -207,9 +207,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning), [REQ-AGENT-031](agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)
 
-**Verification:** [env-pipeline test](../../src/__tests__/container/container-env-llm.test.ts) (AC1/AC5/AC6 env injection); [Pi models.json build test](../../host/__tests__/entrypoint-enterprise-pi-models.test.js) (AC4 — one model per catalog route, empty-catalog fallback, reserved-keyword jq guard). AC2 (CA trust), AC3 (Copilot BYOK), and AC5/AC6 entrypoint behaviours have no automated test; REQ held Planned.
+**Verification:** [env-pipeline test](../../src/__tests__/container/container-env-llm.test.ts) (AC1/AC5/AC6 env injection); [Pi models.json build test](../../host/__tests__/entrypoint-enterprise-pi-models.test.js) (AC4 — one model per catalog route, empty-catalog fallback, reserved-keyword jq guard). AC2 (CA trust), AC3 (Copilot BYOK), and AC5/AC6 entrypoint behaviours have no automated test; AC1 env injection is verified, so the REQ is Partial.
 
-**Status:** Planned
+**Status:** Partial
 
 ---
 
@@ -286,6 +286,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @test: web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx (Layout -> quota banners + upgrade CTAs render only in saasMode (hidden in enterprise/onboarding/default) AC4 + enterpriseMode threaded to TerminalArea→Dashboard dropdown AC2 + SettingsPanel admin AC1 + three-mode parity AC6) -->
 <!-- @test: web-ui/src/__tests__/components/enterprise-app-routing.test.tsx (App -> first-time enterprise user routed to /app/ not onboarding/subscribe AC5 + non-enterprise SaaS user still redirected when flag unset AC6) -->
 <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (Enterprise mode surface suppression describe -> setup wizard hides Regular Users section when enterpriseMode set + still renders Admin Users + Access Group field AC7 + Regular Users renders when flag unset, default render tests) -->
+<!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Guided Setup gating (enterprise) describe -> AC8) -->
 ### REQ-ENTERPRISE-008: Enterprise Frontend Surface Suppression
 
 **Intent:** Frontend surfaces are suppressed along two axes. (a) The SaaS-billing surfaces — subscription, usage, plans, the monthly-quota / "Upgrade" banners, the subscription-tier admin, and the Standard/Pro session-mode selector — are meaningful only in SaaS mode, so they render only when `SAAS_MODE` is active and are hidden in enterprise, onboarding, and default deployments alike (a non-SaaS deployment showing a "choose your plan" / "upgrade" surface is misleading; onboarding originally inherited these because the gate was `!enterprise`, which this REQ corrects to `saasMode`). (b) In-product user administration, first-login routing, the username dropdown's "Guided Setup" (per-user onboarding) entry, and the setup "Regular Users" section are enterprise-specific suppressions keyed off `ENTERPRISE_MODE`.
@@ -313,7 +314,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-002](#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded), [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning)
 
-**Verification:** [Automated test](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx) (AC1–AC3, AC6); [enterprise-layout-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx) (AC4); [enterprise-app-routing.test.tsx](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx) (AC5); [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx) (AC7); [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx) (AC8) <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Guided Setup gating (enterprise) describe -> AC8) -->
+**Verification:** [Automated test](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx) (AC1–AC3, AC6); [enterprise-layout-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-layout-suppression.test.tsx) (AC4); [enterprise-app-routing.test.tsx](../../web-ui/src/__tests__/components/enterprise-app-routing.test.tsx) (AC5); [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx) (AC7); [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx) (AC8)
 
 **Status:** Implemented
 
@@ -520,9 +521,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <!-- @impl: web-ui/src/stores/setup.ts::setupStore -->
 <!-- @test: src/__tests__/middleware/auth.test.ts (requireAdmin enterprise admin-by-group describe -> AC1,AC2,AC3,AC7) -->
 <!-- @test: src/__tests__/lib/enterprise-jit-provisioning.test.ts (REQ-ENTERPRISE-014 entry-gate union admits admin-group member, denies non-member, admin groups alone do not arm the gate -> AC4) -->
-<!-- @test: src/__tests__/routes/setup.test.ts (REQ-ENTERPRISE-014 adminAccessGroup persist joined, clear empty, non-enterprise ignore -> AC6,AC7) -->
+<!-- @test: src/__tests__/routes/setup.test.ts (REQ-ENTERPRISE-014 adminAccessGroup persist joined (comma-joined under SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP), clear empty, non-enterprise ignore -> AC5,AC6,AC7) -->
 <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-ENTERPRISE-014 prefill split + non-enterprise omit -> AC6,AC7) -->
-<!-- @test: web-ui/src/__tests__/stores/setup.test.ts (admin-group add/remove without routing seeding, configure body, prefill round-trip -> AC6) -->
+<!-- @test: web-ui/src/__tests__/stores/setup.test.ts (admin-group add/remove without routing seeding (AC5 routing-exclusion), configure body, prefill round-trip -> AC5,AC6) -->
 <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (admin-groups field render/route + no per-group card -> AC6) -->
 
 **Intent:** An enterprise admin can grant admin (= Setup / user-administration) access to members of one or more named Cloudflare Access groups, parallel to the email-based admin list, so admin rights track the customer's directory instead of a hand-maintained email list. Admin groups govern administration only — they never participate in per-group model routing.
@@ -548,6 +549,6 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning), [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list)
 
-**Verification:** [requireAdmin admin-by-group](../../src/__tests__/middleware/auth.test.ts), [entry-gate union](../../src/__tests__/lib/enterprise-jit-provisioning.test.ts), [Setup persist/ignore](../../src/__tests__/routes/setup.test.ts), [prefill](../../src/__tests__/routes/setup/handlers.test.ts), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts), [ConfigureStep field](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx)
+**Verification:** [requireAdmin admin-by-group](../../src/__tests__/middleware/auth.test.ts), [entry-gate union](../../src/__tests__/lib/enterprise-jit-provisioning.test.ts), [Setup persist/ignore](../../src/__tests__/routes/setup.test.ts) (AC5 comma-joined persistence), [prefill](../../src/__tests__/routes/setup/handlers.test.ts), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts) (AC5 routing exclusion), [ConfigureStep field](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx)
 
 **Status:** Implemented
