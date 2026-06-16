@@ -2010,6 +2010,133 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:browser_render_token', expect.anything());
       });
 
+      // ─── REQ-GITHUB-008: enterprise GitHub provider config ──────────────────
+      const ENC_KEY = 'A'.repeat(43) + '='; // base64 of 32 zero bytes — a valid AES-256 key
+
+      it('REQ-GITHUB-008: persists the provider type + client id (plain) and the secret (encrypted)', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: ENC_KEY });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({
+            githubProviderType: 'app',
+            githubAppClientId: 'Iv1.appcid',
+            githubAppClientSecret: 'app-secret',
+          })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:github_provider_type', 'app');
+        expect(mockKV.put).toHaveBeenCalledWith('setup:github_app_client_id', 'Iv1.appcid');
+        // The secret rides encryptAndStore (kv.put at its key); never plaintext-asserted.
+        expect(mockKV.put).toHaveBeenCalledWith('setup:github_app_client_secret', expect.any(String));
+      });
+
+      it('REQ-GITHUB-008: a blank client secret leaves the stored secret untouched (no clobber)', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({
+            githubProviderType: 'oauth',
+            githubOauthClientId: 'oauth-cid',
+            githubOauthClientSecret: '',
+          })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:github_oauth_client_id', 'oauth-cid');
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:github_oauth_client_secret', expect.anything());
+      });
+
+      it('REQ-GITHUB-008: rejects a client secret with no ENCRYPTION_KEY (fail closed, no write)', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' }); // no ENCRYPTION_KEY
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ githubProviderType: 'app', githubAppClientSecret: 'app-secret' })),
+        });
+
+        expect(res.status).toBe(400);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:github_app_client_secret', expect.anything());
+      });
+
+      // ─── REQ-ENTERPRISE-013: per-group routing ──────────────────────────────
+      it('REQ-ENTERPRISE-013: persists the per-group routing map as JSON', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const groupRouting = { developers: { routes: ['code_review'], defaultRoute: 'code_review', reasoning: 'high' } };
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({
+            enterpriseAccessGroup: ['developers'],
+            dynamicRoutes: ['code_review', 'development'],
+            groupRouting,
+          })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:group_routing', JSON.stringify(groupRouting));
+      });
+
+      it('REQ-ENTERPRISE-013: clears the per-group routing map when empty', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ groupRouting: {} })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.delete).toHaveBeenCalledWith('setup:group_routing');
+      });
+
+      it("REQ-ENTERPRISE-013: rejects a group whose defaultRoute isn't in its routes", async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({
+            enterpriseAccessGroup: ['developers'],
+            dynamicRoutes: ['code_review', 'development'],
+            groupRouting: { developers: { routes: ['code_review'], defaultRoute: 'development', reasoning: 'off' } },
+          })),
+        });
+
+        expect(res.status).toBe(400);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:group_routing', expect.anything());
+      });
+
+      it('REQ-ENTERPRISE-013: rejects a group route not in the global catalog', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({
+            enterpriseAccessGroup: ['developers'],
+            dynamicRoutes: ['code_review'],
+            groupRouting: { developers: { routes: ['nonexistent'], defaultRoute: 'nonexistent', reasoning: 'off' } },
+          })),
+        });
+
+        expect(res.status).toBe(400);
+      });
+
       it('returns 400 and writes nothing when enterprise mode has no dynamic routes (AC6)', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active' });
 

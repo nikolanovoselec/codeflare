@@ -1,15 +1,21 @@
-import { Component, For, Show, createSignal, onMount } from 'solid-js';
+import { Component, For, Show, onMount } from 'solid-js';
 import { setupStore } from '../../stores/setup';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
+import ChipListField from '../ui/ChipListField';
+import Select from '../ui/Select';
+import PerGroupRoutingCard from './PerGroupRoutingCard';
+import GitHubProviderChooser from './GitHubProviderChooser';
 import '../../styles/configure-step.css';
 
-const ConfigureStep: Component = () => {
-  const [adminEmailInput, setAdminEmailInput] = createSignal('');
-  const [regularEmailInput, setRegularEmailInput] = createSignal('');
-  const [groupInput, setGroupInput] = createSignal('');
-  const [routeInput, setRouteInput] = createSignal('');
+const REASONING_OPTIONS = [
+  { value: 'off', label: 'reasoning: off' },
+  { value: 'low', label: 'reasoning: low' },
+  { value: 'medium', label: 'reasoning: medium' },
+  { value: 'high', label: 'reasoning: high' },
+];
 
+const ConfigureStep: Component = () => {
   // Pre-fill from existing config when re-configuring
   onMount(async () => {
     try {
@@ -19,36 +25,42 @@ const ConfigureStep: Component = () => {
     }
   });
 
-  const handleAddAdminEmail = () => {
-    const email = adminEmailInput().trim().toLowerCase();
+  // onAdd callbacks return true when the value is accepted (ChipListField then clears
+  // its input), preserving the original "don't clear on invalid" behavior.
+  const addAdminEmail = (raw: string): boolean => {
+    const email = raw.trim().toLowerCase();
     if (email && /.+@.+\..+/.test(email) && !setupStore.adminUsers.includes(email)) {
       setupStore.addAdminUser(email);
-      setAdminEmailInput('');
+      return true;
     }
+    return false;
   };
 
-  const handleAddRegularEmail = () => {
-    const email = regularEmailInput().trim().toLowerCase();
+  const addRegularEmail = (raw: string): boolean => {
+    const email = raw.trim().toLowerCase();
     if (email && /.+@.+\..+/.test(email) && !setupStore.allowedUsers.includes(email)) {
       setupStore.addAllowedUser(email);
-      setRegularEmailInput('');
+      return true;
     }
+    return false;
   };
 
-  const handleAddGroup = () => {
-    const name = groupInput().trim();
+  const addGroup = (raw: string): boolean => {
+    const name = raw.trim();
     if (name && !setupStore.enterpriseAccessGroups.includes(name)) {
       setupStore.addAccessGroup(name);
-      setGroupInput('');
+      return true;
     }
+    return false;
   };
 
-  const handleAddRoute = () => {
-    const name = routeInput().trim();
+  const addRoute = (raw: string): boolean => {
+    const name = raw.trim();
     if (name && !setupStore.dynamicRoutes.includes(name)) {
       setupStore.addDynamicRoute(name);
-      setRouteInput('');
+      return true;
     }
+    return false;
   };
 
   return (
@@ -69,146 +81,53 @@ const ConfigureStep: Component = () => {
       </div>
 
       {/* Admin Users (Required) */}
-      <div class="setup-field">
-        <label class="setup-field-label">Admin Users</label>
-        <p class="setup-field-description">
-          Full access including user management
-        </p>
-        <div class="email-input-row">
-          <Input
-            value={adminEmailInput()}
-            onInput={(value) => setAdminEmailInput(value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddAdminEmail(); } }}
-            placeholder="admin@example.com"
-          />
-          <Button onClick={handleAddAdminEmail} variant="secondary" size="sm">
-            Add
-          </Button>
-        </div>
-        <div class="email-tags">
-          <For each={setupStore.adminUsers}>
-            {(email) => (
-              <span class="email-tag email-tag--accent">
-                {email}
-                <button
-                  type="button"
-                  class="email-tag-remove"
-                  onClick={() => setupStore.removeAdminUser(email)}
-                >
-                  x
-                </button>
-              </span>
-            )}
-          </For>
-        </div>
-      </div>
+      <ChipListField
+        label="Admin Users"
+        description="Full access including user management"
+        items={setupStore.adminUsers}
+        placeholder="admin@example.com"
+        accent
+        onAdd={addAdminEmail}
+        onRemove={(email) => setupStore.removeAdminUser(email)}
+      />
 
       {/* Regular Users (Optional) — hidden in SaaS mode and enterprise mode.
           REQ-ENTERPRISE-008 AC7: enterprise users are provisioned via Cloudflare
           Access (JIT on first sign-in), not entered by hand, so setup configures
           only admins + the optional Access group. No-op when enterpriseMode unset. */}
       <Show when={!setupStore.saasMode && !setupStore.enterpriseMode}>
-        <div class="setup-field">
-          <label class="setup-field-label">Regular Users</label>
-          <p class="setup-field-description">
-            Can use Codeflare but cannot manage users
-          </p>
-          <div class="email-input-row">
-            <Input
-              value={regularEmailInput()}
-              onInput={(value) => setRegularEmailInput(value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddRegularEmail(); } }}
-              placeholder="user@example.com"
-            />
-            <Button onClick={handleAddRegularEmail} variant="secondary" size="sm">
-              Add
-            </Button>
-          </div>
-          <div class="email-tags">
-            <For each={setupStore.allowedUsers}>
-              {(email) => (
-                <span class="email-tag">
-                  {email}
-                  <button
-                    type="button"
-                    class="email-tag-remove"
-                    onClick={() => setupStore.removeAllowedUser(email)}
-                  >
-                    x
-                  </button>
-                </span>
-              )}
-            </For>
-          </div>
-        </div>
+        <ChipListField
+          label="Regular Users"
+          description="Can use Codeflare but cannot manage users"
+          items={setupStore.allowedUsers}
+          placeholder="user@example.com"
+          onAdd={addRegularEmail}
+          onRemove={(email) => setupStore.removeAllowedUser(email)}
+        />
       </Show>
 
       {/* Enterprise Access Groups (Optional) — chip list, enterprise only */}
       <Show when={setupStore.enterpriseMode}>
-        <div class="setup-field">
-          <label class="setup-field-label">Cloudflare Access Groups (optional)</label>
-          <p class="setup-field-description">
-            Restrict Codeflare to members of one or more Cloudflare Access groups. A user in any of them may sign in; leave blank to admit anyone your Access policy lets through — new users are provisioned automatically on first sign-in. The matched groups are forwarded to your AI Gateway for per-group routing and limits.
-          </p>
-          <div class="email-input-row">
-            <Input
-              value={groupInput()}
-              onInput={(value) => setGroupInput(value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddGroup(); } }}
-              placeholder="e.g. codeflare_developers"
-            />
-            <Button onClick={handleAddGroup} variant="secondary" size="sm">Add</Button>
-          </div>
-          <div class="email-tags">
-            <For each={setupStore.enterpriseAccessGroups}>
-              {(name) => (
-                <span class="email-tag email-tag--accent">
-                  {name}
-                  <button
-                    type="button"
-                    class="email-tag-remove"
-                    onClick={() => setupStore.removeAccessGroup(name)}
-                  >
-                    x
-                  </button>
-                </span>
-              )}
-            </For>
-          </div>
-        </div>
+        <ChipListField
+          label="Cloudflare Access Groups (optional)"
+          description="Restrict Codeflare to members of one or more Cloudflare Access groups. A user in any of them may sign in; leave blank to admit anyone your Access policy lets through — new users are provisioned automatically on first sign-in. The matched groups are forwarded to your AI Gateway for per-group routing and limits."
+          items={setupStore.enterpriseAccessGroups}
+          placeholder="e.g. codeflare_developers"
+          accent
+          onAdd={addGroup}
+          onRemove={(name) => setupStore.removeAccessGroup(name)}
+        />
 
         {/* Feature C: Dynamic-route catalog (chip list) */}
-        <div class="setup-field">
-          <label class="setup-field-label">Dynamic Routes</label>
-          <p class="setup-field-description">
-            Names of the gateway dynamic routes your agents may select (the slash-free handle, e.g. "development"). At least one is required; the first you add becomes the default an agent uses when it does not name a route.
-          </p>
-          <div class="email-input-row">
-            <Input
-              value={routeInput()}
-              onInput={(value) => setRouteInput(value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddRoute(); } }}
-              placeholder="e.g. development"
-            />
-            <Button onClick={handleAddRoute} variant="secondary" size="sm">Add</Button>
-          </div>
-          <div class="email-tags">
-            <For each={setupStore.dynamicRoutes}>
-              {(name) => (
-                <span class="email-tag email-tag--accent">
-                  {name}
-                  <button
-                    type="button"
-                    class="email-tag-remove"
-                    onClick={() => setupStore.removeDynamicRoute(name)}
-                  >
-                    x
-                  </button>
-                </span>
-              )}
-            </For>
-          </div>
-        </div>
+        <ChipListField
+          label="Dynamic Routes"
+          description={'Names of the gateway dynamic routes your agents may select (the slash-free handle, e.g. "development"). At least one is required; the first you add becomes the default an agent uses when it does not name a route.'}
+          items={setupStore.dynamicRoutes}
+          placeholder="e.g. development"
+          accent
+          onAdd={addRoute}
+          onRemove={(name) => setupStore.removeDynamicRoute(name)}
+        />
 
         {/* Feature C: optional default route + reasoning level */}
         <Show when={setupStore.dynamicRoutes.length > 0}>
@@ -218,27 +137,44 @@ const ConfigureStep: Component = () => {
               The route used when an agent does not name one, and its reasoning level (applied inside the container).
             </p>
             <div class="route-default-row">
-              <select
-                class="route-select"
+              <Select
                 value={setupStore.defaultRouteName}
-                onChange={(e) => setupStore.setDefaultRouteName(e.currentTarget.value)}
-              >
-                <For each={setupStore.dynamicRoutes}>
-                  {(name) => <option value={name}>{name}</option>}
-                </For>
-              </select>
-              <select
-                class="route-select"
+                options={setupStore.dynamicRoutes.map((name) => ({ value: name, label: name }))}
+                onChange={(v) => setupStore.setDefaultRouteName(v)}
+              />
+              <Select
                 value={setupStore.defaultRouteReasoning}
+                options={REASONING_OPTIONS}
                 disabled={!setupStore.defaultRouteName}
-                onChange={(e) => setupStore.setDefaultRouteReasoning(e.currentTarget.value as 'off' | 'low' | 'medium' | 'high')}
-              >
-                <option value="off">reasoning: off</option>
-                <option value="low">reasoning: low</option>
-                <option value="medium">reasoning: medium</option>
-                <option value="high">reasoning: high</option>
-              </select>
+                onChange={(v) => setupStore.setDefaultRouteReasoning(v as 'off' | 'low' | 'medium' | 'high')}
+              />
             </div>
+          </div>
+        </Show>
+
+        {/* REQ-ENTERPRISE-013: per-group routing — one card per Access group, shown once
+            at least one group and one route exist. */}
+        <Show when={setupStore.enterpriseAccessGroups.length > 0 && setupStore.dynamicRoutes.length > 0}>
+          <div class="setup-field">
+            <label class="setup-field-label">Per-Group Routing</label>
+            <p class="setup-field-description">
+              For each Access group, choose which routes its members may use and the default route + reasoning. A user in several groups uses the first matching group in the list above. Use "Apply to all groups" to copy one group's setup to the rest.
+            </p>
+            <For each={setupStore.enterpriseAccessGroups}>
+              {(group) => (
+                <PerGroupRoutingCard
+                  groupName={group}
+                  availableRoutes={setupStore.dynamicRoutes}
+                  selectedRoutes={setupStore.groupRouting[group]?.routes ?? []}
+                  defaultRoute={setupStore.groupRouting[group]?.defaultRoute ?? ''}
+                  reasoning={setupStore.groupRouting[group]?.reasoning ?? 'off'}
+                  onToggleRoute={(route) => setupStore.toggleGroupRoute(group, route)}
+                  onDefaultChange={(route) => setupStore.setGroupDefaultRoute(group, route)}
+                  onReasoningChange={(level) => setupStore.setGroupReasoning(group, level)}
+                  onApplyToAll={() => setupStore.applyGroupRoutingToAll(group)}
+                />
+              )}
+            </For>
           </div>
         </Show>
 
@@ -270,6 +206,22 @@ const ConfigureStep: Component = () => {
             placeholder="32-character account ID"
           />
         </div>
+
+        {/* REQ-GITHUB-008: enterprise GitHub provider config (GitHub App vs OAuth App). */}
+        <GitHubProviderChooser
+          providerType={setupStore.githubProviderType}
+          appClientId={setupStore.githubAppClientId}
+          appClientSecret={setupStore.githubAppClientSecret}
+          appClientSecretSet={setupStore.githubAppClientSecretSet}
+          oauthClientId={setupStore.githubOauthClientId}
+          oauthClientSecret={setupStore.githubOauthClientSecret}
+          oauthClientSecretSet={setupStore.githubOauthClientSecretSet}
+          onProviderTypeChange={(t) => setupStore.setGithubProviderType(t)}
+          onAppClientIdChange={(v) => setupStore.setGithubAppClientId(v)}
+          onAppClientSecretChange={(v) => setupStore.setGithubAppClientSecret(v)}
+          onOauthClientIdChange={(v) => setupStore.setGithubOauthClientId(v)}
+          onOauthClientSecretChange={(v) => setupStore.setGithubOauthClientSecret(v)}
+        />
       </Show>
 
       {/* Navigation */}

@@ -15,8 +15,9 @@
  * it at the github.com boundary); this module is the single server-side source of truth.
  */
 import type { DeployKeys, Env } from '../types';
-import { getDeployKeysKey } from './kv-keys';
+import { getDeployKeysKey, SETUP_KEYS } from './kv-keys';
 import { getAndDecrypt, encryptAndStore, getOrImportKey } from './kv-crypto';
+import { isEnterpriseMode } from './subscription';
 import { createLogger } from './logger';
 
 const logger = createLogger('github-token');
@@ -293,8 +294,44 @@ class OAuthAppProvider implements GithubOAuthProvider {
   }
 }
 
-/** Select the provider from deploy config: GitHub App takes precedence over OAuth App. */
-export function getGithubProvider(env: Env): GithubOAuthProvider | null {
+/** Shape of an encrypted GitHub client-secret blob at rest (REQ-GITHUB-008). */
+interface StoredGithubSecret {
+  secret: string;
+}
+
+/**
+ * Resolve the admin-configured provider from Setup→KV (enterprise, REQ-GITHUB-008).
+ * GITHUB_PROVIDER_TYPE selects the pair; the client id is plain, the secret encrypted.
+ * Fails closed (null) when the selected provider's id/secret are not both present, or
+ * the secret cannot be decrypted (no ENCRYPTION_KEY) — never an ambiguous provider.
+ */
+async function getEnterpriseProviderFromKv(env: Env): Promise<GithubOAuthProvider | null> {
+  const type = await env.KV.get(SETUP_KEYS.GITHUB_PROVIDER_TYPE);
+  if (type !== 'app' && type !== 'oauth') return null;
+  const idKey = type === 'app' ? SETUP_KEYS.GITHUB_APP_CLIENT_ID : SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID;
+  const secretKey = type === 'app' ? SETUP_KEYS.GITHUB_APP_CLIENT_SECRET : SETUP_KEYS.GITHUB_OAUTH_CLIENT_SECRET;
+  const clientId = (await env.KV.get(idKey))?.trim();
+  if (!clientId) return null;
+  const cryptoKey = await getOrImportKey(env);
+  const stored = await getAndDecrypt<StoredGithubSecret>(env.KV, secretKey, cryptoKey);
+  const clientSecret = stored?.secret?.trim();
+  if (!clientSecret) return null;
+  return type === 'app'
+    ? new GitHubAppUserProvider(env, clientId, clientSecret)
+    : new OAuthAppProvider(env, clientId, clientSecret);
+}
+
+/**
+ * Select the GitHub OAuth/App provider. In enterprise mode the admin configures it in
+ * the Setup wizard (KV); a complete config wins. Otherwise — and as the enterprise
+ * fail-closed fallback — deploy-time env vars are used (GitHub App precedence over
+ * OAuth App), the unchanged non-enterprise path. Neither configured ⇒ null.
+ */
+export async function getGithubProvider(env: Env): Promise<GithubOAuthProvider | null> {
+  if (isEnterpriseMode(env)) {
+    const fromKv = await getEnterpriseProviderFromKv(env);
+    if (fromKv) return fromKv;
+  }
   if (env.GITHUB_APP_CLIENT_ID && env.GITHUB_APP_CLIENT_SECRET) {
     return new GitHubAppUserProvider(env, env.GITHUB_APP_CLIENT_ID, env.GITHUB_APP_CLIENT_SECRET);
   }
@@ -322,7 +359,7 @@ export async function getValidGithubToken(env: Env, bucketName: string): Promise
 
   // Expiring/expired App token — refresh, or fail closed.
   if (!conn.refreshToken) return null;
-  const provider = getGithubProvider(env);
+  const provider = await getGithubProvider(env);
   if (!provider || provider.source !== 'app') return null;
   try {
     const refreshed = await provider.refresh(conn.refreshToken);
@@ -342,7 +379,7 @@ export async function connectGithub(
   code: string,
   redirectUri: string,
 ): Promise<GithubConnection> {
-  const provider = getGithubProvider(env);
+  const provider = await getGithubProvider(env);
   if (!provider) throw new Error('GitHub integration not configured');
   const conn = await provider.exchangeCode(code, redirectUri);
   await storeGithubConnection(env, bucketName, conn);
@@ -353,7 +390,7 @@ export async function connectGithub(
 export async function disconnectGithub(env: Env, bucketName: string): Promise<void> {
   const conn = readConnection(await readDeployKeys(env, bucketName));
   if (conn && conn.source !== 'pat') {
-    const provider = getGithubProvider(env);
+    const provider = await getGithubProvider(env);
     if (provider) await provider.revoke(conn.accessToken);
   }
   await clearGithubConnection(env, bucketName);

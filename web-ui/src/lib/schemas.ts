@@ -209,6 +209,21 @@ export const SetupPrefillResponseSchema = z.object({
   // only whether it is set, never the token) + the non-secret account id.
   browserRenderTokenSet: z.boolean().default(false),
   browserRenderAccountId: z.string().default(''),
+  // REQ-GITHUB-008: enterprise GitHub provider config (masked — the server returns only
+  // whether each client secret is set, never the secrets) + the non-secret client ids.
+  githubProviderType: z.enum(['app', 'oauth']).nullable().default(null),
+  githubAppClientId: z.string().default(''),
+  githubAppClientSecretSet: z.boolean().default(false),
+  githubOauthClientId: z.string().default(''),
+  githubOauthClientSecretSet: z.boolean().default(false),
+  // REQ-ENTERPRISE-013: per-group routing map (route names only, no secrets).
+  groupRouting: z
+    .record(z.string(), z.object({
+      routes: z.array(z.string()),
+      defaultRoute: z.string(),
+      reasoning: RouteReasoningSchema,
+    }))
+    .default({}),
 });
 
 // User management schemas - moved from client.ts (strict versions)

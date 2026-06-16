@@ -271,4 +271,67 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
     });
   });
 
+  describe('REQ-GITHUB-008: enterprise GitHub provider config prefill (masked)', () => {
+    it('GET /prefill returns provider type + client ids + secret-set flags, never the secrets', async () => {
+      mockKV._store.set('setup:github_provider_type', 'app');
+      mockKV._store.set('setup:github_app_client_id', 'Iv1.appcid');
+      mockKV._store.set('setup:github_app_client_secret', 'app-secret-blob');
+      mockKV._store.set('setup:github_oauth_client_id', 'oauth-cid');
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.githubProviderType).toBe('app');
+      expect(body.githubAppClientId).toBe('Iv1.appcid');
+      expect(body.githubAppClientSecretSet).toBe(true);
+      expect(body.githubOauthClientId).toBe('oauth-cid');
+      expect(body.githubOauthClientSecretSet).toBe(false);
+      // The secret value itself is never surfaced to the browser.
+      expect(JSON.stringify(body)).not.toContain('app-secret-blob');
+    });
+
+    it('GET /prefill reports unset defaults when nothing is stored', async () => {
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.githubProviderType).toBeNull();
+      expect(body.githubAppClientId).toBe('');
+      expect(body.githubAppClientSecretSet).toBe(false);
+    });
+
+    it('GET /prefill omits the GitHub fields when ENTERPRISE_MODE is unset', async () => {
+      mockKV._store.set('setup:github_provider_type', 'app');
+      const app = createApp();
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body).not.toHaveProperty('githubProviderType');
+      expect(body).not.toHaveProperty('githubAppClientSecretSet');
+    });
+  });
+
+  describe('REQ-ENTERPRISE-013: per-group routing prefill', () => {
+    it('GET /prefill round-trips the stored group routing map', async () => {
+      const groupRouting = { developers: { routes: ['code_review'], defaultRoute: 'code_review', reasoning: 'high' } };
+      mockKV._store.set('setup:group_routing', JSON.stringify(groupRouting));
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.groupRouting).toEqual(groupRouting);
+    });
+
+    it('GET /prefill returns an empty map when none is stored', async () => {
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.groupRouting).toEqual({});
+    });
+
+    it('GET /prefill omits groupRouting when ENTERPRISE_MODE is unset', async () => {
+      mockKV._store.set('setup:group_routing', JSON.stringify({ x: { routes: [], defaultRoute: '', reasoning: 'off' } }));
+      const app = createApp();
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body).not.toHaveProperty('groupRouting');
+    });
+  });
+
 });

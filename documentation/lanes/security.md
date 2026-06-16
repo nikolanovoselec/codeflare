@@ -70,6 +70,8 @@ The per-user GitHub token authorizes the agent to act with the user's full GitHu
 
 **At rest.** The token lives in the existing encrypted deploy-keys KV entry (`DeployKeys.githubToken` at `deploy-keys:<bucket>`), encrypted with the same kv-crypto as other secrets (AES-256-GCM, AAD bound to the KV key); plaintext is used only when no `ENCRYPTION_KEY` is configured. It is never returned to the browser — `/api/github/repos` proxies GitHub server-side and status/list responses carry only non-secret metadata such as the login handle ([CON-GH-001](../../sdd/spec/constraints.md#con-gh-001-github-token-encrypted-at-rest-and-never-returned-to-the-browser), [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing)).
 
+**Provider client secret at rest (enterprise).** Distinct from the per-user token, the GitHub provider's *client secret* (the App/OAuth-app credential) is, in enterprise mode, configured in the Setup wizard and stored encrypted in KV under `setup:github_app_client_secret` / `setup:github_oauth_client_secret` (AES-256-GCM, AAD bound to its KV key); the provider type and client ids are stored plain. It is resolved and decrypted by `getGithubProvider` server-side and never returned to the browser — `GET /api/setup/status` returns only a per-provider `…ClientSecretSet` boolean. **Fail closed:** a secret submitted while no `ENCRYPTION_KEY` is configured is rejected at save (`400`) rather than written in plaintext, and a stored secret that cannot be decrypted is treated as unconfigured ([REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup)).
+
 **Enterprise egress injection (the security core).** In enterprise mode the container holds only a non-secret placeholder `GH_TOKEN` (`codeflare-enterprise`), identical for every user. A `GitHubInterceptor` WorkerEntrypoint sits on the container egress boundary, reusing the AI-Gateway `interceptOutboundHttps` layer (the Cloudflare containers CA is trusted container-wide, so TLS validates — see the CA-trust invariant above). For each outbound request to `github.com` / `api.github.com` it resolves and decrypts the user's token, strips any client-supplied auth (`authorization`, `x-api-key`, etc.), and stamps the correct credential: git over HTTPS gets `Authorization: Basic base64("x-access-token:"+token)`, while the REST API gets `Authorization: Bearer <token>` plus `X-GitHub-Api-Version: 2022-11-28`. It emits a per-user audit line. This satisfies [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials) and reuses the egress layer per [AD81](../decisions/README.md#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) ([CON-GH-002](../../sdd/spec/constraints.md#con-gh-002-the-real-github-token-never-enters-the-enterprise-container)).
 
 **No cross-user spoofing.** User-scoping comes solely from `props.bucket`, bound at container wiring time, never from the request. A session can therefore only ever inject its own user's token, regardless of the placeholder value or any identity the request claims ([CON-GH-003](../../sdd/spec/constraints.md#con-gh-003-egress-injection-is-scoped-by-the-per-session-binding)).
@@ -196,9 +198,11 @@ The key must decode to exactly 32 bytes. Arbitrary strings, passwords, or non-ba
 | KV | `llm-keys:{bucket}` | OpenAI, Gemini API keys | AES-256-GCM |
 | KV | `deploy-keys:{bucket}` | GitHub PAT, Cloudflare API token, account ID | AES-256-GCM |
 | KV | `r2token:{email}` | Scoped R2 access key, secret key, token ID | AES-256-GCM |
+| KV | `setup:browser_render_token` | Enterprise admin-global Cloudflare Browser Rendering token | AES-256-GCM |
+| KV | `setup:github_app_client_secret`, `setup:github_oauth_client_secret` | Enterprise GitHub provider client secret (App / OAuth) | AES-256-GCM |
 | R2 | All objects in user buckets | Workspace files, agent configs, credentials | SSE-C (AES-256) |
 
-Everything else (`user-prefs:*`, `session:*`, `user:*`, `setup:*`, `storage-stats:*`) stays plaintext - no secrets in those entries.
+Everything else stays plaintext - no secrets in those entries. The exceptions in the `setup:*` namespace are the encrypted secret keys listed above (`setup:browser_render_token`, `setup:github_app_client_secret`, `setup:github_oauth_client_secret`); the rest of `setup:*` (provider type, client ids, route catalog, group routing, access groups) is non-secret config and stays plaintext.
 
 ### KV encryption (AES-256-GCM via Web Crypto API)
 
@@ -396,6 +400,7 @@ Every entry carries an inline comment recording the affected package, the impact
 - [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials) - Enterprise egress-injected GitHub credentials (GitHubInterceptor, AD81)
 - [REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation) - Disconnect and offboarding revocation
 - [REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport) - Other-mode container transport (leakage-hygiene characterisation)
+- [REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup) - Enterprise GitHub provider config (client secret encrypted at rest, fail-closed without ENCRYPTION_KEY)
 
 ---
 

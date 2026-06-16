@@ -77,7 +77,8 @@ interface RepoSummary {
 app.get('/status', async (c) => {
   if (!githubFeatureEnabled(c.env)) return c.json({ enabled: false, connected: false });
   const status = await getGithubConnectionStatus(c.env, c.get('bucketName'));
-  return c.json({ enabled: true, configured: getGithubProvider(c.env) !== null, ...status });
+  const provider = await getGithubProvider(c.env);
+  return c.json({ enabled: true, configured: provider !== null, ...status });
 });
 
 // GET /api/github/repos?page= — the user's accessible repos (server-side proxy).
@@ -143,7 +144,7 @@ app.get('/repos', reposRateLimiter, async (c) => {
 app.get('/connect', connectRateLimiter, async (c) => {
   if (!githubFeatureEnabled(c.env)) return c.json({ error: 'GitHub integration disabled', code: 'GITHUB_DISABLED' }, 403);
 
-  const provider = getGithubProvider(c.env);
+  const provider = await getGithubProvider(c.env);
   if (!provider) return c.json({ error: 'GitHub integration not configured', code: 'GITHUB_NOT_CONFIGURED' }, 503);
 
   const secret = connectStateSecret(c.env);

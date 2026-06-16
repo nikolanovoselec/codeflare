@@ -16,6 +16,14 @@ const storeState = vi.hoisted(() => ({
   cloudflareBrowserToken: '',
   cloudflareBrowserTokenSet: false,
   cloudflareBrowserAccountId: '',
+  githubProviderType: 'app' as 'app' | 'oauth',
+  githubAppClientId: '',
+  githubAppClientSecret: '',
+  githubAppClientSecretSet: false,
+  githubOauthClientId: '',
+  githubOauthClientSecret: '',
+  githubOauthClientSecretSet: false,
+  groupRouting: {} as Record<string, { routes: string[]; defaultRoute: string; reasoning: 'off' | 'low' | 'medium' | 'high' }>,
 }));
 
 const storeMethods = vi.hoisted(() => ({
@@ -32,6 +40,15 @@ const storeMethods = vi.hoisted(() => ({
   setDefaultRouteReasoning: vi.fn((level: 'off' | 'low' | 'medium' | 'high') => { storeState.defaultRouteReasoning = level; }),
   setCloudflareBrowserToken: vi.fn((val: string) => { storeState.cloudflareBrowserToken = val; }),
   setCloudflareBrowserAccountId: vi.fn((val: string) => { storeState.cloudflareBrowserAccountId = val; }),
+  setGithubProviderType: vi.fn((t: 'app' | 'oauth') => { storeState.githubProviderType = t; }),
+  setGithubAppClientId: vi.fn((v: string) => { storeState.githubAppClientId = v; }),
+  setGithubAppClientSecret: vi.fn((v: string) => { storeState.githubAppClientSecret = v; }),
+  setGithubOauthClientId: vi.fn((v: string) => { storeState.githubOauthClientId = v; }),
+  setGithubOauthClientSecret: vi.fn((v: string) => { storeState.githubOauthClientSecret = v; }),
+  toggleGroupRoute: vi.fn(),
+  setGroupDefaultRoute: vi.fn(),
+  setGroupReasoning: vi.fn(),
+  applyGroupRoutingToAll: vi.fn(),
   nextStep: vi.fn(),
   prevStep: vi.fn(),
   loadExistingConfig: vi.fn().mockResolvedValue(undefined),
@@ -51,6 +68,14 @@ vi.mock('../../stores/setup', () => ({
     get cloudflareBrowserToken() { return storeState.cloudflareBrowserToken; },
     get cloudflareBrowserTokenSet() { return storeState.cloudflareBrowserTokenSet; },
     get cloudflareBrowserAccountId() { return storeState.cloudflareBrowserAccountId; },
+    get githubProviderType() { return storeState.githubProviderType; },
+    get githubAppClientId() { return storeState.githubAppClientId; },
+    get githubAppClientSecret() { return storeState.githubAppClientSecret; },
+    get githubAppClientSecretSet() { return storeState.githubAppClientSecretSet; },
+    get githubOauthClientId() { return storeState.githubOauthClientId; },
+    get githubOauthClientSecret() { return storeState.githubOauthClientSecret; },
+    get githubOauthClientSecretSet() { return storeState.githubOauthClientSecretSet; },
+    get groupRouting() { return storeState.groupRouting; },
     ...storeMethods,
   },
 }));
@@ -76,6 +101,14 @@ describe('ConfigureStep', () => {
     storeState.cloudflareBrowserToken = '';
     storeState.cloudflareBrowserTokenSet = false;
     storeState.cloudflareBrowserAccountId = '';
+    storeState.githubProviderType = 'app';
+    storeState.githubAppClientId = '';
+    storeState.githubAppClientSecret = '';
+    storeState.githubAppClientSecretSet = false;
+    storeState.githubOauthClientId = '';
+    storeState.githubOauthClientSecret = '';
+    storeState.githubOauthClientSecretSet = false;
+    storeState.groupRouting = {};
   });
 
   afterEach(() => {
@@ -387,6 +420,77 @@ describe('ConfigureStep', () => {
       const continueBtnText = screen.getByText('Continue');
       const continueBtn = continueBtnText.closest('button')!;
       expect(continueBtn).toBeDisabled();
+    });
+  });
+
+  // REQ-ENTERPRISE-013: per-group routing cards render once groups + routes exist.
+  describe('Per-group routing', () => {
+    it('renders one card per group, each with a checkbox per catalog route', () => {
+      storeState.enterpriseMode = true;
+      storeState.enterpriseAccessGroups = ['team_a'];
+      storeState.dynamicRoutes = ['development', 'prod'];
+      render(() => <ConfigureStep />);
+      expect(document.querySelectorAll('.group-routing-card').length).toBe(1);
+      expect(document.querySelectorAll('.group-routing-card input[type="checkbox"]').length).toBe(2);
+    });
+
+    it('does not render per-group routing when there are no groups', () => {
+      storeState.enterpriseMode = true;
+      storeState.enterpriseAccessGroups = [];
+      storeState.dynamicRoutes = ['development'];
+      render(() => <ConfigureStep />);
+      expect(document.querySelector('.group-routing-card')).toBeNull();
+    });
+
+    it('toggles a group route when its checkbox is clicked', () => {
+      storeState.enterpriseMode = true;
+      storeState.enterpriseAccessGroups = ['team_a'];
+      storeState.dynamicRoutes = ['development'];
+      render(() => <ConfigureStep />);
+      const cb = document.querySelector('.group-routing-card input[type="checkbox"]') as HTMLElement;
+      fireEvent.click(cb);
+      expect(storeMethods.toggleGroupRoute).toHaveBeenCalledWith('team_a', 'development');
+    });
+
+    it('applies one group config to all groups via the button', () => {
+      storeState.enterpriseMode = true;
+      storeState.enterpriseAccessGroups = ['team_a'];
+      storeState.dynamicRoutes = ['development'];
+      render(() => <ConfigureStep />);
+      fireEvent.click(screen.getByText('Apply to all groups'));
+      expect(storeMethods.applyGroupRoutingToAll).toHaveBeenCalledWith('team_a');
+    });
+  });
+
+  // REQ-GITHUB-008: GitHub provider chooser is enterprise-only.
+  describe('GitHub provider chooser', () => {
+    it('renders the provider chooser in enterprise mode', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      expect(document.querySelector('.github-provider-select')).not.toBeNull();
+    });
+
+    it('does not render the chooser outside enterprise mode', () => {
+      storeState.enterpriseMode = false;
+      render(() => <ConfigureStep />);
+      expect(document.querySelector('.github-provider-select')).toBeNull();
+    });
+
+    it('shows the App client-id field for the app provider and switches provider on change', () => {
+      storeState.enterpriseMode = true;
+      storeState.githubProviderType = 'app';
+      render(() => <ConfigureStep />);
+      expect(screen.getByPlaceholderText('GitHub App Client ID')).toBeInTheDocument();
+      const sel = document.querySelector('.github-provider-select') as HTMLSelectElement;
+      fireEvent.change(sel, { target: { value: 'oauth' } });
+      expect(storeMethods.setGithubProviderType).toHaveBeenCalledWith('oauth');
+    });
+
+    it('shows the OAuth client-id field for the oauth provider', () => {
+      storeState.enterpriseMode = true;
+      storeState.githubProviderType = 'oauth';
+      render(() => <ConfigureStep />);
+      expect(screen.getByPlaceholderText('OAuth App Client ID')).toBeInTheDocument();
     });
   });
 });

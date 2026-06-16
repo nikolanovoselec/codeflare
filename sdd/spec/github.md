@@ -40,7 +40,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 1. "Connect GitHub" starts the selected provider's authorize web flow (link mode) and, on callback, exchanges the code for a token persisted to the **existing** deploy-keys entry (`DeployKeys.githubToken`) with a `githubTokenSource` marker; no new KV key is introduced. <!-- @impl: src/lib/github-token.ts::connectGithub -->
 2. The token is encrypted at rest with the existing KV crypto (AES-256-GCM, AAD bound to the KV key) and is never returned to the browser. <!-- @impl: src/lib/github-token.ts::storeGithubConnection -->
 3. GitHub App tokens carry an expiry and refresh token; resolving a token returns a currently-valid one, refreshing within the skew window and **failing closed** (returning none) when an expired App token cannot be refreshed — never a stale token. <!-- @impl: src/lib/github-token.ts::getValidGithubToken -->
-4. The provider is selected by deploy config: a configured GitHub App takes precedence over the OAuth App; with neither configured the integration is unavailable. <!-- @impl: src/lib/github-token.ts::getGithubProvider -->
+4. The provider is resolved by `getGithubProvider` (async): in enterprise mode it reads the admin's Setup→KV config (provider type + client id + decrypted client secret) first, then falls back to deploy-config env vars; in non-enterprise modes it uses the env vars only. A configured GitHub App takes precedence over the OAuth App; with neither configured the integration is unavailable, and a client secret that cannot be decrypted (no `ENCRYPTION_KEY`) is treated as unconfigured (fails closed). See [REQ-GITHUB-008](#req-github-008-enterprise-github-provider-configuration-via-setup). <!-- @impl: src/lib/github-token.ts::getGithubProvider -->
 5. A manually-pasted fine-grained PAT (existing deploy-keys flow) coexists, marked source `'pat'`, and is never sent to the App/OAuth refresh or revoke endpoints. <!-- @impl: src/routes/deploy-keys.ts -->
 
 **Constraints:**
@@ -249,3 +249,42 @@ None.
 **Verification:** None
 
 **Status:** Planned
+
+---
+
+### REQ-GITHUB-008: Enterprise GitHub provider configuration via Setup
+
+<!-- @impl: src/routes/setup/index.ts -->
+<!-- @impl: src/routes/setup/handlers.ts -->
+<!-- @impl: src/lib/github-token.ts::getEnterpriseProviderFromKv -->
+<!-- @impl: src/lib/github-token.ts::getGithubProvider -->
+<!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS -->
+<!-- @impl: web-ui/src/components/setup/GitHubProviderChooser.tsx -->
+<!-- @test: src/__tests__/routes/setup.test.ts (github provider config persist, no-clobber, fail-closed -> AC1..AC3) -->
+<!-- @test: src/__tests__/routes/setup/handlers.test.ts (github prefill echo + non-enterprise guard -> AC4,AC5) -->
+<!-- @test: src/__tests__/lib/github-token.test.ts (enterprise KV provider resolution + fail-closed -> AC2,AC3) -->
+<!-- @test: web-ui/src/__tests__/components/GitHubProviderChooser.test.tsx (provider switch reveals the right pair -> AC1) -->
+**Intent:** Enterprise admins configure the GitHub provider (GitHub App or OAuth App) and its credentials in the Setup wizard — persisted to KV — so GitHub integration works without GitHub-Actions or Cloudflare-secret access, mirroring the admin-global Browser Rendering token ([REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. The Setup wizard offers a provider chooser (GitHub App vs OAuth App); selecting one reveals that provider's Client ID + Client Secret inputs. Each provider's credentials are stored under their own KV keys so switching providers preserves the other's. <!-- @impl: web-ui/src/components/setup/GitHubProviderChooser.tsx -->
+2. On save (enterprise mode only) the provider type + client ids are stored plain and each client secret is encrypted at rest (AES-256-GCM via the existing KV crypto); `getGithubProvider` resolves the active provider from these KV values, decrypting the secret, before any env-var fallback. <!-- @impl: src/routes/setup/index.ts --> <!-- @impl: src/lib/github-token.ts::getEnterpriseProviderFromKv -->
+3. A blank secret on save keeps the stored secret (no clobber); a secret submitted while no `ENCRYPTION_KEY` is configured is rejected with a validation error rather than written in plaintext, and a stored secret that cannot be decrypted is treated as unconfigured (fails closed). <!-- @impl: src/routes/setup/index.ts -->
+4. `GET /api/setup/status` (prefill) echoes the provider type, both client ids, and a `…ClientSecretSet` boolean per provider, but never returns a client secret. <!-- @impl: src/routes/setup/handlers.ts -->
+5. All reads/writes are inside the existing `isEnterpriseMode` gate; in non-enterprise modes the Setup request/response shape and `getGithubProvider`'s env-var path are byte-identical to before. <!-- @impl: src/routes/setup/handlers.ts -->
+
+**Constraints:**
+
+- Removing a stored secret from the UI is not a v1 affordance (mirrors the browser-rendering token); re-registering with a new secret replaces it.
+- SaaS OAuth-app-with-extra-scopes is out of scope.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token), [CON-GH-001](constraints.md#con-gh-001-github-token-encrypted-at-rest-and-never-returned-to-the-browser)
+
+**Verification:** [Setup route test](../../src/__tests__/routes/setup.test.ts) + [handlers test](../../src/__tests__/routes/setup/handlers.test.ts) + [token resolver test](../../src/__tests__/lib/github-token.test.ts) + [chooser test](../../web-ui/src/__tests__/components/GitHubProviderChooser.test.tsx)
+
+**Status:** Implemented

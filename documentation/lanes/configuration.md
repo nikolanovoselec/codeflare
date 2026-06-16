@@ -109,10 +109,20 @@ The GitHub panel lets a connected user browse and clone their repositories and l
 
 Connect uses one of two providers, selected by precedence ([REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage)): a configured **GitHub App** takes precedence over the **OAuth App**. With neither configured the integration is unavailable and `/api/github/connect` returns `503 GITHUB_NOT_CONFIGURED`.
 
+**Enterprise configuration (Setup wizard → KV)** ([REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup)). In enterprise mode the provider + credentials are configured in the Setup wizard, not via env vars (enterprise admins have no GitHub-Actions/Cloudflare-secret access). An admin picks GitHub App or OAuth App and enters the client id (stored plain) + client secret (stored encrypted) under dedicated KV keys. `getGithubProvider` (async) resolves these KV values first, falling back to the env-var pairs below only when KV is unconfigured. Separate key pairs per provider mean switching providers in the wizard preserves the other's credentials. A blank secret on re-save keeps the stored one; a secret submitted with no `ENCRYPTION_KEY` is rejected (`400`) rather than written in plaintext, and a stored secret that cannot be decrypted is treated as unconfigured (fails closed). `GET /api/setup/status` echoes the provider type, both client ids, and a per-provider `…ClientSecretSet` flag, never the secret. Mirrors the admin-global Browser Rendering token ([REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
+
+| KV key | Purpose |
+|--------|---------|
+| `setup:github_provider_type` | `'app'` or `'oauth'` — the selected provider (plain). |
+| `setup:github_app_client_id` / `setup:github_app_client_secret` | GitHub App credentials (id plain, secret encrypted). |
+| `setup:github_oauth_client_id` / `setup:github_oauth_client_secret` | OAuth App credentials (id plain, secret encrypted). |
+
+The env-var pairs below are the non-enterprise provider source and the enterprise fallback before Setup config exists:
+
 | Variable | Purpose | Default | Required | Consumed by | Implements |
 |----------|---------|---------|----------|-------------|------------|
-| `GITHUB_APP_CLIENT_ID` | GitHub App client ID. Non-secret; the preferred Connect provider when set. Used in enterprise/EMU. | - | no | wrangler.toml `[vars]` | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) |
-| `GITHUB_APP_CLIENT_SECRET` | GitHub App client secret. Pairs with `GITHUB_APP_CLIENT_ID` for the code-for-token exchange. Used in enterprise/EMU. | - | no | Wrangler secret (never in wrangler.toml) | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) |
+| `GITHUB_APP_CLIENT_ID` | GitHub App client ID. Non-secret; the preferred Connect provider when set. Env-var fallback (non-enterprise, or enterprise before Setup config). | - | no | wrangler.toml `[vars]` | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) |
+| `GITHUB_APP_CLIENT_SECRET` | GitHub App client secret. Pairs with `GITHUB_APP_CLIENT_ID` for the code-for-token exchange. Env-var fallback (non-enterprise, or enterprise before Setup config). | - | no | Wrangler secret (never in wrangler.toml) | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) |
 | `GITHUB_HOST` | Web host for OAuth authorize/token. Override only for GitHub Enterprise Server-style hosts. | `github.com` | no | wrangler.toml | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) |
 | `GITHUB_API_HOST` | REST API host. Override paired with `GITHUB_HOST`. | `api.github.com` | no | wrangler.toml | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) |
 
@@ -162,12 +172,13 @@ KV values written by the setup wizard that can be changed without redeploying th
 | `setup:enterprise_access_group` | Comma/newline-separated list of Cloudflare Access group names/ids (any-of gate). When set, JIT provisioning admits only users in a configured group (non-members: 403); matched groups are forwarded to AI Gateway metadata. See [details](#enterprise-access-group-configuration) below. | Setup wizard → KV (re-run setup to change; no redeploy) |
 | `setup:dynamic_routes` | JSON string array of AI Gateway dynamic-route handles that the interceptor maps to `dynamic/<name>` and exposes to container agents as selectable routes. | Setup wizard → KV (re-run setup to change; no redeploy) |
 | `setup:default_route` | JSON `{route, reasoning}` default route. When unset, runtime resolves the first catalog route with reasoning `off`; when set, `route` must exist in `setup:dynamic_routes`. | Setup wizard → KV (re-run setup to change; no redeploy) |
+| `setup:group_routing` | Optional JSON map `{ [group]: { routes: string[], defaultRoute, reasoning } }` of per-Access-group route overrides. A session resolves the first of its matched groups (in configured order) with a non-empty entry, else the global catalog; `configure` rejects a group whose default isn't in its routes, whose routes aren't a subset of `setup:dynamic_routes`, or whose key isn't a configured group, and deletes an empty map. See [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing). | Setup wizard → KV (re-run setup to change; no redeploy) |
 
 ### Enterprise Access Group Configuration
 
 `setup:enterprise_access_group` accepts a comma- or newline-separated list of Cloudflare Access group names or IDs. A user in **any** configured group is admitted (any-of gate); a user in no configured group receives 403 (fail-closed). When the key is unset, any user the Access application policy admits is provisioned on their valid Access JWT alone.
 
-The single matched group is forwarded to the customer's AI Gateway as `cf-aig-metadata.group` (alongside `cf-aig-metadata.user` = the user's email), so gateway rules can branch routing, cost, and rate-limit policies per group. The header is omitted when no groups are configured.
+Every matched group is forwarded to the customer's AI Gateway as a per-group `cf-aig-metadata.group_<sanitized>=1` tag (alongside `cf-aig-metadata.user` = the user's email), within CF's 5-entry metadata cap (`user` + up to 4 groups, excess truncated deterministically in configured order), so gateway rules can branch routing, cost, and rate-limit policies per group ([REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC4). No group metadata is stamped when no groups are configured. The same matched-group list also drives per-group dynamic routing when configured ([REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing)).
 
 The value is matched **case-sensitively** against the group name or ID exactly as it appears in the Cloudflare dashboard — a mismatch denies every user. Prefer the immutable Access group **ID** over the display name: membership is matched against the group's id, name, or email, and a display name can be renamed or reused.
 
@@ -325,6 +336,7 @@ You can adjust scopes anytime from your [GitHub token settings](https://github.c
 - [REQ-ENTERPRISE-006](../../sdd/spec/enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) - Deploy-time AIG secrets and ENTERPRISE_MODE var (AIG_GATEWAY_URL, AIG_TOKEN)
 - [REQ-ENTERPRISE-007](../../sdd/spec/enterprise-mode.md#req-enterprise-007-gateway-route-pinning) - Gateway route-pinning (catalog-driven handle -> dynamic/<route> mapping)
 - [REQ-ENTERPRISE-012](../../sdd/spec/enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list) - Setup-configured dynamic-route catalog and access-group list (KV, no redeploy)
+- [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing) - Per-group dynamic routing (setup:group_routing, first-match by configured order)
 - [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) - Access-gated JIT user provisioning (setup:enterprise_access_group)
 - [REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-and-access-request-flow) - Onboarding login (OAuth secrets) and access-request confirmation email (Resend)
 - [REQ-BROWSER-002](../../sdd/spec/browser-run.md#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template) - Browser Rendering scope in the Cloudflare token template
@@ -333,6 +345,7 @@ You can adjust scopes anytime from your [GitHub token settings](https://github.c
 - [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token) - Enterprise admin-configured Browser Rendering token (Setup wizard)
 - [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) - GitHub token capture and storage (App vs OAuth precedence; GITHUB_APP_CLIENT_ID/SECRET, GITHUB_HOST, GITHUB_API_HOST)
 - [REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport) - Other-mode container transport (GH_TOKEN via the deploy-keys path)
+- [REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup) - Enterprise GitHub provider configuration via Setup (setup:github_*, KV-first resolution)
 - [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) - Broaden the panel gate beyond enterprise (Planned)
 - [REQ-OPS-012](../../sdd/spec/operations.md#req-ops-012-per-environment-container-concurrency-limit) - Per-environment container concurrency limit
 - [REQ-SETUP-004](../../sdd/spec/setup.md#req-setup-004-setup-is-idempotent) - Setup is idempotent

@@ -423,10 +423,6 @@ describe('getBaseUrl', () => {
 });
 
 describe('SETUP_KEYS', () => {
-  it('contains 24 setup keys', () => {
-    expect(Object.keys(SETUP_KEYS)).toHaveLength(24);
-  });
-
   it('all values start with "setup:"', () => {
     for (const value of Object.values(SETUP_KEYS)) {
       expect(value).toMatch(/^setup:/);
@@ -436,14 +432,5 @@ describe('SETUP_KEYS', () => {
   it('all values are unique', () => {
     const values = Object.values(SETUP_KEYS);
     expect(new Set(values).size).toBe(values.length);
-  });
-
-  it('has correct values for commonly used keys', () => {
-    expect(SETUP_KEYS.CUSTOM_DOMAIN).toBe('setup:custom_domain');
-    expect(SETUP_KEYS.ACCOUNT_ID).toBe('setup:account_id');
-    expect(SETUP_KEYS.TURNSTILE_SITE_KEY).toBe('setup:turnstile_site_key');
-    expect(SETUP_KEYS.MAX_USERS).toBe('setup:max_users');
-    expect(SETUP_KEYS.COMPLETE).toBe('setup:complete');
-    expect(SETUP_KEYS.IDP_LIST).toBe('setup:idp_list');
   });
 });

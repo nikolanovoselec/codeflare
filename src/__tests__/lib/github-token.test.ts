@@ -10,6 +10,7 @@ import {
   connectGithub,
   disconnectGithub,
 } from '../../lib/github-token';
+import { SETUP_KEYS } from '../../lib/kv-keys';
 
 vi.mock('../../lib/logger', () => ({
   createLogger: () => ({ info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() }),
@@ -200,26 +201,59 @@ describe('getValidGithubToken', () => {
 // ─── Provider selection (REQ-GITHUB-001) ───────────────────────────────────
 
 describe('getGithubProvider', () => {
-  it('selects the GitHub App provider when app config is present', () => {
-    expect(getGithubProvider(env(APP_ENV))?.source).toBe('app');
+  it('selects the GitHub App provider when app env config is present', async () => {
+    expect((await getGithubProvider(env(APP_ENV)))?.source).toBe('app');
   });
-  it('selects the OAuth App provider when only oauth config is present', () => {
-    expect(getGithubProvider(env(OAUTH_ENV))?.source).toBe('oauth');
+  it('selects the OAuth App provider when only oauth env config is present', async () => {
+    expect((await getGithubProvider(env(OAUTH_ENV)))?.source).toBe('oauth');
   });
-  it('prefers the GitHub App when both are configured', () => {
-    expect(getGithubProvider(env({ ...APP_ENV, ...OAUTH_ENV }))?.source).toBe('app');
+  it('prefers the GitHub App when both env configs are present', async () => {
+    expect((await getGithubProvider(env({ ...APP_ENV, ...OAUTH_ENV })))?.source).toBe('app');
   });
-  it('returns null when neither is configured', () => {
-    expect(getGithubProvider(env())).toBeNull();
+  it('returns null when neither is configured (non-enterprise)', async () => {
+    expect(await getGithubProvider(env())).toBeNull();
+  });
+
+  // REQ-GITHUB-008: enterprise resolves the provider + credentials from Setup→KV.
+  it('enterprise resolves the GitHub App provider + credentials from KV by type', async () => {
+    mockKV.put(SETUP_KEYS.GITHUB_PROVIDER_TYPE, 'app');
+    mockKV.put(SETUP_KEYS.GITHUB_APP_CLIENT_ID, 'kv-app-cid');
+    mockKV.put(SETUP_KEYS.GITHUB_APP_CLIENT_SECRET, JSON.stringify({ secret: 'kv-app-sec' }));
+    const p = await getGithubProvider(env({ ENTERPRISE_MODE: 'active' }));
+    expect(p?.source).toBe('app');
+    // The KV client id is the one actually used (it rides the authorize URL).
+    const url = new URL(p!.authorizeUrl({ state: 's', redirectUri: 'r' }));
+    expect(url.searchParams.get('client_id')).toBe('kv-app-cid');
+  });
+  it('enterprise resolves the OAuth App provider from KV when type is oauth', async () => {
+    mockKV.put(SETUP_KEYS.GITHUB_PROVIDER_TYPE, 'oauth');
+    mockKV.put(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID, 'kv-oauth-cid');
+    mockKV.put(SETUP_KEYS.GITHUB_OAUTH_CLIENT_SECRET, JSON.stringify({ secret: 'kv-oauth-sec' }));
+    expect((await getGithubProvider(env({ ENTERPRISE_MODE: 'active' })))?.source).toBe('oauth');
+  });
+  it('enterprise KV config wins over deploy env vars', async () => {
+    mockKV.put(SETUP_KEYS.GITHUB_PROVIDER_TYPE, 'oauth');
+    mockKV.put(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID, 'kv-oauth-cid');
+    mockKV.put(SETUP_KEYS.GITHUB_OAUTH_CLIENT_SECRET, JSON.stringify({ secret: 'kv-oauth-sec' }));
+    expect((await getGithubProvider(env({ ENTERPRISE_MODE: 'active', ...APP_ENV })))?.source).toBe('oauth');
+  });
+  it('enterprise falls back to env when the KV config is incomplete (missing secret)', async () => {
+    mockKV.put(SETUP_KEYS.GITHUB_PROVIDER_TYPE, 'app');
+    mockKV.put(SETUP_KEYS.GITHUB_APP_CLIENT_ID, 'kv-app-cid');
+    // No secret stored ⇒ KV resolution fails closed ⇒ env fallback.
+    expect((await getGithubProvider(env({ ENTERPRISE_MODE: 'active', ...OAUTH_ENV })))?.source).toBe('oauth');
+  });
+  it('enterprise returns null when neither KV nor env is configured', async () => {
+    expect(await getGithubProvider(env({ ENTERPRISE_MODE: 'active' }))).toBeNull();
   });
 });
 
 // ─── Authorize URL (REQ-GITHUB-001) ────────────────────────────────────────
 
 describe('authorizeUrl', () => {
-  it('App URL carries client_id/state/redirect_uri and no scope param', () => {
+  it('App URL carries client_id/state/redirect_uri and no scope param', async () => {
     const url = new URL(
-      getGithubProvider(env(APP_ENV))!.authorizeUrl({ state: 's1', redirectUri: 'https://cf/cb' }),
+      (await getGithubProvider(env(APP_ENV)))!.authorizeUrl({ state: 's1', redirectUri: 'https://cf/cb' }),
     );
     expect(url.host).toBe('github.com');
     expect(url.pathname).toBe('/login/oauth/authorize');
@@ -229,16 +263,16 @@ describe('authorizeUrl', () => {
     expect(url.searchParams.get('scope')).toBeNull();
   });
 
-  it('OAuth URL requests the repo/read:org/workflow scope', () => {
+  it('OAuth URL requests the repo/read:org/workflow scope', async () => {
     const url = new URL(
-      getGithubProvider(env(OAUTH_ENV))!.authorizeUrl({ state: 's', redirectUri: 'https://cf/cb' }),
+      (await getGithubProvider(env(OAUTH_ENV)))!.authorizeUrl({ state: 's', redirectUri: 'https://cf/cb' }),
     );
     expect(url.searchParams.get('scope')).toBe('repo read:org workflow');
   });
 
-  it('honours the GITHUB_HOST override for data-residency tenants', () => {
+  it('honours the GITHUB_HOST override for data-residency tenants', async () => {
     const url = new URL(
-      getGithubProvider(env({ ...APP_ENV, GITHUB_HOST: 'ghe.example.com' }))!.authorizeUrl({
+      (await getGithubProvider(env({ ...APP_ENV, GITHUB_HOST: 'ghe.example.com' })))!.authorizeUrl({
         state: 's',
         redirectUri: 'r',
       }),

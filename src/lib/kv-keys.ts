@@ -274,6 +274,12 @@ export const SETUP_KEYS = {
   // (entrypoint writes Pi defaultThinkingLevel); absent ⇒ no default pinned.
   DYNAMIC_ROUTES: 'setup:dynamic_routes',
   DEFAULT_ROUTE: 'setup:default_route',
+  // REQ-ENTERPRISE-013: per-group dynamic routing. A JSON map keyed by Access group
+  // name -> { routes: string[] (subset of DYNAMIC_ROUTES), defaultRoute, reasoning }.
+  // When set and the user matches a configured group, it overrides DYNAMIC_ROUTES /
+  // DEFAULT_ROUTE for that user; absent (or no groups) ⇒ the global catalog applies,
+  // byte-identical to pre-feature behavior. Non-secret (route names only).
+  GROUP_ROUTING: 'setup:group_routing',
   IDP_LIST: 'setup:idp_list',
   MAX_USERS: 'setup:max_users',
   TURNSTILE_SITE_KEY: 'setup:turnstile_site_key',
@@ -285,6 +291,18 @@ export const SETUP_KEYS = {
   // deployment's own Cloudflare account.
   BROWSER_RENDER_TOKEN: 'setup:browser_render_token',
   BROWSER_RENDER_ACCOUNT_ID: 'setup:browser_render_account_id',
+  // REQ-GITHUB-008: enterprise GitHub provider config set in the Setup wizard (the
+  // per-user Push & Deploy accordion is hidden in enterprise). GITHUB_PROVIDER_TYPE
+  // selects 'app' | 'oauth'; the matching client id is non-secret (rides the
+  // authorize URL) and stored plain; the matching client secret is stored encrypted
+  // (kv-crypto). Distinct from the SaaS login OAUTH_* env so connecting GitHub for
+  // repo access never piggybacks on the login app. Read by getGithubProvider in
+  // enterprise mode (env vars remain the non-enterprise fallback).
+  GITHUB_PROVIDER_TYPE: 'setup:github_provider_type',
+  GITHUB_APP_CLIENT_ID: 'setup:github_app_client_id',
+  GITHUB_APP_CLIENT_SECRET: 'setup:github_app_client_secret',
+  GITHUB_OAUTH_CLIENT_ID: 'setup:github_oauth_client_id',
+  GITHUB_OAUTH_CLIENT_SECRET: 'setup:github_oauth_client_secret',
 } as const;
 
 /**

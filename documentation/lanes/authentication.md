@@ -106,6 +106,8 @@ User clicks "Connect GitHub" in the GitHub panel
 
 A configured GitHub App takes precedence. With neither configured, Connect is unavailable (`503 GITHUB_NOT_CONFIGURED`).
 
+**Provider configuration source.** `getGithubProvider` is async. In **enterprise** mode the provider type + credentials are admin-configured in the Setup wizard and stored in KV (client id plain, client secret encrypted): the resolver reads that config first and only falls back to the deploy-config env vars (`GITHUB_APP_*` / `OAUTH_*`) when KV is unconfigured — so enterprise GitHub works without GitHub-Actions/Cloudflare-secret access. In **non-enterprise** modes the resolver uses the env vars only (unchanged). A stored client secret that cannot be decrypted (no `ENCRYPTION_KEY`) is treated as unconfigured (fails closed). See [REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup) and the [Configuration](configuration.md#github-integration) lane.
+
 **Scopes / permissions:** the OAuth App requests `repo read:org workflow`. The GitHub App's equivalent permissions (Contents R/W, Pull requests R/W, Workflows W, Metadata R) are set at registration. Enterprise GitHub Apps must be **internal** to the customer's enterprise - EMU managed users cannot authorize third-party apps.
 
 **At rest:** the token is encrypted (kv-crypto) and never returned to the browser. Disconnect/offboarding revokes it ([REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation)). For the enterprise egress-injection security model and at-rest detail, see [Security](security.md) rather than duplicating it here.
@@ -289,6 +291,7 @@ Both `SAAS_MODE` and `ONBOARDING_LANDING_PAGE` are passed to the Worker via `--v
 - [REQ-AUTH-016](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown) - Header user dropdown
 - [REQ-AUTH-017](../../sdd/spec/authentication.md#req-auth-017-gravatar-integration) - Gravatar integration
 - [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) - Access-gated JIT provisioning runs before SaaS path in enterprise mode
+- [REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup) - Enterprise GitHub provider config (admin-configured in Setup, KV-first resolution)
 
 ---
 

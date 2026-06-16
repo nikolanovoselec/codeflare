@@ -7,6 +7,15 @@ let configLoaded = false;
 
 const TOTAL_STEPS = 3;
 
+export type ReasoningLevel = 'off' | 'low' | 'medium' | 'high';
+
+/** Per-group routing entry (REQ-ENTERPRISE-013). */
+export interface GroupRouting {
+  routes: string[];
+  defaultRoute: string;
+  reasoning: ReasoningLevel;
+}
+
 interface SetupState {
   step: number;
   // Token detection (auto-detected from env)
@@ -44,6 +53,18 @@ interface SetupState {
   cloudflareBrowserToken: string;
   cloudflareBrowserTokenSet: boolean;
   cloudflareBrowserAccountId: string;
+  // REQ-GITHUB-008: enterprise GitHub provider config. *ClientSecret holds only a
+  // freshly-typed value (the stored secret is never returned); *ClientSecretSet
+  // reflects whether one is already saved.
+  githubProviderType: 'app' | 'oauth';
+  githubAppClientId: string;
+  githubAppClientSecret: string;
+  githubAppClientSecretSet: boolean;
+  githubOauthClientId: string;
+  githubOauthClientSecret: string;
+  githubOauthClientSecretSet: boolean;
+  // REQ-ENTERPRISE-013: per-group routing, keyed by Access group name.
+  groupRouting: Record<string, GroupRouting>;
 }
 
 const initialState: SetupState = {
@@ -71,6 +92,14 @@ const initialState: SetupState = {
   cloudflareBrowserToken: '',
   cloudflareBrowserTokenSet: false,
   cloudflareBrowserAccountId: '',
+  githubProviderType: 'app',
+  githubAppClientId: '',
+  githubAppClientSecret: '',
+  githubAppClientSecretSet: false,
+  githubOauthClientId: '',
+  githubOauthClientSecret: '',
+  githubOauthClientSecretSet: false,
+  groupRouting: {},
 };
 
 const [state, setState] = createStore<SetupState>({ ...initialState });
@@ -154,13 +183,82 @@ function removeAllowedUser(email: string): void {
 
 function addAccessGroup(name: string): void {
   if (name && !state.enterpriseAccessGroups.includes(name)) {
-    setState(produce((s) => { s.enterpriseAccessGroups.push(name); }));
+    setState(produce((s) => {
+      s.enterpriseAccessGroups.push(name);
+      // REQ-ENTERPRISE-013: seed a new group's routing from the current global default
+      // + full catalog, so its card is never empty and "Apply to all" has a source.
+      if (!s.groupRouting[name]) {
+        s.groupRouting[name] = {
+          routes: [...s.dynamicRoutes],
+          defaultRoute: s.defaultRouteName || s.dynamicRoutes[0] || '',
+          reasoning: s.defaultRouteName ? s.defaultRouteReasoning : 'off',
+        };
+      }
+    }));
   }
 }
 function removeAccessGroup(name: string): void {
   setState(produce((s) => {
     const i = s.enterpriseAccessGroups.indexOf(name);
     if (i !== -1) s.enterpriseAccessGroups.splice(i, 1);
+    delete s.groupRouting[name];
+  }));
+}
+
+// ─── REQ-GITHUB-008: GitHub provider config setters ───────────────────────────
+function setGithubProviderType(t: 'app' | 'oauth'): void { setState('githubProviderType', t); }
+function setGithubAppClientId(v: string): void { setState('githubAppClientId', v); }
+function setGithubAppClientSecret(v: string): void { setState('githubAppClientSecret', v); }
+function setGithubOauthClientId(v: string): void { setState('githubOauthClientId', v); }
+function setGithubOauthClientSecret(v: string): void { setState('githubOauthClientSecret', v); }
+
+// ─── REQ-ENTERPRISE-013: per-group routing setters ────────────────────────────
+function emptyGroupRouting(): GroupRouting { return { routes: [], defaultRoute: '', reasoning: 'off' }; }
+
+/** Toggle a route's membership in a group's active set, fixing the default if needed. */
+function toggleGroupRoute(group: string, route: string): void {
+  setState(produce((s) => {
+    if (!s.groupRouting[group]) s.groupRouting[group] = emptyGroupRouting();
+    const g = s.groupRouting[group];
+    const i = g.routes.indexOf(route);
+    if (i === -1) {
+      g.routes.push(route);
+      if (!g.defaultRoute) g.defaultRoute = route; // first active route becomes the default
+    } else {
+      g.routes.splice(i, 1);
+      if (g.defaultRoute === route) {
+        // The default belonged to the removed route; fall back to the new first route
+        // (or clear) with reasoning off, matching the resolver's drift rule.
+        g.defaultRoute = g.routes[0] ?? '';
+        g.reasoning = 'off';
+      }
+    }
+  }));
+}
+
+function setGroupDefaultRoute(group: string, route: string): void {
+  setState(produce((s) => {
+    if (!s.groupRouting[group]) s.groupRouting[group] = emptyGroupRouting();
+    s.groupRouting[group].defaultRoute = route;
+  }));
+}
+
+function setGroupReasoning(group: string, level: ReasoningLevel): void {
+  setState(produce((s) => {
+    if (!s.groupRouting[group]) s.groupRouting[group] = emptyGroupRouting();
+    s.groupRouting[group].reasoning = level;
+  }));
+}
+
+/** Copy one group's routing config to every other configured group. */
+function applyGroupRoutingToAll(source: string): void {
+  setState(produce((s) => {
+    const src = s.groupRouting[source];
+    if (!src) return;
+    for (const g of s.enterpriseAccessGroups) {
+      if (g === source) continue;
+      s.groupRouting[g] = { routes: [...src.routes], defaultRoute: src.defaultRoute, reasoning: src.reasoning };
+    }
   }));
 }
 
@@ -258,6 +356,12 @@ async function loadExistingConfig(): Promise<void> {
             s.defaultRouteReasoning = prefill.defaultRoute?.reasoning ?? 'off';
             s.cloudflareBrowserTokenSet = prefill.browserRenderTokenSet;
             s.cloudflareBrowserAccountId = prefill.browserRenderAccountId;
+            s.githubProviderType = prefill.githubProviderType ?? 'app';
+            s.githubAppClientId = prefill.githubAppClientId;
+            s.githubAppClientSecretSet = prefill.githubAppClientSecretSet;
+            s.githubOauthClientId = prefill.githubOauthClientId;
+            s.githubOauthClientSecretSet = prefill.githubOauthClientSecretSet;
+            s.groupRouting = prefill.groupRouting;
           })
         );
         return;
@@ -340,6 +444,15 @@ async function configure(): Promise<boolean> {
           // REQ-BROWSER-007: a blank token => backend keeps the existing one (no clobber).
           browserRenderToken: state.cloudflareBrowserToken,
           browserRenderAccountId: state.cloudflareBrowserAccountId,
+          // REQ-GITHUB-008: provider type + client ids; a blank secret => backend keeps
+          // the existing one (no clobber, mirroring the browser token).
+          githubProviderType: state.githubProviderType,
+          githubAppClientId: state.githubAppClientId,
+          githubAppClientSecret: state.githubAppClientSecret,
+          githubOauthClientId: state.githubOauthClientId,
+          githubOauthClientSecret: state.githubOauthClientSecret,
+          // REQ-ENTERPRISE-013: per-group routing map.
+          groupRouting: state.groupRouting,
         } : {}),
       }),
     });
@@ -439,7 +552,7 @@ async function configure(): Promise<boolean> {
 
 function reset(): void {
   configLoaded = false;
-  setState({ ...initialState, adminUsers: [], allowedUsers: [], enterpriseAccessGroups: [], dynamicRoutes: [], configureSteps: [] });
+  setState({ ...initialState, adminUsers: [], allowedUsers: [], enterpriseAccessGroups: [], dynamicRoutes: [], configureSteps: [], groupRouting: {} });
 }
 
 export const setupStore = {
@@ -502,6 +615,14 @@ export const setupStore = {
   get cloudflareBrowserToken() { return state.cloudflareBrowserToken; },
   get cloudflareBrowserTokenSet() { return state.cloudflareBrowserTokenSet; },
   get cloudflareBrowserAccountId() { return state.cloudflareBrowserAccountId; },
+  get githubProviderType() { return state.githubProviderType; },
+  get githubAppClientId() { return state.githubAppClientId; },
+  get githubAppClientSecret() { return state.githubAppClientSecret; },
+  get githubAppClientSecretSet() { return state.githubAppClientSecretSet; },
+  get githubOauthClientId() { return state.githubOauthClientId; },
+  get githubOauthClientSecret() { return state.githubOauthClientSecret; },
+  get githubOauthClientSecretSet() { return state.githubOauthClientSecretSet; },
+  get groupRouting() { return state.groupRouting; },
 
   // Actions
   detectToken,
@@ -519,6 +640,15 @@ export const setupStore = {
   setDefaultRouteReasoning,
   setCloudflareBrowserToken,
   setCloudflareBrowserAccountId,
+  setGithubProviderType,
+  setGithubAppClientId,
+  setGithubAppClientSecret,
+  setGithubOauthClientId,
+  setGithubOauthClientSecret,
+  toggleGroupRoute,
+  setGroupDefaultRoute,
+  setGroupReasoning,
+  applyGroupRoutingToAll,
   nextStep,
   prevStep,
   goToStep,

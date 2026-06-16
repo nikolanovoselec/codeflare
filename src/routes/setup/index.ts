@@ -69,6 +69,24 @@ const ConfigureBodySchema = z.object({
   // masked on prefill; a blank/masked value on save leaves the stored token in place.
   browserRenderToken: z.string().max(512).optional(),
   browserRenderAccountId: z.string().max(128).optional(),
+  // REQ-GITHUB-008 (enterprise-only): admin-configured GitHub provider. The chooser
+  // selects 'app' | 'oauth'; the matching client id is non-secret, the secret is
+  // encrypted at rest and masked on prefill (blank on save ⇒ keep the stored secret).
+  githubProviderType: z.enum(['app', 'oauth']).optional(),
+  githubAppClientId: z.string().max(256).optional(),
+  githubAppClientSecret: z.string().max(512).optional(),
+  githubOauthClientId: z.string().max(256).optional(),
+  githubOauthClientSecret: z.string().max(512).optional(),
+  // REQ-ENTERPRISE-013 (enterprise-only): per-group routing. Keyed by Access group
+  // name -> { routes (subset of dynamicRoutes), defaultRoute (∈ that group's routes),
+  // reasoning }. Absent ⇒ the global catalog applies to everyone (unchanged behavior).
+  groupRouting: z
+    .record(z.string(), z.object({
+      routes: z.array(accessNameSchema),
+      defaultRoute: accessNameSchema,
+      reasoning: reasoningSchema,
+    }))
+    .optional(),
 }).refine(
   (data) => data.adminUsers.every((admin) => data.allowedUsers.includes(admin)),
   { message: 'All adminUsers must also be in allowedUsers', path: ['adminUsers'] }
@@ -78,6 +96,24 @@ const ConfigureBodySchema = z.object({
     !data.defaultRoute ||
     (data.dynamicRoutes ?? []).includes(data.defaultRoute.route),
   { message: 'defaultRoute.route must be one of dynamicRoutes', path: ['defaultRoute'] }
+).refine(
+  // REQ-ENTERPRISE-013: each group's defaultRoute must be one of that group's routes.
+  (data) =>
+    !data.groupRouting ||
+    Object.values(data.groupRouting).every((g) => g.routes.includes(g.defaultRoute)),
+  { message: "each group's defaultRoute must be one of that group's routes", path: ['groupRouting'] }
+).refine(
+  // REQ-ENTERPRISE-013: each group's routes must be a subset of the global catalog.
+  (data) =>
+    !data.groupRouting ||
+    Object.values(data.groupRouting).every((g) => g.routes.every((r) => (data.dynamicRoutes ?? []).includes(r))),
+  { message: "each group's routes must all be in dynamicRoutes", path: ['groupRouting'] }
+).refine(
+  // REQ-ENTERPRISE-013: routing may only be configured for configured Access groups.
+  (data) =>
+    !data.groupRouting ||
+    Object.keys(data.groupRouting).every((name) => (data.enterpriseAccessGroup ?? []).includes(name)),
+  { message: 'groupRouting keys must be configured Access groups', path: ['groupRouting'] }
 );
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -120,7 +156,7 @@ app.post('/configure', async (c) => {
   // Validate body synchronously before starting the stream
   const body = await parseJsonBody(c, ConfigureBodySchema);
 
-  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, dynamicRoutes, defaultRoute, browserRenderToken, browserRenderAccountId } = body;
+  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, dynamicRoutes, defaultRoute, browserRenderToken, browserRenderAccountId, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, groupRouting } = body;
   const token = c.env.CLOUDFLARE_API_TOKEN;
 
   // During reconfiguration, prevent admin from removing themselves
@@ -138,6 +174,15 @@ app.post('/configure', async (c) => {
   // before any KV write, so a rejected configure leaves no partial state.
   if (isEnterpriseMode(c.env) && (dynamicRoutes ?? []).length === 0) {
     throw new ValidationError('At least one dynamic route is required in enterprise mode');
+  }
+
+  // REQ-GITHUB-008: a GitHub client secret stored without ENCRYPTION_KEY would be
+  // plaintext at rest. Reject before any KV write (so a rejected configure leaves no
+  // partial state) rather than silently downgrade — fail closed.
+  if (isEnterpriseMode(c.env) && (githubAppClientSecret?.trim() || githubOauthClientSecret?.trim())) {
+    if (!(await getOrImportKey(c.env))) {
+      throw new ValidationError('ENCRYPTION_KEY must be configured before storing a GitHub client secret');
+    }
   }
 
   const { readable, writable } = new TransformStream();
@@ -347,6 +392,39 @@ app.post('/configure', async (c) => {
         if (tok) {
           const cryptoKey = await getOrImportKey(c.env);
           await encryptAndStore(c.env.KV, SETUP_KEYS.BROWSER_RENDER_TOKEN, { token: tok }, cryptoKey);
+        }
+
+        // REQ-GITHUB-008: persist the admin GitHub provider config. Provider type +
+        // client ids are non-secret (plain); the client secret is encrypted at rest.
+        // Both secrets are no-clobber on blank — the masked prefill sends them blank
+        // when unchanged, so a blank value means "keep what's stored", not "clear".
+        if (githubProviderType) {
+          await c.env.KV.put(SETUP_KEYS.GITHUB_PROVIDER_TYPE, githubProviderType);
+        }
+        const ghAppId = githubAppClientId?.trim();
+        if (ghAppId) await c.env.KV.put(SETUP_KEYS.GITHUB_APP_CLIENT_ID, ghAppId);
+        const ghOauthId = githubOauthClientId?.trim();
+        if (ghOauthId) await c.env.KV.put(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID, ghOauthId);
+        const ghAppSecret = githubAppClientSecret?.trim();
+        const ghOauthSecret = githubOauthClientSecret?.trim();
+        if (ghAppSecret || ghOauthSecret) {
+          // The no-ENCRYPTION_KEY case was rejected pre-stream (fail closed), so the
+          // key is present here; the guard is defensive so a secret is never written
+          // as plaintext even if the key somehow resolves null.
+          const cryptoKey = await getOrImportKey(c.env);
+          if (cryptoKey) {
+            if (ghAppSecret) await encryptAndStore(c.env.KV, SETUP_KEYS.GITHUB_APP_CLIENT_SECRET, { secret: ghAppSecret }, cryptoKey);
+            if (ghOauthSecret) await encryptAndStore(c.env.KV, SETUP_KEYS.GITHUB_OAUTH_CLIENT_SECRET, { secret: ghOauthSecret }, cryptoKey);
+          }
+        }
+
+        // REQ-ENTERPRISE-013: persist the per-group routing map (or clear it when empty).
+        if (groupRouting !== undefined) {
+          if (Object.keys(groupRouting).length > 0) {
+            await c.env.KV.put(SETUP_KEYS.GROUP_ROUTING, JSON.stringify(groupRouting));
+          } else {
+            await c.env.KV.delete(SETUP_KEYS.GROUP_ROUTING);
+          }
         }
       }
 

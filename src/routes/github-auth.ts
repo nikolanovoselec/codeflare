@@ -261,7 +261,7 @@ app.get('/connect/callback', callbackRateLimiter, async (c) => {
   }
 
   const secret = connectStateSecret(c.env);
-  const provider = getGithubProvider(c.env);
+  const provider = await getGithubProvider(c.env);
   if (!secret || !provider) {
     return c.redirect(`${appUrl}?github=unavailable`);
   }

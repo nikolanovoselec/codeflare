@@ -139,7 +139,23 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
     // wizard round-trips on re-run.
     const browserRenderTokenSet = Boolean(await c.env.KV.get(SETUP_KEYS.BROWSER_RENDER_TOKEN));
     const browserRenderAccountId = (await c.env.KV.get(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID)) ?? '';
-    enterpriseExtras = { enterpriseAccessGroup, dynamicRoutes, defaultRoute, browserRenderTokenSet, browserRenderAccountId };
+    // REQ-GITHUB-008: surface the GitHub provider type + non-secret client ids and
+    // whether each client secret is set (masked — never return the secrets).
+    const githubProviderType = (await c.env.KV.get(SETUP_KEYS.GITHUB_PROVIDER_TYPE)) ?? null;
+    const githubAppClientId = (await c.env.KV.get(SETUP_KEYS.GITHUB_APP_CLIENT_ID)) ?? '';
+    const githubAppClientSecretSet = Boolean(await c.env.KV.get(SETUP_KEYS.GITHUB_APP_CLIENT_SECRET));
+    const githubOauthClientId = (await c.env.KV.get(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID)) ?? '';
+    const githubOauthClientSecretSet = Boolean(await c.env.KV.get(SETUP_KEYS.GITHUB_OAUTH_CLIENT_SECRET));
+    // REQ-ENTERPRISE-013: surface the per-group routing map (route names only, no secrets).
+    let groupRouting: Record<string, { routes: string[]; defaultRoute: string; reasoning: string }> = {};
+    try {
+      groupRouting = (await c.env.KV.get<Record<string, { routes: string[]; defaultRoute: string; reasoning: string }>>(SETUP_KEYS.GROUP_ROUTING, 'json')) ?? {};
+    } catch { /* malformed stored JSON → wizard starts from empty */ }
+    enterpriseExtras = {
+      enterpriseAccessGroup, dynamicRoutes, defaultRoute, browserRenderTokenSet, browserRenderAccountId,
+      githubProviderType, githubAppClientId, githubAppClientSecretSet, githubOauthClientId, githubOauthClientSecretSet,
+      groupRouting,
+    };
   }
   if (!token) {
     return c.json({ adminUsers: [], allowedUsers: [], ...enterpriseExtras });

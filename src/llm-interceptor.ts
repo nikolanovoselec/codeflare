@@ -42,7 +42,7 @@
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { Env } from './types';
-import { SETUP_KEYS } from './lib/kv-keys';
+import { resolveRouteCatalog } from './lib/access';
 
 /**
  * Hosts the DO must intercept for enterprise LLM routing. Only the OpenAI host
@@ -392,7 +392,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
       // dynamic route `dynamic/<name>`, from the Setup catalog (KV). An unknown
       // handle FAILS SAFE to the default route. A model-less / non-JSON body is
       // non-fatal — forward the original bytes unchanged.
-      const catalog = await this.loadRouteCatalog();
+      const catalog = await this.loadRouteCatalog(groups);
       if (catalog.routes.length > 0) {
         try {
           const payload = JSON.parse(raw) as Record<string, unknown>;
@@ -469,26 +469,17 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
   }
 
   /**
-   * Load the Setup-configured dynamic-route catalog + resolved default route from
-   * KV. SETUP_KEYS.DYNAMIC_ROUTES is a JSON string[] of route names;
-   * SETUP_KEYS.DEFAULT_ROUTE is a JSON { route, reasoning } object written by the
-   * Setup wizard (reasoning is container-side only — entrypoint reads it). The
-   * default-route rule (locked, kept identical to loadEnterpriseRouteConfig in
-   * access.ts): the explicit default if it is in the catalog; else the first
-   * configured route; else (empty catalog) '' (no rewrite happens).
+   * Resolve the Setup-configured dynamic-route catalog + default route for THIS
+   * session's user, honouring per-group routing (REQ-ENTERPRISE-013) via the shared
+   * {@link resolveRouteCatalog} — the single source of truth also used by the
+   * container env fan ({@link loadEnterpriseRouteConfig}), so the per-request mapping
+   * here can never drift from it. `groups` are the session's matched Access groups
+   * (interceptor prop); the first matched group with its own routes wins, else the
+   * global catalog. No KV ⇒ no catalog ⇒ no rewrite (agent handle forwarded verbatim).
    */
-  private async loadRouteCatalog(): Promise<{ routes: string[]; defaultRoute: string }> {
-    // No KV binding ⇒ no catalog ⇒ no rewrite (forward the agent handle verbatim).
+  private async loadRouteCatalog(groups?: string[]): Promise<{ routes: string[]; defaultRoute: string }> {
     if (!this.env.KV) return { routes: [], defaultRoute: '' };
-    const rawCatalog = await this.env.KV.get(SETUP_KEYS.DYNAMIC_ROUTES);
-    let routes: string[] = [];
-    try { const p = JSON.parse(rawCatalog ?? '[]'); if (Array.isArray(p)) routes = p.filter((r): r is string => typeof r === 'string'); } catch { /* malformed → empty */ }
-    const rawDefault = await this.env.KV.get(SETUP_KEYS.DEFAULT_ROUTE);
-    let configuredDefault: string | null = null;
-    try { const d = JSON.parse(rawDefault ?? 'null'); if (d && typeof d === 'object' && typeof (d as { route?: unknown }).route === 'string') configuredDefault = (d as { route: string }).route; } catch { /* malformed → none */ }
-    const defaultRoute = (configuredDefault && routes.includes(configuredDefault))
-      ? configuredDefault
-      : (routes[0] ?? '');
-    return { routes, defaultRoute };
+    const { routeCatalog, defaultRoute } = await resolveRouteCatalog(this.env.KV, groups);
+    return { routes: routeCatalog, defaultRoute };
   }
 }

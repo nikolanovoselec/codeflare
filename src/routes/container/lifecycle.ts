@@ -241,7 +241,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     // forward it to the DO so buildEnvVars emits ENTERPRISE_ROUTE_CATALOG /
     // ENTERPRISE_DEFAULT_ROUTE / ENTERPRISE_DEFAULT_REASONING for entrypoint.sh.
     // Empty when non-enterprise. REQ-ENTERPRISE-005 (revised).
-    const routeConfig = await loadEnterpriseRouteConfig(c.env);
+    const routeConfig = await loadEnterpriseRouteConfig(c.env, userGroups);
 
     // Step 4: Configure the container DO
     const { needsBucketUpdate, setBucketBody } = await configureContainerDO({
