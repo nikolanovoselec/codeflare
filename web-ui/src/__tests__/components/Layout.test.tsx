@@ -65,7 +65,7 @@ vi.mock('../../lib/vault-prewarm', () => ({
 }));
 
 const vaultLocalReadinessMock = vi.hoisted(() => ({
-  check: vi.fn(async () => ({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true } as any)),
+  check: vi.fn(async (_sessionId?: string) => ({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true } as any)),
 }));
 
 vi.mock('../../lib/vault-local-readiness', () => ({
