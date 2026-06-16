@@ -153,7 +153,11 @@ export const SECTION_KICKERS: Record<string, string> = {
 export const AGENTS = ['claude-code', 'codex', 'copilot', 'pi', 'antigravity', 'opencode'];
 
 export const HERO = {
-  kicker: 'The enterprise agentic coding engine',
+  kicker: {
+    prefix: 'The enterprise agentic',
+    words: ['coding', 'operations', 'infrastructure', 'migrations', 'toolchain', 'knowledge'],
+    suffix: 'engine',
+  },
   headline: { plain: 'This is not', flare: 'a coding assistant.' },
   // The plain one-sentence answer to the headline's hook, rendered in the terminal
   // white directly under the h1: what it is (a platform), what it does (agents

@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import { experimental_AstroContainer as AstroContainer } from 'astro/container';
+import HeroKicker from '../components/HeroKicker.astro';
 import Terminal from '../components/Terminal.astro';
 import Transcript from '../components/Transcript.astro';
 import GateSteps from '../components/GateSteps.astro';
@@ -16,7 +17,7 @@ import FeatureGrid from '../components/FeatureGrid.astro';
 import MicroCta from '../components/MicroCta.astro';
 import Header from '../components/Header.astro';
 import { dom } from './_helpers/dom';
-import { NAV_LINKS, LOGIN, type TranscriptLine } from '../content/site';
+import { HERO, NAV_LINKS, LOGIN, type TranscriptLine } from '../content/site';
 import { APP_LINKS } from '../config';
 
 let container: AstroContainer;
@@ -30,6 +31,19 @@ const LINES: TranscriptLine[] = [
   { tone: 'ok', text: 'third' },
   { tone: 'dim', text: 'fourth' },
 ];
+
+describe('HeroKicker', () => {
+  it('renders one active capability word plus the queued vertical stack from the content model', async () => {
+    const kicker = dom(await container.renderToString(HeroKicker)).querySelector('[data-hero-kicker]')!;
+    expect(kicker).not.toBeNull();
+    const words = kicker.querySelectorAll('[data-hero-kicker-word]');
+    expect(words).toHaveLength(HERO.kicker.words.length);
+    expect(words[0].textContent?.trim()).toBe(HERO.kicker.words[0]);
+    expect(words[0]).toHaveAttribute('data-active', 'true');
+    expect(words[1]).toHaveStyle({ opacity: '0.36' });
+    expect(kicker.querySelector('.hero-kicker-reel')).toHaveAttribute('aria-hidden', 'true');
+  });
+});
 
 describe('Transcript (styler 1: last line + scrolling cursor)', () => {
   it("animate='cursor' puts one caret on the last line and wraps that line for type-on-view", async () => {

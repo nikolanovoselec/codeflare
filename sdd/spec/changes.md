@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-06-16
 
+- **Landing hero top line becomes a capability-word engine ticker** ([REQ-LANDING-001](landing.md#req-landing-001-mode-aware-public-landing-serving) AC4 + enhancement constraint amended; stays Implemented). The hero kicker is now modeled as `THE ENTERPRISE AGENTIC [WORD] ENGINE`: static words stay coral, the active capability word is command white, queued words remain visible above as a ghosted vertical stack, and client enhancement measures the active word so `ENGINE` tracks its changing width instead of reserving the longest word. Server markup contains the full stack for no-JS and reduced-motion fallback. `HeroKicker.astro` and `hero-kicker.ts` keep the behavior centralized; structural and rotation-model tests cover the data-driven word stack and top-wrap rotation.
+
 - **Pi PR-boundary reconciliation parses shell wrappers structurally** ([REQ-AGENT-058](agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery) AC1; stays Implemented). The post-command reconcile backstop now tokenizes shell commands and unwraps `env`, `command`, `nice`, and `timeout` wrappers before looking for `git` or `gh`, so `env -u NAME VAR=value gh ...` and timeout-wrapped commands force fresh PR-state reconciliation without relying on a wrapper-heavy regex.
 
 - **Pi review summaries wait for a live session before posting** ([REQ-AGENT-062](agents.md#req-agent-062-pi-pr-boundary-review-result-delivery) AC6-AC7; stays Implemented). Review results remain pending until Pi can display them in the active session, reducing false `/review-results` fallbacks after off-turn review completion.
