@@ -237,7 +237,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-BROWSER-007: admin Browser Rendering token prefill (masked) -> AC1) -->
 <!-- @test: src/__tests__/lib/browser-render-token.test.ts (applyEnterpriseBrowserToken -> AC3) -->
 <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (Browser Rendering token (enterprise admin-global) -> AC1) -->
-<!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (advanced but no token: strips the browser-run/browser-e2e skills -> AC4) -->
+<!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (advanced but no token: strips the browser-run/browser-e2e skills from both agents -> AC4) -->
 ### REQ-BROWSER-007: Enterprise admin-configured Browser Rendering token
 
 <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx -->

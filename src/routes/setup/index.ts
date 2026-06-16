@@ -332,25 +332,21 @@ app.post('/configure', async (c) => {
 
       // REQ-BROWSER-007: persist the admin-global Cloudflare Browser Rendering token
       // (encrypted at rest) + its account id, used by every enterprise session's
-      // browser-run. The token is masked on prefill, so only overwrite when a real new
-      // value is sent; a blank or masked ('****') value leaves the stored token in
-      // place (no clobber). The account id is non-secret. Enterprise-gated, mirroring
-      // the read in applyEnterpriseBrowserToken.
+      // browser-run. Both fields are no-clobber on blank: the wizard prefills the
+      // account id and sends the token blank when unchanged (the stored token never
+      // round-trips to the client), so a blank value means "keep what's stored", not
+      // "clear" — keeping the token+account a coherent pair (removing a configured
+      // token is not a v1 affordance). The account id is non-secret; the token is
+      // encrypted. Enterprise-gated, mirroring the read in applyEnterpriseBrowserToken.
       if (isEnterpriseMode(c.env)) {
-        if (browserRenderAccountId !== undefined) {
-          const acct = browserRenderAccountId.trim();
-          if (acct) {
-            await c.env.KV.put(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID, acct);
-          } else {
-            await c.env.KV.delete(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID);
-          }
+        const acct = browserRenderAccountId?.trim();
+        if (acct) {
+          await c.env.KV.put(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID, acct);
         }
-        if (browserRenderToken !== undefined) {
-          const tok = browserRenderToken.trim();
-          if (tok && !tok.startsWith('****')) {
-            const cryptoKey = await getOrImportKey(c.env);
-            await encryptAndStore(c.env.KV, SETUP_KEYS.BROWSER_RENDER_TOKEN, { token: tok }, cryptoKey);
-          }
+        const tok = browserRenderToken?.trim();
+        if (tok) {
+          const cryptoKey = await getOrImportKey(c.env);
+          await encryptAndStore(c.env.KV, SETUP_KEYS.BROWSER_RENDER_TOKEN, { token: tok }, cryptoKey);
         }
       }
 
