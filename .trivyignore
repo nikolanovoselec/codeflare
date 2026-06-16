@@ -538,6 +538,23 @@ CVE-2026-8643
 # CVE-2026-42497 / CVE-2026-9538). No fixed version available in Debian bookworm.
 CVE-2026-48962
 
+# protobufjs / ws transitive deps in globally-installed npm agent CLIs
+# (@openai/codex, opencode-ai, @github/copilot, @earendil-works/pi-coding-agent,
+# consult-llm-mcp, browser-run-mcp, context-mode). Not in our own package.json
+# (our host ws is already ^8.21.0); these are vendored-CLI transitives. Both are
+# fixable upstream but the consuming CLIs have not rebuilt yet. Same "transitive
+# dep of globally-installed npm CLIs, waiting for upstream" profile as the
+# picomatch / glob / minimatch / node-tar entries above.
+#
+# CVE-2026-48712: protobufjs 7.5.9 — DoS via unbounded `Any` expansion during JSON
+#   conversion. The CLIs decode protobuf only from trusted backends (gRPC/telemetry),
+#   never attacker-controlled Any messages. Fix: 7.6.1 / 8.4.1.
+# CVE-2026-48779: ws 8.20.1 — memory-exhaustion DoS from many tiny fragments/chunks.
+#   The CLIs use ws as a client / local MCP transport in the single-tenant sandboxed
+#   container, not a public server accepting untrusted peers. Fix: 7.5.11 / 8.21.0.
+CVE-2026-48712
+CVE-2026-48779
+
 # cpython 3.11 (libpython3.11-minimal, libpython3.11-stdlib, python3.11,
 # python3.11-minimal, python3.11-venv; 3.11.2-6+deb12u7, Debian bookworm): two
 # new stdlib advisories. python3 is added for ECC observe hooks only (stdlib,
