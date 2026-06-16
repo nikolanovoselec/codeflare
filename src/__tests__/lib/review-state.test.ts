@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, reviewInSessionContinuation, mergeGateDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, activeRepoSentinelForReview, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput, type MergeGateInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, reviewInSessionContinuation, mergeGateDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, activeRepoSentinelForReview, activeRepoCandidateForReview, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput, type MergeGateInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 
 /**
  * computeReviewStateFrom is the canonical review-state definition (review.md §17.2).
@@ -493,6 +493,16 @@ describe('activeRepoSentinelForReview (guarded persisted repo fallback for gh-pr
       hasGitDir: hasGit(['/tmp/other/codeflare']),
       hasSddProject: hasSdd(['/tmp/other/codeflare']),
     })).toBeUndefined();
+  });
+
+  it('rejects an out-of-session remembered repo and still falls through to a guarded persisted repo', () => {
+    expect(activeRepoCandidateForReview({
+      rememberedActiveRepo: '/tmp/other/codeflare',
+      persistedSentinelContents: ['/home/user/workspace/codeflare\n'],
+      sessionRoots: ['/home/user/workspace'],
+      hasGitDir: hasGit(['/tmp/other/codeflare', '/home/user/workspace/codeflare']),
+      hasSddProject: hasSdd(['/tmp/other/codeflare', '/home/user/workspace/codeflare']),
+    })).toBe('/home/user/workspace/codeflare');
   });
 });
 

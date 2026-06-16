@@ -146,6 +146,8 @@ export function restoreActiveRepoFromPersistedFiles(
 }
 
 function activeRepo(ctx: ExtensionContext): string | undefined {
+  const liveRepo = updateActiveRepoFromPath(ctx.sessionManager.getCwd());
+  if (liveRepo) return liveRepo;
   const restored = restoreActiveRepoFromPersistedFiles(
     [REVIEW_ACTIVE_REPO_FILE, ACTIVE_REPO_FILE],
     (path) => readFileSync(path, "utf8"),
@@ -153,10 +155,12 @@ function activeRepo(ctx: ExtensionContext): string | undefined {
     rememberActiveRepo,
   );
   if (restored) {
+    // Display/Graphify fallback only. PR-boundary review routing revalidates this memory against the
+    // session roots and SDD marker before it can influence review reconciliation or merge gating.
     persistActiveRepo(restored);
     return restored;
   }
-  return updateActiveRepoFromPath(ctx.sessionManager.getCwd());
+  return undefined;
 }
 
 function hasGraph(repo: string): boolean {

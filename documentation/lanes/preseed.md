@@ -353,7 +353,11 @@ All preseed content is deployed via the manifest pipeline:
   `/review-run` or `/review-skip`. The offer is deduped per session
   (`Symbol.for("codeflare.reviewOfferSurfacedThisSession")`), so a relaunch on a
   still-unchosen offer re-surfaces it exactly once rather than suppressing it
-  forever. When `/review-run` cannot resolve the active repo it reports the Pi
+  forever. After reloads where Pi's cwd is the parent workspace, the active-repo
+  fallback can recover a nested SDD repo from the persisted review/graphify
+  active-repo markers; review routing revalidates both remembered and persisted
+  candidates as git repos under the session roots with an SDD marker before it
+  can query `gh pr view` or affect merge gating. When `/review-run` cannot resolve the active repo it reports the Pi
   session cwd and tells the user to run a command inside the target repo first
   (so it becomes the active repo) and retry. On the `git push` / `gh pr create`
   boundary path specifically, enforcement fails open if `gh pr view` returns an

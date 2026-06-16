@@ -283,11 +283,13 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-012: Vault button render and dashboard landing
 
+<!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 <!-- @impl: web-ui/src/components/Header.tsx::Header -->
 <!-- @impl: entrypoint.sh::start_silverbullet_supervisor -->
 <!-- @impl: preseed/silverbullet/Index.md::dashboard-readme-link -->
 <!-- @impl: preseed/silverbullet/Index.md::dashboard-notes-references -->
-<!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Vault button behavior describe → advanced-mode render gate + ready click opens → AC1/AC2) -->
+<!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating describe → default/unset/advanced session-mode gate -> AC1) -->
+<!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Vault button behavior describe → ready click opens → AC2) -->
 <!-- @test: host/__audits__/entrypoint-vault.audit.js (supervisor exports SB_INDEX_PAGE=Index → AC3) -->
 
 **Intent:** The Vault button appears only for active advanced sessions, and each click opens SilverBullet on the codeflare dashboard. The dashboard leads users toward durable notes and references before broader recent-content widgets.
@@ -296,7 +298,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. The header renders the Vault control only for active advanced-mode sessions. <!-- @impl: web-ui/src/components/Header.tsx::Header -->
+1. The app shell passes a Vault opener to the header only for active advanced-mode sessions. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 2. Clicking the Vault control opens the current session's proxied editor. <!-- @impl: web-ui/src/components/Header.tsx::Header -->
 3. The editor opens on the codeflare dashboard page. <!-- @impl: entrypoint.sh::start_silverbullet_supervisor -->
 4. The dashboard links to the README near the top. <!-- @impl: preseed/silverbullet/Index.md::dashboard-readme-link -->
@@ -310,7 +312,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
-**Verification:** [Header behavior test](../../web-ui/src/__tests__/components/Header.test.tsx)
+**Verification:** [Layout gating test](../../web-ui/src/__tests__/components/Layout.test.tsx), [Header behavior test](../../web-ui/src/__tests__/components/Header.test.tsx)
 
 **Status:** Implemented
 

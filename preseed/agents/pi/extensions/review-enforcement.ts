@@ -58,7 +58,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, prBoundaryCommandBase, prEnforcedForPush, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { actionableReviewCount, activeRepoSentinelForReview, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, mergeGateDecision, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewAnnouncement, type ReviewSeverityCounts } from "./review-job-helpers";
+import { actionableReviewCount, activeRepoCandidateForReview, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, mergeGateDecision, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewAnnouncement, type ReviewSeverityCounts } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, ensureReviewAnnouncementPending, failedDurableReviewLanes, readDurableReviewJob, readReviewAnnouncement, reapDurableReviewLanes, reviewAnnouncementKinds, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes, writeReviewAnnouncement } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -256,24 +256,21 @@ function cwdFromCommand(command: string): string | undefined {
 const REVIEW_ACTIVE_REPO_FILE = "/home/user/.cache/codeflare-hooks/review-active-cwd";
 const GRAPHIFY_ACTIVE_REPO_FILE = "/home/user/.cache/codeflare-hooks/graphify-active-cwd";
 
-function persistedActiveRepoForReview(ctx: any): string | undefined {
+function activeRepoForReviewRouting(ctx: any): string | undefined {
   const sessionCwd = ctx?.sessionManager?.getCwd?.();
   const roots = [sessionCwd, ctx?.cwd, process.cwd()];
-  for (const file of [REVIEW_ACTIVE_REPO_FILE, GRAPHIFY_ACTIVE_REPO_FILE]) {
-    let sentinelContent: string | undefined;
-    try { sentinelContent = readFileSync(file, "utf8"); } catch { continue; }
-    const repo = activeRepoSentinelForReview({
-      sentinelContent,
-      sessionRoots: roots,
-      hasGitDir: (path) => existsSync(join(path, ".git")),
-      hasSddProject: isSddProject,
-    });
-    if (repo) {
-      rememberActiveRepo(repo);
-      return repo;
-    }
-  }
-  return undefined;
+  const persistedSentinelContents = [REVIEW_ACTIVE_REPO_FILE, GRAPHIFY_ACTIVE_REPO_FILE].map((file) => {
+    try { return readFileSync(file, "utf8"); } catch { return undefined; }
+  });
+  const repo = activeRepoCandidateForReview({
+    rememberedActiveRepo: recallActiveRepo(),
+    persistedSentinelContents,
+    sessionRoots: roots,
+    hasGitDir: (path) => existsSync(join(path, ".git")),
+    hasSddProject: isSddProject,
+  });
+  if (repo) rememberActiveRepo(repo);
+  return repo;
 }
 
 // Resolve + remember the review repo for a ctx-bearing handler: an explicit command cwd (`cd`/`-C`
@@ -290,7 +287,7 @@ function reviewRepoForCtx(ctx: any, commandCwd?: string): string | undefined {
   const resolvedCommandCwd = commandCwd && !isAbsolute(commandCwd)
     ? resolve(sessionCwd || process.cwd(), commandCwd)
     : commandCwd;
-  const activeRepo = recallActiveRepo() ?? persistedActiveRepoForReview(ctx);
+  const activeRepo = activeRepoForReviewRouting(ctx);
   const repo = resolveReviewRepo(
     { commandCwd: resolvedCommandCwd, sessionCwd, sessionReviewRepo: recallReviewRepo(), activeRepo, processCwd: process.cwd() },
     findGitRoot,

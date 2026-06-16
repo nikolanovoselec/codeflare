@@ -1248,6 +1248,25 @@ export function activeRepoSentinelForReview(input: {
   return guardedActiveRepoSentinel(input);
 }
 
+export function activeRepoCandidateForReview(input: {
+  rememberedActiveRepo: string | undefined;
+  persistedSentinelContents: (string | undefined)[];
+  sessionRoots: (string | undefined)[];
+  hasGitDir: (path: string) => boolean;
+  hasSddProject: (path: string) => boolean;
+}): string | undefined {
+  for (const sentinelContent of [input.rememberedActiveRepo, ...input.persistedSentinelContents]) {
+    const repo = activeRepoSentinelForReview({
+      sentinelContent,
+      sessionRoots: input.sessionRoots,
+      hasGitDir: input.hasGitDir,
+      hasSddProject: input.hasSddProject,
+    });
+    if (repo) return repo;
+  }
+  return undefined;
+}
+
 // Npm package source strings a durable review lane should load as additionalExtensionPaths.
 // Graphify is a first-party LOCAL extension (graphify-native.ts), loaded directly by the lane
 // runner alongside codeflare-pi - it is not an npm package and never appears here.
