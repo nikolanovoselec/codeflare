@@ -1389,6 +1389,9 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::computeReviewState -->
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::computeReviewStateFrom -->
 <!-- @test: src/__tests__/lib/review-state.test.ts (computeReviewStateFrom lane-status precedence + overall aggregation + acked/breaker semantics -> AC1) -->
+<!-- @test: src/__tests__/lib/review-command.test.ts (renderReviewStatus rendering contract: PR/local/acked SHAs, per-lane status, overall verdict, summaryReady path, autofix, breaker, merge-gate -> AC1) -->
+<!-- @test: src/__tests__/lib/review-command.test.ts (renderReviewStatus read-only contract: idempotency, string return-type, no input mutation -> AC2) -->
+<!-- @test: src/__tests__/lib/review-command.test.ts (recentReviewEvents JSONL tail: last-N ordering, .git path contract, blank-line filtering, empty-file, verbatim preservation -> AC3) -->
 
 **Intent:** A Pi user needs a read-only way to see PR-boundary review enforcement state for the current repo — whether a review is running, why a merge is blocked, and what recently happened — without inspecting `.git/` by hand.
 
@@ -1408,9 +1411,9 @@ None.
 
 **Dependencies:** [REQ-AGENT-055](#req-agent-055-pi-pr-boundary-review-window-advancement)
 
-**Verification:** [Canonical review-state unit tests](../../src/__tests__/lib/review-state.test.ts); the command's rendering layer (`formatReviewStatus`) is manually verified.
+**Verification:** [Canonical review-state unit tests](../../src/__tests__/lib/review-state.test.ts) (AC1 state computation); [review-status command tests](../../src/__tests__/lib/review-command.test.ts) (AC1 rendering contract via `renderReviewStatus`, AC2 read-only/idempotency, AC3 audit-log tail via `recentReviewEvents`).
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

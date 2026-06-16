@@ -328,8 +328,8 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmBridge -->
 <!-- @impl: src/routes/vault.ts::handleVaultRequest -->
 <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Vault button behavior describe → guarded prewarm/timeout/error click feedback + ready click opens → AC1/AC3) -->
-<!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018) describe → server latch starts prewarm, timeout retries, mid-prewarm leave starts fresh on return, click-time local readiness recheck → AC1-AC4/AC7) -->
-<!-- @test: web-ui/src/__tests__/lib/vault-readiness.test.ts (startVaultReadinessProbe describe → no-give-up retry / first-success latch / SB-crash recovery / cancel / mid-probe cancel → AC2) -->
+<!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018) describe → server latch starts prewarm, timeout retries, mid-prewarm leave starts fresh on return, rechecks this browser cache before opening the Vault tab → AC1-AC4/AC7) -->
+<!-- @test: web-ui/src/__tests__/lib/vault-readiness.test.ts (startVaultReadinessProbe describe → retries forever past the 60-attempt cap / latches ready on first probe success / clears latch on steady-probe fail (SB crash recovery) / cancel() stops the chain / mid-probe cancel prevents latch → AC2) -->
 <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (vault browser prewarm protocol describe → iframe URL/session scoping, origin + prewarmId + local+content-proof validation, ready/timeout/cancel cleanup → AC3/AC5) -->
 <!-- @test: web-ui/src/__tests__/lib/vault-local-readiness.test.ts (checkVaultLocalReadiness describe → recorded sb_data/sb_files + active service worker + optional databases API proof → AC6/AC7) -->
 <!-- @test: web-ui/src/__tests__/lib/browser-storage-persistence.test.ts (requestBrowserStoragePersistence describe → already persisted / grant / denial / unsupported / estimate failure → AC3) -->

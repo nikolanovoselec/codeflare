@@ -147,24 +147,28 @@ function shortHead(head: string): string {
   return head ? head.slice(0, 12) : "—";
 }
 
-function recentReviewEvents(repo: string, count: number): string[] {
-  const raw = readTrimmed(join(repo, ".git", "codeflare-review-events.jsonl"));
+export function recentReviewEvents(repo: string, count: number, readRaw?: (path: string) => string): string[] {
+  const raw = readRaw ? readRaw(join(repo, ".git", "codeflare-review-events.jsonl")) : readTrimmed(join(repo, ".git", "codeflare-review-events.jsonl"));
   if (!raw) return [];
   return raw.split("\n").filter(Boolean).slice(-count);
 }
 
-function formatReviewStatus(repo: string): string {
-  const pr = prView(repo);
-  const local = gitHead(repo);
-  const enforced = Boolean(pr?.headRefOid && pr.state === "OPEN" && (pr.baseRefName === "main" || pr.baseRefName === "master"));
-  const head = (enforced ? local || pr?.headRefOid : local) || "";
-  const state = computeReviewState(repo, head);
-  const ackHead = readTrimmed(join(repo, ".git", "sdd-last-ack-pr-head"));
+export type ReviewStatusInput = {
+  pr: PrView | undefined;
+  localHead: string;
+  ackHead: string;
+  state: ReturnType<typeof computeReviewState>;
+  events: string[];
+  repo: string;
+};
 
+export function renderReviewStatus(input: ReviewStatusInput): string {
+  const { pr, localHead, ackHead, state, events, repo } = input;
+  const head = state.head;
   const lines: string[] = [];
   lines.push(pr?.number ? `PR:          #${pr.number} -> ${pr.baseRefName ?? "?"} (${pr.state ?? "?"})` : "PR:          none open");
   lines.push(`PR head:     ${shortHead(pr?.headRefOid ?? "")}`);
-  lines.push(`Local head:  ${shortHead(local)}`);
+  lines.push(`Local head:  ${shortHead(localHead)}`);
   lines.push(`Last acked:  ${shortHead(ackHead)}`);
   lines.push(`Review job:  ${state.overall}`);
   if (state.lanes.length > 0) {
@@ -177,12 +181,22 @@ function formatReviewStatus(repo: string): string {
   lines.push(`Autofix:     ${state.autofixRequested ? "requested" : "not requested"}`);
   lines.push(`Breaker:     ${state.breakerOpen ? "OPEN — push a new commit or use /tmp/review-bypass" : "closed"}`);
   lines.push(`Merge gate:  ${state.acked ? "OPEN (current head acked)" : "BLOCKED until current head is acked"}`);
-  const events = recentReviewEvents(repo, 5);
   if (events.length > 0) {
     lines.push("Recent events:");
     for (const event of events) lines.push(`  ${event}`);
   }
   return lines.join("\n");
+}
+
+function formatReviewStatus(repo: string): string {
+  const pr = prView(repo);
+  const local = gitHead(repo);
+  const enforced = Boolean(pr?.headRefOid && pr.state === "OPEN" && (pr.baseRefName === "main" || pr.baseRefName === "master"));
+  const head = (enforced ? local || pr?.headRefOid : local) || "";
+  const state = computeReviewState(repo, head);
+  const ackHead = readTrimmed(join(repo, ".git", "sdd-last-ack-pr-head"));
+  const events = recentReviewEvents(repo, 5);
+  return renderReviewStatus({ pr, localHead: local, ackHead, state, events, repo });
 }
 
 export default function (pi: ExtensionAPI) {

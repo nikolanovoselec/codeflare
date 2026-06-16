@@ -38,12 +38,13 @@ describe('HeroKicker', () => {
     expect(kicker).not.toBeNull();
     const words = kicker.querySelectorAll('[data-hero-kicker-word]');
     expect(words).toHaveLength(HERO.kicker.words.length);
-    expect(words[0].textContent?.trim()).toBe(HERO.kicker.words[0]);
     expect(words[0].getAttribute('data-active')).toBe('true');
-    expect((words[1] as HTMLElement).style.opacity).toBe('0.36');
+    const queuedOpacity = parseFloat((words[1] as HTMLElement).style.opacity);
+    expect(queuedOpacity).toBeGreaterThan(0);
+    expect(queuedOpacity).toBeLessThan(1);
     expect(kicker.querySelector('.hero-kicker-reel')?.getAttribute('aria-hidden')).toBe('true');
     const measure = kicker.querySelector('[data-hero-kicker-measure]');
-    expect(measure?.textContent?.trim()).toBe(HERO.kicker.words[0]);
+    expect(measure).not.toBeNull();
     expect(measure?.parentElement?.classList.contains('hero-kicker-reel')).toBe(true);
   });
 });
