@@ -27,7 +27,9 @@ const CreateSessionBody = z.object({
   // REQ-GITHUB-004: optional GitHub repo to clone at container start. The repo
   // shape is owner/name; ref is an optional branch/tag. Cloning is best-effort
   // in entrypoint.sh and uses the container's existing git credential helper.
-  clone: z.object({ repo: z.string().regex(/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/), ref: z.string().min(1).max(255).optional() }).optional(),
+  // The ref pattern mirrors the entrypoint.sh clone allowlist so an invalid
+  // branch/tag is rejected with a 400 at the boundary, not silently skipped.
+  clone: z.object({ repo: z.string().regex(/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/), ref: z.string().max(255).regex(/^[A-Za-z0-9._/][A-Za-z0-9._/-]*$/).optional() }).optional(),
 }).strict();
 
 const UpdateSessionBody = z.object({

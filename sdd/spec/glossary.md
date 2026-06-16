@@ -18,6 +18,7 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | GitHub App (user-to-server) | An internal GitHub App whose user-to-server token acts as the user, expires (~8h), and is refreshable; the EMU-reliable connect path. Distinct from installation/bot tokens, which are not used. |
 | Egress injection | Replacing a container's placeholder credential with the real secret at the outbound HTTPS boundary (a Worker interceptor), so the real token never enters the container. Used for AI keys and, in enterprise, GitHub tokens. |
 | DeployKeys | The per-user encrypted KV entry (`deploy-keys:<bucket>`) holding the user's GitHub + Cloudflare deploy tokens; `githubToken` flows to the container as `GH_TOKEN`. |
+| Browser Rendering token | A narrowly-scoped Cloudflare `Browser Rendering - Edit` API token used by the browser-run MCP servers and the Pi native browser extension. In enterprise mode it is set once admin-globally in the Setup wizard (not per-user), stored encrypted, and injected into the container env as `CLOUDFLARE_API_TOKEN`; when absent the browser-run surface is not seeded. |
 | Bisync | rclone's bidirectional sync mode - keeps container local files and R2 bucket in sync. |
 | sleepAfter | Configurable idle timeout (5m-2h) before a container is stopped. Input-based detection. |
 | PTY | Pseudo-terminal - the terminal server multiplexes up to 6 PTY sessions per container. |

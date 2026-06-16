@@ -49,7 +49,8 @@ const cloneRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 20, 
 // CreateSessionBody clone field uses, kept in sync intentionally.
 const CloneBody = z.object({
   repo: z.string().regex(/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/),
-  ref: z.string().min(1).max(255).optional(),
+  // ref pattern mirrors the entrypoint.sh clone allowlist (kept in sync with crud.ts).
+  ref: z.string().max(255).regex(/^[A-Za-z0-9._/][A-Za-z0-9._/-]*$/).optional(),
   sessionId: z.string(),
 }).strict();
 

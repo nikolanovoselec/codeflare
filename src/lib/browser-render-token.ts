@@ -43,7 +43,7 @@ export async function applyEnterpriseBrowserToken(
   const accountId = await env.KV.get(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID);
 
   return {
-    ...(deployKeys ?? {}),
+    ...deployKeys,
     cloudflareApiToken: stored?.token ?? null,
     cloudflareAccountId: accountId ?? null,
   };
