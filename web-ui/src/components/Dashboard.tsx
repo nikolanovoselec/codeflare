@@ -320,13 +320,16 @@ const Dashboard: Component<DashboardProps> = (props) => {
             </div>
             <div class="panel-flip-face panel-flip-face--storage" data-active={effectiveFace() === 'storage'}>
               <Show when={githubStore.enabled}>
-                <IconButton
-                  icon={mdiFlipVertical}
-                  label="Show GitHub"
-                  onClick={() => setPanelFace('github')}
-                  class="panel-flip-back-btn"
-                  testId="storage-flip-btn"
-                />
+                <div class="files-panel-header" data-testid="files-panel-header">
+                  <h2 class="files-panel-title" data-testid="files-panel-title">Files</h2>
+                  <IconButton
+                    icon={mdiFlipVertical}
+                    label="Show GitHub"
+                    onClick={() => setPanelFace('github')}
+                    class="panel-flip-back-btn"
+                    testId="storage-flip-btn"
+                  />
+                </div>
               </Show>
             <Show when={sessionStore.r2Ready} fallback={
               <div class="storage-skeleton" data-testid="storage-skeleton">

@@ -297,6 +297,9 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(right.getAttribute('data-face')).toBe('storage');
     // Nothing to flip to, so no "Show GitHub" back control is offered.
     expect(screen.queryByTestId('storage-flip-btn')).not.toBeInTheDocument();
+    // No GitHub panel => the storage panel carries no FILES header either
+    // (the header is the parity row that only exists in enterprise mode).
+    expect(screen.queryByTestId('files-panel-title')).not.toBeInTheDocument();
   });
 
   it('defaults to the GitHub face and offers the storage back-button when GitHub is enabled', () => {
@@ -310,6 +313,9 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(storageFace.getAttribute('data-active')).toBe('false');
     expect(right.getAttribute('data-face')).toBe('github');
     expect(screen.getByTestId('storage-flip-btn')).toBeInTheDocument();
+    // The storage panel gets a FILES header mirroring the GitHub panel header.
+    expect(screen.getByTestId('files-panel-title')).toBeInTheDocument();
+    expect(screen.getByTestId('files-panel-header')).toBeInTheDocument();
   });
 
   it('flips GitHub <-> storage when enabled and the flip controls are used', () => {
