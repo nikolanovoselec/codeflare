@@ -114,6 +114,10 @@ app.put('/', async (c) => {
     updated.githubTokenSource = 'pat';
     delete updated.githubRefreshToken;
     delete updated.githubTokenExpiresAt;
+    // Drop a prior OAuth/App login handle: a pasted PAT may be a different
+    // account, and a PAT has no login metadata, so a stale githubLogin would
+    // make /api/github/status report the wrong account.
+    delete updated.githubLogin;
   }
 
   // Cloudflare token: null = delete, undefined = no change, string = validate + set

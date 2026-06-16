@@ -130,6 +130,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 <!-- @impl: src/routes/github.ts -->
 <!-- @impl: src/routes/session/crud.ts -->
 <!-- @impl: src/container/container-env.ts::buildEnvVars -->
+<!-- @impl: web-ui/src/components/github/ClonePicker.tsx -->
 <!-- @impl: entrypoint.sh -->
 <!-- @impl: host/src/git-clone.ts -->
 <!-- @impl: host/src/server.ts -->

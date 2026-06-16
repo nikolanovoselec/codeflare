@@ -170,6 +170,17 @@ describe('REQ-GITHUB-004: entrypoint clone step (structural)', () => {
     assert.ok(/if \[ -n "\$\{GIT_CLONE_REF:-\}" \]/.test(block));
   });
 
+  it('uses a -- end-of-options separator on both clone branches (git arg-injection guard)', () => {
+    // Mirrors buildCloneArgs: the positional URL/dir can never be read as flags.
+    assert.ok(block.includes('git clone --branch "$GIT_CLONE_REF" -- "https://'));
+    assert.ok(block.includes('git clone -- "https://'));
+  });
+
+  it('re-validates the repo/ref shape before cloning (rejects an option-leading dash)', () => {
+    assert.ok(block.includes("grep -qE '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'"));
+    assert.ok(block.includes("grep -qE '^[A-Za-z0-9._/][A-Za-z0-9._/-]*$'"));
+  });
+
   it('is best-effort: a clone failure does not abort startup', () => {
     assert.ok(/git clone[\s\S]*?\|\| echo/.test(block));
   });

@@ -110,7 +110,7 @@ A configured GitHub App takes precedence. With neither configured, Connect is un
 
 **At rest:** the token is encrypted (kv-crypto) and never returned to the browser. Disconnect/offboarding revokes it ([REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation)). For the enterprise egress-injection security model and at-rest detail, see [Security](security.md) rather than duplicating it here.
 
-Connect reuses the OAuth App from [REQ-AUTH-002](authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth) (SaaS login OAuth) in SaaS mode, but is distinct from login.
+Connect reuses the OAuth App from [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth) (SaaS login OAuth) in SaaS mode, but is distinct from login.
 
 ### CF Access Flow
 

@@ -212,7 +212,7 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
 
   // REQ-GITHUB-003: the real GitHub token must never enter an enterprise container.
   // @test buildEnvVars emits a placeholder GH_TOKEN (not the real token) in enterprise mode
-  it('REQ-GITHUB-003: emits a NON-SECRET placeholder GH_TOKEN in enterprise mode (real token never enters the container)', () => {
+  it('REQ-GITHUB-003 / REQ-GITHUB-006: emits a NON-SECRET placeholder GH_TOKEN in enterprise mode (real token never enters the container)', () => {
     const state = baseState();
     (state as unknown as { _githubToken: string | null })._githubToken = 'gho_real_secret';
     const vars = buildEnvVars(state, { ENTERPRISE_MODE: 'active' } as Env);
@@ -221,7 +221,7 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
   });
 
   // @test buildEnvVars emits the real GH_TOKEN verbatim in non-enterprise mode (byte-identical to today)
-  it('REQ-GITHUB-003: emits the real GH_TOKEN unchanged in non-enterprise mode', () => {
+  it('REQ-GITHUB-003 / REQ-GITHUB-006: emits the real GH_TOKEN unchanged in non-enterprise mode', () => {
     const state = baseState();
     (state as unknown as { _githubToken: string | null })._githubToken = 'gho_real_secret';
     const vars = buildEnvVars(state, baseEnv);
