@@ -58,7 +58,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, prBoundaryCommandBase, prEnforcedForPush, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { actionableReviewCount, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, mergeGateDecision, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewAnnouncement, type ReviewSeverityCounts } from "./review-job-helpers";
+import { actionableReviewCount, activeRepoSentinelForReview, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, mergeGateDecision, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewAnnouncement, type ReviewSeverityCounts } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, ensureReviewAnnouncementPending, failedDurableReviewLanes, readDurableReviewJob, readReviewAnnouncement, reapDurableReviewLanes, reviewAnnouncementKinds, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes, writeReviewAnnouncement } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -250,15 +250,36 @@ function cwdFromCommand(command: string): string | undefined {
 // The repo THIS Pi session is reviewing is remembered in the shared review-job-helpers module
 // (rememberReviewRepo/recallReviewRepo), so BOTH the no-ctx autonomous reaper AND the
 // local-statusline footer (a separate extension sharing the same module instance) recall the SAME
-// value. Deliberately replaces the old graphify active-cwd sentinel read: that sentinel is shared
-// across agents (Claude's hook + Pi's codeflare-pi.ts both write it) and flaps to whichever agent
-// acted last, so it cannot identify the repo THIS Pi session is reviewing. See resolveReviewRepo().
+// value. Commandless reconciliation also has a guarded persisted fallback below: without it, a Pi
+// session whose cwd is the parent workspace (`/home/user/workspace`) loses the nested repo after a
+// reload/compaction/pending cleanup and never reaches the authoritative `gh pr view` truth layer.
+const REVIEW_ACTIVE_REPO_FILE = "/home/user/.cache/codeflare-hooks/review-active-cwd";
+const GRAPHIFY_ACTIVE_REPO_FILE = "/home/user/.cache/codeflare-hooks/graphify-active-cwd";
+
+function persistedActiveRepoForReview(ctx: any): string | undefined {
+  const sessionCwd = ctx?.sessionManager?.getCwd?.();
+  const roots = [sessionCwd, ctx?.cwd, process.cwd()];
+  for (const file of [REVIEW_ACTIVE_REPO_FILE, GRAPHIFY_ACTIVE_REPO_FILE]) {
+    let sentinelContent: string | undefined;
+    try { sentinelContent = readFileSync(file, "utf8"); } catch { continue; }
+    const repo = activeRepoSentinelForReview({
+      sentinelContent,
+      sessionRoots: roots,
+      hasGitDir: (path) => existsSync(join(path, ".git")),
+      hasSddProject: isSddProject,
+    });
+    if (repo) {
+      rememberActiveRepo(repo);
+      return repo;
+    }
+  }
+  return undefined;
+}
 
 // Resolve + remember the review repo for a ctx-bearing handler: an explicit command cwd (`cd`/`-C`
 // in the boundary command) first, then the Pi session's own cwd, then the repo remembered earlier
 // this session (so a NESTED review clone still resolves when the session cwd is its parent
-// workspace — the on-turn summary-emit bug), then pi's process dir as a last resort. Never the
-// graphify sentinel.
+// workspace), then a guarded persisted active-repo fallback, then pi's process dir as a last resort.
 function reviewRepoForCtx(ctx: any, commandCwd?: string): string | undefined {
   const sessionCwd = ctx?.sessionManager?.getCwd?.();
   // A boundary command's cwd (`cd <dir>` / `git -C <dir>`) can be RELATIVE. Resolve it against the
@@ -269,8 +290,9 @@ function reviewRepoForCtx(ctx: any, commandCwd?: string): string | undefined {
   const resolvedCommandCwd = commandCwd && !isAbsolute(commandCwd)
     ? resolve(sessionCwd || process.cwd(), commandCwd)
     : commandCwd;
+  const activeRepo = recallActiveRepo() ?? persistedActiveRepoForReview(ctx);
   const repo = resolveReviewRepo(
-    { commandCwd: resolvedCommandCwd, sessionCwd, sessionReviewRepo: recallReviewRepo(), activeRepo: recallActiveRepo(), processCwd: process.cwd() },
+    { commandCwd: resolvedCommandCwd, sessionCwd, sessionReviewRepo: recallReviewRepo(), activeRepo, processCwd: process.cwd() },
     findGitRoot,
   );
   // Only PIN this repo as "the repo under review" when it actually has an active review window.

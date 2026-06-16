@@ -8,7 +8,7 @@ import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, 
 import { LOCAL_BUILD_BYPASS, attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { reviewLaneBlockReason, reviewScopeBlockReason } from '../../../preseed/agents/pi/extensions/review-lane-guards';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
-import { shouldHandleClonePrompt } from '../../../preseed/agents/pi/extensions/codeflare-pi';
+import { restoreActiveRepoFromPersistedFiles, shouldHandleClonePrompt } from '../../../preseed/agents/pi/extensions/codeflare-pi';
 import localStatuslineExtension from '../../../preseed/agents/pi/extensions/local-statusline';
 
 /**
@@ -470,6 +470,18 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(shouldHandleClonePrompt('gh repo clone foo/bar /tmp/bar', false, 2)).toBe(false);
     expect(shouldHandleClonePrompt('git clone https://github.com/foo/bar /tmp/bar', true, 0)).toBe(false);
     expect(shouldHandleClonePrompt('git clone https://github.com/foo/bar /tmp/bar', false, 0)).toBe(true);
+
+    let remembered = '';
+    expect(restoreActiveRepoFromPersistedFiles(
+      ['/missing-review-active', '/graphify-active'],
+      (path) => {
+        if (path === '/missing-review-active') throw new Error('missing');
+        return '/home/user/workspace/codeflare\n';
+      },
+      (path) => path === '/home/user/workspace/codeflare',
+      (repo) => { remembered = repo; },
+    )).toBe('/home/user/workspace/codeflare');
+    expect(remembered).toBe('/home/user/workspace/codeflare');
 
     const decision = graphifyClonePromptDecision({
       command: 'git clone https://github.com/o/r.git',

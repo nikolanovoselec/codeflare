@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, reviewInSessionContinuation, mergeGateDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput, type MergeGateInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, reviewInSessionContinuation, mergeGateDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, activeRepoSentinelForReview, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput, type MergeGateInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 
 /**
  * computeReviewStateFrom is the canonical review-state definition (review.md §17.2).
@@ -458,6 +458,41 @@ describe('activeRepoSentinelForDisplay (guarded on-disk sentinel fallback)', () 
   it('returns undefined for missing or empty sentinel content', () => {
     expect(activeRepoSentinelForDisplay({ sentinelContent: undefined, sessionRoots: ['/r'], hasGitDir: hasGit([]) })).toBeUndefined();
     expect(activeRepoSentinelForDisplay({ sentinelContent: '  \n', sessionRoots: ['/r'], hasGitDir: hasGit([]) })).toBeUndefined();
+  });
+});
+
+describe('activeRepoSentinelForReview (guarded persisted repo fallback for gh-pr-view reconciliation)', () => {
+  const hasGit = (real: string[]) => (path: string) => real.includes(path);
+  const hasSdd = (real: string[]) => (path: string) => real.includes(path);
+
+  it('accepts a nested SDD repo under the session workspace so commandless reconciliation can query gh pr view', () => {
+    expect(activeRepoSentinelForReview({
+      sentinelContent: '/home/user/workspace/codeflare\n',
+      sessionRoots: ['/home/user/workspace'],
+      hasGitDir: hasGit(['/home/user/workspace/codeflare']),
+      hasSddProject: hasSdd(['/home/user/workspace/codeflare']),
+    })).toBe('/home/user/workspace/codeflare');
+  });
+
+  it('rejects non-SDD repos, stale paths, and repos outside this session root', () => {
+    expect(activeRepoSentinelForReview({
+      sentinelContent: '/home/user/workspace/plain-repo\n',
+      sessionRoots: ['/home/user/workspace'],
+      hasGitDir: hasGit(['/home/user/workspace/plain-repo']),
+      hasSddProject: hasSdd([]),
+    })).toBeUndefined();
+    expect(activeRepoSentinelForReview({
+      sentinelContent: '/home/user/workspace/deleted\n',
+      sessionRoots: ['/home/user/workspace'],
+      hasGitDir: hasGit([]),
+      hasSddProject: hasSdd(['/home/user/workspace/deleted']),
+    })).toBeUndefined();
+    expect(activeRepoSentinelForReview({
+      sentinelContent: '/tmp/other/codeflare\n',
+      sessionRoots: ['/home/user/workspace'],
+      hasGitDir: hasGit(['/tmp/other/codeflare']),
+      hasSddProject: hasSdd(['/tmp/other/codeflare']),
+    })).toBeUndefined();
   });
 });
 

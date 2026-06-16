@@ -1211,18 +1211,41 @@ export function recallActiveRepo(): string | undefined {
 // of this session's roots (session cwd / ctx cwd), so an unrelated repo touched
 // by another agent elsewhere can never hijack this session's footer. Pure so the
 // guards are unit-testable; the caller injects file content and the .git check.
-export function activeRepoSentinelForDisplay(input: {
+function guardedActiveRepoSentinel(input: {
   sentinelContent: string | undefined;
   sessionRoots: (string | undefined)[];
   hasGitDir: (path: string) => boolean;
+  hasSddProject?: (path: string) => boolean;
 }): string | undefined {
   const value = input.sentinelContent?.trim();
   if (!value || !input.hasGitDir(value)) return undefined;
+  if (input.hasSddProject && !input.hasSddProject(value)) return undefined;
   const inside = input.sessionRoots.some((root) => {
     if (!root) return false;
     return value === root || value.startsWith(root.endsWith("/") ? root : `${root}/`);
   });
   return inside ? value : undefined;
+}
+
+export function activeRepoSentinelForDisplay(input: {
+  sentinelContent: string | undefined;
+  sessionRoots: (string | undefined)[];
+  hasGitDir: (path: string) => boolean;
+}): string | undefined {
+  return guardedActiveRepoSentinel(input);
+}
+
+// Guarded persisted active-repo fallback for PR-boundary REVIEW ROUTING. This is stricter than the
+// display fallback above: the path must be a git repo, live under this session's roots, and be an SDD
+// project. It lets commandless reconciliation reach `gh pr view` for nested repos after a reload while
+// still preventing another agent's flapping sentinel from hijacking review enforcement.
+export function activeRepoSentinelForReview(input: {
+  sentinelContent: string | undefined;
+  sessionRoots: (string | undefined)[];
+  hasGitDir: (path: string) => boolean;
+  hasSddProject: (path: string) => boolean;
+}): string | undefined {
+  return guardedActiveRepoSentinel(input);
 }
 
 // Npm package source strings a durable review lane should load as additionalExtensionPaths.
