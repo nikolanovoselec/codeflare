@@ -606,6 +606,8 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
 
   it('REQ-AGENT-036: Pi PR-boundary command detection covers head-moving surfaces and ignores metadata-only PR commands', () => {
     expect(isPrBoundaryCommand('git push origin develop')).toBe(true);
+    expect(isPrBoundaryCommand('env GH_TOKEN=x git push origin develop')).toBe(true);
+    expect(isPrBoundaryCommand('timeout 60 gh pr merge 501 --squash')).toBe(true);
     expect(isPrBoundaryCommand('git -C /repo/codeflare push origin develop')).toBe(true);
     expect(isPrBoundaryCommand('gh repo sync owner/repo')).toBe(true);
     expect(isPrBoundaryCommand('gh pr create --base main')).toBe(true);
@@ -619,6 +621,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(cwdFromBoundaryCommand('cd /repo/codeflare && gh pr edit 12 --base main')).toBe('/repo/codeflare');
     expect(cwdFromBoundaryCommand('cd "/repo/with space" && gh pr create --base main')).toBe('/repo/with space');
     expect(cwdFromBoundaryCommand('git -C /repo/codeflare push origin develop')).toBe('/repo/codeflare');
+    expect(cwdFromBoundaryCommand('env GH_TOKEN=x git -C /repo/codeflare push origin develop')).toBe('/repo/codeflare');
     const batchedDependabotCommand = 'cd /home/user/workspace/codeflare\nset -euo pipefail\ngit status --short --branch\ngit add package.json package-lock.json\ngit commit -m "chore: merge dependabot dependency bumps"\ngit push origin develop\nfor pr in 487 489 490 491; do\n  gh pr close "$pr" --delete-branch --comment "Merged into develop via batched dependency update commit to resolve overlapping package-lock conflicts." || true\ndone';
     expect(isPrBoundaryCommand(batchedDependabotCommand)).toBe(true);
     expect(cwdFromBoundaryCommand(batchedDependabotCommand)).toBe('/home/user/workspace/codeflare');
@@ -646,6 +649,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(postCommandReconcileDecision('gh pr view --json number')).toEqual({ reconcile: true, freshPrState: true });
     expect(postCommandReconcileDecision('env GH_TOKEN=x git status --short')).toEqual({ reconcile: true, freshPrState: true });
     expect(postCommandReconcileDecision('env -u GH_TOKEN GH_TOKEN=x gh pr view --json number')).toEqual({ reconcile: true, freshPrState: true });
+    expect(postCommandReconcileDecision('timeout 60 env GH_TOKEN=x gh pr view --json number')).toEqual({ reconcile: true, freshPrState: true });
     expect(postCommandReconcileDecision("printf '%s' 'git push origin develop'")).toEqual({ reconcile: false, freshPrState: false });
   });
 

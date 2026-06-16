@@ -1391,8 +1391,8 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::activeRepoSentinelForReview -->
 <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::restoreActiveRepoFromPersistedFiles -->
 <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::appendReviewEvent -->
-<!-- @test: src/__tests__/lib/review-state.test.ts (shouldReconcileOpenPr decision gating -> AC1/AC6; reconcileBoundaryAction action gate: autostarts in-session continuation, offers a fresh clone once, no-ops on re-offer of a clone head and on a non-reconcilable head -> AC1; every suppressed gate names a distinct non-empty reason -> AC4) -->
-<!-- @test: src/__tests__/lib/review-trigger.test.ts (enforcedHeadDecision pushed-vs-unpushed table -> AC3; prUrlFromText PR-URL boundary detection -> AC5) -->
+<!-- @test: src/__tests__/lib/review-state.test.ts (shouldReconcileOpenPr decision gating -> AC1/AC6; reconcileBoundaryAction action gate: autostarts in-session continuation, offers a fresh clone once, no-ops on re-offer of a clone head and on a non-reconcilable head -> AC1; every suppressed gate names a distinct non-empty reason -> AC6) -->
+<!-- @test: src/__tests__/lib/review-trigger.test.ts (enforcedHeadDecision pushed-vs-unpushed table -> AC5; prUrlFromText PR-URL boundary detection -> AC6) -->
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (postCommandReconcileDecision fresh PR-state decision -> AC1; seeded review-enforcement wires reconcileOpenPrReview + shouldReconcileOpenPr -> AC1/AC4) -->
 
 **Intent:** Review initiation must not depend solely on capturing a transient tool event. A missed or mis-parsed boundary command must not silently skip review: an open enforced PR whose head was never reviewed is recoverable on a later turn, the start path is shared with the boundary path so the two cannot drift, and every near-miss leaves a durable diagnostic so a skipped review is detectable instead of silent.

@@ -73,7 +73,7 @@ describe('isPrBoundaryTrigger', () => {
 
 /**
  * The merge gate (isGhPrMerge) and head-resolution (isLocalGitPush)
- * predicates must use the SAME env-prefix-tolerant anchored regexes as detection. The old weak
+ * predicates must use the SAME wrapper-tolerant command parsing as detection. The old weak
  * inline patterns (`gh\s+pr\s+merge`, `git(?:\s+-C\s+\S+)?\s+push`) let an env-prefixed command be
  * DETECTED as a boundary yet SKIP the gate (unreviewed merge) or take the wrong head branch.
  */
@@ -93,6 +93,7 @@ describe('isGhPrMergeCommand / isGitPushOnlyCommand are env-prefix tolerant', ()
     expect(isGhPrMergeCommand('timeout 60 gh pr merge 501 --squash')).toBe(true);
     expect(isGhPrMergeCommand('timeout --signal=KILL 60 gh pr merge')).toBe(true);
     expect(isGhPrMergeCommand('env gh pr merge --admin')).toBe(true);
+    expect(isGhPrMergeCommand('env -u GH_TOKEN GH_TOKEN=x gh pr merge --admin')).toBe(true);
     expect(isGhPrMergeCommand('command gh pr merge')).toBe(true);
     expect(isGhPrMergeCommand('nice -n 10 gh pr merge')).toBe(true);
     expect(isGhPrMergeCommand('GH_TOKEN=x timeout 30 gh pr merge 7')).toBe(true);
@@ -101,6 +102,7 @@ describe('isGhPrMergeCommand / isGitPushOnlyCommand are env-prefix tolerant', ()
     expect(isGitPushOnlyCommand('git push origin develop')).toBe(true);
     expect(isGitPushOnlyCommand("GIT_SSH_COMMAND='ssh -i k' git push")).toBe(true);
     expect(isGitPushOnlyCommand('git -C /repo push')).toBe(true);
+    expect(isGitPushOnlyCommand('git -c core.sshCommand=ssh push')).toBe(true);
   });
   it('does not match gh repo sync or non-push git', () => {
     expect(isGitPushOnlyCommand('gh repo sync')).toBe(false);
@@ -152,6 +154,7 @@ describe('mergeCommandTarget (which PR a gh-pr-merge command targets — P1/P3)'
   });
   it('reads the target through a command wrapper', () => {
     expect(mergeCommandTarget('timeout 60 gh pr merge 88 --merge')).toEqual({ prNumber: 88, auto: false });
+    expect(mergeCommandTarget('env -u GH_TOKEN GH_TOKEN=x gh pr merge 89 --merge')).toEqual({ prNumber: 89, auto: false });
   });
 });
 
