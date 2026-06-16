@@ -28,6 +28,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 ---
 
 <!-- @impl: landing/src/pages/index.astro -->
+<!-- @impl: src/lib/seo.ts -->
 <!-- @impl: landing/src/components/Hero.astro -->
 <!-- @impl: landing/src/components/HeroHeadline.astro -->
 <!-- @impl: landing/src/components/FeatureTerminals.astro -->
