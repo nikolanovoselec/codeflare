@@ -169,18 +169,27 @@ svg {
 .hero-kicker-reel {
   position: relative;
   display: inline-block;
-  width: var(--hero-kicker-width, 6ch);
-  height: 1em;
+  vertical-align: baseline;
+  width: var(--hero-kicker-width, auto);
   color: var(--text-primary);
-  letter-spacing: 0.12em;
+  letter-spacing: inherit;
+  line-height: inherit;
   transition: width 520ms var(--ease-out);
+}
+
+.hero-kicker-measure {
+  display: inline-block;
+  visibility: hidden;
+  white-space: nowrap;
 }
 
 .hero-kicker-word {
   position: absolute;
   left: 0;
-  bottom: 0;
+  top: 0;
   white-space: nowrap;
+  letter-spacing: inherit;
+  line-height: inherit;
   transform: translate3d(0, calc(var(--ticker-offset, 0) * -1.18em), 0);
   transition:
     transform 620ms var(--ease-out),

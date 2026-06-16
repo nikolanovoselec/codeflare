@@ -9,12 +9,12 @@ import { buildHeroKickerLabel, getHeroKickerOpacity } from '../lib/hero-kicker';
 
 const { prefix, words, suffix } = HERO.kicker;
 const label = buildHeroKickerLabel(prefix, words, suffix);
-const initialWidth = `${words[0]?.length ?? 0}ch`;
 ---
 
 <p class="hero-kicker" data-hero-kicker aria-label={label}>
   <span class="hero-kicker-static">{prefix}</span>
-  <span class="hero-kicker-reel" aria-hidden="true" style={`--hero-kicker-width: ${initialWidth};`}>
+  <span class="hero-kicker-reel" aria-hidden="true">
+    <span class="hero-kicker-measure" data-hero-kicker-measure>{words[0]}</span>
     {words.map((word, index) => (
       <span
         class="hero-kicker-word"

@@ -41,6 +41,7 @@ function activateHeroKicker(root: HTMLElement): void {
   };
 
   render();
+  document.fonts?.ready.then(measureActiveWord).catch(() => {});
   window.addEventListener('resize', measureActiveWord, { passive: true });
 
   if (reduceMotion || words.length < 2) return;

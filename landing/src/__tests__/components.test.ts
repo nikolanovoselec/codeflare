@@ -42,6 +42,9 @@ describe('HeroKicker', () => {
     expect(words[0].getAttribute('data-active')).toBe('true');
     expect((words[1] as HTMLElement).style.opacity).toBe('0.36');
     expect(kicker.querySelector('.hero-kicker-reel')?.getAttribute('aria-hidden')).toBe('true');
+    const measure = kicker.querySelector('[data-hero-kicker-measure]');
+    expect(measure?.textContent?.trim()).toBe(HERO.kicker.words[0]);
+    expect(measure?.parentElement?.classList.contains('hero-kicker-reel')).toBe(true);
   });
 });
 
