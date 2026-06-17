@@ -40,14 +40,14 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 1. "Connect GitHub" starts the selected provider's authorize web flow (link mode) and, on callback, exchanges the code for a token persisted to the **existing** deploy-keys entry (`DeployKeys.githubToken`) with a `githubTokenSource` marker; no new KV key is introduced. <!-- @impl: src/lib/github-token.ts::connectGithub -->
 2. The token is encrypted at rest with the existing KV crypto (AES-256-GCM, AAD bound to the KV key) and is never returned to the browser. <!-- @impl: src/lib/github-token.ts::storeGithubConnection -->
 3. GitHub App tokens carry an expiry and refresh token; resolving a token returns a currently-valid one, refreshing within the skew window and **failing closed** (returning none) when an expired App token cannot be refreshed — never a stale token. <!-- @impl: src/lib/github-token.ts::getValidGithubToken -->
-4. The provider is resolved by `getGithubProvider` (async): in enterprise mode it reads the admin's Setup→KV config (provider type + client id + decrypted client secret) first, then falls back to deploy-config env vars; in non-enterprise modes it uses the env vars only. A configured GitHub App takes precedence over the OAuth App; with neither configured the integration is unavailable, and a client secret that cannot be decrypted (no `ENCRYPTION_KEY`) is treated as unconfigured (fails closed). See [REQ-GITHUB-008](#req-github-008-enterprise-github-provider-configuration-via-setup). <!-- @impl: src/lib/github-token.ts::getGithubProvider -->
+4. The provider is resolved by `getGithubProvider` (async) in **every** mode: it reads the admin's Setup→KV config (provider type + client id + decrypted client secret) first via `getProviderFromKv`, then falls back to deploy-config env vars. A configured GitHub App takes precedence over the OAuth App; with neither configured the integration is unavailable, and a client secret that cannot be decrypted (no `ENCRYPTION_KEY`) is treated as unconfigured (fails closed). See [REQ-GITHUB-008](#req-github-008-enterprise-github-provider-configuration-via-setup). <!-- @impl: src/lib/github-token.ts::getGithubProvider --> <!-- @impl: src/lib/github-token.ts::getProviderFromKv -->
 5. A manually-pasted fine-grained PAT (existing deploy-keys flow) coexists, marked source `'pat'`, and is never sent to the App/OAuth refresh or revoke endpoints. <!-- @impl: src/routes/deploy-keys.ts -->
 
 **Constraints:**
 
-- Scopes: the OAuth App requests `repo read:org workflow`; the GitHub App's equivalent permissions (Contents R/W, Pull requests R/W, Workflows W, Metadata R) are set at registration.
+- Scopes: the OAuth App's `scope` is derived per connect from the requested tier (default `repo read:org workflow`; see [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise) AC6); the GitHub App's equivalent permissions (Contents R/W, Pull requests R/W, Workflows W, Metadata R) are fixed at registration and ignore the tier.
 - Enterprise GitHub Apps must be **internal** to the customer's enterprise — EMU managed users cannot authorize third-party apps.
-- In enterprise mode the per-user "Push & Deploy" settings accordion (the manual PAT entry) is hidden — GitHub is connected via the panel and Cloudflare via the admin-global Setup token ([REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)). The PAT backend path (source `'pat'`) itself is unchanged.
+- Per-user connect is **OAuth-only** on every surface (dashboard panel, Guided Setup, Settings "Push & Deploy" accordion) — no manual token paste ([REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)). In enterprise the per-user accordion stays hidden (GitHub via the panel, Cloudflare via the admin-global Setup token, [REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)). The deploy-keys PAT backend path (source `'pat'`) itself is unchanged.
 
 **Priority:** P1
 
@@ -80,17 +80,17 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 1. `GET /api/github/status` reports connection state (connected, login, source) without exposing the token. <!-- @impl: src/routes/github.ts -->
 2. `GET /api/github/repos` returns the repos the user can access (personal + org via `read:org`), searchable and paginated, fetched server-side with the stored token; the token never reaches the browser. <!-- @impl: src/routes/github.ts -->
-3. The panel renders beside the storage panel and is gated to enterprise mode (`githubFeatureEnabled`). <!-- @impl: src/routes/github.ts::githubFeatureEnabled --> <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx -->
+3. The panel renders beside the storage panel; its backend feature flag (`githubFeatureEnabled`) is on in every mode, and the advanced-session entitlement is applied in the dashboard ([REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)). <!-- @impl: src/routes/github.ts::githubFeatureEnabled --> <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx --> <!-- @impl: web-ui/src/components/Dashboard.tsx::githubPanelAvailable -->
 4. Not-connected shows a "Connect GitHub" action that starts the authorize flow; connected shows the account, a refresh control (reloads the repo list, the same `mdiSync` icon as the storage panel) and an icon-only Disconnect control (`mdiConnection`), and the searchable repo list. The refresh and disconnect controls reuse one tested `IconButton` primitive. <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx --> <!-- @impl: web-ui/src/components/ui/IconButton.tsx -->
 5. The panel is mobile-first / responsive — it stacks with the storage panel at the existing narrow breakpoint.
 6. The repo list is a scroll container, not a truncating list: every fetched repo is rendered, but the viewport caps the visible rows by breakpoint — 7 rows on desktop (`>=1024px`, `--repo-row-h` × 7, hidden scrollbar), 5 rows on tablet (`600-1023px`, `--repo-row-h` × 5) — and on mobile (`<=599px`) grows to fill the available vertical space while never showing fewer than 3 rows. <!-- @impl: web-ui/src/styles/github-panel.css --> <!-- @impl: web-ui/src/components/github/RepoList.tsx -->
 7. The owner/login label and each repo name are external links to GitHub (`https://github.com/<login>` and `https://github.com/<full_name>`), opening in a new tab (`target="_blank" rel="noopener noreferrer"`); a repo-name click does not trigger the row/clone action. <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx --> <!-- @impl: web-ui/src/components/github/RepoRow.tsx -->
-8. On mobile a flip control (`mdiFlipVertical`) at the right of the panel header swaps the GitHub panel with the R2 storage panel in place; on desktop both panels stack as before and the flip control is hidden. The flip applies only when the GitHub panel is enabled; when GitHub is disabled (non-enterprise / onboarding) the R2 storage panel is the sole mobile right-column face and no flip control is shown, so the empty GitHub panel can never become the active face and cover the file browser. When the GitHub panel is enabled the storage face carries a matching "STORAGE BROWSER" panel header — an uppercase label with a gray bottom border mirroring the GitHub panel header ("GITHUB BROWSER") — and the flip-back control lives in that header; when GitHub is disabled the storage panel has no such header (it is the lone panel, so there is no GitHub header to mirror). <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @impl: web-ui/src/styles/dashboard.css -->
+8. On mobile a flip control (`mdiFlipVertical`) at the right of the panel header swaps the GitHub panel with the R2 storage panel in place; on desktop both panels stack as before and the flip control is hidden. The flip applies only when the GitHub panel is available; when it is not (a non-advanced, non-enterprise session) the R2 storage panel is the sole mobile right-column face and no flip control is shown, so the empty GitHub panel can never become the active face and cover the file browser. When the GitHub panel is enabled the storage face carries a matching "STORAGE BROWSER" panel header — an uppercase label with a gray bottom border mirroring the GitHub panel header ("GITHUB BROWSER") — and the flip-back control lives in that header; when GitHub is disabled the storage panel has no such header (it is the lone panel, so there is no GitHub header to mirror). <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @impl: web-ui/src/styles/dashboard.css -->
 
 **Constraints:**
 
 - `/repos` and `/connect` are rate-limited; repo responses never include the token.
-- The panel gate is currently enterprise-only; broadening to the SaaS `advanced` tier and a per-user toggle (default off) is tracked as [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise).
+- The panel is available in every mode; outside enterprise it is gated to the `advanced` session (matching the Vault), enforced in the dashboard. See [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise).
 - The per-breakpoint row caps (7 desktop / 5 tablet) are CSS viewports (max-height), not data limits — all fetched repos remain in the scroll container and searchable; the px caps are not unit-asserted in jsdom.
 - The mobile flip transition is animated; the stylesheet honours `prefers-reduced-motion: reduce` with an instant swap. This is CSS-only (`web-ui/src/styles/dashboard.css`) and, like the row cap, is not unit-asserted in jsdom.
 
@@ -245,58 +245,73 @@ None.
 
 ### REQ-GITHUB-007: Broaden the panel gate beyond enterprise
 
-**Intent:** Make the GitHub panel available outside enterprise mode — to SaaS at the `advanced` tier and, in other modes, behind a per-user toggle (default off) — so non-enterprise users can connect GitHub through the panel rather than only via a manually-pasted PAT.
+<!-- @impl: src/routes/github.ts::githubFeatureEnabled -->
+<!-- @impl: web-ui/src/components/Dashboard.tsx::githubPanelAvailable -->
+<!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx -->
+<!-- @impl: src/lib/oauth-scopes.ts::githubScopeForTier -->
+<!-- @test: src/__tests__/routes/github.test.ts (status enabled in non-enterprise; connect/repos/clone reachable in non-enterprise; tier->scope -> AC1,AC3,AC6) -->
+<!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (advanced gate shows/hides the GitHub face -> AC1,AC2) -->
+<!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (shared card state matrix + connectUrl/tier/disconnect contracts -> AC4) -->
+<!-- @test: src/__tests__/lib/oauth-scopes.test.ts (tier->scope monotonicity -> AC6) -->
+**Intent:** Make the GitHub repository panel + Storage browser available in every non-enterprise mode (onboarding, default, SaaS), gated to the `advanced` session like the Vault, while **decoupling the OAuth connect/disconnect capability from that panel gate** so a user can connect GitHub from Guided Setup and the Settings accordion even when the panel itself is hidden. Connect stays the additive OAuth flow ([REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)) — never a login-scope escalation, never a manually-pasted PAT. Enterprise is unchanged.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. `githubFeatureEnabled` returns true in SaaS mode when the subscribed tier is `advanced`, in addition to enterprise mode.
-2. In other (non-enterprise, non-advanced-SaaS) modes the panel is available only when a per-user toggle is enabled; the toggle defaults to off and is persisted per user.
-3. When the panel is available in a non-enterprise session, a connected token reaches the container via the existing deploy-keys→`GH_TOKEN` path ([REQ-GITHUB-006](#req-github-006-other-mode-container-transport)); enterprise continues to use egress injection ([REQ-GITHUB-003](#req-github-003-enterprise-egress-injected-github-credentials)).
+1. The panel backend (`GET /api/github/status.enabled`, `/repos`, `/clone`) is available in every mode (`githubFeatureEnabled` returns true); the **advanced-session entitlement** is enforced in the frontend dashboard, which makes the GitHub panel face available only for an `advanced` session or enterprise — matching the Vault gate (`sessionMode === 'advanced'`). <!-- @impl: src/routes/github.ts::githubFeatureEnabled --> <!-- @impl: web-ui/src/components/Dashboard.tsx::githubPanelAvailable -->
+2. The GitHub panel and the Storage browser render in onboarding, default, and SaaS-advanced dashboards with the same labels and flip behavior as enterprise ([REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing)); a non-advanced, non-enterprise session shows the Storage face only. <!-- @impl: web-ui/src/components/Dashboard.tsx::githubPanelAvailable -->
+3. `GET /api/github/connect`, its callback, and `POST /api/github/disconnect` are gated by authentication only (any authenticated user, any non-enterprise mode/tier) — **not** by the panel gate — so connect works from Guided Setup ([REQ-AUTH-015](authentication.md#req-auth-015-guided-onboarding-flow)) and the Settings accordion ([REQ-AGENT-018](agents.md#req-agent-018-push--deploy-credential-management-ui)) when the panel is hidden. Only `status`/`repos`/`clone` follow panel availability. <!-- @impl: src/routes/github.ts -->
+4. Connect/disconnect is one shared, composable component reused across the three surfaces — the dashboard panel, the Guided Setup onboarding flow ([REQ-AUTH-015](authentication.md#req-auth-015-guided-onboarding-flow)), and the Settings "Push & Deploy" accordion ([REQ-AGENT-018](agents.md#req-agent-018-push--deploy-credential-management-ui)) — so connect behavior is defined once. <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx -->
+5. GitHub is connected via the additive OAuth flow ([REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)), never by escalating the login scopes; the per-user token reaches the container via the existing deploy-keys→`GH_TOKEN` path ([REQ-GITHUB-006](#req-github-006-other-mode-container-transport)). Enterprise continues to use egress injection ([REQ-GITHUB-003](#req-github-003-enterprise-egress-injected-github-credentials)), byte-identical — no Cloudflare OAuth, no new gates.
+6. The connect URL carries a scope `tier` (minimal/recommended/advanced); the server maps the tier to the OAuth-App `scope` parameter from a backend scope catalog (the GitHub App path's fixed permissions ignore it). <!-- @impl: src/lib/oauth-scopes.ts::githubScopeForTier --> <!-- @impl: src/routes/github.ts -->
 
 **Constraints:**
 
-- Non-enterprise modes carry the real token in the container env (leakage-hygiene only, not agent-containment); the toggle copy must make that boundary explicit before a user opts in.
+- Non-enterprise modes carry the real token in the container env (leakage-hygiene only, not agent-containment), unchanged from [REQ-GITHUB-006](#req-github-006-other-mode-container-transport).
+- The scope catalog lives server-side; the client sends only the tier name (untrusted, normalized to a known tier, default `recommended`).
 
-**Priority:** P2
+**Priority:** P1
 
-**Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-006](#req-github-006-other-mode-container-transport)
+**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-006](#req-github-006-other-mode-container-transport), [REQ-AUTH-015](authentication.md#req-auth-015-guided-onboarding-flow), [REQ-AGENT-018](agents.md#req-agent-018-push--deploy-credential-management-ui)
 
-**Verification:** None
+**Verification:** [Route test](../../src/__tests__/routes/github.test.ts) + [Dashboard test](../../web-ui/src/__tests__/components/Dashboard.test.tsx) + [Connect card test](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx) + [Scope test](../../src/__tests__/lib/oauth-scopes.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
 ### REQ-GITHUB-008: Enterprise GitHub provider configuration via Setup
 
+<!-- Title retains "Enterprise" for anchor stability; provider config is now admin-gated
+     in every mode (see AC5). Originally enterprise-only, broadened with REQ-GITHUB-007. -->
 <!-- @impl: src/routes/setup/index.ts -->
 <!-- @impl: src/routes/setup/handlers.ts -->
-<!-- @impl: src/lib/github-token.ts::getEnterpriseProviderFromKv -->
+<!-- @impl: src/lib/github-token.ts::getProviderFromKv -->
 <!-- @impl: src/lib/github-token.ts::getGithubProvider -->
 <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS -->
 <!-- @impl: web-ui/src/components/setup/GitHubProviderChooser.tsx -->
+<!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx -->
 <!-- @test: src/__tests__/routes/setup.test.ts (github provider config persist, no-clobber, fail-closed -> AC1..AC3) -->
-<!-- @test: src/__tests__/routes/setup/handlers.test.ts (github prefill echo + non-enterprise guard -> AC4,AC5) -->
-<!-- @test: src/__tests__/lib/github-token.test.ts (enterprise KV provider resolution + fail-closed -> AC2,AC3) -->
+<!-- @test: src/__tests__/routes/setup/handlers.test.ts (github prefill echo in non-enterprise -> AC4,AC5) -->
+<!-- @test: src/__tests__/lib/github-token.test.ts (KV provider resolution in any mode + fail-closed -> AC2,AC3) -->
 <!-- @test: web-ui/src/__tests__/components/GitHubProviderChooser.test.tsx (provider switch reveals the right pair -> AC1) -->
-**Intent:** Enterprise admins configure the GitHub provider (GitHub App or OAuth App) and its credentials in the Setup wizard — persisted to KV — so GitHub integration works without GitHub-Actions or Cloudflare-secret access, mirroring the admin-global Browser Rendering token ([REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
+**Intent:** Admins (in any deployment mode) configure the GitHub provider (GitHub App or OAuth App) and its credentials in the Setup wizard — persisted to KV — so GitHub integration works without GitHub-Actions or Cloudflare-secret access, mirroring the admin-global Browser Rendering token ([REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
 1. The Setup wizard offers a provider chooser (GitHub App vs OAuth App); selecting one reveals that provider's Client ID + Client Secret inputs. Each provider's credentials are stored under their own KV keys so switching providers preserves the other's. <!-- @impl: web-ui/src/components/setup/GitHubProviderChooser.tsx -->
-2. On save (enterprise mode only) the provider type + client ids are stored plain and each client secret is encrypted at rest (AES-256-GCM via the existing KV crypto); `getGithubProvider` resolves the active provider from these KV values, decrypting the secret, before any env-var fallback. <!-- @impl: src/routes/setup/index.ts --> <!-- @impl: src/lib/github-token.ts::getEnterpriseProviderFromKv -->
+2. On save (admin, any mode) the provider type + client ids are stored plain and each client secret is encrypted at rest (AES-256-GCM via the existing KV crypto); `getGithubProvider` resolves the active provider from these KV values, decrypting the secret, before any env-var fallback. <!-- @impl: src/routes/setup/index.ts --> <!-- @impl: src/lib/github-token.ts::getProviderFromKv -->
 3. A blank secret on save keeps the stored secret (no clobber); a secret submitted while no `ENCRYPTION_KEY` is configured is rejected with a validation error rather than written in plaintext, and a stored secret that cannot be decrypted is treated as unconfigured (fails closed). <!-- @impl: src/routes/setup/index.ts -->
 4. `GET /api/setup/prefill` echoes the provider type, both client ids, and a `…ClientSecretSet` boolean per provider, but never returns a client secret. <!-- @impl: src/routes/setup/handlers.ts -->
-5. All reads/writes are inside the existing `isEnterpriseMode` gate; in non-enterprise modes the Setup request/response shape and `getGithubProvider`'s env-var path are byte-identical to before. <!-- @impl: src/routes/setup/handlers.ts -->
+5. Provider config is **admin-gated in every mode** (the existing Setup admin gate), no longer behind `isEnterpriseMode`; `getGithubProvider` resolves from KV first in every mode ([REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage) AC4), and the prefill echoes the provider type + client ids + `…ClientSecretSet` in non-enterprise too. <!-- @impl: src/routes/setup/handlers.ts -->
 
 **Constraints:**
 
 - Removing a stored secret from the UI is not a v1 affordance (mirrors the browser-rendering token); re-registering with a new secret replaces it.
-- SaaS OAuth-app-with-extra-scopes is out of scope.
+- The OAuth-App `scope` is tier-derived per connect ([REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise) AC6); this REQ covers only the provider client credentials, not the per-connect scope.
 
 **Priority:** P1
 
