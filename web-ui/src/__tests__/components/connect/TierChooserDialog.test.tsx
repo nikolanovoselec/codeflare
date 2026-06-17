@@ -55,6 +55,14 @@ describe('TierChooserDialog', () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 
+  it('is a focus-managed modal: marks aria-modal and moves focus into the dialog on open', () => {
+    render(() => <TierChooserDialog {...base} open={true} />);
+    const dialog = screen.getByTestId('github-tier-dialog');
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    // Focus moves into the dialog so keyboard users are inside the modal.
+    expect(document.activeElement).toBe(dialog);
+  });
+
   it('scopes its testids by provider so two instances stay distinct', () => {
     render(() => <TierChooserDialog {...base} provider="cloudflare" open={true} />);
     expect(screen.getByTestId('cloudflare-tier-dialog')).toBeInTheDocument();

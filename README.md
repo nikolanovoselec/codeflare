@@ -297,7 +297,7 @@ Create one OAuth App per environment (integration vs production) with the matchi
 <details>
 <summary><strong>Connecting GitHub &amp; Cloudflare (per-user OAuth) — so sessions can push &amp; deploy</strong></summary>
 
-This is **separate** from the login OAuth above. *Login* OAuth (`OAUTH_*`, env secrets) decides how users **sign in** to Codeflare. *Connect* OAuth lets each signed-in user **authorize their own GitHub and Cloudflare accounts** so their sessions get an automatic `git push` / `gh` token and a `wrangler` deploy token — no pasted PATs. Users connect from the dashboard GitHub panel, **Guided Setup**, or **Settings → Push &amp; Deploy**; all three share one connect card.
+This is **separate** from the login OAuth above. *Login* OAuth (`OAUTH_*`, env secrets) decides how users **sign in** to Codeflare. *Connect* OAuth lets each signed-in user **authorize their own GitHub and Cloudflare accounts** so their sessions get an automatic `git push` / `gh` token and a `wrangler` deploy token — no pasted PATs. Users connect from the dashboard GitHub panel, **Guided Setup**, or **Settings → Push &amp; Deploy** — all three are the same per-user OAuth flow.
 
 Unlike login OAuth, the Connect client credentials are **not** GitHub Actions secrets — an admin enters them once in the in-app **Setup wizard**, which stores them in KV (client id in plain, client secret **encrypted**). Applies to default / onboarding / SaaS modes. **Enterprise does not use this** (it injects an admin-global Cloudflare token and uses the admin-configured GitHub App instead).
 
@@ -345,7 +345,7 @@ Then in the app: **Setup wizard → Cloudflare provider →** paste the Client I
 
 **3. Scope tiers**
 
-Non-enterprise users pick a scope level when connecting (the connect card shows **Minimal / Recommended / Advanced** with a description). The selected tier is sent as the OAuth `scope` and must be within the client's **registered** scopes — so register the Advanced superset. Cloudflare scope IDs come from `GET /client/v4/oauth/scopes`; these map the capabilities the old token deeplink granted:
+Non-enterprise users pick a scope level when connecting — **Minimal / Recommended / Advanced**, each with a description. On the dashboard GitHub panel the **Connect** button opens a tier dialog (a popover on desktop, a bottom sheet on mobile); on **Guided Setup** and **Settings → Push &amp; Deploy** the same choice is a dropdown showing the selected level's description beneath it. The selected tier is sent as the OAuth `scope` and must be within the client's **registered** scopes — so register the Advanced superset. Cloudflare scope IDs come from `GET /client/v4/oauth/scopes`; these map the capabilities the old token deeplink granted:
 
 | Tier | GitHub scopes | Cloudflare scope IDs (cumulative) |
 |---|---|---|

@@ -44,7 +44,21 @@ const TierChooserDialog: Component<TierChooserDialogProps> = (props) => {
     setPosition({ top, left: rect.left, width: rect.width });
   };
 
-  createEffect(() => { if (props.open) updatePosition(); });
+  // Focus management for the modal picker: on open, remember the trigger and move
+  // focus into the dialog; on close, restore focus to the trigger (the connect
+  // button) so keyboard users land back where they were.
+  let previouslyFocused: HTMLElement | null = null;
+  createEffect(() => {
+    if (props.open) {
+      previouslyFocused = (document.activeElement as HTMLElement) ?? null;
+      updatePosition();
+      dialogRef?.focus();
+    } else if (previouslyFocused) {
+      // Only restore focus if we actually opened (never steal focus on mount).
+      (props.anchorRef ?? previouslyFocused)?.focus();
+      previouslyFocused = null;
+    }
+  });
 
   const handleClickOutside = (e: MouseEvent) => {
     if (!props.open) return;
@@ -53,7 +67,27 @@ const TierChooserDialog: Component<TierChooserDialogProps> = (props) => {
       props.onClose();
     }
   };
-  const handleKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape' && props.open) props.onClose(); };
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (!props.open) return;
+    if (e.key === 'Escape') { props.onClose(); return; }
+    // Trap Tab within the dialog (aria-modal contract).
+    if (e.key === 'Tab' && dialogRef) {
+      const focusable = dialogRef.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || active === dialogRef)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  };
 
   onMount(() => {
     document.addEventListener('mousedown', handleClickOutside);
@@ -72,7 +106,9 @@ const TierChooserDialog: Component<TierChooserDialogProps> = (props) => {
         class="create-session-dialog"
         data-testid={`${props.provider}-tier-dialog`}
         role="dialog"
+        aria-modal="true"
         aria-label="Choose access level"
+        tabindex="-1"
         style={{ top: `${position().top}px`, left: `${position().left}px`, width: `${position().width}px` }}
       >
         <div class="csd-section">
