@@ -675,10 +675,11 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
     });
   });
 
-  // REQ-ENTERPRISE-008 AC2: the Subscription + Usage menu items are SaaS-billing
-  // surfaces, gated on saasMode (shown only in SaaS; hidden in onboarding/default
-  // and enterprise alike).
-  describe('Subscription/Usage gating (SaaS-only)', () => {
+  // REQ-ENTERPRISE-008 AC2: Subscription is a SaaS-billing surface gated on
+  // saasMode (hidden in onboarding/default and enterprise). Usage is read-only
+  // consumption visibility, shown in SaaS AND enterprise (hidden only in
+  // onboarding/default where neither flag is set).
+  describe('Subscription/Usage gating', () => {
     it('shows the Subscription menu item in SaaS mode', () => {
       sessionStoreState.saasMode = true;
       render(() => <Header {...defaultSessionProps} />);
@@ -700,26 +701,27 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
       expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
     });
 
-    it('hides the Subscription and Usage menu items in enterprise mode', () => {
+    it('hides Subscription but shows read-only Usage in enterprise mode', () => {
       sessionStoreState.enterpriseMode = true;
       render(() => <Header {...defaultSessionProps} />);
 
       fireEvent.click(screen.getByTestId('header-user-menu'));
 
+      // Subscription (billing) stays hidden; Usage (read-only consumption) shows.
       expect(screen.queryByTestId('header-user-dropdown-profile')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('header-user-dropdown-usage')).not.toBeInTheDocument();
-      // Logout remains present.
-      expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
+      expect(screen.getByTestId('header-user-dropdown-usage')).toBeInTheDocument();
     });
   });
 
-  // REQ-ENTERPRISE-008: Guided Setup (per-user onboarding) is hidden in enterprise
-  // mode — enterprise instances are configured by an admin via Setup, not per-user.
-  describe('Guided Setup gating (enterprise)', () => {
-    it('shows Guided Setup outside enterprise mode', () => {
+  // REQ-ENTERPRISE-008 AC8/AC9: Guided Setup (per-user onboarding) and Logout are
+  // hidden in enterprise — enterprise instances are admin-configured via Setup, and
+  // in-app logout is ineffective under SSO (the IDP silently re-authenticates).
+  describe('enterprise dropdown gating (Guided Setup + Logout)', () => {
+    it('shows Guided Setup and Logout outside enterprise mode', () => {
       render(() => <Header {...defaultSessionProps} />);
       fireEvent.click(screen.getByTestId('header-user-menu'));
       expect(screen.getByTestId('header-user-dropdown-onboarding')).toBeInTheDocument();
+      expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
     });
 
     it('hides Guided Setup in enterprise mode', () => {
@@ -727,8 +729,15 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
       render(() => <Header {...defaultSessionProps} />);
       fireEvent.click(screen.getByTestId('header-user-menu'));
       expect(screen.queryByTestId('header-user-dropdown-onboarding')).not.toBeInTheDocument();
-      // The rest of the dropdown still renders.
-      expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
+      // The rest of the dropdown still renders (read-only Usage).
+      expect(screen.getByTestId('header-user-dropdown-usage')).toBeInTheDocument();
+    });
+
+    it('hides Logout in enterprise mode (ineffective under SSO)', () => {
+      sessionStoreState.enterpriseMode = true;
+      render(() => <Header {...defaultSessionProps} />);
+      fireEvent.click(screen.getByTestId('header-user-menu'));
+      expect(screen.queryByTestId('header-user-dropdown-logout')).not.toBeInTheDocument();
     });
   });
 });

@@ -302,7 +302,10 @@ const Header: Component<HeaderProps> = (props) => {
                   <span>Subscription</span>
                 </a>
               </Show>
-              <Show when={sessionStore.saasMode}>
+              {/* Usage is read-only consumption visibility — shown in SaaS and
+                  enterprise (Timekeeper records in both); Subscription above stays
+                  SaaS-only. */}
+              <Show when={sessionStore.saasMode || sessionStore.enterpriseMode}>
                 <a
                   href="/app/usage"
                   class="header-user-dropdown-item"
@@ -325,15 +328,21 @@ const Header: Component<HeaderProps> = (props) => {
                   <span>Guided Setup</span>
                 </a>
               </Show>
-              <button
-                type="button"
-                class="header-user-dropdown-item header-user-dropdown-item--danger"
-                data-testid="header-user-dropdown-logout"
-                onClick={() => { window.location.href = '/auth/logout'; }}
-              >
-                <Icon path={mdiLogout} size={16} />
-                <span>Logout</span>
-              </button>
+              {/* REQ-ENTERPRISE-008: hide Logout in enterprise — under SSO the
+                  in-app logout is ineffective (the Cloudflare Access session is
+                  cleared but the IDP silently re-authenticates); sign-out is
+                  governed by the IDP / device. */}
+              <Show when={!sessionStore.enterpriseMode}>
+                <button
+                  type="button"
+                  class="header-user-dropdown-item header-user-dropdown-item--danger"
+                  data-testid="header-user-dropdown-logout"
+                  onClick={() => { window.location.href = '/auth/logout'; }}
+                >
+                  <Icon path={mdiLogout} size={16} />
+                  <span>Logout</span>
+                </button>
+              </Show>
             </div>
           </Show>
         </div>

@@ -192,6 +192,10 @@ const Dashboard: Component<DashboardProps> = (props) => {
                         <Icon path={mdiAccountOutline} size={16} />
                         <span>Subscription</span>
                       </a>
+                    </Show>
+                    {/* Usage is read-only consumption visibility — shown in SaaS
+                        and enterprise (Timekeeper records in both). */}
+                    <Show when={sessionStore.saasMode || sessionStore.enterpriseMode}>
                       <a
                         href="/app/usage"
                         class="header-user-dropdown-item"
@@ -214,15 +218,19 @@ const Dashboard: Component<DashboardProps> = (props) => {
                         <span>Guided Setup</span>
                       </a>
                     </Show>
-                    <button
-                      type="button"
-                      class="header-user-dropdown-item header-user-dropdown-item--danger"
-                      data-testid="header-user-dropdown-logout"
-                      onClick={() => { window.location.href = '/auth/logout'; }}
-                    >
-                      <Icon path={mdiLogout} size={16} />
-                      <span>Logout</span>
-                    </button>
+                    {/* Hide Logout in enterprise — ineffective under SSO (mirrors
+                        Header.tsx); sign-out is governed by the IDP / device. */}
+                    <Show when={!sessionStore.enterpriseMode}>
+                      <button
+                        type="button"
+                        class="header-user-dropdown-item header-user-dropdown-item--danger"
+                        data-testid="header-user-dropdown-logout"
+                        onClick={() => { window.location.href = '/auth/logout'; }}
+                      >
+                        <Icon path={mdiLogout} size={16} />
+                        <span>Logout</span>
+                      </button>
+                    </Show>
                   </div>
                 </div>
               </Show>

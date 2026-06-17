@@ -176,22 +176,26 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     (sessionStore as any)._setEnterpriseMode(false);
   });
 
-  // === Enterprise: Guided Setup gating (REQ-ENTERPRISE-008 AC8) ===
+  // === Enterprise dropdown gating (REQ-ENTERPRISE-008 AC2/AC8/AC9) ===
 
-  it('shows the Guided Setup dropdown item outside enterprise mode', () => {
+  it('shows Guided Setup + Logout and hides Usage outside enterprise mode', () => {
     (sessionStore as any)._setEnterpriseMode(false);
     render(() => <Dashboard {...defaultProps} />);
     fireEvent.click(screen.getByTestId('header-user-menu'));
     expect(screen.getByTestId('header-user-dropdown-onboarding')).toBeInTheDocument();
+    expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
+    // Not SaaS and not enterprise -> Usage hidden.
+    expect(screen.queryByTestId('header-user-dropdown-usage')).not.toBeInTheDocument();
   });
 
-  it('hides the Guided Setup dropdown item in enterprise mode', () => {
+  it('hides Guided Setup + Logout and shows read-only Usage in enterprise mode', () => {
     (sessionStore as any)._setEnterpriseMode(true);
     render(() => <Dashboard {...defaultProps} />);
     fireEvent.click(screen.getByTestId('header-user-menu'));
     expect(screen.queryByTestId('header-user-dropdown-onboarding')).not.toBeInTheDocument();
-    // The rest of the dropdown still renders.
-    expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
+    expect(screen.queryByTestId('header-user-dropdown-logout')).not.toBeInTheDocument();
+    // Usage (read-only consumption) is the surface that remains in enterprise.
+    expect(screen.getByTestId('header-user-dropdown-usage')).toBeInTheDocument();
   });
 
   // === Initialization Tests ===

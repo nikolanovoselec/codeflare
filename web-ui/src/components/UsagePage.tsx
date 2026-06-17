@@ -1,5 +1,6 @@
 import { Component, createSignal, onMount, onCleanup, Show } from 'solid-js';
 import { getUsage } from '../api/client';
+import { sessionStore } from '../stores/session';
 import { formatDuration } from '../lib/format';
 import ScrambleText from './ScrambleText';
 import '../styles/usage-page.css';
@@ -112,7 +113,11 @@ const UsagePage: Component = () => {
 
             <div class="usage-actions">
               <a href="/app/" class="usage-btn">Back to Dashboard</a>
-              <a href="/app/subscribe" class="usage-btn usage-btn--secondary">Subscription</a>
+              {/* Subscription is SaaS-only billing — hidden in enterprise where
+                  /app/subscribe is not reachable and usage is view-only. */}
+              <Show when={sessionStore.saasMode}>
+                <a href="/app/subscribe" class="usage-btn usage-btn--secondary">Subscription</a>
+              </Show>
             </div>
           </Show>
         </Show>
