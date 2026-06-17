@@ -15,6 +15,7 @@ import preferenceRoutes from './routes/preferences';
 import llmKeysRoutes from './routes/llm-keys';
 import deployKeysRoutes from './routes/deploy-keys';
 import githubRoutes from './routes/github';
+import cloudflareRoutes from './routes/cloudflare';
 import publicRoutes from './routes/public/index';
 import usageRoutes from './routes/usage';
 import adminTiersRoutes from './routes/admin/tiers';
@@ -40,6 +41,7 @@ import { getEffectiveTier } from './lib/subscription';
 import authApiRoutes from './routes/auth';
 import authRedirectRoutes from './routes/auth-redirects';
 import githubAuthRoutes from './routes/github-auth';
+import cloudflareAuthRoutes from './routes/cloudflare-auth';
 
 // Type for app context with request ID
 type AppVariables = {
@@ -224,6 +226,7 @@ app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISO
 // Auth routes (mounted before setup routes)
 app.route('/api/auth', authApiRoutes);
 app.route('/auth/github', githubAuthRoutes);
+app.route('/auth/cloudflare', cloudflareAuthRoutes);
 app.route('/auth', authRedirectRoutes);
 
 // Public auth providers endpoint (outside /api/* to bypass CF Access).
@@ -273,6 +276,7 @@ app.route('/api/preferences', preferenceRoutes);
 app.route('/api/llm-keys', llmKeysRoutes);
 app.route('/api/deploy-keys', deployKeysRoutes);
 app.route('/api/github', githubRoutes);
+app.route('/api/cloudflare', cloudflareRoutes);
 app.route('/api/usage', usageRoutes);
 app.route('/api/admin/tiers', adminTiersRoutes);
 app.route('/api/billing', billingRoutes);

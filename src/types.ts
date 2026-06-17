@@ -308,6 +308,16 @@ export interface DeployKeys {
   cloudflareApiToken?: string | null;
   /** Cloudflare account ID. `null` clears (see githubToken). */
   cloudflareAccountId?: string | null;
+  /**
+   * How `cloudflareApiToken` was obtained. `'pat'` = manually pasted API token
+   * (legacy); `'oauth'` = Connect-to-Cloudflare OAuth token (refreshable via
+   * `offline_access`). Drives the refresh + revoke paths. `null`/absent ⇒ `'pat'`.
+   */
+  cloudflareTokenSource?: 'oauth' | 'pat' | null;
+  /** Cloudflare OAuth refresh token (source `'oauth'` only). */
+  cloudflareRefreshToken?: string | null;
+  /** Epoch ms when `cloudflareApiToken` expires (source `'oauth'` only). */
+  cloudflareTokenExpiresAt?: number | null;
 }
 
 /**

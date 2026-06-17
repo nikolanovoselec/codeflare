@@ -309,6 +309,14 @@ export const SETUP_KEYS = {
   GITHUB_APP_CLIENT_SECRET: 'setup:github_app_client_secret',
   GITHUB_OAUTH_CLIENT_ID: 'setup:github_oauth_client_id',
   GITHUB_OAUTH_CLIENT_SECRET: 'setup:github_oauth_client_secret',
+  // Connect-to-Cloudflare OAuth client, admin-configured in the Setup wizard so a
+  // user can authorize their OWN Cloudflare account (3-legged OAuth) instead of
+  // pasting an API token. The client id is non-secret (rides the authorize URL)
+  // and stored plain; the client secret is stored encrypted (kv-crypto). Read by
+  // getCloudflareProvider. Non-enterprise only — enterprise has no per-user CF
+  // deploy flow (it uses BROWSER_RENDER_TOKEN), so these are never set there.
+  CLOUDFLARE_OAUTH_CLIENT_ID: 'setup:cloudflare_oauth_client_id',
+  CLOUDFLARE_OAUTH_CLIENT_SECRET: 'setup:cloudflare_oauth_client_secret',
 } as const;
 
 /**
