@@ -53,6 +53,6 @@
     "puppeteer": "^25.1.0",
     "typescript": "^6.0.3",
     "vitest": "4.1.8",
-    "wrangler": "4.99.0"
+    "wrangler": "4.101.0"
   }
 }
