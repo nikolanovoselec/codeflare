@@ -134,15 +134,22 @@
 }
 
 /* ── Repo list ── */
-/* Desktop caps the viewport at ~10 rows and scrolls the rest (no visible
-   scrollbar). Mobile (below) grows to fill available height, min 3 rows. */
+/* The viewport caps the visible rows and scrolls the rest (no visible
+   scrollbar). Desktop (>=1024px) caps at 7 rows, tablet (600-1023px) at 5
+   rows; mobile (below) grows to fill available height, min 3 rows. */
 .github-repo-rows {
   --repo-row-h: 52px;
   display: flex;
   flex-direction: column;
-  max-height: calc(var(--repo-row-h) * 10);
+  max-height: calc(var(--repo-row-h) * 7);
   overflow-y: auto;
   scrollbar-width: none;
+}
+
+@media (min-width: 600px) and (max-width: 1023px) {
+  .github-repo-rows {
+    max-height: calc(var(--repo-row-h) * 5);
+  }
 }
 
 .github-repo-rows::-webkit-scrollbar {

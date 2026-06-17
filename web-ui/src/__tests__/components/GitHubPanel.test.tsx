@@ -236,7 +236,7 @@ describe('GitHubPanel Component', () => {
     expect(link.getAttribute('rel')).toContain('noopener');
   });
 
-  it('renders every repo inside the scroll container (the 10-row cap is a CSS viewport, not truncation)', async () => {
+  it('renders every repo inside the scroll container (the row cap is a CSS viewport, not truncation)', async () => {
     mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: true, login: 'octocat' });
     const repos = Array.from({ length: 15 }, (_, i) => makeRepo({ full_name: `octocat/r${i}`, name: `r${i}` }));
     mockGetGithubRepos.mockResolvedValueOnce({ repos, page: 1, hasMore: false });
