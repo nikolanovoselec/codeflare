@@ -350,8 +350,8 @@ Non-enterprise users pick a scope level when connecting (the connect card shows 
 | Tier | GitHub scopes | Cloudflare scope IDs (cumulative) |
 |---|---|---|
 | **Minimal** | `repo` | `workers-scripts.write` `workers-kv-storage.write` `workers-r2.write` `d1.write` `workers-routes.write` `account-settings.read` `user-details.read` `zone.read` |
-| **Recommended** | `repo read:org workflow` | + `dns.write` `access.write` `access-acct.write` |
-| **Advanced** | `repo read:org workflow admin:repo_hook read:user` | + `page.write` `containers.write` `queues.write` `ai.write` `ai.read` `browser-rendering.write` `vectorize.write` `challenge-widgets.write` `workers-ci.write` `workers-observability.write` `r2-catalog.write` `cf-agents.write` |
+| **Recommended** | `repo read:org workflow` | + `dns.write` `zone-access.write` `access-acct.write` |
+| **Advanced** | `repo read:org workflow admin:repo_hook read:user` | + `page.write` `containers.write` `queues.write` `ai.write` `browser-rendering.write` `vectorize.write` `workers-ci.write` `workers-observability.write` `r2-catalog.write` `agw.write` |
 
 (GitHub *App* providers and Enterprise mode ignore the tier — permissions are fixed at install.)
 

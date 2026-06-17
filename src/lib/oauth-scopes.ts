@@ -46,21 +46,19 @@ const CF_MINIMAL = [
   'user-details.read',
   'zone.read',
 ];
-const CF_RECOMMENDED = [...CF_MINIMAL, 'dns.write', 'access.write', 'access-acct.write'];
+const CF_RECOMMENDED = [...CF_MINIMAL, 'dns.write', 'zone-access.write', 'access-acct.write'];
 const CF_ADVANCED = [
   ...CF_RECOMMENDED,
   'page.write',
   'containers.write',
   'queues.write',
   'ai.write',
-  'ai.read',
   'browser-rendering.write',
   'vectorize.write',
-  'challenge-widgets.write',
   'workers-ci.write',
   'workers-observability.write',
   'r2-catalog.write',
-  'cf-agents.write',
+  'agw.write',
 ];
 
 const CLOUDFLARE_OAUTH_SCOPES: Record<ScopeTier, string[]> = {
