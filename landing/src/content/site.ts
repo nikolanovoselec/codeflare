@@ -165,7 +165,8 @@ export const HERO = {
   // assistant cannot claim (an enforcement loop that makes drift impossible).
   definition:
     'Codeflare runs governed engineering agents inside your own estate. Each change is backed by a ' +
-    'spec, proven by tests, documented, and handed to your team as a pull request to merge.',
+    'spec, proven by tests, documented, and handed to your team to approve, whether that is a ' +
+    'pull request to merge or a change to run.',
   primaryCta: { label: 'Book a demo', href: '#contact' } satisfies Cta,
   secondaryCta: { label: 'See the shift', href: '#shift' } satisfies Cta,
 };
@@ -281,9 +282,9 @@ export const SHIFT = {
   title: 'The bottleneck was never typing speed.',
   lead:
     'A faster autocomplete just gets you to the next decision sooner. Codeflare moves the whole ' +
-    'job into one controlled run: you write the requirement, agents implement it, and you review ' +
-    'the evidence before it merges. The four below are snapshots of a governed run: egress, ' +
-    'isolation, review, and spec.',
+    'job into one controlled run: you write the requirement, agents prepare the change, and your ' +
+    'team reviews the evidence before it executes. The four below are snapshots of a governed run: ' +
+    'egress, isolation, review, and spec.',
 };
 
 export const METHOD = {

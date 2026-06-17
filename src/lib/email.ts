@@ -177,7 +177,7 @@ export async function sendAccessRequestConfirmation(opts: {
       `<div style="height:1px;background:#e6e6ea;margin:28px 0"></div>`,
       `<p style="margin:0 0 12px;color:#6b6b76;font-size:12px;text-transform:uppercase;letter-spacing:0.1em">While you wait</p>`,
       `<p style="margin:0 0 14px;font-size:19px;font-weight:600;letter-spacing:-0.01em;color:${ink}">This is not a coding assistant.</p>`,
-      '<p style="margin:0 0 16px">Codeflare runs autonomous coding agents inside your own cloud. Each change is backed by a spec, proven by tests, documented, and handed to your team as a pull request to merge.</p>',
+      '<p style="margin:0 0 16px">Codeflare runs governed engineering agents inside your own estate. Each change is backed by a spec, proven by tests, documented, and handed to your team to approve, whether that is a pull request to merge or a change to run.</p>',
       '<p style="margin:0 0 16px">Every session authenticates through your identity provider, runs in an isolated container in your own tenancy, and reaches models only through your AI Gateway. Your code never leaves your boundary.</p>',
       '<p style="margin:28px 0 4px">Talk soon,</p>',
       '<p style="margin:0 0 28px">The Codeflare team</p>',
