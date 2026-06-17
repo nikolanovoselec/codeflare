@@ -147,6 +147,8 @@ Find your worker URL at [dash.cloudflare.com](https://dash.cloudflare.com/) → 
 
 That's it, you're live. You'll need an active subscription to at least one supported agent; log in directly from the terminal.
 
+> To let users connect their own GitHub and Cloudflare accounts (automatic `git push` / `wrangler` deploy from a session), an admin registers one OAuth app per provider and enters the credentials in the wizard — see [Connecting GitHub &amp; Cloudflare (per-user OAuth)](#advanced-configuration-optional) under Advanced configuration.
+
 <details>
 <summary><strong id="api-token-scopes">API token scopes</strong></summary>
 
@@ -289,6 +291,73 @@ Set `SAAS_MODE=active`. Pair with `MAX_INSTANCES` for your target concurrency. T
 3. **Add as environment secrets** (**Settings → Environments →** your environment **→ Environment secrets**): `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, `OAUTH_JWT_SECRET`.
 
 Create one OAuth App per environment (integration vs production) with the matching callback URL, then deploy.
+
+</details>
+
+<details>
+<summary><strong>Connecting GitHub &amp; Cloudflare (per-user OAuth) — so sessions can push &amp; deploy</strong></summary>
+
+This is **separate** from the login OAuth above. *Login* OAuth (`OAUTH_*`, env secrets) decides how users **sign in** to Codeflare. *Connect* OAuth lets each signed-in user **authorize their own GitHub and Cloudflare accounts** so their sessions get an automatic `git push` / `gh` token and a `wrangler` deploy token — no pasted PATs. Users connect from the dashboard GitHub panel, **Guided Setup**, or **Settings → Push &amp; Deploy**; all three share one connect card.
+
+Unlike login OAuth, the Connect client credentials are **not** GitHub Actions secrets — an admin enters them once in the in-app **Setup wizard**, which stores them in KV (client id in plain, client secret **encrypted**). Applies to default / onboarding / SaaS modes. **Enterprise does not use this** (it injects an admin-global Cloudflare token and uses the admin-configured GitHub App instead).
+
+**Prerequisite:** set **`ENCRYPTION_KEY`** (see Core settings). The Connect client secrets are encrypted at rest; without the key the wizard treats them as unconfigured and connect fails closed.
+
+---
+
+**1. Register a GitHub OAuth App for Connect**
+
+At [github.com/settings/developers](https://github.com/settings/developers) → **OAuth Apps → New OAuth App**:
+
+- Homepage URL: `https://{your-domain}`
+- **Authorization callback URL: `https://{your-domain}/auth/github/connect/callback`** — note `/connect/callback`; this is a *different* app from the login one (whose callback is `/auth/github/callback`).
+- Generate a **client secret**; copy the **Client ID** + secret.
+
+> ⚠️ **Gotcha:** if you skip the wizard step below, the connect flow silently falls back to your **login** OAuth App — whose callback is `/auth/github/callback`, not `/connect/callback` — and GitHub rejects the redirect. You must register this as the Connect provider in Setup.
+
+Then in the app: **Setup wizard → GitHub provider →** choose **OAuth App**, paste the Client ID + secret. (Choose **GitHub App** instead only if your users are Enterprise-Managed Users / EMU — those cannot authorize third-party OAuth Apps. A GitHub App's permissions are fixed at install and ignore the scope tier.)
+
+---
+
+**2. Register a Cloudflare OAuth client for Connect** *(the fiddly one)*
+
+In the Cloudflare dashboard → **Manage Account → OAuth clients → Create client**:
+
+| Field | Value |
+|---|---|
+| Response type | **Code** |
+| Grant type | **Authorization Code, Refresh Token** |
+| Token authentication method | **Client Secret Post** — **not** *None (PKCE)*. The Worker sends a client secret; PKCE-only yields `invalid_client`/no secret. |
+| Redirect (Callback) URL | `https://{your-domain}/auth/cloudflare/connect/callback` |
+| Scopes | The **Advanced superset** (below). The registered scopes are a *ceiling*; the per-connect tier requests a subset within it. |
+
+`offline_access` is requested automatically (it issues the refresh token). One client can hold **multiple** redirect URIs — add both your integration and production callback URLs to a single client rather than making two.
+
+**Private vs public client:**
+- **Private** (default) — only members of *your* Cloudflare account can connect. No logo or domain verification needed. Fine for a single-operator or integration instance.
+- **Public** — any Cloudflare user can connect (needed for multi-tenant SaaS). Requires two extra steps:
+  1. **`logo_uri`** — any public image URL, e.g. `https://codeflare.ch/icon-512.png`.
+  2. **`client_uri` domain verification** — set `client_uri` to a domain you control, then add a **DNS `TXT` record** on that host with the full value Cloudflare shows, including the prefix: `cloudflare_oauth_client_publisher=<code>`. Cloudflare polls it (times out after 2 days). ⚠️ The verified domain is **permanent** — it can't be changed afterwards, so use your canonical domain.
+
+Then in the app: **Setup wizard → Cloudflare provider →** paste the Client ID + secret.
+
+---
+
+**3. Scope tiers**
+
+Non-enterprise users pick a scope level when connecting (the connect card shows **Minimal / Recommended / Advanced** with a description). The selected tier is sent as the OAuth `scope` and must be within the client's **registered** scopes — so register the Advanced superset. Cloudflare scope IDs come from `GET /client/v4/oauth/scopes`; these map the capabilities the old token deeplink granted:
+
+| Tier | GitHub scopes | Cloudflare scope IDs (cumulative) |
+|---|---|---|
+| **Minimal** | `repo` | `workers-scripts.write` `workers-kv-storage.write` `workers-r2.write` `d1.write` `workers-routes.write` `account-settings.read` `user-details.read` `zone.read` |
+| **Recommended** | `repo read:org workflow` | + `dns.write` `access.write` `access-acct.write` |
+| **Advanced** | `repo read:org workflow admin:repo_hook read:user` | + `page.write` `containers.write` `queues.write` `ai.write` `ai.read` `browser-rendering.write` `vectorize.write` `challenge-widgets.write` `workers-ci.write` `workers-observability.write` `r2-catalog.write` `cf-agents.write` |
+
+(GitHub *App* providers and Enterprise mode ignore the tier — permissions are fixed at install.)
+
+---
+
+**Where the credentials live.** The wizard writes `setup:github_*` and `setup:cloudflare_oauth_client_*` to KV (ids plain, secrets AES-256-GCM-encrypted via `ENCRYPTION_KEY`). When a user connects, their per-user token + refresh token land encrypted in `deploy-keys:<bucket>` and are injected into the container as `GH_TOKEN` / `CLOUDFLARE_API_TOKEN` on session start, refreshed on expiry. See [configuration](documentation/lanes/configuration.md) and [authentication](documentation/lanes/authentication.md) for the full reference.
 
 </details>
 
