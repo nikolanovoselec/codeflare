@@ -243,7 +243,7 @@ jobs:
               INSTANCE_BLOCK='instance_type = "basic"'
               ;;
             high)
-              INSTANCE_BLOCK=$'[containers.instance_type]\nvcpu = 2\nmemory_mib = 6144\ndisk_mb = 8000'
+              INSTANCE_BLOCK=$'[containers.instance_type]\nvcpu = 2\nmemory_mib = 6144\ndisk_mb = 12000'
               ;;
             saas|default)
               INSTANCE_BLOCK=$'[containers.instance_type]\nvcpu = 1\nmemory_mib = 3072\ndisk_mb = 6000'

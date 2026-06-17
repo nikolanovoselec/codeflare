@@ -57,7 +57,7 @@ id = "placeholder"
 # maximum is 6 GB. Bumping to 8 GB fails deploy with VALIDATE_INPUT. To raise
 # disk to 8 GB, memory must go to >=4 GiB first (requires cost review).
 # Cloudflare also requires >=3 GiB memory per vCPU: 2 vCPU needs >=6 GiB memory
-# (the "high" tier is 2 vCPU / 6 GiB / 8 GB), so 2 vCPU with only 4 GiB is
+# (the "high" tier is 2 vCPU / 6 GiB / 12 GB), so 2 vCPU with only 4 GiB is
 # rejected. Custom-instance ceilings are 4 vCPU, 12 GiB memory, 20 GB disk.
 # GitHub Actions deploy can override this via repo variable RESSOURCE_TIER.
 # Required baseline for node-pty + agent CLIs + npm operations.

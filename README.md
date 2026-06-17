@@ -240,7 +240,7 @@ All optional. **Type** is where the value goes in GitHub.
 | Setting | Type | Default | Effect |
 |---|---|---|---|
 | `CLOUDFLARE_WORKER_NAME` | Variable | `codeflare` | Worker name + R2 bucket prefix + Access group prefix. Set a unique name to run multiple instances on one account |
-| `RESSOURCE_TIER` | Variable | *unset* (= `default`) | Container size. `low`: Cloudflare `basic` preset (≈0.25 vCPU / 1 GiB / 4 GB) · *default*: 1 vCPU / 3 GiB / 6 GB · `high`: 2 vCPU / 6 GiB / 8 GB · `saas`: alias of *default*. (Spelling intentional — do not "fix".) |
+| `RESSOURCE_TIER` | Variable | *unset* (= `default`) | Container size. `low`: Cloudflare `basic` preset (≈0.25 vCPU / 1 GiB / 4 GB) · *default*: 1 vCPU / 3 GiB / 6 GB · `high`: 2 vCPU / 6 GiB / 12 GB · `saas`: alias of *default*. (Spelling intentional — do not "fix".) |
 | `MAX_INSTANCES` | Variable | `10` | Max concurrent containers. Positive integer; set per environment (e.g. `1400` for production) |
 | `MAX_SESSIONS_USER` | Variable | `3` | Max concurrent sessions per user. Ignored in SaaS mode (tier config controls limits) |
 | `MAX_SESSIONS_ADMIN` | Variable | `10` | Max concurrent sessions per admin. Ignored in SaaS mode |

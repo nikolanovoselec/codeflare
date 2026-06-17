@@ -469,7 +469,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Container resource tier is configurable per deployment and accepts four values: low (0.25 vCPU / 1 GiB / 4 GB), default (1 vCPU / 3 GiB / 6 GB), saas (1 vCPU / 3 GiB / 6 GB), high (2 vCPU / 6 GiB / 8 GB).
+1. Container resource tier is configurable per deployment and accepts four values: low (0.25 vCPU / 1 GiB / 4 GB), default (1 vCPU / 3 GiB / 6 GB), saas (1 vCPU / 3 GiB / 6 GB), high (2 vCPU / 6 GiB / 12 GB).
 2. All tiers default to 10 concurrent instances.
 3. The concurrent-instance cap is overridable per deployment and must be a positive integer.
 4. Per-user concurrent session limits are configurable per deployment, with separate defaults for regular users (3) and admins (10).
