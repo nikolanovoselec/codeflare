@@ -2111,7 +2111,7 @@ None.
 <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (provider authorize/exchange/refresh/revoke + getValidCloudflareToken refresh matrix + KV client resolution + applyCloudflareOAuthToken injection -> AC1,AC4,AC7) -->
 <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (connect 302 + state, not tier-gated, callback exchange + single/multi account, replayed-state rejection, tier->scope -> AC2,AC3,AC5) -->
 <!-- @test: src/__tests__/routes/setup.test.ts (cloudflare oauth client persist + fail-closed -> AC6) -->
-<!-- @test: web-ui/src/__tests__/components/setup/CloudflareProviderChooser.test.tsx (admin client id+secret inputs -> AC6) -->
+<!-- @test: web-ui/src/__tests__/components/CloudflareProviderChooser.test.tsx (admin client id+secret inputs -> AC6) -->
 
 **Intent:** In non-enterprise modes a user connects their own Cloudflare account via OAuth — mirroring the GitHub connect — so the per-user deploy token is obtained without pasting a dashboard-created API token. One operator-registered OAuth client serves every user; each user authorizes their own account.
 
@@ -2136,7 +2136,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-018](#req-agent-018-push--deploy-credential-management-ui), [REQ-AGENT-029](#req-agent-029-deploy-credential-propagation-to-container), [REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-GITHUB-008](github.md#req-github-008-enterprise-github-provider-configuration-via-setup)
 
-**Verification:** [Lib test](../../src/__tests__/lib/cloudflare-token.test.ts) + [Route test](../../src/__tests__/routes/cloudflare-oauth.test.ts) + [Setup test](../../src/__tests__/routes/setup.test.ts) + [Chooser test](../../web-ui/src/__tests__/components/setup/CloudflareProviderChooser.test.tsx)
+**Verification:** [Lib test](../../src/__tests__/lib/cloudflare-token.test.ts) + [Route test](../../src/__tests__/routes/cloudflare-oauth.test.ts) + [Setup test](../../src/__tests__/routes/setup.test.ts) + [Chooser test](../../web-ui/src/__tests__/components/CloudflareProviderChooser.test.tsx)
 
 **Status:** Implemented
 
