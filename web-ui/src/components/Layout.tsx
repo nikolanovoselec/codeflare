@@ -15,7 +15,8 @@ import type { TileLayout, AgentType, TabConfig } from '../types';
 import { VIEW_TRANSITION_DURATION_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS } from '../lib/constants';
 import { startVaultReadinessProbe } from '../lib/vault-readiness';
 import { DEFAULT_VAULT_PREWARM_TIMEOUT_MS, startVaultPrewarm, type VaultPrewarmStatus } from '../lib/vault-prewarm';
-import { checkVaultLocalReadiness } from '../lib/vault-local-readiness';
+import { checkVaultLocalReadiness, checkVaultKeyRecoverable } from '../lib/vault-local-readiness';
+import type { VaultButtonStatus } from './VaultButton';
 import { requestBrowserStoragePersistence } from '../lib/browser-storage-persistence';
 
 type ViewState = 'dashboard' | 'expanding' | 'terminal' | 'collapsing';
@@ -75,9 +76,14 @@ const Layout: Component<LayoutProps> = (props) => {
   const WARMUP_INTERVAL_MS = 5000;
   const STEADY_INTERVAL_MS = 60000; // post-ready slow re-probe cadence
   const VAULT_PREWARM_RETRY_INTERVAL_MS = 10000;
+  const VAULT_KEY_POLL_INTERVAL_MS = 2000; // cadence for re-checking key recoverability while preparing
   const [vaultReadyBySession, setVaultReadyBySession] = createSignal<Record<string, boolean>>({});
   const [vaultPrewarmBySession, setVaultPrewarmBySession] = createSignal<Record<string, VaultPrewarmStatus>>({});
   const [vaultPrewarmRetryBySession, setVaultPrewarmRetryBySession] = createSignal<Record<string, number>>({});
+  // Click-guard open intent (REQ-VAULT-018): 'preparing' = key not yet
+  // recoverable (button breathes accent), 'armed' = key recoverable (button
+  // breathes green, next click opens). Absent = no pending open.
+  const [vaultOpenIntentBySession, setVaultOpenIntentBySession] = createSignal<Record<string, 'preparing' | 'armed'>>({});
   const [vaultPersistenceRequestedBySession, setVaultPersistenceRequestedBySession] = createSignal<Record<string, boolean>>({});
   // Memoize the running-flag so the effect only re-runs when running-ness
   // actually flips, not on every metrics/ptyActive churn from session
@@ -105,6 +111,7 @@ const Layout: Component<LayoutProps> = (props) => {
           return next;
         });
       }
+      if (prevSid) clearVaultOpenIntent(prevSid);
       return;
     }
 
@@ -147,6 +154,7 @@ const Layout: Component<LayoutProps> = (props) => {
           delete next[sid];
           return next;
         });
+        clearVaultOpenIntent(sid);
       },
       initiallyReady: () => untrack(vaultReadyBySession)[sid] === true,
       warmupIntervalMs: WARMUP_INTERVAL_MS,
@@ -233,22 +241,89 @@ const Layout: Component<LayoutProps> = (props) => {
     return !!sid && vaultReadyBySession()[sid] === true && vaultPrewarmStatus() === 'ready';
   });
 
+  // Open-intent overrides the prewarm status on the button: once a click finds
+  // the key not recoverable, the button breathes accent ('preparing') then green
+  // ('armed') instead of showing the underlying prewarm status.
+  const vaultButtonStatus = createMemo<VaultButtonStatus>(() => {
+    const sid = sessionStore.activeSessionId;
+    const intent = sid ? vaultOpenIntentBySession()[sid] : undefined;
+    if (intent) return intent;
+    return vaultReady() ? 'ready' : vaultPrewarmStatus();
+  });
+
   const restartVaultPrewarm = (sid: string) => {
     setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'error' }));
     setVaultPrewarmRetryBySession((prev) => ({ ...prev, [sid]: (prev[sid] ?? 0) + 1 }));
   };
 
+  const clearVaultOpenIntent = (sid: string) =>
+    setVaultOpenIntentBySession((prev) => {
+      if (prev[sid] === undefined) return prev;
+      const next = { ...prev };
+      delete next[sid];
+      return next;
+    });
+
+  const openVaultTab = (sid: string) => {
+    clearVaultOpenIntent(sid);
+    window.open(`/api/vault/${sid}/`, '_blank', 'noopener');
+  };
+
   const handleVaultOpen = async () => {
     const sid = sessionStore.activeSessionId;
     if (!sid) return;
-    const proof = await checkVaultLocalReadiness(sid);
-    if (!proof.ready) {
-      logger.warn('vault local readiness disappeared before open; restarting prewarm', { sid, reason: proof.reason });
-      restartVaultPrewarm(sid);
+    // Armed (green): the key was confirmed recoverable by the poll. Open
+    // synchronously so the new tab is created inside this click gesture and is
+    // never pop-up-blocked (the deferred-open case that breaks on strict
+    // browsers). The new tab's own __cfRecover re-fetches the key.
+    if (untrack(vaultOpenIntentBySession)[sid] === 'armed') {
+      openVaultTab(sid);
       return;
     }
-    window.open(`/api/vault/${sid}/`, '_blank', 'noopener');
+    const proof = await checkVaultLocalReadiness(sid);
+    if (!proof.ready) {
+      logger.warn('vault local readiness disappeared before open; preparing', { sid, reason: proof.reason });
+      restartVaultPrewarm(sid);
+      setVaultOpenIntentBySession((prev) => ({ ...prev, [sid]: 'preparing' }));
+      return;
+    }
+    // The service worker flushes its in-memory encryption key ~5s after the
+    // prewarm client disconnects, so local readiness does not prove the key is
+    // present at open time. If it is recoverable now, open immediately;
+    // otherwise enter 'preparing' (breathe accent) and let the poll arm it.
+    if (await checkVaultKeyRecoverable(sid)) {
+      openVaultTab(sid);
+      return;
+    }
+    logger.warn('vault encryption key not recoverable before open; preparing', { sid });
+    setVaultOpenIntentBySession((prev) => ({ ...prev, [sid]: 'preparing' }));
   };
+
+  // While a session is 'preparing', poll until both local readiness and key
+  // recoverability hold, then arm (button breathes green). Re-fetching
+  // `/.vault-key` also wakes an idle container so the open path is live.
+  createEffect(() => {
+    const sid = sessionStore.activeSessionId;
+    if (!sid || vaultOpenIntentBySession()[sid] !== 'preparing') return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = async () => {
+      if (cancelled) return;
+      const proof = await checkVaultLocalReadiness(sid);
+      const ready = proof.ready && (await checkVaultKeyRecoverable(sid));
+      if (cancelled) return;
+      if (ready) {
+        setVaultOpenIntentBySession((prev) => (prev[sid] === 'preparing' ? { ...prev, [sid]: 'armed' } : prev));
+        return;
+      }
+      timer = setTimeout(() => void tick(), VAULT_KEY_POLL_INTERVAL_MS);
+    };
+    void tick();
+    onCleanup(() => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    });
+  });
 
   // Load sessions and preferences on mount
   onMount(() => {
@@ -522,7 +597,7 @@ const Layout: Component<LayoutProps> = (props) => {
             ? handleVaultOpen
             : undefined}
           vaultReady={vaultReady()}
-          vaultStatus={vaultPrewarmStatus()}
+          vaultStatus={vaultButtonStatus()}
           onLogoClick={showDashboard() ? undefined : handleOpenDashboard}
           sessions={sessionStore.sessions}
           activeSessionId={sessionStore.activeSessionId}

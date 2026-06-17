@@ -66,10 +66,12 @@ vi.mock('../../lib/vault-prewarm', () => ({
 
 const vaultLocalReadinessMock = vi.hoisted(() => ({
   check: vi.fn(async (_sessionId?: string) => ({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true } as any)),
+  keyRecoverable: vi.fn(async (_sessionId?: string) => true),
 }));
 
 vi.mock('../../lib/vault-local-readiness', () => ({
   checkVaultLocalReadiness: (sessionId: string) => vaultLocalReadinessMock.check(sessionId),
+  checkVaultKeyRecoverable: (sessionId: string) => vaultLocalReadinessMock.keyRecoverable(sessionId),
 }));
 
 const vaultPrewarmProof = {
@@ -189,6 +191,8 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     vaultPrewarmMock.latestOptions = null;
     vaultLocalReadinessMock.check.mockClear();
     vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
+    vaultLocalReadinessMock.keyRecoverable.mockClear();
+    vaultLocalReadinessMock.keyRecoverable.mockResolvedValue(true);
     delete (window as any).__terminalAreaProps;
     delete (window as any).__headerProps;
   });
@@ -345,13 +349,15 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         await (window as any).__headerProps.onVaultOpen();
 
         expect(vaultLocalReadinessMock.check).toHaveBeenCalledWith('sess1');
+        // Key recoverability is verified before opening (the open-time guard).
+        expect(vaultLocalReadinessMock.keyRecoverable).toHaveBeenCalledWith('sess1');
         expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/', '_blank', 'noopener');
       } finally {
         openSpy.mockRestore();
       }
     });
 
-    it('restarts browser prewarm instead of opening when local Vault DB proof disappeared', async () => {
+    it('enters preparing + restarts prewarm instead of opening when local Vault DB proof disappeared', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
@@ -375,7 +381,40 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         expect(openSpy).not.toHaveBeenCalled();
         await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(2));
         expect((window as any).__headerProps.vaultReady).toBe(false);
-        expect((window as any).__headerProps.vaultStatus).toBe('prewarming');
+        // The button breathes accent ('preparing') instead of opening into .auth.
+        expect((window as any).__headerProps.vaultStatus).toBe('preparing');
+      } finally {
+        openSpy.mockRestore();
+      }
+    });
+
+    it('breathes preparing -> armed when the key becomes recoverable, then opens on the next click', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      // Local DBs are present; only the encryption key is not recoverable yet on
+      // the first click, then becomes recoverable (the post-prewarm key flush).
+      vaultLocalReadinessMock.keyRecoverable.mockResolvedValueOnce(false).mockResolvedValue(true);
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      try {
+        render(() => <Layout />);
+        vaultProbeMock.latestOptions.setLatch();
+        await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
+        vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
+        await waitFor(() => expect((window as any).__headerProps.vaultReady).toBe(true));
+
+        // First click: key not recoverable -> preparing (breathe accent), no open.
+        await (window as any).__headerProps.onVaultOpen();
+        expect(openSpy).not.toHaveBeenCalled();
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('preparing'));
+
+        // The poll re-checks and arms once the key is recoverable (breathe green).
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
+
+        // Click on the armed (green) button opens the vault tab synchronously.
+        await (window as any).__headerProps.onVaultOpen();
+        expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/', '_blank', 'noopener');
       } finally {
         openSpy.mockRestore();
       }

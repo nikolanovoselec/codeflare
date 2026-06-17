@@ -146,3 +146,39 @@ export async function checkVaultLocalReadiness(
     serviceWorkerState: active.state,
   };
 }
+
+export interface VaultKeyRecoverableOptions {
+  fetchRef?: typeof fetch | null;
+}
+
+/**
+ * Network proof that the vault encryption key is recoverable for `sessionId`
+ * right now. The service worker drops its in-memory key ~5s after the prewarm
+ * client disconnects, so local readiness (SW active + IndexedDB present) does
+ * NOT guarantee the key is available when the user opens the vault — opening
+ * without it redirects to SilverBullet's `.auth` ("Authentication not enabled").
+ * This hits the same auth-gated `/.vault-key` endpoint the worker's own
+ * `__cfRecover` uses, so a 200 with a non-empty key means the worker's recovery
+ * will also succeed at open time. Returns false on any non-200, missing key,
+ * or network/parse error (callers re-prewarm rather than open into the error).
+ */
+export async function checkVaultKeyRecoverable(
+  sessionId: string,
+  options: VaultKeyRecoverableOptions = {},
+): Promise<boolean> {
+  const fetchRef = options.fetchRef === undefined ? (globalThis.fetch ?? null) : options.fetchRef;
+  if (!fetchRef) return false;
+  try {
+    const res = await fetchRef(`/api/vault/${encodeURIComponent(sessionId)}/.vault-key`, {
+      method: 'GET',
+      cache: 'no-store',
+      credentials: 'include',
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return false;
+    const data = (await res.json()) as { key?: unknown };
+    return typeof data.key === 'string' && data.key.length > 0;
+  } catch {
+    return false;
+  }
+}

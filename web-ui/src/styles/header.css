@@ -591,6 +591,34 @@
           box-shadow: var(--glow-accent);
         }
 
+        /* Open-intent "breathing" states (Layout click guard).
+           preparing -> accent (theme) colour; armed -> green = ready to open.
+           The aria-disabled dimming above is overridden so the pulse stays
+           visible while preparing. */
+        .header-vault-button--preparing[aria-disabled="true"] {
+          opacity: 1;
+          cursor: progress;
+          color: var(--color-accent);
+          animation: vault-button-breathe 1.8s ease-in-out infinite;
+        }
+
+        .header-vault-button--armed {
+          color: var(--color-success, #22c55e);
+          animation: vault-button-breathe 1.8s ease-in-out infinite;
+        }
+
+        @keyframes vault-button-breathe {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.45; transform: scale(0.92); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .header-vault-button--preparing[aria-disabled="true"],
+          .header-vault-button--armed {
+            animation: none;
+          }
+        }
+
         @keyframes dashboard-icon-glow {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.6; }

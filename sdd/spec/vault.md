@@ -323,6 +323,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: web-ui/src/lib/vault-readiness.ts::startVaultReadinessProbe -->
 <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm -->
 <!-- @impl: web-ui/src/lib/vault-local-readiness.ts::checkVaultLocalReadiness -->
+<!-- @impl: web-ui/src/lib/vault-local-readiness.ts::checkVaultKeyRecoverable -->
 <!-- @impl: web-ui/src/lib/browser-storage-persistence.ts::requestBrowserStoragePersistence -->
 <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton -->
 <!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmBridge -->
@@ -332,6 +333,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @test: web-ui/src/__tests__/lib/vault-readiness.test.ts (startVaultReadinessProbe describe → retries forever past the 60-attempt cap / latches ready on first probe success / clears latch on steady-probe fail (SB crash recovery) / cancel() stops the chain / mid-probe cancel prevents latch → AC2) -->
 <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (vault browser prewarm protocol describe → iframe URL/session scoping, origin + prewarmId + local+content-proof validation, ready/timeout/cancel cleanup → AC3/AC5) -->
 <!-- @test: web-ui/src/__tests__/lib/vault-local-readiness.test.ts (checkVaultLocalReadiness describe → recorded sb_data/sb_files + active service worker + optional databases API proof → AC6/AC7) -->
+<!-- @test: web-ui/src/__tests__/lib/vault-local-readiness.test.ts (checkVaultKeyRecoverable describe → GET /.vault-key with credentials, true on non-empty key, false on non-2xx/empty/throw → AC8) -->
+<!-- @test: web-ui/src/__tests__/components/VaultButton.test.tsx (VaultButton describe → armed openable + green class, preparing not-openable + accent class → AC8) -->
+<!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating describe → breathes preparing→armed when key becomes recoverable then opens on next click → AC8) -->
 <!-- @test: web-ui/src/__tests__/lib/browser-storage-persistence.test.ts (requestBrowserStoragePersistence describe → already persisted / grant / denial / unsupported / estimate failure → AC3) -->
 <!-- @test: src/__tests__/routes/vault-html-direct.test.ts (vault prewarm helpers describe → sanitized prewarm query propagation + generic shell bridge injection + space-sync/content canary guard → AC6) -->
 
@@ -348,6 +352,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 5. Prewarm messages are accepted only from the same origin and current attempt, and ready messages must include current-browser local readiness proof plus content readiness proof. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm -->
 6. The bridge is inert without valid prewarm parameters and emits ready only after the SilverBullet runtime is ready, the current browser has recorded `sb_data_*`, recorded `sb_files_*`, and an active per-session service worker, SilverBullet's service worker has completed a full space sync, the current object index version is complete with an empty index queue, and the local `/.fs/` listing contains the codeflare-authoritative vault files. <!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmBridge -->
 7. Clicking the ready control rechecks the current browser's local readiness before opening the editor; if the local cache is missing or evicted, the app restarts prewarm instead of opening a stale tab. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
+8. Because the service worker drops its in-memory encryption key shortly after the prewarm client disconnects, clicking the ready control also verifies the key is recoverable from the auth-gated `/.vault-key` endpoint before opening. When it is not yet recoverable the control enters a non-openable `preparing` state that breathes in the accent colour, and a background poll re-checks local readiness and key recoverability; once both hold the control becomes `armed`, breathing green. Clicking the armed control opens the vault tab synchronously within the click gesture so the new tab is never pop-up-blocked. Open intent clears when the tab opens or the session is no longer the active running session. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @impl: web-ui/src/lib/vault-local-readiness.ts::checkVaultKeyRecoverable --> <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton -->
 
 **Constraints:**
 
@@ -358,7 +363,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-012](#req-vault-012-vault-button-render-and-dashboard-landing)
 
-**Verification:** [Automated test](../../web-ui/src/__tests__/lib/vault-readiness.test.ts), [prewarm protocol test](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [local readiness test](../../web-ui/src/__tests__/lib/vault-local-readiness.test.ts), [browser storage persistence test](../../web-ui/src/__tests__/lib/browser-storage-persistence.test.ts), [layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx)
+**Verification:** [Automated test](../../web-ui/src/__tests__/lib/vault-readiness.test.ts), [prewarm protocol test](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [local readiness test](../../web-ui/src/__tests__/lib/vault-local-readiness.test.ts), [browser storage persistence test](../../web-ui/src/__tests__/lib/browser-storage-persistence.test.ts), [layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx), [vault button states test](../../web-ui/src/__tests__/components/VaultButton.test.tsx)
 
 **Status:** Implemented
 

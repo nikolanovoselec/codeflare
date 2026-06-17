@@ -19,7 +19,7 @@ import {
 } from '@mdi/js';
 import Icon from './Icon';
 import SessionSwitcher from './SessionSwitcher';
-import VaultButton from './VaultButton';
+import VaultButton, { type VaultButtonStatus } from './VaultButton';
 import { sessionStore } from '../stores/session';
 import { getSleepTimerInfo } from '../lib/sleep-timer';
 import UsageInlineBadge from './UsageInlineBadge';
@@ -28,7 +28,6 @@ import { terminalStore } from '../stores/terminal';
 import { getGravatarUrl, gravatarExists } from '../lib/gravatar';
 import { isTouchDevice, getKeyboardHeight } from '../lib/mobile';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
-import type { VaultPrewarmStatus } from '../lib/vault-prewarm';
 import '../styles/header.css';
 
 interface HeaderProps {
@@ -37,7 +36,7 @@ interface HeaderProps {
   onStoragePanelToggle?: () => void;
   onVaultOpen?: () => void;
   vaultReady?: boolean;
-  vaultStatus?: VaultPrewarmStatus;
+  vaultStatus?: VaultButtonStatus;
   onLogoClick?: () => void;
   sessions: SessionWithStatus[];
   activeSessionId: string | null;

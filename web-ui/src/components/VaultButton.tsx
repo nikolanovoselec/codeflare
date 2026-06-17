@@ -3,12 +3,18 @@ import { mdiChartGantt } from '@mdi/js';
 import Icon from './Icon';
 import type { VaultPrewarmStatus } from '../lib/vault-prewarm';
 
+// `preparing` and `armed` are open-intent states driven by Layout's click guard
+// (not prewarm): after a click finds the encryption key not yet recoverable the
+// button breathes in the accent colour (`preparing`); once the key is
+// recoverable it breathes green (`armed`) and a click opens the vault.
+export type VaultButtonStatus = VaultPrewarmStatus | 'preparing' | 'armed';
+
 interface VaultButtonProps {
-  status: VaultPrewarmStatus;
+  status: VaultButtonStatus;
   onOpen: () => void;
 }
 
-const VAULT_BUTTON_META: Record<VaultPrewarmStatus, { title: string; message: string; enabled: boolean }> = {
+const VAULT_BUTTON_META: Record<VaultButtonStatus, { title: string; message: string; enabled: boolean }> = {
   idle: {
     title: 'Vault waiting for this session',
     message: 'Vault is waiting for the session to be ready.',
@@ -22,6 +28,16 @@ const VAULT_BUTTON_META: Record<VaultPrewarmStatus, { title: string; message: st
   ready: {
     title: 'Open vault',
     message: 'Open vault',
+    enabled: true,
+  },
+  preparing: {
+    title: 'Preparing Vault…',
+    message: 'Preparing Vault on this device. It will turn green when ready to open.',
+    enabled: false,
+  },
+  armed: {
+    title: 'Vault ready — open',
+    message: 'Vault ready — open',
     enabled: true,
   },
   timeout: {
