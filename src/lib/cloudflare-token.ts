@@ -377,10 +377,15 @@ export async function setCloudflareAccount(
   bucketName: string,
   accountId: string,
 ): Promise<boolean> {
+  // Resolve a currently-valid token (refresh-on-expiry) and guard the API call so an
+  // expired-but-refreshable token can still select an account instead of 500ing.
+  const token = await getValidCloudflareToken(env, bucketName);
+  if (!token) return false;
+  const accounts = await fetchCloudflareAccounts(token).catch(() => null);
+  if (!accounts || !accounts.some((a) => a.id === accountId)) return false;
+  // Re-read AFTER the refresh so a rotated token is not clobbered by a stale copy.
   const conn = readConnection(await readDeployKeys(env, bucketName));
   if (!conn) return false;
-  const accounts = await fetchCloudflareAccounts(conn.accessToken);
-  if (!accounts.some((a) => a.id === accountId)) return false;
   await storeCloudflareConnection(env, bucketName, { ...conn, accountId });
   return true;
 }
@@ -390,7 +395,9 @@ export async function disconnectCloudflare(env: Env, bucketName: string): Promis
   const conn = readConnection(await readDeployKeys(env, bucketName));
   if (conn && conn.source === 'oauth') {
     const provider = await getCloudflareProvider(env);
-    if (provider) await provider.revoke(conn.accessToken);
+    // Revoke the refresh token when present — per RFC 7009 that invalidates the whole
+    // grant family, not just the short-lived access token.
+    if (provider) await provider.revoke(conn.refreshToken ?? conn.accessToken);
   }
   await clearCloudflareConnection(env, bucketName);
 }

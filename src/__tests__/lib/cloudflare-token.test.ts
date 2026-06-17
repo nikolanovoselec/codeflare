@@ -394,6 +394,29 @@ describe('setCloudflareAccount', () => {
 
     expect(await setCloudflareAccount(env(), BUCKET, 'nope')).toBe(false);
   });
+
+  it('refreshes an expiring token before listing accounts and preserves the rotated token', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-15T00:00:00Z'));
+    configureClient();
+    mockKV._set(KEY, {
+      cloudflareApiToken: 'cf_old',
+      cloudflareTokenSource: 'oauth',
+      cloudflareRefreshToken: 'cfr_old',
+      cloudflareTokenExpiresAt: Date.now() - 1000, // expired -> must refresh before the accounts call
+    } satisfies DeployKeys);
+    mockFetch
+      .mockResolvedValueOnce(ok({ access_token: 'cf_new', refresh_token: 'cfr_new', expires_in: 3_600 })) // refresh
+      .mockResolvedValueOnce(ok({ success: true, result: [{ id: 'a', name: 'A' }] })); // accounts
+
+    expect(await setCloudflareAccount(env(), BUCKET, 'a')).toBe(true);
+
+    // accounts fetched with the refreshed token, not the stale one (the bug this fixes)
+    expect((mockFetch.mock.calls[1][1] as RequestInit).headers).toMatchObject({ Authorization: 'Bearer cf_new' });
+    const raw = (await mockKV.get(KEY, 'json')) as DeployKeys;
+    expect(raw.cloudflareAccountId).toBe('a');
+    expect(raw.cloudflareApiToken).toBe('cf_new'); // rotated token not clobbered by the account write
+  });
 });
 
 describe('disconnectCloudflare', () => {
@@ -406,6 +429,22 @@ describe('disconnectCloudflare', () => {
 
     const [url] = mockFetch.mock.calls[0];
     expect(String(url)).toBe('https://dash.cloudflare.com/oauth2/revoke');
+    expect(await mockKV.get(KEY)).toBeNull();
+  });
+
+  it('revokes the refresh token (whole grant family) when one is stored', async () => {
+    configureClient();
+    mockKV._set(KEY, {
+      cloudflareApiToken: 'cf_a',
+      cloudflareTokenSource: 'oauth',
+      cloudflareRefreshToken: 'cfr_a',
+    } satisfies DeployKeys);
+    mockFetch.mockResolvedValueOnce(ok({}));
+
+    await disconnectCloudflare(env(), BUCKET);
+
+    const body = form((mockFetch.mock.calls[0][1] as RequestInit).body);
+    expect(body.get('token')).toBe('cfr_a'); // the refresh token, not the access token
     expect(await mockKV.get(KEY)).toBeNull();
   });
 });
