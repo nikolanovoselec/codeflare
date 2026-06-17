@@ -33,16 +33,6 @@ const OAUTH_TOKEN_URL = 'https://dash.cloudflare.com/oauth2/token';
 const OAUTH_REVOKE_URL = 'https://dash.cloudflare.com/oauth2/revoke';
 const ACCOUNTS_URL = 'https://api.cloudflare.com/client/v4/accounts';
 
-/**
- * Default OAuth scope. `offline_access` is REQUIRED to receive a refresh token
- * (confirmed in `dash.cloudflare.com/.well-known/openid-configuration`:
- * grant_types_supported includes `refresh_token`, scopes_supported includes
- * `offline_access`). The per-tier *permission* scopes (Workers/Pages/etc., whose
- * identifiers correspond to API-token permission names) are layered on in the
- * route from the tier→scope mapping (Phase 5); callers pass the full scope here.
- */
-export const CLOUDFLARE_OAUTH_BASE_SCOPE = 'offline_access';
-
 export type CloudflareTokenSource = 'oauth' | 'pat';
 
 /** A resolved Cloudflare connection, persisted across the cloudflare fields of DeployKeys. */
