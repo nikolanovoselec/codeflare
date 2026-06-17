@@ -35,7 +35,12 @@ describe('cloudflareScopeForTier', () => {
     for (const s of [minimal, recommended, advanced]) {
       expect(s.split(' ')).toContain('offline_access'); // refresh-token grant
     }
-    // Each tier is a superset of the previous (more scopes granted).
+    // Each tier is a proper superset of the previous — verified by containment, not
+    // just length: every minimal scope is in recommended, every recommended in advanced.
+    const recSet = new Set(recommended.split(' '));
+    const advSet = new Set(advanced.split(' '));
+    expect(minimal.split(' ').every((s) => recSet.has(s))).toBe(true);
+    expect([...recSet].every((s) => advSet.has(s))).toBe(true);
     expect(recommended.split(' ').length).toBeGreaterThan(minimal.split(' ').length);
     expect(advanced.split(' ').length).toBeGreaterThan(recommended.split(' ').length);
     // Advanced unlocks AI; minimal does not.

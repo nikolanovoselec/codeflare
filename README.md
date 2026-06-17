@@ -355,7 +355,9 @@ Non-enterprise users pick a scope level when connecting (the connect card shows 
 
 (GitHub *App* providers and Enterprise mode ignore the tier — permissions are fixed at install.)
 
-**Selecting these scopes on the Cloudflare dashboard.** When you create/edit the OAuth client, Cloudflare's picker shows **descriptive names** — the literal scope ID only appears *after* you save, which makes it easy to pick the wrong one. Match by the table below, and register the **full Advanced superset** (all 21); each per-connect tier just requests a subset of it.
+#### Selecting these scopes on the Cloudflare dashboard
+
+When you create/edit the OAuth client, Cloudflare's picker shows **descriptive names** — the literal scope ID only appears *after* you save, which makes it easy to pick the wrong one. Match by the table below, and register the **full Advanced superset** (all 21, **plus `offline_access`**); each per-connect tier just requests a subset of it.
 
 > ⚠️ **"Access: Apps and Policies Write" is listed twice** with different IDs. Select the one whose ID is **`zone-access.write`** — *not* `access.write`.
 
@@ -382,8 +384,9 @@ Non-enterprise users pick a scope level when connecting (the connect card shows 
 | Workers Observability Write | `workers-observability.write` | Developer Platform | Advanced |
 | Workers R2 Data Catalog Write | `r2-catalog.write` | Developer Platform | Advanced |
 | Agents Gateway Write | `agw.write` | AI & Machine Learning | Advanced |
+| offline_access (refresh tokens) | `offline_access` | Other | All tiers |
 
-Plus `offline_access` (the connect flow always appends it) so a refresh token is issued. `ai.read` is **not** required — `ai.write` already covers Workers AI.
+The connect flow always appends `offline_access`, so it must be enabled on the client or token refresh silently breaks. `ai.read` is **not** required — `ai.write` already covers Workers AI.
 
 ---
 
