@@ -177,6 +177,9 @@ carries the folded vault trigger/route content (references CC-specific
 phrases to the `vault-note-capture` skill. `graph-first` rule is
 advanced-only (graphify discipline, [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify)). `karpathy` rule
 is advanced-only (LLM coding-mistakes principles).
+`frontend-components` rule is advanced-only (composable-UI standards:
+extract repeated structures, separate content from components,
+behavioral tests only).
 `engineering-constitution` rule is advanced-only (the four engineering
 mandates - no overengineering, behavioral tests only, composable
 components, SDD+TDD enforced - plus the plan gate and done gate,
