@@ -312,7 +312,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
 
 
             <div class="dashboard-stats-section">
-              <div class="dashboard-section-divider"><span>Storage</span></div>
+              <div class="dashboard-section-divider"><span>Storage Usage</span></div>
               <StatCards stats={storageStore.stats} />
             </div>
           </div>
@@ -325,7 +325,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
             <div class="panel-flip-face panel-flip-face--storage" data-active={effectiveFace() === 'storage'}>
               <Show when={githubStore.enabled}>
                 <div class="files-panel-header" data-testid="files-panel-header">
-                  <h2 class="files-panel-title" data-testid="files-panel-title">Storage</h2>
+                  <h2 class="files-panel-title" data-testid="files-panel-title">Storage Browser</h2>
                   <IconButton
                     icon={mdiFlipVertical}
                     label="Show GitHub"

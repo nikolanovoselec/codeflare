@@ -47,7 +47,7 @@ const GitHubPanel: Component<GitHubPanelProps> = (props) => {
     <Show when={githubStore.enabled}>
       <section class="github-panel" data-testid="github-panel">
         <div class="github-panel-header">
-          <h2 class="github-panel-title">GitHub</h2>
+          <h2 class="github-panel-title">GitHub Browser</h2>
           <Show when={props.onFlip}>
             <IconButton
               icon={mdiFlipVertical}
