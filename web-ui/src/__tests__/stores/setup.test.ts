@@ -461,17 +461,33 @@ describe('Setup Store', () => {
       expect(body.adminAccessGroup).toEqual(['ops_admins']);
     });
 
-    it('omits the GitHub provider config + groupRouting in non-enterprise mode (regression)', async () => {
+    it('sends the provider config but omits enterprise-only fields in non-enterprise mode', async () => {
       mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
 
       await setupStore.configure();
 
       const [, options] = mockFetch.mock.calls[0];
       const body = JSON.parse(options.body);
-      expect(body.githubProviderType).toBeUndefined();
-      expect(body.githubAppClientId).toBeUndefined();
+      // Provider config (GitHub + Cloudflare) is sent in any mode — the Setup wizard
+      // is admin-gated everywhere, so the connect apps are configurable everywhere.
+      expect(body.githubProviderType).toBe('app');
+      expect(body).toHaveProperty('cloudflareOauthClientId');
+      // Enterprise-only fields stay omitted in non-enterprise (byte-identical body).
       expect(body.groupRouting).toBeUndefined();
       expect(body.adminAccessGroup).toBeUndefined();
+    });
+
+    it('sends the Cloudflare OAuth client values in a non-enterprise configure', async () => {
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+
+      setupStore.setCloudflareOauthClientId('cf-cid');
+      setupStore.setCloudflareOauthClientSecret('cf-sec');
+      await setupStore.configure();
+
+      const [, options] = mockFetch.mock.calls[0];
+      const body = JSON.parse(options.body);
+      expect(body.cloudflareOauthClientId).toBe('cf-cid');
+      expect(body.cloudflareOauthClientSecret).toBe('cf-sec');
     });
 
     it('round-trips the GitHub provider config + groupRouting from prefill', async () => {

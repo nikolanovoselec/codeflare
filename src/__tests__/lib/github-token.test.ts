@@ -246,6 +246,24 @@ describe('getGithubProvider', () => {
   it('enterprise returns null when neither KV nor env is configured', async () => {
     expect(await getGithubProvider(env({ ENTERPRISE_MODE: 'active' }))).toBeNull();
   });
+
+  // The admin Setup wizard is admin-gated in every mode, so a KV-configured
+  // provider must also resolve in non-enterprise deployments (REQ-GITHUB-008).
+  it('non-enterprise resolves the provider from the admin Setup KV', async () => {
+    mockKV.put(SETUP_KEYS.GITHUB_PROVIDER_TYPE, 'oauth');
+    mockKV.put(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID, 'kv-oauth-cid');
+    mockKV.put(SETUP_KEYS.GITHUB_OAUTH_CLIENT_SECRET, JSON.stringify({ secret: 'kv-oauth-sec' }));
+    const p = await getGithubProvider(env()); // no ENTERPRISE_MODE
+    expect(p?.source).toBe('oauth');
+    const url = new URL(p!.authorizeUrl({ state: 's', redirectUri: 'r' }));
+    expect(url.searchParams.get('client_id')).toBe('kv-oauth-cid');
+  });
+  it('non-enterprise Setup KV config wins over the login OAuth env vars', async () => {
+    mockKV.put(SETUP_KEYS.GITHUB_PROVIDER_TYPE, 'app');
+    mockKV.put(SETUP_KEYS.GITHUB_APP_CLIENT_ID, 'kv-app-cid');
+    mockKV.put(SETUP_KEYS.GITHUB_APP_CLIENT_SECRET, JSON.stringify({ secret: 'kv-app-sec' }));
+    expect((await getGithubProvider(env(OAUTH_ENV)))?.source).toBe('app');
+  });
 });
 
 // ─── Authorize URL (REQ-GITHUB-001) ────────────────────────────────────────

@@ -6,6 +6,7 @@ import ChipListField from '../ui/ChipListField';
 import Select from '../ui/Select';
 import PerGroupRoutingCard from './PerGroupRoutingCard';
 import GitHubProviderChooser from './GitHubProviderChooser';
+import CloudflareProviderChooser from './CloudflareProviderChooser';
 import '../../styles/configure-step.css';
 
 const REASONING_OPTIONS = [
@@ -234,20 +235,35 @@ const ConfigureStep: Component = () => {
           />
         </div>
 
-        {/* REQ-GITHUB-008: enterprise GitHub provider config (GitHub App vs OAuth App). */}
-        <GitHubProviderChooser
-          providerType={setupStore.githubProviderType}
-          appClientId={setupStore.githubAppClientId}
-          appClientSecret={setupStore.githubAppClientSecret}
-          appClientSecretSet={setupStore.githubAppClientSecretSet}
-          oauthClientId={setupStore.githubOauthClientId}
-          oauthClientSecret={setupStore.githubOauthClientSecret}
-          oauthClientSecretSet={setupStore.githubOauthClientSecretSet}
-          onProviderTypeChange={(t) => setupStore.setGithubProviderType(t)}
-          onAppClientIdChange={(v) => setupStore.setGithubAppClientId(v)}
-          onAppClientSecretChange={(v) => setupStore.setGithubAppClientSecret(v)}
-          onOauthClientIdChange={(v) => setupStore.setGithubOauthClientId(v)}
-          onOauthClientSecretChange={(v) => setupStore.setGithubOauthClientSecret(v)}
+      </Show>
+
+      {/* REQ-GITHUB-008: GitHub provider config (admin, any mode — the Setup wizard
+          is admin-gated everywhere). The connect flow uses this dedicated app,
+          distinct from the SaaS login OAuth app. */}
+      <GitHubProviderChooser
+        providerType={setupStore.githubProviderType}
+        appClientId={setupStore.githubAppClientId}
+        appClientSecret={setupStore.githubAppClientSecret}
+        appClientSecretSet={setupStore.githubAppClientSecretSet}
+        oauthClientId={setupStore.githubOauthClientId}
+        oauthClientSecret={setupStore.githubOauthClientSecret}
+        oauthClientSecretSet={setupStore.githubOauthClientSecretSet}
+        onProviderTypeChange={(t) => setupStore.setGithubProviderType(t)}
+        onAppClientIdChange={(v) => setupStore.setGithubAppClientId(v)}
+        onAppClientSecretChange={(v) => setupStore.setGithubAppClientSecret(v)}
+        onOauthClientIdChange={(v) => setupStore.setGithubOauthClientId(v)}
+        onOauthClientSecretChange={(v) => setupStore.setGithubOauthClientSecret(v)}
+      />
+
+      {/* Connect-to-Cloudflare OAuth client (admin, non-enterprise). Enterprise has
+          no per-user Cloudflare deploy flow, so the chooser is hidden there. */}
+      <Show when={!setupStore.enterpriseMode}>
+        <CloudflareProviderChooser
+          clientId={setupStore.cloudflareOauthClientId}
+          clientSecret={setupStore.cloudflareOauthClientSecret}
+          clientSecretSet={setupStore.cloudflareOauthClientSecretSet}
+          onClientIdChange={(v) => setupStore.setCloudflareOauthClientId(v)}
+          onClientSecretChange={(v) => setupStore.setCloudflareOauthClientSecret(v)}
         />
       </Show>
 

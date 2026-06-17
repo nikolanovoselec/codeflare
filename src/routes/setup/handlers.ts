@@ -118,12 +118,26 @@ async function resolveAccountId(token: string, kv: KVNamespace): Promise<string 
  */
 handlers.get('/prefill', prefillRateLimiter, async (c) => {
   const token = c.env.CLOUDFLARE_API_TOKEN;
-  // Enterprise: surface the currently-stored Access groups / route catalog /
-  // default route so the wizard round-trips on re-run. parseAccessGroups splits
-  // the CSV-joined groups value back into the chip array the UI expects. Gated on
-  // enterprise mode so a non-enterprise prefill response is byte-identical to
-  // before this feature (the fields are enterprise-only).
-  let enterpriseExtras: Record<string, unknown> = {};
+  // REQ-GITHUB-008: the admin provider config prefill applies in ANY mode (the Setup
+  // wizard is admin-gated everywhere). Surface the provider type + non-secret client
+  // ids and whether each client secret is set (masked — never return the secrets).
+  // Covers the GitHub provider AND the Connect-to-Cloudflare OAuth client.
+  const githubProviderType = (await c.env.KV.get(SETUP_KEYS.GITHUB_PROVIDER_TYPE)) ?? null;
+  const githubAppClientId = (await c.env.KV.get(SETUP_KEYS.GITHUB_APP_CLIENT_ID)) ?? '';
+  const githubAppClientSecretSet = Boolean(await c.env.KV.get(SETUP_KEYS.GITHUB_APP_CLIENT_SECRET));
+  const githubOauthClientId = (await c.env.KV.get(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID)) ?? '';
+  const githubOauthClientSecretSet = Boolean(await c.env.KV.get(SETUP_KEYS.GITHUB_OAUTH_CLIENT_SECRET));
+  const cloudflareOauthClientId = (await c.env.KV.get(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID)) ?? '';
+  const cloudflareOauthClientSecretSet = Boolean(await c.env.KV.get(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_SECRET));
+
+  // Enterprise: additionally surface the stored Access groups / route catalog /
+  // default route / per-group routing / browser-render token so the wizard round-
+  // trips on re-run. parseAccessGroups splits the CSV-joined groups value back into
+  // the chip array the UI expects. These fields are enterprise-only.
+  let enterpriseExtras: Record<string, unknown> = {
+    githubProviderType, githubAppClientId, githubAppClientSecretSet, githubOauthClientId, githubOauthClientSecretSet,
+    cloudflareOauthClientId, cloudflareOauthClientSecretSet,
+  };
   if (isEnterpriseMode(c.env)) {
     const enterpriseAccessGroup = parseAccessGroups(await c.env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP));
     // REQ-ENTERPRISE-014: surface the stored admin Access groups so the wizard
@@ -142,21 +156,14 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
     // wizard round-trips on re-run.
     const browserRenderTokenSet = Boolean(await c.env.KV.get(SETUP_KEYS.BROWSER_RENDER_TOKEN));
     const browserRenderAccountId = (await c.env.KV.get(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID)) ?? '';
-    // REQ-GITHUB-008: surface the GitHub provider type + non-secret client ids and
-    // whether each client secret is set (masked — never return the secrets).
-    const githubProviderType = (await c.env.KV.get(SETUP_KEYS.GITHUB_PROVIDER_TYPE)) ?? null;
-    const githubAppClientId = (await c.env.KV.get(SETUP_KEYS.GITHUB_APP_CLIENT_ID)) ?? '';
-    const githubAppClientSecretSet = Boolean(await c.env.KV.get(SETUP_KEYS.GITHUB_APP_CLIENT_SECRET));
-    const githubOauthClientId = (await c.env.KV.get(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID)) ?? '';
-    const githubOauthClientSecretSet = Boolean(await c.env.KV.get(SETUP_KEYS.GITHUB_OAUTH_CLIENT_SECRET));
     // REQ-ENTERPRISE-013: surface the per-group routing map (route names only, no secrets).
     let groupRouting: Record<string, { routes: string[]; defaultRoute: string; reasoning: string }> = {};
     try {
       groupRouting = (await c.env.KV.get<Record<string, { routes: string[]; defaultRoute: string; reasoning: string }>>(SETUP_KEYS.GROUP_ROUTING, 'json')) ?? {};
     } catch { /* malformed stored JSON → wizard starts from empty */ }
     enterpriseExtras = {
+      ...enterpriseExtras,
       enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, browserRenderTokenSet, browserRenderAccountId,
-      githubProviderType, githubAppClientId, githubAppClientSecretSet, githubOauthClientId, githubOauthClientSecretSet,
       groupRouting,
     };
   }

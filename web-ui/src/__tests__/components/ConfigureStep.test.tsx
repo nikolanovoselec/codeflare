@@ -24,6 +24,9 @@ const storeState = vi.hoisted(() => ({
   githubOauthClientId: '',
   githubOauthClientSecret: '',
   githubOauthClientSecretSet: false,
+  cloudflareOauthClientId: '',
+  cloudflareOauthClientSecret: '',
+  cloudflareOauthClientSecretSet: false,
   groupRouting: {} as Record<string, { routes: string[]; defaultRoute: string; reasoning: 'off' | 'low' | 'medium' | 'high' }>,
 }));
 
@@ -48,6 +51,8 @@ const storeMethods = vi.hoisted(() => ({
   setGithubAppClientSecret: vi.fn((v: string) => { storeState.githubAppClientSecret = v; }),
   setGithubOauthClientId: vi.fn((v: string) => { storeState.githubOauthClientId = v; }),
   setGithubOauthClientSecret: vi.fn((v: string) => { storeState.githubOauthClientSecret = v; }),
+  setCloudflareOauthClientId: vi.fn((v: string) => { storeState.cloudflareOauthClientId = v; }),
+  setCloudflareOauthClientSecret: vi.fn((v: string) => { storeState.cloudflareOauthClientSecret = v; }),
   toggleGroupRoute: vi.fn(),
   setGroupDefaultRoute: vi.fn(),
   setGroupReasoning: vi.fn(),
@@ -79,6 +84,9 @@ vi.mock('../../stores/setup', () => ({
     get githubOauthClientId() { return storeState.githubOauthClientId; },
     get githubOauthClientSecret() { return storeState.githubOauthClientSecret; },
     get githubOauthClientSecretSet() { return storeState.githubOauthClientSecretSet; },
+    get cloudflareOauthClientId() { return storeState.cloudflareOauthClientId; },
+    get cloudflareOauthClientSecret() { return storeState.cloudflareOauthClientSecret; },
+    get cloudflareOauthClientSecretSet() { return storeState.cloudflareOauthClientSecretSet; },
     get groupRouting() { return storeState.groupRouting; },
     ...storeMethods,
   },
@@ -113,6 +121,9 @@ describe('ConfigureStep', () => {
     storeState.githubOauthClientId = '';
     storeState.githubOauthClientSecret = '';
     storeState.githubOauthClientSecretSet = false;
+    storeState.cloudflareOauthClientId = '';
+    storeState.cloudflareOauthClientSecret = '';
+    storeState.cloudflareOauthClientSecretSet = false;
     storeState.groupRouting = {};
   });
 
@@ -340,7 +351,8 @@ describe('ConfigureStep', () => {
     it('does not render the Browser Rendering fields outside enterprise mode', () => {
       storeState.enterpriseMode = false;
       render(() => <ConfigureStep />);
-      expect(document.querySelector('input[type="password"]')).toBeNull();
+      // The browser-render account-id field is the enterprise-only marker. (Password
+      // inputs now also exist from the provider choosers, which render in any mode.)
       expect(screen.queryByPlaceholderText('32-character account ID')).not.toBeInTheDocument();
     });
 
@@ -533,7 +545,8 @@ describe('ConfigureStep', () => {
     });
   });
 
-  // REQ-GITHUB-008: GitHub provider chooser is enterprise-only.
+  // REQ-GITHUB-008: GitHub provider chooser renders for admins in ANY mode (the
+  // Setup wizard is admin-gated everywhere).
   describe('GitHub provider chooser', () => {
     it('renders the provider chooser in enterprise mode', () => {
       storeState.enterpriseMode = true;
@@ -541,10 +554,10 @@ describe('ConfigureStep', () => {
       expect(document.querySelector('.github-provider-select')).not.toBeNull();
     });
 
-    it('does not render the chooser outside enterprise mode', () => {
+    it('renders the chooser outside enterprise mode too (admin, any mode)', () => {
       storeState.enterpriseMode = false;
       render(() => <ConfigureStep />);
-      expect(document.querySelector('.github-provider-select')).toBeNull();
+      expect(document.querySelector('.github-provider-select')).not.toBeNull();
     });
 
     it('shows the App client-id field for the app provider and switches provider on change', () => {
@@ -562,6 +575,37 @@ describe('ConfigureStep', () => {
       storeState.githubProviderType = 'oauth';
       render(() => <ConfigureStep />);
       expect(screen.getByPlaceholderText('OAuth App Client ID')).toBeInTheDocument();
+    });
+  });
+
+  // Connect-to-Cloudflare OAuth client chooser: admin, non-enterprise only.
+  describe('Cloudflare provider chooser', () => {
+    it('renders the chooser outside enterprise mode', () => {
+      storeState.enterpriseMode = false;
+      render(() => <ConfigureStep />);
+      expect(screen.getByTestId('cloudflare-provider-chooser')).toBeInTheDocument();
+    });
+
+    it('does not render the chooser in enterprise mode', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      expect(screen.queryByTestId('cloudflare-provider-chooser')).not.toBeInTheDocument();
+    });
+
+    it('routes the client-id input to setCloudflareOauthClientId', () => {
+      storeState.enterpriseMode = false;
+      render(() => <ConfigureStep />);
+      const idInput = screen.getByPlaceholderText('Cloudflare OAuth Client ID');
+      fireEvent.input(idInput, { target: { value: 'cf-cid' } });
+      expect(storeMethods.setCloudflareOauthClientId).toHaveBeenCalledWith('cf-cid');
+    });
+
+    it('routes the client-secret input to setCloudflareOauthClientSecret', () => {
+      storeState.enterpriseMode = false;
+      render(() => <ConfigureStep />);
+      const secretInput = screen.getByPlaceholderText('Cloudflare OAuth Client Secret');
+      fireEvent.input(secretInput, { target: { value: 'cf-sec' } });
+      expect(storeMethods.setCloudflareOauthClientSecret).toHaveBeenCalledWith('cf-sec');
     });
   });
 });

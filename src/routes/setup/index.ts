@@ -74,7 +74,7 @@ const ConfigureBodySchema = z.object({
   // masked on prefill; a blank/masked value on save leaves the stored token in place.
   browserRenderToken: z.string().max(512).optional(),
   browserRenderAccountId: z.string().max(128).optional(),
-  // REQ-GITHUB-008 (enterprise-only): admin-configured GitHub provider. The chooser
+  // REQ-GITHUB-008 (admin, any mode): admin-configured GitHub provider. The chooser
   // selects 'app' | 'oauth'; the matching client id is non-secret, the secret is
   // encrypted at rest and masked on prefill (blank on save ⇒ keep the stored secret).
   githubProviderType: z.enum(['app', 'oauth']).optional(),
@@ -82,6 +82,11 @@ const ConfigureBodySchema = z.object({
   githubAppClientSecret: z.string().max(512).optional(),
   githubOauthClientId: z.string().max(256).optional(),
   githubOauthClientSecret: z.string().max(512).optional(),
+  // Connect-to-Cloudflare OAuth client (admin, non-enterprise). The client id is
+  // non-secret; the secret is encrypted at rest and masked on prefill (blank on
+  // save ⇒ keep the stored secret). Mirrors the GitHub OAuth provider fields.
+  cloudflareOauthClientId: z.string().max(256).optional(),
+  cloudflareOauthClientSecret: z.string().max(512).optional(),
   // REQ-ENTERPRISE-013 (enterprise-only): per-group routing. Keyed by Access group
   // name -> { routes (subset of dynamicRoutes), defaultRoute (∈ that group's routes),
   // reasoning }. Absent ⇒ the global catalog applies to everyone (unchanged behavior).
@@ -161,7 +166,7 @@ app.post('/configure', async (c) => {
   // Validate body synchronously before starting the stream
   const body = await parseJsonBody(c, ConfigureBodySchema);
 
-  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, browserRenderToken, browserRenderAccountId, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, groupRouting } = body;
+  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, browserRenderToken, browserRenderAccountId, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, groupRouting } = body;
   const token = c.env.CLOUDFLARE_API_TOKEN;
 
   // During reconfiguration, prevent admin from removing themselves
@@ -181,12 +186,13 @@ app.post('/configure', async (c) => {
     throw new ValidationError('At least one dynamic route is required in enterprise mode');
   }
 
-  // REQ-GITHUB-008: a GitHub client secret stored without ENCRYPTION_KEY would be
-  // plaintext at rest. Reject before any KV write (so a rejected configure leaves no
-  // partial state) rather than silently downgrade — fail closed.
-  if (isEnterpriseMode(c.env) && (githubAppClientSecret?.trim() || githubOauthClientSecret?.trim())) {
+  // REQ-GITHUB-008: a provider client secret stored without ENCRYPTION_KEY would be
+  // plaintext at rest. Applies to the GitHub provider (admin, any mode) and the
+  // Connect-to-Cloudflare OAuth client. Reject before any KV write (so a rejected
+  // configure leaves no partial state) rather than silently downgrade — fail closed.
+  if (githubAppClientSecret?.trim() || githubOauthClientSecret?.trim() || cloudflareOauthClientSecret?.trim()) {
     if (!(await getOrImportKey(c.env))) {
-      throw new ValidationError('ENCRYPTION_KEY must be configured before storing a GitHub client secret');
+      throw new ValidationError('ENCRYPTION_KEY must be configured before storing a client secret');
     }
   }
 
@@ -410,30 +416,6 @@ app.post('/configure', async (c) => {
           await encryptAndStore(c.env.KV, SETUP_KEYS.BROWSER_RENDER_TOKEN, { token: tok }, cryptoKey);
         }
 
-        // REQ-GITHUB-008: persist the admin GitHub provider config. Provider type +
-        // client ids are non-secret (plain); the client secret is encrypted at rest.
-        // Both secrets are no-clobber on blank — the masked prefill sends them blank
-        // when unchanged, so a blank value means "keep what's stored", not "clear".
-        if (githubProviderType) {
-          await c.env.KV.put(SETUP_KEYS.GITHUB_PROVIDER_TYPE, githubProviderType);
-        }
-        const ghAppId = githubAppClientId?.trim();
-        if (ghAppId) await c.env.KV.put(SETUP_KEYS.GITHUB_APP_CLIENT_ID, ghAppId);
-        const ghOauthId = githubOauthClientId?.trim();
-        if (ghOauthId) await c.env.KV.put(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID, ghOauthId);
-        const ghAppSecret = githubAppClientSecret?.trim();
-        const ghOauthSecret = githubOauthClientSecret?.trim();
-        if (ghAppSecret || ghOauthSecret) {
-          // The no-ENCRYPTION_KEY case was rejected pre-stream (fail closed), so the
-          // key is present here; the guard is defensive so a secret is never written
-          // as plaintext even if the key somehow resolves null.
-          const cryptoKey = await getOrImportKey(c.env);
-          if (cryptoKey) {
-            if (ghAppSecret) await encryptAndStore(c.env.KV, SETUP_KEYS.GITHUB_APP_CLIENT_SECRET, { secret: ghAppSecret }, cryptoKey);
-            if (ghOauthSecret) await encryptAndStore(c.env.KV, SETUP_KEYS.GITHUB_OAUTH_CLIENT_SECRET, { secret: ghOauthSecret }, cryptoKey);
-          }
-        }
-
         // REQ-ENTERPRISE-013: persist the per-group routing map (or clear it when empty).
         if (groupRouting !== undefined) {
           if (Object.keys(groupRouting).length > 0) {
@@ -441,6 +423,35 @@ app.post('/configure', async (c) => {
           } else {
             await c.env.KV.delete(SETUP_KEYS.GROUP_ROUTING);
           }
+        }
+      }
+
+      // REQ-GITHUB-008: persist the admin provider config (any mode — the Setup
+      // wizard is admin-gated everywhere). Provider type + client ids are non-secret
+      // (plain); client secrets are encrypted at rest. Every secret is no-clobber on
+      // blank — the masked prefill sends them blank when unchanged, so a blank value
+      // means "keep what's stored", not "clear". Covers the GitHub provider AND the
+      // Connect-to-Cloudflare OAuth client. The no-ENCRYPTION_KEY case was rejected
+      // pre-stream (fail closed); the cryptoKey guard below is defensive so a secret
+      // is never written as plaintext even if the key somehow resolves null.
+      if (githubProviderType) {
+        await c.env.KV.put(SETUP_KEYS.GITHUB_PROVIDER_TYPE, githubProviderType);
+      }
+      const ghAppId = githubAppClientId?.trim();
+      if (ghAppId) await c.env.KV.put(SETUP_KEYS.GITHUB_APP_CLIENT_ID, ghAppId);
+      const ghOauthId = githubOauthClientId?.trim();
+      if (ghOauthId) await c.env.KV.put(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID, ghOauthId);
+      const cfOauthId = cloudflareOauthClientId?.trim();
+      if (cfOauthId) await c.env.KV.put(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID, cfOauthId);
+      const ghAppSecret = githubAppClientSecret?.trim();
+      const ghOauthSecret = githubOauthClientSecret?.trim();
+      const cfOauthSecret = cloudflareOauthClientSecret?.trim();
+      if (ghAppSecret || ghOauthSecret || cfOauthSecret) {
+        const cryptoKey = await getOrImportKey(c.env);
+        if (cryptoKey) {
+          if (ghAppSecret) await encryptAndStore(c.env.KV, SETUP_KEYS.GITHUB_APP_CLIENT_SECRET, { secret: ghAppSecret }, cryptoKey);
+          if (ghOauthSecret) await encryptAndStore(c.env.KV, SETUP_KEYS.GITHUB_OAUTH_CLIENT_SECRET, { secret: ghOauthSecret }, cryptoKey);
+          if (cfOauthSecret) await encryptAndStore(c.env.KV, SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_SECRET, { secret: cfOauthSecret }, cryptoKey);
         }
       }
 

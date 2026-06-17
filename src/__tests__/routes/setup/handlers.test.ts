@@ -310,13 +310,25 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
       expect(body.githubAppClientSecretSet).toBe(false);
     });
 
-    it('GET /prefill omits the GitHub fields when ENTERPRISE_MODE is unset', async () => {
-      mockKV._store.set('setup:github_provider_type', 'app');
-      const app = createApp();
+    it('GET /prefill surfaces the GitHub + Cloudflare provider fields in non-enterprise (admin, any mode)', async () => {
+      // The Setup wizard is admin-gated in every mode, so the provider config must
+      // round-trip in non-enterprise too — while enterprise-only fields stay absent.
+      mockKV._store.set('setup:github_provider_type', 'oauth');
+      mockKV._store.set('setup:github_oauth_client_id', 'oauth-cid');
+      mockKV._store.set('setup:cloudflare_oauth_client_id', 'cf-cid');
+      mockKV._store.set('setup:cloudflare_oauth_client_secret', 'cf-secret-blob');
+      const app = createApp(); // ENTERPRISE_MODE unset
       const res = await app.request('/setup/prefill');
       const body = await res.json() as Record<string, unknown>;
-      expect(body).not.toHaveProperty('githubProviderType');
-      expect(body).not.toHaveProperty('githubAppClientSecretSet');
+      expect(body.githubProviderType).toBe('oauth');
+      expect(body.githubOauthClientId).toBe('oauth-cid');
+      expect(body.cloudflareOauthClientId).toBe('cf-cid');
+      expect(body.cloudflareOauthClientSecretSet).toBe(true);
+      // The secret value itself is never surfaced to the browser.
+      expect(JSON.stringify(body)).not.toContain('cf-secret-blob');
+      // Enterprise-only fields stay absent in non-enterprise.
+      expect(body).not.toHaveProperty('enterpriseAccessGroup');
+      expect(body).not.toHaveProperty('browserRenderTokenSet');
     });
   });
 

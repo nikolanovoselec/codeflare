@@ -218,6 +218,10 @@ export const SetupPrefillResponseSchema = z.object({
   githubAppClientSecretSet: z.boolean().default(false),
   githubOauthClientId: z.string().default(''),
   githubOauthClientSecretSet: z.boolean().default(false),
+  // Connect-to-Cloudflare OAuth client (masked — only whether the secret is set) +
+  // the non-secret client id. Surfaced in any mode (the Setup wizard is admin-gated).
+  cloudflareOauthClientId: z.string().default(''),
+  cloudflareOauthClientSecretSet: z.boolean().default(false),
   // REQ-ENTERPRISE-013: per-group routing map (route names only, no secrets).
   groupRouting: z
     .record(z.string(), z.object({

@@ -66,6 +66,11 @@ interface SetupState {
   githubOauthClientId: string;
   githubOauthClientSecret: string;
   githubOauthClientSecretSet: boolean;
+  // Connect-to-Cloudflare OAuth client (admin, non-enterprise). Same masked-secret
+  // shape as the GitHub provider fields above.
+  cloudflareOauthClientId: string;
+  cloudflareOauthClientSecret: string;
+  cloudflareOauthClientSecretSet: boolean;
   // REQ-ENTERPRISE-013: per-group routing, keyed by Access group name.
   groupRouting: Record<string, GroupRouting>;
 }
@@ -103,6 +108,9 @@ const initialState: SetupState = {
   githubOauthClientId: '',
   githubOauthClientSecret: '',
   githubOauthClientSecretSet: false,
+  cloudflareOauthClientId: '',
+  cloudflareOauthClientSecret: '',
+  cloudflareOauthClientSecretSet: false,
   groupRouting: {},
 };
 
@@ -230,6 +238,10 @@ function setGithubAppClientId(v: string): void { setState('githubAppClientId', v
 function setGithubAppClientSecret(v: string): void { setState('githubAppClientSecret', v); }
 function setGithubOauthClientId(v: string): void { setState('githubOauthClientId', v); }
 function setGithubOauthClientSecret(v: string): void { setState('githubOauthClientSecret', v); }
+
+// ─── Connect-to-Cloudflare OAuth client setters ───────────────────────────────
+function setCloudflareOauthClientId(v: string): void { setState('cloudflareOauthClientId', v); }
+function setCloudflareOauthClientSecret(v: string): void { setState('cloudflareOauthClientSecret', v); }
 
 // ─── REQ-ENTERPRISE-013: per-group routing setters ────────────────────────────
 function emptyGroupRouting(): GroupRouting { return { routes: [], defaultRoute: '', reasoning: 'off' }; }
@@ -381,13 +393,23 @@ async function loadExistingConfig(): Promise<void> {
             s.githubAppClientSecretSet = prefill.githubAppClientSecretSet;
             s.githubOauthClientId = prefill.githubOauthClientId;
             s.githubOauthClientSecretSet = prefill.githubOauthClientSecretSet;
+            s.cloudflareOauthClientId = prefill.cloudflareOauthClientId;
+            s.cloudflareOauthClientSecretSet = prefill.cloudflareOauthClientSecretSet;
             s.groupRouting = prefill.groupRouting;
           })
         );
         return;
       }
-      // Reconfiguration: load existing config so admin can see what's set
+      // Reconfiguration: load existing config so admin can see what's set.
       const { users: usersRes } = await api.getUsers();
+      // The admin provider config (GitHub + Cloudflare) round-trips via the setup
+      // prefill (masked secrets) in non-enterprise too — the Setup wizard is admin-
+      // gated in every mode. Best-effort: a prefill failure must not abort the
+      // admin/users load above.
+      let reconfigPrefill: Awaited<ReturnType<typeof api.getSetupPrefill>> | null = null;
+      try {
+        reconfigPrefill = await api.getSetupPrefill();
+      } catch { /* prefill is best-effort */ }
       setState(
         produce((s) => {
           if (statusRes.customDomain) {
@@ -400,6 +422,15 @@ async function loadExistingConfig(): Promise<void> {
             s.allowedUsers = usersRes
               .filter((u) => u.role !== 'admin')
               .map((u) => u.email);
+          }
+          if (reconfigPrefill) {
+            s.githubProviderType = reconfigPrefill.githubProviderType ?? 'app';
+            s.githubAppClientId = reconfigPrefill.githubAppClientId;
+            s.githubAppClientSecretSet = reconfigPrefill.githubAppClientSecretSet;
+            s.githubOauthClientId = reconfigPrefill.githubOauthClientId;
+            s.githubOauthClientSecretSet = reconfigPrefill.githubOauthClientSecretSet;
+            s.cloudflareOauthClientId = reconfigPrefill.cloudflareOauthClientId;
+            s.cloudflareOauthClientSecretSet = reconfigPrefill.cloudflareOauthClientSecretSet;
           }
         })
       );
@@ -429,6 +460,13 @@ async function loadExistingConfig(): Promise<void> {
         s.defaultRouteReasoning = prefill.defaultRoute?.reasoning ?? 'off';
         s.cloudflareBrowserTokenSet = prefill.browserRenderTokenSet;
         s.cloudflareBrowserAccountId = prefill.browserRenderAccountId;
+        s.githubProviderType = prefill.githubProviderType ?? 'app';
+        s.githubAppClientId = prefill.githubAppClientId;
+        s.githubAppClientSecretSet = prefill.githubAppClientSecretSet;
+        s.githubOauthClientId = prefill.githubOauthClientId;
+        s.githubOauthClientSecretSet = prefill.githubOauthClientSecretSet;
+        s.cloudflareOauthClientId = prefill.cloudflareOauthClientId;
+        s.cloudflareOauthClientSecretSet = prefill.cloudflareOauthClientSecretSet;
       })
     );
   } catch {
@@ -454,6 +492,16 @@ async function configure(): Promise<boolean> {
         customDomain: state.customDomain,
         allowedUsers: allUsers,
         adminUsers: state.adminUsers,
+        // REQ-GITHUB-008: provider config (admin, any mode). GitHub provider type +
+        // client ids; a blank secret => backend keeps the existing one (no clobber).
+        // The Connect-to-Cloudflare OAuth client mirrors the same shape.
+        githubProviderType: state.githubProviderType,
+        githubAppClientId: state.githubAppClientId,
+        githubAppClientSecret: state.githubAppClientSecret,
+        githubOauthClientId: state.githubOauthClientId,
+        githubOauthClientSecret: state.githubOauthClientSecret,
+        cloudflareOauthClientId: state.cloudflareOauthClientId,
+        cloudflareOauthClientSecret: state.cloudflareOauthClientSecret,
         // Enterprise-only fields; omitted entirely for other modes so their
         // request body is byte-identical to today.
         ...(state.enterpriseMode ? {
@@ -467,13 +515,6 @@ async function configure(): Promise<boolean> {
           // REQ-BROWSER-007: a blank token => backend keeps the existing one (no clobber).
           browserRenderToken: state.cloudflareBrowserToken,
           browserRenderAccountId: state.cloudflareBrowserAccountId,
-          // REQ-GITHUB-008: provider type + client ids; a blank secret => backend keeps
-          // the existing one (no clobber, mirroring the browser token).
-          githubProviderType: state.githubProviderType,
-          githubAppClientId: state.githubAppClientId,
-          githubAppClientSecret: state.githubAppClientSecret,
-          githubOauthClientId: state.githubOauthClientId,
-          githubOauthClientSecret: state.githubOauthClientSecret,
           // REQ-ENTERPRISE-013: per-group routing map.
           groupRouting: state.groupRouting,
         } : {}),
@@ -646,6 +687,9 @@ export const setupStore = {
   get githubOauthClientId() { return state.githubOauthClientId; },
   get githubOauthClientSecret() { return state.githubOauthClientSecret; },
   get githubOauthClientSecretSet() { return state.githubOauthClientSecretSet; },
+  get cloudflareOauthClientId() { return state.cloudflareOauthClientId; },
+  get cloudflareOauthClientSecret() { return state.cloudflareOauthClientSecret; },
+  get cloudflareOauthClientSecretSet() { return state.cloudflareOauthClientSecretSet; },
   get groupRouting() { return state.groupRouting; },
 
   // Actions
@@ -671,6 +715,8 @@ export const setupStore = {
   setGithubAppClientSecret,
   setGithubOauthClientId,
   setGithubOauthClientSecret,
+  setCloudflareOauthClientId,
+  setCloudflareOauthClientSecret,
   toggleGroupRoute,
   setGroupDefaultRoute,
   setGroupReasoning,
