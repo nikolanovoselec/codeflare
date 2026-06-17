@@ -599,7 +599,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. The Settings "Push & Deploy" accordion presents one shared OAuth connect card per provider (GitHub, Cloudflare) — the same composable card reused by the dashboard panel and Guided Setup ([REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-AGENT-059](#req-agent-059-connect-to-cloudflare-via-oauth)). <!-- @impl: web-ui/src/components/settings/DeployKeysSection.tsx --> <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx -->
+1. The Settings "Push & Deploy" accordion presents one shared OAuth connect card per provider (GitHub, Cloudflare) — the same composable card reused by the dashboard panel and Guided Setup ([REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth)). <!-- @impl: web-ui/src/components/settings/DeployKeysSection.tsx --> <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx -->
 2. Connecting runs the provider OAuth flow (no manual token entry); the per-user token is stored encrypted server-side and never reaches the browser, and disconnect revokes + clears it. <!-- @impl: src/routes/github.ts --> <!-- @impl: src/routes/cloudflare.ts -->
 3. A connected card shows the account identity and (Cloudflare) an account picker; a scope tier can be selected before connecting. <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx -->
 4. Deploy credentials are propagated into the container environment so the agent CLIs can authenticate to GitHub and Cloudflare without additional configuration. <!-- @impl: src/routes/container/lifecycle.ts -->
@@ -610,7 +610,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-010](#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-AGENT-059](#req-agent-059-connect-to-cloudflare-via-oauth)
+**Dependencies:** [REQ-AGENT-010](#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth)
 
 **Verification:** [Accordion test](../../web-ui/src/__tests__/components/settings/DeployKeysSection.test.tsx) + [Connect card test](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx) + [Propagation test](../../src/__tests__/routes/deploy-keys.test.ts)
 
@@ -2085,12 +2085,12 @@ None.
 
 **Constraints:**
 
-- The client sends only the tier name (untrusted, normalized server-side to a known tier; default `recommended`); the concrete scope strings are defined once, server-side ([REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) AC6, [REQ-AGENT-059](#req-agent-059-connect-to-cloudflare-via-oauth)).
+- The client sends only the tier name (untrusted, normalized server-side to a known tier; default `recommended`); the concrete scope strings are defined once, server-side ([REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) AC6, [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth)).
 - A GitHub App's permissions are fixed at registration, so the tier affects only the OAuth-App path.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-018](#req-agent-018-push--deploy-credential-management-ui), [REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-AGENT-059](#req-agent-059-connect-to-cloudflare-via-oauth)
+**Dependencies:** [REQ-AGENT-018](#req-agent-018-push--deploy-credential-management-ui), [REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth)
 
 **Verification:** [Tier catalog test](../../web-ui/src/__tests__/lib/token-scopes.test.ts) + [Connect card test](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx) + [Scope mapping test](../../src/__tests__/lib/oauth-scopes.test.ts)
 
@@ -2098,7 +2098,7 @@ None.
 
 ---
 
-### REQ-AGENT-059: Connect to Cloudflare via OAuth
+### REQ-AGENT-064: Connect to Cloudflare via OAuth
 
 <!-- @impl: src/lib/cloudflare-token.ts -->
 <!-- @impl: src/routes/cloudflare.ts -->
@@ -2137,11 +2137,5 @@ None.
 **Dependencies:** [REQ-AGENT-018](#req-agent-018-push--deploy-credential-management-ui), [REQ-AGENT-029](#req-agent-029-deploy-credential-propagation-to-container), [REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-GITHUB-008](github.md#req-github-008-enterprise-github-provider-configuration-via-setup)
 
 **Verification:** [Lib test](../../src/__tests__/lib/cloudflare-token.test.ts) + [Route test](../../src/__tests__/routes/cloudflare-oauth.test.ts) + [Setup test](../../src/__tests__/routes/setup.test.ts) + [Chooser test](../../web-ui/src/__tests__/components/CloudflareProviderChooser.test.tsx)
-
-**Status:** Implemented
-
-**Dependencies:** [REQ-AGENT-010](#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-019](#req-agent-019-branded-settings-ui)
-
-**Verification:** [Token scope tests](../../web-ui/src/__tests__/lib/token-scopes.test.ts)
 
 **Status:** Implemented

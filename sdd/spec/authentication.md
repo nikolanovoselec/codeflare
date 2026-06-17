@@ -473,7 +473,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. The onboarding page shows four steps: idle timeout selector, **Connect GitHub** (OAuth), **Connect Cloudflare** (OAuth), and agent subscription. The GitHub and Cloudflare steps reuse the shared OAuth connect card ([REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-AGENT-059](agents.md#req-agent-059-connect-to-cloudflare-via-oauth)) — no manual token paste. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::OnboardingPage --> <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx -->
+1. The onboarding page shows four steps: idle timeout selector, **Connect GitHub** (OAuth), **Connect Cloudflare** (OAuth), and agent subscription. The GitHub and Cloudflare steps reuse the shared OAuth connect card ([REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth)) — no manual token paste. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::OnboardingPage --> <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx -->
 2. The idle timeout step explains compute usage and lets users choose their auto-sleep duration. Free-tier users see a locked 15m selector with upgrade hint; paying users can select 5m-2h. <!-- @impl: web-ui/src/components/OnboardingPage.tsx::OnboardingPage -->
 3. First-time users are auto-redirected to onboarding.
 4. Once onboarding has been completed, the user is not redirected there again.
@@ -484,7 +484,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode), [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings), [REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-AGENT-059](agents.md#req-agent-059-connect-to-cloudflare-via-oauth)
+**Dependencies:** [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode), [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings), [REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth)
 
 **Verification:** [Integration test](../../web-ui/src/__tests__/components/OnboardingPage.test.tsx)
 

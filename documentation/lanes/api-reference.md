@@ -16,6 +16,7 @@ Complete API endpoint reference for the Codeflare Worker.
 - [Billing](#billing)
 - [Deploy Keys](#deploy-keys)
 - [GitHub Integration](#github-integration)
+- [Cloudflare Integration](#cloudflare-integration)
 - [Public (Unauthenticated)](#public-unauthenticated)
 - [Discoverability Documents](#discoverability-documents)
 - [Setup](#setup)
@@ -154,18 +155,18 @@ The **new-session** clone path is not a GitHub route: `POST /api/sessions` accep
 
 ### Cloudflare Integration
 
-Per-user "Connect to Cloudflare" OAuth (non-enterprise only). Mounted at `/api/cloudflare` (`src/routes/cloudflare.ts`); the OAuth callback is mounted separately under `/auth/cloudflare` (`src/routes/cloudflare-auth.ts`). All routes are `authMiddleware`-only (any authenticated user) and **not** tier-gated — connect is reachable from Guided Setup + the Settings accordion. `getCloudflareProvider` returns null in **enterprise**, so every route fails closed there (`503 CLOUDFLARE_NOT_CONFIGURED`). The token is never returned to the browser ([REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-connect-to-cloudflare-via-oauth)).
+Per-user "Connect to Cloudflare" OAuth (non-enterprise only). Mounted at `/api/cloudflare` (`src/routes/cloudflare.ts`); the OAuth callback is mounted separately under `/auth/cloudflare` (`src/routes/cloudflare-auth.ts`). All routes are `authMiddleware`-only (any authenticated user) and **not** tier-gated — connect is reachable from Guided Setup + the Settings accordion. `getCloudflareProvider` returns null in **enterprise**, so every route fails closed there (`503 CLOUDFLARE_NOT_CONFIGURED`). The token is never returned to the browser ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)).
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/api/cloudflare/status` | Session cookie | [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-connect-to-cloudflare-via-oauth) | Connection state (`configured`, `connected`, `accountId`, `source`); when connected without a selected account, also the accessible `accounts`; never the token |
-| GET | `/api/cloudflare/connect` | Session cookie | [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-connect-to-cloudflare-via-oauth) | Start the OAuth authorize flow (302 to `dash.cloudflare.com/oauth2/auth`); `?tier=minimal\|recommended\|advanced` maps to the OAuth scope (always incl. `offline_access`); `503 CLOUDFLARE_NOT_CONFIGURED` when no client configured (rate-limited 20/min) |
-| POST | `/api/cloudflare/account` | Session cookie | [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-connect-to-cloudflare-via-oauth) | Select the account `{accountId}` for a connected token; `400 ACCOUNT_INVALID` when the token cannot access it (rate-limited 20/min) |
-| POST | `/api/cloudflare/disconnect` | Session cookie | [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-connect-to-cloudflare-via-oauth) | Revoke at Cloudflare and clear the stored token (rate-limited 20/min) |
+| GET | `/api/cloudflare/status` | Session cookie | [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) | Connection state (`configured`, `connected`, `accountId`, `source`); when connected without a selected account, also the accessible `accounts`; never the token |
+| GET | `/api/cloudflare/connect` | Session cookie | [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) | Start the OAuth authorize flow (302 to `dash.cloudflare.com/oauth2/auth`); `?tier=minimal\|recommended\|advanced` maps to the OAuth scope (always incl. `offline_access`); `503 CLOUDFLARE_NOT_CONFIGURED` when no client configured (rate-limited 20/min) |
+| POST | `/api/cloudflare/account` | Session cookie | [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) | Select the account `{accountId}` for a connected token; `400 ACCOUNT_INVALID` when the token cannot access it (rate-limited 20/min) |
+| POST | `/api/cloudflare/disconnect` | Session cookie | [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) | Revoke at Cloudflare and clear the stored token (rate-limited 20/min) |
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/auth/cloudflare/connect/callback` | Session cookie | [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-connect-to-cloudflare-via-oauth) | Connect-Cloudflare callback: re-derives identity from the live session, verifies the bucket-bound single-use OAuth state, exchanges the code, persists the token + auto-selects the account when exactly one is accessible (else redirects to a picker); never mints a session cookie. The OAuth client registers this exact URL. Redirects with `?cloudflare=connected\|select-account\|denied\|expired\|unavailable\|error`. |
+| GET | `/auth/cloudflare/connect/callback` | Session cookie | [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) | Connect-Cloudflare callback: re-derives identity from the live session, verifies the bucket-bound single-use OAuth state, exchanges the code, persists the token + auto-selects the account when exactly one is accessible (else redirects to a picker); never mints a session cookie. The OAuth client registers this exact URL. Redirects with `?cloudflare=connected\|select-account\|denied\|expired\|unavailable\|error`. |
 
 ### Public (Unauthenticated)
 
