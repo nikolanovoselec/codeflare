@@ -60,8 +60,8 @@ Cloudflare Containers run as root, and both Claude Code and Antigravity launch w
 
 **Native integrations, wired in, not bolted on.**
 
-- **Native GitHub integration** — connect once. Every session gets automatic `git push`, `gh` CLI, and CI/CD access. No SSH keys, no per-session auth.
-- **Native Cloudflare integration** — connect once. Deploy Workers and manage D1, R2, KV, and DNS from the terminal, already authenticated.
+- **Native GitHub integration** — connect once via OAuth (no token paste). Every session gets automatic `git push`, `gh` CLI, and CI/CD access. No SSH keys, no per-session auth.
+- **Native Cloudflare integration** — connect your own Cloudflare account once via OAuth. Deploy Workers and manage D1, R2, KV, and DNS from the terminal, already authenticated.
 - **Build, push, and deploy skills** — pre-loaded agent skills scaffold Workers projects, configure `wrangler.toml`, push to GitHub, set up CI, and deploy. Describe what you want; the agent builds, pushes, and deploys it to a live URL.
 - **Guided onboarding** — new users are walked through connecting GitHub and Cloudflare and choosing an agent. No prior Cloudflare knowledge required.
 
