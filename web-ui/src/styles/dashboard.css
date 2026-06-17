@@ -110,10 +110,12 @@
   display: none;
 }
 
-/* Files panel header — mirrors the GitHub panel header (.github-panel-header /
-   .github-panel-title) so that in enterprise mode the stacked right-column
-   panels share one visual treatment: an uppercase label and a gray bottom
-   border. Only rendered when the GitHub panel (and its flip control) exists. */
+/* Storage browser panel header — mirrors the GitHub panel header
+   (.github-panel-header / .github-panel-title) so that in enterprise mode the
+   stacked right-column panels share one visual treatment: an uppercase label
+   ("STORAGE") and a gray bottom border. Only rendered when the GitHub panel
+   (and its flip control) exists. The class stays `files-panel-*` rather than
+   `storage-panel-*`, which the modal StoragePanel already owns. */
 .files-panel-header {
   display: flex;
   align-items: center;

@@ -321,7 +321,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
             <div class="panel-flip-face panel-flip-face--storage" data-active={effectiveFace() === 'storage'}>
               <Show when={githubStore.enabled}>
                 <div class="files-panel-header" data-testid="files-panel-header">
-                  <h2 class="files-panel-title" data-testid="files-panel-title">Files</h2>
+                  <h2 class="files-panel-title" data-testid="files-panel-title">Storage</h2>
                   <IconButton
                     icon={mdiFlipVertical}
                     label="Show GitHub"
