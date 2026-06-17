@@ -580,7 +580,7 @@ None.
 
 ---
 
-<!-- @test: src/__tests__/routes/deploy-keys.test.ts (Deploy Keys routes / REQ-AGENT-018 describe -> POST validates token against provider before save + encrypted-at-rest in KV + GET returns masked tokens -> AC2 validation, AC3 encrypted-at-rest, AC4 env-var injection) -->
+<!-- @test: src/__tests__/routes/deploy-keys.test.ts (Deploy Keys routes / REQ-AGENT-018 describe -> POST validates token against provider before save + encrypted-at-rest in KV + GET returns masked tokens -> AC2 encrypted-at-rest, AC4 env-var injection) -->
 <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars describe -> emits GH_TOKEN/CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID when state has deploy keys -> AC4 env-var injection) -->
 ### REQ-AGENT-018: Push & Deploy credential management UI
 
@@ -612,7 +612,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-010](#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth)
 
-**Verification:** [Accordion test](../../web-ui/src/__tests__/components/settings/DeployKeysSection.test.tsx) + [Connect card test](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx) + [Propagation test](../../src/__tests__/routes/deploy-keys.test.ts)
+**Verification:** [Accordion test](../../web-ui/src/__tests__/components/settings/DeployKeysSection.test.tsx) + [Connect card test](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx) + [Propagation test](../../src/__tests__/routes/deploy-keys.test.ts) + [Env-var injection test](../../src/__tests__/container/container-env.test.ts)
 
 **Status:** Implemented
 
@@ -2136,7 +2136,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-018](#req-agent-018-push--deploy-credential-management-ui), [REQ-AGENT-029](#req-agent-029-deploy-credential-propagation-to-container), [REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-GITHUB-008](github.md#req-github-008-enterprise-github-provider-configuration-via-setup)
+**Dependencies:** [REQ-AGENT-029](#req-agent-029-deploy-credential-propagation-to-container), [REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-GITHUB-008](github.md#req-github-008-enterprise-github-provider-configuration-via-setup)
 
 **Verification:** [Lib test](../../src/__tests__/lib/cloudflare-token.test.ts) + [Route test](../../src/__tests__/routes/cloudflare-oauth.test.ts) + [Setup test](../../src/__tests__/routes/setup.test.ts) + [Chooser test](../../web-ui/src/__tests__/components/CloudflareProviderChooser.test.tsx)
 
