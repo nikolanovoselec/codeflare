@@ -155,7 +155,7 @@ export const AGENTS = ['claude-code', 'codex', 'copilot', 'pi', 'antigravity', '
 export const HERO = {
   kicker: {
     prefix: 'The enterprise agentic',
-    words: ['coding', 'operations', 'infrastructure', 'testing', 'review', 'delivery', 'toolchain'],
+    words: ['coding', 'operations', 'infrastructure', 'testing', 'review', 'orchestration', 'deployment', 'toolchain', 'security'],
     suffix: 'engine',
   },
   headline: { plain: 'This is not', flare: 'a coding assistant.' },
