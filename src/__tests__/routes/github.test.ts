@@ -65,10 +65,12 @@ beforeEach(() => {
 // ─── GET /status (REQ-GITHUB-002 AC1) ───────────────────────────────────────
 
 describe('GET /api/github/status', () => {
-  it('reports disabled outside enterprise mode', async () => {
+  it('reports enabled outside enterprise too (panel available in every mode)', async () => {
     const res = await createTestApp({}).request('/api/github/status');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ enabled: false, connected: false });
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.enabled).toBe(true);
+    expect(body.connected).toBe(false);
   });
 
   it('reports enabled + not connected in enterprise with no token', async () => {
@@ -99,10 +101,10 @@ describe('GET /api/github/repos', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('403s when the feature is disabled (non-enterprise)', async () => {
+  it('is reachable in non-enterprise (panel no longer enterprise-gated) — 401 when not connected', async () => {
     const res = await createTestApp({}).request('/api/github/repos');
-    expect(res.status).toBe(403);
-    expect((await res.json() as Record<string, unknown>).code).toBe('GITHUB_DISABLED');
+    expect(res.status).toBe(401);
+    expect((await res.json() as Record<string, unknown>).code).toBe('NOT_CONNECTED');
   });
 
   it('proxies the user repos with the stored token and never returns the token', async () => {
@@ -150,6 +152,15 @@ describe('GET /api/github/connect', () => {
     expect(res.status).toBe(503);
     expect((await res.json() as Record<string, unknown>).code).toBe('GITHUB_NOT_CONFIGURED');
   });
+
+  it('is reachable for a non-advanced authed user in non-enterprise (connect is not panel-gated)', async () => {
+    const res = await createTestApp({ OAUTH_CLIENT_ID: 'oauth-cid', OAUTH_CLIENT_SECRET: 'oauth-sec', OAUTH_JWT_SECRET: 'state-secret' })
+      .request('/api/github/connect');
+    expect(res.status).toBe(302);
+    const loc = new URL(res.headers.get('location')!);
+    expect(loc.host).toBe('github.com');
+    expect(loc.searchParams.get('state')).toBeTruthy();
+  });
 });
 
 // ─── POST /disconnect (REQ-GITHUB-005) ──────────────────────────────────────
@@ -175,15 +186,15 @@ function containerJson(status: number, json: unknown) {
 describe('POST /api/github/clone', () => {
   const SID = 'sid12345678';
 
-  it('403s when the GitHub feature is disabled (non-enterprise)', async () => {
+  it('is reachable in non-enterprise (panel no longer enterprise-gated) and forwards to the container', async () => {
+    containerFetch.mockResolvedValueOnce(containerJson(200, { status: 'cloned', path: '/home/user/workspace/repo' }));
     const res = await createTestApp({}).request('/api/github/clone', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ repo: 'octo/repo', sessionId: SID }),
     });
-    expect(res.status).toBe(403);
-    expect((await res.json() as Record<string, unknown>).code).toBe('GITHUB_DISABLED');
-    expect(containerFetch).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(containerFetch).toHaveBeenCalled();
   });
 
   it('forwards to the container /internal/git-clone and relays a 200', async () => {

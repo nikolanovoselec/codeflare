@@ -46,7 +46,14 @@ const Dashboard: Component<DashboardProps> = (props) => {
   // only a valid target when GitHub is enabled; when it is not (non-enterprise /
   // onboarding) force the storage (R2) face so the empty GitHub panel can never
   // become the active face and cover the file browser. (REQ-GITHUB-002)
-  const effectiveFace = () => (githubStore.enabled ? panelFace() : 'storage');
+  // The GitHub repo panel is an advanced-session feature in non-enterprise modes
+  // (matches the Vault button gate, sessionMode === 'advanced'); enterprise shows it
+  // whenever the backend enables it. Connect itself is not gated here — it lives in
+  // Guided Setup + the Settings accordion and works for every user.
+  const githubPanelAvailable = () =>
+    githubStore.enabled &&
+    (sessionStore.enterpriseMode || sessionStore.preferences?.sessionMode === 'advanced');
+  const effectiveFace = () => (githubPanelAvailable() ? panelFace() : 'storage');
   const [showCreateDialog, setShowCreateDialog] = createSignal(false);
   const [showLimitPopup, setShowLimitPopup] = createSignal(false);
   const [showUserMenu, setShowUserMenu] = createSignal(false);
@@ -331,7 +338,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
               <GitHubPanel onFlip={() => setPanelFace('storage')} />
             </div>
             <div class="panel-flip-face panel-flip-face--storage" data-active={effectiveFace() === 'storage'}>
-              <Show when={githubStore.enabled}>
+              <Show when={githubPanelAvailable()}>
                 <div class="files-panel-header" data-testid="files-panel-header">
                   <h2 class="files-panel-title" data-testid="files-panel-title">Storage Browser</h2>
                   <IconButton

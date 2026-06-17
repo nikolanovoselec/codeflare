@@ -83,6 +83,7 @@ vi.mock('../../stores/session', () => {
   let _r2Ready = true;
   let _preseedUpgrading = false;
   let _enterpriseMode = false;
+  let _sessionMode = 'advanced';
   return {
     sessionStore: {
       get sessions() { return []; },
@@ -90,8 +91,10 @@ vi.mock('../../stores/session', () => {
       get r2Ready() { return _r2Ready; },
       get preseedUpgrading() { return _preseedUpgrading; },
       get enterpriseMode() { return _enterpriseMode; },
+      get preferences() { return { sessionMode: _sessionMode }; },
       isAtSessionLimit: () => _isAtLimit,
       startR2Polling: vi.fn(),
+      _setSessionMode: (v: string) => { _sessionMode = v; },
       _setTestLimit: (atLimit: boolean, max?: number) => {
         _isAtLimit = atLimit;
         if (max !== undefined) _maxSessions = max;
@@ -174,6 +177,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     vi.useRealTimers();
     (githubStore as any)._setEnabled(false);
     (sessionStore as any)._setEnterpriseMode(false);
+    (sessionStore as any)._setSessionMode('advanced');
   });
 
   // === Enterprise dropdown gating (REQ-ENTERPRISE-008 AC2/AC8/AC9) ===
@@ -342,6 +346,26 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     // The storage panel gets a STORAGE header mirroring the GitHub panel header.
     expect(screen.getByTestId('files-panel-title')).toBeInTheDocument();
     expect(screen.getByTestId('files-panel-header')).toBeInTheDocument();
+  });
+
+  it('hides the GitHub face for a non-advanced non-enterprise session even when enabled (advanced gate)', () => {
+    (githubStore as any)._setEnabled(true);
+    (sessionStore as any)._setSessionMode('standard'); // not advanced
+    render(() => <Dashboard {...defaultProps} />);
+
+    const right = screen.getByTestId('dashboard-panel-right');
+    expect(right.getAttribute('data-face')).toBe('storage');
+    expect(screen.queryByTestId('storage-flip-btn')).not.toBeInTheDocument();
+  });
+
+  it('shows the GitHub face for an enterprise session regardless of session mode', () => {
+    (githubStore as any)._setEnabled(true);
+    (sessionStore as any)._setSessionMode('standard');
+    (sessionStore as any)._setEnterpriseMode(true);
+    render(() => <Dashboard {...defaultProps} />);
+
+    const right = screen.getByTestId('dashboard-panel-right');
+    expect(right.getAttribute('data-face')).toBe('github');
   });
 
   it('flips GitHub <-> storage when enabled and the flip controls are used', () => {
