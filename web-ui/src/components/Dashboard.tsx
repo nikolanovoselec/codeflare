@@ -202,14 +202,18 @@ const Dashboard: Component<DashboardProps> = (props) => {
                         <UsageInlineBadge />
                       </a>
                     </Show>
-                    <a
-                      href="/app/onboarding"
-                      class="header-user-dropdown-item"
-                      data-testid="header-user-dropdown-onboarding"
-                    >
-                      <Icon path={mdiRocketLaunchOutline} size={16} />
-                      <span>Guided Setup</span>
-                    </a>
+                    {/* Enterprise grants admin via Setup, not per-user
+                        onboarding — hide Guided Setup (mirrors Header.tsx). */}
+                    <Show when={!sessionStore.enterpriseMode}>
+                      <a
+                        href="/app/onboarding"
+                        class="header-user-dropdown-item"
+                        data-testid="header-user-dropdown-onboarding"
+                      >
+                        <Icon path={mdiRocketLaunchOutline} size={16} />
+                        <span>Guided Setup</span>
+                      </a>
+                    </Show>
                     <button
                       type="button"
                       class="header-user-dropdown-item header-user-dropdown-item--danger"

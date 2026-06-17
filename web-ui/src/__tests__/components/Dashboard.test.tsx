@@ -82,12 +82,14 @@ vi.mock('../../stores/session', () => {
   let _maxSessions = 3;
   let _r2Ready = true;
   let _preseedUpgrading = false;
+  let _enterpriseMode = false;
   return {
     sessionStore: {
       get sessions() { return []; },
       get maxSessions() { return _maxSessions; },
       get r2Ready() { return _r2Ready; },
       get preseedUpgrading() { return _preseedUpgrading; },
+      get enterpriseMode() { return _enterpriseMode; },
       isAtSessionLimit: () => _isAtLimit,
       startR2Polling: vi.fn(),
       _setTestLimit: (atLimit: boolean, max?: number) => {
@@ -96,6 +98,7 @@ vi.mock('../../stores/session', () => {
       },
       _setR2Ready: (ready: boolean) => { _r2Ready = ready; },
       _setPreseedUpgrading: (upgrading: boolean) => { _preseedUpgrading = upgrading; },
+      _setEnterpriseMode: (v: boolean) => { _enterpriseMode = v; },
     },
     isAtUsageQuota: () => false,
     getUsageState: () => ({ monthlySeconds: 0, monthlyQuotaSeconds: null }),
@@ -170,6 +173,25 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     cleanup();
     vi.useRealTimers();
     (githubStore as any)._setEnabled(false);
+    (sessionStore as any)._setEnterpriseMode(false);
+  });
+
+  // === Enterprise: Guided Setup gating (REQ-ENTERPRISE-008 AC8) ===
+
+  it('shows the Guided Setup dropdown item outside enterprise mode', () => {
+    (sessionStore as any)._setEnterpriseMode(false);
+    render(() => <Dashboard {...defaultProps} />);
+    fireEvent.click(screen.getByTestId('header-user-menu'));
+    expect(screen.getByTestId('header-user-dropdown-onboarding')).toBeInTheDocument();
+  });
+
+  it('hides the Guided Setup dropdown item in enterprise mode', () => {
+    (sessionStore as any)._setEnterpriseMode(true);
+    render(() => <Dashboard {...defaultProps} />);
+    fireEvent.click(screen.getByTestId('header-user-menu'));
+    expect(screen.queryByTestId('header-user-dropdown-onboarding')).not.toBeInTheDocument();
+    // The rest of the dropdown still renders.
+    expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
   });
 
   // === Initialization Tests ===
