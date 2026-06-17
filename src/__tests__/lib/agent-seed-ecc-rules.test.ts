@@ -131,6 +131,11 @@ describe('ECC rules in agent-seed', () => {
     // coding discipline default-mode vibe-coders didn't opt into, and it
     // routes to the frontend-components skill, itself advanced-only.
     '.claude/rules/frontend-components.md',
+    // engineering-constitution.md is the four-mandate spine (no overengineering,
+    // behavioral tests only, reusable/composable components, SDD+TDD enforced) plus
+    // the plan/done gates. A sibling of karpathy.md / frontend-components.md:
+    // rigorous coding discipline default-mode vibe-coders didn't opt into.
+    '.claude/rules/engineering-constitution.md',
   ];
 
   it('non-memory codeflare rules have default+advanced modes', () => {
