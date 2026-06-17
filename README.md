@@ -355,6 +355,36 @@ Non-enterprise users pick a scope level when connecting (the connect card shows 
 
 (GitHub *App* providers and Enterprise mode ignore the tier — permissions are fixed at install.)
 
+**Selecting these scopes on the Cloudflare dashboard.** When you create/edit the OAuth client, Cloudflare's picker shows **descriptive names** — the literal scope ID only appears *after* you save, which makes it easy to pick the wrong one. Match by the table below, and register the **full Advanced superset** (all 21); each per-connect tier just requests a subset of it.
+
+> ⚠️ **"Access: Apps and Policies Write" is listed twice** with different IDs. Select the one whose ID is **`zone-access.write`** — *not* `access.write`.
+
+| Cloudflare dashboard name | Scope ID | Dashboard section | Tier |
+|---|---|---|---|
+| Workers Scripts Write | `workers-scripts.write` | Developer Platform | Minimal |
+| Workers KV Storage Write | `workers-kv-storage.write` | Developer Platform | Minimal |
+| Workers R2 Storage Write | `workers-r2.write` | Developer Platform | Minimal |
+| D1 Write | `d1.write` | Developer Platform | Minimal |
+| Workers Routes Write | `workers-routes.write` | Developer Platform | Minimal |
+| Account Settings Read | `account-settings.read` | Account & Billing | Minimal |
+| User Details Read | `user-details.read` | Account & Billing | Minimal |
+| Zone Read | `zone.read` | DNS & Zones | Minimal |
+| DNS Write | `dns.write` | DNS & Zones | Recommended |
+| Access: Apps and Policies Write | `zone-access.write` | Cloudflare One / Zero Trust | Recommended |
+| Access: Organizations, Identity Providers, and Groups Write | `access-acct.write` | Cloudflare One / Zero Trust | Recommended |
+| Pages Write | `page.write` | Developer Platform | Advanced |
+| Workers Containers Write | `containers.write` | Developer Platform | Advanced |
+| Queues Write | `queues.write` | Developer Platform | Advanced |
+| Workers AI Write | `ai.write` | AI & Machine Learning | Advanced |
+| Browser Rendering Write | `browser-rendering.write` | Developer Platform | Advanced |
+| Vectorize Write | `vectorize.write` | Developer Platform | Advanced |
+| Workers CI Write | `workers-ci.write` | Developer Platform | Advanced |
+| Workers Observability Write | `workers-observability.write` | Developer Platform | Advanced |
+| Workers R2 Data Catalog Write | `r2-catalog.write` | Developer Platform | Advanced |
+| Agents Gateway Write | `agw.write` | AI & Machine Learning | Advanced |
+
+Plus `offline_access` (the connect flow always appends it) so a refresh token is issued. `ai.read` is **not** required — `ai.write` already covers Workers AI.
+
 ---
 
 **Where the credentials live.** The wizard writes `setup:github_*` and `setup:cloudflare_oauth_client_*` to KV (ids plain, secrets AES-256-GCM-encrypted via `ENCRYPTION_KEY`). When a user connects, their per-user token + refresh token land encrypted in `deploy-keys:<bucket>` and are injected into the container as `GH_TOKEN` / `CLOUDFLARE_API_TOKEN` on session start, refreshed on expiry. See [configuration](documentation/lanes/configuration.md) and [authentication](documentation/lanes/authentication.md) for the full reference.
