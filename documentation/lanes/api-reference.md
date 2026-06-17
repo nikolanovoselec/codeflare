@@ -134,13 +134,13 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 
 ### GitHub Integration
 
-The GitHub panel (Connect, repository list, clone). Mounted at `/api/github` (`src/routes/github.ts`); the OAuth callback is mounted separately under `/auth/github` (documented in its own table below). **Availability is enterprise-only** (`githubFeatureEnabled` = `isEnterpriseMode`, [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) AC3): in non-enterprise modes `/status` returns `{ enabled: false }` and the other routes return `403 GITHUB_DISABLED`. Broadening the gate is tracked by [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) (Planned). The token is never returned to the browser — `/repos` proxies GitHub server-side.
+The GitHub panel (Connect, repository list, clone). Mounted at `/api/github` (`src/routes/github.ts`); the OAuth callback is mounted separately under `/auth/github` (documented in its own table below). The repo-panel routes (`/status`, `/repos`, `/clone`) are available in every mode (`githubFeatureEnabled` is always true); the **advanced-session entitlement** for the panel is enforced in the dashboard frontend, matching the Vault ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). **Connect/disconnect are decoupled from the panel** — `/connect`, its callback, and `/disconnect` are `authMiddleware`-only (any authenticated user), so they work from Guided Setup + the Settings accordion even when the panel is hidden. The token is never returned to the browser — `/repos` proxies GitHub server-side.
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
 | GET | `/api/github/status` | Session cookie | [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) | Connection state (`enabled`, `configured`, `connected`, `login`, `source`); never the token |
 | GET | `/api/github/repos` | Session cookie | [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) | The user's accessible repos (owner + collaborator + org member), server-side proxy; `?page=<n>` paginates, 50/page (rate-limited 60/min); `401 NOT_CONNECTED` when no token |
-| GET | `/api/github/connect` | Session cookie | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) | Start the provider authorize flow (302 to GitHub); `503 GITHUB_NOT_CONFIGURED` when no provider configured (rate-limited 20/min) |
+| GET | `/api/github/connect` | Session cookie | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) | Start the provider authorize flow (302 to GitHub); `?tier=minimal\|recommended\|advanced` maps to the OAuth-App scope; `503 GITHUB_NOT_CONFIGURED` when no provider configured (rate-limited 20/min) |
 | POST | `/api/github/disconnect` | Session cookie | [REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation) | Revoke at GitHub (App/OAuth) and clear the stored token (rate-limited 20/min) |
 | POST | `/api/github/clone` | Session cookie | [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session) | Clone `{repo, ref?, sessionId}` into a **running** session's workspace; relays the container's outcome verbatim (`200` cloned / `409 CLONE_TARGET_EXISTS` / `502 CLONE_FAILED` / `504`); `503 NOT_RUNNING` when the container is asleep (rate-limited 20/min) |
 
@@ -151,6 +151,21 @@ The OAuth callback is mounted separately under `/auth/github` (`src/routes/githu
 | GET | `/auth/github/connect/callback` | Session cookie | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) | Connect-GitHub callback (distinct from the SaaS-login `/auth/github/callback`): re-derives identity from the live session, verifies the bucket-bound OAuth state, exchanges the code, and persists the repo token to the deploy-keys entry; never mints a session cookie. The GitHub App / OAuth App registers this exact URL. |
 
 The **new-session** clone path is not a GitHub route: `POST /api/sessions` accepts an optional `clone: { repo, ref? }` field ([REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session)) that clones the repo into the workspace before the agent process starts.
+
+### Cloudflare Integration
+
+Per-user "Connect to Cloudflare" OAuth (non-enterprise only). Mounted at `/api/cloudflare` (`src/routes/cloudflare.ts`); the OAuth callback is mounted separately under `/auth/cloudflare` (`src/routes/cloudflare-auth.ts`). All routes are `authMiddleware`-only (any authenticated user) and **not** tier-gated — connect is reachable from Guided Setup + the Settings accordion. `getCloudflareProvider` returns null in **enterprise**, so every route fails closed there (`503 CLOUDFLARE_NOT_CONFIGURED`). The token is never returned to the browser ([REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-connect-to-cloudflare-via-oauth)).
+
+| Method | Endpoint | Auth | Implements | Description |
+|--------|----------|------|------------|-------------|
+| GET | `/api/cloudflare/status` | Session cookie | [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-connect-to-cloudflare-via-oauth) | Connection state (`configured`, `connected`, `accountId`, `source`); when connected without a selected account, also the accessible `accounts`; never the token |
+| GET | `/api/cloudflare/connect` | Session cookie | [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-connect-to-cloudflare-via-oauth) | Start the OAuth authorize flow (302 to `dash.cloudflare.com/oauth2/auth`); `?tier=minimal\|recommended\|advanced` maps to the OAuth scope (always incl. `offline_access`); `503 CLOUDFLARE_NOT_CONFIGURED` when no client configured (rate-limited 20/min) |
+| POST | `/api/cloudflare/account` | Session cookie | [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-connect-to-cloudflare-via-oauth) | Select the account `{accountId}` for a connected token; `400 ACCOUNT_INVALID` when the token cannot access it (rate-limited 20/min) |
+| POST | `/api/cloudflare/disconnect` | Session cookie | [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-connect-to-cloudflare-via-oauth) | Revoke at Cloudflare and clear the stored token (rate-limited 20/min) |
+
+| Method | Endpoint | Auth | Implements | Description |
+|--------|----------|------|------------|-------------|
+| GET | `/auth/cloudflare/connect/callback` | Session cookie | [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-connect-to-cloudflare-via-oauth) | Connect-Cloudflare callback: re-derives identity from the live session, verifies the bucket-bound single-use OAuth state, exchanges the code, persists the token + auto-selects the account when exactly one is accessible (else redirects to a picker); never mints a session cookie. The OAuth client registers this exact URL. Redirects with `?cloudflare=connected\|select-account\|denied\|expired\|unavailable\|error`. |
 
 ### Public (Unauthenticated)
 

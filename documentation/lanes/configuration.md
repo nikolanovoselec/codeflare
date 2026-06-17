@@ -105,11 +105,11 @@ These env vars tune the graphify knowledge-graph build/update tooling. All are o
 
 ### GitHub Integration
 
-The GitHub panel lets a connected user browse and clone their repositories and lets the in-session agent act with the user's GitHub permissions. Availability is **enterprise-only** today (`githubFeatureEnabled` = `isEnterpriseMode`); broadening the gate is Planned ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)).
+The GitHub panel lets a connected user browse and clone their repositories and lets the in-session agent act with the user's GitHub permissions. The repo panel is available in every mode; outside enterprise it is gated to the `advanced` session (enforced in the dashboard, `sessionMode === 'advanced'`, matching the Vault). **Connect/disconnect are decoupled from that gate** — they are `authMiddleware`-only, reachable by any authenticated user from Guided Setup + the Settings accordion even when the panel is hidden ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)).
 
 Connect uses one of two providers, selected by precedence ([REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage)): a configured **GitHub App** takes precedence over the **OAuth App**. With neither configured the integration is unavailable and `/api/github/connect` returns `503 GITHUB_NOT_CONFIGURED`.
 
-**Enterprise configuration (Setup wizard → KV)** ([REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup)). In enterprise mode the provider + credentials are configured in the Setup wizard, not via env vars (enterprise admins have no GitHub-Actions/Cloudflare-secret access). An admin picks GitHub App or OAuth App and enters the client id (stored plain) + client secret (stored encrypted) under dedicated KV keys. `getGithubProvider` (async) resolves these KV values first, falling back to the env-var pairs below only when KV is unconfigured. Separate key pairs per provider mean switching providers in the wizard preserves the other's credentials. A blank secret on re-save keeps the stored one; a secret submitted with no `ENCRYPTION_KEY` is rejected (`400`) rather than written in plaintext, and a stored secret that cannot be decrypted is treated as unconfigured (fails closed). `GET /api/setup/prefill` echoes the provider type, both client ids, and a per-provider `…ClientSecretSet` flag, never the secret. Mirrors the admin-global Browser Rendering token ([REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
+**Provider configuration (Setup wizard → KV; admin, any mode)** ([REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup)). The provider + credentials are configured in the admin-gated Setup wizard in **every** mode (originally enterprise-only; enterprise admins additionally have no GitHub-Actions/Cloudflare-secret access). An admin picks GitHub App or OAuth App and enters the client id (stored plain) + client secret (stored encrypted) under dedicated KV keys. `getGithubProvider` (async) resolves these KV values first in every mode, falling back to the env-var pairs below only when KV is unconfigured. Separate key pairs per provider mean switching providers in the wizard preserves the other's credentials. A blank secret on re-save keeps the stored one; a secret submitted with no `ENCRYPTION_KEY` is rejected (`400`) rather than written in plaintext, and a stored secret that cannot be decrypted is treated as unconfigured (fails closed). `GET /api/setup/prefill` echoes the provider type, both client ids, and a per-provider `…ClientSecretSet` flag, never the secret. Mirrors the admin-global Browser Rendering token ([REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
 
 | KV key | Purpose |
 |--------|---------|
@@ -117,7 +117,7 @@ Connect uses one of two providers, selected by precedence ([REQ-GITHUB-001](../.
 | `setup:github_app_client_id` / `setup:github_app_client_secret` | GitHub App credentials (id plain, secret encrypted). |
 | `setup:github_oauth_client_id` / `setup:github_oauth_client_secret` | OAuth App credentials (id plain, secret encrypted). |
 
-The env-var pairs below are the non-enterprise provider source and the enterprise fallback before Setup config exists:
+The env-var pairs below are the fallback provider source when no Setup config exists (any mode):
 
 | Variable | Purpose | Default | Required | Consumed by | Implements |
 |----------|---------|---------|----------|-------------|------------|
@@ -132,7 +132,20 @@ The env-var pairs below are the non-enterprise provider source and the enterpris
 
 **Container transport** ([REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport)). In non-enterprise modes the real token flows to the container as `GH_TOKEN` via the existing deploy-keys path, unchanged. In enterprise mode the container instead receives the non-secret placeholder `GH_TOKEN` = `codeflare-enterprise` (the `ENTERPRISE_GH_TOKEN_PLACEHOLDER` code constant, **not** a configured value); the real token is injected at the container egress boundary (see the [security](security.md) and [architecture](architecture.md) lanes).
 
-**Provider registration permissions** (set at app registration, not via config). The GitHub App requests Contents R/W, Pull requests R/W, Workflows W, and Metadata R. The OAuth App requests scopes `repo read:org workflow`. Enterprise GitHub Apps must be **internal** to the customer's enterprise, since EMU users cannot authorize third-party apps.
+**Provider registration permissions** (set at app registration, not via config). The GitHub App requests Contents R/W, Pull requests R/W, Workflows W, and Metadata R. The OAuth App's `scope` is derived per connect from the selected tier (default `repo read:org workflow`; see [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). Enterprise GitHub Apps must be **internal** to the customer's enterprise, since EMU users cannot authorize third-party apps.
+
+### Cloudflare Connect (OAuth)
+
+In non-enterprise modes a user connects their own Cloudflare account via OAuth (mirroring the GitHub connect), so the per-user deploy token is obtained without pasting a dashboard-created API token ([REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-connect-to-cloudflare-via-oauth)). `GET /api/cloudflare/connect` + its callback + `POST /api/cloudflare/disconnect` are `authMiddleware`-only (reachable from Guided Setup + the Settings accordion, not tier-gated). The token/refresh/expiry persist across the existing `deploy-keys:<bucket>` Cloudflare fields (source `'oauth'`, encrypted); `getValidCloudflareToken` refreshes on expiry and fails closed; `applyCloudflareOAuthToken` injects the valid token into the container env on session start. **Enterprise has no Cloudflare OAuth** — `getCloudflareProvider` returns null there and the routes fail closed; enterprise keeps the admin-global Browser Rendering token ([REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
+
+**Operator OAuth client (Setup wizard → KV; admin).** The operator registers one Cloudflare OAuth Application and enters its client id + secret in the admin-gated Setup wizard; each user then authorizes their own account.
+
+| KV key | Purpose |
+|--------|---------|
+| `setup:cloudflare_oauth_client_id` | Cloudflare OAuth client id (plain). |
+| `setup:cloudflare_oauth_client_secret` | Cloudflare OAuth client secret (encrypted at rest; fail-closed without `ENCRYPTION_KEY`). |
+
+**Scopes.** The connect URL carries a tier (minimal/recommended/advanced); the server maps it to the OAuth `scope` (Wrangler-style `<resource>:<action>`, always including `offline_access` for a refresh token) from the server-side catalog in `src/lib/oauth-scopes.ts`. The exact scope set must be granted on the operator's OAuth client — verify against `GET /client/v4/oauth/scopes`.
 
 ---
 
@@ -355,7 +368,8 @@ You can adjust scopes anytime from your [GitHub token settings](https://github.c
 - [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token) - Enterprise admin-configured Browser Rendering token (Setup wizard)
 - [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) - GitHub token capture and storage (App vs OAuth precedence; GITHUB_APP_CLIENT_ID/SECRET, GITHUB_HOST, GITHUB_API_HOST)
 - [REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport) - Other-mode container transport (GH_TOKEN via the deploy-keys path)
-- [REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup) - Enterprise GitHub provider configuration via Setup (setup:github_*, KV-first resolution)
+- [REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup) - GitHub provider configuration via Setup, admin-gated any mode (setup:github_*, KV-first resolution)
+- [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-connect-to-cloudflare-via-oauth) - Cloudflare Connect (OAuth): operator client (setup:cloudflare_oauth_client_*) + per-user token, tier->scope
 - [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) - Broaden the panel gate beyond enterprise (Planned)
 - [REQ-OPS-012](../../sdd/spec/operations.md#req-ops-012-per-environment-container-concurrency-limit) - Per-environment container concurrency limit
 - [REQ-SETUP-004](../../sdd/spec/setup.md#req-setup-004-setup-is-idempotent) - Setup is idempotent
