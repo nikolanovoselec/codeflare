@@ -26,7 +26,7 @@ describe('OAuthConnectCard', () => {
       expect(screen.queryByTestId('cloudflare-connected-badge')).not.toBeInTheDocument();
     });
 
-    it('presents all three scope tiers + subtitle, encodes the selected tier into the connect URL, and routes changes', () => {
+    it('offers the scope tiers as a dropdown + subtitle, encodes the selected tier into the connect URL, and routes changes', () => {
       const onSelect = vi.fn();
       render(() => (
         <OAuthConnectCard
@@ -37,16 +37,13 @@ describe('OAuthConnectCard', () => {
       ));
       // Selected tier is encoded into the navigation contract.
       expect(screen.getByTestId('cloudflare-connect-btn').getAttribute('data-href')).toBe('/api/cloudflare/connect?tier=advanced');
-      // All three options are presented (not hidden in a dropdown), selected one active.
-      expect(screen.getByTestId('cloudflare-tier-picker')).toBeInTheDocument();
-      for (const t of ['minimal', 'recommended', 'advanced']) {
-        expect(screen.getByTestId(`cloudflare-tier-${t}`)).toBeInTheDocument();
-      }
-      expect(screen.getByTestId('cloudflare-tier-advanced').getAttribute('data-state')).toBe('on');
-      // Explanatory subtitle is rendered (content sourced from the tier catalog).
-      expect(screen.getByTestId('cloudflare-tier-desc').textContent).toBeTruthy();
-      // Selecting another tier routes through onSelect.
-      fireEvent.click(screen.getByTestId('cloudflare-tier-minimal'));
+      // Tier is a dropdown listing all three levels.
+      const select = document.querySelector('.oauth-connect-tier-select') as HTMLSelectElement;
+      expect(Array.from(select.options).map((o) => o.value)).toEqual(['minimal', 'recommended', 'advanced']);
+      // Subtitle reflects the SELECTED tier's description (catalog-sourced wiring, not arbitrary copy).
+      expect(screen.getByTestId('cloudflare-tier-desc').textContent).toBe(GITHUB_TIERS.advanced.description);
+      // Changing the dropdown routes through onSelect.
+      fireEvent.change(select, { target: { value: 'minimal' } });
       expect(onSelect).toHaveBeenCalledWith('minimal');
     });
 

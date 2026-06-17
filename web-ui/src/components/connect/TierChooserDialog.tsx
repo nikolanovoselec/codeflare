@@ -1,0 +1,104 @@
+import { Component, For, Show, createSignal, createEffect, onMount, onCleanup } from 'solid-js';
+import { type ScopeTier, type TierConfig } from '../../lib/token-scopes';
+import '../../styles/create-session-dialog.css';
+
+const TIER_ORDER: ScopeTier[] = ['minimal', 'recommended', 'advanced'];
+
+// ~3 tier rows + section header; used to decide flip-above/below vs the anchor.
+const DIALOG_ESTIMATED_HEIGHT = 220;
+const GAP = 8;
+
+interface TierChooserDialogProps {
+  open: boolean;
+  onClose: () => void;
+  /** Anchor for desktop popover positioning; on mobile it becomes a bottom sheet (CSS). */
+  anchorRef?: HTMLElement;
+  /** Scopes the data-testids so multiple instances stay unambiguous. */
+  provider: string;
+  tiers: Record<ScopeTier, TierConfig>;
+  selected: ScopeTier;
+  /** Picking a tier = connect (mirrors the "+ New Session" agent picker). */
+  onPick: (tier: ScopeTier) => void;
+}
+
+/**
+ * Scope-tier picker rendered as the same responsive chooser as the "+ New Session"
+ * agent dialog: a popover anchored to the trigger on desktop, a full-width bottom
+ * sheet on mobile (reuses create-session-dialog.css). Each row shows the tier label
+ * + a description subtitle. Used by the dashboard GitHub panel connect card.
+ */
+const TierChooserDialog: Component<TierChooserDialogProps> = (props) => {
+  let dialogRef: HTMLDivElement | undefined;
+  const [position, setPosition] = createSignal<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 300 });
+
+  const updatePosition = () => {
+    if (!props.anchorRef) return;
+    const rect = props.anchorRef.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const spaceBelow = viewportHeight - rect.bottom - GAP;
+    const spaceAbove = rect.top - GAP;
+    let top: number;
+    if (spaceBelow >= DIALOG_ESTIMATED_HEIGHT) top = rect.bottom + GAP;
+    else if (spaceAbove >= DIALOG_ESTIMATED_HEIGHT) top = rect.top - GAP - DIALOG_ESTIMATED_HEIGHT;
+    else top = spaceBelow >= spaceAbove ? rect.bottom + GAP : Math.max(GAP, rect.top - GAP - DIALOG_ESTIMATED_HEIGHT);
+    setPosition({ top, left: rect.left, width: rect.width });
+  };
+
+  createEffect(() => { if (props.open) updatePosition(); });
+
+  const handleClickOutside = (e: MouseEvent) => {
+    if (!props.open) return;
+    if (dialogRef && !dialogRef.contains(e.target as Node)) {
+      if (props.anchorRef && props.anchorRef.contains(e.target as Node)) return;
+      props.onClose();
+    }
+  };
+  const handleKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape' && props.open) props.onClose(); };
+
+  onMount(() => {
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+  });
+  onCleanup(() => {
+    document.removeEventListener('mousedown', handleClickOutside);
+    document.removeEventListener('keydown', handleKeyDown);
+  });
+
+  return (
+    <Show when={props.open}>
+      <div class="csd-backdrop" onClick={() => props.onClose()} />
+      <div
+        ref={dialogRef}
+        class="create-session-dialog"
+        data-testid={`${props.provider}-tier-dialog`}
+        role="dialog"
+        aria-label="Choose access level"
+        style={{ top: `${position().top}px`, left: `${position().left}px`, width: `${position().width}px` }}
+      >
+        <div class="csd-section">
+          <div class="csd-section-header"><span>Access level</span></div>
+          <div class="csd-agents">
+            <For each={TIER_ORDER}>
+              {(tier) => (
+                <button
+                  type="button"
+                  class={`csd-agent-btn ${props.selected === tier ? 'csd-agent-btn--last-used' : ''}`}
+                  data-testid={`${props.provider}-tier-${tier}`}
+                  data-value={tier}
+                  onClick={() => props.onPick(tier)}
+                >
+                  <div class="csd-agent-info">
+                    <span class="csd-agent-label">{props.tiers[tier].label}</span>
+                    <span class="csd-agent-desc">{props.tiers[tier].description}</span>
+                  </div>
+                </button>
+              )}
+            </For>
+          </div>
+        </div>
+      </div>
+    </Show>
+  );
+};
+
+export default TierChooserDialog;

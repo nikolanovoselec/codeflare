@@ -1,14 +1,15 @@
 import { Component, Show } from 'solid-js';
 import Icon from '../Icon';
 import Select from '../ui/Select';
-import ScopeTierPicker from './ScopeTierPicker';
 import { type ScopeTier, type TierConfig } from '../../lib/token-scopes';
 import '../../styles/connect.css';
+
+const TIER_ORDER: ScopeTier[] = ['minimal', 'recommended', 'advanced'];
 
 export type OAuthConnectStatus = 'disconnected' | 'connecting' | 'connected';
 
 export interface OAuthTierOptions {
-  /** Tier catalog (label + description) — drives the segmented picker + subtitle. */
+  /** Tier catalog (label + description) — drives the tier dropdown + subtitle. */
   tiers: Record<ScopeTier, TierConfig>;
   selected: ScopeTier;
   onSelect: (value: ScopeTier) => void;
@@ -98,12 +99,17 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
         <div class="oauth-connect-body">
           <Show when={props.tierOptions}>
             {(tier) => (
-              <ScopeTierPicker
-                provider={props.provider}
-                tiers={tier().tiers}
-                selected={tier().selected}
-                onSelect={(v) => tier().onSelect(v)}
-              />
+              <div class="oauth-connect-tier" data-testid={`${props.provider}-tier`}>
+                <Select
+                  class="oauth-connect-tier-select"
+                  value={tier().selected}
+                  options={TIER_ORDER.map((t) => ({ value: t, label: tier().tiers[t].label }))}
+                  onChange={(v) => tier().onSelect(v as ScopeTier)}
+                />
+                <span class="oauth-connect-tier-desc" data-testid={`${props.provider}-tier-desc`}>
+                  {tier().tiers[tier().selected].description}
+                </span>
+              </div>
             )}
           </Show>
           <button

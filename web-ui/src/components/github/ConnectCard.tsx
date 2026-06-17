@@ -1,43 +1,73 @@
 import { Component, Show, createSignal } from 'solid-js';
 import { mdiGithub } from '@mdi/js';
 import Icon from '../Icon';
-import ScopeTierPicker from '../connect/ScopeTierPicker';
+import TierChooserDialog from '../connect/TierChooserDialog';
 import { githubConnectUrl } from '../../api/github';
 import { GITHUB_TIERS, type ScopeTier } from '../../lib/token-scopes';
 import { sessionStore } from '../../stores/session';
 
 // The "Connect GitHub" affordance in the dashboard repo panel. Connect is a
 // top-level browser navigation (the Worker 302s to GitHub and returns to
-// /app/?github=connected), so this assigns window.location.href rather than
-// calling fetch. In non-enterprise modes the user picks a scope level, appended
-// as ?tier=; enterprise uses an admin-configured GitHub App whose fixed
-// permissions ignore the tier, so the picker is hidden and the URL stays bare.
+// /app/?github=connected). In non-enterprise modes the button opens a tier
+// chooser (a popover on desktop, a bottom sheet on mobile — the "+ New Session"
+// pattern); picking a level connects with ?tier=. Enterprise uses an admin-
+// configured GitHub App whose fixed permissions ignore the tier, so the button
+// connects directly with a bare URL and no dialog.
 const ConnectCard: Component = () => {
+  const [dialogOpen, setDialogOpen] = createSignal(false);
   const [tier, setTier] = createSignal<ScopeTier>('recommended');
-  const href = () => {
+  const [btnRef, setBtnRef] = createSignal<HTMLButtonElement>();
+
+  const connect = (t?: ScopeTier) => {
     const base = githubConnectUrl();
-    if (sessionStore.enterpriseMode) return base;
+    if (sessionStore.enterpriseMode || !t) {
+      window.location.href = base;
+      return;
+    }
     const sep = base.includes('?') ? '&' : '?';
-    return `${base}${sep}tier=${encodeURIComponent(tier())}`;
+    window.location.href = `${base}${sep}tier=${encodeURIComponent(t)}`;
+  };
+
+  const onButtonClick = () => {
+    if (sessionStore.enterpriseMode) {
+      connect();
+      return;
+    }
+    setDialogOpen(true);
+  };
+
+  const onPick = (t: ScopeTier) => {
+    setTier(t);
+    setDialogOpen(false);
+    connect(t);
   };
 
   return (
     <div class="github-connect-card" data-testid="github-connect-card">
       <Icon path={mdiGithub} size={32} class="github-connect-icon" />
       <p class="github-connect-text">Connect your GitHub account to browse your repositories.</p>
-      <Show when={!sessionStore.enterpriseMode}>
-        <ScopeTierPicker provider="github" tiers={GITHUB_TIERS} selected={tier()} onSelect={(t) => setTier(t)} />
-      </Show>
       <button
         type="button"
+        ref={setBtnRef}
         class="github-connect-btn"
         data-testid="github-connect-btn"
-        data-href={href()}
-        onClick={() => { window.location.href = href(); }}
+        data-href={githubConnectUrl()}
+        onClick={onButtonClick}
       >
         <Icon path={mdiGithub} size={16} />
         <span>Connect GitHub</span>
       </button>
+      <Show when={!sessionStore.enterpriseMode}>
+        <TierChooserDialog
+          open={dialogOpen()}
+          onClose={() => setDialogOpen(false)}
+          anchorRef={btnRef()}
+          provider="github"
+          tiers={GITHUB_TIERS}
+          selected={tier()}
+          onPick={onPick}
+        />
+      </Show>
     </div>
   );
 };

@@ -58,23 +58,29 @@ describe('GitHubPanel Component', () => {
     expect(screen.queryByTestId('github-panel')).not.toBeInTheDocument();
   });
 
-  it('renders the ConnectCard with connect target /api/github/connect when not connected', async () => {
+  it('renders the ConnectCard with a bare connect URL and opens the tier dialog on click when not connected', async () => {
     mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: false });
 
     render(() => <GitHubPanel />);
 
     await waitFor(() => expect(screen.getByTestId('github-connect-card')).toBeInTheDocument());
     const btn = screen.getByTestId('github-connect-btn');
-    // Non-enterprise: connect URL carries the selected scope tier (default recommended).
-    expect(btn.getAttribute('data-href')).toBe('/api/github/connect?tier=recommended');
-    // The scope-level picker is presented (all three tiers).
-    expect(screen.getByTestId('github-tier-picker')).toBeInTheDocument();
-    expect(screen.getByTestId('github-tier-advanced')).toBeInTheDocument();
+    // The button carries the bare connect URL; the tier is chosen in the dialog it opens
+    // (the "+ New Session" chooser pattern — popover on desktop, bottom sheet on mobile).
+    expect(btn.getAttribute('data-href')).toBe('/api/github/connect');
+    // Dialog is closed until the button is clicked.
+    expect(screen.queryByTestId('github-tier-dialog')).not.toBeInTheDocument();
+    fireEvent.click(btn);
+    // Opening it offers all three tiers.
+    expect(screen.getByTestId('github-tier-dialog')).toBeInTheDocument();
+    for (const t of ['minimal', 'recommended', 'advanced']) {
+      expect(screen.getByTestId(`github-tier-${t}`)).toBeInTheDocument();
+    }
     // No repo rows in the not-connected state.
     expect(screen.queryByTestId('github-repo-row')).not.toBeInTheDocument();
   });
 
-  it('clicking Connect navigates to the connect URL', async () => {
+  it('picking a tier in the dialog navigates to the connect URL carrying that tier', async () => {
     mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: false });
     // Mirror the LoginPage test pattern: replace window.location with a
     // writable stub carrying the fields onMount reads (search/pathname) so
@@ -85,22 +91,34 @@ describe('GitHubPanel Component', () => {
 
     render(() => <GitHubPanel />);
     await waitFor(() => expect(screen.getByTestId('github-connect-btn')).toBeInTheDocument());
+    // Open the chooser, then pick a non-default tier.
     fireEvent.click(screen.getByTestId('github-connect-btn'));
+    fireEvent.click(screen.getByTestId('github-tier-advanced'));
 
-    expect(mockLocation.href).toBe('/api/github/connect?tier=recommended');
+    expect(mockLocation.href).toBe('/api/github/connect?tier=advanced');
 
     Object.defineProperty(window, 'location', { value: originalLocation, writable: true });
   });
 
-  it('hides the scope picker and sends a bare connect URL in enterprise mode', async () => {
+  it('connects directly with a bare URL and never opens the tier dialog in enterprise mode', async () => {
     sessionStore.setEnterpriseMode(true);
     try {
       mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: false });
+      const originalLocation = window.location;
+      const mockLocation = { href: '', search: '', pathname: '/app/' };
+      Object.defineProperty(window, 'location', { value: mockLocation, writable: true });
+
       render(() => <GitHubPanel />);
       await waitFor(() => expect(screen.getByTestId('github-connect-card')).toBeInTheDocument());
-      // Enterprise GitHub App permissions are fixed → no tier picker, no tier param.
-      expect(screen.queryByTestId('github-tier-picker')).not.toBeInTheDocument();
-      expect(screen.getByTestId('github-connect-btn').getAttribute('data-href')).toBe('/api/github/connect');
+      const btn = screen.getByTestId('github-connect-btn');
+      // Enterprise GitHub App permissions are fixed → bare URL, no tier param.
+      expect(btn.getAttribute('data-href')).toBe('/api/github/connect');
+      fireEvent.click(btn);
+      // Connect fires immediately; the tier chooser is never mounted.
+      expect(screen.queryByTestId('github-tier-dialog')).not.toBeInTheDocument();
+      expect(mockLocation.href).toBe('/api/github/connect');
+
+      Object.defineProperty(window, 'location', { value: originalLocation, writable: true });
     } finally {
       sessionStore.setEnterpriseMode(false);
     }
