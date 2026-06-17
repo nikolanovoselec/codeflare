@@ -20,6 +20,7 @@ import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { getBaseUrl } from '../lib/kv-keys';
 import { signOauthState } from '../lib/oauth-state';
+import { cloudflareScopeForTier } from '../lib/oauth-scopes';
 import { parseJsonBody } from '../lib/request-helpers';
 import {
   getCloudflareProvider,
@@ -30,7 +31,6 @@ import {
   getValidCloudflareToken,
   connectStateSecret,
   CONNECT_CALLBACK_PATH,
-  CLOUDFLARE_OAUTH_BASE_SCOPE,
 } from '../lib/cloudflare-token';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -79,8 +79,10 @@ app.get('/connect', connectRateLimiter, async (c) => {
   // it against the same session (OAuth token-fixation CSRF defense, like GitHub).
   const state = await signOauthState(secret, c.get('bucketName'));
   const redirectUri = `${base}${CONNECT_CALLBACK_PATH}`;
-  // Phase 5 layers per-tier permission scopes onto the base scope from a `tier` query.
-  return c.redirect(provider.authorizeUrl({ state, redirectUri, scope: CLOUDFLARE_OAUTH_BASE_SCOPE }));
+  // Scope tier (minimal|recommended|advanced) from the connect URL; always includes
+  // offline_access so a refresh token is issued.
+  const scope = cloudflareScopeForTier(c.req.query('tier'));
+  return c.redirect(provider.authorizeUrl({ state, redirectUri, scope }));
 });
 
 // POST /api/cloudflare/account — select the account for a connected token.

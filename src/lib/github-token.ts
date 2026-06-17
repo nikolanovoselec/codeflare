@@ -134,7 +134,8 @@ export async function getGithubConnectionStatus(
 
 export interface GithubOAuthProvider {
   readonly source: 'app' | 'oauth';
-  authorizeUrl(params: { state: string; redirectUri: string }): string;
+  /** `scope` (OAuth-App only) overrides the default scope set; the App path ignores it. */
+  authorizeUrl(params: { state: string; redirectUri: string; scope?: string }): string;
   exchangeCode(code: string, redirectUri: string): Promise<GithubConnection>;
   /** Throws if refresh is unsupported (OAuth App) or fails. */
   refresh(refreshToken: string): Promise<GithubConnection>;
@@ -211,9 +212,9 @@ class GitHubAppUserProvider implements GithubOAuthProvider {
   readonly source = 'app' as const;
   constructor(private env: Env, private clientId: string, private clientSecret: string) {}
 
-  authorizeUrl({ state, redirectUri }: { state: string; redirectUri: string }): string {
+  authorizeUrl({ state, redirectUri }: { state: string; redirectUri: string; scope?: string }): string {
     // GitHub App user-to-server: scopes come from the App's installed permissions,
-    // so no `scope` param is sent.
+    // so no `scope` param is sent (the tier-derived scope is ignored here).
     const p = new URLSearchParams({ client_id: this.clientId, state, redirect_uri: redirectUri });
     return `https://${webHost(this.env)}/login/oauth/authorize?${p.toString()}`;
   }
@@ -260,12 +261,12 @@ class OAuthAppProvider implements GithubOAuthProvider {
   private static readonly SCOPES = 'repo read:org workflow';
   constructor(private env: Env, private clientId: string, private clientSecret: string) {}
 
-  authorizeUrl({ state, redirectUri }: { state: string; redirectUri: string }): string {
+  authorizeUrl({ state, redirectUri, scope }: { state: string; redirectUri: string; scope?: string }): string {
     const p = new URLSearchParams({
       client_id: this.clientId,
       state,
       redirect_uri: redirectUri,
-      scope: OAuthAppProvider.SCOPES,
+      scope: scope ?? OAuthAppProvider.SCOPES,
     });
     return `https://${webHost(this.env)}/login/oauth/authorize?${p.toString()}`;
   }

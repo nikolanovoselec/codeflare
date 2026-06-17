@@ -18,6 +18,7 @@ import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { getBaseUrl } from '../lib/kv-keys';
 import { signOauthState } from '../lib/oauth-state';
+import { githubScopeForTier } from '../lib/oauth-scopes';
 import { createLogger } from '../lib/logger';
 import { toError } from '../lib/error-types';
 import { getContainerId } from '../lib/container-helpers';
@@ -158,7 +159,10 @@ app.get('/connect', connectRateLimiter, async (c) => {
   // bucket (the callback re-derives identity from the ambient cookie).
   const state = await signOauthState(secret, c.get('bucketName'));
   const redirectUri = `${base}${CONNECT_CALLBACK_PATH}`;
-  return c.redirect(provider.authorizeUrl({ state, redirectUri }));
+  // Scope tier (minimal|recommended|advanced) from the connect URL; the OAuth-App
+  // path honours it, the GitHub App path ignores it (fixed App permissions).
+  const scope = githubScopeForTier(c.req.query('tier'));
+  return c.redirect(provider.authorizeUrl({ state, redirectUri, scope }));
 });
 
 // POST /api/github/disconnect — revoke at GitHub (app/oauth) + clear the token.

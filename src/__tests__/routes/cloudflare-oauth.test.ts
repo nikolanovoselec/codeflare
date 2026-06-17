@@ -77,6 +77,19 @@ describe('GET /api/cloudflare/connect', () => {
     expect(res.status).toBe(503);
     expect((await res.json() as Record<string, unknown>).code).toBe('CLOUDFLARE_NOT_CONFIGURED');
   });
+
+  it('feeds the scope tier into the OAuth authorize scope param (always incl. offline_access)', async () => {
+    configureClient();
+    const advanced = new URL(
+      (await createTestApp(BASE_ENV).request('/api/cloudflare/connect?tier=advanced')).headers.get('location')!,
+    );
+    expect(advanced.searchParams.get('scope')).toContain('ai:write');
+    expect(advanced.searchParams.get('scope')!.split(' ')).toContain('offline_access');
+    const minimal = new URL(
+      (await createTestApp(BASE_ENV).request('/api/cloudflare/connect?tier=minimal')).headers.get('location')!,
+    );
+    expect(minimal.searchParams.get('scope')).not.toContain('ai:write');
+  });
 });
 
 // ─── GET /status ─────────────────────────────────────────────────────────────

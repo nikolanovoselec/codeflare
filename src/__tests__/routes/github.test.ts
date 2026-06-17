@@ -161,6 +161,18 @@ describe('GET /api/github/connect', () => {
     expect(loc.host).toBe('github.com');
     expect(loc.searchParams.get('state')).toBeTruthy();
   });
+
+  it('feeds the scope tier into the OAuth-App authorize scope param', async () => {
+    const env = { OAUTH_CLIENT_ID: 'oauth-cid', OAUTH_CLIENT_SECRET: 'oauth-sec', OAUTH_JWT_SECRET: 'state-secret' };
+    const advanced = new URL(
+      (await createTestApp(env).request('/api/github/connect?tier=advanced')).headers.get('location')!,
+    );
+    expect(advanced.searchParams.get('scope')).toContain('admin:repo_hook');
+    const minimal = new URL(
+      (await createTestApp(env).request('/api/github/connect?tier=minimal')).headers.get('location')!,
+    );
+    expect(minimal.searchParams.get('scope')).not.toContain('admin:repo_hook');
+  });
 });
 
 // ─── POST /disconnect (REQ-GITHUB-005) ──────────────────────────────────────
