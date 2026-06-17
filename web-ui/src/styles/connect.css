@@ -47,7 +47,6 @@
   color: var(--color-text-secondary);
 }
 
-.oauth-connect-tier,
 .oauth-connect-account {
   flex: 1 1 auto;
   min-width: 0;
@@ -75,6 +74,51 @@
   border: 1px solid var(--color-border-default);
   color: var(--color-text-secondary);
   background: transparent;
+}
+
+/* Scope-tier picker: 3 segmented options + a subtitle describing the selected
+   level. Tokens only. Inherits text-align from its parent, so it centres inside
+   the dashboard panel card and left-aligns inside the Settings/onboarding rows. */
+.scope-tier {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.scope-tier-options {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.scope-tier-option {
+  flex: 1 1 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-elevated);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.scope-tier-option:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.scope-tier-option--on {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-muted);
+}
+
+.scope-tier-desc {
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  color: var(--color-text-secondary);
 }
 
 .oauth-connect-spinner {

@@ -29,12 +29,18 @@ describe('DeployKeysSection (OAuth connect surface)', () => {
 
   afterEach(() => cleanup());
 
-  it('composes a GitHub and a Cloudflare connect card, each with its connect URL', async () => {
+  it('composes GitHub + Cloudflare connect cards, each with its connect URL and a scope-level picker + subtitle', async () => {
     render(() => <DeployKeysSection />);
     await waitFor(() => expect(screen.getByTestId('github-connect-card')).toBeInTheDocument());
     expect(screen.getByTestId('cloudflare-connect-card')).toBeInTheDocument();
     expect(screen.getByTestId('github-connect-btn').getAttribute('data-href')).toContain('/api/github/connect');
     expect(screen.getByTestId('cloudflare-connect-btn').getAttribute('data-href')).toContain('/api/cloudflare/connect');
+    // Both providers expose the scope-level picker (all three tiers) + explanatory subtitle.
+    for (const p of ['github', 'cloudflare']) {
+      expect(screen.getByTestId(`${p}-tier-picker`)).toBeInTheDocument();
+      expect(screen.getByTestId(`${p}-tier-advanced`)).toBeInTheDocument();
+      expect(screen.getByTestId(`${p}-tier-desc`).textContent).toBeTruthy();
+    }
     expect(screen.getByTestId('deploy-keys-hint')).toBeInTheDocument();
   });
 

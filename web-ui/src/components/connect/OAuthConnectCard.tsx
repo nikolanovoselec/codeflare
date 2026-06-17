@@ -1,14 +1,17 @@
 import { Component, Show } from 'solid-js';
 import Icon from '../Icon';
 import Select from '../ui/Select';
+import ScopeTierPicker from './ScopeTierPicker';
+import { type ScopeTier, type TierConfig } from '../../lib/token-scopes';
 import '../../styles/connect.css';
 
 export type OAuthConnectStatus = 'disconnected' | 'connecting' | 'connected';
 
 export interface OAuthTierOptions {
-  tiers: { value: string; label: string }[];
-  selected: string;
-  onSelect: (value: string) => void;
+  /** Tier catalog (label + description) — drives the segmented picker + subtitle. */
+  tiers: Record<ScopeTier, TierConfig>;
+  selected: ScopeTier;
+  onSelect: (value: ScopeTier) => void;
 }
 
 export interface OAuthAccountOption {
@@ -95,11 +98,11 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
         <div class="oauth-connect-body">
           <Show when={props.tierOptions}>
             {(tier) => (
-              <Select
-                class="oauth-connect-tier"
-                value={tier().selected}
-                options={tier().tiers}
-                onChange={(v) => tier().onSelect(v)}
+              <ScopeTierPicker
+                provider={props.provider}
+                tiers={tier().tiers}
+                selected={tier().selected}
+                onSelect={(v) => tier().onSelect(v)}
               />
             )}
           </Show>

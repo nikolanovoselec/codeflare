@@ -16,6 +16,7 @@ vi.mock('../../api/github', () => ({
 
 import GitHubPanel from '../../components/github/GitHubPanel';
 import { _resetForTests } from '../../stores/github';
+import { sessionStore } from '../../stores/session';
 
 function makeRepo(overrides: Record<string, unknown> = {}) {
   return {
@@ -36,6 +37,9 @@ describe('GitHubPanel Component', () => {
     _resetForTests();
     mockGetGithubRepos.mockResolvedValue({ repos: [], page: 1, hasMore: false });
     mockDisconnectGithub.mockResolvedValue({ success: true });
+    // Default to non-enterprise so the scope picker is exercised; the enterprise
+    // case sets this true explicitly.
+    sessionStore.setEnterpriseMode(false);
     // Reset URL query so onMount's ?github= handling is inert by default.
     window.history.replaceState({}, '', '/app/');
   });
@@ -61,7 +65,11 @@ describe('GitHubPanel Component', () => {
 
     await waitFor(() => expect(screen.getByTestId('github-connect-card')).toBeInTheDocument());
     const btn = screen.getByTestId('github-connect-btn');
-    expect(btn.getAttribute('data-href')).toBe('/api/github/connect');
+    // Non-enterprise: connect URL carries the selected scope tier (default recommended).
+    expect(btn.getAttribute('data-href')).toBe('/api/github/connect?tier=recommended');
+    // The scope-level picker is presented (all three tiers).
+    expect(screen.getByTestId('github-tier-picker')).toBeInTheDocument();
+    expect(screen.getByTestId('github-tier-advanced')).toBeInTheDocument();
     // No repo rows in the not-connected state.
     expect(screen.queryByTestId('github-repo-row')).not.toBeInTheDocument();
   });
@@ -79,9 +87,23 @@ describe('GitHubPanel Component', () => {
     await waitFor(() => expect(screen.getByTestId('github-connect-btn')).toBeInTheDocument());
     fireEvent.click(screen.getByTestId('github-connect-btn'));
 
-    expect(mockLocation.href).toBe('/api/github/connect');
+    expect(mockLocation.href).toBe('/api/github/connect?tier=recommended');
 
     Object.defineProperty(window, 'location', { value: originalLocation, writable: true });
+  });
+
+  it('hides the scope picker and sends a bare connect URL in enterprise mode', async () => {
+    sessionStore.setEnterpriseMode(true);
+    try {
+      mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: false });
+      render(() => <GitHubPanel />);
+      await waitFor(() => expect(screen.getByTestId('github-connect-card')).toBeInTheDocument());
+      // Enterprise GitHub App permissions are fixed → no tier picker, no tier param.
+      expect(screen.queryByTestId('github-tier-picker')).not.toBeInTheDocument();
+      expect(screen.getByTestId('github-connect-btn').getAttribute('data-href')).toBe('/api/github/connect');
+    } finally {
+      sessionStore.setEnterpriseMode(false);
+    }
   });
 
   it('renders exactly N RepoRow elements for N repos when connected', async () => {

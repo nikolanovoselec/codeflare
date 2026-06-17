@@ -28,30 +28,39 @@ export function githubScopeForTier(tier: string | null | undefined): string {
 }
 
 /**
- * Cloudflare OAuth scopes per tier, in the Wrangler-style `<resource>:<read|write>`
- * form Cloudflare's OAuth uses. `offline_access` (added by cloudflareScopeForTier)
- * is required to receive a refresh token. The exact scope set must be granted on the
- * operator's OAuth client — confirm against `GET /client/v4/oauth/scopes` during
- * integration before relying on the advanced tier.
+ * Cloudflare OAuth scopes per tier, using the real scope IDs from Cloudflare's OAuth
+ * catalog (`GET /client/v4/oauth/scopes`) — the `<resource>.<read|write>` form, NOT the
+ * API-token permission-group keys or the `:`-style guesses. These map the capabilities
+ * the old token-creation deeplink granted onto their OAuth-scope equivalents. The
+ * operator's OAuth client must be registered with (at least) the advanced superset, since
+ * the per-connect request can only narrow within the client's registered scopes.
+ * `offline_access` (appended by cloudflareScopeForTier) is required for a refresh token.
  */
 const CF_MINIMAL = [
-  'account:read',
-  'user:read',
-  'workers_scripts:write',
-  'workers_kv:write',
-  'workers_routes:write',
-  'd1:write',
-  'zone:read',
+  'workers-scripts.write',
+  'workers-kv-storage.write',
+  'workers-r2.write',
+  'd1.write',
+  'workers-routes.write',
+  'account-settings.read',
+  'user-details.read',
+  'zone.read',
 ];
-const CF_RECOMMENDED = [...CF_MINIMAL, 'workers:write', 'workers_tail:read', 'pages:write', 'ssl_certs:write'];
+const CF_RECOMMENDED = [...CF_MINIMAL, 'dns.write', 'access.write', 'access-acct.write'];
 const CF_ADVANCED = [
   ...CF_RECOMMENDED,
-  'ai:write',
-  'queues:write',
-  'containers:write',
-  'pipelines:write',
-  'secrets_store:write',
-  'cloudchamber:write',
+  'page.write',
+  'containers.write',
+  'queues.write',
+  'ai.write',
+  'ai.read',
+  'browser-rendering.write',
+  'vectorize.write',
+  'challenge-widgets.write',
+  'workers-ci.write',
+  'workers-observability.write',
+  'r2-catalog.write',
+  'cf-agents.write',
 ];
 
 const CLOUDFLARE_OAUTH_SCOPES: Record<ScopeTier, string[]> = {

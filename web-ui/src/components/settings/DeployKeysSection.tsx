@@ -4,7 +4,7 @@ import OAuthConnectCard from '../connect/OAuthConnectCard';
 import { createConnections } from '../../lib/oauth-connections';
 import { githubConnectUrl } from '../../api/github';
 import { cloudflareConnectUrl } from '../../api/cloudflare';
-import { GITHUB_TIERS, CLOUDFLARE_TIERS, tierOptionList, type ScopeTier } from '../../lib/token-scopes';
+import { GITHUB_TIERS, CLOUDFLARE_TIERS, type ScopeTier } from '../../lib/token-scopes';
 
 /**
  * Settings "Push & Deploy" accordion. Each provider connects via OAuth ("Connect"
@@ -34,7 +34,7 @@ const DeployKeysSection: Component = () => {
         identity={conn.github().identity}
         connectUrl={githubConnectUrl()}
         onDisconnect={() => { void conn.disconnectGithub(); }}
-        tierOptions={{ tiers: tierOptionList(GITHUB_TIERS), selected: githubTier(), onSelect: (v) => setGithubTier(v as ScopeTier) }}
+        tierOptions={{ tiers: GITHUB_TIERS, selected: githubTier(), onSelect: (v) => setGithubTier(v) }}
       />
 
       <OAuthConnectCard
@@ -48,7 +48,7 @@ const DeployKeysSection: Component = () => {
         accounts={conn.cloudflare().accounts}
         selectedAccountId={conn.cloudflare().accountId}
         onSelectAccount={(id) => { void conn.selectCloudflareAccount(id); }}
-        tierOptions={{ tiers: tierOptionList(CLOUDFLARE_TIERS), selected: cfTier(), onSelect: (v) => setCfTier(v as ScopeTier) }}
+        tierOptions={{ tiers: CLOUDFLARE_TIERS, selected: cfTier(), onSelect: (v) => setCfTier(v) }}
       />
 
       <div class="setting-row setting-row--column-gap">

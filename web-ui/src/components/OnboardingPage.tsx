@@ -8,7 +8,7 @@ import ScrambleText from './ScrambleText';
 import Icon from './Icon';
 import { mdiArrowRight, mdiGithub, mdiCloud } from '@mdi/js';
 import { logger } from '../lib/logger';
-import { GITHUB_TIERS, CLOUDFLARE_TIERS, tierOptionList, type ScopeTier } from '../lib/token-scopes';
+import { GITHUB_TIERS, CLOUDFLARE_TIERS, type ScopeTier } from '../lib/token-scopes';
 import '../styles/login-page.css';
 import '../styles/onboarding-page.css';
 
@@ -217,7 +217,7 @@ const OnboardingPage: Component = () => {
               identity={conn.github().identity}
               connectUrl={githubConnectUrl()}
               onDisconnect={() => { void conn.disconnectGithub(); }}
-              tierOptions={{ tiers: tierOptionList(GITHUB_TIERS), selected: githubTier(), onSelect: (v) => setGithubTier(v as ScopeTier) }}
+              tierOptions={{ tiers: GITHUB_TIERS, selected: githubTier(), onSelect: (v) => setGithubTier(v) }}
             />
           </div>
 
@@ -241,7 +241,7 @@ const OnboardingPage: Component = () => {
               accounts={conn.cloudflare().accounts}
               selectedAccountId={conn.cloudflare().accountId}
               onSelectAccount={(id) => { void conn.selectCloudflareAccount(id); }}
-              tierOptions={{ tiers: tierOptionList(CLOUDFLARE_TIERS), selected: cfTier(), onSelect: (v) => setCfTier(v as ScopeTier) }}
+              tierOptions={{ tiers: CLOUDFLARE_TIERS, selected: cfTier(), onSelect: (v) => setCfTier(v) }}
             />
           </div>
 

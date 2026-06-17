@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import OAuthConnectCard from '../../../components/connect/OAuthConnectCard';
+import { GITHUB_TIERS } from '../../../lib/token-scopes';
 import { mdiGithub } from '@mdi/js';
 
 afterEach(() => cleanup());
@@ -25,22 +26,27 @@ describe('OAuthConnectCard', () => {
       expect(screen.queryByTestId('cloudflare-connected-badge')).not.toBeInTheDocument();
     });
 
-    it('encodes the selected tier into the connect URL and routes tier changes', () => {
+    it('presents all three scope tiers + subtitle, encodes the selected tier into the connect URL, and routes changes', () => {
       const onSelect = vi.fn();
       render(() => (
         <OAuthConnectCard
           {...base}
           status="disconnected"
-          tierOptions={{
-            tiers: [{ value: 'minimal', label: 'Minimal' }, { value: 'advanced', label: 'Advanced' }],
-            selected: 'advanced',
-            onSelect,
-          }}
+          tierOptions={{ tiers: GITHUB_TIERS, selected: 'advanced', onSelect }}
         />
       ));
+      // Selected tier is encoded into the navigation contract.
       expect(screen.getByTestId('cloudflare-connect-btn').getAttribute('data-href')).toBe('/api/cloudflare/connect?tier=advanced');
-      const select = document.querySelector('.oauth-connect-tier') as HTMLSelectElement;
-      fireEvent.change(select, { target: { value: 'minimal' } });
+      // All three options are presented (not hidden in a dropdown), selected one active.
+      expect(screen.getByTestId('cloudflare-tier-picker')).toBeInTheDocument();
+      for (const t of ['minimal', 'recommended', 'advanced']) {
+        expect(screen.getByTestId(`cloudflare-tier-${t}`)).toBeInTheDocument();
+      }
+      expect(screen.getByTestId('cloudflare-tier-advanced').getAttribute('data-state')).toBe('on');
+      // Explanatory subtitle is rendered (content sourced from the tier catalog).
+      expect(screen.getByTestId('cloudflare-tier-desc').textContent).toBeTruthy();
+      // Selecting another tier routes through onSelect.
+      fireEvent.click(screen.getByTestId('cloudflare-tier-minimal'));
       expect(onSelect).toHaveBeenCalledWith('minimal');
     });
 

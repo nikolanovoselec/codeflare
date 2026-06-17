@@ -1,6 +1,6 @@
 // Implements REQ-AGENT-028 (OAuth scope-tier selector catalogs)
 import { describe, it, expect } from 'vitest';
-import { GITHUB_TIERS, CLOUDFLARE_TIERS, tierOptionList } from '../../lib/token-scopes';
+import { GITHUB_TIERS, CLOUDFLARE_TIERS } from '../../lib/token-scopes';
 
 describe('scope-tier catalogs', () => {
   for (const [name, tiers] of [
@@ -19,17 +19,4 @@ describe('scope-tier catalogs', () => {
       });
     });
   }
-});
-
-describe('tierOptionList', () => {
-  it('maps a tier catalog to {value,label} options keyed by tier id', () => {
-    const opts = tierOptionList(GITHUB_TIERS);
-    // value is the tier id (what the connect URL sends), label is the catalog label.
-    expect(opts.map((o) => o.value)).toEqual(['minimal', 'recommended', 'advanced']);
-    expect(opts.map((o) => o.label)).toEqual([
-      GITHUB_TIERS.minimal.label,
-      GITHUB_TIERS.recommended.label,
-      GITHUB_TIERS.advanced.label,
-    ]);
-  });
 });
