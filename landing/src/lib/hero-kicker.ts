@@ -5,9 +5,14 @@ export function getHeroKickerPosition(index: number, activeIndex: number, count:
   return (index - activeIndex + count) % count;
 }
 
-export function getHeroKickerOpacity(position: number): string {
-  if (position === 0) return '1';
-  return Math.max(0.14, 0.42 - position * 0.055).toFixed(2);
+export function getHeroKickerOpacity(position: number, count: number): string {
+  // The active word (bottom of the stack) stays fully solid; the queued words above
+  // it fade linearly upward, reaching fully transparent at the top of the stack — so
+  // the column dissolves into nothing instead of leaving a visible ghost block beside
+  // the coral text. The fade starts at the word above the active one, never on it.
+  if (position <= 0) return '1';
+  if (count <= 1) return '0';
+  return Math.max(0, 1 - position / (count - 1)).toFixed(2);
 }
 
 export function buildHeroKickerLabel(prefix: string, words: string[], suffix: string): string {

@@ -28,7 +28,7 @@ function activateHeroKicker(root: HTMLElement): void {
         delete word.dataset.resetting;
       }
       word.style.setProperty('--ticker-offset', String(position));
-      word.style.opacity = getHeroKickerOpacity(position);
+      word.style.opacity = getHeroKickerOpacity(position, words.length);
       word.dataset.active = position === 0 ? 'true' : 'false';
     });
     measureActiveWord();

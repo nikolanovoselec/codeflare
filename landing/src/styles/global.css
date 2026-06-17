@@ -147,9 +147,10 @@ svg {
   color: var(--accent);
 }
 
-/* The hero's single product tagline keeps the classic eyebrow treatment, but the
-   capability word is a white vertical reel: Codeflare is not only a coding engine.
-   The reel extends upward so it does not consume the tight space above the h1. */
+/* The hero's single product tagline keeps the classic eyebrow treatment; the
+   capability word is a white vertical reel that extends upward. The active word
+   sits on the baseline aligned with the coral text, and the queued words above it
+   fade linearly to fully transparent at the top of the stack. */
 .hero-kicker {
   display: inline-flex;
   flex-wrap: wrap;
