@@ -35,6 +35,7 @@ describe('DeployKeysSection (OAuth connect surface)', () => {
     expect(screen.getByTestId('cloudflare-connect-card')).toBeInTheDocument();
     expect(screen.getByTestId('github-connect-btn').getAttribute('data-href')).toContain('/api/github/connect');
     expect(screen.getByTestId('cloudflare-connect-btn').getAttribute('data-href')).toContain('/api/cloudflare/connect');
+    expect(screen.getByTestId('deploy-keys-hint')).toBeInTheDocument();
   });
 
   it('reflects a connected GitHub status and disconnects via the API', async () => {
