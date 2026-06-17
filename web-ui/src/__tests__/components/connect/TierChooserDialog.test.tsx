@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { createSignal } from 'solid-js';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import TierChooserDialog from '../../../components/connect/TierChooserDialog';
 import { GITHUB_TIERS } from '../../../lib/token-scopes';
@@ -61,6 +62,32 @@ describe('TierChooserDialog', () => {
     expect(dialog.getAttribute('aria-modal')).toBe('true');
     // Focus moves into the dialog so keyboard users are inside the modal.
     expect(document.activeElement).toBe(dialog);
+  });
+
+  it('traps Tab focus, wrapping last→first and first→last within the dialog', () => {
+    render(() => <TierChooserDialog {...base} open={true} />);
+    const tiers = ['minimal', 'recommended', 'advanced'].map((t) => screen.getByTestId(`github-tier-${t}`));
+    const first = tiers[0];
+    const last = tiers[tiers.length - 1];
+    // Tab from the last focusable wraps back to the first.
+    last.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(document.activeElement).toBe(first);
+    // Shift+Tab from the first focusable wraps to the last.
+    first.focus();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(last);
+  });
+
+  it('restores focus to the trigger when it closes', () => {
+    const trigger = document.createElement('button');
+    document.body.appendChild(trigger);
+    const [open, setOpen] = createSignal(true);
+    render(() => <TierChooserDialog {...base} open={open()} anchorRef={trigger} />);
+    // Closing the dialog returns focus to the trigger (the connect button).
+    setOpen(false);
+    expect(document.activeElement).toBe(trigger);
+    trigger.remove();
   });
 
   it('scopes its testids by provider so two instances stay distinct', () => {
