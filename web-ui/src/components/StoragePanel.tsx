@@ -1,4 +1,4 @@
-import { Component } from 'solid-js';
+import { Component, createRenderEffect } from 'solid-js';
 import { mdiClose } from '@mdi/js';
 import Icon from './Icon';
 import StorageBrowser from './StorageBrowser';
@@ -40,7 +40,9 @@ const StoragePanel: Component<StoragePanelProps> = (props) => {
         aria-hidden={!props.isOpen}
         // inert when closed: removes the subtree (incl. the close button) from the
         // tab/focus order, so focus cannot be retained under aria-hidden (a11y warning).
-        bool:inert={!props.isOpen}
+        // Set imperatively (ref + render effect) so it compiles regardless of the JSX
+        // typing for `inert`, while staying reactive to isOpen and set during render.
+        ref={(el) => createRenderEffect(() => el.toggleAttribute('inert', !props.isOpen))}
       >
         {/* Header */}
         <header class="storage-panel-header">
