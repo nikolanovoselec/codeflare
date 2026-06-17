@@ -176,7 +176,12 @@ carries the folded vault trigger/route content (references CC-specific
 `vault-note-capture` rule is advanced-only and routes "take a note"
 phrases to the `vault-note-capture` skill. `graph-first` rule is
 advanced-only (graphify discipline, [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify)). `karpathy` rule
-is advanced-only (LLM coding-mistakes principles). ECC-derived
+is advanced-only (LLM coding-mistakes principles).
+`engineering-constitution` rule is advanced-only (the four engineering
+mandates - no overengineering, behavioral tests only, composable
+components, SDD+TDD enforced - plus the plan gate and done gate,
+[REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents)).
+ECC-derived
 language rules in `{common,typescript,python,golang,swift}/` subdirs
 (advanced only). `common/coding-style.md`
 covers shared style; the per-language `security.md` files stand
@@ -226,7 +231,8 @@ All preseed content is deployed via the manifest pipeline:
 - `rules/`: core (both modes: cloudflare-environment,
   no-local-builds, git-workflow; advanced-only top-level: memory,
   spec-discipline, documentation-discipline, tdd-discipline,
-  graph-first, karpathy, vault-note-capture), common (coding-style;
+  graph-first, karpathy, frontend-components, engineering-constitution,
+  vault-note-capture), common (coding-style;
   per-language security rules stand alone), typescript, python,
   golang, swift
 - `agents/`: architect, build-error-resolver, code-reviewer,
@@ -916,6 +922,7 @@ To inspect enforcement state without reading `.git/` by hand, Pi exposes a read-
 - [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-pr-boundary-review-window-advancement) - Pi PR-Boundary Review Window Advancement
 - [REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer) - Pi Local Statusline Footer
 - [REQ-AGENT-057](../../sdd/spec/agents.md#req-agent-057-pi-review-status-command) - Pi Review-Status Command
+- [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents) - Engineering Constitution Preseeded to All Agents
 - [REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) - Proactive memory injection on first prompt
 
 ---
