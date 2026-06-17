@@ -322,6 +322,25 @@ export async function getValidCloudflareToken(env: Env, bucketName: string): Pro
 }
 
 /**
+ * When the user connected Cloudflare via OAuth, refresh-on-expiry the token before it
+ * rides the deploy-keys -> CLOUDFLARE_API_TOKEN env path into the container. Mirrors
+ * applyEnterpriseBrowserToken: PAT sources and the enterprise admin-global token pass
+ * through untouched (only `cloudflareTokenSource === 'oauth'` triggers the refresh).
+ * A refresh that fails closed sets the Cloudflare token to null (no stale token).
+ */
+export async function applyCloudflareOAuthToken(
+  env: Env,
+  deployKeys: DeployKeys | null | undefined,
+  bucketName: string,
+): Promise<DeployKeys | null | undefined> {
+  if (deployKeys?.cloudflareTokenSource !== 'oauth' || !deployKeys.cloudflareApiToken) {
+    return deployKeys;
+  }
+  const freshCloudflareToken = await getValidCloudflareToken(env, bucketName);
+  return { ...deployKeys, cloudflareApiToken: freshCloudflareToken };
+}
+
+/**
  * Exchange an authorization code, persist the connection, and resolve the
  * account. Returns the connection plus the accessible accounts: when exactly one
  * account exists it is auto-selected and persisted; with several, the caller

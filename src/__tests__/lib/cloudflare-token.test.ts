@@ -6,6 +6,7 @@ import {
   clearCloudflareConnection,
   getCloudflareConnectionStatus,
   getValidCloudflareToken,
+  applyCloudflareOAuthToken,
   getCloudflareProvider,
   fetchCloudflareAccounts,
   connectCloudflare,
@@ -190,6 +191,70 @@ describe('getValidCloudflareToken', () => {
 
   it('returns null when not connected', async () => {
     expect(await getValidCloudflareToken(env(), BUCKET)).toBeNull();
+  });
+});
+
+// ─── applyCloudflareOAuthToken: container-injection refresh wiring ────────────
+
+describe('applyCloudflareOAuthToken', () => {
+  it('passes a PAT source through untouched (no refresh, no network)', async () => {
+    const dk: DeployKeys = { cloudflareApiToken: 'cf_pat', cloudflareTokenSource: 'pat', githubToken: 'gh' };
+    const out = await applyCloudflareOAuthToken(env(), dk, BUCKET);
+    expect(out).toBe(dk); // same reference: not rewritten
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('passes through when there is no cloudflare token source (e.g. enterprise browser token)', async () => {
+    const dk: DeployKeys = { cloudflareApiToken: 'cf_admin', githubToken: 'gh' };
+    const out = await applyCloudflareOAuthToken(env(), dk, BUCKET);
+    expect(out).toBe(dk);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('injects a still-valid oauth token and preserves the other deploy fields', async () => {
+    const dk: DeployKeys = {
+      cloudflareApiToken: 'cf_fresh',
+      cloudflareTokenSource: 'oauth',
+      cloudflareRefreshToken: 'r',
+      cloudflareTokenExpiresAt: Date.now() + 3_600_000,
+      githubToken: 'gh',
+    };
+    mockKV._set(KEY, dk);
+    const out = await applyCloudflareOAuthToken(env(), dk, BUCKET);
+    expect(out?.cloudflareApiToken).toBe('cf_fresh');
+    expect(out?.githubToken).toBe('gh');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('refreshes a near-expiry oauth token before injection', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-15T00:00:00Z'));
+    configureClient();
+    const dk: DeployKeys = {
+      cloudflareApiToken: 'cf_old',
+      cloudflareTokenSource: 'oauth',
+      cloudflareRefreshToken: 'cfr_old',
+      cloudflareTokenExpiresAt: Date.now() + 60_000, // inside the refresh skew
+      githubToken: 'gh',
+    };
+    mockKV._set(KEY, dk);
+    mockFetch.mockResolvedValueOnce(ok({ access_token: 'cf_new', refresh_token: 'cfr_new', expires_in: 3_600 }));
+    const out = await applyCloudflareOAuthToken(env(), dk, BUCKET);
+    expect(out?.cloudflareApiToken).toBe('cf_new');
+    expect(out?.githubToken).toBe('gh');
+  });
+
+  it('fails closed (null token) when an expiring oauth token cannot be refreshed — never injects a stale token', async () => {
+    const dk: DeployKeys = {
+      cloudflareApiToken: 'cf_stale',
+      cloudflareTokenSource: 'oauth',
+      cloudflareTokenExpiresAt: Date.now() - 1000, // expired, no refresh token
+      githubToken: 'gh',
+    };
+    mockKV._set(KEY, dk);
+    const out = await applyCloudflareOAuthToken(env(), dk, BUCKET);
+    expect(out?.cloudflareApiToken).toBeNull();
+    expect(out?.githubToken).toBe('gh');
   });
 });
 
