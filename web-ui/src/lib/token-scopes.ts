@@ -7,6 +7,15 @@ export interface TierConfig {
   description: string;
 }
 
+/**
+ * Map a tier catalog to the {value,label} option list the OAuthConnectCard tier
+ * selector consumes. Shared by the Guided Setup onboarding + the Settings accordion
+ * so the option shape lives in one place.
+ */
+export function tierOptionList(tiers: Record<ScopeTier, TierConfig>): { value: string; label: string }[] {
+  return (Object.entries(tiers) as [ScopeTier, TierConfig][]).map(([value, cfg]) => ({ value, label: cfg.label }));
+}
+
 export const GITHUB_TIERS: Record<ScopeTier, TierConfig> = {
   minimal: {
     label: 'Minimal',

@@ -384,6 +384,17 @@ export const GithubStatusResponseSchema = z.object({
   source: z.union([z.literal('app'), z.literal('oauth'), z.literal('pat')]).optional(),
 });
 
+// GET /api/cloudflare/status. `accounts` is surfaced only when connected without a
+// selected account (the picker case). Connect is NOT tier-gated, so there is no
+// `enabled` flag (unlike GitHub's repo-browser panel).
+export const CloudflareStatusResponseSchema = z.object({
+  configured: z.boolean(),
+  connected: z.boolean(),
+  accountId: z.string().optional(),
+  source: z.union([z.literal('oauth'), z.literal('pat')]).optional(),
+  accounts: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
+});
+
 // A single repository from GET /api/github/repos.
 export const GithubRepoSchema = z.object({
   full_name: z.string(),

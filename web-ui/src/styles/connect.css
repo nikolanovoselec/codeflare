@@ -1,0 +1,95 @@
+/* Shared OAuthConnectCard styling (GitHub / Cloudflare connect surfaces).
+   Tokens only — no magic numbers — so retuning is a one-line change. */
+
+.oauth-connect-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-elevated);
+}
+
+.oauth-connect-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.oauth-connect-icon {
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
+}
+
+.oauth-connect-name {
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+}
+
+.oauth-connect-badge {
+  width: var(--space-2);
+  height: var(--space-2);
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--color-success);
+}
+
+.oauth-connect-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.oauth-connect-identity {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.oauth-connect-tier,
+.oauth-connect-account {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.oauth-connect-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.oauth-connect-btn--connect {
+  border: none;
+  color: #fff;
+  background: var(--color-accent);
+}
+
+.oauth-connect-btn--disconnect {
+  border: 1px solid var(--color-border-default);
+  color: var(--color-text-secondary);
+  background: transparent;
+}
+
+.oauth-connect-spinner {
+  width: var(--space-4);
+  height: var(--space-4);
+  border: 2px solid var(--color-border-subtle);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: oauth-connect-spin 0.8s linear infinite;
+}
+
+@keyframes oauth-connect-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oauth-connect-spinner { animation: none; }
+}

@@ -1,12 +1,14 @@
 import { Component, onMount, onCleanup, createSignal, Show, For, type JSX } from 'solid-js';
-import { getDeployKeys, updateDeployKeys, markOnboardingComplete, getAuthStatus, getPreferences, updatePreferences } from '../api/client';
-import ProviderRow from './settings/ProviderRow';
-import { GitHubIcon, CloudflareIcon } from './settings/BrandIcons';
+import { markOnboardingComplete, getAuthStatus, getPreferences, updatePreferences } from '../api/client';
+import OAuthConnectCard from './connect/OAuthConnectCard';
+import { createConnections } from '../lib/oauth-connections';
+import { githubConnectUrl } from '../api/github';
+import { cloudflareConnectUrl } from '../api/cloudflare';
 import ScrambleText from './ScrambleText';
 import Icon from './Icon';
-import { mdiArrowRight } from '@mdi/js';
+import { mdiArrowRight, mdiGithub, mdiCloud } from '@mdi/js';
 import { logger } from '../lib/logger';
-import { getGithubTokenUrl, GITHUB_TIERS, getCloudflareTokenUrl, CLOUDFLARE_TIERS, SCOPES_DOCS_URL } from '../lib/token-scopes';
+import { GITHUB_TIERS, CLOUDFLARE_TIERS, tierOptionList, type ScopeTier } from '../lib/token-scopes';
 import '../styles/login-page.css';
 import '../styles/onboarding-page.css';
 
@@ -76,30 +78,13 @@ const CODING_AGENTS: CodingAgent[] = [
   },
 ];
 
-interface CloudflareAccount {
-  id: string;
-  name: string;
-}
-
 const OnboardingPage: Component = () => {
   const [loading, setLoading] = createSignal(true);
 
-  // GitHub state
-  const [githubToken, setGithubToken] = createSignal('');
-  const [githubSaving, setGithubSaving] = createSignal(false);
-  const [githubMessage, setGithubMessage] = createSignal<string | null>(null);
-  const [githubError, setGithubError] = createSignal<string | null>(null);
-
-  // Cloudflare state
-  const [cfToken, setCfToken] = createSignal('');
-  const [cfAccountId, setCfAccountId] = createSignal<string | undefined>();
-  const [cfAccounts, setCfAccounts] = createSignal<CloudflareAccount[]>([]);
-  const [cfSaving, setCfSaving] = createSignal(false);
-  const [cfMessage, setCfMessage] = createSignal<string | null>(null);
-  const [cfError, setCfError] = createSignal<string | null>(null);
-
-  const githubConnected = () => githubToken().startsWith('****');
-  const cfConnected = () => cfToken().startsWith('****');
+  // GitHub + Cloudflare OAuth connect state (shared hook; same as the Settings accordion).
+  const conn = createConnections();
+  const [githubTier, setGithubTier] = createSignal<ScopeTier>('recommended');
+  const [cfTier, setCfTier] = createSignal<ScopeTier>('recommended');
 
   // Idle timeout state
   const [isFreeUser, setIsFreeUser] = createSignal(false);
@@ -119,14 +104,11 @@ const OnboardingPage: Component = () => {
     });
 
     try {
-      const [keys, auth, prefs] = await Promise.all([
-        getDeployKeys(),
+      const [auth, prefs] = await Promise.all([
         getAuthStatus().catch(() => null),
         getPreferences().catch(() => null),
+        conn.refresh(),
       ]);
-      if (keys.githubToken) setGithubToken(keys.githubToken);
-      if (keys.cloudflareApiToken) setCfToken(keys.cloudflareApiToken);
-      if (keys.cloudflareAccountId) setCfAccountId(keys.cloudflareAccountId);
       const effectiveTier = auth?.subscriptionTier ?? auth?.accessTier;
       if (effectiveTier === 'free') {
         setIsFreeUser(true);
@@ -140,92 +122,6 @@ const OnboardingPage: Component = () => {
       setLoading(false);
     }
   });
-
-  // GitHub handlers
-  const handleSaveGithub = async (token: string) => {
-    setGithubSaving(true);
-    setGithubMessage(null);
-    setGithubError(null);
-    try {
-      const result = await updateDeployKeys({ githubToken: token });
-      setGithubToken(result.githubToken || '');
-      setGithubMessage('Connected. Takes effect on next session.');
-    } catch (error) {
-      setGithubError(error instanceof Error ? error.message : 'Failed to save.');
-    } finally {
-      setGithubSaving(false);
-    }
-  };
-
-  const handleDisconnectGithub = async () => {
-    setGithubSaving(true);
-    setGithubMessage(null);
-    setGithubError(null);
-    try {
-      await updateDeployKeys({ githubToken: null });
-      setGithubToken('');
-      setGithubMessage('Disconnected.');
-    } catch (error) {
-      setGithubError(error instanceof Error ? error.message : 'Failed.');
-    } finally {
-      setGithubSaving(false);
-    }
-  };
-
-  // Cloudflare handlers
-  const handleSaveCloudflare = async (token: string) => {
-    setCfSaving(true);
-    setCfMessage(null);
-    setCfError(null);
-    try {
-      const result = await updateDeployKeys({ cloudflareApiToken: token });
-      setCfToken(result.cloudflareApiToken || '');
-      if (result.cloudflareAccountId) setCfAccountId(result.cloudflareAccountId);
-      if (result.cloudflareAccounts && result.cloudflareAccounts.length > 1) {
-        setCfAccounts(result.cloudflareAccounts);
-        setCfMessage('Select your account below.');
-      } else {
-        setCfAccounts([]);
-        setCfMessage('Connected. Takes effect on next session.');
-      }
-    } catch (error) {
-      setCfError(error instanceof Error ? error.message : 'Failed to save.');
-    } finally {
-      setCfSaving(false);
-    }
-  };
-
-  const handleSelectAccount = async (accountId: string) => {
-    setCfSaving(true);
-    setCfError(null);
-    try {
-      await updateDeployKeys({ cloudflareAccountId: accountId });
-      setCfAccountId(accountId);
-      setCfAccounts([]);
-      setCfMessage('Connected. Takes effect on next session.');
-    } catch (error) {
-      setCfError(error instanceof Error ? error.message : 'Failed.');
-    } finally {
-      setCfSaving(false);
-    }
-  };
-
-  const handleDisconnectCloudflare = async () => {
-    setCfSaving(true);
-    setCfMessage(null);
-    setCfError(null);
-    try {
-      await updateDeployKeys({ cloudflareApiToken: null });
-      setCfToken('');
-      setCfAccountId(undefined);
-      setCfAccounts([]);
-      setCfMessage('Disconnected.');
-    } catch (error) {
-      setCfError(error instanceof Error ? error.message : 'Failed.');
-    } finally {
-      setCfSaving(false);
-    }
-  };
 
   const handleSleepAfterChange = (value: string) => {
     if (value === sleepAfter() || isFreeUser()) return;
@@ -313,24 +209,15 @@ const OnboardingPage: Component = () => {
             <p class="onboarding-section-description">
               Create repositories and manage your code automatically.
             </p>
-            <ProviderRow
-              icon={GitHubIcon}
+            <OAuthConnectCard
+              provider="github"
+              icon={mdiGithub}
               name="GitHub"
-              brandColor="#24292f"
-              placeholder="github_pat_..."
-              connected={githubConnected()}
-              onSave={(token) => { void handleSaveGithub(token); }}
-              onDisconnect={() => { void handleDisconnectGithub(); }}
-              saving={githubSaving()}
-              disconnecting={githubSaving()}
-              message={githubMessage()}
-              error={githubError()}
-              testId="onboarding-github-row"
-              tierOptions={{
-                tiers: GITHUB_TIERS,
-                getUrl: getGithubTokenUrl,
-                docsUrl: SCOPES_DOCS_URL,
-              }}
+              status={conn.github().status}
+              identity={conn.github().identity}
+              connectUrl={githubConnectUrl()}
+              onDisconnect={() => { void conn.disconnectGithub(); }}
+              tierOptions={{ tiers: tierOptionList(GITHUB_TIERS), selected: githubTier(), onSelect: (v) => setGithubTier(v as ScopeTier) }}
             />
           </div>
 
@@ -343,40 +230,19 @@ const OnboardingPage: Component = () => {
             <p class="onboarding-section-description">
               Deploy your creations directly to Cloudflare and access from anywhere.
             </p>
-            <ProviderRow
-              icon={CloudflareIcon}
+            <OAuthConnectCard
+              provider="cloudflare"
+              icon={mdiCloud}
               name="Cloudflare"
-              brandColor="#f38020"
-              placeholder="Cloudflare API token..."
-              connected={cfConnected()}
-              onSave={(token) => { void handleSaveCloudflare(token); }}
-              onDisconnect={() => { void handleDisconnectCloudflare(); }}
-              saving={cfSaving()}
-              disconnecting={cfSaving()}
-              message={cfMessage()}
-              error={cfError()}
-              testId="onboarding-cloudflare-row"
-              tierOptions={{
-                tiers: CLOUDFLARE_TIERS,
-                getUrl: getCloudflareTokenUrl,
-                docsUrl: SCOPES_DOCS_URL,
-              }}
+              status={conn.cloudflare().status}
+              identity={conn.cloudflare().identity}
+              connectUrl={cloudflareConnectUrl()}
+              onDisconnect={() => { void conn.disconnectCloudflare(); }}
+              accounts={conn.cloudflare().accounts}
+              selectedAccountId={conn.cloudflare().accountId}
+              onSelectAccount={(id) => { void conn.selectCloudflareAccount(id); }}
+              tierOptions={{ tiers: tierOptionList(CLOUDFLARE_TIERS), selected: cfTier(), onSelect: (v) => setCfTier(v as ScopeTier) }}
             />
-            {/* Multi-account dropdown */}
-            <Show when={cfAccounts().length > 1}>
-              <div class="onboarding-cf-account-select" data-testid="onboarding-cf-account-select">
-                <select
-                  class="provider-row-token-input"
-                  value={cfAccountId() || ''}
-                  onChange={(e) => { const val = e.currentTarget.value; if (val) void handleSelectAccount(val); }}
-                >
-                  <option value="" disabled>Choose an account...</option>
-                  <For each={cfAccounts()}>
-                    {(account) => <option value={account.id}>{account.name}</option>}
-                  </For>
-                </select>
-              </div>
-            </Show>
           </div>
 
           {/* Section 4: Coding Agents */}
