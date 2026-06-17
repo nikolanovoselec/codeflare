@@ -54,6 +54,20 @@ const CONTEXT_MODE_PACKAGE = "npm:context-mode@1.0.162";
 const CONTEXT_MODE_PACKAGE_ID = "npm:context-mode";
 const CONTEXT_MODE_DISABLED_PACKAGE = { source: CONTEXT_MODE_PACKAGE, extensions: [], skills: [] };
 
+// Always-on engineering constitution injected into every Pi agent system prompt.
+// Mirrors the Claude rule preseed/agents/claude/rules/engineering-constitution.md —
+// keep the four mandates in sync across both agents.
+const ENGINEERING_CONSTITUTION = [
+  "<codeflare_constitution>",
+  "Non-negotiable for ALL planning and coding (restate as success criteria in every plan; trivial one-liners excepted):",
+  "1. No overengineering — minimum code that solves the actual request; nothing speculative.",
+  "2. Behavioral tests only — assert behavior/contract values (state, DOM, status codes, parsed values), never UI copy/prose; a test must fail if the implementation is gutted.",
+  "3. Reusable, composable components — extract any structure used more than twice; tokens/one source of truth; validate at boundaries; immutability.",
+  "4. SDD + TDD enforced — failing behavioral test first; every change traces to a REQ; specs/anchors/docs move with the code; never leave a REQ Partial.",
+  "Plan gate: present no plan without a Success-criteria/verification section covering these four. Fix legitimate findings in-session.",
+  "</codeflare_constitution>",
+].join("\n");
+
 type PiSettings = {
   packages?: Array<string | { source?: string; extensions?: string[]; skills?: string[]; [key: string]: unknown }>;
   extensions?: string[];
@@ -597,7 +611,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("before_agent_start", (event, ctx) => {
     const repo = activeRepo(ctx);
-    const parts = [String(event?.systemPrompt ?? "")];
+    const parts = [String(event?.systemPrompt ?? ""), ENGINEERING_CONSTITUTION];
     if (repo) {
       const summary = graphSummary(repo);
       if (summary) parts.push(`<codeflare_graphify>\n${summary}\n</codeflare_graphify>`);

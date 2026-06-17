@@ -259,6 +259,11 @@
       "advanced"
     ]
   },
+  "rules/engineering-constitution.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "rules/frontend-components.md": {
     "modes": [
       "advanced"
