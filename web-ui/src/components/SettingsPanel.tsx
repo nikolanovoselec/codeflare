@@ -289,6 +289,9 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
         role="dialog"
         aria-label="Settings"
         aria-hidden={!props.isOpen}
+        // inert when closed: removes the subtree (incl. the close button) from the
+        // tab/focus order, so focus cannot be retained under aria-hidden (a11y warning).
+        attr:inert={!props.isOpen ? '' : undefined}
       >
         {/* Header */}
         <header class="settings-header">

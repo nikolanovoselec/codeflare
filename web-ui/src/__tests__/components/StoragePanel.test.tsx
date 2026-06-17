@@ -120,5 +120,14 @@ describe('StoragePanel Component', () => {
       const panel = screen.getByTestId('storage-panel');
       expect(panel).toHaveAttribute('aria-hidden', 'false');
     });
+
+    it('is inert when closed and not inert when open (focus cannot be retained under aria-hidden)', () => {
+      const { unmount } = render(() => <StoragePanel isOpen={false} onClose={() => {}} />);
+      expect(screen.getByTestId('storage-panel')).toHaveAttribute('inert');
+      unmount();
+
+      render(() => <StoragePanel isOpen={true} onClose={() => {}} />);
+      expect(screen.getByTestId('storage-panel')).not.toHaveAttribute('inert');
+    });
   });
 });

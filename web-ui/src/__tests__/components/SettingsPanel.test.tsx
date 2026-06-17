@@ -661,6 +661,15 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(panel).toHaveAttribute('aria-hidden', 'false');
     });
 
+    it('is inert when closed and not inert when open (focus cannot be retained under aria-hidden)', () => {
+      const { unmount } = render(() => <SettingsPanel isOpen={false} onClose={() => {}} />);
+      expect(screen.getByTestId('settings-panel')).toHaveAttribute('inert');
+      unmount();
+
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      expect(screen.getByTestId('settings-panel')).not.toHaveAttribute('inert');
+    });
+
     it('should have accessible toggle switch for workspace sync', () => {
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-session'));

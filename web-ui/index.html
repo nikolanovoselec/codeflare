@@ -28,7 +28,10 @@
     <meta name="twitter:image" content="https://codeflare.ch/og.png" />
     <meta name="twitter:image:alt" content="Codeflare: the enterprise agentic engine." />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- use-credentials so the manifest fetch carries the auth cookie: behind a
+         cookie-based gate (e.g. Cloudflare Access) a credential-less manifest fetch
+         is 302'd to a cross-origin login page and blocked by CORS. -->
+    <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
