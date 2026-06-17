@@ -248,10 +248,14 @@ None.
 <!-- @impl: src/routes/github.ts::githubFeatureEnabled -->
 <!-- @impl: web-ui/src/components/Dashboard.tsx::githubPanelAvailable -->
 <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx -->
+<!-- @impl: web-ui/src/components/github/ConnectCard.tsx -->
+<!-- @impl: web-ui/src/components/connect/ScopeTierPicker.tsx -->
 <!-- @impl: src/lib/oauth-scopes.ts::githubScopeForTier -->
 <!-- @test: src/__tests__/routes/github.test.ts (status enabled in non-enterprise; connect/repos/clone reachable in non-enterprise; tier->scope -> AC1,AC3,AC6) -->
 <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (advanced gate shows/hides the GitHub face -> AC1,AC2) -->
 <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (shared card state matrix + connectUrl/tier/disconnect contracts -> AC4) -->
+<!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (non-enterprise shows scope picker + tier in connect URL; enterprise hides picker, bare URL -> AC4,AC6) -->
+<!-- @test: web-ui/src/__tests__/components/connect/ScopeTierPicker.test.tsx (picker renders all tiers, onSelect fires, subtitle tracks selection -> AC4,AC6) -->
 <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (tier->scope monotonicity -> AC6) -->
 **Intent:** Make the GitHub repository panel + Storage browser available in every non-enterprise mode (onboarding, default, SaaS), gated to the `advanced` session like the Vault, while **decoupling the OAuth connect/disconnect capability from that panel gate** so a user can connect GitHub from Guided Setup and the Settings accordion even when the panel itself is hidden. Connect stays the additive OAuth flow ([REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)) — never a login-scope escalation, never a manually-pasted PAT. Enterprise is unchanged.
 

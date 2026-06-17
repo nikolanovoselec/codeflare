@@ -145,7 +145,7 @@ In non-enterprise modes a user connects their own Cloudflare account via OAuth (
 | `setup:cloudflare_oauth_client_id` | Cloudflare OAuth client id (plain). |
 | `setup:cloudflare_oauth_client_secret` | Cloudflare OAuth client secret (encrypted at rest; fail-closed without `ENCRYPTION_KEY`). |
 
-**Scopes.** The connect URL carries a tier (minimal/recommended/advanced); the server maps it to the OAuth `scope` (Wrangler-style `<resource>:<action>`, always including `offline_access` for a refresh token) from the server-side catalog in `src/lib/oauth-scopes.ts`. The exact scope set must be granted on the operator's OAuth client — verify against `GET /client/v4/oauth/scopes`.
+**Scopes.** The connect URL carries a tier (minimal/recommended/advanced); the server maps it to the OAuth `scope` using **dot-notation scope IDs** from Cloudflare's OAuth catalog (`GET /client/v4/oauth/scopes` — `<resource>.<read|write>` form, e.g. `workers-scripts.write`, `account-settings.read`, `ai.write`; **not** the colon-style API-token permission-group keys), always including `offline_access` for a refresh token, from the server-side catalog in `src/lib/oauth-scopes.ts`. The operator's OAuth client must be registered with at least the **Advanced superset**, since per-connect requests can only narrow within the registered scopes.
 
 ---
 

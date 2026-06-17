@@ -116,6 +116,34 @@ A configured GitHub App takes precedence. With neither configured, Connect is un
 
 Connect reuses the OAuth App from [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth) (SaaS login OAuth) in SaaS mode, but is distinct from login.
 
+### Connect Cloudflare (per-user OAuth, non-enterprise)
+
+The parallel to "Connect GitHub": a non-enterprise user authorizes **their own** Cloudflare account so sessions deploy with `wrangler` without a pasted API token ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)). Like GitHub Connect it is additive and never the Codeflare login; `GET /api/cloudflare/connect` + callback + `POST /api/cloudflare/disconnect` are `authMiddleware`-only, reachable from Guided Setup and the Settings "Push & Deploy" accordion via the shared `OAuthConnectCard`. **Enterprise has none** — `getCloudflareProvider` returns null and every Cloudflare-connect route fails closed; enterprise injects the admin-global Browser Rendering token instead ([REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
+
+**Flow:**
+
+```
+User clicks "Connect" on the Cloudflare card (panel / Guided Setup / Settings)
+  -> GET /api/cloudflare/connect?tier=<minimal|recommended|advanced>
+  -> Sign an HMAC OAuth state BOUND to the caller's bucket (anti-CSRF)
+  -> 302 to dash.cloudflare.com/oauth2/auth (response_type=code, scope from tier
+     + offline_access, client_secret_post)
+  -> User authorizes on Cloudflare
+  -> Cloudflare redirects to GET /auth/cloudflare/connect/callback
+     (src/routes/cloudflare-auth.ts)
+  -> Re-derive identity from the EXISTING session; verify state against THIS
+     session's bucket
+  -> Exchange code for access + refresh token; resolve the account(s)
+  -> Persist token/refreshToken/expiresAt to the existing deploy-keys:<bucket>
+     Cloudflare fields (source 'oauth', encrypted) - no new KV key
+```
+
+**Provider seam (`getCloudflareProvider`):** `CloudflareOAuthProvider` mirrors the GitHub provider against `dash.cloudflare.com/oauth2/{auth,token,revoke}` (token endpoint auth = **Client Secret Post**, not PKCE). The operator's client id + secret are admin-configured in the Setup wizard (`setup:cloudflare_oauth_client_id` plain, `setup:cloudflare_oauth_client_secret` encrypted); a secret that cannot be decrypted (no `ENCRYPTION_KEY`) is treated as unconfigured (fails closed → `503 CLOUDFLARE_NOT_CONFIGURED`).
+
+**Token lifecycle:** `getValidCloudflareToken` refreshes within the skew window and fails closed when an expired token cannot be refreshed (never returns a stale token); `applyCloudflareOAuthToken` injects the valid token into the container env as `CLOUDFLARE_API_TOKEN` on session start. Disconnect revokes the grant (the refresh token when present) and clears the stored fields.
+
+**Scopes:** the connect URL's `tier` maps server-side to dot-notation Cloudflare OAuth scope IDs (`<resource>.<read|write>`, always `offline_access`); see [Configuration → Cloudflare Connect](configuration.md#cloudflare-connect-oauth). The registered client scopes are the ceiling; a tier requests a subset.
+
 ### CF Access Flow
 
 When `OAUTH_CLIENT_ID` is NOT set, Cloudflare Access handles authentication:

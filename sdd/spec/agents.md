@@ -2068,8 +2068,10 @@ None.
 
 <!-- @impl: web-ui/src/lib/token-scopes.ts -->
 <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx -->
+<!-- @impl: web-ui/src/components/connect/ScopeTierPicker.tsx -->
 <!-- @impl: src/lib/oauth-scopes.ts -->
-<!-- @test: web-ui/src/__tests__/lib/token-scopes.test.ts (tier catalogs + tierOptionList option mapping -> AC1,AC2) -->
+<!-- @test: web-ui/src/__tests__/lib/token-scopes.test.ts (tier catalogs: three tiers in order + non-empty label+description -> AC1,AC2) -->
+<!-- @test: web-ui/src/__tests__/components/connect/ScopeTierPicker.test.tsx (segmented picker renders all tiers, onSelect fires, subtitle tracks selection -> AC1,AC2) -->
 <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (tier selection changes the connect URL's tier param -> AC1,AC2) -->
 <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (tier->scope mapping, offline_access invariant, monotonic growth -> AC3) -->
 
