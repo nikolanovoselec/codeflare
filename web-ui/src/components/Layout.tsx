@@ -427,10 +427,21 @@ const Layout: Component<LayoutProps> = (props) => {
     }
   });
 
+  let viewTransitionTimer: ReturnType<typeof setTimeout> | undefined;
+  const clearViewTransitionTimer = () => {
+    if (!viewTransitionTimer) return;
+    clearTimeout(viewTransitionTimer);
+    viewTransitionTimer = undefined;
+  };
+
+  onCleanup(clearViewTransitionTimer);
+
   // Handlers
   const showTerminalStartingState = () => {
+    clearViewTransitionTimer();
     setViewState('expanding');
-    setTimeout(() => {
+    viewTransitionTimer = setTimeout(() => {
+      viewTransitionTimer = undefined;
       setViewState('terminal');
       terminalStore.triggerLayoutResize();
     }, VIEW_TRANSITION_DURATION_MS);
@@ -442,17 +453,17 @@ const Layout: Component<LayoutProps> = (props) => {
       sessionStore.setActiveSession(id);
       terminalWorkspaceStore.setSingleSessionWorkspace(id, sessionStore.getTerminalsForSession(id)?.activeTabId || '1');
     } else if (session?.status === 'stopped') {
+      showTerminalStartingState();
       sessionStore.setActiveSession(id);
       terminalWorkspaceStore.setSingleSessionWorkspace(id, '1');
-      showTerminalStartingState();
       void sessionStore.startSession(id).catch(() => {});
     }
   };
 
   const handleStartSession = async (id: string) => {
+    showTerminalStartingState();
     sessionStore.setActiveSession(id);
     terminalWorkspaceStore.setSingleSessionWorkspace(id, sessionStore.getTerminalsForSession(id)?.activeTabId || '1');
-    showTerminalStartingState();
     try {
       await sessionStore.startSession(id);
     } catch (err) {
@@ -471,9 +482,9 @@ const Layout: Component<LayoutProps> = (props) => {
   const handleCreateSession = async (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => {
     const session = await sessionStore.createSession(name, agentType, tabConfig);
     if (session) {
+      showTerminalStartingState();
       sessionStore.setActiveSession(session.id);
       terminalWorkspaceStore.setSingleSessionWorkspace(session.id, '1');
-      showTerminalStartingState();
       // Update preferences with last-used agent type
       if (agentType) {
         sessionStore.updatePreferences({ lastAgentType: agentType });
@@ -501,11 +512,13 @@ const Layout: Component<LayoutProps> = (props) => {
   const handleOpenDashboard = () => {
     // Keyboard cleanup is handled reactively by Terminal.tsx when props.active
     // becomes false (via onCleanup in the keyboard lifecycle effect).
+    clearViewTransitionTimer();
     terminalWorkspaceStore.setDashboardWorkspace();
     setShowTilingOverlay(false);
+    sessionStore.setActiveSession(null);
     setViewState('collapsing');
-    setTimeout(() => {
-      sessionStore.setActiveSession(null);
+    viewTransitionTimer = setTimeout(() => {
+      viewTransitionTimer = undefined;
       terminalWorkspaceStore.setDashboardWorkspace();
       setViewState('dashboard');
     }, VIEW_TRANSITION_DURATION_MS);
@@ -520,17 +533,15 @@ const Layout: Component<LayoutProps> = (props) => {
       // Always do a full start — even if the container could auto-wake via SDK,
       // the filesystem is empty after sleep (no R2 sync). startSession() runs
       // entrypoint.sh which restores files from R2 before starting the terminal.
+      showTerminalStartingState();
       sessionStore.setActiveSession(sessionId);
       terminalWorkspaceStore.setSingleSessionWorkspace(sessionId, '1');
       void sessionStore.startSession(sessionId).catch(() => {});
+      return;
     }
 
     // Start expansion animation
-    setViewState('expanding');
-    setTimeout(() => {
-      setViewState('terminal');
-      terminalStore.triggerLayoutResize();
-    }, VIEW_TRANSITION_DURATION_MS);
+    showTerminalStartingState();
   };
 
   const handleSettingsClick = () => {

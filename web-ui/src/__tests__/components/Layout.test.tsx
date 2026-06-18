@@ -712,6 +712,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
 
       expect(terminalWorkspaceStore.setDashboardWorkspace).toHaveBeenCalled();
       expect(mockActiveWorkspace).toEqual({ kind: 'dashboard' });
+      expect(mockActiveSessionId).toBeNull();
     });
 
     it('REQ-TERM-014: creating a session from terminal view keeps the starting surface visible', async () => {
