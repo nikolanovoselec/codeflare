@@ -502,7 +502,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 3. Catastrophic scroll reset correction runs only for true reset events and does not loop on ordinary scrollback trimming. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection -->
 4. Resizing a visible terminal preserves the user's scroll anchor. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
 5. Visible terminal resize frames carry the current fitted dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
-6. Hidden or disconnected terminals do not send resize frames, and a pane that loses focus before WebSocket open clears any queued focus claim. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::resize --> <!-- @impl: web-ui/src/stores/terminal.ts::clearPendingResizeAuthority -->
+6. Hidden or disconnected terminals do not send resize frames. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::resize -->
 
 **Constraints:**
 
