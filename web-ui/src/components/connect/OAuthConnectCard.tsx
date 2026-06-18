@@ -61,32 +61,34 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
         <Icon path={props.icon} size={28} class="oauth-connect-icon" />
         <span class="oauth-connect-name">{props.name}</span>
         <Show when={props.status === 'connected'}>
-          <span class="oauth-connect-badge" data-testid={`${props.provider}-connected-badge`} />
-        </Show>
-      </div>
-
-      <Show when={props.status === 'connected'}>
-        <div class="oauth-connect-body">
-          <Show when={props.identity}>
-            <span class="oauth-connect-identity" data-testid={`${props.provider}-identity`}>{props.identity}</span>
-          </Show>
-          <Show when={props.accounts && props.accounts.length > 0}>
-            <Select
-              class="oauth-connect-account"
-              value={props.selectedAccountId ?? ''}
-              options={(props.accounts ?? []).map((a) => ({ value: a.id, label: a.name }))}
-              onChange={(v) => props.onSelectAccount?.(v)}
-            />
-          </Show>
+          <span class="oauth-connect-badge" data-testid={`${props.provider}-connected-badge`}>Connected</span>
           <button
             type="button"
-            class="oauth-connect-btn oauth-connect-btn--disconnect"
+            class="oauth-connect-disconnect"
             data-testid={`${props.provider}-disconnect-btn`}
             onClick={() => props.onDisconnect()}
           >
             Disconnect
           </button>
-        </div>
+        </Show>
+      </div>
+
+      <Show when={props.status === 'connected'}>
+        <Show when={props.identity || (props.accounts && props.accounts.length > 0)}>
+          <div class="oauth-connect-body">
+            <Show when={props.identity}>
+              <span class="oauth-connect-identity" data-testid={`${props.provider}-identity`}>{props.identity}</span>
+            </Show>
+            <Show when={props.accounts && props.accounts.length > 0}>
+              <Select
+                class="oauth-connect-account"
+                value={props.selectedAccountId ?? ''}
+                options={(props.accounts ?? []).map((a) => ({ value: a.id, label: a.name }))}
+                onChange={(v) => props.onSelectAccount?.(v)}
+              />
+            </Show>
+          </div>
+        </Show>
       </Show>
 
       <Show when={props.status === 'connecting'}>
