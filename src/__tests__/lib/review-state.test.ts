@@ -214,7 +214,7 @@ describe('reviewBaselineContinuation (bug-A fix: offer on launch, autostart only
  * descendant check is the backstop for a reload that ate the boundary tool-event. A bare checkout sets
  * neither, so it OFFERS.
  */
-describe('isAgentSpawnerToolEvent / agentHeadAdvanceRequiresReview', () => {
+describe('isAgentSpawnerToolEvent / agentHeadAdvanceRequiresReview (REQ-AGENT-058 AC7)', () => {
   it('recognizes both Agent and subagent tool event shapes before head-advance reconciliation', () => {
     expect(isAgentSpawnerToolEvent({ toolName: 'Agent' })).toBe(true);
     expect(isAgentSpawnerToolEvent({ toolName: 'subagent' })).toBe(true);
