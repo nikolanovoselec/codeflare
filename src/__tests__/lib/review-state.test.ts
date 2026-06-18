@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, reviewInSessionContinuation, mergeGateDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, activeRepoSentinelForReview, activeRepoCandidateForReview, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput, type MergeGateInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { agentHeadAdvanceRequiresReview, computeReviewStateFrom, isAgentSpawnerToolEvent, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, reviewInSessionContinuation, mergeGateDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, activeRepoSentinelForReview, activeRepoCandidateForReview, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput, type MergeGateInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 
 /**
  * computeReviewStateFrom is the canonical review-state definition (review.md §17.2).
@@ -214,6 +214,38 @@ describe('reviewBaselineContinuation (bug-A fix: offer on launch, autostart only
  * descendant check is the backstop for a reload that ate the boundary tool-event. A bare checkout sets
  * neither, so it OFFERS.
  */
+describe('isAgentSpawnerToolEvent / agentHeadAdvanceRequiresReview', () => {
+  it('recognizes both Agent and subagent tool event shapes before head-advance reconciliation', () => {
+    expect(isAgentSpawnerToolEvent({ toolName: 'Agent' })).toBe(true);
+    expect(isAgentSpawnerToolEvent({ toolName: 'subagent' })).toBe(true);
+    expect(isAgentSpawnerToolEvent({ tool_name: 'subagent' })).toBe(true);
+    expect(isAgentSpawnerToolEvent({ input: { subagent_type: 'code-reviewer' } })).toBe(true);
+    expect(isAgentSpawnerToolEvent({ toolName: 'Bash' })).toBe(false);
+  });
+
+  const base = {
+    beforeHead: 'old-head',
+    afterHead: 'new-head',
+    enforced: true,
+    draft: false,
+    acked: false,
+    breakerOpen: false,
+    windowExists: false,
+  };
+
+  it('starts review when an Agent tool advances an enforced PR head', () => {
+    expect(agentHeadAdvanceRequiresReview(base)).toBe(true);
+  });
+
+  it('does not start review for inherited same-head, draft, acked, breaker, or existing-window states', () => {
+    expect(agentHeadAdvanceRequiresReview({ ...base, afterHead: 'old-head' })).toBe(false);
+    expect(agentHeadAdvanceRequiresReview({ ...base, draft: true })).toBe(false);
+    expect(agentHeadAdvanceRequiresReview({ ...base, acked: true })).toBe(false);
+    expect(agentHeadAdvanceRequiresReview({ ...base, breakerOpen: true })).toBe(false);
+    expect(agentHeadAdvanceRequiresReview({ ...base, windowExists: true })).toBe(false);
+  });
+});
+
 describe('reviewInSessionContinuation (boundaryActed primary, baseline backstop)', () => {
   const descends = () => true;
   const unrelated = () => false;

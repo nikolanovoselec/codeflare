@@ -353,6 +353,13 @@ All preseed content is deployed via the manifest pipeline:
   observed on a branch, seeded once and not advanced on ack. A head matching either
   signal auto-starts review.
 
+  Agent and subagent pushes need one more guard because their internal `git push`
+  runs inside another Pi process and never appears as a main-session Bash tool
+  event. `review-enforcement.ts` records the enforced PR head at Agent tool start
+  and compares it with the fresh head at Agent tool end. A changed, unacked,
+  enforced head is treated as a real PR-boundary event and uses the same durable
+  review-window path as a directly observed push.
+
   A head matching neither signal is offered once as a passive `ctx.ui.notify`
   toast, never as a chat/transcript message, and stays merge-blocking until the
   user runs `/review-run` or `/review-skip`. The offer is deduped per session via
@@ -416,6 +423,13 @@ All preseed content is deployed via the manifest pipeline:
   ellipsis. Operators can diagnose background review progress without visible
   generic Agent tasks. Duplicate lane-result and summary announcements are
   suppressed for the same repo/head/lane result.
+
+  Review summaries have a second durable delivery phase: finalization arms a
+  nonce-bearing announcement record, and the idle reaper keeps draining those
+  records even after `pending.json` is cleared. This is intentionally separate
+  from lane reaping so a completed review can surface without waiting for the
+  user's next prompt, while `/review-results` remains the manual fallback if
+  automatic delivery cannot prove the nonce landed.
 
   The disk-driven reaper that settles each lane is retry-aware: an attempt that
   ends with `willRetry: true` (pi auto-retrying the same child after a transient

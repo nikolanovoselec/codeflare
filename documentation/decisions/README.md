@@ -1439,7 +1439,7 @@ Load only explicit `-e` extensions: `graphify-native.ts`, `review-lane-guards.ts
 **Consequences:**
 
 - Lanes survive the spawning session and are reaped from disk. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::reapDurableReviewLanes -->
-- The idle reaper advances and finalizes durable jobs without a user turn. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick -->
+- The idle reaper advances and finalizes durable jobs without a user turn, and keeps draining nonce-verified result announcements after the active review window is cleared. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::drainReviewAnnouncements -->
 - Reviewers get a bounded inspection tool allowlist: bash for git/gh inspection, graphify tools, local-build blockers, and optional `ctx_search`.
 - Lanes do not load `codeflare-pi.ts`, `review-enforcement`, or `@gotgenes/pi-subagents`.
 
@@ -1553,6 +1553,7 @@ Load only explicit `-e` extensions: `graphify-native.ts`, `review-lane-guards.ts
 
 - The merge gate's correctness is pinned by `mergeGateDecision` unit tests; the inline handler is thin wiring.
 - An unreviewed merge that bypasses the pre-block is no longer silent — it leaves a durable audit and a visible toast.
+- A subagent/Agent push is treated as an in-session PR-boundary event when the enforced PR head changes during the Agent tool call, because that child process's internal Bash events are not visible to the parent session. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reconcileAgentHeadAdvance -->
 - A reviewed head with unaddressed CRITICAL findings can still be merged; the findings are surfaced, not enforced. If that proves too weak, AD80 is the place to revisit.
 
 **Related:** [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-pr-boundary-review-window-advancement), [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery), [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers).

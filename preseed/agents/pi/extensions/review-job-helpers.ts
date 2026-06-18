@@ -1004,6 +1004,35 @@ export type OpenPrReconcileInput = {
 
 export type OpenPrReconcileDecision = { reconcile: boolean; reason: string };
 
+export type AgentHeadAdvanceInput = {
+  beforeHead: string;
+  afterHead: string;
+  enforced: boolean;
+  draft: boolean;
+  acked: boolean;
+  breakerOpen: boolean;
+  windowExists: boolean;
+};
+
+export function isAgentSpawnerToolEvent(event: any): boolean {
+  const toolName = String(event?.toolName || event?.tool_name || "").toLowerCase();
+  return toolName === "agent" || toolName === "subagent" || Boolean(event?.input?.subagent_type || event?.input?.subagentType);
+}
+
+// Agent/subagent pushes are invisible to the main session's bash tool stream because the subagent runs
+// in another Pi process. This pure gate is the compensating signal: if an Agent tool started with one
+// enforced PR head and ended with a different enforced, unacked, unblocked head, that head must be
+// reviewed exactly like a directly observed `git push`. Same-head inherited PRs still offer/noop.
+export function agentHeadAdvanceRequiresReview(input: AgentHeadAdvanceInput): boolean {
+  return Boolean(input.enforced
+    && !input.draft
+    && input.afterHead
+    && input.afterHead !== input.beforeHead
+    && !input.acked
+    && !input.breakerOpen
+    && !input.windowExists);
+}
+
 export type OpenPrReconcileLifecycleInput = {
   activeRun: boolean;
   hasRepo: boolean;

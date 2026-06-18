@@ -375,8 +375,8 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 <!-- @impl: web-ui/src/stores/terminal.ts::reconnectOnVisibilityReturn -->
 <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (visible pane ownership describe -> dashboard zero panes + single-session one pane -> AC1,2) -->
 <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (TerminalArea describe -> dashboard no terminals + visible single pane + MultiView panes only + single-pane teardown -> AC1,2,3,4) -->
-<!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (useTerminal connection gating describe -> connect=false no WS + focused=false clears stale focus + focused pane claims resize authority -> AC3,7,8) -->
-<!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store describe -> visible-key reconnect filter + queued focus before initial resize + stale queued focus clearing + focus ownership control frame -> AC4,6,7,8) -->
+<!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (useTerminal connection gating describe -> connect=false no WS + focused=false clears stale focus + focused pane claims resize authority -> AC3,7) -->
+<!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store describe -> visible-key reconnect filter + queued focus before initial resize + stale queued focus clearing + focus ownership control frame -> AC4,6,7) -->
 ### REQ-TERM-011: Visible terminal panes own WebSocket connections
 
 **Intent:** Terminal WebSockets are opened only for terminal panes that are visible in the current browser workspace, preventing hidden sessions from attaching to PTYs and sending stale resize or input traffic.
@@ -391,8 +391,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 4. Workspace switches reconcile WebSocket ownership to the current visible pane set. <!-- @impl: web-ui/src/hooks/useTerminal.ts::canConnect -->
 5. Session indicators distinguish container-running state from visible-terminal-connected state. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::dotVariant -->
 6. Browser visibility return reconnects only panes that are visible in the current workspace. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
-7. A focused visible terminal claims resize authority before sending its current dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::claimResizeAuthority -->
-8. A terminal that loses focus before its socket opens clears any queued focus claim. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::clearPendingResizeAuthority -->
+7. Focus claim lifecycle is explicit: a focused visible terminal claims resize authority before sending its current dimensions, and a pane that loses focus before WebSocket open clears any queued focus claim. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::claimResizeAuthority --> <!-- @impl: web-ui/src/stores/terminal.ts::clearPendingResizeAuthority -->
 
 **Constraints:**
 
@@ -503,7 +502,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 3. Catastrophic scroll reset correction runs only for true reset events and does not loop on ordinary scrollback trimming. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection -->
 4. Resizing a visible terminal preserves the user's scroll anchor. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
 5. Visible terminal resize frames carry the current fitted dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
-6. Hidden or disconnected terminals do not send resize frames. <!-- @impl: host/src/session.ts::Session -->
+6. Hidden or disconnected terminals do not send resize frames, and a pane that loses focus before WebSocket open clears any queued focus claim. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::resize --> <!-- @impl: web-ui/src/stores/terminal.ts::clearPendingResizeAuthority -->
 
 **Constraints:**
 

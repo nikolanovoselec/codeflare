@@ -212,16 +212,60 @@ function isBoundaryWords(words: ShellCommand): boolean {
 // wrapper grammars here: they caused both misses (`env VAR=... git ...`) and a
 // CodeQL ReDoS warning around nested `timeout`/`env` wrappers.
 // ---------------------------------------------------------------------------
-function isAdvancingGitPushWords(words: ShellCommand): boolean {
-  const git = gitArgs(words);
-  if (git?.[0] !== "push") return false;
-  return !git.slice(1).some((arg) => arg === "--dry-run" || arg === "--delete" || arg === "-n" || arg === "-d");
+export type GitPushCommandTarget = { branch?: string; advancing: boolean };
+
+function pushFlagTakesValue(flag: string): boolean {
+  return flag === "--repo" || flag === "--receive-pack" || flag === "--exec" || flag === "--push-option" || flag === "-o";
 }
 
-function firstGhWords(command: string, subcommands: string[]): ShellCommand | undefined {
+function branchFromPushRefspec(refspec: string): string | undefined {
+  const target = refspec.includes(":") ? refspec.slice(refspec.indexOf(":") + 1) : refspec;
+  if (!target || target.startsWith("refs/tags/")) return undefined;
+  return target.startsWith("refs/heads/") ? target.slice("refs/heads/".length) : target;
+}
+
+// Push parsing is deliberately conservative. The common no-refspec form still falls back to the
+// current branch, but explicit refspecs (`HEAD:branch`, `local:branch`, `refs/heads/x`) expose the
+// PR branch the user actually advanced. Tag-only and delete-only pushes are non-boundaries so a cleanup
+// command cannot accidentally autostart review for an inherited open PR on the checkout branch.
+function gitPushTargetFromWords(words: ShellCommand): GitPushCommandTarget {
+  const git = gitArgs(words);
+  if (git?.[0] !== "push") return { advancing: false };
+
+  const args = git.slice(1);
+  if (args.some((arg) => arg === "--dry-run" || arg === "--delete" || arg === "-n" || arg === "-d")) return { advancing: false };
+  if (args.length > 0 && args.every((arg) => arg === "--tags" || arg === "--follow-tags" || arg.startsWith("refs/tags/"))) return { advancing: false };
+
+  const positionals: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (pushFlagTakesValue(arg)) { index += 1; continue; }
+    if (arg.startsWith("--repo=") || arg.startsWith("--receive-pack=") || arg.startsWith("--exec=") || arg.startsWith("--push-option=") || arg.startsWith("-o=")) continue;
+    if (arg.startsWith("-")) continue;
+    positionals.push(arg);
+  }
+
+  const refspecs = positionals.length > 1 ? positionals.slice(1) : [];
+  if (args.includes("--tags") && refspecs.length === 0) return { advancing: false };
+  if (refspecs[0] === "tag") return { advancing: false };
+  if (refspecs.length > 0 && refspecs.every((ref) => ref.startsWith(":") || ref.startsWith("refs/tags/"))) return { advancing: false };
+  const branch = refspecs.map(branchFromPushRefspec).find((value): value is string => Boolean(value));
+  return { advancing: true, branch };
+}
+
+export function gitPushCommandTarget(command: string): GitPushCommandTarget {
+  const words = reviewBoundaryCommands(command).find((candidate) => gitPushTargetFromWords(candidate).advancing);
+  return words ? gitPushTargetFromWords(words) : { advancing: false };
+}
+
+function isAdvancingGitPushWords(words: ShellCommand): boolean {
+  return gitPushTargetFromWords(words).advancing;
+}
+
+function firstGhWords(command: string, subcommands: string[], matches: (words: ShellCommand) => boolean = () => true): ShellCommand | undefined {
   return reviewBoundaryCommands(command)
     .map(unwrapCommandWords)
-    .find((words) => words[0] === "gh" && subcommands.every((part, index) => words[index + 1] === part));
+    .find((words) => words[0] === "gh" && subcommands.every((part, index) => words[index + 1] === part) && matches(words));
 }
 
 function firstGitPushWords(command: string): ShellCommand | undefined {
@@ -274,33 +318,79 @@ export function prEditBoundaryBase(command: string): string | undefined {
   return undefined;
 }
 
-export type PrEditCommandTarget = { prNumber?: number; prBranch?: string; repoSlug?: string };
+export type PrCommandTarget = { prNumber?: number; prBranch?: string; repoSlug?: string };
+export type PrEditCommandTarget = PrCommandTarget;
+export type PrUpdateBranchCommandTarget = PrCommandTarget;
+export type PrCreateCommandTarget = { repoSlug?: string; headBranch?: string; draft: boolean; dryRun: boolean };
 
-export function prEditCommandTarget(command: string): PrEditCommandTarget {
-  const result: PrEditCommandTarget = {};
-  const words = firstGhWords(command, ["pr", "edit"]);
+function parsePrSelectorToken(token: string, result: PrCommandTarget): void {
+  if (result.prNumber !== undefined || result.prBranch !== undefined) return;
+  const stripped = stripQuotes(token);
+  const url = /\/pull\/(\d+)/.exec(stripped);
+  if (url) result.prNumber = Number(url[1]);
+  else if (/^\d+$/.test(stripped)) result.prNumber = Number(stripped);
+  else result.prBranch = stripped;
+}
+
+// gh subcommands share a dangerous shape: many flags take a value, and any missed value flag can be
+// misread as the PR selector. Keep exact allowlists per subcommand and parse selectors only after those
+// values are consumed; this is what prevents `--body-file 286 563 --base main` from reviewing PR 286.
+function prCommandTarget(words: ShellCommand | undefined, valueFlags: Set<string>): PrCommandTarget {
+  const result: PrCommandTarget = {};
   if (!words) return result;
-  const valueFlags = new Set([
-    "--base", "-B", "--title", "-t", "--body", "-b", "--body-file", "-F",
-    "--add-label", "--remove-label", "--add-assignee", "--remove-assignee",
-    "--add-reviewer", "--remove-reviewer", "--add-project", "--remove-project",
-    "--milestone", "-m", "--project",
-  ]);
   for (let index = 3; index < words.length; index += 1) {
     const token = words[index];
     if (token === "--repo" || token === "-R") { const value = words[++index]; if (value) result.repoSlug = stripQuotes(value); continue; }
     if (token.startsWith("--repo=")) { result.repoSlug = stripQuotes(token.slice("--repo=".length)); continue; }
     if (valueFlags.has(token)) { index += 1; continue; }
     if (token.startsWith("-")) continue;
-    if (result.prNumber === undefined && result.prBranch === undefined) {
-      const stripped = stripQuotes(token);
-      const url = /\/pull\/(\d+)/.exec(stripped);
-      if (url) result.prNumber = Number(url[1]);
-      else if (/^\d+$/.test(stripped)) result.prNumber = Number(stripped);
-      else result.prBranch = stripped;
-    }
+    parsePrSelectorToken(token, result);
   }
   return result;
+}
+
+export function prEditCommandTarget(command: string): PrEditCommandTarget {
+  const words = firstGhWords(command, ["pr", "edit"], (candidate) => Boolean(prProtectedBaseFromWords(candidate)))
+    || firstGhWords(command, ["pr", "edit"]);
+  return prCommandTarget(words, new Set([
+    "--base", "-B", "--title", "-t", "--body", "-b", "--body-file", "-F",
+    "--add-label", "--remove-label", "--add-assignee", "--remove-assignee",
+    "--add-reviewer", "--remove-reviewer", "--add-project", "--remove-project",
+    "--milestone", "-m", "--project",
+  ]));
+}
+
+export function prUpdateBranchCommandTarget(command: string): PrUpdateBranchCommandTarget {
+  return prCommandTarget(firstGhWords(command, ["pr", "update-branch"]), new Set());
+}
+
+function prCreateTargetFromWords(words: ShellCommand | undefined): PrCreateCommandTarget {
+  const result: PrCreateCommandTarget = { draft: false, dryRun: false };
+  if (!words) return result;
+  for (let index = 3; index < words.length; index += 1) {
+    const token = words[index];
+    if (token === "--repo" || token === "-R") { const value = words[++index]; if (value) result.repoSlug = stripQuotes(value); continue; }
+    if (token.startsWith("--repo=")) { result.repoSlug = stripQuotes(token.slice("--repo=".length)); continue; }
+    if (token === "--head" || token === "-H") { const value = words[++index]; if (value) result.headBranch = stripQuotes(value); continue; }
+    if (token.startsWith("--head=")) { result.headBranch = stripQuotes(token.slice("--head=".length)); continue; }
+    if (token === "--draft") { result.draft = true; continue; }
+    if (token === "--dry-run") { result.dryRun = true; continue; }
+    if (["--base", "-B", "--title", "-t", "--body", "-b", "--body-file", "-F", "--assignee", "--label", "--milestone", "-m", "--project", "--reviewer"].includes(token)) { index += 1; continue; }
+  }
+  return result;
+}
+
+function firstReviewablePrCreateWords(command: string, knownBase?: string): ShellCommand | undefined {
+  return firstGhWords(command, ["pr", "create"], (candidate) => {
+    const target = prCreateTargetFromWords(candidate);
+    if (target.dryRun || target.draft) return false;
+    const base = prBaseFromWords(candidate) || knownBase || "";
+    return !base || base === "main" || base === "master";
+  });
+}
+
+export function prCreateCommandTarget(command: string): PrCreateCommandTarget {
+  return prCreateTargetFromWords(firstReviewablePrCreateWords(command) || firstGhWords(command, ["pr", "create"]));
 }
 
 export function isGhPrCreateCommand(command: string): boolean {
@@ -308,14 +398,14 @@ export function isGhPrCreateCommand(command: string): boolean {
 }
 
 export function ghPrCreateBase(command: string): string | undefined {
-  const words = firstGhWords(command, ["pr", "create"]);
+  const words = firstReviewablePrCreateWords(command) || firstGhWords(command, ["pr", "create"]);
   return words ? prBaseFromWords(words) : undefined;
 }
 
 export function prCreateBoundaryBase(command: string, knownBase?: string): string | undefined {
-  if (!isGhPrCreateCommand(command)) return undefined;
-  const base = ghPrCreateBase(command) || knownBase || "";
-  if (base && base !== "main" && base !== "master") return undefined;
+  const words = firstReviewablePrCreateWords(command, knownBase);
+  if (!words) return undefined;
+  const base = prBaseFromWords(words) || knownBase || "";
   return base || "main";
 }
 
@@ -432,7 +522,7 @@ export function postCommandReconcileDecision(command: string): PostCommandReconc
   return invokesGitOrGh ? { reconcile: true, freshPrState: true } : { reconcile: false, freshPrState: false };
 }
 
-export function commandTextFromEvent(event: any): string {
+export function commandTextsFromEvent(event: any): string[] {
   const inputs = [event?.input, event?.params, event?.args, event?.arguments, event?.toolCall?.arguments, event?.toolCall?.input, event?.toolCall?.params];
   const commands: string[] = [];
   for (const input of inputs) {
@@ -449,11 +539,26 @@ export function commandTextFromEvent(event: any): string {
       commands.push(...input.commands.map((cmd: any) => (cmd && typeof cmd.command === "string" ? cmd.command : "")));
     }
   }
-  return commands.find(isPrBoundaryCommand) || commands.find((command) => command.trim()) || "";
+  return commands.filter((command) => command.trim());
+}
+
+export function commandTextFromEvent(event: any): string {
+  const commands = commandTextsFromEvent(event);
+  // Prefer the first REAL trigger over the broader matcher. The broader matcher intentionally includes
+  // non-trigger words such as `gh pr merge` and non-protected creates for merge/backstop checks; choosing
+  // it first hid later protected pushes in ctx_batch_execute arrays.
+  return commands.find(isPrBoundaryTrigger) || commands.find(isPrBoundaryCommand) || commands[0] || "";
 }
 
 export function isFailedToolExecution(event: any): boolean {
-  return event?.isError === true || event?.error === true || String(event?.status ?? "").toLowerCase() === "error";
+  const status = String(event?.status ?? event?.state ?? "").toLowerCase();
+  const exitCode = event?.exitCode ?? event?.exit_code ?? event?.code;
+  return event?.isError === true
+    || event?.error === true
+    || status === "error"
+    || status === "failed"
+    || status === "failure"
+    || (typeof exitCode === "number" && exitCode !== 0);
 }
 
 // Extract a GitHub PR URL from arbitrary tool-output text. `gh pr create` prints
