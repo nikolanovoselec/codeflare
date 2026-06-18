@@ -507,7 +507,7 @@ None.
 
 **Constraints:**
 
-None.
+- In Enterprise Mode the dropdown does not open — the avatar/username stays visible but its click is inert — per [REQ-ENTERPRISE-008](enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression) AC8. This REQ describes the non-enterprise dropdown.
 
 **Priority:** P2
 

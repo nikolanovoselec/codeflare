@@ -4,7 +4,7 @@
  * In enterprise mode the SaaS/admin surfaces must not render; with the flag unset
  * everything renders byte-identically (AC6). This file renders the real components
  * and asserts each surface is absent in enterprise mode and present otherwise:
- *   - Header username dropdown: Usage + Subscription (AC2)
+ *   - Header username dropdown: avatar visible, dropdown does not open in enterprise (AC2)
  *   - SettingsPanel Administration: Manage Users + Manage Subscriptions (AC1)
  *   - SettingsPanel / SessionSection: Standard/Pro selector (AC3)
  *
@@ -52,6 +52,7 @@ const sessionStoreState = vi.hoisted(() => ({
   activeSessionId: null as string | null,
   error: null as string | null,
   saasMode: false as boolean,
+  enterpriseMode: false as boolean,
 }));
 
 vi.mock('../../stores/session', () => ({
@@ -61,6 +62,7 @@ vi.mock('../../stores/session', () => ({
     get activeSessionId() { return sessionStoreState.activeSessionId; },
     get error() { return sessionStoreState.error; },
     get saasMode() { return sessionStoreState.saasMode; },
+    get enterpriseMode() { return sessionStoreState.enterpriseMode; },
     loadPresets: vi.fn(async () => undefined),
     saveBookmarkForSession: vi.fn(async () => null),
     applyPresetToSession: vi.fn(async () => true),
@@ -107,6 +109,7 @@ beforeEach(() => {
   sessionStoreState.activeSessionId = null;
   sessionStoreState.error = null;
   sessionStoreState.saasMode = false;
+  sessionStoreState.enterpriseMode = false;
 });
 
 afterEach(() => cleanup());
@@ -115,14 +118,17 @@ afterEach(() => cleanup());
 // AC2 — Header username dropdown
 // ---------------------------------------------------------------------------
 describe('REQ-ENTERPRISE-008 AC2: Header username dropdown', () => {
-  it('hides Usage and Subscription in enterprise mode', () => {
-    render(() => <Header {...headerProps} enterpriseMode />);
+  it('keeps the avatar visible but opens no dropdown in enterprise mode', () => {
+    sessionStoreState.enterpriseMode = true;
+    render(() => <Header {...headerProps} />);
+    // Avatar/username trigger stays rendered so the user sees their identity.
+    expect(screen.getByTestId('header-user-menu')).toBeInTheDocument();
+    // Every per-user dropdown entry is gated away in enterprise (Usage 0-reports,
+    // Subscription is SaaS billing, Guided Setup + Logout are admin/SSO concerns),
+    // so clicking the avatar is inert — no dropdown opens.
     fireEvent.click(screen.getByTestId('header-user-menu'));
+    expect(screen.queryByTestId('header-user-dropdown')).not.toBeInTheDocument();
     expect(screen.queryByTestId('header-user-dropdown-usage')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('header-user-dropdown-profile')).not.toBeInTheDocument();
-    // Non-SaaS items remain.
-    expect(screen.getByTestId('header-user-dropdown-onboarding')).toBeInTheDocument();
-    expect(screen.getByTestId('header-user-dropdown-logout')).toBeInTheDocument();
   });
 
   it('hides Usage and Subscription in onboarding/default mode (not enterprise, not SaaS)', () => {

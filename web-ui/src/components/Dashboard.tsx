@@ -153,6 +153,10 @@ const Dashboard: Component<DashboardProps> = (props) => {
           </div>
           <div class="header-spacer" />
           <div class="header-actions">
+            {/* The avatar/username stays visible in every mode. In enterprise the
+                dropdown has no entries (Subscription/Usage SaaS-only, Guided
+                Setup/Logout hidden under SSO), so the avatar's click is inert —
+                it opens nothing rather than an empty dropdown. */}
             <div class="header-user-wrapper">
               <button
                 type="button"
@@ -161,6 +165,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                 data-testid="header-user-menu"
                 title="User menu"
                 onClick={() => {
+                  if (sessionStore.enterpriseMode) return;
                   if (!showUserMenu() && userBtnRef) {
                     const rect = userBtnRef.getBoundingClientRect();
                     setUserMenuPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
@@ -200,9 +205,9 @@ const Dashboard: Component<DashboardProps> = (props) => {
                         <span>Subscription</span>
                       </a>
                     </Show>
-                    {/* Usage is read-only consumption visibility — shown in SaaS
-                        and enterprise (Timekeeper records in both). */}
-                    <Show when={sessionStore.saasMode || sessionStore.enterpriseMode}>
+                    {/* Usage is SaaS-only — the enterprise usage view is disabled
+                        for now (it always reports 0; fix deferred). */}
+                    <Show when={sessionStore.saasMode}>
                       <a
                         href="/app/usage"
                         class="header-user-dropdown-item"
@@ -213,31 +218,27 @@ const Dashboard: Component<DashboardProps> = (props) => {
                         <UsageInlineBadge />
                       </a>
                     </Show>
-                    {/* Enterprise grants admin via Setup, not per-user
-                        onboarding — hide Guided Setup (mirrors Header.tsx). */}
-                    <Show when={!sessionStore.enterpriseMode}>
-                      <a
-                        href="/app/onboarding"
-                        class="header-user-dropdown-item"
-                        data-testid="header-user-dropdown-onboarding"
-                      >
-                        <Icon path={mdiRocketLaunchOutline} size={16} />
-                        <span>Guided Setup</span>
-                      </a>
-                    </Show>
-                    {/* Hide Logout in enterprise — ineffective under SSO (mirrors
-                        Header.tsx); sign-out is governed by the IDP / device. */}
-                    <Show when={!sessionStore.enterpriseMode}>
-                      <button
-                        type="button"
-                        class="header-user-dropdown-item header-user-dropdown-item--danger"
-                        data-testid="header-user-dropdown-logout"
-                        onClick={() => { window.location.href = '/auth/logout'; }}
-                      >
-                        <Icon path={mdiLogout} size={16} />
-                        <span>Logout</span>
-                      </button>
-                    </Show>
+                    {/* Guided Setup + Logout are not per-item enterprise-gated: the
+                        dropdown only opens outside enterprise (the avatar's onClick is
+                        inert in enterprise, REQ-ENTERPRISE-008 AC8/AC9), so reaching
+                        here implies non-enterprise. */}
+                    <a
+                      href="/app/onboarding"
+                      class="header-user-dropdown-item"
+                      data-testid="header-user-dropdown-onboarding"
+                    >
+                      <Icon path={mdiRocketLaunchOutline} size={16} />
+                      <span>Guided Setup</span>
+                    </a>
+                    <button
+                      type="button"
+                      class="header-user-dropdown-item header-user-dropdown-item--danger"
+                      data-testid="header-user-dropdown-logout"
+                      onClick={() => { window.location.href = '/auth/logout'; }}
+                    >
+                      <Icon path={mdiLogout} size={16} />
+                      <span>Logout</span>
+                    </button>
                   </div>
                 </div>
               </Show>

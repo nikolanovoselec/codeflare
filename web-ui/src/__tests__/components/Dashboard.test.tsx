@@ -192,14 +192,17 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(screen.queryByTestId('header-user-dropdown-usage')).not.toBeInTheDocument();
   });
 
-  it('hides Guided Setup + Logout and shows read-only Usage in enterprise mode', () => {
+  it('keeps the avatar visible but opens no dropdown in enterprise mode', () => {
     (sessionStore as any)._setEnterpriseMode(true);
     render(() => <Dashboard {...defaultProps} />);
+    // Avatar/username trigger stays rendered so the user sees their identity.
+    expect(screen.getByTestId('header-user-menu')).toBeInTheDocument();
+    // Every dropdown entry is gated away in enterprise (Usage 0-reports, Subscription
+    // is SaaS billing, Guided Setup + Logout are admin/SSO concerns), so clicking the
+    // avatar is inert — no dropdown opens.
     fireEvent.click(screen.getByTestId('header-user-menu'));
-    expect(screen.queryByTestId('header-user-dropdown-onboarding')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('header-user-dropdown-logout')).not.toBeInTheDocument();
-    // Usage (read-only consumption) is the surface that remains in enterprise.
-    expect(screen.getByTestId('header-user-dropdown-usage')).toBeInTheDocument();
+    expect(screen.queryByTestId('header-user-dropdown')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('header-user-dropdown-usage')).not.toBeInTheDocument();
   });
 
   // === Initialization Tests ===
