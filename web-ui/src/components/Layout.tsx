@@ -428,6 +428,14 @@ const Layout: Component<LayoutProps> = (props) => {
   });
 
   // Handlers
+  const showTerminalStartingState = () => {
+    setViewState('expanding');
+    setTimeout(() => {
+      setViewState('terminal');
+      terminalStore.triggerLayoutResize();
+    }, VIEW_TRANSITION_DURATION_MS);
+  };
+
   const handleSelectSession = (id: string) => {
     const session = sessionStore.sessions.find((s) => s.id === id);
     if (session?.status === 'running') {
@@ -436,6 +444,7 @@ const Layout: Component<LayoutProps> = (props) => {
     } else if (session?.status === 'stopped') {
       sessionStore.setActiveSession(id);
       terminalWorkspaceStore.setSingleSessionWorkspace(id, '1');
+      showTerminalStartingState();
       void sessionStore.startSession(id).catch(() => {});
     }
   };
@@ -443,6 +452,7 @@ const Layout: Component<LayoutProps> = (props) => {
   const handleStartSession = async (id: string) => {
     sessionStore.setActiveSession(id);
     terminalWorkspaceStore.setSingleSessionWorkspace(id, sessionStore.getTerminalsForSession(id)?.activeTabId || '1');
+    showTerminalStartingState();
     try {
       await sessionStore.startSession(id);
     } catch (err) {
@@ -463,6 +473,7 @@ const Layout: Component<LayoutProps> = (props) => {
     if (session) {
       sessionStore.setActiveSession(session.id);
       terminalWorkspaceStore.setSingleSessionWorkspace(session.id, '1');
+      showTerminalStartingState();
       // Update preferences with last-used agent type
       if (agentType) {
         sessionStore.updatePreferences({ lastAgentType: agentType });
@@ -472,12 +483,10 @@ const Layout: Component<LayoutProps> = (props) => {
   };
 
   const handleOpenMultiView = () => {
+    if (!terminalWorkspaceStore.openMultiView()) return;
+    setShowTilingOverlay(false);
     sessionStore.setActiveSession(null);
-    setViewState('expanding');
-    setTimeout(() => {
-      setViewState('terminal');
-      terminalStore.triggerLayoutResize();
-    }, VIEW_TRANSITION_DURATION_MS);
+    showTerminalStartingState();
   };
 
   // Handler for per-session init progress dismiss
@@ -492,9 +501,12 @@ const Layout: Component<LayoutProps> = (props) => {
   const handleOpenDashboard = () => {
     // Keyboard cleanup is handled reactively by Terminal.tsx when props.active
     // becomes false (via onCleanup in the keyboard lifecycle effect).
+    terminalWorkspaceStore.setDashboardWorkspace();
+    setShowTilingOverlay(false);
     setViewState('collapsing');
     setTimeout(() => {
       sessionStore.setActiveSession(null);
+      terminalWorkspaceStore.setDashboardWorkspace();
       setViewState('dashboard');
     }, VIEW_TRANSITION_DURATION_MS);
   };

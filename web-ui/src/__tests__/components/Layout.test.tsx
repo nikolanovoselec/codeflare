@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, cleanup, waitFor } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
+import type { SessionWithStatus } from '../../types';
 
 // Mock all child components to isolate Layout testing
 vi.mock('../../components/Header', () => ({
@@ -91,6 +92,7 @@ let mockSessions: any[] = [];
 let mockActiveSessionId: string | null = null;
 let mockPreferences: Record<string, any> = {};
 let mockVisiblePanes: Array<{ sessionId: string; terminalId: string }> = [];
+let mockActiveWorkspace: { kind: 'dashboard' } | { kind: 'session'; sessionId: string } | { kind: 'multiview'; id: 'multiview:1' } = { kind: 'dashboard' };
 let readSessionStoreVersion = () => 0;
 let bumpSessionStoreVersion = () => {};
 
@@ -152,11 +154,20 @@ vi.mock('../../stores/terminal', () => ({
 
 vi.mock('../../stores/terminal-workspace', () => ({
   terminalWorkspaceStore: {
-    getActiveWorkspace: vi.fn(() => ({ kind: 'dashboard' })),
+    getActiveWorkspace: vi.fn(() => mockActiveWorkspace),
     getVisiblePanes: vi.fn(() => mockVisiblePanes),
-    setDashboardWorkspace: vi.fn(),
-    setSingleSessionWorkspace: vi.fn(),
-    openMultiView: vi.fn(() => false),
+    setDashboardWorkspace: vi.fn(() => { mockActiveWorkspace = { kind: 'dashboard' }; mockVisiblePanes = []; bumpSessionStoreVersion(); }),
+    setSingleSessionWorkspace: vi.fn((sessionId: string, terminalId = '1') => {
+      mockActiveWorkspace = { kind: 'session', sessionId };
+      mockVisiblePanes = [{ sessionId, terminalId }];
+      bumpSessionStoreVersion();
+    }),
+    openMultiView: vi.fn(() => {
+      mockActiveWorkspace = { kind: 'multiview', id: 'multiview:1' };
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }, { sessionId: 'sess2', terminalId: '1' }];
+      bumpSessionStoreVersion();
+      return true;
+    }),
   },
 }));
 
@@ -170,6 +181,7 @@ vi.mock('../../lib/mobile', () => ({
 
 import { forceResetKeyboardState } from '../../lib/mobile';
 import { reconnectDisconnectedTerminals, reconnectOnVisibilityReturn } from '../../stores/terminal';
+import { terminalWorkspaceStore } from '../../stores/terminal-workspace';
 import Layout, { clearPrewarmingVaultStatus } from '../../components/Layout';
 
 // Helper to create a mock session
@@ -191,6 +203,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     mockActiveSessionId = null;
     mockPreferences = {};
     mockVisiblePanes = [];
+    mockActiveWorkspace = { kind: 'dashboard' };
     const [sessionStoreVersion, setSessionStoreVersion] = createSignal(0);
     readSessionStoreVersion = sessionStoreVersion;
     bumpSessionStoreVersion = () => setSessionStoreVersion((value) => value + 1);
@@ -661,6 +674,73 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(typeof props.onCreateSession).toBe('function');
       expect(typeof props.onStartSession).toBe('function');
       expect(typeof props.onDismissError).toBe('function');
+    });
+  });
+
+  // =========================================================================
+  // Terminal workspace transitions
+  // =========================================================================
+
+  describe('Terminal workspace transitions / REQ-TERM-011 through REQ-TERM-013', () => {
+    it('REQ-TERM-012: activates MultiView from the header callback', async () => {
+      const { sessionStore } = await import('../../stores/session');
+      mockSessions = [createMockSession({ id: 'sess1', status: 'running' }), createMockSession({ id: 'sess2', status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockActiveWorkspace = { kind: 'session', sessionId: 'sess1' };
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }];
+
+      render(() => <Layout />);
+      await waitFor(() => expect((window as any).__headerProps?.onOpenMultiView).toBeTypeOf('function'));
+
+      (window as any).__headerProps.onOpenMultiView();
+
+      expect(terminalWorkspaceStore.openMultiView).toHaveBeenCalled();
+      expect(sessionStore.setActiveSession).toHaveBeenCalledWith(null);
+      expect((window as any).__terminalAreaProps.showTerminal).toBe(true);
+    });
+
+    it('REQ-TERM-011: dashboard button exits an active MultiView workspace', async () => {
+      mockSessions = [createMockSession({ id: 'sess1', status: 'running' }), createMockSession({ id: 'sess2', status: 'running' })];
+      mockActiveSessionId = null;
+      mockActiveWorkspace = { kind: 'multiview', id: 'multiview:1' };
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }, { sessionId: 'sess2', terminalId: '1' }];
+
+      render(() => <Layout />);
+      await waitFor(() => expect((window as any).__headerProps?.onLogoClick).toBeTypeOf('function'));
+
+      (window as any).__headerProps.onLogoClick();
+
+      expect(terminalWorkspaceStore.setDashboardWorkspace).toHaveBeenCalled();
+      expect(mockActiveWorkspace).toEqual({ kind: 'dashboard' });
+    });
+
+    it('REQ-TERM-014: creating a session from terminal view keeps the starting surface visible', async () => {
+      const { sessionStore } = await import('../../stores/session');
+      mockSessions = [createMockSession({ id: 'sess1', status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockActiveWorkspace = { kind: 'session', sessionId: 'sess1' };
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }];
+      const newSession = createMockSession({ id: 'sess-new', name: 'New Session', status: 'stopped' }) as SessionWithStatus;
+      vi.mocked(sessionStore.createSession).mockImplementation(async () => {
+        mockSessions = [...mockSessions, newSession];
+        bumpSessionStoreVersion();
+        return newSession;
+      });
+      let resolveStart: (() => void) | undefined;
+      vi.mocked(sessionStore.startSession).mockImplementation(() => new Promise<void>((resolve) => { resolveStart = resolve; }));
+
+      render(() => <Layout />);
+      await waitFor(() => expect((window as any).__headerProps?.onCreateSession).toBeTypeOf('function'));
+
+      const createPromise = (window as any).__headerProps.onCreateSession('New Session');
+      await waitFor(() => expect(sessionStore.startSession).toHaveBeenCalledWith('sess-new'));
+
+      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess-new', '1');
+      expect((window as any).__terminalAreaProps.showTerminal).toBe(true);
+      expect((window as any).__terminalAreaProps.viewState).not.toBe('dashboard');
+
+      resolveStart?.();
+      await createPromise;
     });
   });
 
