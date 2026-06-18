@@ -208,15 +208,22 @@ COPY preseed/agents/pi/extensions/ /opt/codeflare/pi-agent/extensions/
 # (CVE-2026-54328 was the first). Read the EXACT version the global @latest install
 # just resolved, force it across the whole prewarm tree via an npm override, drop the
 # stale lock and reinstall. This layer sits below the .cache-bust COPY, so it re-runs
-# every deploy and the prewarm SDK is ALWAYS identical to the runtime agent.
+# every deploy and the prewarm SDK is ALWAYS identical to the runtime agent. The build
+# fails closed: an empty PI_VER (global path/layout changed) aborts before reinstall, and
+# a post-install assertion confirms the override actually pinned the transitive copy — so a
+# future Pi packaging change can never silently ship a stale/unpinned prewarm SDK green.
 RUN cd /opt/codeflare/pi-agent/npm && \
     apt-get update && \
     apt-get install -y --no-install-recommends make gcc g++ && \
     export PI_VER="$(node -p "require('/usr/local/lib/node_modules/@earendil-works/pi-coding-agent/package.json').version")" && \
+    [ -n "$PI_VER" ] || { echo "ERROR: could not read global Pi SDK version - refusing to ship an unpinned prewarm tree" >&2; exit 1; } && \
     echo "Bridging prewarm Pi SDK to global agent version: $PI_VER" && \
     node -e 'const f="package.json",p=require(process.cwd()+"/"+f);(p.overrides=p.overrides||{})["@earendil-works/pi-coding-agent"]=process.env.PI_VER;require("fs").writeFileSync(f,JSON.stringify(p,null,2)+"\n")' && \
     rm -f package-lock.json && \
     npm install --omit=dev --no-audit --no-fund && \
+    INSTALLED_PI_VER="$(node -p "require('/opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/package.json').version")" && \
+    [ "$INSTALLED_PI_VER" = "$PI_VER" ] || { echo "ERROR: prewarm Pi SDK $INSTALLED_PI_VER != global $PI_VER - version bridge did not take" >&2; exit 1; } && \
+    echo "Prewarm Pi SDK pinned to $INSTALLED_PI_VER (matches global agent)" && \
     apt-get purge -y make gcc g++ && \
     apt-get autoremove -y && \
     npm cache clean --force && \

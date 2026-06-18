@@ -9,7 +9,7 @@ type SeedDocument = {
   modes: ('default' | 'advanced')[];
 };
 
-export const PRESEED_CONTENT_HASH = '1e89dbba5de82532';
+export const PRESEED_CONTENT_HASH = 'a4b703e0d0b450ae';
 
 export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
@@ -1607,7 +1607,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
     "key": ".pi/agent/npm/package.json",
     "contentType": "application/json; charset=utf-8",
-    "content": "{\n  \"name\": \"codeflare-pi-preseed\",\n  \"private\": true,\n  \"dependencies\": {\n    \"@gotgenes/pi-subagents\": \"16.2.1\",\n    \"@juicesharp/rpiv-advisor\": \"1.19.1\",\n    \"@juicesharp/rpiv-ask-user-question\": \"1.19.1\",\n    \"@juicesharp/rpiv-todo\": \"1.19.1\",\n    \"context-mode\": \"1.0.162\",\n    \"pi-mcp-adapter\": \"2.9.0\",\n    \"pi-web-access\": \"0.10.7\"\n  },\n  \"overrides\": {\n    \"@earendil-works/pi-coding-agent\": \"0.79.6\",\n    \"@mozilla/readability\": \"0.6.0\",\n    \"hono\": \"^4.12.25\"\n  }\n}\n",
+    "content": "{\n  \"name\": \"codeflare-pi-preseed\",\n  \"private\": true,\n  \"//pi-coding-agent-override\": \"Build-time placeholder only. The Dockerfile prewarm layer overwrites overrides['@earendil-works/pi-coding-agent'] with the exact version the global @latest agent install resolved, so the prewarm SDK always matches the runtime agent. This committed value is the baseline and is NOT what ships.\",\n  \"dependencies\": {\n    \"@gotgenes/pi-subagents\": \"16.2.1\",\n    \"@juicesharp/rpiv-advisor\": \"1.19.1\",\n    \"@juicesharp/rpiv-ask-user-question\": \"1.19.1\",\n    \"@juicesharp/rpiv-todo\": \"1.19.1\",\n    \"context-mode\": \"1.0.162\",\n    \"pi-mcp-adapter\": \"2.9.0\",\n    \"pi-web-access\": \"0.10.7\"\n  },\n  \"overrides\": {\n    \"@earendil-works/pi-coding-agent\": \"0.79.6\",\n    \"@mozilla/readability\": \"0.6.0\",\n    \"hono\": \"^4.12.25\"\n  }\n}\n",
     "modes": [
       "default",
       "advanced"
