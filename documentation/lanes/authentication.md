@@ -320,6 +320,25 @@ Both `SAAS_MODE` and `ONBOARDING_LANDING_PAGE` are passed to the Worker via `--v
 
 ---
 
+## Header User Dropdown
+
+The avatar/username widget in the header and dashboard is always visible regardless of mode — users always see their identity. Clicking it opens a dropdown in non-enterprise modes only.
+
+**Enterprise mode:** the avatar trigger's `onClick` returns immediately (`if (sessionStore.enterpriseMode) return`) in both `Header.tsx` and `Dashboard.tsx`, so no dropdown opens — the avatar element itself stays present and styled normally.
+
+**Dropdown entries by mode:**
+
+| Entry | SaaS (`saasMode`) | Onboarding / default | Enterprise |
+|---|---|---|---|
+| Subscription | shown | hidden | not reachable (dropdown inert) |
+| Usage | shown | hidden | not reachable (dropdown inert) |
+| Guided Setup | shown | shown | not reachable (dropdown inert) |
+| Logout | shown | shown | not reachable (dropdown inert) |
+
+Subscription and Usage are gated on `saasMode`. Enterprise previously exposed a read-only Usage view, but it was reverted because the Timekeeper read path is not wired for enterprise (it always reported zero); the entry is deferred until the data source is fixed.
+
+Implements [REQ-AUTH-016](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown) (non-enterprise dropdown) and [REQ-ENTERPRISE-008](../../sdd/spec/enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression) AC2/AC8 (enterprise avatar inert, Usage SaaS-only).
+
 ## Specification Coverage
 
 - [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-e2e-testing) - Service token authentication for E2E testing

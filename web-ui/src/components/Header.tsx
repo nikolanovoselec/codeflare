@@ -44,7 +44,6 @@ interface HeaderProps {
   onStopSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   onCreateSession: (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => void;
-  enterpriseMode?: boolean;
   // Note: logout goes through /auth/logout which routes to OIDC or CF Access as appropriate
 }
 

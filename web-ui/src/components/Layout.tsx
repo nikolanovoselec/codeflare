@@ -605,7 +605,6 @@ const Layout: Component<LayoutProps> = (props) => {
           onStopSession={handleStopSession}
           onDeleteSession={handleDeleteSession}
           onCreateSession={handleCreateSession}
-          enterpriseMode={props.enterpriseMode}
         />
       </Show>
 
