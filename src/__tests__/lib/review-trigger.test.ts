@@ -81,7 +81,7 @@ describe('isPrBoundaryTrigger', () => {
 });
 
 
-describe('command target parsing for PR-boundary recovery', () => {
+describe('command target parsing for PR-boundary recovery (REQ-AGENT-063 / REQ-AGENT-066)', () => {
   it('extracts explicit push refspec target branches and ignores tag/delete-only pushes', () => {
     expect(gitPushCommandTarget('git push origin HEAD:multiview')).toEqual({ advancing: true, branch: 'multiview' });
     expect(gitPushCommandTarget('git push origin feature:refs/heads/multiview')).toEqual({ advancing: true, branch: 'multiview' });
