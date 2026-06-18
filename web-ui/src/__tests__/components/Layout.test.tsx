@@ -699,20 +699,19 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect((window as any).__terminalAreaProps.showTerminal).toBe(true);
     });
 
-    it('REQ-TERM-011: dashboard button exits an active MultiView workspace', async () => {
-      mockSessions = [createMockSession({ id: 'sess1', status: 'running' }), createMockSession({ id: 'sess2', status: 'running' })];
-      mockActiveSessionId = null;
-      mockActiveWorkspace = { kind: 'multiview', id: 'multiview:1' };
-      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }, { sessionId: 'sess2', terminalId: '1' }];
+    it('REQ-TERM-011: dashboard button leaves terminal view immediately', async () => {
+      mockSessions = [createMockSession({ id: 'sess1', status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockActiveWorkspace = { kind: 'session', sessionId: 'sess1' };
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }];
 
       render(() => <Layout />);
       await waitFor(() => expect((window as any).__headerProps?.onLogoClick).toBeTypeOf('function'));
 
       (window as any).__headerProps.onLogoClick();
 
-      expect(terminalWorkspaceStore.setDashboardWorkspace).toHaveBeenCalled();
-      expect(mockActiveWorkspace).toEqual({ kind: 'dashboard' });
-      expect(mockActiveSessionId).toBeNull();
+      await waitFor(() => expect((window as any).__terminalAreaProps.showTerminal).toBe(false));
+      expect((window as any).__terminalAreaProps.viewState).toBe('collapsing');
     });
 
     it('REQ-TERM-014: creating a session from terminal view keeps the starting surface visible', async () => {
@@ -736,7 +735,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       const createPromise = (window as any).__headerProps.onCreateSession('New Session');
       await waitFor(() => expect(sessionStore.startSession).toHaveBeenCalledWith('sess-new'));
 
-      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess-new', '1');
+      expect(mockActiveSessionId).toBe('sess-new');
       expect((window as any).__terminalAreaProps.showTerminal).toBe(true);
       expect((window as any).__terminalAreaProps.viewState).not.toBe('dashboard');
 
