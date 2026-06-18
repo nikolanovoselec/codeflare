@@ -350,15 +350,17 @@ All preseed content is deployed via the manifest pipeline:
   The primary signal is `Symbol.for("codeflare.reviewBoundaryActedThisSession")`:
   repo+branch keys for which a real boundary command ran this session. The
   backstop is `Symbol.for("codeflare.reviewSessionBaselineHead")`: the head first
-  observed on a branch, seeded once and not advanced on ack. A head matching either
-  signal auto-starts review.
+  observed for the repo+branch in this Pi process. It auto-starts only when the
+  current enforced PR head is a descendant of, and different from, that baseline;
+  a clone/reload inherited head has `baseline === head` and is offered instead.
+  <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewBaselineContinuation -->
 
   Agent and subagent pushes need one more guard because their internal `git push`
   runs inside another Pi process and never appears as a main-session Bash tool
   event. `review-enforcement.ts` records the enforced PR head at Agent tool start
   and compares it with the fresh head at Agent tool end. A changed, unacked,
   enforced head is treated as a real PR-boundary event and uses the same durable
-  review-window path as a directly observed push.
+  review-window path as a directly observed push. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reconcileAgentHeadAdvance -->
 
   A head matching neither signal is offered once as a passive `ctx.ui.notify`
   toast, never as a chat/transcript message, and stays merge-blocking until the
