@@ -228,9 +228,31 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff u
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
+    it('REQ-TERM-011: should send focus ownership control frame when connected', async () => {
+      const terminal = createMockTerminal();
+      const sendSpy = vi.fn();
+      const OriginalWebSocket = globalThis.WebSocket;
+      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+        send = sendSpy;
+        constructor(url: string) {
+          super(url);
+        }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+
+      terminalStore.claimResizeAuthority(sessionId, terminalId);
+
+      expect(sendSpy).toHaveBeenCalledWith(JSON.stringify({ type: 'focus' }));
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
     it('should not throw when not connected', () => {
       expect(() => {
         terminalStore.resize(sessionId, terminalId, 100, 50);
+        terminalStore.claimResizeAuthority(sessionId, terminalId);
       }).not.toThrow();
     });
   });

@@ -107,6 +107,7 @@ export class Session {
   lastProcessName: string | null;
   processNameInterval: ReturnType<typeof setInterval> | null;
   orphanTimeout: ReturnType<typeof setTimeout> | null;
+  resizeAuthorityClient: WebSocket | null;
 
   // Injected dependencies
   private readonly _tabConfigMap: TabConfigMap;
@@ -134,6 +135,7 @@ export class Session {
     this.lastProcessName = null;
     this.processNameInterval = null;
     this.orphanTimeout = null;
+    this.resizeAuthorityClient = null;
 
     // Injected dependencies
     this._tabConfigMap = options.tabConfigMap ?? {};
@@ -262,6 +264,9 @@ export class Session {
    */
   attach(ws: WebSocket): void {
     this.clients.add(ws);
+    if (!this.resizeAuthorityClient) {
+      this.resizeAuthorityClient = ws;
+    }
     this.lastAccessedAt = new Date().toISOString();
     if (this._activityTracker) {
       this._activityTracker.recordClientConnected();
@@ -295,6 +300,9 @@ export class Session {
    */
   detach(ws: WebSocket, sessionManager: SessionManagerLike | null = null): void {
     this.clients.delete(ws);
+    if (this.resizeAuthorityClient === ws) {
+      this.resizeAuthorityClient = this.clients.values().next().value ?? null;
+    }
     this._log('info', 'Client detached', { session: this.id.substring(0, 8), totalClients: this.clients.size });
 
     if (this._activityTracker && sessionManager && sessionManager.clients.size === 0) {
@@ -337,13 +345,34 @@ export class Session {
   }
 
   /**
-   * Resize the PTY
+   * Mark a connected client as the only client allowed to resize this PTY.
    */
-  resize(cols: number, rows: number): void {
+  claimResizeAuthority(ws: WebSocket): void {
+    if (this.clients.has(ws)) {
+      this.resizeAuthorityClient = ws;
+    }
+  }
+
+  /**
+   * Resize the PTY. When the caller supplies a WebSocket, only the current
+   * foreground resize owner may apply dimensions; this prevents stale hidden
+   * panes in another browser from shrinking the shared PTY back to 80x24.
+   */
+  resize(cols: number, rows: number, ws?: WebSocket): boolean {
+    if (ws) {
+      if (!this.resizeAuthorityClient && this.clients.has(ws)) {
+        this.resizeAuthorityClient = ws;
+      }
+      if (this.resizeAuthorityClient && this.resizeAuthorityClient !== ws) {
+        return false;
+      }
+    }
+
     if (this.ptyProcess) {
       this.ptyProcess.resize(cols, rows);
     }
     this.headlessTerminal.resize(cols, rows);
+    return true;
   }
 
   /**
@@ -370,6 +399,7 @@ export class Session {
       client.close(1000, 'Session terminated');
     }
     this.clients.clear();
+    this.resizeAuthorityClient = null;
     this.disconnectedAt = null;
     this._log('info', 'Session killed', { session: this.id });
   }

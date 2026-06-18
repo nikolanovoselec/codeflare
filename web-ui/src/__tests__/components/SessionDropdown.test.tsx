@@ -215,4 +215,74 @@ describe('SessionDropdown', () => {
       expect(btn.textContent).toContain('New Session');
     });
   });
+
+  describe('MultiView selection', () => {
+    it('REQ-TERM-013: keeps the dropdown open while toggling MultiView member sessions', () => {
+      const onLaunchMultiView = vi.fn();
+      render(() => (
+        <SessionDropdown
+          {...defaultProps}
+          multiView={{ capacity: 4, existing: null, onLaunch: onLaunchMultiView, onOpen: vi.fn(), onClose: vi.fn() }}
+        />
+      ));
+
+      fireEvent.click(screen.getByTestId('session-dropdown-multiview-action'));
+      expect(screen.getByTestId('session-dropdown')).toBeInTheDocument();
+      expect(screen.getByTestId('session-dropdown-multiview-action')).toHaveAttribute('data-mode', 'selecting');
+
+      fireEvent.click(screen.getByTestId('session-card-s3'));
+      expect(screen.getByTestId('session-card-s1')).toHaveAttribute('data-selected', 'true');
+      expect(screen.getByTestId('session-card-s3')).toHaveAttribute('data-selected', 'true');
+      expect(defaultProps.onSelectSession).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByTestId('session-dropdown-multiview-action'));
+      expect(onLaunchMultiView).toHaveBeenCalledWith(['s1', 's3']);
+    });
+
+    it('REQ-TERM-013: rejects selection beyond desktop capacity without changing selected sessions', () => {
+      render(() => (
+        <SessionDropdown
+          {...defaultProps}
+          sessions={[
+            createSession({ id: 's1', status: 'running' }),
+            createSession({ id: 's2', status: 'running' }),
+            createSession({ id: 's3', status: 'running' }),
+            createSession({ id: 's4', status: 'running' }),
+            createSession({ id: 's5', status: 'running' }),
+          ]}
+          multiView={{ capacity: 4, existing: null, onLaunch: vi.fn(), onOpen: vi.fn(), onClose: vi.fn() }}
+        />
+      ));
+
+      fireEvent.click(screen.getByTestId('session-dropdown-multiview-action'));
+      fireEvent.click(screen.getByTestId('session-card-s2'));
+      fireEvent.click(screen.getByTestId('session-card-s3'));
+      fireEvent.click(screen.getByTestId('session-card-s4'));
+      fireEvent.click(screen.getByTestId('session-card-s5'));
+
+      expect(screen.getByTestId('session-card-s1')).toHaveAttribute('data-selected', 'true');
+      expect(screen.getByTestId('session-card-s2')).toHaveAttribute('data-selected', 'true');
+      expect(screen.getByTestId('session-card-s3')).toHaveAttribute('data-selected', 'true');
+      expect(screen.getByTestId('session-card-s4')).toHaveAttribute('data-selected', 'true');
+      expect(screen.getByTestId('session-card-s5')).toHaveAttribute('data-selected', 'false');
+      expect(screen.getByTestId('session-dropdown-multiview-limit')).toHaveAttribute('data-visible', 'true');
+    });
+
+    it('REQ-TERM-013: does not enter MultiView selection mode on mobile', () => {
+      const onLaunchMultiView = vi.fn();
+      render(() => (
+        <SessionDropdown
+          {...defaultProps}
+          isMobileView
+          multiView={{ capacity: 0, existing: null, onLaunch: onLaunchMultiView, onOpen: vi.fn(), onClose: vi.fn() }}
+        />
+      ));
+
+      fireEvent.click(screen.getByTestId('session-dropdown-multiview-action'));
+
+      expect(screen.getByTestId('session-dropdown-multiview-action')).toHaveAttribute('aria-disabled', 'true');
+      expect(onLaunchMultiView).not.toHaveBeenCalled();
+    });
+  });
+
 });

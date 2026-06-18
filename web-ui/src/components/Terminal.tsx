@@ -11,6 +11,9 @@ interface TerminalProps {
   terminalId: string;
   sessionName?: string;
   active: boolean;
+  visible?: boolean;
+  focused?: boolean;
+  connect?: boolean;
   /** When true, always observe resize (used in tiled mode where multiple terminals are visible) */
   alwaysObserveResize?: boolean;
   /** When true, skip rendering the per-terminal InitProgress overlay (used in tiled mode) */
@@ -20,6 +23,7 @@ interface TerminalProps {
 }
 
 const Terminal: Component<TerminalProps> = (props) => {
+  const isVisible = () => props.visible ?? props.active;
   const {
     containerRef,
     terminal,
@@ -44,10 +48,10 @@ const Terminal: Component<TerminalProps> = (props) => {
       style={{
         display: 'flex',
         width: '100%',
-        visibility: props.active ? 'visible' : 'hidden',
-        position: props.active ? 'relative' : 'absolute',
-        height: props.active ? '100%' : '0',
-        overflow: props.active ? undefined : 'hidden',
+        visibility: isVisible() ? 'visible' : 'hidden',
+        position: isVisible() ? 'relative' : 'absolute',
+        height: isVisible() ? '100%' : '0',
+        overflow: isVisible() ? undefined : 'hidden',
         'flex-direction': 'column',
         'min-height': '0',
         'padding-bottom': isTouchDevice() ? `${getKeyboardHeight()}px` : undefined,

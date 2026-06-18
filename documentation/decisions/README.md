@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD81](#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD82](#ad82-visible-terminal-panes-own-websockets-and-multiview-is-virtual) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -92,6 +92,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD79](#ad79-image-baked-pi-extension-transpile-cache) | Image-baked Pi extension transpile cache | Performance |
 | [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) | Pi PR-boundary merge gate is report-only and defended in depth | Agents |
 | [AD81](#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) | Reuse the container egress-injection layer for per-user GitHub tokens | Architecture, Security |
+| [AD82](#ad82-visible-terminal-panes-own-websockets-and-multiview-is-virtual) | Visible terminal panes own WebSockets, and MultiView is virtual | Architecture, UI/Frontend |
 
 ---
 
@@ -1572,6 +1573,25 @@ Load only explicit `-e` extensions: `graphify-native.ts`, `review-lane-guards.ts
 - Alternatives rejected: a git credential-helper callback (covers git but not `gh`/REST, and the agent can still request the token — security by obscurity); placing the real `GH_TOKEN` in the enterprise container (defeats the no-secret-in-container guarantee).
 
 **Related:** [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials), [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage), [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [CON-GH-002](../../sdd/spec/constraints.md#con-gh-002-the-real-github-token-never-enters-the-enterprise-container), [CON-GH-003](../../sdd/spec/constraints.md#con-gh-003-egress-injection-is-scoped-by-the-per-session-binding).
+
+---
+
+### AD82: Visible terminal panes own WebSockets, and MultiView is virtual
+
+**Decision:** The browser opens terminal WebSockets only for panes visible in the current frontend workspace. Dashboard has zero visible panes, a real session has one visible pane, and `MultiView #1` is a local virtual workspace that renders one visible pane for each selected real session. MultiView is never represented as a backend session ID.
+
+**Context:** Dashboard and hidden session surfaces previously mounted terminals for every running session. Those hidden terminals attached extra WebSocket clients to server PTYs, sent stale resize frames, and made the Dashboard status look connected even when the user was not viewing a terminal. The same problem would become worse with a multi-session view unless running, visible, connected, and focused were separated.
+
+**Consequences:**
+
+- Dashboard status and storage polling are no longer coupled to terminal side effects.
+- Hidden running sessions do not mount terminals, reconnect, resize, forward input, or run URL detection.
+- Browser visibility return reconnects only the current workspace's visible pane keys.
+- `MultiView #1` can compose existing running or initializing sessions without quota, storage, lifecycle, or terminal-route changes.
+- A shared `TerminalGrid` renders tiled terminal surfaces for both per-session tab tiling and MultiView, so repeated layout structure stays centralized.
+- The host terminal server assigns resize authority to the focused WebSocket so stale clients cannot shrink a shared PTY.
+
+**Related:** [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace), [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow), [REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming).
 
 ---
 

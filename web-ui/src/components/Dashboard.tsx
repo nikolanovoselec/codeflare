@@ -8,6 +8,7 @@ import { storageStore } from '../stores/storage';
 import { getDownloadUrl } from '../api/storage';
 import { getGravatarUrl, gravatarExists } from '../lib/gravatar';
 import SessionStatCard from './SessionStatCard';
+import MultiViewSessionCard from './MultiViewSessionCard';
 import SessionContextMenu from './SessionContextMenu';
 import StatCards from './StatCards';
 import StorageBrowser from './StorageBrowser';
@@ -19,6 +20,8 @@ import ScrambleText from './ScrambleText';
 import KittScanner from './KittScanner';
 import DashboardCard from './TipsRotator';
 import { sessionStore, isAtUsageQuota } from '../stores/session';
+import { terminalWorkspaceStore } from '../stores/terminal-workspace';
+import { getTerminalViewportClass } from '../lib/mobile';
 import { githubStore } from '../stores/github';
 import { getBrowserTimezone, syncBrowserTimezone } from '../lib/timezone-sync';
 import UsageInlineBadge from './UsageInlineBadge';
@@ -29,6 +32,7 @@ interface DashboardProps {
   onCreateSession: (agentType?: AgentType, tabConfig?: TabConfig[]) => void;
   onStartSession: (id: string) => void;
   onOpenSessionById: (id: string) => void;
+  onOpenMultiView?: () => void;
   onStopSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   viewState: 'dashboard' | 'expanding' | 'collapsing';
@@ -39,6 +43,7 @@ interface DashboardProps {
 
 const Dashboard: Component<DashboardProps> = (props) => {
   const [collapseReady, setCollapseReady] = createSignal(false);
+  const multiViewWorkspace = () => terminalWorkspaceStore.reconcileMultiView(props.sessions, getTerminalViewportClass());
   // Mobile-only: which right-column face is shown (GitHub vs R2 storage). The
   // flip control in each panel header toggles it; desktop shows both stacked.
   const [panelFace, setPanelFace] = createSignal<'github' | 'storage'>('github');
@@ -311,6 +316,18 @@ const Dashboard: Component<DashboardProps> = (props) => {
                       />
                     )}
                   </For>
+                  <Show when={multiViewWorkspace()}>
+                    {(workspace) => (
+                      <MultiViewSessionCard
+                        workspace={workspace()}
+                        onSelect={() => {
+                          if (terminalWorkspaceStore.openMultiView()) {
+                            props.onOpenMultiView?.();
+                          }
+                        }}
+                      />
+                    )}
+                  </Show>
                 </div>
                 <Portal>
                   <SessionContextMenu

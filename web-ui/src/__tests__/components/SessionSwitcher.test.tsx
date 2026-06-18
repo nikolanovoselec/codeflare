@@ -7,6 +7,7 @@ import type { SessionWithStatus } from '../../types';
 const isMobileMock = vi.hoisted(() => ({ value: false }));
 vi.mock('../../lib/mobile', () => ({
   isMobile: () => isMobileMock.value,
+  getTerminalViewportClass: () => isMobileMock.value ? 'mobile' : 'desktop',
 }));
 
 // Mock SessionDropdown
@@ -27,6 +28,18 @@ vi.mock('../../stores/session', () => ({
 vi.mock('../../stores/terminal', () => ({
   terminalStore: {
     getConnectionState: vi.fn(() => 'connected'),
+  },
+}));
+
+vi.mock('../../stores/terminal-workspace', () => ({
+  terminalWorkspaceStore: {
+    getActiveWorkspace: vi.fn(() => ({ kind: 'dashboard' })),
+    reconcileMultiView: vi.fn(() => null),
+    getMultiView: vi.fn(() => null),
+    getMultiViewCapacity: vi.fn((viewport: string) => viewport === 'mobile' ? 0 : 4),
+    createOrUpdateMultiView: vi.fn(() => false),
+    openMultiView: vi.fn(() => false),
+    closeMultiView: vi.fn(),
   },
 }));
 

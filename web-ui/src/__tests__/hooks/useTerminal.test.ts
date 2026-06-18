@@ -73,6 +73,7 @@ vi.mock('../../stores/terminal', () => ({
     registerFitAddon: vi.fn(),
     unregisterFitAddon: vi.fn(),
     connect: vi.fn(() => vi.fn()),
+    claimResizeAuthority: vi.fn(),
     resize: vi.fn(),
     getConnectionState: vi.fn(() => 'disconnected'),
     getRetryMessage: vi.fn(() => null),
@@ -346,6 +347,36 @@ describe('useTerminal hook', () => {
       });
 
       expect(terminalStore.connect).not.toHaveBeenCalled();
+
+      dispose();
+    });
+
+    it('REQ-TERM-011: does not connect when the pane is not allowed to own a WebSocket', () => {
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, connect: false });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      expect(terminalStore.connect).not.toHaveBeenCalled();
+      expect(terminalStore.startUrlDetection).not.toHaveBeenCalled();
+
+      dispose();
+    });
+
+    it('REQ-TERM-011: does not focus a visible terminal pane unless it is the focused pane', () => {
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, visible: true, focused: false, connect: true });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      expect(terminalStore.connect).toHaveBeenCalled();
+      expect(mockFocus).not.toHaveBeenCalled();
 
       dispose();
     });

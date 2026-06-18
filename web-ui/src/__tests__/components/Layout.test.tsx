@@ -90,6 +90,7 @@ const vaultPrewarmProof = {
 let mockSessions: any[] = [];
 let mockActiveSessionId: string | null = null;
 let mockPreferences: Record<string, any> = {};
+let mockVisiblePanes: Array<{ sessionId: string; terminalId: string }> = [];
 let readSessionStoreVersion = () => 0;
 let bumpSessionStoreVersion = () => {};
 
@@ -149,6 +150,16 @@ vi.mock('../../stores/terminal', () => ({
   cancelScheduledDisconnect: vi.fn(),
 }));
 
+vi.mock('../../stores/terminal-workspace', () => ({
+  terminalWorkspaceStore: {
+    getActiveWorkspace: vi.fn(() => ({ kind: 'dashboard' })),
+    getVisiblePanes: vi.fn(() => mockVisiblePanes),
+    setDashboardWorkspace: vi.fn(),
+    setSingleSessionWorkspace: vi.fn(),
+    openMultiView: vi.fn(() => false),
+  },
+}));
+
 let mockIsSamsungBrowser = false;
 vi.mock('../../lib/mobile', () => ({
   forceResetKeyboardState: vi.fn(),
@@ -158,7 +169,7 @@ vi.mock('../../lib/mobile', () => ({
 }));
 
 import { forceResetKeyboardState } from '../../lib/mobile';
-import { reconnectOnVisibilityReturn } from '../../stores/terminal';
+import { reconnectDisconnectedTerminals, reconnectOnVisibilityReturn } from '../../stores/terminal';
 import Layout, { clearPrewarmingVaultStatus } from '../../components/Layout';
 
 // Helper to create a mock session
@@ -179,6 +190,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     mockSessions = [];
     mockActiveSessionId = null;
     mockPreferences = {};
+    mockVisiblePanes = [];
     const [sessionStoreVersion, setSessionStoreVersion] = createSignal(0);
     readSessionStoreVersion = sessionStoreVersion;
     bumpSessionStoreVersion = () => setSessionStoreVersion((value) => value + 1);
@@ -720,10 +732,12 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     it('calls forceResetKeyboardState on visibility return in terminal view', () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '2' }];
 
       render(() => <Layout />);
 
       vi.mocked(forceResetKeyboardState).mockClear();
+      vi.mocked(reconnectDisconnectedTerminals).mockClear();
       vi.mocked(reconnectOnVisibilityReturn).mockClear();
 
       // Simulate returning from backgrounded browser
@@ -731,7 +745,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       document.dispatchEvent(new Event('visibilitychange'));
 
       expect(forceResetKeyboardState).toHaveBeenCalled();
-      expect(reconnectOnVisibilityReturn).toHaveBeenCalled();
+      expect(reconnectOnVisibilityReturn).toHaveBeenCalledWith(undefined, ['sess1:2']);
     });
 
     it('does NOT call forceResetKeyboardState when on dashboard', () => {

@@ -25,6 +25,9 @@ export interface UseTerminalOptions {
   terminalId: string;
   sessionName?: string;
   active: boolean;
+  visible?: boolean;
+  focused?: boolean;
+  connect?: boolean;
   alwaysObserveResize?: boolean;
   hideInitProgress?: boolean;
   onError?: (error: string) => void;
@@ -66,6 +69,9 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   const connectionState = createMemo(() => terminalStore.getConnectionState(props.sessionId, props.terminalId));
   const isInitializing = createMemo(() => sessionStore.isSessionInitializing(props.sessionId));
   const initProgress = createMemo(() => sessionStore.getInitProgressForSession(props.sessionId));
+  const isVisible = () => props.visible ?? props.active;
+  const isFocused = () => props.focused ?? props.active;
+  const canConnect = () => props.connect ?? isVisible();
 
   function setContainerRef(el: HTMLDivElement) {
     containerEl = el;
@@ -272,7 +278,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
     // Resize observer
     resizeObserver = new ResizeObserver(() => {
-      const shouldResize = props.active || props.alwaysObserveResize;
+      const shouldResize = canConnect() && (isVisible() || props.alwaysObserveResize);
       if (fitAddon && shouldResize) {
         if (kbDebounceTimer !== null) return;
         requestAnimationFrame(() => {
@@ -293,6 +299,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
           const cols = term.cols;
           const rows = term.rows;
           setDimensions({ cols, rows });
+          if (isFocused()) terminalStore.claimResizeAuthority(props.sessionId, props.terminalId);
           terminalStore.resize(props.sessionId, props.terminalId, cols, rows);
         });
       }
@@ -374,7 +381,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     const _kbOpen = isVirtualKeyboardOpen();
     if (!isTouchDevice()) return;
     if (!term || !fitAddon) return;
-    if (!(props.active || props.alwaysObserveResize)) return;
+    if (!(canConnect() && (isVisible() || props.alwaysObserveResize))) return;
 
     // Leading edge: immediate fit on first REAL keyboard change (height > 0).
     // Skip the initial mount-time run (kbHeight=0) — the onMount double-rAF
@@ -408,6 +415,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         term.scrollToBottom();
       }
       setDimensions({ cols: term.cols, rows: term.rows });
+      if (isFocused()) terminalStore.claimResizeAuthority(props.sessionId, props.terminalId);
       terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
     }, KEYBOARD_REFIT_DEBOUNCE_MS);
     onCleanup(() => {
@@ -426,7 +434,14 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     // Terminal server is up at 'mounting' or 'ready' — safe to connect WS
     const shouldConnect = !initializing || stage === 'mounting' || stage === 'ready';
 
-    if (shouldConnect && term && !cleanup) {
+    if ((!canConnect() || !shouldConnect) && cleanup) {
+      cleanup();
+      cleanup = undefined;
+      terminalStore.stopUrlDetection();
+      return;
+    }
+
+    if (canConnect() && shouldConnect && term && !cleanup) {
       logger.debug(`[Terminal ${props.sessionId}:${props.terminalId}] Connecting WebSocket (stage: ${stage || 'running'})`);
       const terminals = sessionStore.getTerminalsForSession(props.sessionId);
       const tab = terminals?.tabs.find(t => t.id === props.terminalId);
@@ -437,7 +452,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
   // Keyboard lifecycle for mobile
   createEffect(() => {
-    if (props.active && isTouchDevice()) {
+    if (isFocused() && isTouchDevice()) {
       resetKeyboardStateIfStale();
       enableVirtualKeyboardOverlay();
       requestAnimationFrame(() => {
@@ -476,7 +491,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
   // Active state changes + cursor bugfix
   createEffect(() => {
-    if (props.active && fitAddon && term) {
+    if (isVisible() && fitAddon && term) {
       requestAnimationFrame(() => {
         if (!fitAddon || !term || !containerEl) return;
         if (containerEl.clientHeight === 0) return;
@@ -490,8 +505,11 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
           hasInitialScrolled = true;
         }
         term.refresh(0, term.rows - 1);
-        if (!isTouchDevice()) term.focus();
-        terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
+        if (isFocused() && !isTouchDevice()) term.focus();
+        if (canConnect()) {
+          if (isFocused()) terminalStore.claimResizeAuthority(props.sessionId, props.terminalId);
+          terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
+        }
       });
     }
   });
@@ -499,7 +517,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   // Refit after init overlay hides
   createEffect(() => {
     const initializing = isInitializing();
-    if (!initializing && fitAddon && term && props.active) {
+    if (!initializing && fitAddon && term && isVisible()) {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           if (!fitAddon || !term || !containerEl) return;
@@ -508,7 +526,10 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
           fitAddon.fit();
           if (wasBottom) term.scrollToBottom();
           term.refresh(0, term.rows - 1);
-          terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
+          if (canConnect()) {
+            if (isFocused()) terminalStore.claimResizeAuthority(props.sessionId, props.terminalId);
+            terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
+          }
         });
       });
     }

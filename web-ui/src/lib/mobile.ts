@@ -42,6 +42,15 @@ export function isMobile(): boolean {
   return mobile();
 }
 
+export type TerminalViewportClass = 'mobile' | 'tablet' | 'desktop';
+
+export function getTerminalViewportClass(): TerminalViewportClass {
+  if (typeof window === 'undefined' || !window.matchMedia) return 'desktop';
+  if (window.matchMedia('(max-width: 640px)').matches) return 'mobile';
+  if (window.matchMedia('(max-width: 1023px)').matches) return 'tablet';
+  return 'desktop';
+}
+
 // Touch device detection — targets phones/tablets with coarse (finger) input.
 // Uses maxTouchPoints to confirm touch hardware, plus pointer:coarse to exclude
 // desktops/laptops with touchscreens (e.g. Windows Surface) where mobile UI

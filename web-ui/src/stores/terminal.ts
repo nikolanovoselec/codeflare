@@ -512,6 +512,14 @@ function disconnect(sessionId: string, terminalId: string): void {
   setConnectionState(sessionId, terminalId, 'disconnected');
 }
 
+function claimResizeAuthority(sessionId: string, terminalId: string): void {
+  const key = makeKey(sessionId, terminalId);
+  const ws = connections.get(key);
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'focus' }));
+  }
+}
+
 // Send resize event to terminal
 function resize(sessionId: string, terminalId: string, cols: number, rows: number): void {
   const key = makeKey(sessionId, terminalId);
@@ -687,9 +695,11 @@ let disconnectTimerId: ReturnType<typeof setTimeout> | null = null;
  *   filter, `container.fetch()` on a stopped DO auto-starts its container
  *   (SDK `containerFetch` line 525), causing phantom containers.
  */
-export function reconnectDisconnectedTerminals(activeSessionId?: string): void {
+export function reconnectDisconnectedTerminals(activeSessionId?: string, visibleKeys?: string[]): void {
+  const allowedKeys = visibleKeys ? new Set(visibleKeys) : null;
   for (const [key] of terminals) {
     const [sessionId, terminalId] = key.split(':');
+    if (allowedKeys && !allowedKeys.has(key)) continue;
     if (activeSessionId && sessionId !== activeSessionId) continue;
     if (getConnectionState(sessionId, terminalId) === 'disconnected') {
       logger.info(`[Terminal ${key}] Disconnected, triggering reconnect`);
@@ -704,9 +714,11 @@ export function reconnectDisconnectedTerminals(activeSessionId?: string): void {
  * terminals stuck in a retry loop (state === 'connecting') after the browser
  * tab was backgrounded long enough for the retry timers to stall.
  */
-export function reconnectOnVisibilityReturn(activeSessionId?: string): void {
+export function reconnectOnVisibilityReturn(activeSessionId?: string, visibleKeys?: string[]): void {
+  const allowedKeys = visibleKeys ? new Set(visibleKeys) : null;
   for (const [key] of terminals) {
     const [sessionId, terminalId] = key.split(':');
+    if (allowedKeys && !allowedKeys.has(key)) continue;
     if (activeSessionId && sessionId !== activeSessionId) continue;
     const state = getConnectionState(sessionId, terminalId);
     if (state === 'disconnected' || state === 'connecting') {
@@ -818,6 +830,7 @@ export const terminalStore = {
   connect,
   disconnect,
   reconnect,
+  claimResizeAuthority,
   resize,
   dispose,
   disposeSession,

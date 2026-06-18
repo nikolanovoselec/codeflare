@@ -1,10 +1,11 @@
 import { Component, Show, For, createSignal, createMemo } from 'solid-js';
 import { mdiPlus } from '@mdi/js';
 import Icon from './Icon';
-import SessionStatCard from './SessionStatCard';
+import SelectableSessionCard from './SelectableSessionCard';
+import MultiViewActionRow from './MultiViewActionRow';
 import SessionContextMenu from './SessionContextMenu';
 import CreateSessionDialog from './CreateSessionDialog';
-import type { SessionWithStatus, SessionStatus, AgentType, TabConfig } from '../types';
+import type { MultiViewWorkspace, SessionWithStatus, SessionStatus, AgentType, TabConfig } from '../types';
 import { sessionStore } from '../stores/session';
 import { generateSessionName } from '../lib/session-utils';
 import '../styles/session-dropdown.css';
@@ -27,6 +28,13 @@ interface SessionDropdownProps {
   onCreateSession: (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => void;
   onClose: () => void;
   isMobileView: boolean;
+  multiView?: {
+    capacity: number;
+    existing: MultiViewWorkspace | null;
+    onLaunch: (sessionIds: string[]) => void;
+    onOpen: () => void;
+    onClose: () => void;
+  };
 }
 
 const SessionDropdown: Component<SessionDropdownProps> = (props) => {
@@ -37,13 +45,81 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
   });
   const [showCreateDialog, setShowCreateDialog] = createSignal(false);
   const [createBtnRef, setCreateBtnRef] = createSignal<HTMLButtonElement>();
+  const [selectingMultiView, setSelectingMultiView] = createSignal(false);
+  const [selectedMultiViewIds, setSelectedMultiViewIds] = createSignal<string[]>([]);
+  const [limitHit, setLimitHit] = createSignal(false);
 
   const sortedSessions = createMemo(() =>
     [...props.sessions].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status])
   );
 
-  const handleCardSelect = (id: string) => {
-    props.onSelectSession(id);
+  const liveSessions = createMemo(() =>
+    props.sessions.filter((session) => session.status === 'running' || session.status === 'initializing')
+  );
+
+  const showMultiViewRow = createMemo(() => Boolean(props.multiView) && liveSessions().length >= 2);
+  const multiViewDisabled = createMemo(() => !props.multiView || props.multiView.capacity === 0 || props.isMobileView);
+  const canLaunchMultiView = createMemo(() => selectedMultiViewIds().length >= 2);
+
+  const beginMultiViewSelection = () => {
+    const activeLive = props.activeSessionId && liveSessions().some((session) => session.id === props.activeSessionId)
+      ? [props.activeSessionId]
+      : [];
+    setLimitHit(false);
+    setSelectedMultiViewIds(activeLive);
+    setSelectingMultiView(true);
+  };
+
+  const handleMultiViewAction = () => {
+    const config = props.multiView;
+    if (!config || multiViewDisabled()) return;
+
+    if (selectingMultiView()) {
+      if (canLaunchMultiView()) {
+        config.onLaunch(selectedMultiViewIds());
+        setSelectingMultiView(false);
+        setSelectedMultiViewIds([]);
+        props.onClose();
+      } else {
+        setSelectingMultiView(false);
+        setSelectedMultiViewIds([]);
+        setLimitHit(false);
+      }
+      return;
+    }
+
+    if (config.existing) {
+      config.onOpen();
+      props.onClose();
+      return;
+    }
+
+    beginMultiViewSelection();
+  };
+
+  const toggleMultiViewSession = (session: SessionWithStatus) => {
+    if (session.status !== 'running' && session.status !== 'initializing') return;
+    const current = selectedMultiViewIds();
+    if (current.includes(session.id)) {
+      setSelectedMultiViewIds(current.filter((id) => id !== session.id));
+      setLimitHit(false);
+      return;
+    }
+    const capacity = props.multiView?.capacity ?? 0;
+    if (current.length >= capacity) {
+      setLimitHit(true);
+      return;
+    }
+    setSelectedMultiViewIds([...current, session.id]);
+    setLimitHit(false);
+  };
+
+  const handleCardSelect = (session: SessionWithStatus) => {
+    if (selectingMultiView()) {
+      toggleMultiViewSession(session);
+      return;
+    }
+    props.onSelectSession(session.id);
     props.onClose();
   };
 
@@ -85,18 +161,48 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
           <span>{sessionStore.preseedUpgrading ? 'Upgrading' : 'New Session'}</span>
         </button>
 
+        <Show when={showMultiViewRow()}>
+          <MultiViewActionRow
+            mode={selectingMultiView() ? 'selecting' : props.multiView?.existing ? 'open' : 'start'}
+            canLaunch={canLaunchMultiView()}
+            disabled={multiViewDisabled()}
+            onClick={handleMultiViewAction}
+            onClose={() => {
+              props.multiView?.onClose();
+              setSelectingMultiView(false);
+              setSelectedMultiViewIds([]);
+            }}
+          />
+          <div
+            data-testid="session-dropdown-multiview-limit"
+            data-visible={limitHit() ? 'true' : 'false'}
+            class="session-dropdown__multiview-limit"
+          >
+            MultiView selection limit reached.
+          </div>
+        </Show>
+
         <div class="session-dropdown__list">
           <For each={sortedSessions()}>
-            {(session) => (
-              <SessionStatCard
-                session={session}
-                isActive={session.id === props.activeSessionId}
-                onSelect={() => handleCardSelect(session.id)}
-                onStop={() => props.onStopSession(session.id)}
-                onDelete={() => props.onDeleteSession(session.id)}
-                onMenuClick={handleMenuClick}
-              />
-            )}
+            {(session) => {
+              const selected = createMemo(() => selectedMultiViewIds().includes(session.id));
+              const disabled = createMemo(() =>
+                selectingMultiView() && session.status !== 'running' && session.status !== 'initializing'
+              );
+              return (
+                <SelectableSessionCard
+                  session={session}
+                  isActive={session.id === props.activeSessionId}
+                  selected={selected()}
+                  selecting={selectingMultiView()}
+                  disabled={disabled()}
+                  onSelect={() => handleCardSelect(session)}
+                  onStop={() => props.onStopSession(session.id)}
+                  onDelete={() => props.onDeleteSession(session.id)}
+                  onMenuClick={handleMenuClick}
+                />
+              );
+            }}
           </For>
         </div>
       </div>

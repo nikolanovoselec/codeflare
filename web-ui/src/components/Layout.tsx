@@ -8,6 +8,7 @@ import '../styles/layout.css';
 import { sessionStore, getUsageWarningLevel, getDismissedQuotaLevel, setDismissedQuotaLevel } from '../stores/session';
 import { storageStore } from '../stores/storage';
 import { terminalStore, reconnectDisconnectedTerminals, reconnectOnVisibilityReturn, scheduleDisconnect, cancelScheduledDisconnect } from '../stores/terminal';
+import { terminalWorkspaceStore } from '../stores/terminal-workspace';
 import { forceResetKeyboardState, enableVirtualKeyboardOverlay, isSamsungBrowser, cleanupDebugOverlay } from '../lib/mobile';
 import { logger } from '../lib/logger';
 import { loadSettings, applyAccentColor } from '../lib/settings';
@@ -366,7 +367,7 @@ const Layout: Component<LayoutProps> = (props) => {
       scheduleDisconnect(DASHBOARD_WS_DISCONNECT_DELAY_MS);
     } else {
       cancelScheduledDisconnect();
-      reconnectDisconnectedTerminals(untrack(() => sessionStore.activeSessionId) ?? undefined);
+      reconnectDisconnectedTerminals(undefined, terminalWorkspaceStore.getVisiblePanes().map((pane) => `${pane.sessionId}:${pane.terminalId}`));
     }
   });
 
@@ -392,7 +393,7 @@ const Layout: Component<LayoutProps> = (props) => {
               sessionStore.setActiveSession(sessionId);
               setViewState('terminal');
               setTimeout(() => terminalStore.triggerLayoutResize(), 50);
-              reconnectOnVisibilityReturn(sessionId);
+              reconnectOnVisibilityReturn(undefined, terminalWorkspaceStore.getVisiblePanes().map((pane) => `${pane.sessionId}:${pane.terminalId}`));
             }, 50);
             return;
           }
@@ -401,7 +402,7 @@ const Layout: Component<LayoutProps> = (props) => {
         setTimeout(() => {
           if (viewState() !== 'dashboard') enableVirtualKeyboardOverlay();
         }, 300);
-        reconnectOnVisibilityReturn(untrack(() => sessionStore.activeSessionId) ?? undefined);
+        reconnectOnVisibilityReturn(undefined, terminalWorkspaceStore.getVisiblePanes().map((pane) => `${pane.sessionId}:${pane.terminalId}`));
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
@@ -416,11 +417,12 @@ const Layout: Component<LayoutProps> = (props) => {
   createEffect(() => {
     const session = sessionStore.getActiveSession();
     const hasActiveTerminal = session && (session.status === 'running' || session.status === 'initializing' || sessionStore.isSessionInitializing(session.id));
+    const hasActiveMultiView = terminalWorkspaceStore.getActiveWorkspace().kind === 'multiview';
 
-    if (hasActiveTerminal && viewState() === 'dashboard') {
+    if ((hasActiveTerminal || hasActiveMultiView) && viewState() === 'dashboard') {
       setViewState('terminal');
       setTimeout(() => terminalStore.triggerLayoutResize(), 50);
-    } else if (!hasActiveTerminal && viewState() === 'terminal') {
+    } else if (!hasActiveTerminal && !hasActiveMultiView && viewState() === 'terminal') {
       setViewState('dashboard');
     }
   });
@@ -430,14 +432,17 @@ const Layout: Component<LayoutProps> = (props) => {
     const session = sessionStore.sessions.find((s) => s.id === id);
     if (session?.status === 'running') {
       sessionStore.setActiveSession(id);
+      terminalWorkspaceStore.setSingleSessionWorkspace(id, sessionStore.getTerminalsForSession(id)?.activeTabId || '1');
     } else if (session?.status === 'stopped') {
       sessionStore.setActiveSession(id);
+      terminalWorkspaceStore.setSingleSessionWorkspace(id, '1');
       void sessionStore.startSession(id).catch(() => {});
     }
   };
 
   const handleStartSession = async (id: string) => {
     sessionStore.setActiveSession(id);
+    terminalWorkspaceStore.setSingleSessionWorkspace(id, sessionStore.getTerminalsForSession(id)?.activeTabId || '1');
     try {
       await sessionStore.startSession(id);
     } catch (err) {
@@ -457,12 +462,22 @@ const Layout: Component<LayoutProps> = (props) => {
     const session = await sessionStore.createSession(name, agentType, tabConfig);
     if (session) {
       sessionStore.setActiveSession(session.id);
+      terminalWorkspaceStore.setSingleSessionWorkspace(session.id, '1');
       // Update preferences with last-used agent type
       if (agentType) {
         sessionStore.updatePreferences({ lastAgentType: agentType });
       }
       await sessionStore.startSession(session.id);
     }
+  };
+
+  const handleOpenMultiView = () => {
+    sessionStore.setActiveSession(null);
+    setViewState('expanding');
+    setTimeout(() => {
+      setViewState('terminal');
+      terminalStore.triggerLayoutResize();
+    }, VIEW_TRANSITION_DURATION_MS);
   };
 
   // Handler for per-session init progress dismiss
@@ -488,11 +503,13 @@ const Layout: Component<LayoutProps> = (props) => {
     const session = sessionStore.sessions.find(s => s.id === sessionId);
     if (session?.status === 'running') {
       sessionStore.setActiveSession(sessionId);
+      terminalWorkspaceStore.setSingleSessionWorkspace(sessionId, sessionStore.getTerminalsForSession(sessionId)?.activeTabId || '1');
     } else if (session?.status === 'stopped') {
       // Always do a full start — even if the container could auto-wake via SDK,
       // the filesystem is empty after sleep (no R2 sync). startSession() runs
       // entrypoint.sh which restores files from R2 before starting the terminal.
       sessionStore.setActiveSession(sessionId);
+      terminalWorkspaceStore.setSingleSessionWorkspace(sessionId, '1');
       void sessionStore.startSession(sessionId).catch(() => {});
     }
 
@@ -605,6 +622,7 @@ const Layout: Component<LayoutProps> = (props) => {
           onStopSession={handleStopSession}
           onDeleteSession={handleDeleteSession}
           onCreateSession={handleCreateSession}
+          onOpenMultiView={handleOpenMultiView}
         />
       </Show>
 
@@ -619,6 +637,7 @@ const Layout: Component<LayoutProps> = (props) => {
           onCloseTilingOverlay={handleCloseTilingOverlay}
           onTileClick={handleTileClick}
           onOpenSessionById={handleOpenSessionById}
+          onOpenMultiView={handleOpenMultiView}
           onDashboardSessionSelect={handleDashboardSessionSelect}
           onCreateSession={handleCreateSession}
           onStartSession={handleStartSession}

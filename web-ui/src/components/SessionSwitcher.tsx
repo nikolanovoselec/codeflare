@@ -3,7 +3,8 @@ import { mdiChevronDown, mdiLayersTripleOutline } from '@mdi/js';
 import Icon from './Icon';
 import SessionDropdown from './SessionDropdown';
 import type { SessionWithStatus, SessionStatus, AgentType, TabConfig } from '../types';
-import { isMobile } from '../lib/mobile';
+import { getTerminalViewportClass, isMobile } from '../lib/mobile';
+import { terminalWorkspaceStore } from '../stores/terminal-workspace';
 import '../styles/session-switcher.css';
 
 const statusDotVariant: Record<SessionStatus, 'success' | 'warning' | 'error' | 'default'> = {
@@ -21,6 +22,7 @@ interface SessionSwitcherProps {
   onStopSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   onCreateSession: (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => void;
+  onOpenMultiView?: () => void;
 }
 
 const SessionSwitcher: Component<SessionSwitcherProps> = (props) => {
@@ -29,14 +31,37 @@ const SessionSwitcher: Component<SessionSwitcherProps> = (props) => {
   const activeSession = createMemo(() =>
     props.sessions.find(s => s.id === props.activeSessionId)
   );
+  const existingMultiView = createMemo(() => terminalWorkspaceStore.reconcileMultiView(props.sessions, getTerminalViewportClass()));
+  const activeMultiView = createMemo(() =>
+    terminalWorkspaceStore.getActiveWorkspace().kind === 'multiview'
+      ? existingMultiView()
+      : null
+  );
+  const activeLabel = createMemo(() => activeMultiView()?.name || activeSession()?.name || 'No session');
 
   const dotVariant = createMemo(() => {
+    if (activeMultiView()) return 'success';
     const session = activeSession();
     return session ? statusDotVariant[session.status] : 'default';
   });
 
   const handleToggle = () => setIsOpen(!isOpen());
   const handleClose = () => setIsOpen(false);
+
+  const multiViewCapacity = createMemo(() => terminalWorkspaceStore.getMultiViewCapacity(getTerminalViewportClass()));
+  const handleLaunchMultiView = (sessionIds: string[]) => {
+    const created = terminalWorkspaceStore.createOrUpdateMultiView(sessionIds, props.sessions, getTerminalViewportClass());
+    if (!created) return;
+    if (terminalWorkspaceStore.openMultiView()) {
+      props.onOpenMultiView?.();
+    }
+  };
+
+  const handleOpenMultiView = () => {
+    if (terminalWorkspaceStore.openMultiView()) {
+      props.onOpenMultiView?.();
+    }
+  };
 
   return (
     <div class="session-switcher-wrapper">
@@ -54,7 +79,7 @@ const SessionSwitcher: Component<SessionSwitcherProps> = (props) => {
         <Show when={!isMobile()}>
           <span class={`session-switcher__dot session-switcher__dot--${dotVariant()}`} />
           <span class="session-switcher__name" data-testid="session-switcher-name">
-            {activeSession()?.name || 'No session'}
+            {activeLabel()}
           </span>
           <span class={`session-switcher__chevron ${isOpen() ? 'session-switcher__chevron--open' : ''}`}>
             <Icon path={mdiChevronDown} size={18} />
@@ -72,6 +97,13 @@ const SessionSwitcher: Component<SessionSwitcherProps> = (props) => {
         onCreateSession={props.onCreateSession}
         onClose={handleClose}
         isMobileView={isMobile()}
+        multiView={{
+          capacity: multiViewCapacity(),
+          existing: existingMultiView(),
+          onLaunch: handleLaunchMultiView,
+          onOpen: handleOpenMultiView,
+          onClose: terminalWorkspaceStore.closeMultiView,
+        }}
       />
     </div>
   );

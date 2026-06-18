@@ -177,6 +177,39 @@ export interface TerminalTab {
 // Tiling layout types
 export type TileLayout = 'tabbed' | '2-split' | '3-split' | '4-grid';
 
+export type TerminalViewportClass = 'mobile' | 'tablet' | 'desktop';
+
+export type ActiveWorkspace =
+  | { kind: 'dashboard' }
+  | { kind: 'session'; sessionId: string }
+  | { kind: 'multiview'; id: 'multiview:1' };
+
+export interface VisibleTerminalPane {
+  id: string;
+  sessionId: string;
+  terminalId: string;
+  source: 'session' | 'multiview';
+}
+
+export interface MultiViewWorkspace {
+  id: 'multiview:1';
+  name: 'MultiView #1';
+  memberSessionIds: string[];
+  focusedSessionId: string | null;
+  layout: Exclude<TileLayout, 'tabbed'>;
+}
+
+export type TerminalWorkspaceMode = 'dashboard' | 'single-session' | 'multiview';
+
+export interface TerminalWorkspaceState {
+  mode: TerminalWorkspaceMode;
+  activeWorkspace: ActiveWorkspace;
+  panes: VisibleTerminalPane[];
+  focusedPaneId: string | null;
+  layout: TileLayout;
+  multiView: MultiViewWorkspace | null;
+}
+
 export interface TilingState {
   enabled: boolean;
   layout: TileLayout;

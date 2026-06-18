@@ -663,8 +663,13 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
         // Validate type field AND correct field types before acting
         if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number') {
           if (msg.cols > 0 && msg.cols < 10000 && msg.rows > 0 && msg.rows < 10000) {
-            session.resize(msg.cols as number, msg.rows as number);
+            session.resize(msg.cols as number, msg.rows as number, ws);
           }
+          return;
+        }
+
+        if (msg.type === 'focus') {
+          session.claimResizeAuthority(ws);
           return;
         }
 

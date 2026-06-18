@@ -1,6 +1,6 @@
 # Terminal
 
-PTY management, WebSocket transport, multi-tab support, tiling layouts, and process detection.
+PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiView workspaces, and process detection.
 
 **Domain owner:** Frontend (SolidJS + xterm.js) + Container (terminal server)
 
@@ -10,6 +10,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 - **WebSocket** -- The bidirectional transport carrying raw terminal data and JSON control messages between browser and container.
 - **Terminal Tab** -- A single terminal instance within a session, identified by a compound key (`sessionId:terminalId`), each backed by its own PTY.
 - **Tiling Layout** -- An arrangement mode (tabbed, 2-split, 3-split, 4-grid) that displays multiple terminals simultaneously.
+- **MultiView** -- A virtual frontend workspace that displays multiple existing sessions at once without creating another backend session.
 
 ### Out of Scope
 
@@ -363,5 +364,151 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, and proc
 **Dependencies:** [REQ-TERM-001](#req-term-001-up-to-6-terminal-tabs-per-session)
 
 **Verification:** [Integration test](../../src/__tests__/routes/presets-req-term-010.test.ts)
+
+**Status:** Implemented
+
+---
+
+<!-- @impl: web-ui/src/stores/terminal-workspace.ts::terminalWorkspaceStore -->
+<!-- @impl: web-ui/src/components/TerminalArea.tsx -->
+<!-- @impl: web-ui/src/hooks/useTerminal.ts -->
+<!-- @impl: web-ui/src/stores/terminal.ts::reconnectOnVisibilityReturn -->
+<!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (visible pane ownership describe -> dashboard zero panes + single-session one pane -> AC1,2) -->
+<!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (TerminalArea describe -> dashboard no terminals + visible single pane + MultiView panes only -> AC1,2,3) -->
+<!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (useTerminal connection gating describe -> connect=false no WS + focused=false no focus -> AC3) -->
+<!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store describe -> visible-key reconnect filter + focus ownership control frame -> AC4,6) -->
+### REQ-TERM-011: Visible terminal panes own WebSocket connections
+
+**Intent:** Terminal WebSockets are opened only for terminal panes that are visible in the current browser workspace, preventing hidden sessions from attaching to PTYs and sending stale resize or input traffic.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Dashboard view opens zero terminal WebSocket connections even when sessions are running or initializing. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::setDashboardWorkspace -->
+2. Single-session view opens exactly one terminal WebSocket for the visible session pane. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::setSingleSessionWorkspace -->
+3. Running sessions outside the visible workspace do not mount connected terminals, send resize messages, or forward input. <!-- @impl: web-ui/src/components/TerminalArea.tsx -->
+4. Switching workspaces connects newly visible panes, disconnects panes that became hidden, and keeps unchanged visible panes connected. <!-- @impl: web-ui/src/hooks/useTerminal.ts::canConnect -->
+5. Session indicators distinguish container-running state from visible-terminal-connected state. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::dotVariant -->
+6. Browser visibility return reconnects only panes that are visible in the current workspace. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
+
+**Constraints:**
+
+- Hidden terminal preservation cannot be used as an instant-switching optimization if it opens a WebSocket.
+- Dashboard status must remain a polling/storage concern and must not depend on terminal component side effects.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-003](#req-term-003-automatic-websocket-reconnection-on-transient-failures)
+
+**Verification:** [Automated tests](../../web-ui/src/__tests__/components/TerminalArea.test.tsx)
+
+**Status:** Implemented
+
+---
+
+<!-- @impl: web-ui/src/stores/terminal-workspace.ts::createOrUpdateMultiView -->
+<!-- @impl: web-ui/src/components/TerminalArea.tsx -->
+<!-- @impl: web-ui/src/components/TerminalGrid.tsx -->
+<!-- @impl: web-ui/src/components/SessionSwitcher.tsx -->
+<!-- @impl: web-ui/src/components/Dashboard.tsx -->
+<!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (terminalWorkspaceStore describe -> desktop/tablet/mobile capacity + reconciliation -> AC1,2,5) -->
+<!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (TerminalArea describe -> one connected pane per MultiView member + no nested tabs -> AC4,6) -->
+<!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard describe -> virtual MultiView card beside real session cards and no backend session ID -> AC3) -->
+<!-- @test: web-ui/src/__tests__/components/TerminalGrid.test.tsx (TerminalGrid describe -> reusable layout slots -> AC4) -->
+### REQ-TERM-012: MultiView virtual session workspace
+
+**Intent:** Users can open one virtual MultiView workspace that displays multiple existing sessions side by side without creating a backend session or changing the member sessions' lifecycle.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Exactly one virtual MultiView workspace can exist, and it is composed only from existing running or initializing sessions. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::MULTIVIEW_ID -->
+2. Desktop MultiView accepts two to four member sessions; tablet MultiView accepts exactly two; mobile cannot launch MultiView. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::getMultiViewCapacity -->
+3. MultiView appears beside real sessions in the session switcher and Dashboard without replacing or hiding the member session cards. <!-- @impl: web-ui/src/components/MultiViewSessionCard.tsx -->
+4. Opening MultiView renders one visible terminal pane per member session, and each pane connects to that member session's own container. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea -->
+5. Switching between MultiView and real sessions preserves MultiView membership while connecting only the currently visible workspace. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
+6. MultiView exposes one terminal surface per member session and does not expose nested tab creation, closing, reordering, or tab tiling controls. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea -->
+
+**Constraints:**
+
+- MultiView is frontend workspace state and must not be sent to backend session lifecycle, terminal route validation, storage, quota, or metrics APIs as a real session ID.
+- MultiView membership is local browser state unless a future requirement adds cross-browser workspace sync.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-001](#req-term-001-up-to-6-terminal-tabs-per-session), [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-007](#req-term-007-tiling-layouts-2-split-3-split-4-grid), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
+
+**Verification:** [Automated tests](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts)
+
+**Status:** Implemented
+
+---
+
+<!-- @impl: web-ui/src/components/SessionDropdown.tsx -->
+<!-- @impl: web-ui/src/components/MultiViewActionRow.tsx -->
+<!-- @impl: web-ui/src/components/SelectableSessionCard.tsx -->
+<!-- @impl: web-ui/src/lib/mobile.ts::getTerminalViewportClass -->
+<!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (SessionDropdown MultiView selection describe -> open selection, capacity rejection, mobile disabled -> AC1..AC6) -->
+### REQ-TERM-013: MultiView selection flow
+
+**Intent:** Users create or reopen MultiView from the existing session switcher using a selection mode that is clear on desktop and tablet and unavailable on mobile.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The session switcher exposes a MultiView control only when at least two sessions are running or initializing, and the control cannot launch on mobile. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown -->
+2. Activating the control enters selection mode, keeps the switcher open, and turns running or initializing session rows into toggleable choices. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown -->
+3. With fewer than two selected sessions, the control cancels selection mode; with at least two selected sessions, it launches MultiView. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown -->
+4. Selecting beyond the viewport capacity is rejected without changing the existing selected set. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown -->
+5. Selected session rows expose a selected state using the success visual variant. <!-- @impl: web-ui/src/components/SelectableSessionCard.tsx -->
+6. Reopening an existing MultiView opens the same virtual workspace rather than creating another MultiView. <!-- @impl: web-ui/src/components/SessionSwitcher.tsx::SessionSwitcher -->
+
+**Constraints:**
+
+- Stopped sessions are not selectable for MultiView.
+- Capacity decisions must come from a shared viewport-capacity helper rather than duplicated component branches.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-012](#req-term-012-multiview-virtual-session-workspace)
+
+**Verification:** [Automated tests](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx)
+
+**Status:** Implemented
+
+---
+
+<!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection -->
+<!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
+<!-- @impl: host/src/session.ts::claimResizeAuthority -->
+<!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (useScrollCorrection describe -> bottom re-anchor + user scroll suppression -> AC1,3) -->
+<!-- @test: host/__tests__/session-resize-authority.test.js (Session resize authority describe -> foreground owner only + detach promotion -> AC4,5) -->
+### REQ-TERM-014: Terminal scroll anchoring under scrollback trimming
+
+**Intent:** Long-running terminal output remains stable when scrollback is trimmed, so following output stays at the prompt and user-scrolled views do not jump unexpectedly.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A terminal following the bottom remains at the bottom while output exceeds the scrollback cap. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection -->
+2. A terminal scrolled away from the bottom preserves its distance from the bottom while additional output arrives. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection -->
+3. Catastrophic scroll reset correction runs only for true reset events and does not loop on ordinary scrollback trimming. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection -->
+4. Resizing a visible terminal preserves the user's scroll anchor and sends one resize frame for the visible dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
+5. Hidden or disconnected terminals do not send resize frames. <!-- @impl: host/src/session.ts::Session -->
+
+**Constraints:**
+
+- Scroll ownership must be centralized so write, resize, and reset-correction paths do not fight each other.
+- Mobile keyboard resize behavior must preserve the existing virtual-keyboard safeguards.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-008](#req-term-008-write-batching-at-30fps), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
+
+**Verification:** [Automated tests](../../web-ui/src/__tests__/hooks/useScrollCorrection.test.ts)
 
 **Status:** Implemented

@@ -8,6 +8,14 @@ import { githubStore } from '../../stores/github';
 import * as vaultCache from '../../lib/vault-cache';
 import type { SessionWithStatus } from '../../types';
 
+vi.mock('../../lib/mobile', async () => {
+  const actual = await vi.importActual<typeof import('../../lib/mobile')>('../../lib/mobile');
+  return {
+    ...actual,
+    getTerminalViewportClass: () => 'desktop',
+  };
+});
+
 // Mock child components to isolate Dashboard testing
 vi.mock('../../components/SessionStatCard', () => ({
   default: (props: any) => (
@@ -150,6 +158,15 @@ vi.mock('../../components/TipsRotator', () => ({
   default: () => <div data-testid="tips-card" />
 }));
 
+let mockMultiView: any = null;
+
+vi.mock('../../stores/terminal-workspace', () => ({
+  terminalWorkspaceStore: {
+    reconcileMultiView: vi.fn(() => mockMultiView),
+    openMultiView: vi.fn(() => true),
+  },
+}));
+
 const mockSessions: SessionWithStatus[] = [
   { id: 'sess1', name: 'Test Session 1', createdAt: '2024-01-15T10:00:00Z', lastAccessedAt: '2024-01-15T12:00:00Z', status: 'running' },
   { id: 'sess2', name: 'Test Session 2', createdAt: '2024-01-14T10:00:00Z', lastAccessedAt: '2024-01-14T12:00:00Z', status: 'stopped' },
@@ -178,6 +195,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     (githubStore as any)._setEnabled(false);
     (sessionStore as any)._setEnterpriseMode(false);
     (sessionStore as any)._setSessionMode('advanced');
+    mockMultiView = null;
   });
 
   // === Enterprise dropdown gating (REQ-ENTERPRISE-008 AC2/AC8/AC9) ===
@@ -206,6 +224,28 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
   });
 
   // === Initialization Tests ===
+
+  it('REQ-TERM-012: shows one virtual MultiView card without hiding real session cards', () => {
+    mockMultiView = {
+      id: 'multiview:1',
+      name: 'MultiView #1',
+      memberSessionIds: ['sess1', 'sess2'],
+      focusedSessionId: 'sess1',
+      layout: '2-split',
+    };
+
+    const onOpenMultiView = vi.fn();
+    render(() => <Dashboard {...defaultProps} onOpenMultiView={onOpenMultiView} />);
+
+    expect(screen.getByTestId('session-card-sess1')).toBeInTheDocument();
+    expect(screen.getByTestId('session-card-sess2')).toBeInTheDocument();
+    const multiViewCard = screen.getByTestId('dashboard-multiview-card');
+    expect(multiViewCard).toHaveAttribute('data-workspace-id', 'multiview:1');
+
+    fireEvent.click(multiViewCard);
+    expect(onOpenMultiView).toHaveBeenCalledTimes(1);
+    expect(defaultProps.onOpenSessionById).not.toHaveBeenCalledWith('multiview:1');
+  });
 
   it('calls storageStore.fetchStats on mount', () => {
     render(() => <Dashboard {...defaultProps} />);
