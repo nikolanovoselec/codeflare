@@ -61,6 +61,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 <!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (REQ-TERM-002 AC1 describe -> WS URL pattern + Upgrade header gating -> AC1) -->
 <!-- @test: host/__audits__/terminal-compound-key.audit.js (REQ-TERM-002 describe -> login shell + xterm-256color env + raw send + JSON control msgs + resize + type guard + protocol ping -> AC3..AC7 host-side) -->
+<!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-002 dispose test -> client kill control frame -> AC5) -->
 ### REQ-TERM-002: WebSocket connection to container PTY
 
 <!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (REQ-TERM-002 AC1 describe -> WS URL shape /api/terminal/{sid}-{tid}/ws) + src/__tests__/routes/terminal.test.ts (validateWebSocketRoute describes -> AC1/AC2 WS URL + upgrade) + host/__audits__/terminal-compound-key.audit.js (REQ-TERM-002 audit -> AC3/AC4/AC5/AC6/AC7 PTY spawn + raw data + JSON control frames + unknown-type tolerance + no app-level ping) -->

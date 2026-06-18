@@ -631,14 +631,10 @@ function remoteBranchHead(repo: string, branch: string): string | undefined {
   return refHead(repo, `refs/remotes/origin/${branch}`);
 }
 
-function branchNameFromHeadRef(headRef: string): string {
-  return headRef.includes(":") ? headRef.slice(headRef.lastIndexOf(":") + 1) : headRef;
-}
-
 function headForCreateBranch(repo: string, headRef: string): string | undefined {
-  const branch = branchNameFromHeadRef(headRef);
-  if (!branch || branch === "HEAD" || branch === "@") return localHead(repo);
-  return refHead(repo, branch) || refHead(repo, `refs/heads/${branch}`) || remoteBranchHead(repo, branch);
+  if (headRef.includes(":")) return undefined;
+  if (headRef === "HEAD" || headRef === "@") return localHead(repo);
+  return refHead(repo, headRef) || refHead(repo, `refs/heads/${headRef}`) || remoteBranchHead(repo, headRef);
 }
 
 // Normalize a repo reference (a remote URL, OWNER/REPO, or HOST/OWNER/REPO) to lowercase OWNER/REPO.

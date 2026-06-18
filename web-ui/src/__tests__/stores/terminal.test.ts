@@ -339,6 +339,27 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff u
       expect(terminal.dispose).toHaveBeenCalled();
     });
 
+    it('REQ-TERM-002: sends a kill control frame before closing the terminal connection', async () => {
+      const terminal = createMockTerminal();
+      const sendSpy = vi.fn();
+      const OriginalWebSocket = globalThis.WebSocket;
+      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+        send = sendSpy;
+        constructor(url: string) {
+          super(url);
+        }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+
+      terminalStore.dispose(sessionId, terminalId);
+
+      expect(sendSpy).toHaveBeenCalledWith(JSON.stringify({ type: 'kill' }));
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
     it('should clear stored terminal', async () => {
       const terminal = createMockTerminal();
       terminalStore.setTerminal(sessionId, terminalId, terminal);
