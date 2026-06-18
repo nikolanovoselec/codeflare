@@ -1101,7 +1101,7 @@ export default function (pi: ExtensionAPI) {
     // Kill this head's still-running lane children BEFORE dropping the pending record. After
     // clearPending the head is unreachable to the reaper (reaping is keyed to the live pending
     // head), so any detached `pi --mode json` lane still running would orphan forever on the
-    // 1-vCPU box — the same pileup the supersede/roll-forward paths kill. A force-push or a
+    // resource-constrained box — the same pileup the supersede/roll-forward paths kill. A force-push or a
     // PR retarget/close is exactly when this fires. Only `running` lanes are touched.
     abandonDurableReviewLanes(state.repo, state.head);
     appendReviewEvent(state.repo, { event: "review_superseded", head: state.head, reason: "open PR no longer points at this head", lanes: state.lanes });
@@ -1542,7 +1542,7 @@ export default function (pi: ExtensionAPI) {
     if (rawPrevious && rawPrevious.head !== head) {
       // The window is moving to a new head, so the PREVIOUS head's still-running lane children are
       // reviewing a now-superseded head and must be killed (R3). Otherwise a fix-push cascade piles up to
-      // ~3N detached `pi --mode json` children on the 1-vCPU box, and a hung old-head child escapes the
+      // ~3N detached `pi --mode json` children on the resource-constrained box, and a hung old-head child escapes the
       // review budget forever — its job is never reaped again because reaping is keyed to the CURRENT
       // pending head. This fires for BOTH a descendant roll-forward (reusable: the completed lanes' result
       // files are kept and reused by mergeLaneState; abandonDurableReviewLanes only touches `running`

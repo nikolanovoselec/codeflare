@@ -8,7 +8,7 @@ This session runs inside codeflare (Cloudflare Workers container). New projects 
 
 ## Hard constraints (never violate)
 
-- 1-CPU container — see [no-local-builds.md](./no-local-builds.md).
+- Resource-constrained container — see [no-local-builds.md](./no-local-builds.md).
 - No browser — use `BROWSER=""` prefix for CLI tools that try to open one.
 - Git over HTTPS only, no SSH keys.
 - Use `<username>@users.noreply.github.com` for git identity, never the user's real email.

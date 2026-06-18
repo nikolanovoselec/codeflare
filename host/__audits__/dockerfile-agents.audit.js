@@ -1,7 +1,7 @@
 // Structural audit: verifies REQ-AGENT-001 (AC3, AC4) and REQ-AGENT-017 (AC1, AC2)
 // by reading the Dockerfile at the repo root and asserting canonical patterns.
 // These are build-time facts that can only be verified by inspecting the source —
-// there is no runtime observable without building the image (forbidden in 1-vCPU env).
+// there is no runtime observable without building the image (forbidden locally, resource-constrained).
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

@@ -1160,7 +1160,7 @@ After Phase 10 Task agent completes:
 
 ## Important Notes
 
-- **NEVER run builds, tests, or linters locally** - the container has 1 vCPU
+- **NEVER run builds, tests, or linters locally** - the container is resource-constrained
 - All 6 Phase 2 agents MUST launch in a single message (parallel Task calls)
 - Phase 3 deep-reviewer agents (when --deep is set) also launch in parallel — up to 5 per wave; sequential at wave boundaries when ceil(N/15) > 5
 - Phases 4, 5, 6, 7, 9, 10 each run as a single Task agent - main agent waits for completion before proceeding

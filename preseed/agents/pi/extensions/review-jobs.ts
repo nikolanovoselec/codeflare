@@ -502,7 +502,7 @@ export function reapDurableReviewLanes(repo: string, head: string): void {
 // Force-stop every still-running detached lane child for a head whose review window is being
 // SUPERSEDED — a different, non-descendant head was pushed (history rewrite) or the branch/PR was
 // switched in the same repo. Without this, those orphaned `pi --mode json` children keep reviewing an
-// abandoned head and pile up on the 1-vCPU container. A child is signalled only when its pid is still
+// abandoned head and pile up on the resource-constrained container. A child is signalled only when its pid is still
 // alive AND identity-matches its recorded start time, so a recycled pid's unrelated process group is
 // never killed. Each lane is recorded failed("superseded") so the reaper stops tracking it.
 export function abandonDurableReviewLanes(repo: string, head: string): void {
@@ -523,7 +523,7 @@ export function abandonDurableReviewLanes(repo: string, head: string): void {
 const SPAWN_LOCK_STALE_MS = 30_000;
 // Best-effort cross-process lock around the read-then-spawn critical section (P11). Two Pi sessions
 // reviewing the SAME repo+head can each pass the per-lane liveness check below before either records its
-// child's pid, and thus double-spawn (6 reviewer children instead of 3 on a 1-vCPU box). O_EXCL
+// child's pid, and thus double-spawn (6 reviewer children instead of 3 on a resource-constrained box). O_EXCL
 // (`wx`) serialises them. A holder that crashed mid-spawn is reclaimed after a stale TTL so the lock can
 // never wedge reviews permanently; a genuinely-live holder makes the other session skip spawning THIS
 // tick — the 20s reaper retries, so no lane is lost. The lock file lives inside the (kept) current-head

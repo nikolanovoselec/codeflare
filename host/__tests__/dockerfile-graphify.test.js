@@ -2,7 +2,7 @@
 // and REQ-AGENT-026 AC2 (global semantic merge-driver registration) by
 // reading the Dockerfile content. These are build-time facts the Dockerfile
 // itself encodes; testing the rendered string is the only honest check
-// without actually building an image (forbidden locally, 1 vCPU).
+// without actually building an image (forbidden locally, resource-constrained).
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';

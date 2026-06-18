@@ -65,7 +65,7 @@ if [ ! -f "$GLOBAL_GRAPH" ]; then
   [ ! -f "$GLOBAL_GRAPH" ] && exit 0
 fi
 
-# Skip graphs > 30MB (Python JSON parse too slow on 1-vCPU).
+# Skip graphs > 30MB (Python JSON parse too slow on resource-constrained container).
 # Both checks are deterministic per session, so safe before sentinel.
 GRAPH_SIZE=$(stat -c%s "$GLOBAL_GRAPH" 2>/dev/null) || GRAPH_SIZE=0
 [ "$GRAPH_SIZE" -gt 31457280 ] && exit 0

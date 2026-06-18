@@ -60,7 +60,7 @@ npx ts-prune                                # Unused TypeScript exports
 npx eslint . --report-unused-disable-directives  # Unused eslint directives
 ```
 
-Per the no-local-builds rule (1-vCPU containers), run these in CI on a throwaway branch rather than locally on large repos. The graphify check above is local-safe and fast.
+Per the no-local-builds rule (resource-constrained containers), run these in CI on a throwaway branch rather than locally on large repos. The graphify check above is local-safe and fast.
 
 ## Workflow
 
@@ -118,7 +118,7 @@ After each batch:
 
 - **Deleting dynamic-import / reflection-based call sites.** `import(\`./handlers/${name}\`)`, string-keyed registries, decorator-based loaders, `require.resolve` patterns. `mcp__graphify__get_neighbors(symbol, direction="incoming")` returning 0 is necessary, not sufficient; grep for the literal symbol name string before deleting.
 - **Deleting public API surface flagged as "unused" by knip.** Exported types/functions intended for downstream consumers will have 0 incoming edges *inside this repo* and still be load-bearing. Check `package.json` `exports` map, `README.md`, and published documentation before removing.
-- **Running detection tools locally on large repos.** `knip` / `ts-prune` on multi-thousand-file repos will pin a 1-vCPU container. Push a throwaway branch and run them in CI; consume the output, not the process.
+- **Running detection tools locally on large repos.** `knip` / `ts-prune` on multi-thousand-file repos will pin the container. Push a throwaway branch and run them in CI; consume the output, not the process.
 - **Removing tests "because the implementation is dead".** If the implementation is genuinely dead, the test SHOULD have failed in CI. A passing test on dead code means either the code isn't actually dead or the test is theater; investigate before removing either.
 
 ## Exit checklist (verify before reporting done)

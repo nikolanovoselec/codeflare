@@ -40,7 +40,7 @@ emit_reminder() {
 }
 
 if [ -f "$GRAPH" ]; then
-  # Skip Tier 1 for graphs > 30MB (Python JSON parse too slow on 1-vCPU).
+  # Skip Tier 1 for graphs > 30MB (Python JSON parse too slow on resource-constrained container).
   GRAPH_SIZE=$(stat -c%s "$GRAPH" 2>/dev/null) || GRAPH_SIZE=0
   [ "$GRAPH_SIZE" -gt 31457280 ] && GRAPH_SIZE_SKIP=1 || GRAPH_SIZE_SKIP=0
 

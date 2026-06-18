@@ -118,7 +118,7 @@ Release-critical paths should target pass@3 stability before merge.
 
 ## CI-Only Test Execution
 
-In constrained environments (1 vCPU, no local builds), tests run via CI only:
+In constrained environments (resource-constrained, no local builds), tests run via CI only:
 - Write tests locally, push to branch, verify via `gh run view`
 - Use the code-reviewer agent to catch issues before pushing
 - Never run test suites, linters, or type checkers locally unless explicitly asked

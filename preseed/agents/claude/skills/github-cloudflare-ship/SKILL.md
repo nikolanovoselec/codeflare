@@ -14,7 +14,7 @@ Non-technical users who may have never used GitHub, git, a terminal, or deployed
 
 ## Important: No Local Test Execution
 
-This environment has limited resources (1 CPU core). Never run `npm test` or any test suite locally. Tests only run in GitHub Actions CI, where the runner has dedicated resources. When creating CI workflows, include a test step only if the project has real tests configured.
+This environment has limited resources (limited CPU). Never run `npm test` or any test suite locally. Tests only run in GitHub Actions CI, where the runner has dedicated resources. When creating CI workflows, include a test step only if the project has real tests configured.
 
 ## Shell execution (applies to every step)
 

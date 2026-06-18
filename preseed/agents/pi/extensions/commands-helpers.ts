@@ -47,7 +47,7 @@ export const DEPLOY_WORKFLOW = [
   "",
   "Target argument: 'integration' (default) or 'production'. If no target is given, assume integration.",
   "",
-  "Never run local builds, tests, type checks, or lint: this is a 1-vCPU container and they crash the session. Deploy strictly via push plus CI; never build locally.",
+  "Never run local builds, tests, type checks, or lint: this is a resource-constrained container and they crash the session. Deploy strictly via push plus CI; never build locally.",
   "",
   "Step 1 - Pre-flight: run 'git status' and warn on uncommitted changes; run 'git log --oneline -3' to show what is about to ship; confirm with the user before proceeding.",
   "",

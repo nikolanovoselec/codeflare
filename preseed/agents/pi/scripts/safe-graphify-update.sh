@@ -4,7 +4,7 @@
 # Mirrors Codeflare's Claude wrapper: no custom extraction, no custom graph
 # rewriting, no post-build normalization. The only local behavior is bounding
 # worker count and virtual memory so upstream Graphify can fail cleanly in the
-# 1-vCPU Codeflare container.
+# resource-constrained Codeflare container.
 #
 # Important: upstream `graphify update` may write a provisional graph.html. The
 # final user-facing graph.html and callflow.html must be regenerated *after* the

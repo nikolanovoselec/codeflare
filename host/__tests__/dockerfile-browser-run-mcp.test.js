@@ -1,7 +1,7 @@
 // Verifies REQ-BROWSER-005 AC1/build: the Claude browser-run MCP server is built
 // into the image (COPY + npm install + import smoke test) and pins its MCP SDK.
 // Build-time facts the Dockerfile encodes; testing the rendered string is the
-// only honest check without building an image (forbidden locally, 1 vCPU).
+// only honest check without building an image (forbidden locally, resource-constrained).
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

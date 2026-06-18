@@ -309,7 +309,7 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
       // 1s cadence, 3 full cycles is the smallest window that catches a
       // runaway rerun while staying within CI's per-test budget. Tuned up
       // from 2s after code-reviewer flagged the original as flake-prone
-      // on the 1-vCPU CI runner.
+      // on the resource-constrained CI runner.
       await new Promise((r) => setTimeout(r, 3500));
       const finalLog = readFileSync(h.logFile, 'utf8');
       const matches = finalLog.match(/BISYNC_CALLED n=\d+/g) || [];

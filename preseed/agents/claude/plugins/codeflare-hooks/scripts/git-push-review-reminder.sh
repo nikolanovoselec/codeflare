@@ -49,7 +49,7 @@ INPUT=$(cat 2>/dev/null) || exit 0
 # ---------------------------------------------------------------------------
 # Cheap pre-filter — skip if raw input doesn't even mention the trigger
 # substrings. PostToolUse fires on every Bash call, so avoiding the
-# jq cold-start (~30-80ms on a 1-vCPU container) here saves seconds of
+# jq cold-start (~30-80ms on a resource-constrained container) here saves seconds of
 # cumulative blocking time over a long session.
 # ---------------------------------------------------------------------------
 case "$INPUT" in

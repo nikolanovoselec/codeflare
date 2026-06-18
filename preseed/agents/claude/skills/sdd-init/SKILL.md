@@ -436,7 +436,7 @@ Process (npm example):
 6. Run the lockfile generator ONCE (scaffold-only carveout).
 7. Commit both manifest and lockfile.
 
-**Local CPU carveout (`/sdd init` only):** the `no-local-builds` rule forbids local installs/builds/tests on the 1-vCPU container. The lockfile generator is a one-time exception because (a) CI's `npm ci` requires a committed lockfile, (b) Dependabot baseline needs a deterministic starting point, (c) the operation is resolution-only with `--ignore-scripts` (no `node_modules` populate, no script execution, no build). Applies ONLY during `/sdd init`. Every other local install/build/test remains forbidden.
+**Local CPU carveout (`/sdd init` only):** the `no-local-builds` rule forbids local installs/builds/tests on the resource-constrained container. The lockfile generator is a one-time exception because (a) CI's `npm ci` requires a committed lockfile, (b) Dependabot baseline needs a deterministic starting point, (c) the operation is resolution-only with `--ignore-scripts` (no `node_modules` populate, no script execution, no build). Applies ONLY during `/sdd init`. Every other local install/build/test remains forbidden.
 
 **Forbidden at scaffold time:** `npm install` (full), `npm test`, `npm run build`, `tsc`, `cargo build`, `cargo test`, any test runner, any bundler.
 

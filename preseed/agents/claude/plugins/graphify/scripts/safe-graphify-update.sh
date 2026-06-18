@@ -5,7 +5,7 @@
 # container session.
 #
 # Reason for existing:
-#   The codeflare container is 1 vCPU / 3.2 GB RAM / no swap. A bare
+#   The codeflare container is limited CPU, 3.2 GB RAM, no swap. A bare
 #   `graphify update .` on a dense ~700-file codebase has been observed
 #   to take down the entire Claude session by exhausting memory before
 #   the kernel could intervene gracefully. Measured peak on graphify
@@ -21,7 +21,7 @@
 #                                              445 MB, so 3.4x actual headroom)
 #   GRAPHIFY_SAFE_WORKERS    default 1        (AST extraction subprocess
 #                                              count; 1 is safest on a
-#                                              1 vCPU container)
+#                                              resource-constrained container)
 #
 # Forwards "$@" to `graphify update`, so any flag the underlying CLI
 # accepts (`--force`, `--no-cluster`, etc.) works unchanged.

@@ -13,7 +13,7 @@ User command: /review --all|--diff [--deep] [--verify-high] [scope-hint]
 
 Parse scope and flags from that line, then run the phases below. This is the user-invoked review workflow, NOT PR-boundary enforcement. Do not run the git-review-pipeline. Review the requested scope and report findings.
 
-**Review mode:** static analysis only. Never run builds, tests, or linters - the container has 1 vCPU. Read and analyze code only.
+**Review mode:** static analysis only. Never run builds, tests, or linters - the container is resource-constrained. Read and analyze code only.
 
 ## Pi tool mapping (load-bearing)
 
@@ -1080,7 +1080,7 @@ After the Phase 10 subagent completes:
 
 ## Hard rules (recap)
 
-- NEVER run builds, tests, or linters locally - the container has 1 vCPU.
+- NEVER run builds, tests, or linters locally - the container is resource-constrained.
 - All 6 Phase 2 subagents launch via the `Agent` tool in a single message (parallel `Agent` calls); batch in 3s only if the runtime limits parallelism.
 - Phase 3 deep-reviewer subagents (when --deep) launch in waves of 5: parallel within a wave, sequential at wave boundaries.
 - Phases 4, 5, 6, 9, 10 each run as a single `code-reviewer` `Agent` call; the main session waits for completion before proceeding.

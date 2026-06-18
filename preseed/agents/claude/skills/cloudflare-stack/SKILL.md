@@ -100,7 +100,7 @@ Process during `/sdd init` for any Cloudflare Workers project:
 4. Read `@cloudflare/workers-types` latest — versions are date-stamped (e.g. `4.20260401.0`); pick the newest release that targets the same wrangler major as chosen above
 5. Emit all four as specific carets in `package.json`
 
-Rationale: the 1-vCPU container (no-local-builds rule) means peer-resolution surprises surface only in CI. Pinning the cohort at scaffold time prevents Dependabot from opening upgrade PRs that immediately break type checking or the vitest pool worker.
+Rationale: the resource-constrained container (no-local-builds rule) means peer-resolution surprises surface only in CI. Pinning the cohort at scaffold time prevents Dependabot from opening upgrade PRs that immediately break type checking or the vitest pool worker.
 
 Record the resolved cohort in `documentation/decisions/` as an ADR so future upgrades know what was co-tested together.
 

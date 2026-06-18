@@ -42,7 +42,7 @@ export function localBuildBlockReason(command: string, fs: BypassFs): string | u
       return undefined;
     } catch { /* could not consume the sentinel; keep blocking so a stuck file cannot permanently disable the gate */ }
   }
-  return "Local builds/tests/linters/dev servers are blocked in the 1-CPU container. Push and verify with CI instead. User override: create /tmp/local-build-bypass.";
+  return "Local builds/tests/linters/dev servers are blocked in the resource-constrained container. Push and verify with CI instead. User override: create /tmp/local-build-bypass.";
 }
 
 export default function () {

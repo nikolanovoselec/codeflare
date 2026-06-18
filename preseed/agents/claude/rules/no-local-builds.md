@@ -1,6 +1,6 @@
 # No Local Builds, Tests, or Lint
 
-1-vCPU container. CPU-intensive commands locally will crash the session.
+Resource-constrained container. CPU-intensive commands run locally can crash the session.
 
 **Never run locally** (unless user explicitly overrides):
 - Test runners: `vitest`, `npm test`, `pytest`, etc.

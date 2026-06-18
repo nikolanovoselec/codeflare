@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PreToolUse hook: blocks local builds, test runs, type-checks, lints,
-# and dev servers. The codeflare container has 1 vCPU; CPU-intensive
+# and dev servers. The codeflare container is resource-constrained; CPU-intensive
 # tooling crashes the session. Tests/builds run in CI (GitHub Actions),
 # not locally.
 #
@@ -135,7 +135,7 @@ PATTERNS=(
 
 for pat in "${PATTERNS[@]}"; do
   if echo "$CMD" | grep -qE "$pat"; then
-    REASON="BLOCKED. No local builds, tests, type-checks, lints, or dev servers in this container -- 1 vCPU will freeze the session. Push to GitHub and let CI run. See ~/.claude/rules/no-local-builds.md. USER bypass: touch /tmp/local-build-bypass (one-shot, USER-only; the assistant must never create this)."
+    REASON="BLOCKED. No local builds, tests, type-checks, lints, or dev servers in this container -- heavy CPU use will freeze the session. Push to GitHub and let CI run. See ~/.claude/rules/no-local-builds.md. USER bypass: touch /tmp/local-build-bypass (one-shot, USER-only; the assistant must never create this)."
     jq -n --arg r "$REASON" '{decision:"block", reason:$r}' 2>/dev/null
     exit 0
   fi
