@@ -77,7 +77,7 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 | WS | `/api/terminal/:compoundId/ws` | Session cookie | [REQ-TERM-001](../../sdd/spec/terminal.md#req-term-001-up-to-6-terminal-tabs-per-session), [REQ-TERM-002](../../sdd/spec/terminal.md#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-SESSION-012](../../sdd/spec/session-lifecycle.md#req-session-012-wake-loop-prevention) | Terminal WebSocket (compoundId format: `sessionId-terminalId`); raw terminal input/output plus JSON control frames for resize authority (`focus`, `resize`), process name, and terminal restore. Focus claims are cleared when a pane loses focus before open. |
 | GET | `/api/terminal/:sessionId/status` | Session cookie | [REQ-TERM-004](../../sdd/spec/terminal.md#req-term-004-close-code-4503-is-authoritative-no-retry) | Connection status |
 
-**Terminal frame contract:** Client→server sends raw PTY input or JSON control frames `{type:"focus"}` and `{type:"resize", cols, rows}`. Server→client sends raw PTY output or JSON frames `{type:"restore", state}` and `{type:"process-name", terminalId, processName}`.
+**Terminal frame contract:** Client→server sends raw PTY input or JSON control frames `{type:"focus"}` and `{type:"resize", cols, rows}`. Server→client sends raw PTY output or JSON frames `{type:"restore", state}` and `{type:"process-name", terminalId, processName}`. <!-- @impl: host/src/server.ts::wss --> <!-- @impl: host/src/session.ts::attach --> <!-- @impl: host/src/session.ts::start --> <!-- @impl: web-ui/src/stores/terminal.ts::claimResizeAuthority -->
 
 ### User Management
 
