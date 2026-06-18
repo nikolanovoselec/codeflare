@@ -74,6 +74,7 @@ const connections = new Map<string, WebSocket>();
 const terminals = new Map<string, Terminal>();
 const retryTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 const abortControllers = new Map<string, AbortController>();
+const pendingFocusClaims = new Set<string>();
 
 // Bug 1 fix: Store inputDisposable outside the connect function to properly clean up
 const inputDisposables = new Map<string, { dispose: () => void }>();
@@ -333,6 +334,11 @@ function connect(
       inputDisposables.set(key, inputDisposable);
       logger.debug(`[Terminal ${key}] Created new input handler`);
 
+      if (pendingFocusClaims.has(key)) {
+        ws.send(JSON.stringify({ type: 'focus' }));
+        pendingFocusClaims.delete(key);
+      }
+
       // Bug 5 fix: Send initial resize to sync PTY dimensions with xterm.js
       // Without this, PTY starts with default 80x24 but xterm.js may have different dimensions
       // causing garbled/duplicated text until user manually resizes window
@@ -509,14 +515,17 @@ function disconnect(sessionId: string, terminalId: string): void {
     ws.close();
     connections.delete(key);
   }
+  pendingFocusClaims.delete(key);
   setConnectionState(sessionId, terminalId, 'disconnected');
 }
 
 function claimResizeAuthority(sessionId: string, terminalId: string): void {
   const key = makeKey(sessionId, terminalId);
   const ws = connections.get(key);
-  if (ws && ws.readyState === WebSocket.OPEN) {
+  if (ws?.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'focus' }));
+  } else if (ws?.readyState === WebSocket.CONNECTING) {
+    pendingFocusClaims.add(key);
   }
 }
 
@@ -571,6 +580,9 @@ function disposeSession(sessionId: string): void {
   cleanupMapByPrefix(inputDisposables, prefix, (disposable) => disposable.dispose());
   cleanupMapByPrefix(pendingFlushes, prefix, (rafId) => clearTimeout(rafId));
   cleanupMapByPrefix(writeBuffers, prefix);
+  for (const key of [...pendingFocusClaims]) {
+    if (key.startsWith(prefix)) pendingFocusClaims.delete(key);
+  }
 
   // Clean up state
   setState(produce((s) => {
@@ -621,6 +633,7 @@ function disposeAll(): void {
     controller.abort();
   }
   abortControllers.clear();
+  pendingFocusClaims.clear();
 
   clearFitAddons();
 }
@@ -747,6 +760,7 @@ function disconnectAll(): void {
     ws.close(1000, 'dashboard-disconnect');
   }
   connections.clear();
+  pendingFocusClaims.clear();
 
   // Clear pending retries — we intentionally disconnected
   for (const timeout of retryTimeouts.values()) {

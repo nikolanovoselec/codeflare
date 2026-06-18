@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import SessionSwitcher from '../../components/SessionSwitcher';
 import type { SessionWithStatus } from '../../types';
+import { terminalWorkspaceStore } from '../../stores/terminal-workspace';
 
 // Mock isMobile
 const isMobileMock = vi.hoisted(() => ({ value: false }));
@@ -10,11 +11,14 @@ vi.mock('../../lib/mobile', () => ({
   getTerminalViewportClass: () => isMobileMock.value ? 'mobile' : 'desktop',
 }));
 
+const dropdownProps = vi.hoisted(() => ({ latest: null as any }));
+
 // Mock SessionDropdown
 vi.mock('../../components/SessionDropdown', () => ({
-  default: (props: any) => (
-    <div data-testid="session-dropdown" data-open={String(props.isOpen)} />
-  ),
+  default: (props: any) => {
+    dropdownProps.latest = props;
+    return <div data-testid="session-dropdown" data-open={String(props.isOpen)} />;
+  },
 }));
 
 vi.mock('../../stores/session', () => ({
@@ -67,6 +71,7 @@ describe('SessionSwitcher', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isMobileMock.value = false;
+    dropdownProps.latest = null;
   });
   afterEach(() => cleanup());
 
@@ -112,6 +117,31 @@ describe('SessionSwitcher', () => {
       fireEvent.click(screen.getByTestId('session-switcher'));
       const dropdown = screen.getByTestId('session-dropdown');
       expect(dropdown).toHaveAttribute('data-open', 'false');
+    });
+  });
+
+  describe('MultiView launch', () => {
+    it('REQ-TERM-013: creates and opens MultiView from selected session ids', () => {
+      const onOpenMultiView = vi.fn();
+      vi.mocked(terminalWorkspaceStore.createOrUpdateMultiView).mockReturnValue(true);
+      vi.mocked(terminalWorkspaceStore.openMultiView).mockReturnValue(true);
+
+      render(() => (
+        <SessionSwitcher
+          {...defaultProps}
+          sessions={[
+            createSession({ id: 's1', status: 'running' }),
+            createSession({ id: 's2', status: 'running' }),
+          ]}
+          onOpenMultiView={onOpenMultiView}
+        />
+      ));
+
+      dropdownProps.latest.multiView.onLaunch(['s1', 's2']);
+
+      expect(terminalWorkspaceStore.createOrUpdateMultiView).toHaveBeenCalledWith(['s1', 's2'], expect.any(Array), 'desktop');
+      expect(terminalWorkspaceStore.openMultiView).toHaveBeenCalled();
+      expect(onOpenMultiView).toHaveBeenCalled();
     });
   });
 });

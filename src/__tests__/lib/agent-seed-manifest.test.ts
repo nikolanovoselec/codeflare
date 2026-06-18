@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, postCommandReconcileDecision, prCreateBoundaryBase, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { actionableReviewCount, allDurableReviewLanesComplete, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, reviewAutofixRequest, sendReviewAutofixRequest, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { actionableReviewCount, allDurableReviewLanesComplete, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, deliveryAnnouncementHeads, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, pendingAnnouncementHeadsFrom, reapLaneDecision, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, reviewAutofixRequest, sendReviewAutofixRequest, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { LOCAL_BUILD_BYPASS, attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { reviewLaneBlockReason, reviewScopeBlockReason } from '../../../preseed/agents/pi/extensions/review-lane-guards';
@@ -1241,6 +1241,32 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(reviewAnnouncementNonce('autofix', 'abcdef1234567890', 1700)).toBe('cf-review-autofix:abcdef123456:1700');
     expect(reviewAnnouncementNonce('summary', 'h', 1)).not.toBe(reviewAnnouncementNonce('autofix', 'h', 1));
     expect(reviewAnnouncementNonce('summary', 'h', 1)).not.toBe(reviewAnnouncementNonce('summary', 'h', 2));
+  });
+
+  it('REQ-AGENT-062: durable announcement delivery can rediscover pending completed heads', () => {
+    const records = new Map([
+      ['pending-head:summary', { status: 'pending' as const }],
+      ['attempted-head:summary', { status: 'attempted' as const }],
+      ['visible-head:summary', { status: 'visible' as const }],
+      ['failed-head:summary', { status: 'failed' as const }],
+    ]);
+    expect(new Set(pendingAnnouncementHeadsFrom(
+      ['pending-head', 'attempted-head', 'visible-head', 'failed-head'],
+      (head, kind) => records.get(`${head}:${kind}`),
+    ))).toEqual(new Set(['pending-head', 'attempted-head']));
+  });
+
+  it('REQ-AGENT-062: delivery drains acked pending heads even without an open current PR', () => {
+    expect(deliveryAnnouncementHeads({
+      currentHead: undefined,
+      pendingHeads: ['acked-head', 'unacked-head'],
+      acked: (head) => head === 'acked-head',
+    })).toEqual(['acked-head']);
+    expect(deliveryAnnouncementHeads({
+      currentHead: 'current-head',
+      pendingHeads: ['current-head', 'older-acked-head'],
+      acked: (head) => head !== 'unacked-head',
+    })).toEqual(['current-head', 'older-acked-head']);
   });
 
   it('REQ-AGENT-062: shouldAttemptAnnouncement sends pending once, retries attempted only past the delay and under the cap, never terminal', () => {

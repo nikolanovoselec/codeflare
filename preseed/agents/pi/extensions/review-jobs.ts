@@ -8,10 +8,10 @@
  */
 
 import { spawn } from "node:child_process";
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { computeReviewStateFrom, formatDurableReviewResult, laneExtensionSources, reapLaneDecision, recoverDurableReviewLaneState, summarizeLaneTranscript, type ReviewAnnouncement, type ReviewAnnouncementKind, type ReviewState } from "./review-job-helpers";
+import { computeReviewStateFrom, formatDurableReviewResult, laneExtensionSources, pendingAnnouncementHeadsFrom, reapLaneDecision, recoverDurableReviewLaneState, REVIEW_ANNOUNCEMENT_KINDS, summarizeLaneTranscript, type ReviewAnnouncement, type ReviewAnnouncementKind, type ReviewState } from "./review-job-helpers";
 import type { ReviewSpawnRequest } from "./review-helpers";
 
 export type DurableReviewLaneStatus = "pending" | "running" | "completed" | "failed";
@@ -142,7 +142,7 @@ export function reviewResultPath(repo: string, head: string, lane: string): stri
 // machine; pure decision logic is in review-job-helpers.ts). Persisted per (head, kind) so a
 // superseded head's records never bleed into the new head, and so delivery survives Pi reloads. ---
 export function reviewAnnouncementKinds(): ReviewAnnouncementKind[] {
-  return ["summary", "autofix"];
+  return [...REVIEW_ANNOUNCEMENT_KINDS];
 }
 
 export function reviewAnnouncementPath(repo: string, head: string, kind: ReviewAnnouncementKind): string {
@@ -151,6 +151,18 @@ export function reviewAnnouncementPath(repo: string, head: string, kind: ReviewA
 
 export function readReviewAnnouncement(repo: string, head: string, kind: ReviewAnnouncementKind): ReviewAnnouncement | undefined {
   return readJson<ReviewAnnouncement>(reviewAnnouncementPath(repo, head, kind));
+}
+
+export function pendingReviewAnnouncementHeads(repo: string): string[] {
+  const root = join(repo, ".git", "codeflare-review-jobs");
+  try {
+    const heads = readdirSync(root).filter((head) => {
+      try { return statSync(join(root, head)).isDirectory(); } catch { return false; }
+    });
+    return pendingAnnouncementHeadsFrom(heads, (head, kind) => readReviewAnnouncement(repo, head, kind));
+  } catch {
+    return [];
+  }
 }
 
 export function writeReviewAnnouncement(record: ReviewAnnouncement): void {

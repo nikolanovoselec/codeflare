@@ -1,17 +1,29 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup } from '@solidjs/testing-library';
+import { render, screen, cleanup, waitFor } from '@solidjs/testing-library';
+import { createSignal } from 'solid-js';
+
+const terminalLifecycle = vi.hoisted(() => ({
+  unmounted: [] as string[],
+}));
 
 // Mock child components
-vi.mock('../../components/Terminal', () => ({
-  default: (props: any) => (
-    <div
-      data-testid={`terminal-${props.sessionId}-${props.terminalId}`}
-      data-visible={String(props.visible ?? props.active)}
-      data-focused={String(props.focused ?? props.active)}
-      data-connect={String(props.connect ?? props.active)}
-    />
-  )
-}));
+vi.mock('../../components/Terminal', async () => {
+  const { onCleanup } = await import('solid-js');
+  return {
+    default: (props: any) => {
+      const key = `${props.sessionId}:${props.terminalId}`;
+      onCleanup(() => terminalLifecycle.unmounted.push(key));
+      return (
+        <div
+          data-testid={`terminal-${props.sessionId}-${props.terminalId}`}
+          data-visible={String(props.visible ?? props.active)}
+          data-focused={String(props.focused ?? props.active)}
+          data-connect={String(props.connect ?? props.active)}
+        />
+      );
+    },
+  };
+});
 
 vi.mock('../../components/TerminalTabs', () => ({
   default: (props: any) => <div data-testid="terminal-tabs" data-session={props.sessionId} />
@@ -54,12 +66,14 @@ let mockActiveSessionId: string | null = null;
 let mockVisiblePanes: any[] = [];
 let mockFocusedPaneId: string | null = null;
 let mockWorkspaceLayout = 'tabbed';
+let readWorkspaceVersion = () => 0;
+let bumpWorkspaceVersion = () => {};
 
 vi.mock('../../stores/terminal-workspace', () => ({
   terminalWorkspaceStore: {
-    getVisiblePanes: vi.fn(() => mockVisiblePanes),
-    getFocusedPaneId: vi.fn(() => mockFocusedPaneId),
-    getLayout: vi.fn(() => mockWorkspaceLayout),
+    getVisiblePanes: vi.fn(() => { readWorkspaceVersion(); return mockVisiblePanes; }),
+    getFocusedPaneId: vi.fn(() => { readWorkspaceVersion(); return mockFocusedPaneId; }),
+    getLayout: vi.fn(() => { readWorkspaceVersion(); return mockWorkspaceLayout; }),
     setDashboardWorkspace: vi.fn(),
     setSingleSessionWorkspace: vi.fn(),
     setFocusedPane: vi.fn(),
@@ -68,9 +82,10 @@ vi.mock('../../stores/terminal-workspace', () => ({
 
 vi.mock('../../stores/session', () => ({
   sessionStore: {
-    get sessions() { return mockSessions; },
-    get activeSessionId() { return mockActiveSessionId; },
+    get sessions() { readWorkspaceVersion(); return mockSessions; },
+    get activeSessionId() { readWorkspaceVersion(); return mockActiveSessionId; },
     getActiveSession: vi.fn(() => {
+      readWorkspaceVersion();
       if (!mockActiveSessionId) return null;
       return mockSessions.find((s: any) => s.id === mockActiveSessionId) || null;
     }),
@@ -84,6 +99,7 @@ vi.mock('../../stores/session', () => ({
 
 import TerminalArea from '../../components/TerminalArea';
 import { terminalWorkspaceStore } from '../../stores/terminal-workspace';
+import { sessionStore } from '../../stores/session';
 
 describe('TerminalArea', () => {
   const defaultProps = {
@@ -111,6 +127,10 @@ describe('TerminalArea', () => {
     mockVisiblePanes = [];
     mockFocusedPaneId = null;
     mockWorkspaceLayout = 'tabbed';
+    terminalLifecycle.unmounted = [];
+    const [workspaceVersion, setWorkspaceVersion] = createSignal(0);
+    readWorkspaceVersion = workspaceVersion;
+    bumpWorkspaceVersion = () => setWorkspaceVersion((value) => value + 1);
   });
 
   afterEach(() => {
@@ -250,5 +270,56 @@ describe('TerminalArea', () => {
     expect(paneB).toHaveAttribute('data-connect', 'true');
     expect(paneB).toHaveAttribute('data-focused', 'true');
     expect(screen.queryByTestId('terminal-session-c-1')).not.toBeInTheDocument();
+  });
+
+  it('REQ-TERM-012: renders the MultiView terminal id tracked by the visible workspace', () => {
+    mockSessions = [
+      { id: 'session-a', name: 'A', status: 'running' },
+      { id: 'session-b', name: 'B', status: 'running' },
+    ];
+    mockActiveSessionId = null;
+    mockVisiblePanes = [
+      { id: 'multiview:session-a:2', sessionId: 'session-a', terminalId: '2', source: 'multiview' },
+      { id: 'multiview:session-b:1', sessionId: 'session-b', terminalId: '1', source: 'multiview' },
+    ];
+    mockFocusedPaneId = 'multiview:session-a:2';
+    mockWorkspaceLayout = '2-split';
+    vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({
+      activeTabId: '3',
+      tabs: [
+        { id: '1', label: 'One', manual: false },
+        { id: '2', label: 'Two', manual: true },
+        { id: '3', label: 'Three', manual: true },
+      ],
+    } as any);
+
+    render(() => <TerminalArea {...defaultProps} showTerminal viewState="terminal" />);
+
+    expect(screen.getByTestId('terminal-session-a-2')).toHaveAttribute('data-focused', 'true');
+    expect(screen.queryByTestId('terminal-session-a-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('terminal-session-a-3')).not.toBeInTheDocument();
+  });
+
+  it('REQ-TERM-011: tears down the old single-session terminal when the visible pane key changes', async () => {
+    mockSessions = [
+      { id: 'session-a', name: 'A', status: 'running' },
+      { id: 'session-b', name: 'B', status: 'running' },
+    ];
+    mockActiveSessionId = 'session-a';
+    mockVisiblePanes = [{ id: 'session:session-a:1', sessionId: 'session-a', terminalId: '1', source: 'session' }];
+    mockFocusedPaneId = 'session:session-a:1';
+
+    render(() => <TerminalArea {...defaultProps} showTerminal viewState="terminal" />);
+    expect(screen.getByTestId('terminal-session-a-1')).toHaveAttribute('data-connect', 'true');
+
+    terminalLifecycle.unmounted = [];
+    mockActiveSessionId = 'session-b';
+    mockVisiblePanes = [{ id: 'session:session-b:1', sessionId: 'session-b', terminalId: '1', source: 'session' }];
+    mockFocusedPaneId = 'session:session-b:1';
+    bumpWorkspaceVersion();
+
+    await waitFor(() => expect(screen.getByTestId('terminal-session-b-1')).toHaveAttribute('data-connect', 'true'));
+    expect(screen.queryByTestId('terminal-session-a-1')).not.toBeInTheDocument();
+    expect(terminalLifecycle.unmounted).toContain('session-a:1');
   });
 });

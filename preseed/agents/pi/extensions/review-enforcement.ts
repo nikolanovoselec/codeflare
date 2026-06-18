@@ -57,9 +57,9 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
-import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prEnforcedForPush, prUrlFromText, reusablePendingReview, selectReviewBase, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { actionableReviewCount, activeRepoCandidateForReview, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, mergeGateDecision, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewAnnouncement, type ReviewSeverityCounts } from "./review-job-helpers";
-import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, ensureReviewAnnouncementPending, failedDurableReviewLanes, readDurableReviewJob, readReviewAnnouncement, reapDurableReviewLanes, reviewAnnouncementKinds, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes, writeReviewAnnouncement } from "./review-jobs";
+import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prEditCommandTarget, prEnforcedForPush, prUrlFromText, reusablePendingReview, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
+import { actionableReviewCount, activeRepoCandidateForReview, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, deliveryAnnouncementHeads, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, mergeGateDecision, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewAnnouncement, type ReviewSeverityCounts } from "./review-job-helpers";
+import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, ensureReviewAnnouncementPending, failedDurableReviewLanes, pendingReviewAnnouncementHeads, readDurableReviewJob, readReviewAnnouncement, reapDurableReviewLanes, reviewAnnouncementKinds, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes, writeReviewAnnouncement } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
 
@@ -102,12 +102,12 @@ function reviewBaselineMemory(): Map<string, string> {
 // produces a different key, so its inherited head starts fresh (baseline === head → OFFER), which is the
 // whole point of the branch keying. The fields are joined with a NUL (\u0000) byte — which can appear in
 // neither a filesystem path nor a git refname — so no other (repo, branch) pair can ever collapse to the
-// same key string. These keys are opaque equality keys, never parsed back apart. NOTE: many editors and
-// file viewers render the NUL as blank or a space, so the separator LOOKS like a space in the source — it
-// is a real \u0000. Every key builder in this module (baselineKey, the offer keys, the ignore-dedup key)
-// uses the same NUL separator for the same reason; don't "fix" one to a literal space.
+// same key string. These keys are opaque equality keys, never parsed back apart. Use the named separator
+// below (not a literal space or a visible punctuation mark) so the runtime key byte stays intentional
+// without making this TypeScript source look binary to repo tooling.
+const REVIEW_KEY_SEPARATOR = "\0";
 function baselineKey(repo: string): string {
-  return `${repo} ${currentBranch(repo) ?? ""}`;
+  return `${repo}${REVIEW_KEY_SEPARATOR}${currentBranch(repo) ?? ""}`;
 }
 // boundaryActedMemory: the PRIMARY autostart signal — the set of repo+branch keys for which a real
 // PR-boundary command (push / pr create / …) executed THIS session. Set in onToolEnd BEFORE any
@@ -120,13 +120,13 @@ function boundaryActedMemory(): Set<string> {
   return g[BOUNDARY_ACTED_KEY]!;
 }
 // boundaryActedKey: repo+branch key for the "this session pushed" signal, built with the SAME NUL
-// separator as baselineKey (via String.fromCharCode(0), so this source line carries no embedded NUL).
+// separator as baselineKey.
 // The MARK (onToolEnd) is keyed by the PUSHED PR's branch and the READ (reconcile) by the CURRENT
 // branch. In the normal flow they are the same branch; `git push A && git checkout B` makes them differ,
 // and keying the mark by the pushed branch — NOT currentBranch-at-tool-end, which is already B — is what
 // stops B's merely-inherited head from being wrongly auto-started (R6).
 function boundaryActedKey(repo: string, branch: string | undefined): string {
-  return `${repo}${String.fromCharCode(0)}${branch ?? ""}`;
+  return `${repo}${REVIEW_KEY_SEPARATOR}${branch ?? ""}`;
 }
 function markBoundaryActed(repo: string, branch?: string): void {
   if (repo) boundaryActedMemory().add(boundaryActedKey(repo, branch ?? currentBranch(repo) ?? ""));
@@ -153,10 +153,10 @@ function offerSurfacedMemory(): Set<string> {
   return g[OFFER_SURFACED_KEY]!;
 }
 function offerSurfacedThisSession(repo: string, head: string): boolean {
-  return offerSurfacedMemory().has(`${repo} ${head}`);
+  return offerSurfacedMemory().has(`${repo}${REVIEW_KEY_SEPARATOR}${head}`);
 }
 function markOfferSurfaced(repo: string, head: string): void {
-  offerSurfacedMemory().add(`${repo} ${head}`);
+  offerSurfacedMemory().add(`${repo}${REVIEW_KEY_SEPARATOR}${head}`);
 }
 // reviewIgnoreLoggedMemory: per-session dedup for the "boundary candidate ignored" near-miss audit
 // line. The reconcile tick runs every 20s; while a head sits behind a latched breaker (or has no
@@ -172,7 +172,7 @@ function reviewIgnoreLoggedMemory(): Set<string> {
 }
 function ignoreAlreadyLogged(repo: string, head: string, reason: string): boolean {
   const mem = reviewIgnoreLoggedMemory();
-  const k = `${repo} ${head} ${reason}`;
+  const k = `${repo}${REVIEW_KEY_SEPARATOR}${head}${REVIEW_KEY_SEPARATOR}${reason}`;
   if (mem.has(k)) return true;
   mem.add(k);
   return false;
@@ -321,7 +321,7 @@ const safeGhArg = (s?: string): string | undefined => (s && /^[\w./#-]+$/.test(s
 // so neither the push path nor the merge gate could tell "allow, there is no PR" from "fail closed, gh
 // is down" (P4). `failed:true` = transient (never cache, fail-closed-eligible); `failed:false` +
 // `pr:undefined` = real absence (cacheable negative, allow). An optional selector/repoSlug targets a
-// specific PR (the one a `gh pr merge` command named) instead of the cwd branch (P1).
+// specific PR (the one a `gh pr merge` or protected-base `gh pr edit` command named) instead of the cwd branch (P1).
 type PrStateResult = { pr: PrState | undefined; failed: boolean };
 function prStateResultFor(repo: string, selector?: string, repoSlug?: string): PrStateResult {
   const sel = safeGhArg(selector) ? ` ${safeGhArg(selector)}` : "";
@@ -386,9 +386,9 @@ function gateCandidates(repo: string): Array<{ head: string; acked: boolean }> {
   };
   add(loadPending(repo)?.head);
   try { add(readFileSync(breakerPath(repo), "utf8").trim()); } catch { /* no breaker latched */ }
-  // offerSurfacedMemory keys are `${repo}<NUL>${head}` — the separator below is a real   byte
-  // (it may render as a blank); see baselineKey's note. Match it exactly to recover the offer heads.
-  const prefix = `${repo} `;
+  // offerSurfacedMemory keys are `${repo}<NUL>${head}`. Match the shared NUL separator exactly
+  // to recover the offered heads.
+  const prefix = `${repo}${REVIEW_KEY_SEPARATOR}`;
   for (const k of offerSurfacedMemory()) if (k.startsWith(prefix)) add(k.slice(prefix.length));
   return out;
 }
@@ -1056,10 +1056,14 @@ export default function (pi: ExtensionAPI) {
   const isActiveRun = (): boolean => (globalThis as { __codeflareReviewEnforcementRun?: symbol }).__codeflareReviewEnforcementRun === runToken;
   let pending: PendingReview | undefined;
   const toolStartArgs = new Map<string, any>();
+  const boundaryStartCommands = new Map<string, { command: string; at: number }>();
+  const BOUNDARY_START_RECOVERY_MS = 2 * 60 * 1000;
   // Per-turn dedup for the merge gate, which is wired to both tool_call and tool_execution_start — see
   // the once-gate in onAgentStart. Cleared at agent_end (turn boundary) alongside toolStartArgs.
   const mergeGatedToolIds = new Set<string>();
+  const processedBashCommandToolIds = new Set<string>();
   const shouldProcessPrBoundaryToolEnd = createReadyOnceTracker();
+  const shouldProcessNoCommandToolEnd = createBoundedOnceTracker();
 
   pi.registerMessageRenderer("pr-boundary-review-result", () => new Text("", 0, 0));
   pi.registerMessageRenderer("pr-boundary-review-summary", () => new Text("", 0, 0));
@@ -1166,6 +1170,7 @@ export default function (pi: ExtensionAPI) {
       requestedAt: {},
       reviewStartedAt: Date.now(),
     };
+    rememberReviewRepo(state.repo);
     savePending(pending);
     updateReviewStatus(pending, ctx);
     ctx.ui.notify(`PR-boundary review rolled forward for ${basename(state.repo)} from ${state.head.slice(0, 12)} to ${head.slice(0, 12)} (${reason}). Lanes: ${review.lanes.join(", ")}.`, "warning");
@@ -1176,6 +1181,78 @@ export default function (pi: ExtensionAPI) {
   function toolEventId(event: any): string | undefined {
     const id = event?.toolCallId || event?.toolUseId || event?.id;
     return typeof id === "string" ? id : undefined;
+  }
+
+  function rememberBoundaryStartCommand(event: any): void {
+    const id = toolEventId(event);
+    if (!id) return;
+    const command = commandText(event);
+    if (!command || !isPrBoundaryTrigger(command)) return;
+    boundaryStartCommands.set(id, { command, at: Date.now() });
+  }
+
+  function consumeBoundaryStartCommand(event: any): string | undefined {
+    const id = toolEventId(event);
+    const record = id ? boundaryStartCommands.get(id) : undefined;
+    if (id) boundaryStartCommands.delete(id);
+    return startedBoundaryCommandForToolEnd({
+      endToolId: id,
+      startedToolId: id && record ? id : undefined,
+      startedCommand: record?.command,
+      ageMs: record ? Date.now() - record.at : Number.POSITIVE_INFINITY,
+      maxAgeMs: BOUNDARY_START_RECOVERY_MS,
+    });
+  }
+
+  async function handlePrBoundaryCommand(command: string, ctx: any, trigger: string, toolId?: string): Promise<void> {
+    const repo = reviewRepoForCtx(ctx, cwdFromCommand(command));
+    if (!repo || !isSddProject(repo)) return;
+
+    // Use the failure-distinguishing FRESH read (invalidates the prCache entry first) so a push that
+    // landed within the 60s prCache TTL is decided against the new head, not a stale pre-push cache —
+    // P4 failure distinction is preserved because prStateFreshResult delegates to prStateResultFor.
+    const editTarget = prEditCommandTarget(command);
+    if (editTarget.repoSlug && isForeignRepoTarget(repo, editTarget.repoSlug)) return;
+    const editSelector = editTarget.prNumber !== undefined ? String(editTarget.prNumber) : editTarget.prBranch;
+    const targetsExplicitPr = Boolean(editSelector || editTarget.repoSlug);
+    const prRes = targetsExplicitPr ? prStateFreshResult(repo, editSelector, editTarget.repoSlug) : prStateFreshResult(repo);
+    const pr = targetsExplicitPr && !prRes.pr ? undefined : prForBoundaryCommand(repo, command, prRes.pr);
+    if (!isEnforcedPrForPush(pr)) {
+      // P4: gh was unreadable (transient), not a confirmed absence — a real boundary command still ran.
+      // Record that this session pushed this branch (so reconciliation AUTOSTARTS once gh recovers rather
+      // than degrading to an offer) and audit the near-miss, so the outage window is never a silent skip.
+      if (prRes.failed) {
+        markBoundaryActed(repo);
+        appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "pr_state_unreadable" });
+      }
+      return;
+    }
+    // A real PR-boundary command just ran for a confirmed enforced PR on this repo+branch.
+    // Record it NOW — before any of the window-creation guards below can bail — so that even if the
+    // window is never created (head unresolved, dedup, a reload right after), the reconcile still knows
+    // THIS session advanced this branch and will AUTOSTART rather than merely OFFER the missed head.
+    // P8: a push to a DRAFT PR does not arm review — symmetric with reconcile (shouldReconcileOpenPr
+    // excludes drafts). When the PR is marked ready-for-review its head is still unacked, so reconcile
+    // catches it then; and a draft can't be merged on GitHub meanwhile, so the gate never matters.
+    if (pr.isDraft) { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "draft_pr", head: pr.headRefOid || "" }); return; }
+    // Key the mark by the PUSHED PR's branch (pr.headRefName), not currentBranch-at-tool-end — a
+    // `git push A && git checkout B` would otherwise attribute the push to B and risk auto-starting B's
+    // inherited head (R6). Falls back to currentBranch when there is no PR branch yet (push-before-PR).
+    markBoundaryActed(repo, pr.headRefName);
+    const head = reviewCandidateHead(repo, pr, command);
+    // REQ-AGENT-058: from here the PR is a confirmed enforced boundary, so a silent bail is a
+    // genuine near-miss. Audit it (reconciliation still backstops the start) so a future miss is
+    // diagnosable instead of invisible. Healthy skips (acked/breaker/pending) are not audited.
+    if (!head) { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "no_resolvable_head" }); return; }
+    if (consumeBypass()) {
+      acknowledgeBypass(repo, head, ctx);
+      return;
+    }
+    if (acked(repo, head)) return;
+    if (isBreakerOpen(repo, head)) return; // breaker already gave up on this exact head; push a new commit to retry
+    if (loadPending(repo)?.head === head) return; // a window for this head already exists
+    if (!shouldProcessPrBoundaryToolEnd(toolId, true)) { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "dedupe_skipped", head }); return; }
+    await ensureReviewWindow({ repo, pr, head, ctx, trigger, command });
   }
 
   // withStartArgs re-attaches the args captured at tool_execution_start (toolStartArgs, set per tool id)
@@ -1394,16 +1471,31 @@ export default function (pi: ExtensionAPI) {
     refreshDeliveryStatus(ctx, repo, head);
   }
 
-  // Resolve the current enforced+acked head, then drain its announcements. Safe with or without a
-  // live ctx; off-turn it still attempts, and the next ctx-bearing tick proves/retries.
+  function reviewDeliveryRepos(ctx: any): string[] {
+    return [...new Set([
+      reviewRepoForCtx(ctx),
+      activeRepoForReviewRouting(ctx),
+      recallReviewRepo(),
+      ...recallReviewRepos(),
+    ].filter((repo): repo is string => Boolean(repo && isSddProject(repo))))];
+  }
+
+  // Resolve every repo that may have pending delivery, then drain acked heads with non-terminal
+  // announcements. Delivery must not rely on loadPending(): finalizeCompletedReview clears the review
+  // window before summary/autofix delivery is proven. It also must not require the PR to still be OPEN:
+  // once a completed review has acked a head, its summary is user-visible evidence even if the PR is
+  // merged/closed before the next idle tick.
   function drainReviewAnnouncements(ctx: any): void {
-    const repo = reviewRepoForCtx(ctx);
-    if (!repo || !isSddProject(repo)) return;
-    const pr = prState(repo);
-    if (!isEnforcedPr(pr)) return;
-    const head = reviewCandidateHead(repo, pr);
-    if (!head || !acked(repo, head)) return;
-    drainAnnouncementsFor(repo, head, ctx);
+    for (const repo of reviewDeliveryRepos(ctx)) {
+      const pr = prState(repo);
+      const currentHead = isEnforcedPr(pr) ? reviewCandidateHead(repo, pr) : undefined;
+      const heads = deliveryAnnouncementHeads({
+        currentHead,
+        pendingHeads: pendingReviewAnnouncementHeads(repo),
+        acked: (head) => acked(repo, head),
+      });
+      for (const candidateHead of heads) drainAnnouncementsFor(repo, candidateHead, ctx);
+    }
   }
 
   // Persistent footer cue: while the SUMMARY announcement for the current head is not yet proven
@@ -1585,6 +1677,7 @@ export default function (pi: ExtensionAPI) {
     // reviewBase, not this label, so the substitution can't mis-scope the review even if the base was master.
     const persistedBase = pr.baseRefName || "main";
     pending = { repo, prNumber: pr.number, baseRefName: persistedBase, headBranch: pr.headRefName, head, reviewBase: validBase, lanes: review.lanes, completed: review.completed, docPromptSent: false, spawned: false, spawnedIds: {}, fallbackLanes: new Set(), requestedAt: {}, reviewStartedAt: Date.now() };
+    rememberReviewRepo(repo);
     const initialLanes = durableReviewInitialLanes(pending.lanes);
     savePending(pending);
     updateReviewStatus(pending, ctx);
@@ -1875,10 +1968,12 @@ export default function (pi: ExtensionAPI) {
   };
   pi.on("tool_call", (event: any, ctx: any) => {
     rememberToolStartArgs(event);
+    rememberBoundaryStartCommand(event);
     return onAgentStart(event, ctx);
   });
   pi.on("tool_execution_start", (event: any, ctx: any) => {
     rememberToolStartArgs(event);
+    rememberBoundaryStartCommand(event);
     return onAgentStart(event, ctx);
   });
 
@@ -1886,7 +1981,10 @@ export default function (pi: ExtensionAPI) {
     if (!isActiveRun()) return;
     remember(ctx);
     const toolName = String(event?.toolName || "").toLowerCase();
-    if (isFailedToolExecution(event)) return;
+    if (isFailedToolExecution(event)) {
+      consumeBoundaryStartCommand(event);
+      return;
+    }
 
     if (toolName === "agent") {
       const input = event?.input || event?.params || event?.args || event?.arguments || {};
@@ -1924,6 +2022,7 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
+    const bashToolId = toolName === "bash" ? toolEventId(event) : undefined;
     const command = commandText(event);
     // Never-silent: a successful bash result that arrives with no recoverable command text is the
     // command-loss path (neither tool_call nor tool_execution_start seeded args for this id). With the
@@ -1931,12 +2030,23 @@ export default function (pi: ExtensionAPI) {
     // skip a possible push SILENTLY. Record a diagnosable near-miss (deduped per repo) so the reconcile
     // backstop is the only thing that has to catch it, and the miss is no longer invisible.
     if (!command && toolName === "bash") {
+      if (bashToolId && processedBashCommandToolIds.has(bashToolId)) return;
+      if (!shouldProcessNoCommandToolEnd(bashToolId)) return;
+      const recoveredCommand = consumeBoundaryStartCommand(event);
+      if (recoveredCommand) {
+        if (bashToolId) processedBashCommandToolIds.add(bashToolId);
+        await handlePrBoundaryCommand(recoveredCommand, ctx, "recovered PR-boundary command from tool start", toolEventId(event));
+        return;
+      }
       const lostRepo = reviewRepoForCtx(ctx, undefined);
       if (lostRepo && isSddProject(lostRepo) && !ignoreAlreadyLogged(lostRepo, "", "missing_command_text_after_success")) {
         appendReviewEvent(lostRepo, { event: "boundary_tool_end_ignored", reason: "missing_command_text_after_success" });
       }
+      await reconcileOpenPrReview(ctx, true, { freshPrState: true });
       return;
     }
+    if (command && bashToolId) processedBashCommandToolIds.add(bashToolId);
+
     // P2/P3 retroactive truth-layer: the pre-merge gate (onAgentStart) can be slipped by a wrapper the
     // boundary anchor doesn't cover (`bash -c '…'`, `xargs … gh pr merge`) or by `--auto` merging
     // server-side later. This is the backstop Claude relies on wholesale: after ANY gh-pr-merge-shaped
@@ -1982,50 +2092,8 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    const repo = reviewRepoForCtx(ctx, cwdFromCommand(command));
-    if (!repo || !isSddProject(repo)) return;
-
-    // Use the failure-distinguishing FRESH read (invalidates the prCache entry first) so a push that
-    // landed within the 60s prCache TTL is decided against the new head, not a stale pre-push cache —
-    // P4 failure distinction is preserved because prStateFreshResult delegates to prStateResultFor.
-    const prRes = prStateFreshResult(repo);
-    const pr = prForBoundaryCommand(repo, command, prRes.pr);
-    if (!isEnforcedPrForPush(pr)) {
-      // P4: gh was unreadable (transient), not a confirmed absence — a real boundary command still ran.
-      // Record that this session pushed this branch (so reconciliation AUTOSTARTS once gh recovers rather
-      // than degrading to an offer) and audit the near-miss, so the outage window is never a silent skip.
-      if (prRes.failed) {
-        markBoundaryActed(repo);
-        appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "pr_state_unreadable" });
-      }
-      return;
-    }
-    // A real PR-boundary command just ran for a confirmed enforced PR on this repo+branch.
-    // Record it NOW — before any of the window-creation guards below can bail — so that even if the
-    // window is never created (head unresolved, dedup, a reload right after), the reconcile still knows
-    // THIS session advanced this branch and will AUTOSTART rather than merely OFFER the missed head.
-    // P8: a push to a DRAFT PR does not arm review — symmetric with reconcile (shouldReconcileOpenPr
-    // excludes drafts). When the PR is marked ready-for-review its head is still unacked, so reconcile
-    // catches it then; and a draft can't be merged on GitHub meanwhile, so the gate never matters.
-    if (pr.isDraft) { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "draft_pr", head: pr.headRefOid || "" }); return; }
-    // Key the mark by the PUSHED PR's branch (pr.headRefName), not currentBranch-at-tool-end — a
-    // `git push A && git checkout B` would otherwise attribute the push to B and risk auto-starting B's
-    // inherited head (R6). Falls back to currentBranch when there is no PR branch yet (push-before-PR).
-    markBoundaryActed(repo, pr.headRefName);
-    const head = reviewCandidateHead(repo, pr, command);
-    // REQ-AGENT-058: from here the PR is a confirmed enforced boundary, so a silent bail is a
-    // genuine near-miss. Audit it (reconciliation still backstops the start) so a future miss is
-    // diagnosable instead of invisible. Healthy skips (acked/breaker/pending) are not audited.
-    if (!head) { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "no_resolvable_head" }); return; }
-    if (consumeBypass()) {
-      acknowledgeBypass(repo, head, ctx);
-      return;
-    }
-    if (acked(repo, head)) return;
-    if (isBreakerOpen(repo, head)) return; // breaker already gave up on this exact head; push a new commit to retry
-    if (loadPending(repo)?.head === head) return; // a window for this head already exists
-    if (!shouldProcessPrBoundaryToolEnd(toolEventId(event), true)) { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "dedupe_skipped", head }); return; }
-    await ensureReviewWindow({ repo, pr, head, ctx, trigger: "initial PR-boundary trigger", command });
+    consumeBoundaryStartCommand(event);
+    await handlePrBoundaryCommand(command, ctx, "initial PR-boundary trigger", toolEventId(event));
   };
 
   // Pi emits both `tool_result` and `tool_execution_end` for the same tool call.
@@ -2053,7 +2121,9 @@ export default function (pi: ExtensionAPI) {
     // turn has settled, so any remaining start-args are orphans. Drop them all (sibling extension
     // codeflare-pi.ts clears its own maps here for the same reason).
     toolStartArgs.clear();
+    boundaryStartCommands.clear();
     mergeGatedToolIds.clear();
+    processedBashCommandToolIds.clear();
     const state = hydratePending(ctx);
     if (!state) {
       // No persisted review window: a real open, enforced PR with an unacked head and no

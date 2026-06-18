@@ -1578,6 +1578,8 @@ Load only explicit `-e` extensions: `graphify-native.ts`, `review-lane-guards.ts
 
 ### AD82: Visible terminal panes own WebSockets, and MultiView is virtual
 
+**Status:** Accepted (2026-06-18)
+
 **Decision:** The browser opens terminal WebSockets only for panes visible in the current frontend workspace. Dashboard has zero visible panes, a real session has one visible pane, and `MultiView #1` is a local virtual workspace that renders one visible pane for each selected real session. MultiView is never represented as a backend session ID.
 
 **Context:** Dashboard and hidden session surfaces previously mounted terminals for every running session. Those hidden terminals attached extra WebSocket clients to server PTYs, sent stale resize frames, and made the Dashboard status look connected even when the user was not viewing a terminal. The same problem would become worse with a multi-session view unless running, visible, connected, and focused were separated.

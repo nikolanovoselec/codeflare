@@ -450,6 +450,19 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     }
   });
 
+  createEffect(() => {
+    const focusedTerm = terminalInstance();
+    const initializing = isInitializing();
+    const stage = initProgress()?.stage;
+    const shouldConnect = !initializing || stage === 'mounting' || stage === 'ready';
+    if (!isFocused() || !canConnect() || !shouldConnect || !focusedTerm) return;
+    terminalStore.claimResizeAuthority(props.sessionId, props.terminalId);
+    if (!isTouchDevice()) focusedTerm.focus();
+    if (focusedTerm.cols > 0 && focusedTerm.rows > 0) {
+      terminalStore.resize(props.sessionId, props.terminalId, focusedTerm.cols, focusedTerm.rows);
+    }
+  });
+
   // Keyboard lifecycle for mobile
   createEffect(() => {
     if (isFocused() && isTouchDevice()) {

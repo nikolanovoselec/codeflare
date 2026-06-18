@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isPrBoundaryTrigger, isPrBoundaryCommand, isGhPrMergeCommand, isGitPushOnlyCommand, mergeCommandTarget, prBoundaryCommandBase, prEditBoundaryBase, prEnforcedForPush, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision, ghPrCreateBase } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { isPrBoundaryTrigger, isPrBoundaryCommand, isGhPrMergeCommand, isGitPushOnlyCommand, mergeCommandTarget, prBoundaryCommandBase, prEditBoundaryBase, prEditCommandTarget, prEnforcedForPush, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision, ghPrCreateBase, startedBoundaryCommandForToolEnd } from '../../../preseed/agents/pi/extensions/review-helpers';
 
 /**
  * isPrBoundaryTrigger is the single "should this command start a review?" predicate.
@@ -52,9 +52,11 @@ describe('isPrBoundaryTrigger', () => {
     expect(isPrBoundaryTrigger('cd /repo && git add -A && git commit -m x && git push')).toBe(true);
   });
 
-  it('returns false for non-boundary commands', () => {
+  it('returns false for non-boundary commands, including clone-only setup', () => {
     expect(isPrBoundaryTrigger('git status')).toBe(false);
     expect(isPrBoundaryTrigger('git commit -m "wip"')).toBe(false);
+    expect(isPrBoundaryTrigger('git clone https://github.com/o/r.git')).toBe(false);
+    expect(isPrBoundaryTrigger('gh repo clone o/r')).toBe(false);
     expect(isPrBoundaryTrigger('ls -la')).toBe(false);
   });
 
@@ -108,6 +110,23 @@ describe('isGhPrMergeCommand / isGitPushOnlyCommand are env-prefix tolerant', ()
   it('does not match gh repo sync or non-push git', () => {
     expect(isGitPushOnlyCommand('gh repo sync')).toBe(false);
     expect(isGitPushOnlyCommand('git status')).toBe(false);
+  });
+});
+
+describe('startedBoundaryCommandForToolEnd', () => {
+  const base = { endToolId: 'tool-1', startedToolId: 'tool-1', ageMs: 500, maxAgeMs: 120_000 };
+
+  it('recovers same-tool PR-boundary commands whose end event lost command text', () => {
+    expect(startedBoundaryCommandForToolEnd({ ...base, startedCommand: 'git push origin multiview' })).toBe('git push origin multiview');
+    expect(startedBoundaryCommandForToolEnd({ ...base, startedCommand: 'gh pr create --base main' })).toBe('gh pr create --base main');
+    expect(startedBoundaryCommandForToolEnd({ ...base, startedCommand: 'gh pr edit 563 --base main' })).toBe('gh pr edit 563 --base main');
+  });
+
+  it('does not recover clone-only, stale, or mismatched-tool commands', () => {
+    expect(startedBoundaryCommandForToolEnd({ ...base, startedCommand: 'git clone https://github.com/o/r.git' })).toBeUndefined();
+    expect(startedBoundaryCommandForToolEnd({ ...base, startedCommand: 'gh repo clone o/r' })).toBeUndefined();
+    expect(startedBoundaryCommandForToolEnd({ ...base, startedCommand: 'git push origin multiview', startedToolId: 'other-tool' })).toBeUndefined();
+    expect(startedBoundaryCommandForToolEnd({ ...base, startedCommand: 'git push origin multiview', ageMs: 121_000 })).toBeUndefined();
   });
 });
 
@@ -222,6 +241,14 @@ describe('prEditBoundaryBase (gh pr edit retarget)', () => {
 
   it('finds the retarget inside a compound command', () => {
     expect(prEditBoundaryBase('cd /repo && gh pr edit 286 --base main')).toBe('main');
+  });
+
+  it('extracts the explicit PR selector so retarget review reads that PR, not the current branch', () => {
+    expect(prEditCommandTarget('gh pr edit 286 --base main')).toEqual({ prNumber: 286 });
+    expect(prEditCommandTarget('gh pr edit feature-branch --base main')).toEqual({ prBranch: 'feature-branch' });
+    expect(prEditCommandTarget('gh pr edit https://github.com/o/r/pull/563 --base main')).toEqual({ prNumber: 563 });
+    expect(prEditCommandTarget('gh pr edit --repo owner/repo 286 --base main')).toEqual({ repoSlug: 'owner/repo', prNumber: 286 });
+    expect(prEditCommandTarget('gh pr edit --base main --title x')).toEqual({});
   });
 });
 

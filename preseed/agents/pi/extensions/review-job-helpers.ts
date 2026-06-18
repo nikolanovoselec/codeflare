@@ -191,6 +191,7 @@ export function durableReviewMessageKey(input: {
 // review-jobs.ts and the wiring/transcript-scan in review-enforcement.ts.
 export type ReviewAnnouncementKind = "summary" | "autofix";
 export type ReviewAnnouncementStatus = "pending" | "attempted" | "visible" | "failed";
+export const REVIEW_ANNOUNCEMENT_KINDS: ReviewAnnouncementKind[] = ["summary", "autofix"];
 
 export type ReviewAnnouncement = {
   kind: ReviewAnnouncementKind;
@@ -210,6 +211,27 @@ export type ReviewAnnouncement = {
 // never collide, and the stamp distinguishes a re-created announcement from its predecessor.
 export function reviewAnnouncementNonce(kind: ReviewAnnouncementKind, head: string, stamp: number): string {
   return `cf-review-${kind}:${head.slice(0, 12)}:${stamp}`;
+}
+
+export function pendingAnnouncementHeadsFrom(
+  heads: string[],
+  readRecord: (head: string, kind: ReviewAnnouncementKind) => { status: ReviewAnnouncementStatus } | undefined,
+): string[] {
+  return heads.filter((head) => REVIEW_ANNOUNCEMENT_KINDS.some((kind) => {
+    const record = readRecord(head, kind);
+    return Boolean(record && record.status !== "visible" && record.status !== "failed");
+  }));
+}
+
+export function deliveryAnnouncementHeads(input: {
+  currentHead?: string;
+  pendingHeads: string[];
+  acked: (head: string) => boolean;
+}): string[] {
+  const heads = new Set<string>();
+  if (input.currentHead && input.acked(input.currentHead)) heads.add(input.currentHead);
+  for (const head of input.pendingHeads) if (input.acked(head)) heads.add(head);
+  return [...heads];
 }
 
 export type AnnouncementAttemptInput = {
@@ -387,7 +409,7 @@ export function reviewAutofixRequest(repo: string, head: string, nonce?: string)
     "Otherwise, fix all legitimate MEDIUM, HIGH, and CRITICAL findings only.",
     "A finding's age is never a reason to skip it: fix every legitimate finding whether it is newly introduced or pre-existing, in this diff or adjacent. Do not exclude, defer, or ask about a legitimate finding because it pre-dates this change — legitimacy is the only criterion.",
     "Do not rerun or start CI monitoring unless explicitly asked or a merge/deploy gate requires it.",
-    "Commit the fix as a new commit and push to the same branch; do not amend or rewrite history.",
+    "If the user explicitly said not to push, do not push. Otherwise, commit the fix as a new commit and push to the same branch; do not amend or rewrite history.",
   ];
   // A delivery nonce (when supplied) rides in a trailing HTML comment so it lands verbatim in the
   // persisted transcript line — the announcement state machine proves delivery by finding it there.
@@ -1116,20 +1138,22 @@ export function mergeGateDecision(input: MergeGateInput): MergeGateDecision {
 // sentinel, sentinel-based resolution silently misroutes finalize/footer to the wrong .git: the
 // summary never emits, autofix never starts, and the progress footer shows nothing. Precedence:
 //   commandCwd (explicit `cd`/`-C` in the boundary command) -> sessionCwd (Pi's session cwd)
-//   -> sessionReviewRepo (already-resolved root remembered in-session, for the no-ctx reaper)
-//   -> processCwd (Pi process dir, last resort).
-// commandCwd/sessionCwd/processCwd are directories resolved to a git root via gitRootOf;
-// sessionReviewRepo is already a git root and is returned verbatim.
-// activeRepo (added) is the IN-MEMORY active-cwd codeflare-pi.ts tracks on every tool execution —
-// the SAME signal the statusline footer resolves the repo from. It is load-bearing when the Pi
-// session cwd is a NON-repo parent workspace (/home/user/workspace) and the user works in a nested
-// clone via `cd`/`git -C`: commandCwd is absent on a slash command (/review-run) and on a
-// no-command reconciliation tick, sessionCwd/processCwd resolve to the parentless workspace, and
-// sessionReviewRepo is unset until a review has already run — so without activeRepo BOTH /review-run
-// AND open-PR reconciliation returned undefined ("not inside an SDD repository" / reconciliation
-// silently bailed on hasRepo=false and never auto-started) even though the footer showed the repo.
-// It sits after the reliable signals, before processCwd, validated through gitRootOf. This is the
-// recallActiveRepo() in-memory value (this Pi process only), NOT the cross-process on-disk sentinel
+//   -> activeRepo (current repo remembered by codeflare-pi) -> sessionReviewRepo (remembered review
+//   repo fallback) -> processCwd (Pi process dir, last resort).
+// commandCwd/sessionCwd/processCwd/activeRepo are directories resolved to a git root via gitRootOf;
+// sessionReviewRepo is already a git root and is returned verbatim only after activeRepo. That ordering
+// is load-bearing for ctx-bearing user/lifecycle actions: after reviewing repo A, a user can switch
+// active work to repo B while Pi's session cwd remains `/home/user/workspace`; review commands and
+// reconciliation must follow repo B, not the last repo that happened to have a review. The no-ctx reaper
+// does not rely on this precedence — it iterates recallReviewRepos() directly.
+// activeRepo is the IN-MEMORY active-cwd codeflare-pi.ts tracks on every tool execution — the SAME signal
+// the statusline footer resolves the repo from. It is load-bearing when the Pi session cwd is a NON-repo
+// parent workspace (/home/user/workspace) and the user works in a nested clone via `cd`/`git -C`: commandCwd
+// is absent on a slash command (/review-run) and on a no-command reconciliation tick, sessionCwd/processCwd
+// resolve to the parentless workspace, and sessionReviewRepo may be unset — so without activeRepo BOTH
+// /review-run AND open-PR reconciliation returned undefined ("not inside an SDD repository" / reconciliation
+// silently bailed on hasRepo=false and never auto-started) even though the footer showed the repo. This is
+// the recallActiveRepo() in-memory value (this Pi process only), NOT the cross-process on-disk sentinel
 // that flaps under concurrent agents — so it is safe for routing, unlike the sentinel above.
 export function resolveReviewRepo(
   input: { commandCwd?: string; sessionCwd?: string; sessionReviewRepo?: string; activeRepo?: string; processCwd?: string },
@@ -1138,8 +1162,8 @@ export function resolveReviewRepo(
   const fromDir = (dir: string | undefined): string | undefined => (dir ? gitRootOf(dir) : undefined);
   return fromDir(input.commandCwd)
     ?? fromDir(input.sessionCwd)
-    ?? input.sessionReviewRepo
     ?? fromDir(input.activeRepo)
+    ?? input.sessionReviewRepo
     ?? fromDir(input.processCwd);
 }
 

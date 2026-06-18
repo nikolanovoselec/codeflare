@@ -380,6 +380,34 @@ describe('useTerminal hook', () => {
 
       dispose();
     });
+
+    it('REQ-TERM-011: claims resize authority and sends current dimensions when a pane becomes focused', async () => {
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+      const [focused, setFocused] = createSignal(false);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({
+          ...defaultProps,
+          visible: true,
+          get focused() { return focused(); },
+          connect: true,
+        });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      vi.mocked(terminalStore.claimResizeAuthority).mockClear();
+      vi.mocked(terminalStore.resize).mockClear();
+      mockFocus.mockClear();
+
+      setFocused(true);
+
+      await vi.waitFor(() => expect(terminalStore.claimResizeAuthority).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId));
+      expect(terminalStore.resize).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId, 80, 24);
+      expect(mockFocus).toHaveBeenCalled();
+
+      dispose();
+    });
   });
 
   describe('resize handling', () => {

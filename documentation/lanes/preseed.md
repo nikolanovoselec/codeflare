@@ -366,7 +366,11 @@ All preseed content is deployed via the manifest pipeline:
   fallback can recover a nested SDD repo from the persisted review/graphify
   active-repo markers; review routing revalidates both remembered and persisted
   candidates as git repos under the session roots with an SDD marker before it
-  can query `gh pr view` or affect merge gating. When `/review-run` cannot resolve the active repo it reports the Pi
+  can query `gh pr view` or affect merge gating. For ctx-bearing user/lifecycle
+  routing, the current active repo beats a previously remembered review repo, so
+  switching work from repo A to repo B does not keep `/review-run` or reconciliation
+  stuck on repo A; the no-ctx reaper separately iterates the remembered review-repo
+  set to finish all in-flight reviews. When `/review-run` cannot resolve the active repo it reports the Pi
   session cwd and tells the user to run a command inside the target repo first
   (so it becomes the active repo) and retry. On the `git push` / `gh pr create`
   boundary path specifically, enforcement fails open if `gh pr view` returns an
@@ -471,7 +475,11 @@ All preseed content is deployed via the manifest pipeline:
   Each summary/autofix message embeds a nonce and is marked delivered only when that
   nonce is later found in the session transcript. A `sendMessage` return is never
   assumed delivered. Pending or unverified announcements are retried on live lifecycle
-  ticks, with retry delay and attempt caps.
+  ticks, with retry delay and attempt caps. The drain reads non-terminal announcement
+  records for remembered/active review repos after the review window has been cleared,
+  and drains acked heads even if the PR was merged or closed before the next idle tick.
+  A completed review therefore cannot stay hidden merely because there is no longer a
+  live `sdd-review-pending.json` window or open PR.
 
   A completed review whose summary is not yet delivered shows a persistent
   `results ready (not shown) — /review-results` footer status. The `/review-results`
@@ -493,12 +501,14 @@ All preseed content is deployed via the manifest pipeline:
   AC7.
 
   The autofix request still uses `triggerTurn`/`followUp` because it intentionally
-  triggers a fix/commit/push turn. Implements
+  triggers a fix turn. Its prompt now carries the user's no-push constraint through:
+  if the user explicitly said not to push, the follow-up fixes locally and does not
+  push. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery).
 
   Partial lane results, including any missing, failed, timed-out, or still-running
   lane, cannot trigger autofix. If legitimate MEDIUM/HIGH/CRITICAL findings remain
-  after the complete exact-head summary, Pi then requests a fix-and-push pass,
+  after the complete exact-head summary, Pi then requests a fix pass,
   unless the latest explicit user directive opts out of auto-fixing for the round.
   Implements [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-durable-review-fix-loop).
 
@@ -859,9 +869,9 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Its transcript-based trigger surface is `git push`, `gh pr merge`, and protected-base `gh pr edit --base main|master`; `git-push-review-reminder.sh` handles the in-turn `git push` / `gh pr create` / protected-base `gh pr edit` reminder path. Pi native enforcement covers the wider local command set (`git push`, `git -C <repo> push`, command-local `cd <repo>` prefixes separated by `&&`, semicolon, or newline, `gh pr create`, protected-base `gh pr edit`, `gh pr merge`, `gh pr update-branch`, and `gh repo sync`) and ignores metadata-only PR commands. Passive lifecycle events such as opening a repo, switching branches, reloading Pi, or ending a normal assistant turn do not create a review window solely because the current branch already has an open protected-base PR. All surfaces enforce only when the open PR targets `main` or `master`. PRs into intermediate branches (`develop`, `staging`) are silently deferred until that branch's own PR-to-`main` opens.
 
-On Pi's boundary fast path, the push command's start-args are captured on BOTH the `tool_call` and `tool_execution_start` events (keyed by the same tool id), so a boundary push is still recovered at `tool_result` when `tool_execution_start` is lost across a Pi reload or turn boundary. This is a Pi-only mechanism; the Claude `Stop` hook is unaffected because it receives the completed command from the shell rather than from Pi's event sequencing. This closes a prior silent miss: when only `tool_execution_start` seeded the cache and that event dropped, the command arrived empty, was not recognised as a boundary, and `onToolEnd` returned without creating a review window or recording anything.
+On Pi's boundary fast path, shell start-args are captured on BOTH the `tool_call` and `tool_execution_start` events (keyed by the same tool id). Separately, same-tool PR-boundary commands are remembered only when they are actual triggers (`git push`, `gh pr create`/protected-base `gh pr edit`, `gh pr update-branch`, `gh repo sync`) and are recovered at `tool_result` if the successful end event loses command text. Protected-base `gh pr edit <selector>` reads that explicit PR selector, not the current branch; a foreign `--repo` target is ignored by this repo's gate. Clone-only setup is not a trigger and is never recovered as one. This is a Pi-only mechanism; the Claude `Stop` hook is unaffected because it receives the completed command from the shell rather than from Pi's event sequencing.
 
-If a successful `bash` result still arrives with no recoverable command, Pi writes a deduped `boundary_tool_end_ignored` row with reason `missing_command_text_after_success` (distinct from the `no_resolvable_head` / `dedupe_skipped` reasons the confirmed-enforced near-miss path stamps under the same event name — see [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery) AC6 for those two reasons) to the repo's review-event log (`.git/codeflare-review-events.jsonl`) instead of returning silently. The reconcile backstop remains the catch-all, but the miss is diagnosable rather than invisible. Implements [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC7.
+If a successful `bash` result still arrives with no recoverable command, Pi writes a deduped `boundary_tool_end_ignored` row with reason `missing_command_text_after_success` (distinct from the `no_resolvable_head` / `dedupe_skipped` reasons the confirmed-enforced near-miss path stamps under the same event name — see [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery) AC6 for those two reasons) to the repo's review-event log (`.git/codeflare-review-events.jsonl`) and immediately forces fresh PR-state reconciliation. The reconcile action still requires a real protected-base PR and the existing in-session-advance signal, so clone-only inherited PRs can offer but do not auto-start. Implements [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC7 and [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery) AC1.
 
 Pi's broader post-command backstop runs after successful shell commands that invoke `git` or `gh`, including wrapper forms such as `env VAR=value git ...`, `env -u NAME VAR=value gh ...`, and `timeout 60 gh ...`. That path bypasses the PR cache before reading GitHub PR state, so an unclassified push cannot be hidden behind a stale cached PR head. Implements [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery) AC1; source: `review-helpers.ts::postCommandReconcileDecision` and `review-enforcement.ts::reconcileOpenPrReview`.
 

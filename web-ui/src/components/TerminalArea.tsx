@@ -1,4 +1,4 @@
-import { Component, Show, createEffect, createMemo, Setter } from 'solid-js';
+import { Component, For, Show, createEffect, createMemo, Setter } from 'solid-js';
 import Terminal from './Terminal';
 import TerminalTabs from './TerminalTabs';
 import TilingButton from './TilingButton';
@@ -196,7 +196,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
               return (
                 <Terminal
                   sessionId={pane.data.sessionId}
-                  terminalId={resolveTerminalIdForSession(pane.data.sessionId)}
+                  terminalId={pane.data.terminalId}
                   sessionName={session?.name || 'Terminal'}
                   active={true}
                   visible={true}
@@ -213,23 +213,25 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
         </Show>
 
         {/* Standard tabbed view - only the visible workspace pane mounts/connects. */}
-        <Show when={props.showTerminal && !isMultiViewWorkspace() && !activeTiling()?.enabled && singleSessionPane()}>
-          {(pane) => {
-            const session = createMemo(() => sessionStore.sessions.find((candidate) => candidate.id === pane().sessionId));
-            return (
-              <Terminal
-                sessionId={pane().sessionId}
-                terminalId={pane().terminalId}
-                sessionName={session()?.name || 'Terminal'}
-                active={true}
-                visible={true}
-                focused={pane().id === focusedPaneId()}
-                connect={true}
-                onError={props.onTerminalError}
-                onInitComplete={() => props.onOpenSessionById(pane().sessionId)}
-              />
-            );
-          }}
+        <Show when={props.showTerminal && !isMultiViewWorkspace() && !activeTiling()?.enabled}>
+          <For each={singleSessionPane() ? [singleSessionPane()!] : []}>
+            {(pane) => {
+              const session = createMemo(() => sessionStore.sessions.find((candidate) => candidate.id === pane.sessionId));
+              return (
+                <Terminal
+                  sessionId={pane.sessionId}
+                  terminalId={pane.terminalId}
+                  sessionName={session()?.name || 'Terminal'}
+                  active={true}
+                  visible={true}
+                  focused={pane.id === focusedPaneId()}
+                  connect={true}
+                  onError={props.onTerminalError}
+                  onInitComplete={() => props.onOpenSessionById(pane.sessionId)}
+                />
+              );
+            }}
+          </For>
         </Show>
       </div>
 

@@ -260,6 +260,8 @@ describe('resolveReviewRepo (review-repo resolution detached from the graphify s
     '/ws/ai-news-digest': '/ws/ai-news-digest',
     '/ws': '/ws',
     '/pi/proc': '/pi/proc-repo',
+    '/ws/other-repo/src': '/ws/other-repo',
+    '/ws/other-repo': '/ws/other-repo',
   };
   const gitRootOf = (dir: string): string | undefined => roots[dir];
 
@@ -294,8 +296,8 @@ describe('resolveReviewRepo (review-repo resolution detached from the graphify s
     )).toBe('/ws/ai-news-digest');
   });
 
-  it('prefers a remembered sessionReviewRepo over the active repo', () => {
-    expect(resolveReviewRepo({ sessionReviewRepo: '/ws/ai-news-digest', activeRepo: '/pi/proc' }, gitRootOf)).toBe('/ws/ai-news-digest');
+  it('prefers the current active repo over a previously remembered review repo for ctx-bearing routing', () => {
+    expect(resolveReviewRepo({ sessionReviewRepo: '/ws/ai-news-digest', activeRepo: '/ws/other-repo/src' }, gitRootOf)).toBe('/ws/other-repo');
   });
 
   it('falls back to the process cwd only when nothing else resolves', () => {

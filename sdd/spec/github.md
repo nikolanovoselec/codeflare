@@ -277,7 +277,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-006](#req-github-006-other-mode-container-transport), [REQ-AUTH-015](authentication.md#req-auth-015-guided-onboarding-flow), [REQ-AGENT-018](agents.md#req-agent-018-push--deploy-credential-management-ui)
+**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-006](#req-github-006-other-mode-container-transport)
 
 **Verification:** [Route test](../../src/__tests__/routes/github.test.ts) + [Dashboard test](../../web-ui/src/__tests__/components/Dashboard.test.tsx) + [Connect card test](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx) + [Scope test](../../src/__tests__/lib/oauth-scopes.test.ts)
 

@@ -23,8 +23,8 @@ function attachFakePty(session, resizeCalls) {
   session.headlessTerminal.resize = (cols, rows) => resizeCalls.push({ cols, rows, headless: true });
 }
 
-describe('Session resize authority', () => {
-  it('accepts resize frames only from the foreground WebSocket owner', () => {
+describe('Session resize authority / REQ-TERM-014 visible resize ownership', () => {
+  it('REQ-TERM-014: accepts resize frames only from the foreground WebSocket owner', () => {
     const session = new Session('sess-1', 'Terminal');
     const resizeCalls = [];
     attachFakePty(session, resizeCalls);

@@ -257,6 +257,8 @@ function prProtectedBaseFromWords(words: ShellCommand): string | undefined {
   return base === "main" || base === "master" ? base : undefined;
 }
 
+const stripQuotes = (s: string): string => s.replace(/^["']|["']$/g, "");
+
 // A `gh pr edit --base main|master` retargets an EXISTING PR onto a protected base — the same
 // enforced boundary `gh pr create --base main` establishes, but applied after creation. The
 // create path only fires at creation time, so without this a PR opened against another base (or
@@ -270,6 +272,33 @@ export function prEditBoundaryBase(command: string): string | undefined {
     if (base) return base;
   }
   return undefined;
+}
+
+export type PrEditCommandTarget = { prNumber?: number; prBranch?: string; repoSlug?: string };
+
+export function prEditCommandTarget(command: string): PrEditCommandTarget {
+  const result: PrEditCommandTarget = {};
+  const words = firstGhWords(command, ["pr", "edit"]);
+  if (!words) return result;
+  const valueFlags = new Set([
+    "--base", "-B", "--title", "-t", "--body", "-b", "--add-label", "--remove-label",
+    "--add-assignee", "--remove-assignee", "--add-reviewer", "--remove-reviewer", "--milestone", "--project",
+  ]);
+  for (let index = 3; index < words.length; index += 1) {
+    const token = words[index];
+    if (token === "--repo" || token === "-R") { const value = words[++index]; if (value) result.repoSlug = stripQuotes(value); continue; }
+    if (token.startsWith("--repo=")) { result.repoSlug = stripQuotes(token.slice("--repo=".length)); continue; }
+    if (valueFlags.has(token)) { index += 1; continue; }
+    if (token.startsWith("-")) continue;
+    if (result.prNumber === undefined && result.prBranch === undefined) {
+      const stripped = stripQuotes(token);
+      const url = /\/pull\/(\d+)/.exec(stripped);
+      if (url) result.prNumber = Number(url[1]);
+      else if (/^\d+$/.test(stripped)) result.prNumber = Number(stripped);
+      else result.prBranch = stripped;
+    }
+  }
+  return result;
 }
 
 export function isGhPrCreateCommand(command: string): boolean {
@@ -339,7 +368,6 @@ export function isGitPushOnlyCommand(command: string): boolean {
 // FALSE-ALLOWS (`gh pr merge <other-unreviewed-PR>` sails through when the current branch is clean) and
 // FALSE-BLOCKS (merging an unrelated ready PR by number from a no-PR checkout). Also surfaces `--auto`,
 // which arms a server-side merge that completes after checks pass and never re-consults this gate (P3).
-const stripQuotes = (s: string): string => s.replace(/^["']|["']$/g, "");
 export type MergeCommandTarget = { prNumber?: number; prBranch?: string; repoSlug?: string; auto: boolean };
 export function mergeCommandTarget(command: string): MergeCommandTarget {
   const result: MergeCommandTarget = { auto: false };
@@ -376,6 +404,18 @@ export function mergeCommandTarget(command: string): MergeCommandTarget {
 }
 
 export type PostCommandReconcileDecision = { reconcile: boolean; freshPrState: boolean };
+
+export function startedBoundaryCommandForToolEnd(input: {
+  endToolId?: string;
+  startedToolId?: string;
+  startedCommand?: string;
+  ageMs: number;
+  maxAgeMs: number;
+}): string | undefined {
+  if (!input.endToolId || input.endToolId !== input.startedToolId) return undefined;
+  if (!input.startedCommand || input.ageMs > input.maxAgeMs) return undefined;
+  return isPrBoundaryTrigger(input.startedCommand) ? input.startedCommand : undefined;
+}
 
 export function postCommandReconcileDecision(command: string): PostCommandReconcileDecision {
   const invokesGitOrGh = reviewBoundaryCommands(command)

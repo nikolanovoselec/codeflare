@@ -156,7 +156,7 @@ Stores: `terminal-workspace.ts` (active workspace and visible pane ownership: da
 
 #### Visible Terminal Workspace and MultiView
 
-The frontend separates **running**, **visible**, **connected**, and **focused** terminal state. `terminal-workspace.ts` is the source of truth for visible panes: Dashboard has zero panes, a real session has exactly one visible pane (its active terminal tab), and `MultiView #1` has one pane per selected member session. `TerminalArea.tsx` renders only those panes, so hidden running sessions do not mount xterm instances, open WebSockets, send resize frames, forward input, or participate in URL detection.
+The frontend implements [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace), and [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow) by separating **running**, **visible**, **connected**, and **focused** terminal state. `terminal-workspace.ts` is the source of truth for visible panes: Dashboard has zero panes, a real session has exactly one visible pane (its active terminal tab), and `MultiView #1` has one pane per selected member session. `TerminalArea.tsx` renders only those panes, so hidden running sessions do not mount xterm instances, open WebSockets, send resize frames, forward input, or participate in URL detection.
 
 `MultiView #1` is a virtual frontend workspace, not a backend session. It is persisted only in browser storage, validates membership against currently running or initializing sessions, accepts two to four members on desktop, exactly two on tablet, and is hidden on mobile while preserving saved membership. It appears in the session switcher and Dashboard beside real sessions, but it is never sent to session lifecycle, quota, storage, metrics, or terminal-route APIs.
 
@@ -491,6 +491,10 @@ Architectural principles and design rationale.
 - [REQ-TERM-008](../../sdd/spec/terminal.md#req-term-008-write-batching-at-30fps) - Write batching at 30fps
 - [REQ-TERM-009](../../sdd/spec/terminal.md#req-term-009-process-name-detection-via-control-messages) - Process name detection via control messages
 - [REQ-TERM-010](../../sdd/spec/terminal.md#req-term-010-session-presets-saved-tab-configurations) - Session presets (saved tab configurations)
+- [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections) - Visible terminal panes own WebSocket connections
+- [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace) - MultiView virtual session workspace
+- [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow) - MultiView selection flow
+- [REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming) - Terminal scroll anchoring under scrollback trimming
 - [REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving) - Mode-aware public landing serving
 - [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline) - Demo-request contact pipeline (contact relay data flow)
 - [REQ-LANDING-003](../../sdd/spec/landing.md#req-landing-003-landing-social-share-and-search-metadata) - Landing social-share and search metadata (discoverability documents, JSON-LD, OG card)

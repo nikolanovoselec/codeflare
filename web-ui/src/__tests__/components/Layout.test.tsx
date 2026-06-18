@@ -700,6 +700,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     });
 
     it('REQ-TERM-011: dashboard button leaves terminal view immediately', async () => {
+      const { sessionStore } = await import('../../stores/session');
       mockSessions = [createMockSession({ id: 'sess1', status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockActiveWorkspace = { kind: 'session', sessionId: 'sess1' };
@@ -710,8 +711,55 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
 
       (window as any).__headerProps.onLogoClick();
 
+      expect(sessionStore.setActiveSession).toHaveBeenCalledWith(null);
       await waitFor(() => expect((window as any).__terminalAreaProps.showTerminal).toBe(false));
       expect((window as any).__terminalAreaProps.viewState).toBe('collapsing');
+    });
+
+    it('REQ-TERM-011: selecting a stopped session from the header switcher opens the starting terminal surface', async () => {
+      const { sessionStore } = await import('../../stores/session');
+      mockSessions = [
+        createMockSession({ id: 'sess1', status: 'running' }),
+        createMockSession({ id: 'sess2', status: 'stopped' }),
+      ];
+      mockActiveSessionId = 'sess1';
+      mockActiveWorkspace = { kind: 'session', sessionId: 'sess1' };
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }];
+      vi.mocked(sessionStore.startSession).mockReturnValue(new Promise(() => {}) as any);
+
+      render(() => <Layout />);
+      await waitFor(() => expect((window as any).__headerProps?.onSelectSession).toBeTypeOf('function'));
+
+      (window as any).__headerProps.onSelectSession('sess2');
+
+      expect(sessionStore.setActiveSession).toHaveBeenCalledWith('sess2');
+      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess2', '1');
+      expect(sessionStore.startSession).toHaveBeenCalledWith('sess2');
+      expect((window as any).__terminalAreaProps.showTerminal).toBe(true);
+      expect((window as any).__terminalAreaProps.viewState).not.toBe('dashboard');
+    });
+
+    it('REQ-TERM-011: dashboard return cancels an in-flight terminal transition', async () => {
+      const { sessionStore } = await import('../../stores/session');
+      mockSessions = [
+        createMockSession({ id: 'sess1', status: 'running' }),
+        createMockSession({ id: 'sess2', status: 'stopped' }),
+      ];
+      mockActiveSessionId = 'sess1';
+      mockActiveWorkspace = { kind: 'session', sessionId: 'sess1' };
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }];
+      vi.mocked(sessionStore.startSession).mockReturnValue(new Promise(() => {}) as any);
+
+      render(() => <Layout />);
+      await waitFor(() => expect((window as any).__headerProps?.onSelectSession).toBeTypeOf('function'));
+      vi.useFakeTimers();
+
+      (window as any).__headerProps.onSelectSession('sess2');
+      (window as any).__headerProps.onLogoClick();
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect((window as any).__terminalAreaProps.showTerminal).toBe(false);
+      expect((window as any).__terminalAreaProps.viewState).toBe('dashboard');
     });
 
     it('REQ-TERM-014: creating a session from terminal view keeps the starting surface visible', async () => {

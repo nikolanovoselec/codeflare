@@ -41,7 +41,7 @@ function createFakeTerminal() {
   return terminal;
 }
 
-describe('useScrollCorrection', () => {
+describe('useScrollCorrection / REQ-TERM-014 terminal scroll anchoring', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     terminalStoreMock.suppressed = false;
@@ -50,7 +50,7 @@ describe('useScrollCorrection', () => {
     scrollIntentMock.recent = false;
   });
 
-  it('re-anchors a bottom-following terminal when scrollback trimming displaces it', () => {
+  it('REQ-TERM-014: re-anchors a bottom-following terminal when scrollback trimming displaces it', () => {
     createRoot((dispose) => {
       const terminal = createFakeTerminal();
       const container = document.createElement('div');
@@ -65,7 +65,7 @@ describe('useScrollCorrection', () => {
     });
   });
 
-  it('does not override deliberate user scroll gestures', () => {
+  it('REQ-TERM-014: does not override deliberate user scroll gestures', () => {
     createRoot((dispose) => {
       const terminal = createFakeTerminal();
       const container = document.createElement('div');
