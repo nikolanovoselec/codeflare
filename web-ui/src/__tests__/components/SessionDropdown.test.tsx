@@ -268,7 +268,7 @@ describe('SessionDropdown', () => {
       expect(screen.getByTestId('session-dropdown-multiview-limit')).toHaveAttribute('data-visible', 'true');
     });
 
-    it('REQ-TERM-013: does not enter MultiView selection mode on mobile', () => {
+    it('REQ-TERM-013: hides the MultiView action on mobile', () => {
       const onLaunchMultiView = vi.fn();
       render(() => (
         <SessionDropdown
@@ -278,9 +278,7 @@ describe('SessionDropdown', () => {
         />
       ));
 
-      fireEvent.click(screen.getByTestId('session-dropdown-multiview-action'));
-
-      expect(screen.getByTestId('session-dropdown-multiview-action')).toHaveAttribute('aria-disabled', 'true');
+      expect(screen.queryByTestId('session-dropdown-multiview-action')).not.toBeInTheDocument();
       expect(onLaunchMultiView).not.toHaveBeenCalled();
     });
   });

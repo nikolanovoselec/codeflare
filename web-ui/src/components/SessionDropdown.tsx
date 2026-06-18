@@ -57,8 +57,8 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
     props.sessions.filter((session) => session.status === 'running' || session.status === 'initializing')
   );
 
-  const showMultiViewRow = createMemo(() => Boolean(props.multiView) && liveSessions().length >= 2);
-  const multiViewDisabled = createMemo(() => !props.multiView || props.multiView.capacity === 0 || props.isMobileView);
+  const showMultiViewRow = createMemo(() => Boolean(props.multiView) && (props.multiView?.capacity ?? 0) >= 2 && liveSessions().length >= 2);
+  const multiViewDisabled = createMemo(() => !props.multiView || props.multiView.capacity < 2);
   const canLaunchMultiView = createMemo(() => selectedMultiViewIds().length >= 2);
 
   const beginMultiViewSelection = () => {

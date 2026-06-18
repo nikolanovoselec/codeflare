@@ -158,7 +158,7 @@ Stores: `terminal-workspace.ts` (active workspace and visible pane ownership: da
 
 The frontend separates **running**, **visible**, **connected**, and **focused** terminal state. `terminal-workspace.ts` is the source of truth for visible panes: Dashboard has zero panes, a real session has exactly one visible pane (its active terminal tab), and `MultiView #1` has one pane per selected member session. `TerminalArea.tsx` renders only those panes, so hidden running sessions do not mount xterm instances, open WebSockets, send resize frames, forward input, or participate in URL detection.
 
-`MultiView #1` is a virtual frontend workspace, not a backend session. It is persisted only in browser storage, validates membership against currently running or initializing sessions, accepts two to four members on desktop, exactly two on tablet, and is disabled on mobile. It appears in the session switcher and Dashboard beside real sessions, but it is never sent to session lifecycle, quota, storage, metrics, or terminal-route APIs.
+`MultiView #1` is a virtual frontend workspace, not a backend session. It is persisted only in browser storage, validates membership against currently running or initializing sessions, accepts two to four members on desktop, exactly two on tablet, and is hidden on mobile while preserving saved membership. It appears in the session switcher and Dashboard beside real sessions, but it is never sent to session lifecycle, quota, storage, metrics, or terminal-route APIs.
 
 #### Dashboard WS Disconnect Flow
 

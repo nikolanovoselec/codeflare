@@ -68,6 +68,19 @@ describe('terminalWorkspaceStore visible pane ownership', () => {
     expect(terminalWorkspaceStore.openMultiView()).toBe(false);
   });
 
+  it('REQ-TERM-012: mobile reconciliation hides but preserves an existing MultiView', () => {
+    const sessions = [session('a'), session('b')];
+    expect(terminalWorkspaceStore.createOrUpdateMultiView(['a', 'b'], sessions, 'desktop')).toBe(true);
+    expect(terminalWorkspaceStore.openMultiView()).toBe(true);
+
+    const reconciled = terminalWorkspaceStore.reconcileMultiView(sessions, 'mobile');
+
+    expect(reconciled).toBeNull();
+    expect(terminalWorkspaceStore.getMultiView()?.memberSessionIds).toEqual(['a', 'b']);
+    expect(terminalWorkspaceStore.getActiveWorkspace()).toEqual({ kind: 'dashboard' });
+    expect(terminalWorkspaceStore.getVisiblePanes()).toEqual([]);
+  });
+
   it('REQ-TERM-013: validation keeps only running or initializing sessions within viewport capacity', () => {
     const sessions = [session('a'), session('b', 'stopped'), session('c', 'initializing'), session('d'), session('e')];
 

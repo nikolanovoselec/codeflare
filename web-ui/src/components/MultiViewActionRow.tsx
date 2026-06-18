@@ -19,43 +19,29 @@ const MultiViewActionRow: Component<MultiViewActionRowProps> = (props) => {
   };
 
   return (
-    <div
-      role="button"
-      tabIndex={props.disabled ? -1 : 0}
-      class={`session-dropdown__multiview ${props.disabled ? 'session-dropdown__multiview--disabled' : ''}`}
-      data-testid="session-dropdown-multiview-action"
-      data-mode={props.mode === 'selecting' ? 'selecting' : 'idle'}
-      aria-disabled={props.disabled ? 'true' : 'false'}
-      onClick={() => { if (!props.disabled) props.onClick(); }}
-      onKeyDown={(event) => {
-        if (!props.disabled && (event.key === 'Enter' || event.key === ' ')) {
-          event.preventDefault();
-          props.onClick();
-        }
-      }}
-    >
-      <Icon path={mdiMonitorMultiple} size={16} />
-      <span>{label()}</span>
+    <div class="session-dropdown__multiview-row">
+      <button
+        type="button"
+        class={`session-dropdown__multiview ${props.disabled ? 'session-dropdown__multiview--disabled' : ''}`}
+        data-testid="session-dropdown-multiview-action"
+        data-mode={props.mode === 'selecting' ? 'selecting' : 'idle'}
+        aria-disabled={props.disabled ? 'true' : 'false'}
+        disabled={props.disabled}
+        onClick={() => { if (!props.disabled) props.onClick(); }}
+      >
+        <Icon path={mdiMonitorMultiple} size={16} />
+        <span>{label()}</span>
+      </button>
       {props.mode === 'open' && props.onClose && (
-        <span
-          role="button"
-          tabIndex={0}
+        <button
+          type="button"
           class="session-dropdown__multiview-close"
           data-testid="session-dropdown-multiview-close"
-          onClick={(event) => {
-            event.stopPropagation();
-            props.onClose?.();
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              event.stopPropagation();
-              props.onClose?.();
-            }
-          }}
+          onClick={props.onClose}
+          aria-label="Close MultiView"
         >
           <Icon path={mdiClose} size={14} />
-        </span>
+        </button>
       )}
     </div>
   );

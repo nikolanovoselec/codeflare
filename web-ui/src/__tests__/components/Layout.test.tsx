@@ -736,6 +736,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       await waitFor(() => expect(sessionStore.startSession).toHaveBeenCalledWith('sess-new'));
 
       expect(mockActiveSessionId).toBe('sess-new');
+      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess-new', '1');
       expect((window as any).__terminalAreaProps.showTerminal).toBe(true);
       expect((window as any).__terminalAreaProps.viewState).not.toBe('dashboard');
 

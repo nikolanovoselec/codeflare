@@ -450,7 +450,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 <!-- @impl: web-ui/src/components/MultiViewActionRow.tsx -->
 <!-- @impl: web-ui/src/components/SelectableSessionCard.tsx -->
 <!-- @impl: web-ui/src/lib/mobile.ts::getTerminalViewportClass -->
-<!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (SessionDropdown MultiView selection describe -> open selection, capacity rejection, mobile disabled -> AC1..AC6) -->
+<!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (SessionDropdown MultiView selection describe -> open selection, capacity rejection, mobile hidden -> AC1..AC6) -->
 ### REQ-TERM-013: MultiView selection flow
 
 **Intent:** Users create or reopen MultiView from the existing session switcher using a selection mode that is clear on desktop and tablet and unavailable on mobile.
@@ -459,7 +459,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Acceptance Criteria:**
 
-1. The session switcher exposes a MultiView control only when at least two sessions are running or initializing, and the control cannot launch on mobile. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown -->
+1. The session switcher exposes a MultiView control only when at least two sessions are running or initializing on tablet or desktop, and hides the control on mobile. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown -->
 2. Activating the control enters selection mode, keeps the switcher open, and turns running or initializing session rows into toggleable choices. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown -->
 3. With fewer than two selected sessions, the control cancels selection mode; with at least two selected sessions, it launches MultiView. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown -->
 4. Selecting beyond the viewport capacity is rejected without changing the existing selected set. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown -->

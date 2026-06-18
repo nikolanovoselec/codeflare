@@ -137,6 +137,13 @@ function reconcileMultiView(sessions: SessionWithStatus[], viewport: TerminalVie
   const workspace = state.multiView;
   if (!workspace) return null;
 
+  if (getMultiViewCapacity(viewport) === 0) {
+    if (state.mode === 'multiview') {
+      setDashboardWorkspace();
+    }
+    return null;
+  }
+
   const members = validateMultiViewMemberIds(workspace.memberSessionIds, sessions, viewport);
   if (members.length < 2) {
     closeMultiView();

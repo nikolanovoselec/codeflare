@@ -8,12 +8,19 @@ Technical reference for the mobile terminal implementation covering keyboard han
 
 ## Contents
 
+- [MultiView Availability](#multiview-availability)
 - [Cursor Visibility](#cursor-visibility)
 - [Keyboard Management](#keyboard-management)
 - [Touch Input](#touch-input)
 - [Scroll Stability](#scroll-stability)
 - [WebSocket Recovery](#websocket-recovery)
 - [Scroll-Stability Integration Test Plan](#scroll-stability-integration-test-plan)
+
+## MultiView Availability
+
+Mobile phone viewports are single-session terminal surfaces. The session switcher hides the MultiView control when the shared terminal viewport capacity is zero, so mobile users cannot enter MultiView selection or open tiled session panes. Existing browser-local MultiView membership is preserved while hidden; returning to tablet or desktop can show and reopen the saved `MultiView #1` if at least two member sessions are still running or initializing.
+
+See [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace) and [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow).
 
 ## Cursor Visibility
 

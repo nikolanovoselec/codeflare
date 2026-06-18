@@ -83,6 +83,7 @@ vi.mock('../../stores/session', () => ({
 }));
 
 import TerminalArea from '../../components/TerminalArea';
+import { terminalWorkspaceStore } from '../../stores/terminal-workspace';
 
 describe('TerminalArea', () => {
   const defaultProps = {
@@ -189,6 +190,24 @@ describe('TerminalArea', () => {
 
     expect(screen.getByTestId('dashboard')).toBeInTheDocument();
     expect(screen.queryByTestId('terminal-session-a-1')).not.toBeInTheDocument();
+  });
+
+  it('REQ-TERM-012: does not clear a pending MultiView workspace before the terminal transition renders it', () => {
+    mockSessions = [
+      { id: 'session-a', name: 'A', status: 'running' },
+      { id: 'session-b', name: 'B', status: 'running' },
+    ];
+    mockActiveSessionId = null;
+    mockVisiblePanes = [
+      { id: 'multiview:session-a:1', sessionId: 'session-a', terminalId: '1', source: 'multiview' },
+      { id: 'multiview:session-b:1', sessionId: 'session-b', terminalId: '1', source: 'multiview' },
+    ];
+
+    render(() => <TerminalArea {...defaultProps} showTerminal={false} />);
+
+    expect(terminalWorkspaceStore.setDashboardWorkspace).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('terminal-session-a-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('terminal-session-b-1')).not.toBeInTheDocument();
   });
 
   it('REQ-TERM-011: renders only the visible single-session workspace pane', () => {

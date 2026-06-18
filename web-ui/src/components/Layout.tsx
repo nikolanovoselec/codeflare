@@ -423,6 +423,7 @@ const Layout: Component<LayoutProps> = (props) => {
       setViewState('terminal');
       setTimeout(() => terminalStore.triggerLayoutResize(), 50);
     } else if (!hasActiveTerminal && !hasActiveMultiView && viewState() === 'terminal') {
+      terminalWorkspaceStore.setDashboardWorkspace();
       setViewState('dashboard');
     }
   });
@@ -432,14 +433,17 @@ const Layout: Component<LayoutProps> = (props) => {
     const session = sessionStore.sessions.find((s) => s.id === id);
     if (session?.status === 'running') {
       sessionStore.setActiveSession(id);
+      terminalWorkspaceStore.setSingleSessionWorkspace(id, sessionStore.getTerminalsForSession(id)?.activeTabId || '1');
     } else if (session?.status === 'stopped') {
       sessionStore.setActiveSession(id);
+      terminalWorkspaceStore.setSingleSessionWorkspace(id, '1');
       void sessionStore.startSession(id).catch(() => {});
     }
   };
 
   const handleStartSession = async (id: string) => {
     sessionStore.setActiveSession(id);
+    terminalWorkspaceStore.setSingleSessionWorkspace(id, sessionStore.getTerminalsForSession(id)?.activeTabId || '1');
     try {
       await sessionStore.startSession(id);
     } catch (err) {
@@ -459,6 +463,7 @@ const Layout: Component<LayoutProps> = (props) => {
     const session = await sessionStore.createSession(name, agentType, tabConfig);
     if (session) {
       sessionStore.setActiveSession(session.id);
+      terminalWorkspaceStore.setSingleSessionWorkspace(session.id, '1');
       // Update preferences with last-used agent type
       if (agentType) {
         sessionStore.updatePreferences({ lastAgentType: agentType });
@@ -490,6 +495,7 @@ const Layout: Component<LayoutProps> = (props) => {
   const handleOpenDashboard = () => {
     // Keyboard cleanup is handled reactively by Terminal.tsx when props.active
     // becomes false (via onCleanup in the keyboard lifecycle effect).
+    terminalWorkspaceStore.setDashboardWorkspace();
     setShowTilingOverlay(false);
     setViewState('collapsing');
     setTimeout(() => {
@@ -502,11 +508,13 @@ const Layout: Component<LayoutProps> = (props) => {
     const session = sessionStore.sessions.find(s => s.id === sessionId);
     if (session?.status === 'running') {
       sessionStore.setActiveSession(sessionId);
+      terminalWorkspaceStore.setSingleSessionWorkspace(sessionId, sessionStore.getTerminalsForSession(sessionId)?.activeTabId || '1');
     } else if (session?.status === 'stopped') {
       // Always do a full start — even if the container could auto-wake via SDK,
       // the filesystem is empty after sleep (no R2 sync). startSession() runs
       // entrypoint.sh which restores files from R2 before starting the terminal.
       sessionStore.setActiveSession(sessionId);
+      terminalWorkspaceStore.setSingleSessionWorkspace(sessionId, '1');
       void sessionStore.startSession(sessionId).catch(() => {});
     }
 

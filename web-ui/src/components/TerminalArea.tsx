@@ -81,11 +81,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
     sessionStore.getTerminalsForSession(sessionId)?.activeTabId || '1';
 
   createEffect(() => {
-    if (!props.showTerminal) {
-      terminalWorkspaceStore.setDashboardWorkspace();
-      return;
-    }
-
+    if (!props.showTerminal) return;
     if (isMultiViewWorkspace()) return;
 
     const sessionId = activeSessionId();
