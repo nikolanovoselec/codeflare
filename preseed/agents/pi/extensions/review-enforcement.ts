@@ -57,7 +57,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
-import { ALL_REVIEW_LANES, boundaryFallbackHead, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, commandTextsFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, gitPushCommandTarget, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prCreateCommandTarget, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, prUrlFromText, reusablePendingReview, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
+import { ALL_REVIEW_LANES, boundaryFallbackHead, boundaryTriggerCommandEntries, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, commandTextsFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, gitPushCommandTarget, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prCreateCommandTarget, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, prUrlFromText, reusablePendingReview, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
 import { actionableReviewCount, activeRepoCandidateForReview, agentHeadAdvanceRequiresReview, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, deliveryAnnouncementHeads, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, mergeGateDecision, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, shouldSendAnnouncement, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewAnnouncement, type ReviewSeverityCounts } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, ensureReviewAnnouncementPending, failedDurableReviewLanes, pendingReviewAnnouncementHeads, readDurableReviewJob, readReviewAnnouncement, reapDurableReviewLanes, reviewAnnouncementKinds, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes, writeReviewAnnouncement } from "./review-jobs";
 
@@ -254,9 +254,9 @@ function activeRepoForReviewRouting(ctx: any): string | undefined {
 }
 
 // Resolve + remember the review repo for a ctx-bearing handler: an explicit command cwd (`cd`/`-C`
-// in the boundary command) first, then the Pi session's own cwd, then the repo remembered earlier
-// this session (so a NESTED review clone still resolves when the session cwd is its parent
-// workspace), then a guarded persisted active-repo fallback, then pi's process dir as a last resort.
+// in the boundary command) first, then the Pi session's own cwd, then the active repo remembered by
+// codeflare-pi, then the review repo remembered earlier this session, then a guarded persisted
+// active-repo fallback, then pi's process dir as a last resort.
 function reviewRepoForCtx(ctx: any, commandCwd?: string): string | undefined {
   const sessionCwd = ctx?.sessionManager?.getCwd?.();
   // A boundary command's cwd (`cd <dir>` / `git -C <dir>`) can be RELATIVE. Resolve it against the
@@ -619,6 +619,18 @@ function currentBranch(repo: string): string | undefined {
   }
 }
 
+function refHead(repo: string, ref: string): string | undefined {
+  try {
+    return execFileSync("git", ["rev-parse", "--verify", `${ref}^{commit}`], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function remoteBranchHead(repo: string, branch: string): string | undefined {
+  return refHead(repo, `refs/remotes/origin/${branch}`);
+}
+
 // Normalize a repo reference (a remote URL, OWNER/REPO, or HOST/OWNER/REPO) to lowercase OWNER/REPO.
 function normalizeRepoSlug(slug: string): string {
   const parts = slug.replace(/\.git$/i, "").split("/").filter(Boolean);
@@ -667,14 +679,18 @@ function prForBoundaryCommand(repo: string, command: string, pr: PrState | undef
   return { ...basePr, state: "OPEN", baseRefName: base, headRefOid: head };
 }
 
-function reviewCandidateHead(repo: string, pr: PrState, command?: string): string {
+function reviewCandidateHead(repo: string, pr: PrState, command?: string, pushTargetOverride?: { branch?: string; source?: string }): string {
   if (command && isLocalGitPushCommand(command)) {
-    const pushTarget = gitPushCommandTarget(command);
+    const pushTarget = pushTargetOverride || gitPushCommandTarget(command);
+    const current = currentBranch(repo);
     // No explicit target branch (normal `git push`) means local HEAD is the pushed PR head even while
-    // GitHub metadata lags. With an explicit refspec to another branch, local HEAD may be unrelated
-    // (`git push origin feature:multiview`), so prefer the PR metadata and let reconciliation retry if
-    // GitHub has not caught up yet rather than reviewing the wrong checkout commit.
-    if (!pushTarget.branch || pushTarget.branch === currentBranch(repo)) return localHead(repo) || pr.headRefOid || "";
+    // GitHub metadata lags. With an explicit refspec to another branch, resolve the source commit
+    // (`HEAD:target`, `feature:target`) or the updated remote-tracking branch. Falling back to an
+    // already-acked stale PR head would silently skip review for `git push origin feature:multiview`.
+    if (!pushTarget.branch || pushTarget.branch === current) return localHead(repo) || pr.headRefOid || "";
+    const pushedHead = (pushTarget.source ? refHead(repo, pushTarget.source) : undefined) || remoteBranchHead(repo, pushTarget.branch);
+    if (pushedHead) return pushedHead;
+    return pr.headRefOid && !acked(repo, pr.headRefOid) ? pr.headRefOid : "";
   }
   return pr.headRefOid || "";
 }
@@ -1237,68 +1253,80 @@ export default function (pi: ExtensionAPI) {
   }
 
   async function handlePrBoundaryCommand(command: string, ctx: any, trigger: string, toolId?: string): Promise<void> {
-    const repo = reviewRepoForCtx(ctx, cwdFromCommand(command));
-    if (!repo || !isSddProject(repo)) return;
-
     // Use the failure-distinguishing FRESH read (invalidates the prCache entry first) so a push that
-    // landed within the 60s prCache TTL is decided against the new head, not a stale pre-push cache —
-    // P4 failure distinction is preserved because prStateFreshResult delegates to prStateResultFor.
-    const editTarget = prEditCommandTarget(command);
-    const updateTarget = prUpdateBranchCommandTarget(command);
-    const createTarget = prCreateCommandTarget(command);
-    const pushTarget = gitPushCommandTarget(command);
-    const repoSlug = editTarget.repoSlug || updateTarget.repoSlug || createTarget.repoSlug;
-    if (repoSlug && isForeignRepoTarget(repo, repoSlug)) return;
-    const explicitSelector = editTarget.prNumber !== undefined ? String(editTarget.prNumber)
-      : editTarget.prBranch
-        || (updateTarget.prNumber !== undefined ? String(updateTarget.prNumber) : updateTarget.prBranch)
-        || createTarget.headBranch
-        || pushTarget.branch;
-    const targetsExplicitPr = Boolean(explicitSelector || repoSlug);
-    const requiresExistingSelectedPr = Boolean(explicitSelector);
-    const prRes = targetsExplicitPr ? prStateFreshResult(repo, explicitSelector, repoSlug) : prStateFreshResult(repo);
-    // Explicit targets own their own head. The current checkout may be a different branch, especially
-    // for `gh pr edit 563 --base main`, `gh pr update-branch 563`, or `git push origin feature:pr`.
-    // Prefer selected PR metadata in that case; use local HEAD only for current-branch push/create lag.
-    // A same-repo `gh pr create --repo owner/repo --base main` has no selector, so it still gets the
-    // local-HEAD metadata-lag fallback; an explicit selector that cannot be read must not review local HEAD.
-    const pr = requiresExistingSelectedPr && !prRes.pr ? undefined : prForBoundaryCommand(repo, command, prRes.pr, { preferPrHead: Boolean(editTarget.prNumber !== undefined || editTarget.prBranch || updateTarget.prNumber !== undefined || updateTarget.prBranch || createTarget.headBranch || pushTarget.branch) });
-    if (!isEnforcedPrForPush(pr)) {
-      // P4: gh was unreadable (transient), not a confirmed absence — a real boundary command still ran.
-      // Record that this session pushed this branch (so reconciliation AUTOSTARTS once gh recovers rather
-      // than degrading to an offer) and audit the near-miss, so the outage window is never a silent skip.
-      if (prRes.failed) {
-        markBoundaryActed(repo, typeof explicitSelector === "string" && !/^\d+$/.test(explicitSelector) ? explicitSelector : undefined);
-        appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "pr_state_unreadable" });
+    // landed within the 60s prCache TTL is decided against the new head, not a stale pre-push cache.
+    // Compound shell strings can contain multiple boundary-shaped segments; parse targets from ONE
+    // concrete trigger segment at a time and resolve that segment's repo/cwd independently so a
+    // foreign/non-target PR command cannot suppress a later same-repo push in the same invocation.
+    const targetEntries = boundaryTriggerCommandEntries(command);
+    const entriesToEvaluate = targetEntries.length > 0 ? targetEntries : [{ command, cwd: cwdFromCommand(command) }];
+    for (const entry of entriesToEvaluate) {
+      const targetCommand = entry.command;
+      const repo = reviewRepoForCtx(ctx, entry.cwd || cwdFromCommand(targetCommand));
+      if (!repo || !isSddProject(repo)) continue;
+      const editTarget = prEditCommandTarget(targetCommand);
+      const updateTarget = prUpdateBranchCommandTarget(targetCommand);
+      const createTarget = prCreateCommandTarget(targetCommand);
+      const pushTarget = gitPushCommandTarget(targetCommand);
+      const pushTargets = pushTarget.targets?.length ? pushTarget.targets : [{ branch: pushTarget.branch, source: pushTarget.source }];
+      for (const selectedPushTarget of pushTargets) {
+        const repoSlug = editTarget.repoSlug || updateTarget.repoSlug || createTarget.repoSlug;
+        if (repoSlug && isForeignRepoTarget(repo, repoSlug)) continue;
+        const explicitSelector = editTarget.prNumber !== undefined ? String(editTarget.prNumber)
+          : editTarget.prBranch
+            || (updateTarget.prNumber !== undefined ? String(updateTarget.prNumber) : updateTarget.prBranch)
+            || createTarget.headBranch
+            || selectedPushTarget.branch;
+        const targetsExplicitPr = Boolean(explicitSelector || repoSlug);
+        const requiresExistingSelectedPr = Boolean(explicitSelector);
+        const prRes = targetsExplicitPr ? prStateFreshResult(repo, explicitSelector, repoSlug) : prStateFreshResult(repo);
+        // Explicit targets own their own head. The current checkout may be a different branch, especially
+        // for `gh pr edit 563 --base main`, `gh pr update-branch 563`, or `git push origin feature:pr`.
+        // Prefer selected PR metadata in that case; use local HEAD only for current-branch push/create lag.
+        // A same-repo `gh pr create --repo owner/repo --base main` has no selector, so it still gets the
+        // local-HEAD metadata-lag fallback; an explicit selector that cannot be read must not review local HEAD.
+        const prefersPrHead = Boolean(editTarget.prNumber !== undefined || editTarget.prBranch || updateTarget.prNumber !== undefined || updateTarget.prBranch || createTarget.headBranch || selectedPushTarget.branch);
+        const pr = requiresExistingSelectedPr && !prRes.pr ? undefined : prForBoundaryCommand(repo, targetCommand, prRes.pr, { preferPrHead: prefersPrHead });
+        if (!isEnforcedPrForPush(pr)) {
+          // P4: gh was unreadable (transient), not a confirmed absence — a real boundary command still ran.
+          // Record that this session pushed this branch (so reconciliation AUTOSTARTS once gh recovers rather
+          // than degrading to an offer) and audit the near-miss, so the outage window is never a silent skip.
+          if (prRes.failed) {
+            markBoundaryActed(repo, typeof explicitSelector === "string" && !/^\d+$/.test(explicitSelector) ? explicitSelector : undefined);
+            appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "pr_state_unreadable" });
+            continue;
+          }
+          continue;
+        }
+        // A real PR-boundary command just ran for a confirmed enforced PR on this repo+branch.
+        // Record it NOW — before any of the window-creation guards below can bail — so that even if the
+        // window is never created (head unresolved, dedup, a reload right after), the reconcile still knows
+        // THIS session advanced this branch and will AUTOSTART rather than merely OFFER the missed head.
+        // P8: a push to a DRAFT PR does not arm review — symmetric with reconcile (shouldReconcileOpenPr
+        // excludes drafts). When the PR is marked ready-for-review its head is still unacked, so reconcile
+        // catches it then; and a draft can't be merged on GitHub meanwhile, so the gate never matters.
+        if (pr.isDraft) { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "draft_pr", head: pr.headRefOid || "" }); continue; }
+        // Key the mark by the PUSHED PR's branch (pr.headRefName), not currentBranch-at-tool-end — a
+        // `git push A && git checkout B` would otherwise attribute the push to B and risk auto-starting B's
+        // inherited head (R6). Falls back to currentBranch when there is no PR branch yet (push-before-PR).
+        markBoundaryActed(repo, pr.headRefName);
+        const head = reviewCandidateHead(repo, pr, targetCommand, selectedPushTarget);
+        // REQ-AGENT-058: from here the PR is a confirmed enforced boundary, so a silent bail is a
+        // genuine near-miss. Audit it (reconciliation still backstops the start) so a future miss is
+        // diagnosable instead of invisible. Healthy skips (acked/breaker/pending) are not audited.
+        if (!head) { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "no_resolvable_head" }); continue; }
+        if (consumeBypass()) {
+          acknowledgeBypass(repo, head, ctx);
+          return;
+        }
+        if (acked(repo, head)) continue;
+        if (isBreakerOpen(repo, head)) continue; // breaker already gave up on this exact head; push a new commit to retry
+        if (loadPending(repo)?.head === head) continue; // a window for this head already exists
+        if (!shouldProcessPrBoundaryToolEnd(toolId, true)) { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "dedupe_skipped", head }); return; }
+        await ensureReviewWindow({ repo, pr, head, ctx, trigger, command: targetCommand });
+        return;
       }
-      return;
     }
-    // A real PR-boundary command just ran for a confirmed enforced PR on this repo+branch.
-    // Record it NOW — before any of the window-creation guards below can bail — so that even if the
-    // window is never created (head unresolved, dedup, a reload right after), the reconcile still knows
-    // THIS session advanced this branch and will AUTOSTART rather than merely OFFER the missed head.
-    // P8: a push to a DRAFT PR does not arm review — symmetric with reconcile (shouldReconcileOpenPr
-    // excludes drafts). When the PR is marked ready-for-review its head is still unacked, so reconcile
-    // catches it then; and a draft can't be merged on GitHub meanwhile, so the gate never matters.
-    if (pr.isDraft) { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "draft_pr", head: pr.headRefOid || "" }); return; }
-    // Key the mark by the PUSHED PR's branch (pr.headRefName), not currentBranch-at-tool-end — a
-    // `git push A && git checkout B` would otherwise attribute the push to B and risk auto-starting B's
-    // inherited head (R6). Falls back to currentBranch when there is no PR branch yet (push-before-PR).
-    markBoundaryActed(repo, pr.headRefName);
-    const head = reviewCandidateHead(repo, pr, command);
-    // REQ-AGENT-058: from here the PR is a confirmed enforced boundary, so a silent bail is a
-    // genuine near-miss. Audit it (reconciliation still backstops the start) so a future miss is
-    // diagnosable instead of invisible. Healthy skips (acked/breaker/pending) are not audited.
-    if (!head) { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "no_resolvable_head" }); return; }
-    if (consumeBypass()) {
-      acknowledgeBypass(repo, head, ctx);
-      return;
-    }
-    if (acked(repo, head)) return;
-    if (isBreakerOpen(repo, head)) return; // breaker already gave up on this exact head; push a new commit to retry
-    if (loadPending(repo)?.head === head) return; // a window for this head already exists
-    if (!shouldProcessPrBoundaryToolEnd(toolId, true)) { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "dedupe_skipped", head }); return; }
-    await ensureReviewWindow({ repo, pr, head, ctx, trigger, command });
   }
 
   // withStartArgs re-attaches the args captured at tool_execution_start (toolStartArgs, set per tool id)
@@ -2063,7 +2091,7 @@ export default function (pi: ExtensionAPI) {
   const onToolEnd = async (event: any, ctx: any) => {
     if (!isActiveRun()) return;
     remember(ctx);
-    const toolName = String(event?.toolName || "").toLowerCase();
+    const toolName = String(event?.toolName || event?.tool_name || "").toLowerCase();
     if (isFailedToolExecution(event)) {
       consumeBoundaryStartCommand(event);
       const failedAgentId = toolEventId(event);
@@ -2071,7 +2099,7 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    if (toolName === "agent") {
+    if (isAgentSpawnerToolEvent(event)) {
       const input = event?.input || event?.params || event?.args || event?.arguments || {};
       const type = String(input.subagent_type || input.subagentType || "");
       const prompt = String(input.prompt || "");
@@ -2159,30 +2187,35 @@ export default function (pi: ExtensionAPI) {
         }
       }
     }
-    if (!isPrBoundaryTrigger(command)) {
+    const commandsForEvent = allCommands.length > 0 ? allCommands : (command ? [command] : []);
+    if (!commandsForEvent.some(isPrBoundaryTrigger)) {
       // PR-URL fallback (REQ-AGENT-058 AC5): a `gh pr create` can print the new PR URL even when
       // its command text was not recognized as a boundary trigger (compound `&&`, here-doc body,
       // or a wrapper script). When a pr-create-shaped command emits a PR URL we did not parse as
       // a boundary, record the near-miss and let the bounded open-PR reconciliation start the
       // review. Gated on /pr create/ so read-only gh commands (pr view/list) never trigger it.
-      if (/pr\s+create/i.test(command) && prUrlFromText(stringifyReviewResult(toolResultPayload(event)))) {
-        const repo = reviewRepoForCtx(ctx, cwdFromCommand(command));
-        if (repo && isSddProject(repo)) {
-          appendReviewEvent(repo, { event: "boundary_candidate_ignored", reason: "pr_create_url_not_parsed" });
-          await reconcileOpenPrReview(ctx, true, { freshPrState: true });
+      for (const candidate of commandsForEvent) {
+        if (/pr\s+create/i.test(candidate) && prUrlFromText(stringifyReviewResult(toolResultPayload(event)))) {
+          const repo = reviewRepoForCtx(ctx, cwdFromCommand(candidate));
+          if (repo && isSddProject(repo)) {
+            appendReviewEvent(repo, { event: "boundary_candidate_ignored", reason: "pr_create_url_not_parsed" });
+            await reconcileOpenPrReview(ctx, true, { freshPrState: true });
+          }
         }
       }
       // Simple truth backstop: after ANY successful shell command that actually invokes git/gh, re-read
       // GitHub PR state FRESH (bypassing prCache). Regex/tool parsing is only an accelerator; `gh pr view`
       // owns the truth. This catches wrapper/compound commands whose exact boundary verb was not
       // classified, and it makes a missed push self-heal immediately instead of waiting for a cache TTL.
-      const postCommandDecision = postCommandReconcileDecision(command);
-      if (postCommandDecision.reconcile) await reconcileOpenPrReview(ctx, true, { freshPrState: postCommandDecision.freshPrState });
+      for (const candidate of commandsForEvent) {
+        const postCommandDecision = postCommandReconcileDecision(candidate);
+        if (postCommandDecision.reconcile) await reconcileOpenPrReview(ctx, true, { freshPrState: postCommandDecision.freshPrState });
+      }
       return;
     }
 
     consumeBoundaryStartCommand(event);
-    await handlePrBoundaryCommand(command, ctx, "initial PR-boundary trigger", toolEventId(event));
+    await handlePrBoundaryCommand(commandsForEvent.join("\n"), ctx, "initial PR-boundary trigger", toolEventId(event));
   };
 
   // Pi emits both `tool_result` and `tool_execution_end` for the same tool call.

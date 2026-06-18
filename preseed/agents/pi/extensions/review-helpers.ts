@@ -212,16 +212,20 @@ function isBoundaryWords(words: ShellCommand): boolean {
 // wrapper grammars here: they caused both misses (`env VAR=... git ...`) and a
 // CodeQL ReDoS warning around nested `timeout`/`env` wrappers.
 // ---------------------------------------------------------------------------
-export type GitPushCommandTarget = { branch?: string; advancing: boolean };
+export type GitPushRefspecTarget = { branch: string; source?: string };
+export type GitPushCommandTarget = { branch?: string; source?: string; targets?: GitPushRefspecTarget[]; advancing: boolean };
 
 function pushFlagTakesValue(flag: string): boolean {
   return flag === "--repo" || flag === "--receive-pack" || flag === "--exec" || flag === "--push-option" || flag === "-o";
 }
 
-function branchFromPushRefspec(refspec: string): string | undefined {
-  const target = refspec.includes(":") ? refspec.slice(refspec.indexOf(":") + 1) : refspec;
-  if (!target || target.startsWith("refs/tags/")) return undefined;
-  return target.startsWith("refs/heads/") ? target.slice("refs/heads/".length) : target;
+function pushRefspecTarget(refspec: string): { branch: string; source?: string } | undefined {
+  const clean = refspec.replace(/^\+/, "");
+  const [rawSource, rawTarget = rawSource] = clean.includes(":") ? clean.split(":", 2) : [clean, clean];
+  if (!rawTarget || rawTarget.startsWith("refs/tags/")) return undefined;
+  const branch = rawTarget.startsWith("refs/heads/") ? rawTarget.slice("refs/heads/".length) : rawTarget;
+  const source = rawSource && rawSource.startsWith("refs/heads/") ? rawSource.slice("refs/heads/".length) : rawSource;
+  return { branch, source: source || undefined };
 }
 
 // Push parsing is deliberately conservative. The common no-refspec form still falls back to the
@@ -249,8 +253,8 @@ function gitPushTargetFromWords(words: ShellCommand): GitPushCommandTarget {
   if (args.includes("--tags") && refspecs.length === 0) return { advancing: false };
   if (refspecs[0] === "tag") return { advancing: false };
   if (refspecs.length > 0 && refspecs.every((ref) => ref.startsWith(":") || ref.startsWith("refs/tags/"))) return { advancing: false };
-  const branch = refspecs.map(branchFromPushRefspec).find((value): value is string => Boolean(value));
-  return { advancing: true, branch };
+  const targets = refspecs.map(pushRefspecTarget).filter((value): value is GitPushRefspecTarget => Boolean(value));
+  return { advancing: true, branch: targets[0]?.branch, source: targets[0]?.source, targets: targets.length > 0 ? targets : undefined };
 }
 
 export function gitPushCommandTarget(command: string): GitPushCommandTarget {
@@ -451,6 +455,27 @@ export function isPrBoundaryTrigger(command: string): boolean {
     return (unwrapped[0] === "gh" && unwrapped[1] === "repo" && unwrapped[2] === "sync")
       || (unwrapped[0] === "gh" && unwrapped[1] === "pr" && unwrapped[2] === "update-branch");
   });
+}
+
+export type BoundaryTriggerCommand = { command: string; cwd?: string };
+
+export function boundaryTriggerCommandEntries(command: string): BoundaryTriggerCommand[] {
+  const entries: BoundaryTriggerCommand[] = [];
+  let lastCd: string | undefined;
+  for (const segment of splitShellCommands(stripHeredocs(command))) {
+    const words = shellWords(segment);
+    if (words[0] === "cd" && words[1]) {
+      lastCd = words[1];
+      continue;
+    }
+    if (!isPrBoundaryTrigger(segment)) continue;
+    entries.push({ command: segment, cwd: cwdFromBoundaryCommand(segment) || lastCd });
+  }
+  return entries;
+}
+
+export function boundaryTriggerCommands(command: string): string[] {
+  return boundaryTriggerCommandEntries(command).map((entry) => entry.command);
 }
 
 export function isGhPrMergeCommand(command: string): boolean {

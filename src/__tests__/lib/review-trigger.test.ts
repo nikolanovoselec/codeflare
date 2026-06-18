@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { boundaryFallbackHead, commandTextFromEvent, gitPushCommandTarget, isFailedToolExecution, isPrBoundaryTrigger, isPrBoundaryCommand, isGhPrMergeCommand, isGitPushOnlyCommand, mergeCommandTarget, prBoundaryCommandBase, prCreateCommandTarget, prEditBoundaryBase, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision, ghPrCreateBase, startedBoundaryCommandForToolEnd } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { boundaryFallbackHead, boundaryTriggerCommands, commandTextFromEvent, gitPushCommandTarget, isFailedToolExecution, isPrBoundaryTrigger, isPrBoundaryCommand, isGhPrMergeCommand, isGitPushOnlyCommand, mergeCommandTarget, prBoundaryCommandBase, prCreateCommandTarget, prEditBoundaryBase, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision, ghPrCreateBase, startedBoundaryCommandForToolEnd } from '../../../preseed/agents/pi/extensions/review-helpers';
 
 /**
  * isPrBoundaryTrigger is the single "should this command start a review?" predicate.
@@ -83,8 +83,9 @@ describe('isPrBoundaryTrigger', () => {
 
 describe('command target parsing for PR-boundary recovery (REQ-AGENT-063 / REQ-AGENT-066)', () => {
   it('extracts explicit push refspec target branches and ignores tag/delete-only pushes', () => {
-    expect(gitPushCommandTarget('git push origin HEAD:multiview')).toEqual({ advancing: true, branch: 'multiview' });
-    expect(gitPushCommandTarget('git push origin feature:refs/heads/multiview')).toEqual({ advancing: true, branch: 'multiview' });
+    expect(gitPushCommandTarget('git push origin HEAD:multiview')).toEqual({ advancing: true, branch: 'multiview', source: 'HEAD', targets: [{ branch: 'multiview', source: 'HEAD' }] });
+    expect(gitPushCommandTarget('git push origin feature:refs/heads/multiview')).toEqual({ advancing: true, branch: 'multiview', source: 'feature', targets: [{ branch: 'multiview', source: 'feature' }] });
+    expect(gitPushCommandTarget('git push origin already-reviewed multiview')).toEqual({ advancing: true, branch: 'already-reviewed', source: 'already-reviewed', targets: [{ branch: 'already-reviewed', source: 'already-reviewed' }, { branch: 'multiview', source: 'multiview' }] });
     expect(gitPushCommandTarget('git push origin :oldbranch')).toEqual({ advancing: false });
     expect(gitPushCommandTarget('git push --tags')).toEqual({ advancing: false });
     expect(gitPushCommandTarget('git push origin --tags')).toEqual({ advancing: false });
@@ -103,6 +104,13 @@ describe('command target parsing for PR-boundary recovery (REQ-AGENT-063 / REQ-A
     expect(prCreateCommandTarget('gh pr create --draft --dry-run --base main')).toEqual({ draft: true, dryRun: true });
     expect(prUpdateBranchCommandTarget('gh pr update-branch 563 --rebase')).toEqual({ prNumber: 563 });
     expect(prUpdateBranchCommandTarget('gh pr update-branch feature-branch --repo owner/repo')).toEqual({ repoSlug: 'owner/repo', prBranch: 'feature-branch' });
+  });
+
+  it('selects concrete trigger segments without merging targets across compound commands', () => {
+    expect(boundaryTriggerCommands('gh pr create --repo other/repo --base main && git push origin multiview')).toEqual([
+      'gh pr create --repo other/repo --base main',
+      'git push origin multiview',
+    ]);
   });
 
   it('selects a later real boundary from batched tool commands over an earlier broad non-trigger', () => {

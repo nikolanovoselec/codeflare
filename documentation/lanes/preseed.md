@@ -431,7 +431,7 @@ All preseed content is deployed via the manifest pipeline:
   records even after `pending.json` is cleared. This is intentionally separate
   from lane reaping so a completed review can surface without waiting for the
   user's next prompt, while `/review-results` remains the manual fallback if
-  automatic delivery cannot prove the nonce landed.
+  automatic delivery cannot prove the nonce landed. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::drainReviewAnnouncements --> <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::ensureReviewAnnouncementPending --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::deliveryAnnouncementHeads -->
 
   The disk-driven reaper that settles each lane is retry-aware: an attempt that
   ends with `willRetry: true` (pi auto-retrying the same child after a transient

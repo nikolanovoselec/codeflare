@@ -188,6 +188,8 @@ sequenceDiagram
     Note over TS: Status: gray -> green (reconnected)
 ```
 
+**Source:** `Layout` passes `terminalWorkspaceStore.getVisiblePanes()` keys into `reconnectDisconnectedTerminals()`, which filters reconnects to that set. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/stores/terminal.ts::reconnectDisconnectedTerminals -->
+
 #### Three-Color Session Status
 
 `SessionStatCard` displays green (running + WS connected), yellow (running + WS disconnected -- container alive but dashboard-disconnected), gray (stopped). Driven by `dotVariant()` which checks both `session.status` and `terminalStore.getConnectionState()`. The yellow indicator was added to make the dashboard-disconnect flow visible to the user -- without it, status jumped from green directly to gray.

@@ -96,7 +96,7 @@ const ACTIVE_REPO_SENTINEL = "/home/user/.cache/codeflare-hooks/graphify-active-
 // session cwd, so it warned "not inside a git repository" whenever the Pi session cwd was a
 // non-repo parent workspace and the user worked in a nested clone via `cd repo && ...` /
 // `git -C repo`. It now uses the SAME shared resolver the rest of the review system uses
-// (resolveReviewRepo: session cwd -> in-session review repo -> in-memory active repo -> process
+// (resolveReviewRepo: session cwd -> in-memory active repo -> in-session review repo -> process
 // cwd; in-memory recall only, never the flap-prone sentinel for routing). Because /review-status
 // is strictly read-only, it then falls back to the guarded on-disk sentinel for DISPLAY — the
 // identical last resort the statusline footer uses (activeRepoSentinelForDisplay, guarded so a
