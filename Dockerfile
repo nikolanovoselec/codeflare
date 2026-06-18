@@ -198,12 +198,25 @@ COPY preseed/agents/pi/extensions/ /opt/codeflare/pi-agent/extensions/
 # prebuilt-binary fetch is best-effort and falls back to a source compile, which needs
 # make + a C/C++ toolchain. stage-1 ships python3 but not make/gcc/g++ (those live only
 # in the discarded builder), so a prebuilt-fetch miss fails with "not found: make".
-# Install the toolchain just for this npm ci and purge it in the same layer (mirroring
+# Install the toolchain just for this install and purge it in the same layer (mirroring
 # the graphify-build pattern below) so the runtime image stays lean.
+#
+# Version bridge — keep the prewarm Pi SDK in lockstep with the runtime agent.
+# @earendil-works/pi-coding-agent is only a TRANSITIVE dep of the extensions here, so
+# a frozen lockfile would pin it independently while the global agent above floats
+# with @latest — they drift, and Trivy eventually flags the stale prewarm copy
+# (CVE-2026-54328 was the first). Read the EXACT version the global @latest install
+# just resolved, force it across the whole prewarm tree via an npm override, drop the
+# stale lock and reinstall. This layer sits below the .cache-bust COPY, so it re-runs
+# every deploy and the prewarm SDK is ALWAYS identical to the runtime agent.
 RUN cd /opt/codeflare/pi-agent/npm && \
     apt-get update && \
     apt-get install -y --no-install-recommends make gcc g++ && \
-    npm ci --omit=dev --no-audit --no-fund && \
+    export PI_VER="$(node -p "require('/usr/local/lib/node_modules/@earendil-works/pi-coding-agent/package.json').version")" && \
+    echo "Bridging prewarm Pi SDK to global agent version: $PI_VER" && \
+    node -e 'const f="package.json",p=require(process.cwd()+"/"+f);(p.overrides=p.overrides||{})["@earendil-works/pi-coding-agent"]=process.env.PI_VER;require("fs").writeFileSync(f,JSON.stringify(p,null,2)+"\n")' && \
+    rm -f package-lock.json && \
+    npm install --omit=dev --no-audit --no-fund && \
     apt-get purge -y make gcc g++ && \
     apt-get autoremove -y && \
     npm cache clean --force && \
