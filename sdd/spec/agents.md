@@ -2072,8 +2072,8 @@ None.
 <!-- @impl: src/lib/oauth-scopes.ts -->
 <!-- @test: web-ui/src/__tests__/lib/token-scopes.test.ts (tier catalogs: three tiers in order + non-empty label+description -> AC1,AC2) -->
 <!-- @test: web-ui/src/__tests__/components/connect/TierChooserDialog.test.tsx (dashboard tier dialog renders all tiers + descriptions, pick fires onPick -> AC1,AC2) -->
-<!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (Settings/Setup tier dropdown lists all tiers, change fires onSelect, selected tier in the connect URL's tier param -> AC1,AC2) -->
-<!-- @test: web-ui/src/__tests__/components/settings/DeployKeysSection.test.tsx (both providers render the tier dropdown + subtitle -> AC1,AC2) -->
+<!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (Settings/Setup segmented tier control lists all tiers, marks the selected one, pick fires onSelect, selected tier in the connect URL's tier param -> AC1,AC2) -->
+<!-- @test: web-ui/src/__tests__/components/settings/DeployKeysSection.test.tsx (both providers render the segmented tier control + subtitle -> AC1,AC2) -->
 <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (tier->scope mapping, offline_access invariant, monotonic growth -> AC3) -->
 
 **Intent:** Connecting GitHub and Cloudflare must guide users through scope selection so they grant the smallest scope set that unlocks the features they need, without copy-pasting raw scope strings — the chosen tier flows into the OAuth `scope` parameter.

@@ -1,4 +1,4 @@
-import { Component, Show } from 'solid-js';
+import { Component, Show, For } from 'solid-js';
 import Icon from '../Icon';
 import Select from '../ui/Select';
 import { type ScopeTier, type TierConfig } from '../../lib/token-scopes';
@@ -100,12 +100,25 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
           <Show when={props.tierOptions}>
             {(tier) => (
               <div class="oauth-connect-tier" data-testid={`${props.provider}-tier`}>
-                <Select
-                  class="oauth-connect-tier-select"
-                  value={tier().selected}
-                  options={TIER_ORDER.map((t) => ({ value: t, label: tier().tiers[t].label }))}
-                  onChange={(v) => tier().onSelect(v as ScopeTier)}
-                />
+                <div class="oauth-connect-tier-control" role="radiogroup" aria-label="Access level">
+                  <For each={TIER_ORDER}>
+                    {(t) => (
+                      <label
+                        class={`oauth-connect-tier-option ${tier().selected === t ? 'oauth-connect-tier-option--selected' : ''}`}
+                      >
+                        <input
+                          type="radio"
+                          name={`${props.provider}-tier`}
+                          value={t}
+                          checked={tier().selected === t}
+                          onChange={() => tier().onSelect(t)}
+                          data-testid={`${props.provider}-tier-${t}`}
+                        />
+                        {tier().tiers[t].label}
+                      </label>
+                    )}
+                  </For>
+                </div>
                 <span class="oauth-connect-tier-desc" data-testid={`${props.provider}-tier-desc`}>
                   {tier().tiers[tier().selected].description}
                 </span>
@@ -120,7 +133,7 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
             onClick={() => { window.location.href = href(); }}
           >
             <Icon path={props.icon} size={16} />
-            <span>Connect</span>
+            <span>Connect {props.name}</span>
           </button>
         </div>
       </Show>

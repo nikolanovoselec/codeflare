@@ -345,7 +345,7 @@ Then in the app: **Setup wizard → Cloudflare provider →** paste the Client I
 
 **3. Scope tiers**
 
-Non-enterprise users pick a scope level when connecting — **Minimal / Recommended / Advanced**, each with a description. On the dashboard GitHub panel the **Connect** button opens a tier dialog (a popover on desktop, a bottom sheet on mobile); on **Guided Setup** and **Settings → Push &amp; Deploy** the same choice is a dropdown showing the selected level's description beneath it. The selected tier is sent as the OAuth `scope` and must be within the client's **registered** scopes — so register the Advanced superset. Cloudflare scope IDs come from `GET /client/v4/oauth/scopes`; these map the capabilities the old token deeplink granted:
+Non-enterprise users pick a scope level when connecting — **Minimal / Recommended / Advanced**, each with a description. On the dashboard GitHub panel the **Connect GitHub** button opens a tier chooser (a popover under the button on desktop, a bottom sheet on mobile — the "+ New Session" pattern); on **Guided Setup** and **Settings → Push &amp; Deploy** the same choice is a segmented Minimal/Recommended/Advanced toggle with the selected level's description beneath it. The selected tier is sent as the OAuth `scope` and must be within the client's **registered** scopes — so register the Advanced superset. Cloudflare scope IDs come from `GET /client/v4/oauth/scopes`; these map the capabilities the old token deeplink granted:
 
 | Tier | GitHub scopes | Cloudflare scope IDs (cumulative) |
 |---|---|---|

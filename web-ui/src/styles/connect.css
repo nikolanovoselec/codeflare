@@ -76,8 +76,10 @@
   background: transparent;
 }
 
-/* Tier selector for the Settings / Guided Setup connect cards: a dropdown +
-   a subtitle describing the selected level. Tokens only. */
+/* Tier selector for the Settings / Guided Setup connect cards: a segmented
+   Minimal│Recommended│Advanced toggle + a subtitle describing the selected
+   level. Mirrors the production scope-tier control so the two surfaces read
+   identically. Tokens only. */
 .oauth-connect-tier {
   display: flex;
   flex-direction: column;
@@ -85,8 +87,49 @@
   width: 100%;
 }
 
-.oauth-connect-tier-select {
-  width: 100%;
+.oauth-connect-tier-control {
+  display: flex;
+  flex-wrap: wrap;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.oauth-connect-tier-option {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2) var(--space-3);
+  min-width: 80px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-base);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.oauth-connect-tier-option input[type="radio"] {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.oauth-connect-tier-option + .oauth-connect-tier-option {
+  border-left: 1px solid var(--color-border-subtle);
+}
+
+.oauth-connect-tier-option--selected {
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+.oauth-connect-tier-option:not(.oauth-connect-tier-option--selected):hover {
+  background: var(--color-bg-muted);
 }
 
 .oauth-connect-tier-desc {

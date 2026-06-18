@@ -29,16 +29,17 @@ describe('DeployKeysSection (OAuth connect surface)', () => {
 
   afterEach(() => cleanup());
 
-  it('composes GitHub + Cloudflare connect cards, each with its connect URL and a scope-level dropdown + subtitle', async () => {
+  it('composes GitHub + Cloudflare connect cards, each with its connect URL and a segmented scope-level control + subtitle', async () => {
     render(() => <DeployKeysSection />);
     await waitFor(() => expect(screen.getByTestId('github-connect-card')).toBeInTheDocument());
     expect(screen.getByTestId('cloudflare-connect-card')).toBeInTheDocument();
     expect(screen.getByTestId('github-connect-btn').getAttribute('data-href')).toContain('/api/github/connect');
     expect(screen.getByTestId('cloudflare-connect-btn').getAttribute('data-href')).toContain('/api/cloudflare/connect');
-    // Both providers expose the scope-level dropdown (all three tiers) + explanatory subtitle.
+    // Both providers expose the segmented scope-level control (all three tiers) + explanatory subtitle.
     for (const p of ['github', 'cloudflare']) {
-      const select = screen.getByTestId(`${p}-tier`).querySelector('.oauth-connect-tier-select') as HTMLSelectElement;
-      expect(Array.from(select.options).map((o) => o.value)).toEqual(['minimal', 'recommended', 'advanced']);
+      for (const t of ['minimal', 'recommended', 'advanced']) {
+        expect(screen.getByTestId(`${p}-tier-${t}`)).toBeInTheDocument();
+      }
       expect(screen.getByTestId(`${p}-tier-desc`).textContent).toBeTruthy();
     }
     expect(screen.getByTestId('deploy-keys-hint')).toBeInTheDocument();

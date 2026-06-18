@@ -120,7 +120,7 @@ Connect reuses the OAuth App from [REQ-AUTH-002](../../sdd/spec/authentication.m
 
 The parallel to "Connect GitHub": a non-enterprise user authorizes **their own** Cloudflare account so sessions deploy with `wrangler` without a pasted API token ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)). Like GitHub Connect it is additive and never the Codeflare login; `GET /api/cloudflare/connect` + callback + `POST /api/cloudflare/disconnect` are `authMiddleware`-only, reachable from Guided Setup and the Settings "Push & Deploy" accordion via the shared `OAuthConnectCard`. **Enterprise has none** — `getCloudflareProvider` returns null and every Cloudflare-connect route fails closed; enterprise injects the admin-global Browser Rendering token instead ([REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
 
-The tier is chosen in the UI before the redirect: the Cloudflare connect card presents the Minimal/Recommended/Advanced choice as a dropdown showing the selected level's description (the popover/bottom-sheet tier dialog is specific to the GitHub dashboard panel).
+The tier is chosen in the UI before the redirect: on Guided Setup and Settings, the connect card (GitHub and Cloudflare alike) presents the Minimal/Recommended/Advanced choice as a segmented toggle with the selected level's description beneath it (the popover/bottom-sheet tier dialog is specific to the GitHub dashboard panel).
 
 **Flow:**
 

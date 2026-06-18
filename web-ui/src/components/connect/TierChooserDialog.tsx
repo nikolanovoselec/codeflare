@@ -7,6 +7,8 @@ const TIER_ORDER: ScopeTier[] = ['minimal', 'recommended', 'advanced'];
 // ~3 tier rows + section header; used to decide flip-above/below vs the anchor.
 const DIALOG_ESTIMATED_HEIGHT = 220;
 const GAP = 8;
+// Comfortable desktop/tablet popover width (matches the "+ New Session" picker).
+const DIALOG_WIDTH = 300;
 
 interface TierChooserDialogProps {
   open: boolean;
@@ -35,13 +37,21 @@ const TierChooserDialog: Component<TierChooserDialogProps> = (props) => {
     if (!props.anchorRef) return;
     const rect = props.anchorRef.getBoundingClientRect();
     const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
     const spaceBelow = viewportHeight - rect.bottom - GAP;
     const spaceAbove = rect.top - GAP;
     let top: number;
     if (spaceBelow >= DIALOG_ESTIMATED_HEIGHT) top = rect.bottom + GAP;
     else if (spaceAbove >= DIALOG_ESTIMATED_HEIGHT) top = rect.top - GAP - DIALOG_ESTIMATED_HEIGHT;
     else top = spaceBelow >= spaceAbove ? rect.bottom + GAP : Math.max(GAP, rect.top - GAP - DIALOG_ESTIMATED_HEIGHT);
-    setPosition({ top, left: rect.left, width: rect.width });
+    // The connect button is a narrow, centered inline-flex, so inheriting its
+    // width yields a cramped popover. Use a comfortable fixed width (like the
+    // "+ New Session" picker) clamped to the viewport, and keep the left edge
+    // on-screen. Mobile (≤640px) ignores this — create-session-dialog.css
+    // promotes the dialog to a full-width bottom sheet.
+    const width = Math.min(DIALOG_WIDTH, viewportWidth - GAP * 2);
+    const left = Math.max(GAP, Math.min(rect.left, viewportWidth - width - GAP));
+    setPosition({ top, left, width });
   };
 
   // Focus management for the modal picker: on open, remember the trigger and move
