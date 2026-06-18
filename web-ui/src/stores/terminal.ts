@@ -529,6 +529,10 @@ function claimResizeAuthority(sessionId: string, terminalId: string): void {
   }
 }
 
+function clearPendingResizeAuthority(sessionId: string, terminalId: string): void {
+  pendingFocusClaims.delete(makeKey(sessionId, terminalId));
+}
+
 // Send resize event to terminal
 function resize(sessionId: string, terminalId: string, cols: number, rows: number): void {
   const key = makeKey(sessionId, terminalId);
@@ -845,6 +849,7 @@ export const terminalStore = {
   disconnect,
   reconnect,
   claimResizeAuthority,
+  clearPendingResizeAuthority,
   resize,
   dispose,
   disposeSession,

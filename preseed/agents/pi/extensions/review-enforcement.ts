@@ -57,8 +57,8 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
-import { ALL_REVIEW_LANES, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prEditCommandTarget, prEnforcedForPush, prUrlFromText, reusablePendingReview, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { actionableReviewCount, activeRepoCandidateForReview, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, deliveryAnnouncementHeads, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, mergeGateDecision, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewAnnouncement, type ReviewSeverityCounts } from "./review-job-helpers";
+import { ALL_REVIEW_LANES, boundaryFallbackHead, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prEditCommandTarget, prEnforcedForPush, prUrlFromText, reusablePendingReview, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
+import { actionableReviewCount, activeRepoCandidateForReview, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, deliveryAnnouncementHeads, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, mergeGateDecision, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, shouldSendAnnouncement, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewAnnouncement, type ReviewSeverityCounts } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, ensureReviewAnnouncementPending, failedDurableReviewLanes, pendingReviewAnnouncementHeads, readDurableReviewJob, readReviewAnnouncement, reapDurableReviewLanes, reviewAnnouncementKinds, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes, writeReviewAnnouncement } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -645,15 +645,21 @@ function isGitPushCommand(command: string): boolean {
   return isLocalGitPushCommand(command) || /(^|[;&|\n]\s*)gh\s+repo\s+sync\b/.test(command);
 }
 
-function prForBoundaryCommand(repo: string, command: string, pr: PrState | undefined): PrState | undefined {
+function prForBoundaryCommand(repo: string, command: string, pr: PrState | undefined, options?: { preferPrHead?: boolean }): PrState | undefined {
   if (isEnforcedPr(pr)) return pr;
   const base = prBoundaryCommandBase(command, pr?.baseRefName);
   if (!base) return pr;
-  const head = localHead(repo) || pr?.headRefOid;
+  const head = boundaryFallbackHead({
+    localHead: localHead(repo),
+    prHead: pr?.headRefOid,
+    preferPrHead: options?.preferPrHead,
+  });
   if (!head) return pr;
   // GitHub may not make a just-created PR visible to `gh pr view` immediately.
   // Mirror Claude's PR-open fail-open behavior: for an SDD `gh pr create` whose
   // base is main/master (or temporarily unreadable), arm review for local HEAD.
+  // For an explicit `gh pr edit <selector> --base main`, the selected PR's head owns the review;
+  // the current checkout may be an unrelated branch.
   const basePr: PrState = pr || {};
   return { ...basePr, state: "OPEN", baseRefName: base, headRefOid: head };
 }
@@ -1216,7 +1222,7 @@ export default function (pi: ExtensionAPI) {
     const editSelector = editTarget.prNumber !== undefined ? String(editTarget.prNumber) : editTarget.prBranch;
     const targetsExplicitPr = Boolean(editSelector || editTarget.repoSlug);
     const prRes = targetsExplicitPr ? prStateFreshResult(repo, editSelector, editTarget.repoSlug) : prStateFreshResult(repo);
-    const pr = targetsExplicitPr && !prRes.pr ? undefined : prForBoundaryCommand(repo, command, prRes.pr);
+    const pr = targetsExplicitPr && !prRes.pr ? undefined : prForBoundaryCommand(repo, command, prRes.pr, { preferPrHead: targetsExplicitPr });
     if (!isEnforcedPrForPush(pr)) {
       // P4: gh was unreadable (transient), not a confirmed absence — a real boundary command still ran.
       // Record that this session pushed this branch (so reconciliation AUTOSTARTS once gh recovers rather
@@ -1378,25 +1384,20 @@ export default function (pi: ExtensionAPI) {
       if (record.kind === "summary") {
         const summaryPath = join(reviewResultsDir(state.repo, state.head), "summary.md");
         try { mkdirSync(dirname(summaryPath), { recursive: true }); writeFileSync(summaryPath, `${reviewSummaryMarkdown(state)}\n`, "utf8"); } catch { /* persisted copy best-effort; chat copy is authoritative */ }
-        // Deliver the (display-only) summary the SAME way /review-results does, but only on a ctx-bearing
-        // live tick: a plain pi.sendMessage with NO options. That takes Pi's append path (appendCustomMessageEntry), which SYNCHRONOUSLY
-        // writes the nonce-bearing content into the session transcript AND displays it in one step — so
-        // the nonce reliably lands and the next reconcile proves delivery. The old `{ triggerTurn:true,
-        // deliverAs:"followUp" }` instead routed the message through _runAgentPrompt / agent.followUp /
-        // agent.steer, whose custom-message persistence is exactly what the nonce-verify loop had to
-        // paper over: off-turn or post-reload that send no-op'd, the nonce never landed, and the summary
-        // looped attempted→failed without ever surfacing. Gate on isIdle so the append path is only taken
-        // when no turn is streaming — mid-stream it would STEER the summary into the running turn
-        // (agent-readable mid-reasoning, the REQ-AGENT-058 AC7 hazard); when streaming we stay pending and
-        // the next idle tick (agent_end / turn_end / session_start) delivers it.
-        if (!ctx?.sessionManager) return { sent: false };
+        // Deliver the display-only summary the SAME way /review-results does: a plain pi.sendMessage with
+        // NO options. That takes Pi's append path (appendCustomMessageEntry), which synchronously writes
+        // the nonce-bearing content into the session transcript and displays it. This does not require a
+        // ctx-bearing event; the idle reaper has a live ExtensionAPI runtime even while no user turn is
+        // happening. Gate on isIdle so the append path is only taken when no turn is streaming — mid-stream
+        // it would steer the summary into the running turn (agent-readable mid-reasoning, the
+        // REQ-AGENT-058 AC7 hazard). When streaming, stay pending for the next idle tick.
         let idle = true;
         // A THROW (runtime tearing down → assertActive) is reported as a failed attempt, NOT a silent
         // defer: it burns an attempt so a persistently-throwing isIdle still escalates to /review-results
         // rather than stranding the summary forever. A clean `false` (genuinely streaming) defers without
         // burning an attempt — the age backstop, not the attempt cap, escalates that case.
         try { idle = pi.isIdle ? pi.isIdle() : true; } catch { return { sent: false, error: "isIdle threw — runtime inactive" }; }
-        if (!idle) return { sent: false };
+        if (!shouldSendAnnouncement({ kind: record.kind, idle, hasLiveSessionContext: Boolean(ctx?.sessionManager) })) return { sent: false };
         const content = summaryDeliveryContent(state, record.nonce);
         pi.sendMessage({ customType: "codeflare-review-summary-v3", content, display: true, details: { repo: state.repo, head: state.head, nonce: record.nonce, summary: content } });
         return { sent: true };
@@ -1405,7 +1406,7 @@ export default function (pi: ExtensionAPI) {
       // TRIGGERS a real fix/commit/push turn. That only runs in a LIVE session, and off-turn the
       // trigger no-ops — so firing off-turn would burn nothing useful AND, with the one-shot marker
       // below, permanently block the next real fire. Skip off-turn; stay pending for the next live tick.
-      if (!ctx?.sessionManager) return { sent: false };
+      if (!shouldSendAnnouncement({ kind: record.kind, idle: true, hasLiveSessionContext: Boolean(ctx?.sessionManager) })) return { sent: false };
       const resultLanes = completedDurableReviewLanes(state.repo, state.head, state.lanes);
       const fired = requestReviewAutofixForRows({
         sender: pi,

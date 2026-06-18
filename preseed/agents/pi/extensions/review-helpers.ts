@@ -281,8 +281,10 @@ export function prEditCommandTarget(command: string): PrEditCommandTarget {
   const words = firstGhWords(command, ["pr", "edit"]);
   if (!words) return result;
   const valueFlags = new Set([
-    "--base", "-B", "--title", "-t", "--body", "-b", "--add-label", "--remove-label",
-    "--add-assignee", "--remove-assignee", "--add-reviewer", "--remove-reviewer", "--milestone", "--project",
+    "--base", "-B", "--title", "-t", "--body", "-b", "--body-file", "-F",
+    "--add-label", "--remove-label", "--add-assignee", "--remove-assignee",
+    "--add-reviewer", "--remove-reviewer", "--add-project", "--remove-project",
+    "--milestone", "-m", "--project",
   ]);
   for (let index = 3; index < words.length; index += 1) {
     const token = words[index];
@@ -319,6 +321,12 @@ export function prCreateBoundaryBase(command: string, knownBase?: string): strin
 
 export function prBoundaryCommandBase(command: string, knownBase?: string): string | undefined {
   return prCreateBoundaryBase(command, knownBase) || prEditBoundaryBase(command);
+}
+
+export function boundaryFallbackHead(input: { localHead?: string; prHead?: string; preferPrHead?: boolean }): string | undefined {
+  return input.preferPrHead
+    ? (input.prHead || input.localHead)
+    : (input.localHead || input.prHead);
 }
 
 // Pure push-path enforcement gate (git-push-review-reminder.sh:253-254): an OPEN PR with a

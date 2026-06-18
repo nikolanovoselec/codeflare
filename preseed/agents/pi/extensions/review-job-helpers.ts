@@ -243,6 +243,20 @@ export type AnnouncementAttemptInput = {
   retryDelayMs: number;
 };
 
+export type AnnouncementSendInput = {
+  kind: ReviewAnnouncementKind;
+  idle: boolean;
+  hasLiveSessionContext: boolean;
+};
+
+// A review summary is a display-only custom message, so it may be sent by the idle reaper as long as
+// the agent runtime is idle; it does not need a ctx-bearing event. Autofix starts a real follow-up turn,
+// so it still requires a live session context.
+export function shouldSendAnnouncement(input: AnnouncementSendInput): boolean {
+  if (input.kind === "summary") return input.idle;
+  return input.hasLiveSessionContext;
+}
+
 // Should emitPendingAnnouncements (re)send this announcement on this tick? `pending` sends once;
 // `attempted` re-sends only after the retry delay AND while under the attempt cap; terminal states
 // (`visible`/`failed`) never send. This is the SOLE owner of retry/backoff timing.

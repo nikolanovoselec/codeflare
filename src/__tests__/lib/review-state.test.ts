@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, reviewInSessionContinuation, mergeGateDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, activeRepoSentinelForReview, activeRepoCandidateForReview, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput, type MergeGateInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { computeReviewStateFrom, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, reviewInSessionContinuation, mergeGateDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, activeRepoSentinelForReview, activeRepoCandidateForReview, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput, type MergeGateInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 
 /**
  * computeReviewStateFrom is the canonical review-state definition (review.md §17.2).
@@ -370,6 +370,12 @@ describe('rememberReviewRepo / recallReviewRepo (shared in-session review-repo m
   it('recall returns the last remembered repo so the no-ctx reaper + footer resolve the nested clone', () => {
     rememberReviewRepo('/ws/ai-news-digest');
     expect(recallReviewRepo()).toBe('/ws/ai-news-digest');
+  });
+
+  it('REQ-AGENT-061: recallReviewRepos returns every remembered review repo for the no-ctx reaper', () => {
+    rememberReviewRepo('/ws/review-one');
+    rememberReviewRepo('/ws/review-two');
+    expect(recallReviewRepos()).toEqual(expect.arrayContaining(['/ws/review-one', '/ws/review-two']));
   });
 
   it('remembering undefined does NOT clobber a previously remembered repo (a failed resolve must not erase it)', () => {

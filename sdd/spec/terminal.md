@@ -375,8 +375,8 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 <!-- @impl: web-ui/src/stores/terminal.ts::reconnectOnVisibilityReturn -->
 <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (visible pane ownership describe -> dashboard zero panes + single-session one pane -> AC1,2) -->
 <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (TerminalArea describe -> dashboard no terminals + visible single pane + MultiView panes only + single-pane teardown -> AC1,2,3,4) -->
-<!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (useTerminal connection gating describe -> connect=false no WS + focused=false no focus + focused pane claims resize authority -> AC3,7) -->
-<!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store describe -> visible-key reconnect filter + queued focus before initial resize + focus ownership control frame -> AC4,6,7) -->
+<!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (useTerminal connection gating describe -> connect=false no WS + focused=false clears stale focus + focused pane claims resize authority -> AC3,7,8) -->
+<!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store describe -> visible-key reconnect filter + queued focus before initial resize + stale queued focus clearing + focus ownership control frame -> AC4,6,7,8) -->
 ### REQ-TERM-011: Visible terminal panes own WebSocket connections
 
 **Intent:** Terminal WebSockets are opened only for terminal panes that are visible in the current browser workspace, preventing hidden sessions from attaching to PTYs and sending stale resize or input traffic.
@@ -392,6 +392,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 5. Session indicators distinguish container-running state from visible-terminal-connected state. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::dotVariant -->
 6. Browser visibility return reconnects only panes that are visible in the current workspace. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 7. A focused visible terminal claims resize authority before sending its current dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::claimResizeAuthority -->
+8. A terminal that loses focus before its socket opens clears any queued focus claim. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::clearPendingResizeAuthority -->
 
 **Constraints:**
 
@@ -402,7 +403,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-003](#req-term-003-automatic-websocket-reconnection-on-transient-failures)
 
-**Verification:** [Automated tests](../../web-ui/src/__tests__/components/TerminalArea.test.tsx)
+**Verification:** [Automated tests](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [Hook tests](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [Terminal store tests](../../web-ui/src/__tests__/stores/terminal.test.ts)
 
 **Status:** Implemented
 

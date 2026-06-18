@@ -276,6 +276,33 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff u
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
+    it('REQ-TERM-011: clears a stale queued focus claim before WebSocket open', async () => {
+      const terminal = {
+        ...createMockTerminal(),
+        cols: 132,
+        rows: 43,
+      } as unknown as Terminal;
+      const sendSpy = vi.fn();
+      const OriginalWebSocket = globalThis.WebSocket;
+      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+        send = sendSpy;
+        constructor(url: string) {
+          super(url);
+        }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      terminalStore.claimResizeAuthority(sessionId, terminalId);
+      terminalStore.clearPendingResizeAuthority(sessionId, terminalId);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(sendSpy.mock.calls.map(([frame]) => frame)).toEqual([
+        JSON.stringify({ type: 'resize', cols: 132, rows: 43 }),
+      ]);
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
     it('should not throw when not connected', () => {
       expect(() => {
         terminalStore.resize(sessionId, terminalId, 100, 50);

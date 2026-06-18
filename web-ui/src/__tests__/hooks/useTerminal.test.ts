@@ -74,6 +74,7 @@ vi.mock('../../stores/terminal', () => ({
     unregisterFitAddon: vi.fn(),
     connect: vi.fn(() => vi.fn()),
     claimResizeAuthority: vi.fn(),
+    clearPendingResizeAuthority: vi.fn(),
     resize: vi.fn(),
     getConnectionState: vi.fn(() => 'disconnected'),
     getRetryMessage: vi.fn(() => null),
@@ -405,6 +406,29 @@ describe('useTerminal hook', () => {
       await vi.waitFor(() => expect(terminalStore.claimResizeAuthority).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId));
       expect(terminalStore.resize).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId, 80, 24);
       expect(mockFocus).toHaveBeenCalled();
+
+      dispose();
+    });
+
+    it('REQ-TERM-011: clears a queued resize-authority claim when the pane loses focus', async () => {
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+      const [focused, setFocused] = createSignal(true);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({
+          ...defaultProps,
+          visible: true,
+          get focused() { return focused(); },
+          connect: true,
+        });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      vi.mocked(terminalStore.clearPendingResizeAuthority).mockClear();
+      setFocused(false);
+
+      await vi.waitFor(() => expect(terminalStore.clearPendingResizeAuthority).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId));
 
       dispose();
     });

@@ -455,12 +455,16 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     const initializing = isInitializing();
     const stage = initProgress()?.stage;
     const shouldConnect = !initializing || stage === 'mounting' || stage === 'ready';
-    if (!isFocused() || !canConnect() || !shouldConnect || !focusedTerm) return;
+    if (!isFocused() || !canConnect() || !shouldConnect || !focusedTerm) {
+      terminalStore.clearPendingResizeAuthority(props.sessionId, props.terminalId);
+      return;
+    }
     terminalStore.claimResizeAuthority(props.sessionId, props.terminalId);
     if (!isTouchDevice()) focusedTerm.focus();
     if (focusedTerm.cols > 0 && focusedTerm.rows > 0) {
       terminalStore.resize(props.sessionId, props.terminalId, focusedTerm.cols, focusedTerm.rows);
     }
+    onCleanup(() => terminalStore.clearPendingResizeAuthority(props.sessionId, props.terminalId));
   });
 
   // Keyboard lifecycle for mobile

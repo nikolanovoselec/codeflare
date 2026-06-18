@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isPrBoundaryTrigger, isPrBoundaryCommand, isGhPrMergeCommand, isGitPushOnlyCommand, mergeCommandTarget, prBoundaryCommandBase, prEditBoundaryBase, prEditCommandTarget, prEnforcedForPush, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision, ghPrCreateBase, startedBoundaryCommandForToolEnd } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { boundaryFallbackHead, isPrBoundaryTrigger, isPrBoundaryCommand, isGhPrMergeCommand, isGitPushOnlyCommand, mergeCommandTarget, prBoundaryCommandBase, prEditBoundaryBase, prEditCommandTarget, prEnforcedForPush, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision, ghPrCreateBase, startedBoundaryCommandForToolEnd } from '../../../preseed/agents/pi/extensions/review-helpers';
 
 /**
  * isPrBoundaryTrigger is the single "should this command start a review?" predicate.
@@ -249,6 +249,22 @@ describe('prEditBoundaryBase (gh pr edit retarget)', () => {
     expect(prEditCommandTarget('gh pr edit https://github.com/o/r/pull/563 --base main')).toEqual({ prNumber: 563 });
     expect(prEditCommandTarget('gh pr edit --repo owner/repo 286 --base main')).toEqual({ repoSlug: 'owner/repo', prNumber: 286 });
     expect(prEditCommandTarget('gh pr edit --base main --title x')).toEqual({});
+  });
+
+  it('skips body-file, project, and milestone edit flag values before selecting the explicit PR', () => {
+    expect(prEditCommandTarget('gh pr edit --body-file /tmp/body.md --base main')).toEqual({});
+    expect(prEditCommandTarget('gh pr edit -F /tmp/body.md 286 --base main')).toEqual({ prNumber: 286 });
+    expect(prEditCommandTarget('gh pr edit --add-project Roadmap 286 --base main')).toEqual({ prNumber: 286 });
+    expect(prEditCommandTarget('gh pr edit --remove-project Roadmap 286 --base main')).toEqual({ prNumber: 286 });
+    expect(prEditCommandTarget('gh pr edit -m Sprint-7 286 --base main')).toEqual({ prNumber: 286 });
+  });
+});
+
+describe('boundaryFallbackHead', () => {
+  it('uses the selected PR head for explicit PR retargets and local HEAD for current-branch boundaries', () => {
+    expect(boundaryFallbackHead({ localHead: 'checkout-head', prHead: 'selected-pr-head', preferPrHead: true })).toBe('selected-pr-head');
+    expect(boundaryFallbackHead({ localHead: 'checkout-head', prHead: 'current-pr-head', preferPrHead: false })).toBe('checkout-head');
+    expect(boundaryFallbackHead({ localHead: 'checkout-head', preferPrHead: true })).toBe('checkout-head');
   });
 });
 

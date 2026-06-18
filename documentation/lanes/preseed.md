@@ -336,54 +336,49 @@ All preseed content is deployed via the manifest pipeline:
 
   Cross-extension repo state (the session's active repo and the repo under
   review) is stored on `globalThis` via `Symbol.for("codeflare.activeRepo")`
-  and `Symbol.for("codeflare.reviewRepo")`, because Pi 0.79.1's extension
-  loader (`createJiti` with `moduleCache:false`) gives each extension its own
-  instance of every imported module — a module-level variable written by
-  `codeflare-pi.ts` is not visible to `review-enforcement.ts` or
-  `local-statusline.ts`. The same pattern backs the `gh pr view` result cache
+  and `Symbol.for("codeflare.reviewRepo")`. Pi 0.79.1's extension loader
+  (`createJiti` with `moduleCache:false`) gives each extension its own module
+  instance, so module-local state written by `codeflare-pi.ts` is invisible to
+  `review-enforcement.ts` and `local-statusline.ts`.
+
+  The same `globalThis` pattern backs the `gh pr view` result cache
   (`Symbol.for("codeflare.prCache")`), with an asymmetric TTL (60 s for OPEN
   PRs, 10 s for negative/missing) keyed on repo + branch so a checkout
-  invalidates promptly, and two per-session signals that decide whether a missed
-  boundary **auto-starts** review or merely **offers** it. The PRIMARY signal is
-  `Symbol.for("codeflare.reviewBoundaryActedThisSession")` — the set of
-  repo+branch keys for which a real boundary command (push / `gh pr create`) ran
-  this session, recorded in `onToolEnd` before any window-creation guard so a
-  dropped window still proves this session pushed. The BACKSTOP is the per-session,
-  per-branch baseline `Symbol.for("codeflare.reviewSessionBaselineHead")` — the
-  head this session first observed on a branch (seeded once, deliberately NOT
-  advanced on ack), so a later in-session push to a descendant still reads as an
-  advance even if a module reload ate the tool-event. A head matching **either**
-  signal auto-starts; a head matching **neither** — inherited by a fresh
-  launch/clone or reached by a bare `git checkout` of another branch — is
-  **offered once** as a passive `ctx.ui.notify` toast only — never as a
-  chat/transcript message (a chat-visible offer is agent-readable, so the agent
-  reads "Run /review-run …" as an instruction and spirals into acting on it after
-  a clone-only request) — and stays merge-blocking until the user runs
-  `/review-run` or `/review-skip`. The offer is deduped per session
-  (`Symbol.for("codeflare.reviewOfferSurfacedThisSession")`), so a relaunch on a
-  still-unchosen offer re-surfaces it exactly once rather than suppressing it
-  forever. After reloads where Pi's cwd is the parent workspace, the active-repo
-  fallback can recover a nested SDD repo from the persisted review/graphify
-  active-repo markers; review routing revalidates both remembered and persisted
-  candidates as git repos under the session roots with an SDD marker before it
-  can query `gh pr view` or affect merge gating. For ctx-bearing user/lifecycle
-  routing, the current active repo beats a previously remembered review repo, so
-  switching work from repo A to repo B does not keep `/review-run` or reconciliation
-  stuck on repo A; the no-ctx reaper separately iterates the remembered review-repo
-  set to finish all in-flight reviews. When `/review-run` cannot resolve the active repo it reports the Pi
-  session cwd and tells the user to run a command inside the target repo first
-  (so it becomes the active repo) and retry. On the `git push` / `gh pr create`
-  boundary path specifically, enforcement fails open if `gh pr view` returns an
-  OPEN PR with an empty `baseRefName` (a transient `gh`/`jq` parsing edge) — the
-  PR is treated as targeting `main`/`master` rather than silently skipping
-  review, and the review window persists `"main"` as a concrete base-label
-  fallback so the pending record stays readable on reload (an empty label makes
-  `loadPending` reject the row). That label is coarse — a `master`-based PR still
-  records `"main"` — but harmless, because the review's diff scope is anchored by
-  the SHA `reviewBase`, never by this branch label. The autonomous
-  reconcile tick keeps the stricter non-empty-base check, and the `gh pr merge`
-  gate reads PR state cache-bypassed and **fails closed** (blocks the merge) when
-  `gh pr view` is unreadable while an unacked review is pending for the local head.
+  invalidates promptly. Two per-session signals then decide whether a missed
+  boundary **auto-starts** review or merely **offers** it.
+
+  The primary signal is `Symbol.for("codeflare.reviewBoundaryActedThisSession")`:
+  repo+branch keys for which a real boundary command ran this session. The
+  backstop is `Symbol.for("codeflare.reviewSessionBaselineHead")`: the head first
+  observed on a branch, seeded once and not advanced on ack. A head matching either
+  signal auto-starts review.
+
+  A head matching neither signal is offered once as a passive `ctx.ui.notify`
+  toast, never as a chat/transcript message, and stays merge-blocking until the
+  user runs `/review-run` or `/review-skip`. The offer is deduped per session via
+  `Symbol.for("codeflare.reviewOfferSurfacedThisSession")`, so a relaunch on a
+  still-unchosen offer re-surfaces it exactly once.
+
+  After reloads where Pi's cwd is the parent workspace, the active-repo fallback
+  can recover a nested SDD repo from remembered review state or persisted active
+  repo markers. Ctx-bearing routing prefers the current active repo over a
+  remembered review repo; the no-ctx reaper separately iterates remembered review
+  repos so all in-flight reviews can finish.
+
+  When `/review-run` cannot resolve the active repo it reports the Pi session cwd
+  and tells the user to run a command inside the target repo first, then retry.
+
+  On the `git push` / `gh pr create` boundary path specifically, enforcement fails
+  open if `gh pr view` returns an OPEN PR with an empty `baseRefName` (a transient
+  `gh`/`jq` parsing edge). The PR is treated as targeting `main`/`master`, and the
+  review window persists `"main"` as a concrete base-label fallback so the pending
+  record stays readable on reload.
+
+  That label is coarse — a `master`-based PR still records `"main"` — but harmless,
+  because the review's diff scope is anchored by the SHA `reviewBase`, never by
+  this branch label. The autonomous reconcile tick keeps the stricter non-empty-base
+  check, and the `gh pr merge` gate fails closed when `gh pr view` is unreadable
+  while an unacked review is pending for the local head.
 
   The merge gate is **report-only and defended in depth** ([AD80](../decisions/README.md#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth)).
   It blocks a merge until the reviewed head is **acked** — i.e. until the required
@@ -464,10 +459,9 @@ All preseed content is deployed via the manifest pipeline:
   [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-and-result-formatting).
 
   Delivering that summary back into the live session is a separate, durable phase.
-  The review can finalize off-turn (the idle reaper has no live session loop), where
-  `pi.sendMessage` silently no-ops. Finalization therefore arms a per-`(head, kind)`
-  durable announcement record under `.git/codeflare-review-jobs/<head>/announcements/`
-  instead of firing a one-shot message. Implements
+  Finalization arms a per-`(head, kind)` durable announcement record under
+  `.git/codeflare-review-jobs/<head>/announcements/` instead of firing a one-shot
+  message. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
   AC1; source: `review-enforcement.ts::finalizeCompletedReview` and
   `review-jobs.ts::ensureReviewAnnouncementPending`.
@@ -488,17 +482,21 @@ All preseed content is deployed via the manifest pipeline:
 
   The summary itself is sent with plain `pi.sendMessage` and no `triggerTurn` /
   `deliverAs`, using the same synchronous append path as `/review-results`. That send
-  only runs when a live session context exists and `pi.isIdle()` is true, so stale
-  off-turn senders and streaming turns leave the announcement pending. Implements
+  may run from an idle reaper tick without a user-turn context, but still defers while
+  the agent is mid-turn. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
   AC6.
 
-  If the agent is mid-turn, `sendAnnouncement` returns `{ sent: false }` and the drain
-  loop retries on the next idle lifecycle event. A summary still undelivered past
-  30 minutes escalates to `/review-results`. That age backstop is summary-only; the
-  autofix announcement terminates by head supersede or the attempt cap, never age alone.
-  Implements [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
+  Autofix delivery still requires live session context because it starts a follow-up
+  turn. A non-deliverable autofix remains pending for a later ctx-bearing lifecycle
+  tick; it terminates by head supersede or the attempt cap, never age alone. Implements
+  [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
   AC7.
+
+  An announcement that exhausts its capped retry window without its nonce appearing
+  is marked failed and points the user at `/review-results`. Implements
+  [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
+  AC8.
 
   The autofix request still uses `triggerTurn`/`followUp` because it intentionally
   triggers a fix turn. Its prompt now carries the user's no-push constraint through:
@@ -867,11 +865,17 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 ### Resetting Review-Spawn Checkpoints
 
-The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Its transcript-based trigger surface is `git push`, `gh pr merge`, and protected-base `gh pr edit --base main|master`; `git-push-review-reminder.sh` handles the in-turn `git push` / `gh pr create` / protected-base `gh pr edit` reminder path. Pi native enforcement covers the wider local command set (`git push`, `git -C <repo> push`, command-local `cd <repo>` prefixes separated by `&&`, semicolon, or newline, `gh pr create`, protected-base `gh pr edit`, `gh pr merge`, `gh pr update-branch`, and `gh repo sync`) and ignores metadata-only PR commands. Passive lifecycle events such as opening a repo, switching branches, reloading Pi, or ending a normal assistant turn do not create a review window solely because the current branch already has an open protected-base PR. All surfaces enforce only when the open PR targets `main` or `master`. PRs into intermediate branches (`develop`, `staging`) are silently deferred until that branch's own PR-to-`main` opens.
+The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Its transcript-based trigger surface is `git push`, `gh pr merge`, and protected-base `gh pr edit --base main|master`; `git-push-review-reminder.sh` handles the in-turn reminder path for `git push`, `gh pr create`, and protected-base `gh pr edit`.
 
-On Pi's boundary fast path, shell start-args are captured on BOTH the `tool_call` and `tool_execution_start` events (keyed by the same tool id). Separately, same-tool PR-boundary commands are remembered only when they are actual triggers (`git push`, `gh pr create`/protected-base `gh pr edit`, `gh pr update-branch`, `gh repo sync`) and are recovered at `tool_result` if the successful end event loses command text. Protected-base `gh pr edit <selector>` reads that explicit PR selector, not the current branch; a foreign `--repo` target is ignored by this repo's gate. Clone-only setup is not a trigger and is never recovered as one. This is a Pi-only mechanism; the Claude `Stop` hook is unaffected because it receives the completed command from the shell rather than from Pi's event sequencing.
+Pi native enforcement covers the wider local command set (`git push`, `git -C <repo> push`, command-local `cd <repo>` prefixes, `gh pr create`, protected-base `gh pr edit`, `gh pr merge`, `gh pr update-branch`, and `gh repo sync`) and ignores metadata-only PR commands. Passive lifecycle events never create a review window solely because the current branch already has an open protected-base PR. All surfaces enforce only when the open PR targets `main` or `master`; intermediate-branch PRs are deferred until their PR-to-`main` opens.
 
-If a successful `bash` result still arrives with no recoverable command, Pi writes a deduped `boundary_tool_end_ignored` row with reason `missing_command_text_after_success` (distinct from the `no_resolvable_head` / `dedupe_skipped` reasons the confirmed-enforced near-miss path stamps under the same event name — see [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery) AC6 for those two reasons) to the repo's review-event log (`.git/codeflare-review-events.jsonl`) and immediately forces fresh PR-state reconciliation. The reconcile action still requires a real protected-base PR and the existing in-session-advance signal, so clone-only inherited PRs can offer but do not auto-start. Implements [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC7 and [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery) AC1.
+On Pi's boundary fast path, shell start-args are captured on both the `tool_call` and `tool_execution_start` events, keyed by the same tool id. Same-tool PR-boundary commands are remembered only when they are actual triggers and are recovered at `tool_result` if the successful end event loses command text.
+
+Protected-base `gh pr edit <selector>` reads that explicit PR selector, not the current branch; a foreign `--repo` target is ignored by this repo's gate. Clone-only setup is not a trigger and is never recovered as one. This is a Pi-only mechanism; the Claude `Stop` hook is unaffected because it receives the completed command from the shell.
+
+If a successful `bash` result still arrives with no recoverable command, Pi writes a deduped `boundary_tool_end_ignored` row with reason `missing_command_text_after_success` to `.git/codeflare-review-events.jsonl` and immediately forces fresh PR-state reconciliation.
+
+That reason is distinct from the `no_resolvable_head` / `dedupe_skipped` reasons stamped by the confirmed-enforced near-miss path; see [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery) AC6. Reconciliation still requires a real protected-base PR and the in-session-advance signal, so clone-only inherited PRs can offer but do not auto-start. Implements [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC7 and [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery) AC1.
 
 Pi's broader post-command backstop runs after successful shell commands that invoke `git` or `gh`, including wrapper forms such as `env VAR=value git ...`, `env -u NAME VAR=value gh ...`, and `timeout 60 gh ...`. That path bypasses the PR cache before reading GitHub PR state, so an unclassified push cannot be hidden behind a stale cached PR head. Implements [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery) AC1; source: `review-helpers.ts::postCommandReconcileDecision` and `review-enforcement.ts::reconcileOpenPrReview`.
 
