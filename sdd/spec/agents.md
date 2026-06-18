@@ -1014,7 +1014,7 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
 <!-- @test: host/__tests__/git-push-review-reminder.test.js (PR-OPEN / PR-SYNC base gating -> AC1/AC4; MCP shell input shapes -> REQ-AGENT-063) + host/__tests__/enforce-review-spawn.test.js (PR state gating -> AC1; vibe-coding gate exits silently -> AC6; MCP shell input shapes -> REQ-AGENT-063) + src/__tests__/lib/agent-seed-manifest.test.ts (metadata-lag base inference -> AC5; bounded open-PR reconciliation, not passive branch existence -> AC6; missed boundary recovery -> AC7) -->
 
-**Intent:** Review agents must fire only on PR-boundary events that actually target shipping code. Trigger evaluation gates parsed boundary commands against real PR state, ignores integration-branch and no-PR work, and leaves direct `main` protection to upstream branch rules. Command parsing lives in [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing); lane classification + agent dispatch live in [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch); bypass surfaces live in [REQ-AGENT-041](#req-agent-041-pr-boundary-review-bypass-surfaces).
+**Intent:** Review agents must fire only on PR-boundary events that actually target shipping code. Trigger evaluation gates parsed boundary commands against real PR state, ignores integration-branch and no-PR work, and leaves direct `main` protection to upstream branch rules. Command parsing lives in [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing), command targeting/recovery lives in [REQ-AGENT-066](#req-agent-066-pr-boundary-command-targeting-and-failure-recovery), lane classification + agent dispatch live in [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch), and bypass surfaces live in [REQ-AGENT-041](#req-agent-041-pr-boundary-review-bypass-surfaces).
 
 **Applies To:** User
 
@@ -1034,7 +1034,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing), [REQ-AGENT-066](#req-agent-066-pr-boundary-explicit-head-targeting)
+**Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing), [REQ-AGENT-066](#req-agent-066-pr-boundary-command-targeting-and-failure-recovery)
 
 **Verification:** [Automated test](../../host/__tests__/git-push-review-reminder.test.js), [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [`gh pr edit` retarget trigger tests](../../src/__tests__/lib/review-trigger.test.ts)
 
@@ -1042,21 +1042,27 @@ None.
 
 ---
 
-### REQ-AGENT-066: PR-Boundary Explicit Head Targeting
+### REQ-AGENT-066: PR-Boundary Command Targeting and Failure Recovery
 
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::handlePrBoundaryCommand -->
+<!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prEditCommandTarget -->
+<!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prUpdateBranchCommandTarget -->
+<!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prCreateCommandTarget -->
+<!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::gitPushCommandTarget -->
 <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::boundaryFallbackHead -->
-<!-- @test: src/__tests__/lib/review-trigger.test.ts (explicit edit/update/push target extraction and selected-head fallback -> AC1) -->
-<!-- @test: src/__tests__/lib/review-state.test.ts (agentHeadAdvanceRequiresReview starts only when an enforced unacked head changes -> AC2) -->
+<!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::commandTextFromEvent -->
+<!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isFailedToolExecution -->
+<!-- @test: src/__tests__/lib/review-trigger.test.ts (REQ-AGENT-066 explicit target extraction, same-segment protected boundary parsing, batched command selection, and failed execution detection -> AC1/AC2/AC3) -->
 
-**Intent:** PR-boundary review targets the PR head that was actually advanced, even when the command names an explicit PR/branch or a child Agent process performs the push outside the parent session's Bash event stream.
+**Intent:** Once [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing) identifies a boundary-shaped command, Pi must recover the exact PR/head that command targeted and must ignore failed tool executions. This keeps review windows attached to the PR the user actually advanced instead of the current checkout.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Explicit `gh pr edit <selector> --base main|master`, `gh pr update-branch <selector>`, and explicit push-refspec commands target the selected PR branch/head instead of blindly reviewing the current checkout. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prEditCommandTarget --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prUpdateBranchCommandTarget --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::gitPushCommandTarget --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::boundaryFallbackHead --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::handlePrBoundaryCommand -->
-2. If an Agent/subagent tool advances the enforced PR head, Pi starts the same PR-boundary review even though the subagent's internal `git push` was not visible as a main-session Bash tool event. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::rememberAgentStartHead --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reconcileAgentHeadAdvance --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::agentHeadAdvanceRequiresReview -->
+1. Explicit `gh pr edit <selector> --base main|master`, `gh pr update-branch <selector>`, non-draft/non-dry-run `gh pr create --head <branch>`, and explicit push-refspec commands target the selected PR branch/head instead of blindly reviewing the current checkout; in compound shell commands, the target comes from the same protected-boundary segment that triggered review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prEditCommandTarget --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prUpdateBranchCommandTarget --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prCreateCommandTarget --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::gitPushCommandTarget --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::boundaryFallbackHead --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::handlePrBoundaryCommand --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (explicit edit/update/create/push target extraction and selected-head fallback -> AC1) -->
+2. Batched command extraction prefers the first real PR-boundary trigger over broader non-trigger boundary words, so an earlier non-protected create or merge gate command cannot hide a later protected push/create/edit. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::commandTextFromEvent --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::commandTextsFromEvent --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (batched non-trigger before push still selects push -> AC2) -->
+3. Failed tool execution detection treats failed/failure statuses and nonzero exit codes as failed boundaries, so a failed push cannot create review state. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isFailedToolExecution --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (failed status and nonzero exit code -> AC3) -->
 
 **Constraints:**
 
@@ -1064,9 +1070,9 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-discipline), [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing)
+**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing)
 
-**Verification:** [`review-trigger.test.ts`](../../src/__tests__/lib/review-trigger.test.ts), [`review-state.test.ts`](../../src/__tests__/lib/review-state.test.ts)
+**Verification:** [`review-trigger.test.ts`](../../src/__tests__/lib/review-trigger.test.ts)
 
 **Status:** Implemented
 
@@ -1091,9 +1097,6 @@ None.
 5. Non-advancing push forms (`--dry-run`, `-n`, `--delete`, `-d`, tag-only pushes, and delete-only refspecs) are excluded; branch refspecs expose the target PR branch. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::gitPushCommandTarget --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isGitPushOnlyCommand --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (dry-run/delete/tag-only exclusion and refspec branch extraction -> AC5) -->
 6. Quoted text and non-shell tool bodies containing boundary-looking strings are ignored. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::commandTextFromEvent --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (printf/rg false-positive guards -> AC6) -->
 7. Command wrappers are parsed structurally rather than with wrapper-heavy regular expressions. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::unwrapCommandWords --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (wrapper parsing -> AC7) -->
-8. Batched command extraction prefers the first real PR-boundary trigger over broader non-trigger boundary words, so an earlier non-protected create or merge gate command cannot hide a later protected push/create/edit. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::commandTextFromEvent --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::commandTextsFromEvent --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (batched non-trigger before push still selects push -> AC8) -->
-9. Failed tool execution detection treats failed/failure statuses and nonzero exit codes as failed boundaries, so a failed push cannot create review state. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isFailedToolExecution --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (failed status and nonzero exit code -> AC9) -->
-
 **Constraints:**
 
 None.
@@ -1323,7 +1326,7 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-062 delivery announcement nonce/retry/reconcile/send decision helpers, pending-head rediscovery, and acked-head delivery selection -> AC2/AC3/AC6/AC7/AC8) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-062 delivery announcement nonce/retry/reconcile/send decision helpers, pending-head rediscovery, and acked-head delivery selection -> AC2/AC3/AC6/AC7) -->
 
 **Intent:** A completed PR-boundary review must reliably DELIVER its merged summary back into the main Pi session, not just ack the head and write `summary.md` to disk. Delivery is therefore a SECOND, separately-tracked durable phase: a send is never assumed delivered — it is proven against the transcript, retried, observable, and has a manual fallback, so a review's findings are never acked-and-lost. Review execution and lane finalization live in [REQ-AGENT-054](#req-agent-054-pi-durable-review-lane-failure-handling)/[REQ-AGENT-061](#req-agent-061-pi-idle-durable-review-reaper); summary formatting in [REQ-AGENT-053](#req-agent-053-pi-durable-review-status-and-result-formatting).
 
@@ -1480,6 +1483,7 @@ None.
 4. Boundary-command and reconciliation paths call one shared routine, so windows match in lanes, base, durable job, and audit trail. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ensureReviewWindow -->
 5. Head resolution tolerates GitHub metadata lag only for a pushed local head on the PR branch. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::resolveEnforcedHead --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::enforcedHeadDecision --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (enforcedHeadDecision pushed-vs-unpushed table -> AC5) -->
 6. Skipped boundary candidates and PR-URL fallback events leave durable audit entries, so missed review starts are diagnosable. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::onToolEnd --> <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::appendReviewEvent --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prUrlFromText --> <!-- @test: src/__tests__/lib/review-state.test.ts (suppressed reconcile gates name a distinct non-empty reason -> AC6) -->
+7. If an Agent/subagent tool advances the enforced PR head, Pi starts the same PR-boundary review even though the subagent's internal `git push` was not visible as a main-session Bash tool event. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::rememberAgentStartHead --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reconcileAgentHeadAdvance --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::isAgentSpawnerToolEvent --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::agentHeadAdvanceRequiresReview --> <!-- @test: src/__tests__/lib/review-state.test.ts (Agent/subagent event shapes and head-advance gate -> AC7) -->
 
 **Constraints:**
 
