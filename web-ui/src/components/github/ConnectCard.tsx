@@ -1,4 +1,5 @@
 import { Component, Show, createSignal } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import { mdiGithub } from '@mdi/js';
 import Icon from '../Icon';
 import TierChooserDialog from '../connect/TierChooserDialog';
@@ -57,16 +58,23 @@ const ConnectCard: Component = () => {
         <Icon path={mdiGithub} size={16} />
         <span>Connect GitHub</span>
       </button>
+      {/* Portal escapes .dashboard-panel's backdrop-filter, which otherwise
+          becomes the containing block for the dialog's position:fixed (mirrors
+          how Dashboard.tsx mounts CreateSessionDialog — the "+ New Session"
+          picker). Without it the popover/bottom-sheet positions against the
+          panel box instead of the viewport. */}
       <Show when={!sessionStore.enterpriseMode}>
-        <TierChooserDialog
-          open={dialogOpen()}
-          onClose={() => setDialogOpen(false)}
-          anchorRef={btnRef()}
-          provider="github"
-          tiers={GITHUB_TIERS}
-          selected={tier()}
-          onPick={onPick}
-        />
+        <Portal>
+          <TierChooserDialog
+            open={dialogOpen()}
+            onClose={() => setDialogOpen(false)}
+            anchorRef={btnRef()}
+            provider="github"
+            tiers={GITHUB_TIERS}
+            selected={tier()}
+            onPick={onPick}
+          />
+        </Portal>
       </Show>
     </div>
   );
