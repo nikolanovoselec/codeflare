@@ -410,7 +410,7 @@ describe('useTerminal hook', () => {
       dispose();
     });
 
-    it('REQ-TERM-011: clears a queued resize-authority claim when the pane loses focus', async () => {
+    it('REQ-TERM-014: clears a queued resize-authority claim when the pane loses focus', async () => {
       vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
       const [focused, setFocused] = createSignal(true);
 

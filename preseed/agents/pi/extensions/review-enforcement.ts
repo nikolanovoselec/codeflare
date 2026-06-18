@@ -1103,7 +1103,7 @@ export default function (pi: ExtensionAPI) {
   // A subagent runs in a separate Pi process, so its internal `git push` never appears as a bash tool
   // event in this main session. Capture the enforced PR head before the Agent tool starts, then compare
   // after it ends; a changed head is a real in-session boundary even though no shell event was observed.
-  const agentStartHeads = new Map<string, { repo: string; head: string }>();
+  const agentStartHeads = new Map<string, { repo: string; head: string; known: boolean }>();
 
   pi.registerMessageRenderer("pr-boundary-review-result", () => new Text("", 0, 0));
   pi.registerMessageRenderer("pr-boundary-review-summary", () => new Text("", 0, 0));
@@ -1278,7 +1278,7 @@ export default function (pi: ExtensionAPI) {
             || createTarget.headBranch
             || selectedPushTarget.branch;
         const targetsExplicitPr = Boolean(explicitSelector || repoSlug);
-        const requiresExistingSelectedPr = Boolean(explicitSelector);
+        const requiresExistingSelectedPr = Boolean(explicitSelector && !createTarget.headBranch);
         const prRes = targetsExplicitPr ? prStateFreshResult(repo, explicitSelector, repoSlug) : prStateFreshResult(repo);
         // Explicit targets own their own head. The current checkout may be a different branch, especially
         // for `gh pr edit 563 --base main`, `gh pr update-branch 563`, or `git push origin feature:pr`.
@@ -1855,9 +1855,10 @@ export default function (pi: ExtensionAPI) {
     if (!id || agentStartHeads.has(id)) return;
     const repo = reviewRepoForCtx(ctx);
     if (!repo || !isSddProject(repo)) return;
-    const pr = prStateFreshResult(repo).pr;
+    const prRes = prStateFreshResult(repo);
+    const pr = prRes.pr;
     const head = isEnforcedPr(pr) ? resolveEnforcedHead(repo, pr) : "";
-    agentStartHeads.set(id, { repo, head });
+    agentStartHeads.set(id, { repo, head, known: !prRes.failed });
   };
 
   const reconcileAgentHeadAdvance = async (event: any, ctx: any): Promise<boolean> => {
@@ -1865,7 +1866,7 @@ export default function (pi: ExtensionAPI) {
     const id = toolEventId(event);
     const before = id ? agentStartHeads.get(id) : undefined;
     if (id) agentStartHeads.delete(id);
-    if (!before) return false;
+    if (!before || !before.known) return false;
     const pr = prStateFreshResult(before.repo).pr;
     const enforced = isEnforcedPr(pr);
     const head = enforced ? resolveEnforcedHead(before.repo, pr) : "";
@@ -2094,8 +2095,7 @@ export default function (pi: ExtensionAPI) {
     const toolName = String(event?.toolName || event?.tool_name || "").toLowerCase();
     if (isFailedToolExecution(event)) {
       consumeBoundaryStartCommand(event);
-      const failedAgentId = toolEventId(event);
-      if (failedAgentId) agentStartHeads.delete(failedAgentId);
+      if (isAgentSpawnerToolEvent(event)) await reconcileAgentHeadAdvance(event, ctx);
       return;
     }
 

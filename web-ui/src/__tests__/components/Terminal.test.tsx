@@ -76,6 +76,8 @@ vi.mock('../../stores/terminal', () => ({
     connect: vi.fn(() => vi.fn()),
     disconnect: vi.fn(),
     resize: vi.fn(),
+    claimResizeAuthority: vi.fn(),
+    clearPendingResizeAuthority: vi.fn(),
     // FitAddon management for layout changes
     registerFitAddon: vi.fn(),
     unregisterFitAddon: vi.fn(),

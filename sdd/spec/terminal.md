@@ -376,7 +376,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (visible pane ownership describe -> dashboard zero panes + single-session one pane -> AC1,2) -->
 <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (TerminalArea describe -> dashboard no terminals + visible single pane + MultiView panes only + single-pane teardown -> AC1,2,3,4) -->
 <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (useTerminal connection gating describe -> connect=false no WS + focused=false clears stale focus + focused pane claims resize authority -> AC3,7) -->
-<!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store describe -> visible-key reconnect filter + queued focus before initial resize + stale queued focus clearing + focus ownership control frame -> AC4,6,7) -->
+<!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store describe -> visible-key reconnect filter + queued focus before initial resize + focus ownership control frame -> AC4,6,7) -->
 ### REQ-TERM-011: Visible terminal panes own WebSocket connections
 
 **Intent:** Terminal WebSockets are opened only for terminal panes that are visible in the current browser workspace, preventing hidden sessions from attaching to PTYs and sending stale resize or input traffic.
@@ -489,6 +489,8 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 <!-- @impl: host/src/session.ts::claimResizeAuthority -->
 <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (useScrollCorrection / REQ-TERM-014 describe -> bottom re-anchor + user scroll preservation -> AC1,2,3) -->
 <!-- @test: host/__tests__/session-resize-authority.test.js (Session resize authority / REQ-TERM-014 describe -> foreground owner only + detach promotion -> AC6) -->
+<!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store describe -> stale queued focus clearing -> AC7) -->
+<!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (useTerminal focus handling -> queued focus clearing -> AC7) -->
 ### REQ-TERM-014: Terminal scroll anchoring under scrollback trimming
 
 **Intent:** Long-running terminal output remains stable when scrollback is trimmed, so following output stays at the prompt and user-scrolled views do not jump unexpectedly.
@@ -503,6 +505,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 4. Resizing a visible terminal preserves the user's scroll anchor. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
 5. Visible terminal resize frames carry the current fitted dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
 6. Hidden or disconnected terminals do not send resize frames. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::resize -->
+7. A pane that loses focus before WebSocket open clears any queued focus claim. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::clearPendingResizeAuthority -->
 
 **Constraints:**
 

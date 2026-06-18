@@ -86,6 +86,8 @@ describe('command target parsing for PR-boundary recovery (REQ-AGENT-063 / REQ-A
     expect(gitPushCommandTarget('git push origin HEAD:multiview')).toEqual({ advancing: true, branch: 'multiview', source: 'HEAD', targets: [{ branch: 'multiview', source: 'HEAD' }] });
     expect(gitPushCommandTarget('git push origin feature:refs/heads/multiview')).toEqual({ advancing: true, branch: 'multiview', source: 'feature', targets: [{ branch: 'multiview', source: 'feature' }] });
     expect(gitPushCommandTarget('git push origin already-reviewed multiview')).toEqual({ advancing: true, branch: 'already-reviewed', source: 'already-reviewed', targets: [{ branch: 'already-reviewed', source: 'already-reviewed' }, { branch: 'multiview', source: 'multiview' }] });
+    expect(gitPushCommandTarget('git push origin HEAD')).toEqual({ advancing: true, branch: undefined, source: undefined, targets: undefined });
+    expect(gitPushCommandTarget('git push origin @')).toEqual({ advancing: true, branch: undefined, source: undefined, targets: undefined });
     expect(gitPushCommandTarget('git push origin :oldbranch')).toEqual({ advancing: false });
     expect(gitPushCommandTarget('git push --tags')).toEqual({ advancing: false });
     expect(gitPushCommandTarget('git push origin --tags')).toEqual({ advancing: false });

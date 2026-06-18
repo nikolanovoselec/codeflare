@@ -221,7 +221,9 @@ function pushFlagTakesValue(flag: string): boolean {
 
 function pushRefspecTarget(refspec: string): { branch: string; source?: string } | undefined {
   const clean = refspec.replace(/^\+/, "");
-  const [rawSource, rawTarget = rawSource] = clean.includes(":") ? clean.split(":", 2) : [clean, clean];
+  const hasExplicitTarget = clean.includes(":");
+  const [rawSource, rawTarget = rawSource] = hasExplicitTarget ? clean.split(":", 2) : [clean, clean];
+  if (!hasExplicitTarget && (rawTarget === "HEAD" || rawTarget === "@")) return undefined;
   if (!rawTarget || rawTarget.startsWith("refs/tags/")) return undefined;
   const branch = rawTarget.startsWith("refs/heads/") ? rawTarget.slice("refs/heads/".length) : rawTarget;
   const source = rawSource && rawSource.startsWith("refs/heads/") ? rawSource.slice("refs/heads/".length) : rawSource;

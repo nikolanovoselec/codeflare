@@ -276,7 +276,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff u
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it('REQ-TERM-011: clears a stale queued focus claim before WebSocket open', async () => {
+    it('REQ-TERM-014: clears a stale queued focus claim before WebSocket open', async () => {
       const terminal = {
         ...createMockTerminal(),
         cols: 132,
