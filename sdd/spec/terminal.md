@@ -75,7 +75,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 2. The Worker upgrades the HTTP request to a WebSocket and forwards it through the Container DO to the in-container terminal server. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade -->
 3. The terminal server spawns a login shell PTY with full-color terminal emulation so interactive TUI applications render correctly. <!-- @impl: host/src/session.ts::Session -->
 4. Raw terminal data flows over the WebSocket without JSON wrapping so binary-clean PTY output is preserved. <!-- @impl: host/src/session.ts::Session -->
-5. Out-of-band control messages (resize, process-name, restore) are encoded as JSON objects identifiable by a leading type-discriminator field. <!-- @impl: host/src/session.ts::Session -->
+5. Out-of-band control messages (resize, process-name, restore, and client-requested PTY termination) are encoded as JSON objects identifiable by a leading type-discriminator field. <!-- @impl: host/src/session.ts::Session --> <!-- @impl: host/src/server.ts::wss --> <!-- @impl: web-ui/src/stores/terminal.ts::dispose -->
 6. Unknown control-message types are silently ignored so the wire protocol can grow without breaking older clients or servers. <!-- @impl: host/src/session.ts::Session -->
 7. No application-level ping/pong is implemented; the transport layer handles WebSocket keepalive on its own. <!-- @impl: host/src/session.ts::Session -->
 
@@ -505,7 +505,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 4. Resizing a visible terminal preserves the user's scroll anchor. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
 5. Visible terminal resize frames carry the current fitted dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
 6. Hidden or disconnected terminals do not send resize frames. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::resize -->
-7. A pane that loses focus before WebSocket open clears any queued focus claim. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::clearPendingResizeAuthority -->
+7. A pane that loses focus before its terminal connection opens does not claim resize authority when that connection later opens. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::clearPendingResizeAuthority -->
 
 **Constraints:**
 

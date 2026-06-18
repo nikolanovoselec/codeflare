@@ -212,19 +212,19 @@ function isBoundaryWords(words: ShellCommand): boolean {
 // wrapper grammars here: they caused both misses (`env VAR=... git ...`) and a
 // CodeQL ReDoS warning around nested `timeout`/`env` wrappers.
 // ---------------------------------------------------------------------------
-export type GitPushRefspecTarget = { branch: string; source?: string };
+export type GitPushRefspecTarget = { branch?: string; source?: string };
 export type GitPushCommandTarget = { branch?: string; source?: string; targets?: GitPushRefspecTarget[]; advancing: boolean };
 
 function pushFlagTakesValue(flag: string): boolean {
   return flag === "--repo" || flag === "--receive-pack" || flag === "--exec" || flag === "--push-option" || flag === "-o";
 }
 
-function pushRefspecTarget(refspec: string): { branch: string; source?: string } | undefined {
+function pushRefspecTarget(refspec: string): GitPushRefspecTarget | undefined {
   const clean = refspec.replace(/^\+/, "");
   const hasExplicitTarget = clean.includes(":");
   const [rawSource, rawTarget = rawSource] = hasExplicitTarget ? clean.split(":", 2) : [clean, clean];
-  if (!hasExplicitTarget && (rawTarget === "HEAD" || rawTarget === "@")) return undefined;
   if (!rawTarget || rawTarget.startsWith("refs/tags/")) return undefined;
+  if (!hasExplicitTarget && (rawTarget === "HEAD" || rawTarget === "@")) return { source: rawTarget };
   const branch = rawTarget.startsWith("refs/heads/") ? rawTarget.slice("refs/heads/".length) : rawTarget;
   const source = rawSource && rawSource.startsWith("refs/heads/") ? rawSource.slice("refs/heads/".length) : rawSource;
   return { branch, source: source || undefined };

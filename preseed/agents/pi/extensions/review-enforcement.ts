@@ -631,6 +631,16 @@ function remoteBranchHead(repo: string, branch: string): string | undefined {
   return refHead(repo, `refs/remotes/origin/${branch}`);
 }
 
+function branchNameFromHeadRef(headRef: string): string {
+  return headRef.includes(":") ? headRef.slice(headRef.lastIndexOf(":") + 1) : headRef;
+}
+
+function headForCreateBranch(repo: string, headRef: string): string | undefined {
+  const branch = branchNameFromHeadRef(headRef);
+  if (!branch || branch === "HEAD" || branch === "@") return localHead(repo);
+  return refHead(repo, branch) || refHead(repo, `refs/heads/${branch}`) || remoteBranchHead(repo, branch);
+}
+
 // Normalize a repo reference (a remote URL, OWNER/REPO, or HOST/OWNER/REPO) to lowercase OWNER/REPO.
 function normalizeRepoSlug(slug: string): string {
   const parts = slug.replace(/\.git$/i, "").split("/").filter(Boolean);
@@ -660,12 +670,12 @@ function isGitPushCommand(command: string): boolean {
   return isLocalGitPushCommand(command) || /(^|[;&|\n]\s*)gh\s+repo\s+sync\b/.test(command);
 }
 
-function prForBoundaryCommand(repo: string, command: string, pr: PrState | undefined, options?: { preferPrHead?: boolean }): PrState | undefined {
+function prForBoundaryCommand(repo: string, command: string, pr: PrState | undefined, options?: { preferPrHead?: boolean; fallbackHead?: string }): PrState | undefined {
   if (isEnforcedPr(pr)) return pr;
   const base = prBoundaryCommandBase(command, pr?.baseRefName);
   if (!base) return pr;
   const head = boundaryFallbackHead({
-    localHead: localHead(repo),
+    localHead: options?.fallbackHead || localHead(repo),
     prHead: pr?.headRefOid,
     preferPrHead: options?.preferPrHead,
   });
@@ -1280,13 +1290,17 @@ export default function (pi: ExtensionAPI) {
         const targetsExplicitPr = Boolean(explicitSelector || repoSlug);
         const requiresExistingSelectedPr = Boolean(explicitSelector && !createTarget.headBranch);
         const prRes = targetsExplicitPr ? prStateFreshResult(repo, explicitSelector, repoSlug) : prStateFreshResult(repo);
+        const createFallbackHead = createTarget.headBranch ? headForCreateBranch(repo, createTarget.headBranch) : undefined;
         // Explicit targets own their own head. The current checkout may be a different branch, especially
         // for `gh pr edit 563 --base main`, `gh pr update-branch 563`, or `git push origin feature:pr`.
         // Prefer selected PR metadata in that case; use local HEAD only for current-branch push/create lag.
         // A same-repo `gh pr create --repo owner/repo --base main` has no selector, so it still gets the
         // local-HEAD metadata-lag fallback; an explicit selector that cannot be read must not review local HEAD.
         const prefersPrHead = Boolean(editTarget.prNumber !== undefined || editTarget.prBranch || updateTarget.prNumber !== undefined || updateTarget.prBranch || createTarget.headBranch || selectedPushTarget.branch);
-        const pr = requiresExistingSelectedPr && !prRes.pr ? undefined : prForBoundaryCommand(repo, targetCommand, prRes.pr, { preferPrHead: prefersPrHead });
+        const canSynthesizeCreateHead = !createTarget.headBranch || Boolean(createFallbackHead);
+        const pr = (requiresExistingSelectedPr && !prRes.pr) || (!prRes.pr && !canSynthesizeCreateHead)
+          ? undefined
+          : prForBoundaryCommand(repo, targetCommand, prRes.pr, { preferPrHead: prefersPrHead, fallbackHead: createFallbackHead });
         if (!isEnforcedPrForPush(pr)) {
           // P4: gh was unreadable (transient), not a confirmed absence — a real boundary command still ran.
           // Record that this session pushed this branch (so reconciliation AUTOSTARTS once gh recovers rather

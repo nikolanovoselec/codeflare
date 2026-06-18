@@ -284,10 +284,25 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff u
       } as unknown as Terminal;
       const sendSpy = vi.fn();
       const OriginalWebSocket = globalThis.WebSocket;
-      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+      vi.stubGlobal('WebSocket', class {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+        readyState = 0;
+        onopen: ((event: Event) => void) | null = null;
+        onclose: ((event: CloseEvent) => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
         send = sendSpy;
-        constructor(url: string) {
-          super(url);
+        constructor(_url: string) {
+          setTimeout(() => {
+            this.readyState = 1;
+            this.onopen?.(new Event('open'));
+          }, 0);
+        }
+        close(): void {
+          this.readyState = 3;
         }
       } as unknown as typeof WebSocket);
 
