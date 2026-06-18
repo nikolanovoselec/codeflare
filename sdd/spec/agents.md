@@ -47,7 +47,7 @@ Multi-agent support, preseed system, and session modes.
 2. The `AgentType` type is enforced via Zod schema (`AgentTypeSchema`). <!-- @impl: src/types.ts::AgentTypeSchema -->
 3. Each agent's CLI is pre-installed in the container image as a global npm package (or native binary for Go-based agents).
 4. Node.js-based agent CLIs (Codex, Copilot, Pi) are pre-warmed at image build time so V8's compile cache is populated before the user's first interactive launch. Claude Code is installed as a global npm package and is warmed by the version smoke-test run at install time, so it is excluded from the dedicated warm-up block; Go-based agents (OpenCode, Antigravity) are natively compiled.
-5. Pi extension npm dependencies are installed into an image-local cache at build time; the entrypoint symlinks `node_modules` to the cache (zero-copy, instant) so Pi starts without a first-launch package install.
+5. Pi extension npm dependencies are installed into an image-local cache at build time; the entrypoint symlinks `node_modules` to the cache (zero-copy, instant) so Pi starts without a first-launch package install. Because `@earendil-works/pi-coding-agent` is only a transitive dependency of those extensions, a build-time version bridge forces it to the exact version the global `@latest` runtime agent resolved (an npm `overrides` entry plus a lockfile-free reinstall, replacing the frozen `npm ci`), so the prewarm SDK never drifts from the runtime agent and cannot ship a stale transitive CVE; the bridge fails closed if the global version cannot be read or the post-install pin does not match.
 
 **Constraints:**
 
