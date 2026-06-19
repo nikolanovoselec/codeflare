@@ -1,53 +1,42 @@
 ---
 name: advisor
-description: Escalate the current work to a stronger reviewer model for a second opinion via the advisor tool. Use when stuck on a hard decision, before a risky or irreversible action, to sanity-check a plan or approach, or when the user says "ask the advisor", "get a second opinion", "check with a stronger model", "am I on the right track", "/advisor".
+description: User-invoked only. Never call the advisor tool, run /advisor, or suggest /advisor unless the user's current request explicitly asks for advisor. Forbidden for proactive planning, review, debugging, risk checks, stuck states, or completion checks.
 ---
 
-# Advisor (Pi): Escalate to a Stronger Reviewer Model
+# Advisor (Pi): User-Invoked Stronger-Model Review
 
-The `advisor` tool (provided by the `@juicesharp/rpiv-advisor` extension) hands the **entire current conversation branch** to a stronger reviewer model and returns its guidance — a concrete **plan**, a **correction** if you are going down a wrong path, or a **stop signal** telling you to halt and escalate to the user. It is the "let me check this with a smarter model before I act" move.
+The `advisor` tool (provided by the `@juicesharp/rpiv-advisor` extension) hands the **entire current conversation branch** to a stronger reviewer model and returns guidance.
 
-This is distinct from [consult-llm](../consult-llm/SKILL.md): `advisor` auto-forwards the whole conversation to a model from **Pi's own model registry** (zero parameters, no prompt to write), whereas `consult_llm` asks external OpenAI/Gemini a prompt you compose. Use `advisor` to review *your current trajectory*; use `consult_llm` to ask an outside question.
+## Hard gate — user request only
 
-## No API keys
+Only the user may invoke advisor. Do **not** call the `advisor` tool, run `/advisor`, or suggest `/advisor` unless the user's current message explicitly asks for advisor, for example:
 
-`advisor` authenticates through **Pi's model registry** — it reuses whatever auth Pi already has for the chosen model, so there is **no separate API key**. Picking a stronger model on the **same provider as your session** just works (same credentials/gateway). It develops on your normal model and reviews on a stronger one, exactly as configured.
+- `/advisor`
+- "ask the advisor"
+- "use the advisor"
+- "call advisor"
+- "check this with the advisor"
 
-## Step 1 — Select the reviewer model (one-time, `/advisor`)
+The assistant must not invoke advisor proactively for:
 
-The `advisor` tool is **inactive until a model is selected.** Run the `/advisor` slash command:
+- planning;
+- being stuck;
+- routine debugging or CI fixes;
+- code review;
+- risky or irreversible actions;
+- before writing, committing, pushing, deploying, or declaring done;
+- generic "second opinion" requests that do not name advisor.
 
-- It opens a picker over **any model in Pi's registry** (fuzzy-filter by name or `provider/id`) plus a reasoning-effort picker for reasoning-capable models.
-- The selection **persists across sessions** (`~/.config/rpiv-advisor/advisor.json`).
-- Choose **"No advisor"** to disable it.
+If advisor might help but the user did not explicitly ask for it, continue without advisor or ask a normal clarification question. Do not mention advisor as a required step, and do not tell the user to run `/advisor` proactively.
 
-Pick a model genuinely stronger than your executor model (that is the point of escalation).
+## Configuration
 
-## Step 2 — Call `advisor` when it adds value
+Advisor authenticates through **Pi's model registry** and uses the model selected by the user through the user-only `/advisor` command. The selection persists across sessions at `~/.config/rpiv-advisor/advisor.json`. Only the user should open `/advisor`; the assistant must not run, simulate, or recommend that command unless asked.
 
-Call `advisor` (zero parameters — the full conversation branch is serialized automatically) when:
+## When explicitly requested
 
-- You are **stuck** on a decision you cannot confidently resolve alone.
-- You are about to take a **risky or irreversible** action and want a sanity check first.
-- You want a **plan reviewed** or a chosen approach validated before committing to it.
-- You suspect you may be on the **wrong path** and want a course-correction.
-
-Do **not** call it for trivial steps — it is a deliberate escalation, not a per-step reflex.
-
-## Step 3 — Act on the guidance
-
-The reviewer returns one of: a **plan** (follow the concrete next steps), a **correction** (redirect — you were heading the wrong way), or a **stop signal** (halt and escalate to the user). Integrate the guidance into your work; tell the user when you escalated and what the advisor changed.
-
-## Examples
-
-- About to refactor a load-bearing module and unsure of the approach → `advisor()` → follow the returned plan, then proceed.
-- "ask the advisor whether this migration is safe" → `advisor()` → relay its verdict and act on it.
-- Two reasonable designs and you cannot decide → `advisor()` → adopt the recommended one, note the runner-up.
+When the user's current message explicitly requests advisor, call `advisor` with no parameters. Relay the returned guidance and make clear what, if anything, it changes.
 
 ## Troubleshooting
 
-If the `advisor` tool is not available or returns an error:
-
-1. Run `/advisor` and select a model — the tool is inactive until one is chosen.
-2. "No API key" means the selected model's provider is not authenticated in this session; pick a model on a provider Pi already has (e.g. the same provider as your current session) and retry.
-3. The selection persists, so you only configure it once per environment.
+If the `advisor` tool is unavailable or returns an error, report that directly. Do not retry repeatedly and do not substitute another external LLM unless the user explicitly asks for that.

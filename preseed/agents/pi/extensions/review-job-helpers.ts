@@ -284,7 +284,7 @@ export type ReviewSummaryMessage = {
 export function reviewResultsSummaryMessage(input: { repo: string; head: string; content: string }): ReviewSummaryMessage {
   return {
     customType: "codeflare-review-summary-v4",
-    content: input.content,
+    content: input.content.replace(/^PR-boundary review acknowledged for (.+?) at ([0-9a-f]{7,40})\./m, "PR-boundary review results for $1 at $2."),
     display: true,
     details: { repo: input.repo, head: input.head, manual: true },
   };
@@ -661,7 +661,7 @@ export function mergedReviewSummaryModel(input: MergedReviewSummaryInput): Merge
 export function formatMergedReviewSummary(input: MergedReviewSummaryInput): string {
   const model = mergedReviewSummaryModel(input);
   return [
-    `PR-boundary review acknowledged for ${model.repoName} at ${model.headShort}.`,
+    `PR-boundary review results for ${model.repoName} at ${model.headShort}.`,
     "",
     "## Review Summary",
     "",

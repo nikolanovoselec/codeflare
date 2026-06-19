@@ -4,6 +4,10 @@ export function canMainSessionConsumeReviewBypass(sessionFile: string | undefine
   return Boolean(sessionFile && !isTaskSession);
 }
 
+export function reviewBypassConsumeDecision(consumed: boolean): { action: "ack" } | { action: "block"; reason: "bypass_not_consumed" } {
+  return consumed ? { action: "ack" } : { action: "block", reason: "bypass_not_consumed" };
+}
+
 type ShellCommand = string[];
 
 function splitShellCommands(command: string): string[] {

@@ -57,7 +57,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
-import { ALL_REVIEW_LANES, boundaryFallbackHead, boundaryTriggerCommandEntries, bypassAckHeadForStatus, canMainSessionConsumeReviewBypass, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, commandTextsFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, gitPushCommandTarget, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prCreateCommandTarget, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, prUrlFromText, reusablePendingReview, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
+import { ALL_REVIEW_LANES, boundaryFallbackHead, boundaryTriggerCommandEntries, bypassAckHeadForStatus, canMainSessionConsumeReviewBypass, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, commandTextsFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, gitPushCommandTarget, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prCreateCommandTarget, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, prUrlFromText, reusablePendingReview, reviewBypassConsumeDecision, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
 import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewMonitorCompletionRecordReady, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, type DurableReviewSummaryRecord } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes } from "./review-jobs";
 
@@ -1925,7 +1925,12 @@ export default function (pi: ExtensionAPI) {
         bypassPresent: bypassPending(),
       });
       if (decision.action === "allow") return;
-      if (decision.action === "bypass") { consumeBypass(ctx); acknowledgeBypass(repo, decision.head, ctx); return; }
+      if (decision.action === "bypass") {
+        const bypass = reviewBypassConsumeDecision(consumeBypass(ctx));
+        if (bypass.action === "ack") { acknowledgeBypass(repo, decision.head, ctx); return; }
+        appendReviewEvent(repo, { event: "merge_blocked", head: decision.head, reason: bypass.reason });
+        return { block: true, reason: `PR-boundary review bypass for ${basename(repo)} at ${decision.head.slice(0, 12)} could not be consumed from this session. Complete required reviewers or use the user-only ${REVIEW_BYPASS} bypass from the main session.` };
+      }
       appendReviewEvent(repo, { event: "merge_blocked", head: decision.head, reason: decision.reason });
       const why = decision.reason === "head_not_acked"
         ? `PR-boundary review required before merge for ${basename(repo)} at ${decision.head.slice(0, 12)}.`
@@ -2314,10 +2319,12 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
+    const completedLanes = [...new Set([...currentState.completed, ...completedDurableReviewLanes(currentState.repo, currentState.head, currentState.lanes)])];
+    const runningLanes = runningDurableReviewLanes(currentState.repo, currentState.head, currentState.lanes);
     const eligibleUnstarted = durableReviewEligibleLanes({
       lanes: currentState.lanes,
-      completed: [...currentState.completed, ...completedDurableReviewLanes(currentState.repo, currentState.head, currentState.lanes)],
-      running: runningDurableReviewLanes(currentState.repo, currentState.head, currentState.lanes),
+      completed: completedLanes,
+      running: runningLanes,
       requestedAt: currentState.requestedAt,
       now: Date.now(),
       retryMs: REVIEW_REQUEST_RETRY_MS,
@@ -2328,7 +2335,15 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    const remaining = currentState.lanes.filter((lane) => !currentState.completed.has(lane)).join(", ") || "none";
+    const remainingLanes = currentState.lanes.filter((lane) => !completedLanes.includes(lane));
+    if (remainingLanes.length === 0) {
+      const summaryPath = join(reviewResultsDir(currentState.repo, currentState.head), "summary.md");
+      const summaryState = existsSync(summaryPath) ? `Summary: ${summaryPath}.` : "Merged summary is not ready yet.";
+      ctx.ui.notify(`PR-boundary review lanes are complete for ${basename(currentState.repo)} at ${currentState.head.slice(0, 12)}, but review-monitor delivery has not acknowledged the head yet. ${summaryState} No reviewer lane will be retried; wait for REVIEW_RESULT or run /review-results to display current findings.`, "warning");
+      return;
+    }
+
+    const remaining = remainingLanes.join(", ");
     ctx.ui.notify(`PR-boundary review still pending for ${basename(currentState.repo)} at ${currentState.head.slice(0, 12)}. Remaining lanes: ${remaining}. Attempt ${attempts}/${MAX_REVIEW_ATTEMPTS}. Automatic reviewer spawn will retry if no Agent ID is registered; user-only bypass: ${REVIEW_BYPASS}.`, "warning");
   });
 }

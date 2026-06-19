@@ -1715,6 +1715,28 @@ for (const spec of required) byName.set(identity(spec), spec);
 for (const spec of disabledPackages) byName.set(identity(spec.source), spec);
 fs.writeFileSync(path, JSON.stringify({ ...settings, packages: [...byName.values()] }, null, 2) + '\n');
 NODE
+
+    # The rpiv-advisor npm package ships proactive prompt guidance by default.
+    # Codeflare policy is stricter: only the user may invoke advisor or /advisor.
+    # Merge only the guidance fields so a user's selected advisor model/effort survive.
+    local advisor_config="${ADVISOR_CONFIG_FILE:-$USER_HOME/.config/rpiv-advisor/advisor.json}"
+    mkdir -p "$(dirname "$advisor_config")"
+    node - "$advisor_config" <<'NODE'
+const fs = require('fs');
+const path = process.argv[2];
+let config = {};
+try { config = JSON.parse(fs.readFileSync(path, 'utf8')); } catch { config = {}; }
+config.guidance = {
+  promptSnippet: 'Advisor is user-invoked only. Do not call advisor or run /advisor unless the user explicitly asks for advisor in the current message.',
+  promptGuidelines: [
+    'Only the user may invoke advisor. Never call `advisor`, run `/advisor`, or suggest `/advisor` proactively.',
+    'Do not use advisor for planning, stuck states, routine debugging, code review, CI fixes, risk checks, pushes, deploys, or completion checks unless the user explicitly asks for advisor in the current message.',
+    'If the user asks for a generic second opinion without naming advisor, ask a normal clarification question or continue without advisor. Do not route generic second-opinion requests to advisor.',
+    'If the user explicitly asks for advisor, call `advisor` once with no parameters and relay its guidance.',
+  ],
+};
+fs.writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
+NODE
 }
 
 update_pi_when_fast_start_disabled() {

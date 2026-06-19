@@ -18,7 +18,7 @@ Do not call `consult_llm` unless the user's current request explicitly asks to c
 - satisfying generic "ask advisor", "stronger model", or "second opinion" instructions when no external LLM is named;
 - proactive sanity checks chosen by the assistant.
 
-If the user asks for a generic second opinion, use the advisor workflow when available or ask whether they want external LLMs. If unsure, ask; do not call `consult_llm`.
+If the user asks for a generic second opinion without naming external LLMs, ask what they want. Do not call `consult_llm`, and do not invoke advisor unless the user explicitly asks for advisor.
 
 ## Step 1 — Choose the model
 

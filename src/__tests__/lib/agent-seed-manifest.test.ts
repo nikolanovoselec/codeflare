@@ -2,8 +2,8 @@ import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
-import { bypassAckHeadForStatus, canMainSessionConsumeReviewBypass, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, postCommandReconcileDecision, prCreateBoundaryBase, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, isTaskSessionFile, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, registerReviewRefreshLifecycleHooks, REVIEW_REFRESH_LIFECYCLE_EVENTS, reviewMonitorCompletionRecordReady, reviewMonitorDecision, reviewMonitorSpawnDecision, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput, type ReviewRefreshLifecycleEvent } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { bypassAckHeadForStatus, canMainSessionConsumeReviewBypass, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, postCommandReconcileDecision, prCreateBoundaryBase, reusablePendingReview, reviewBypassConsumeDecision, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, isTaskSessionFile, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, registerReviewRefreshLifecycleHooks, REVIEW_REFRESH_LIFECYCLE_EVENTS, reviewMonitorCompletionRecordReady, reviewMonitorDecision, reviewMonitorSpawnDecision, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput, type ReviewRefreshLifecycleEvent } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_CAPTURE_PENDING_TTL_MS, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { LOCAL_BUILD_BYPASS, attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { reviewLaneBlockReason, reviewScopeBlockReason } from '../../../preseed/agents/pi/extensions/review-lane-guards';
@@ -427,6 +427,10 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     for (const skill of ['advisor', 'rpiv-ask-user-question', 'rpiv-todo', 'pi-web-access', 'pi-mcp-adapter']) {
       expect(skills.map((d) => d.key)).toContain(`.pi/agent/skills/${skill}/SKILL.md`);
     }
+    const advisorSkill = skills.find((d) => d.key === '.pi/agent/skills/advisor/SKILL.md');
+    expect(advisorSkill?.content).toContain('Only the user may invoke advisor');
+    expect(advisorSkill?.content).toContain('must not run, simulate, or recommend that command unless asked');
+    expect(advisorSkill?.content).not.toContain('when stuck, before substantive work, or before declaring done');
     expect(extensions.map((d) => d.key)).toContain('.pi/agent/extensions/codeflare-commands.ts');
     expect(extensions.map((d) => d.key)).toContain('.pi/agent/extensions/local-statusline.ts');
     const codeReviewer = agents.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
@@ -715,6 +719,8 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(canMainSessionConsumeReviewBypass('/home/user/.pi/agent/sessions/repo/session.jsonl', false)).toBe(true);
     expect(canMainSessionConsumeReviewBypass('/home/user/.pi/agent/sessions/tasks/review-monitor.jsonl', true)).toBe(false);
     expect(canMainSessionConsumeReviewBypass(undefined, false)).toBe(false);
+    expect(reviewBypassConsumeDecision(true)).toEqual({ action: 'ack' });
+    expect(reviewBypassConsumeDecision(false)).toEqual({ action: 'block', reason: 'bypass_not_consumed' });
   });
 
   it('REQ-AGENT-040: Pi review enforcement extracts visible background Agent IDs for pending lanes', () => {
@@ -1157,8 +1163,18 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
         },
       ],
     });
+    expect(escapedSummary).toContain('PR-boundary review results for codeflare at 6769bca06f84.');
+    expect(escapedSummary).not.toContain('PR-boundary review acknowledged');
     expect(escapedSummary).toContain('a\\|b\\\\c.ts');
     expect(escapedSummary).toContain('Replace x\\|y\\\\z safely.');
+
+    const legacyManualDisplay = reviewResultsSummaryMessage({
+      repo: '/repo',
+      head: '6769bca06f843a50e2d991563afc58498fd7cf81',
+      content: 'PR-boundary review acknowledged for codeflare at 6769bca06f84.\n\n## Review Summary',
+    });
+    expect(legacyManualDisplay.content).toContain('PR-boundary review results for codeflare at 6769bca06f84.');
+    expect(legacyManualDisplay.content).not.toContain('PR-boundary review acknowledged');
   });
 
   it('REQ-AGENT-053: a lane severity tally block is not counted or parsed as findings', () => {
