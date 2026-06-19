@@ -82,7 +82,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
 
   const sessionNamesById = createMemo((previous: { key: string; names: Map<string, string> } | undefined) => {
     const entries = sessionStore.sessions.map((session) => [session.id, session.name] as const);
-    const key = entries.map(([id, name]) => `${id}\0${name}`).join('\1');
+    const key = entries.map(([id, name]) => `${id}\u0000${name}`).join('\u0001');
     if (previous?.key === key) return previous;
     return { key, names: new Map(entries) };
   });
@@ -98,8 +98,8 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
 
   const multiViewGridPanes = createMemo<TerminalGridPane<VisibleTerminalPane>[]>((previous) => {
     const panes = visiblePanes().filter((pane) => pane.source === 'multiview');
-    const previousIds = previous?.map((pane) => pane.id).join('\0');
-    const nextIds = panes.map((pane) => pane.id).join('\0');
+    const previousIds = previous?.map((pane) => pane.id).join('\u0000');
+    const nextIds = panes.map((pane) => pane.id).join('\u0000');
     if (previous && previousIds === nextIds) return previous;
 
     return panes.map((pane) => ({
