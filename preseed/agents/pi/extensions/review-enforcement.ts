@@ -53,7 +53,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
@@ -875,6 +875,88 @@ function sessionContainsNonce(ctx: any, nonce: string): boolean {
   }
 }
 
+type TranscriptGitGhCommand = { command: string; offset: number; toolName: string; toolCallId?: string };
+
+const TRANSCRIPT_BACKSTOP_SCAN_BYTES = 256 * 1024;
+const TRANSCRIPT_CURSOR_KEY = Symbol.for("codeflare.reviewTranscriptCursor");
+function transcriptCursorMemory(): Map<string, number> {
+  const g = globalThis as unknown as { [TRANSCRIPT_CURSOR_KEY]?: Map<string, number> };
+  if (!g[TRANSCRIPT_CURSOR_KEY]) g[TRANSCRIPT_CURSOR_KEY] = new Map();
+  return g[TRANSCRIPT_CURSOR_KEY]!;
+}
+
+function readTranscriptDelta(sessionFile: string): { text: string; start: number } | undefined {
+  const size = statSync(sessionFile).size;
+  const cursors = transcriptCursorMemory();
+  const previous = cursors.get(sessionFile);
+  const start = previous !== undefined && previous <= size
+    ? previous
+    : Math.max(0, size - TRANSCRIPT_BACKSTOP_SCAN_BYTES);
+  cursors.set(sessionFile, size);
+  if (size <= start) return undefined;
+  const length = size - start;
+  const buffer = Buffer.allocUnsafe(length);
+  const fd = openSync(sessionFile, "r");
+  try {
+    const bytes = readSync(fd, buffer, 0, length, start);
+    let text = buffer.subarray(0, bytes).toString("utf8");
+    if (start > 0) text = text.slice(Math.max(0, text.indexOf("\n") + 1));
+    return { text, start };
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function transcriptLineMayContainBoundary(raw: string): boolean {
+  if (!raw.includes('"type":"toolCall"') && !raw.includes('"role":"bashExecution"')) return false;
+  return /(^|[\\n;&|])[\t ]*(?:[A-Za-z_][A-Za-z0-9_]*=[^\s";|&]+[\t ]+)*git[\t ]+push(?:[\t ]|["'\\);&|]|$)/.test(raw)
+    || /(^|[\\n;&|])[\t ]*(?:[A-Za-z_][A-Za-z0-9_]*=[^\s";|&]+[\t ]+)*gh[\t ]+pr[\t ]+(?:create|update-branch)(?:[\t ]|["'\\);&|]|$)/.test(raw)
+    || /(^|[\\n;&|])[\t ]*(?:[A-Za-z_][A-Za-z0-9_]*=[^\s";|&]+[\t ]+)*gh[\t ]+pr[\t ]+edit[^;&|]*[\t ]+(?:--base[\t ]+|--base=|-B[\t ]+|-B=)(?:main|master)(?:[\t ]|["'\\);&|]|$)/.test(raw)
+    || /(^|[\\n;&|])[\t ]*(?:[A-Za-z_][A-Za-z0-9_]*=[^\s";|&]+[\t ]+)*gh[\t ]+repo[\t ]+sync(?:[\t ]|["'\\);&|]|$)/.test(raw);
+}
+
+function transcriptGitGhCommands(sessionFile: string | undefined): TranscriptGitGhCommand[] {
+  if (!sessionFile || !existsSync(sessionFile)) return [];
+  const commands: TranscriptGitGhCommand[] = [];
+  try {
+    const delta = readTranscriptDelta(sessionFile);
+    if (!delta) return [];
+    let offset = delta.start;
+    for (const raw of delta.text.split(/\r?\n/)) {
+      offset += raw.length + 1;
+      if (!transcriptLineMayContainBoundary(raw)) continue;
+      let entry: any;
+      try { entry = JSON.parse(raw); } catch { continue; }
+      const message = entry?.message || entry;
+      if (message?.role === "assistant" && Array.isArray(message.content)) {
+        for (const part of message.content) {
+          if (part?.type !== "toolCall") continue;
+          const input = part.arguments || {};
+          const event = { toolName: part.name, input, args: input, params: input, arguments: input };
+          for (const command of commandTexts(event)) {
+            if (!isPrBoundaryTrigger(command)) continue;
+            commands.push({
+              command,
+              offset,
+              toolName: String(part.name || ""),
+              toolCallId: typeof part.id === "string" ? part.id : undefined,
+            });
+          }
+        }
+      } else if (message?.role === "bashExecution" && message.cancelled !== true && message.exitCode === 0 && typeof message.command === "string") {
+        const event = { toolName: "bash", input: { command: message.command } };
+        for (const command of commandTexts(event)) {
+          if (!isPrBoundaryTrigger(command)) continue;
+          commands.push({ command, offset, toolName: "bashExecution" });
+        }
+      }
+    }
+  } catch {
+    return [];
+  }
+  return commands;
+}
+
 async function spawnReviewLanes(pending: PendingReview, pr: PrState, lanes: string[], ctx: any, reason: string): Promise<void> {
   if (lanes.length === 0) return;
 
@@ -1106,6 +1188,7 @@ export default function (pi: ExtensionAPI) {
   const processedBashCommandToolIds = new Set<string>();
   const shouldProcessPrBoundaryToolEnd = createReadyOnceTracker();
   const shouldProcessNoCommandToolEnd = createBoundedOnceTracker();
+  let transcriptBackstopRunning = false;
   // A subagent runs in a separate Pi process, so its internal `git push` never appears as a bash tool
   // event in this main session. Capture the enforced PR head before the Agent tool starts, then compare
   // after it ends; a changed head is a real in-session boundary even though no shell event was observed.
@@ -1769,6 +1852,39 @@ export default function (pi: ExtensionAPI) {
     return true;
   }
 
+  async function transcriptGitGhBackstop(ctx: any, trigger: string): Promise<boolean> {
+    if (transcriptBackstopRunning) return false;
+    transcriptBackstopRunning = true;
+    try {
+      const sessionFile = ctx?.sessionManager?.getSessionFile?.() ?? recallSessionFile();
+      const transcriptCommands = transcriptGitGhCommands(sessionFile);
+      for (const seen of transcriptCommands.slice().reverse()) {
+        const repo = reviewRepoForCtx(ctx, cwdFromCommand(seen.command));
+        if (!repo || !isSddProject(repo)) continue;
+        const pr = prStateFreshResult(repo).pr;
+        if (!isEnforcedPr(pr) || pr.isDraft === true) continue;
+        const head = resolveEnforcedHead(repo, pr);
+        if (!head) continue;
+        if (acked(repo, head)) continue;
+        if (loadPending(repo)?.head === head) continue;
+        if (durableJobIsActiveWindow(readDurableReviewJob(repo, head))) continue;
+        if (isBreakerOpen(repo, head)) continue;
+        markBoundaryActed(repo, pr.headRefName);
+        return await ensureReviewWindow({
+          repo,
+          pr,
+          head,
+          ctx,
+          trigger: `${trigger}: transcript git/gh offset ${seen.offset}`,
+          command: seen.command,
+        });
+      }
+      return false;
+    } finally {
+      transcriptBackstopRunning = false;
+    }
+  }
+
   // Durable fallback for a missed PR-boundary event (REQ-AGENT-058 AC1). The onToolEnd boundary
   // path depends on capturing a single tool event; a compound `&&` command, a here-doc body, or
   // a reload between the command and its event can drop it. On lifecycle ticks this re-derives
@@ -2258,6 +2374,10 @@ export default function (pi: ExtensionAPI) {
     processedBashCommandToolIds.clear();
     const state = hydratePending(ctx);
     if (!state) {
+      // No persisted review window: transcript-backed git/gh evidence is the Stop-hook-style trigger.
+      // If the transcript shows this session touched git/gh and GitHub says the current PR head is
+      // open, enforced, and unacked, start the review directly instead of degrading to an offer.
+      if (await transcriptGitGhBackstop(ctx, "agent_end transcript git/gh backstop")) return;
       // No persisted review window: a real open, enforced PR with an unacked head and no
       // review job is a missed boundary. Let bounded reconciliation decide; otherwise drain any
       // pending result-delivery announcements (deliver/verify/retry) and refresh the status.
