@@ -1229,7 +1229,7 @@ None.
 
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (autofix request gating + manual/auto directive tests -> AC1-AC4) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (autofix request gating + manual/auto directive tests -> AC1-AC5) -->
 
 **Intent:** Pi operators need actionable PR-boundary review findings to start a fix pass only when the exact-head review is complete.
 
@@ -1237,10 +1237,11 @@ None.
 
 **Acceptance Criteria:**
 
-1. Pi requests a fix pass only after every required exact-head result file exists and at least one actionable `MEDIUM`/`HIGH`/`CRITICAL` finding remains; the request instructs the agent to verify each finding and fix only legitimate findings. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendAnnouncement --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::requestReviewAutofixForRows --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewAutofixRequest -->
-2. Partial lane result sets never trigger a fix request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendAnnouncement --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewAckReady -->
-3. When a live session transcript is available, a wait/do-not-auto-fix directive makes Pi present findings without requesting a fix pass. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewAutofixModeFromUserMessages -->
-4. Idle finalization without live context keeps the default automatic fix behavior. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendAnnouncement -->
+1. Pi requests a fix pass only after every required exact-head result file exists and at least one actionable `MEDIUM`/`HIGH`/`CRITICAL` finding remains. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendAnnouncement --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::requestReviewAutofixForRows -->
+2. The fix-pass request instructs the agent to verify each `MEDIUM`/`HIGH`/`CRITICAL` finding and fix only legitimate findings. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewAutofixRequest --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::mergedReviewRecommendation -->
+3. Partial lane result sets never trigger a fix request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendAnnouncement --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewAckReady -->
+4. When a live session transcript is available, a wait/do-not-auto-fix directive makes Pi present findings without requesting a fix pass. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewAutofixModeFromUserMessages -->
+5. Idle finalization without live context keeps the default automatic fix behavior. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendAnnouncement -->
 
 **Constraints:**
 

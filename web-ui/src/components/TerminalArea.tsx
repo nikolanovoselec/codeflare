@@ -80,6 +80,13 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
   const resolveTerminalIdForSession = (sessionId: string) =>
     sessionStore.getTerminalsForSession(sessionId)?.activeTabId || '1';
 
+  const sessionNamesById = createMemo((previous: { key: string; names: Map<string, string> } | undefined) => {
+    const entries = sessionStore.sessions.map((session) => [session.id, session.name] as const);
+    const key = entries.map(([id, name]) => `${id}\0${name}`).join('\1');
+    if (previous?.key === key) return previous;
+    return { key, names: new Map(entries) };
+  });
+
   createEffect(() => {
     if (!props.showTerminal) return;
     if (isMultiViewWorkspace()) return;
@@ -195,12 +202,12 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
             panes={multiViewGridPanes()}
             onPaneClick={(paneId) => terminalWorkspaceStore.setFocusedPane(paneId)}
             renderPane={(pane) => {
-              const session = sessionStore.sessions.find((candidate) => candidate.id === pane.data.sessionId);
+              const sessionName = createMemo(() => sessionNamesById().names.get(pane.data.sessionId) || 'Terminal');
               return (
                 <Terminal
                   sessionId={pane.data.sessionId}
                   terminalId={pane.data.terminalId}
-                  sessionName={session?.name || 'Terminal'}
+                  sessionName={sessionName()}
                   active={true}
                   visible={true}
                   focused={pane.active}
