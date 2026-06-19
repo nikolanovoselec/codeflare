@@ -140,7 +140,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('propagates detached, workflow-agnostic CI monitoring instructions into seed surfaces', () => {
+  it('REQ-AGENT-021 AC5: propagates routine-push/no-monitor and detached CI instructions into seed surfaces', () => {
     const instructionKeys = [
       '.codex/AGENTS.md',
       '.gemini/GEMINI.md',
@@ -151,6 +151,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     const gitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/git-workflow.md');
     const ciSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/skills/ci-monitoring/SKILL.md');
 
+    expect(gitWorkflow?.content).toContain('Do not auto-start CI monitoring after routine pushes');
     expect(gitWorkflow?.content).toContain('one detached monitor; report the log path and stop');
     const staleMonitorSummary = 'background continuous tail-' + 'followed monitor until green';
     expect(gitWorkflow?.content).not.toContain(staleMonitorSummary);

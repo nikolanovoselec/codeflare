@@ -103,7 +103,7 @@ function runMonitor(sequence, fallback = sequence.at(-1) ?? []) {
   }
 }
 
-test('ci monitor launcher starts detached work and returns immediately', () => {
+test('REQ-AGENT-021 AC5/AC7: ci monitor launcher starts detached work and returns immediately', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ci-monitor-launch-'));
   const bin = join(dir, 'bin');
   const fixtures = join(dir, 'fixtures');
@@ -143,7 +143,7 @@ test('ci monitor launcher starts detached work and returns immediately', () => {
   }
 });
 
-test('ci monitor waits for a stable workflow/run set before success', () => {
+test('REQ-AGENT-021 AC6: ci monitor waits for a stable workflow/run set before success', () => {
   const result = runMonitor([
     [row(1)],
     [row(1), row(2)],
@@ -155,7 +155,7 @@ test('ci monitor waits for a stable workflow/run set before success', () => {
   assert.match(result.log, /CI_RESULT success/);
 });
 
-test('ci monitor reports failed workflow rows', () => {
+test('REQ-AGENT-021 AC6: ci monitor reports failed workflow rows', () => {
   const result = runMonitor([[row(1, { conclusion: 'failure' })]]);
 
   assert.equal(result.status, 10, result.stderr);
@@ -163,7 +163,7 @@ test('ci monitor reports failed workflow rows', () => {
   assert.match(result.log, /CI_RESULT failure/);
 });
 
-test('ci monitor times out when workflows never finish', () => {
+test('REQ-AGENT-021 AC6: ci monitor times out when workflows never finish', () => {
   const running = [row(1, { status: 'in_progress', conclusion: null })];
   const result = runMonitor([running], running);
 
