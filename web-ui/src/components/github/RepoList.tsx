@@ -28,8 +28,14 @@ const RepoList: Component = () => {
         </div>
       </Show>
 
-      <Show when={!githubStore.loading && !githubStore.error && githubStore.filteredRepos.length === 0}>
-        <div class="github-empty" data-testid="github-empty">
+      <Show when={!githubStore.loading && !githubStore.error && githubStore.repos.length === 0}>
+        <div class="github-empty" data-testid="github-empty" data-empty-state="no-repositories">
+          You currently have no repositories, start a session and create one.
+        </div>
+      </Show>
+
+      <Show when={!githubStore.loading && !githubStore.error && githubStore.repos.length > 0 && githubStore.filteredRepos.length === 0}>
+        <div class="github-empty" data-testid="github-empty" data-empty-state="no-search-results">
           No repositories found.
         </div>
       </Show>

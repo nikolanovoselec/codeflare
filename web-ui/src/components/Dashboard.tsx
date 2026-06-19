@@ -8,7 +8,6 @@ import { storageStore } from '../stores/storage';
 import { getDownloadUrl } from '../api/storage';
 import { getGravatarUrl, gravatarExists } from '../lib/gravatar';
 import SessionStatCard from './SessionStatCard';
-import MultiViewSessionCard from './MultiViewSessionCard';
 import SessionContextMenu from './SessionContextMenu';
 import StatCards from './StatCards';
 import StorageBrowser from './StorageBrowser';
@@ -24,6 +23,7 @@ import { terminalWorkspaceStore } from '../stores/terminal-workspace';
 import { getTerminalViewportClass } from '../lib/mobile';
 import { githubStore } from '../stores/github';
 import { getBrowserTimezone, syncBrowserTimezone } from '../lib/timezone-sync';
+import { MULTIVIEW_ICON } from '../lib/terminal-config';
 import UsageInlineBadge from './UsageInlineBadge';
 import '../styles/dashboard.css';
 
@@ -43,7 +43,7 @@ interface DashboardProps {
 
 const Dashboard: Component<DashboardProps> = (props) => {
   const [collapseReady, setCollapseReady] = createSignal(false);
-  const multiViewWorkspace = () => terminalWorkspaceStore.reconcileMultiView(props.sessions, getTerminalViewportClass());
+  const multiViewWorkspace = createMemo(() => terminalWorkspaceStore.reconcileMultiView(props.sessions, getTerminalViewportClass()));
   // Mobile-only: which right-column face is shown (GitHub vs R2 storage). The
   // flip control in each panel header toggles it; desktop shows both stacked.
   const [panelFace, setPanelFace] = createSignal<'github' | 'storage'>('github');
@@ -260,7 +260,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
           <div class="dashboard-panel-left" data-testid="dashboard-panel-left">
             <DashboardCard sessions={props.sessions} />
 
-            <div class="dashboard-new-session-wrapper">
+            <div class={`dashboard-new-session-wrapper ${multiViewWorkspace() ? 'dashboard-new-session-wrapper--with-multiview' : ''}`}>
                 <Portal>
                   <CreateSessionDialog
                     isOpen={showCreateDialog()}
@@ -298,6 +298,22 @@ const Dashboard: Component<DashboardProps> = (props) => {
                 >
                   {sessionStore.preseedUpgrading ? 'Upgrading' : '+ New Session'}
                 </button>
+                <Show when={multiViewWorkspace()}>
+                  <button
+                    type="button"
+                    class="dashboard-multiview-action"
+                    data-testid="dashboard-multiview-action"
+                    aria-label="Open MultiView"
+                    title="Open MultiView"
+                    onClick={() => {
+                      if (terminalWorkspaceStore.openMultiView()) {
+                        props.onOpenMultiView?.();
+                      }
+                    }}
+                  >
+                    <Icon path={MULTIVIEW_ICON} size={22} />
+                  </button>
+                </Show>
             </div>
 
             <Show when={props.sessions.length > 0}>
@@ -316,18 +332,6 @@ const Dashboard: Component<DashboardProps> = (props) => {
                       />
                     )}
                   </For>
-                  <Show when={multiViewWorkspace()}>
-                    {(workspace) => (
-                      <MultiViewSessionCard
-                        workspace={workspace()}
-                        onSelect={() => {
-                          if (terminalWorkspaceStore.openMultiView()) {
-                            props.onOpenMultiView?.();
-                          }
-                        }}
-                      />
-                    )}
-                  </Show>
                 </div>
                 <Portal>
                   <SessionContextMenu

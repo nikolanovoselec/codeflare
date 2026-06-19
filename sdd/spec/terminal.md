@@ -415,8 +415,8 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 <!-- @impl: web-ui/src/components/SessionSwitcher.tsx::SessionSwitcher -->
 <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
 <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (terminalWorkspaceStore describe -> desktop/tablet/mobile capacity + reconciliation -> AC1,2,5) -->
-<!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (TerminalArea describe -> one connected pane per MultiView member + workspace terminal id source of truth + no nested tabs -> AC4,6) -->
-<!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard describe -> virtual MultiView card beside real session cards and no backend session ID -> AC3) -->
+<!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (TerminalArea describe -> one connected pane per MultiView member + focus changes do not remount panes + workspace terminal id source of truth + no nested tabs -> AC4,5,6) -->
+<!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard describe -> virtual MultiView never renders as a session card; icon-only dashboard action opens it without backend session ID -> AC3) -->
 <!-- @test: web-ui/src/__tests__/components/TerminalGrid.test.tsx (TerminalGrid describe -> reusable layout slots -> AC4) -->
 ### REQ-TERM-012: MultiView virtual session workspace
 
@@ -428,9 +428,9 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 1. Exactly one virtual MultiView workspace can exist, and it is composed only from existing running or initializing sessions. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::MULTIVIEW_ID -->
 2. Desktop MultiView accepts two to four member sessions; tablet MultiView accepts exactly two; mobile cannot launch MultiView. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::getMultiViewCapacity -->
-3. MultiView appears as an additional virtual card beside real session cards. <!-- @impl: web-ui/src/components/MultiViewSessionCard.tsx::MultiViewSessionCard -->
+3. MultiView never appears as a normal Dashboard session card; when saved panes exist, Dashboard exposes an icon-only MultiView action beside the new-session button. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
 4. Opening MultiView renders connected terminal panes for the selected member sessions. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea -->
-5. Workspace switches preserve MultiView membership while reconciling connections to visible panes. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
+5. Workspace switches preserve MultiView membership while reconciling connections to visible panes; clicking between MultiView panes changes focus only and does not remount panes or reconnect their WebSockets. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/components/TerminalGrid.tsx::TerminalGrid -->
 6. Each MultiView member gets exactly one terminal surface; nested tab controls are absent. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea -->
 
 **Constraints:**
@@ -442,7 +442,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Dependencies:** [REQ-TERM-001](#req-term-001-up-to-6-terminal-tabs-per-session), [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-007](#req-term-007-tiling-layouts-2-split-3-split-4-grid), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
 
-**Verification:** [Automated tests](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts)
+**Verification:** [Workspace store tests](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts) + [TerminalArea tests](../../web-ui/src/__tests__/components/TerminalArea.test.tsx) + [Dashboard tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx)
 
 **Status:** Implemented
 
@@ -452,7 +452,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 <!-- @impl: web-ui/src/components/MultiViewActionRow.tsx::MultiViewActionRow -->
 <!-- @impl: web-ui/src/components/SelectableSessionCard.tsx::SelectableSessionCard -->
 <!-- @impl: web-ui/src/lib/mobile.ts::getTerminalViewportClass -->
-<!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (SessionDropdown MultiView selection describe -> open selection, cancel/launch paths, capacity rejection, mobile hidden -> AC1..AC7) -->
+<!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (SessionDropdown MultiView selection describe -> Launch MultiView label/icon, open selection, cancel/launch paths, capacity rejection, mobile hidden -> AC1..AC7) -->
 <!-- @test: web-ui/src/__tests__/components/SessionSwitcher.test.tsx (SessionSwitcher MultiView launch describe -> selected ids create and open the workspace -> AC4, AC7) -->
 ### REQ-TERM-013: MultiView selection flow
 
@@ -462,7 +462,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Acceptance Criteria:**
 
-1. The session switcher exposes a MultiView control only when at least two sessions are running or initializing on tablet or desktop, and hides the control on mobile. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown -->
+1. The session switcher exposes a `Launch MultiView` control with the compact-view icon only when at least two sessions are running or initializing on tablet or desktop, and hides the control on mobile. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @impl: web-ui/src/components/MultiViewActionRow.tsx::MultiViewActionRow -->
 2. Activating the control enters selection mode, keeps the switcher open, and turns running or initializing session rows into toggleable choices. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown -->
 3. The control exits selection mode without launching when fewer than two sessions are selected. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown -->
 4. The control launches MultiView when at least two sessions are selected. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown -->

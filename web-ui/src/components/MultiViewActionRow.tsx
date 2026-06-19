@@ -1,6 +1,7 @@
 import { Component } from 'solid-js';
-import { mdiClose, mdiMonitorMultiple } from '@mdi/js';
+import { mdiClose } from '@mdi/js';
 import Icon from './Icon';
+import { MULTIVIEW_ICON } from '../lib/terminal-config';
 import '../styles/session-dropdown.css';
 
 interface MultiViewActionRowProps {
@@ -13,9 +14,8 @@ interface MultiViewActionRowProps {
 
 const MultiViewActionRow: Component<MultiViewActionRowProps> = (props) => {
   const label = () => {
-    if (props.mode === 'open') return 'MultiView #1';
     if (props.mode === 'selecting') return props.canLaunch ? 'Launch MultiView' : 'Cancel MultiView';
-    return 'MultiView';
+    return 'Launch MultiView';
   };
 
   return (
@@ -29,7 +29,7 @@ const MultiViewActionRow: Component<MultiViewActionRowProps> = (props) => {
         disabled={props.disabled}
         onClick={() => { if (!props.disabled) props.onClick(); }}
       >
-        <Icon path={mdiMonitorMultiple} size={16} />
+        <Icon path={MULTIVIEW_ICON} size={16} />
         <span>{label()}</span>
       </button>
       {props.mode === 'open' && props.onClose && (

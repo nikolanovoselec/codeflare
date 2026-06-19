@@ -135,8 +135,8 @@
 
 /* ── Repo list ── */
 /* The viewport caps the visible rows and scrolls the rest (no visible
-   scrollbar). Desktop (>=1024px) caps at 7 rows, tablet (600-1023px) at 5
-   rows; mobile (below) grows to fill available height, min 3 rows. */
+   scrollbar). Desktop (>=1024px) caps at 7 rows; tablet and mobile cap at 5
+   actual repository rows. */
 .github-repo-rows {
   --repo-row-h: 52px;
   display: flex;
@@ -501,9 +501,9 @@
     display: none;
   }
 
-  /* Fill available vertical space, but never show fewer than 3 rows. */
+  /* Show five actual repository rows, then scroll inside the repo list. */
   .github-repo-rows {
-    max-height: max(calc(var(--repo-row-h) * 3), 60dvh);
+    max-height: calc(var(--repo-row-h) * 5);
   }
 
   /* Show the GitHub↔storage flip control on mobile. */

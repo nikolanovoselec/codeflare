@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
-import { mdiXml } from '@mdi/js';
+import { mdiViewCompactOutline, mdiXml } from '@mdi/js';
 import Dashboard from '../../components/Dashboard';
 import { sessionStore } from '../../stores/session';
 import { storageStore } from '../../stores/storage';
@@ -225,7 +225,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
   // === Initialization Tests ===
 
-  it('REQ-TERM-012: shows one virtual MultiView card without hiding real session cards', () => {
+  it('REQ-TERM-012: keeps MultiView virtual and opens it from the dashboard icon action', () => {
     mockMultiView = {
       id: 'multiview:1',
       name: 'MultiView #1',
@@ -239,11 +239,15 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
     expect(screen.getByTestId('session-card-sess1')).toBeInTheDocument();
     expect(screen.getByTestId('session-card-sess2')).toBeInTheDocument();
-    const multiViewCard = screen.getByTestId('dashboard-multiview-card');
-    expect(multiViewCard).toHaveAttribute('data-workspace-id', 'multiview:1');
+    expect(screen.queryByTestId('dashboard-multiview-card')).not.toBeInTheDocument();
 
-    fireEvent.click(multiViewCard);
+    const action = screen.getByTestId('dashboard-multiview-action');
+    expect(action).toHaveAttribute('aria-label', 'Open MultiView');
+    expect(action.querySelector('path')?.getAttribute('d')).toBe(mdiViewCompactOutline);
+
+    fireEvent.click(action);
     expect(onOpenMultiView).toHaveBeenCalledTimes(1);
+    expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
     expect(defaultProps.onOpenSessionById).not.toHaveBeenCalledWith('multiview:1');
   });
 

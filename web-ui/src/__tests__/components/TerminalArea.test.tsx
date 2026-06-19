@@ -272,6 +272,33 @@ describe('TerminalArea', () => {
     expect(screen.queryByTestId('terminal-session-c-1')).not.toBeInTheDocument();
   });
 
+  it('REQ-TERM-012: changes MultiView pane focus without remounting terminal panes', async () => {
+    mockSessions = [
+      { id: 'session-a', name: 'A', status: 'running' },
+      { id: 'session-b', name: 'B', status: 'running' },
+    ];
+    mockActiveSessionId = null;
+    mockVisiblePanes = [
+      { id: 'multiview:session-a:1', sessionId: 'session-a', terminalId: '1', source: 'multiview' },
+      { id: 'multiview:session-b:1', sessionId: 'session-b', terminalId: '1', source: 'multiview' },
+    ];
+    mockFocusedPaneId = 'multiview:session-a:1';
+    mockWorkspaceLayout = '2-split';
+
+    render(() => <TerminalArea {...defaultProps} showTerminal viewState="terminal" />);
+
+    expect(screen.getByTestId('terminal-session-a-1')).toHaveAttribute('data-focused', 'true');
+    expect(screen.getByTestId('terminal-session-b-1')).toHaveAttribute('data-focused', 'false');
+
+    terminalLifecycle.unmounted = [];
+    mockFocusedPaneId = 'multiview:session-b:1';
+    bumpWorkspaceVersion();
+
+    await waitFor(() => expect(screen.getByTestId('terminal-session-b-1')).toHaveAttribute('data-focused', 'true'));
+    expect(screen.getByTestId('terminal-session-a-1')).toHaveAttribute('data-focused', 'false');
+    expect(terminalLifecycle.unmounted).toEqual([]);
+  });
+
   it('REQ-TERM-012: renders the MultiView terminal id tracked by the visible workspace', () => {
     mockSessions = [
       { id: 'session-a', name: 'A', status: 'running' },

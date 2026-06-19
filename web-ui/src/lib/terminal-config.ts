@@ -6,6 +6,7 @@ import {
   mdiCodeBraces,
   mdiRocketLaunchOutline,
   mdiSourceBranch,
+  mdiViewCompactOutline,
 
   mdiRobotIndustrial,
   mdiGithub,
@@ -29,6 +30,8 @@ const PROCESS_DISPLAY_NAME: Record<string, string> = {};
 export function getTabDisplayName(processName: string): string {
   return PROCESS_DISPLAY_NAME[processName] || processName;
 }
+
+export const MULTIVIEW_ICON = mdiViewCompactOutline;
 
 // Map process names (from server) to MDI icon paths
 const PROCESS_ICON_MAP: Record<string, string> = {

@@ -1,4 +1,4 @@
-import { For, JSX, Show } from 'solid-js';
+import { Index, JSX, Show } from 'solid-js';
 import type { TileLayout } from '../types';
 import '../styles/tiled-terminal-container.css';
 
@@ -53,13 +53,13 @@ const TerminalGrid = <T,>(props: TerminalGridProps<T>) => {
       data-layout={props.layout}
       class={`tiled-terminal-container ${getLayoutClass(props.layout)}`}
     >
-      <For each={slots()}>
+      <Index each={slots()}>
         {(slot) => (
           <Show
-            when={slot.pane}
+            when={slot().pane}
             fallback={
               <div
-                data-testid={props.emptySlotTestId ? props.emptySlotTestId(slot.index) : `terminal-grid-empty-${slot.index}`}
+                data-testid={props.emptySlotTestId ? props.emptySlotTestId(slot().index) : `terminal-grid-empty-${slot().index}`}
                 data-active="false"
                 class="tiled-terminal-slot tiled-terminal-slot--empty"
               />
@@ -72,12 +72,12 @@ const TerminalGrid = <T,>(props: TerminalGridProps<T>) => {
                 class={`tiled-terminal-slot ${pane().active ? 'tiled-terminal-slot--active' : ''}`}
                 onClick={() => props.onPaneClick(pane().id)}
               >
-                {props.renderPane(pane(), slot.index)}
+                {props.renderPane(pane(), slot().index)}
               </div>
             )}
           </Show>
         )}
-      </For>
+      </Index>
     </div>
   );
 };

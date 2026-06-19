@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
+import { mdiViewCompactOutline } from '@mdi/js';
 import SessionDropdown from '../../components/SessionDropdown';
 import { sessionStore } from '../../stores/session';
 import type { SessionWithStatus } from '../../types';
@@ -226,7 +227,11 @@ describe('SessionDropdown', () => {
         />
       ));
 
-      fireEvent.click(screen.getByTestId('session-dropdown-multiview-action'));
+      const action = screen.getByTestId('session-dropdown-multiview-action');
+      expect(action.textContent).toContain('Launch MultiView');
+      expect(action.querySelector('path')?.getAttribute('d')).toBe(mdiViewCompactOutline);
+
+      fireEvent.click(action);
       expect(screen.getByTestId('session-dropdown')).toBeInTheDocument();
       expect(screen.getByTestId('session-dropdown-multiview-action')).toHaveAttribute('data-mode', 'selecting');
 

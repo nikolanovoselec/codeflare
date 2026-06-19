@@ -137,10 +137,47 @@
 /* New Session Wrapper (for dialog positioning) */
 .dashboard-new-session-wrapper {
   position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.dashboard-new-session-wrapper--with-multiview .dashboard-new-session-btn {
+  flex: 1 1 auto;
+}
+
+.dashboard-multiview-action {
+  flex: 0 0 44px;
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-accent);
+  cursor: pointer;
+  animation: dashboard-multiview-breathe 1.8s ease-in-out infinite;
+}
+
+.dashboard-multiview-action:hover {
+  color: var(--color-accent-hover);
+}
+
+.dashboard-multiview-action:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+@keyframes dashboard-multiview-breathe {
+  0%, 100% { opacity: 0.72; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.08); }
 }
 
 /* New Session Button */
 .dashboard-new-session-btn {
+  flex: 1 1 auto;
   width: 100%;
   padding: var(--space-3);
   background: var(--color-accent);
@@ -232,6 +269,11 @@
     overflow: hidden;
   }
 
+  .dashboard-panel-right[data-face="github"] {
+    min-height: min(430px, 75vh);
+    max-height: 75vh;
+  }
+
   /* Mobile: one face at a time; flipping swaps GitHub ↔ R2 with an up→down flip. */
   .panel-flip-face {
     display: none;
@@ -263,7 +305,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .panel-flip-face[data-active="true"] {
+  .panel-flip-face[data-active="true"],
+  .dashboard-multiview-action {
     animation: none;
   }
 }
