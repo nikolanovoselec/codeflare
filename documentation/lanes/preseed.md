@@ -163,7 +163,9 @@ core environment rules (`cloudflare-environment`, `no-local-builds`,
 to `ci-monitoring`, `git-review-pipeline`, `pr-workflow`, and `deploy-credentials`.
 
 CI monitoring is on-demand: routine pushes do not start a monitor unless the user
-asks, or a deploy/merge gate needs a fresh CI result ([REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
+asks, or a deploy/merge gate needs a fresh CI result. Monitoring is detached-only:
+no agent may keep the main session busy with `tail -f`, `gh run watch`, blocking
+`ctx_execute`, or foreground polling ([REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
 AC5). The discipline triad (`spec-discipline`, `documentation-discipline`,
 `tdd-discipline`) is advanced-only and points to the SDD workflow status,
 severity, and skill families.

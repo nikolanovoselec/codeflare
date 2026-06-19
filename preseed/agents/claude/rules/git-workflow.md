@@ -26,5 +26,7 @@ active or incomplete review.
 
 - Do not push while a review is running, unless explicitly authorized by the user.
 - Do not auto-start CI monitoring after routine pushes. Invoke `ci-monitoring` only when the user explicitly asks, or when deploy/merge requires a fresh CI result.
+- CI monitoring must be detached/background-only: never run `tail -f`, `gh run watch`, or any long-running CI polling loop in the main assistant turn. Start the detached monitor, report the log path, and stop so review results can be emitted into the main session.
+- Any long-running wait/monitor/poll (CI, deploy status, review completion, log tailing, `watch`, `tail -f`, `gh run watch`, `while sleep` loops, or `ctx_execute`/Bash used as a blocking monitor) must run detached/background or in a subagent/background task. Never keep the main session busy waiting for external state; `ctx_execute` is not an exception. Start only a short detached launcher, report how to check it, and stop.
 - Never deploy to integration until every required CI run is green.
 - If CI monitoring is required by an explicit user request or deploy/merge gate, skipping `ci-monitoring` is HIGH `ci-monitoring-skill-not-invoked`.

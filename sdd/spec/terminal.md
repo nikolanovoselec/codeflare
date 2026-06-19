@@ -415,9 +415,9 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 <!-- @impl: web-ui/src/components/SessionSwitcher.tsx::SessionSwitcher -->
 <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard -->
 <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (terminalWorkspaceStore describe -> desktop/tablet/mobile capacity + reconciliation -> AC1,2,5) -->
-<!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (TerminalArea describe -> one connected pane per MultiView member + focus changes do not remount panes + workspace terminal id source of truth + no nested tabs -> AC4,5,6) -->
+<!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (TerminalArea describe -> one connected pane per MultiView member + focus changes do not remount panes + workspace terminal id source of truth + no nested tabs -> AC4,AC6,AC7) -->
 <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard describe -> virtual MultiView never renders as a session card; icon-only dashboard action opens it without backend session ID -> AC3) -->
-<!-- @test: web-ui/src/__tests__/components/TerminalGrid.test.tsx (TerminalGrid describe -> reusable layout slots and keyed pane-id subtree replacement -> AC4, AC5) -->
+<!-- @test: web-ui/src/__tests__/components/TerminalGrid.test.tsx (TerminalGrid describe -> reusable layout slots + stable pane ids do not dispose + keyed pane-id subtree replacement -> AC4,AC6) -->
 ### REQ-TERM-012: MultiView virtual session workspace
 
 **Intent:** Users can open one virtual MultiView workspace that displays multiple existing sessions side by side without creating a backend session or changing the member sessions' lifecycle.
