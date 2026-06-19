@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, postCommandReconcileDecision, prCreateBoundaryBase, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, isTaskSessionFile, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, registerReviewRefreshLifecycleHooks, REVIEW_REFRESH_LIFECYCLE_EVENTS, reviewMonitorDecision, reviewMonitorSpawnDecision, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput, type ReviewRefreshLifecycleEvent } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, isTaskSessionFile, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, registerReviewRefreshLifecycleHooks, REVIEW_REFRESH_LIFECYCLE_EVENTS, reviewMonitorCompletionRecordReady, reviewMonitorDecision, reviewMonitorSpawnDecision, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput, type ReviewRefreshLifecycleEvent } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_CAPTURE_PENDING_TTL_MS, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { LOCAL_BUILD_BYPASS, attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { reviewLaneBlockReason, reviewScopeBlockReason } from '../../../preseed/agents/pi/extensions/review-lane-guards';
@@ -212,7 +212,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('preseeds work continuity and the review push gate into every agent instruction surface', () => {
+  it('preseeds work continuity, review push gate, and review-result handoff into every agent instruction surface', () => {
     const instructionKeys = [
       '.codex/AGENTS.md',
       '.gemini/GEMINI.md',
@@ -226,6 +226,8 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(claudeRule?.content).toContain('Queue the new instruction');
     expect(claudeRule?.content).toContain('## Review push gate');
     expect(claudeRule?.content).toContain('Do not push while a PR-boundary review is running');
+    expect(claudeRule?.content).toContain('## Review-result handoff gate');
+    expect(claudeRule?.content).toContain('very next assistant response MUST start by printing a detailed user-facing review summary');
 
     for (const key of instructionKeys) {
       const entries = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === key);
@@ -235,6 +237,8 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
         expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('Queue the new instruction');
         expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('## Review push gate');
         expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('Do not push while a PR-boundary review is running');
+        expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('## Review-result handoff gate');
+        expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('very next assistant response MUST start by printing a detailed user-facing review summary');
       }
     }
   });
@@ -1291,6 +1295,32 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(reviewMonitorSpawnDecision({ completed: false, startedAt: 800, now: 1000, ttlMs: 500 })).toBe('skip_running');
     expect(reviewMonitorSpawnDecision({ completed: false, startedAt: 400, now: 1000, ttlMs: 500 })).toBe('spawn');
     expect(reviewMonitorSpawnDecision({ completed: false, startedAt: undefined, now: 1000, ttlMs: 500 })).toBe('spawn');
+  });
+
+  it('REQ-AGENT-062: monitor completion markers must match the delivered final summary', () => {
+    const base = {
+      repo: '/repo',
+      head: 'abc123',
+      summaryPath: '/repo/.git/sdd-review-results/abc123/summary.md',
+      latestInputMtime: 1000,
+    };
+    expect(reviewMonitorCompletionRecordReady({
+      ...base,
+      record: { repo: base.repo, head: base.head, summaryPath: base.summaryPath, completedAt: 1000, result: 'findings' },
+    })).toBe(true);
+    expect(reviewMonitorCompletionRecordReady({
+      ...base,
+      record: { repo: base.repo, head: base.head, summaryPath: base.summaryPath, completedAt: 1000 },
+    })).toBe(false);
+    expect(reviewMonitorCompletionRecordReady({
+      ...base,
+      record: { repo: base.repo, head: base.head, summaryPath: base.summaryPath, completedAt: 1000, result: 'failed' },
+    })).toBe(false);
+    expect(reviewMonitorCompletionRecordReady({
+      ...base,
+      record: { repo: base.repo, head: base.head, summaryPath: base.summaryPath, completedAt: 1000, result: 'clean' },
+      latestInputMtime: 3000,
+    })).toBe(false);
   });
 
   it('REQ-AGENT-062: message_end runs the review refresh hook so active review windows can advance on live ticks', () => {

@@ -241,6 +241,39 @@ export function reviewMonitorSpawnDecision(input: ReviewMonitorSpawnDecisionInpu
   return "spawn";
 }
 
+export type ReviewMonitorCompletionRecord = {
+  repo?: unknown;
+  head?: unknown;
+  summaryPath?: unknown;
+  completedAt?: unknown;
+  result?: unknown;
+};
+
+export function parseReviewMonitorCompletedAt(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const normalized = value.replace(/\.(\d{3})\d+(?=Z|[+-]\d{2}:?\d{2}$)/, ".$1");
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+export function reviewMonitorCompletionRecordReady(input: {
+  record: ReviewMonitorCompletionRecord;
+  repo: string;
+  head: string;
+  summaryPath: string;
+  latestInputMtime: number;
+}): boolean {
+  const completedAt = parseReviewMonitorCompletedAt(input.record.completedAt);
+  const result = input.record.result;
+  return input.record.repo === input.repo
+    && input.record.head === input.head
+    && input.record.summaryPath === input.summaryPath
+    && (result === "clean" || result === "findings")
+    && completedAt !== undefined
+    && completedAt + 1000 >= input.latestInputMtime;
+}
+
 export type ReviewSummaryMessage = {
   customType: "codeflare-review-summary-v4";
   content: string;

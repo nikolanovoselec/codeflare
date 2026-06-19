@@ -441,12 +441,14 @@ All preseed content is deployed via the manifest pipeline:
   trigger creates an active review window, Pi starts the background `review-monitor`
   at the same time as the durable lanes. The monitor waits for lane results and
   `summary.md`, writes `monitor.completed` only after that complete set exists, then
-  returns `REVIEW_RESULT clean|findings` to the main session; an early lane failure
+  returns `REVIEW_RESULT clean|findings` to the main session. An early lane failure
   returns `REVIEW_RESULT failed` without a completion marker so a later retry can
-  deliver the final summary. Pi keeps the pending review window unacked until a
-  valid `monitor.completed` exists. It does not resurrect old acked jobs after
-  pending state is cleared; `/review-results` remains the manual fallback for saved
-  exact-head summaries. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ensureReviewWindow --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorCompletionReady --> <!-- @impl: preseed/agents/pi/agents/review-monitor.md -->
+  deliver the final summary.
+
+  Pi keeps the pending review window unacked until a valid `monitor.completed`
+  exists, and it does not resurrect old acked jobs after pending state is cleared.
+  `/review-results` remains the manual fallback for saved exact-head summaries.
+  <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ensureReviewWindow --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorCompletionReady --> <!-- @impl: preseed/agents/pi/agents/review-monitor.md -->
 
   The disk-driven reaper that settles each lane is retry-aware: an attempt that
   ends with `willRetry: true` (pi auto-retrying the same child after a transient
@@ -507,27 +509,25 @@ All preseed content is deployed via the manifest pipeline:
 
   The monitor is the delivery wakeup. Before successful exit after complete lane
   results and `summary.md`, it writes
-  `.git/codeflare-review-jobs/<head>/monitor.completed` as JSON; if a lane fails
-  before that complete set exists, it returns `REVIEW_RESULT failed` without that
-  marker. For findings it includes a compact overview (severity counts, lane
-  status, ranked finding titles) and instructs the main session to show that
-  overview to the user before editing. Implements
+  `.git/codeflare-review-jobs/<head>/monitor.completed` as JSON containing `repo`,
+  `head`, `summaryPath`, `completedAt`, and `result`; if a lane fails before that
+  complete set exists, it returns `REVIEW_RESULT failed` without that marker.
+  Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
   AC3/AC4; source: `preseed/agents/pi/agents/review-monitor.md`,
-  `review-enforcement.ts::reviewMonitorPrompt`, and
-  `review-enforcement.ts::reviewMonitorCompletionReady`.
+  `review-enforcement.ts::reviewMonitorPrompt`,
+  `review-enforcement.ts::reviewMonitorCompletionReady`, and
+  `review-job-helpers.ts::reviewMonitorCompletionRecordReady`.
 
   Partial lane results, failed required lanes, or a missing `summary.md` cannot
   trigger autofix. If actionable MEDIUM/HIGH/CRITICAL findings remain after the
-  complete exact-head summary, the monitor tells the main session to read
-  `summary.md`, verify each finding against code/spec/docs, and fix only
-  legitimate findings by default. If the latest user instruction says not to
-  autofix, wait for approval, or do not push, the monitor tells the main session
+  complete exact-head summary, the monitor tells the main session to print a
+  detailed review overview first, then read `summary.md`, verify each finding, and
+  fix only legitimate findings by default. If the latest user instruction says not
+  to autofix, wait for approval, or do not push, the monitor tells the main session
   to stop for approval instead. There is no hidden `autofix.requested` marker and
   no custom summary announcement channel. Implements
-  [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-durable-review-fix-loop)
-  and [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC5.
+  [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-durable-review-fix-loop).
 
   Task/subagent contexts may reap lane children and write durable state, but only
   a live main-session context starts `review-monitor`, and old acked jobs are not
@@ -536,7 +536,7 @@ All preseed content is deployed via the manifest pipeline:
   `/review-results` command remains the manual fallback: it displays the persisted
   exact-head `summary.md` without mutating delivery state. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC6/AC7; source: `review-enforcement.ts::startReviewMonitor`,
+  AC5/AC6; source: `review-enforcement.ts::startReviewMonitor`,
   `review-enforcement.ts::remember`, and `review-job-helpers.ts::isTaskSessionFile`.
 
   Timed-out or failed durable lanes are recorded as failed and do not produce

@@ -50,6 +50,15 @@ not complete for the current head, unless the user explicitly authorizes pushing
 that active/incomplete review. Wait for the final merged review summary for the exact head,
 then fix legitimate findings before pushing another head.
 
+## Review-result handoff gate
+
+When a background `review-monitor` completes with `REVIEW_RESULT`, the very next
+assistant response MUST start by printing a detailed user-facing review summary before
+analysis, excuses, tool calls, todo updates, or fixes. Include the exact result line,
+severity counts, lane status, ranked findings, summary path, monitor transcript path if
+available, and the planned next action. Only after that summary may you read files,
+triage findings, or edit code.
+
 ## Hard gates
 
 - **Plan gate (every plan / ExitPlanMode).** A plan MUST contain an explicit

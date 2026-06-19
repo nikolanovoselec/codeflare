@@ -244,7 +244,9 @@ export default function (pi: ExtensionAPI) {
           }
           // Take every extension status EXCEPT codeflare-review (that one only refreshes on a
           // user turn); compute the review row fresh from disk so timer-driven lane changes show.
-          const statuses = Array.from(footerData.getExtensionStatuses().entries())
+          const extensionStatuses = footerData.getExtensionStatuses();
+          const reviewFallback = extensionStatuses.get("codeflare-review");
+          const statuses = Array.from(extensionStatuses.entries())
             .filter(([key]) => key !== "codeflare-review")
             .map(([, value]) => value)
             .filter(Boolean);
@@ -252,6 +254,7 @@ export default function (pi: ExtensionAPI) {
             ?? recallReviewRepo() ?? recallActiveRepo() ?? sentinelRepoForDisplay(ctx);
           const reviewRow = repo ? liveReviewRow(repo, theme) : undefined;
           if (reviewRow) statuses.push(reviewRow);
+          else if (!repo && reviewFallback) statuses.push(reviewFallback);
           const lines = [theme.fg("dim", truncateToWidth(cached.value, width))];
           if (statuses.length > 0) lines.push(truncateToWidth(statuses.join(" | "), width));
           return lines;

@@ -43,7 +43,7 @@ Your final response must start with exactly one of:
 - `REVIEW_RESULT findings`
 - `REVIEW_RESULT failed`
 
-For `findings`, include a compact user-facing overview in your final result: severity counts, lane status, and the ranked finding titles. Then tell the main session: first show that overview to the user, then read `summary.md`, verify every MEDIUM/HIGH/CRITICAL finding, fix only legitimate findings by default, and stop for approval only if the latest user instruction says not to autofix / wait for approval / do not push.
+For `findings`, include a detailed user-facing overview in your final result: severity counts, lane status, ranked finding titles, the `summary.md` path, and your own monitor transcript path if available. Then tell the main session that its first response after receiving your result must start by printing that detailed review summary before analysis, tool calls, todo updates, or fixes. After that, the main session should read `summary.md`, verify every MEDIUM/HIGH/CRITICAL finding, fix only legitimate findings by default, and stop for approval only if the latest user instruction says not to autofix / wait for approval / do not push.
 
 ## Prohibited
 

@@ -58,7 +58,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, boundaryFallbackHead, boundaryTriggerCommandEntries, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, commandTextsFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, gitPushCommandTarget, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prCreateCommandTarget, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, prUrlFromText, reusablePendingReview, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, type DurableReviewSummaryRecord } from "./review-job-helpers";
+import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewMonitorCompletionRecordReady, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, type DurableReviewSummaryRecord } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -969,8 +969,10 @@ function writeReviewSummaryFromDisk(state: PendingReview): void {
     records: reviewSummaryRecordsFromDisk(state),
   });
   const summaryPath = join(reviewResultsDir(state.repo, state.head), "summary.md");
+  const rendered = `${content}\n`;
+  if (existsSync(summaryPath) && readFileSync(summaryPath, "utf8") === rendered) return;
   mkdirSync(dirname(summaryPath), { recursive: true });
-  writeFileSync(summaryPath, `${content}\n`, "utf8");
+  safeWriteText(summaryPath, rendered);
 }
 
 function finalizeCompletedReviewFromDisk(state: PendingReview): void {
@@ -1443,14 +1445,6 @@ export default function (pi: ExtensionAPI) {
     writeFileSync(reviewMonitorPath(state), `${JSON.stringify({ repo: state.repo, head: state.head, agentId, reason, startedAt: Date.now() }, null, 2)}\n`, "utf8");
   }
 
-  function parseReviewMonitorCompletedAt(value: unknown): number | undefined {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (typeof value !== "string" || !value.trim()) return undefined;
-    const normalized = value.replace(/\.(\d{3})\d+(?=Z|[+-]\d{2}:?\d{2}$)/, ".$1");
-    const parsed = Date.parse(normalized);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }
-
   function unlinkInvalidReviewMonitorCompletion(state: PendingReview): void {
     try { unlinkSync(reviewMonitorCompletedPath(state)); } catch { /* best effort stale completion reclaim */ }
   }
@@ -1459,17 +1453,11 @@ export default function (pi: ExtensionAPI) {
     const completionPath = reviewMonitorCompletedPath(state);
     if (!existsSync(completionPath)) return false;
     const summaryPath = join(reviewResultsDir(state.repo, state.head), "summary.md");
-    let completedAt: number | undefined;
     try {
-      const parsed = JSON.parse(readFileSync(completionPath, "utf8")) as { repo?: unknown; head?: unknown; summaryPath?: unknown; completedAt?: unknown };
-      completedAt = parseReviewMonitorCompletedAt(parsed.completedAt);
-      if (parsed.repo !== state.repo || parsed.head !== state.head || parsed.summaryPath !== summaryPath || completedAt === undefined) {
-        unlinkInvalidReviewMonitorCompletion(state);
-        return false;
-      }
+      const parsed = JSON.parse(readFileSync(completionPath, "utf8"));
       const inputs = [summaryPath, ...state.lanes.map((lane) => reviewResultPath(state.repo, state.head, lane))];
       const latestInputMtime = Math.max(...inputs.map((path) => statSync(path).mtimeMs));
-      if (completedAt + 1000 < latestInputMtime) {
+      if (!reviewMonitorCompletionRecordReady({ record: parsed, repo: state.repo, head: state.head, summaryPath, latestInputMtime })) {
         unlinkInvalidReviewMonitorCompletion(state);
         return false;
       }
@@ -1507,7 +1495,8 @@ export default function (pi: ExtensionAPI) {
       "- Before exiting successfully after every lane result and summary.md exists, write the completion marker as JSON with repo, head, summaryPath, completedAt, and result.",
       "- Final output must start with one of these exact contract lines: REVIEW_RESULT clean, REVIEW_RESULT findings, or REVIEW_RESULT failed.",
       "- For findings, include a compact user-facing overview in your final result: severity counts, lane status, and ranked finding titles.",
-      "- Then tell the main session: first show that overview to the user, then read summary.md, verify every MEDIUM/HIGH/CRITICAL finding, fix only legitimate findings by default, and stop for approval only if the latest user instruction says not to autofix / wait for approval / do not push.",
+      "- The main session's first response after receiving your result must start by printing a detailed review summary: exact REVIEW_RESULT line, severity counts, lane status, ranked findings, summary path, monitor transcript path if available, and next action. It must do this before analysis, tool calls, todo updates, or fixes.",
+      "- Then tell the main session to read summary.md, verify every MEDIUM/HIGH/CRITICAL finding, fix only legitimate findings by default, and stop for approval only if the latest user instruction says not to autofix / wait for approval / do not push.",
     ].join("\n");
   }
 
