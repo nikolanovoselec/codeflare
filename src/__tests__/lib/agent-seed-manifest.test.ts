@@ -1,9 +1,9 @@
-import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, postCommandReconcileDecision, prCreateBoundaryBase, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, isTaskSessionFile, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, registerReviewRefreshLifecycleHooks, REVIEW_REFRESH_LIFECYCLE_EVENTS, reviewMonitorDecision, reviewMonitorRecoveryDecision, reviewMonitorSpawnDecision, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput, type ReviewRefreshLifecycleEvent } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, isTaskSessionFile, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, registerReviewRefreshLifecycleHooks, REVIEW_REFRESH_LIFECYCLE_EVENTS, reviewMonitorDecision, reviewMonitorSpawnDecision, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput, type ReviewRefreshLifecycleEvent } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_CAPTURE_PENDING_TTL_MS, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { LOCAL_BUILD_BYPASS, attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { reviewLaneBlockReason, reviewScopeBlockReason } from '../../../preseed/agents/pi/extensions/review-lane-guards';
@@ -493,6 +493,58 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     } finally {
       globalThis.setInterval = originalSetInterval;
       globalThis.clearInterval = originalClearInterval;
+    }
+  });
+
+  it('REQ-AGENT-062: Pi local statusline keeps the durable review row while pending exists after all lanes complete', () => {
+    const repo = '/tmp/codeflare-statusline-review-complete';
+    const head = 'abc123abc123abc123abc123abc123abc123abc1';
+    rmSync(repo, { recursive: true, force: true });
+    mkdirSync(`${repo}/.git/sdd-review-results/${head}`, { recursive: true });
+    mkdirSync(`${repo}/.git/codeflare-review-jobs/${head}`, { recursive: true });
+    writeFileSync(`${repo}/.git/sdd-review-pending.json`, JSON.stringify({ head, lanes: ['code-reviewer', 'spec-reviewer', 'doc-updater'] }));
+    for (const lane of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
+      writeFileSync(`${repo}/.git/sdd-review-results/${head}/${lane}.md`, `# ${lane}\n`);
+    }
+    writeFileSync(`${repo}/.git/codeflare-review-jobs/${head}/job.json`, JSON.stringify({ laneState: {
+      'code-reviewer': { status: 'completed', startedAt: 1 },
+      'spec-reviewer': { status: 'completed', startedAt: 1 },
+      'doc-updater': { status: 'completed', startedAt: 1 },
+    } }));
+
+    const originalSetInterval = globalThis.setInterval;
+    const originalClearInterval = globalThis.clearInterval;
+    globalThis.setInterval = (() => 1) as never;
+    globalThis.clearInterval = (() => undefined) as never;
+    const handlers = new Map<string, Function>();
+    let footerFactory: Function | undefined;
+    const pi = { getThinkingLevel: () => 'xhigh', on: (event: string, handler: Function) => handlers.set(event, handler) };
+    const ctx = {
+      hasUI: true,
+      model: { id: 'gpt-5.5' },
+      cwd: repo,
+      sessionManager: { getCwd: () => repo },
+      getContextUsage: () => ({ percent: 42 }),
+      ui: { setFooter: (factory: Function) => { footerFactory = factory; } },
+    };
+
+    try {
+      localStatuslineExtension(pi as never);
+      handlers.get('session_start')?.({}, ctx);
+      const component = footerFactory?.(
+        { requestRender: () => undefined },
+        { fg: (_name: string, text: string) => text },
+        { onBranchChange: () => () => undefined, getExtensionStatuses: () => new Map() },
+      );
+      const lines = component.render(120);
+      expect(lines[1]).toContain('code');
+      expect(lines[1]).toContain('spec');
+      expect(lines[1]).toContain('docs');
+      component.dispose();
+    } finally {
+      globalThis.setInterval = originalSetInterval;
+      globalThis.clearInterval = originalClearInterval;
+      rmSync(repo, { recursive: true, force: true });
     }
   });
 
@@ -1292,28 +1344,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(reviewMonitorSpawnDecision({ completed: false, startedAt: undefined, now: 1000, ttlMs: 500 })).toBe('spawn');
   });
 
-  it('REQ-AGENT-062: acked completed jobs recover monitor delivery after pending state is cleared', () => {
-    expect(reviewMonitorRecoveryDecision({
-      currentHead: 'abc123',
-      ackHead: 'abc123',
-      completedJobExists: true,
-      monitorCompleted: false,
-    })).toBe('recover');
-    expect(reviewMonitorRecoveryDecision({
-      currentHead: 'abc123',
-      ackHead: 'old123',
-      completedJobExists: true,
-      monitorCompleted: false,
-    })).toBe('skip');
-    expect(reviewMonitorRecoveryDecision({
-      currentHead: 'abc123',
-      ackHead: 'abc123',
-      completedJobExists: true,
-      monitorCompleted: true,
-    })).toBe('skip');
-  });
-
-  it('REQ-AGENT-062: message_end runs the review refresh hook so monitor recovery can run on live ticks', () => {
+  it('REQ-AGENT-062: message_end runs the review refresh hook so active review windows can advance on live ticks', () => {
     const handlers = new Map<ReviewRefreshLifecycleEvent, (event: unknown, ctx: unknown) => void>();
     const monitor = { checked: false };
     registerReviewRefreshLifecycleHooks({

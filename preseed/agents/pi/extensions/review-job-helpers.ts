@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 
 export const REVIEW_REFRESH_LIFECYCLE_EVENTS = ["resources_discover", "turn_start", "turn_end", "message_end"] as const;
 
@@ -224,23 +224,6 @@ export function reviewMonitorDecision(input: ReviewMonitorDecisionInput): Review
     ? (input.approvalRequired ? "manual_review_required" : "autofix_required")
     : "clean";
   return { status: "ready", action, missing: [], failed: [] };
-}
-
-export type ReviewMonitorRecoveryDecisionInput = {
-  currentHead: string;
-  ackHead: string;
-  completedJobExists: boolean;
-  monitorCompleted: boolean;
-};
-
-export type ReviewMonitorRecoveryDecision = "recover" | "skip";
-
-export function reviewMonitorRecoveryDecision(input: ReviewMonitorRecoveryDecisionInput): ReviewMonitorRecoveryDecision {
-  if (!input.currentHead) return "skip";
-  if (input.ackHead !== input.currentHead) return "skip";
-  if (!input.completedJobExists) return "skip";
-  if (input.monitorCompleted) return "skip";
-  return "recover";
 }
 
 export type ReviewMonitorSpawnDecisionInput = {

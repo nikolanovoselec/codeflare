@@ -58,7 +58,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, boundaryFallbackHead, boundaryTriggerCommandEntries, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, commandTextsFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, gitPushCommandTarget, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prCreateCommandTarget, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, prUrlFromText, reusablePendingReview, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorRecoveryDecision, reviewMonitorSpawnDecision, type DurableReviewSummaryRecord } from "./review-job-helpers";
+import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, type DurableReviewSummaryRecord } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -877,7 +877,7 @@ function transcriptGitGhCommands(sessionFile: string | undefined): TranscriptGit
   return commands;
 }
 
-async function spawnReviewLanes(pending: PendingReview, pr: PrState, lanes: string[], ctx: any, reason: string): Promise<void> {
+function spawnReviewLanes(pending: PendingReview, pr: PrState, lanes: string[], ctx: any, reason: string): void {
   if (lanes.length === 0) return;
 
   const now = Date.now();
@@ -973,13 +973,8 @@ function writeReviewSummaryFromDisk(state: PendingReview): void {
 }
 
 function finalizeCompletedReviewFromDisk(state: PendingReview): void {
-  appendReviewEvent(state.repo, { event: "review_acked", head: state.head, lanes: state.lanes });
-  writeAck(state.repo, state.head);
-  resetBlockCount(state.repo);
-  clearBreaker(state.repo);
-  clearPending(state.repo);
   writeReviewSummaryFromDisk(state);
-  activeReviewStartMonitor?.(state, "disk finalization");
+  appendReviewEvent(state.repo, { event: "review_complete_waiting_for_monitor", head: state.head, lanes: state.lanes, reason: "no live monitor context" });
 }
 
 // Set by the extension's default export to pi-bound closures. The autonomous timer has no pi/ctx,
@@ -1212,7 +1207,7 @@ export default function (pi: ExtensionAPI) {
     savePending(pending);
     updateReviewStatus(pending, ctx);
     ctx.ui.notify(`PR-boundary review rolled forward for ${basename(state.repo)} from ${state.head.slice(0, 12)} to ${head.slice(0, 12)} (${reason}). Lanes: ${review.lanes.join(", ")}.`, "warning");
-    await spawnReviewLanes(pending, currentPr, durableReviewInitialLanes(pending.lanes), ctx, "advanced PR head roll-forward");
+    spawnReviewLanes(pending, currentPr, durableReviewInitialLanes(pending.lanes), ctx, "advanced PR head roll-forward");
     startReviewMonitor(pending, ctx, "advanced PR head roll-forward");
     return true;
   };
@@ -1400,8 +1395,27 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
-  function writeReviewMonitorStarted(state: PendingReview, agentId: string | undefined, reason: string): void {
-    mkdirSync(dirname(reviewMonitorPath(state)), { recursive: true });
+  function claimReviewMonitorStart(state: PendingReview, reason: string): boolean {
+    const path = reviewMonitorPath(state);
+    const startedAt = reviewMonitorStartedAt(state);
+    if (startedAt !== undefined && Date.now() - startedAt >= REVIEW_MONITOR_TTL_MS) {
+      try { unlinkSync(path); } catch { /* best effort stale reclaim */ }
+    }
+    mkdirSync(dirname(path), { recursive: true });
+    try {
+      const fd = openSync(path, "wx");
+      try {
+        writeFileSync(fd, `${JSON.stringify({ repo: state.repo, head: state.head, reason, startedAt: Date.now() }, null, 2)}\n`, "utf8");
+      } finally {
+        closeSync(fd);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function writeReviewMonitorStarted(state: PendingReview, agentId: string, reason: string): void {
     writeFileSync(reviewMonitorPath(state), `${JSON.stringify({ repo: state.repo, head: state.head, agentId, reason, startedAt: Date.now() }, null, 2)}\n`, "utf8");
   }
 
@@ -1434,19 +1448,18 @@ export default function (pi: ExtensionAPI) {
     ].join("\n");
   }
 
-  function startReviewMonitor(state: PendingReview, ctx: any, reason: string): void {
-    const sessionFile = currentSessionFile(ctx);
-    if (!sessionFile || isTaskSessionFile(sessionFile)) {
-      appendReviewEvent(state.repo, { event: "review_monitor_waiting_for_main_session", head: state.head, reason });
-      return;
-    }
+  function startReviewMonitor(state: PendingReview, ctx: any, reason: string): boolean {
     const decision = reviewMonitorSpawnDecision({
       completed: existsSync(reviewMonitorCompletedPath(state)),
       startedAt: reviewMonitorStartedAt(state),
       now: Date.now(),
       ttlMs: REVIEW_MONITOR_TTL_MS,
     });
-    if (decision !== "spawn") return;
+    if (decision === "skip_completed" || decision === "skip_running") return true;
+    if (!claimReviewMonitorStart(state, reason)) {
+      appendReviewEvent(state.repo, { event: "review_monitor_claim_failed", head: state.head, reason });
+      return false;
+    }
 
     const prompt = reviewMonitorPrompt(state);
     const description = `Monitor review ${state.head.slice(0, 12)}`;
@@ -1458,53 +1471,18 @@ export default function (pi: ExtensionAPI) {
         agentId = typeof spawned === "string" ? spawned : undefined;
       }
     } catch (error) {
+      try { unlinkSync(reviewMonitorPath(state)); } catch { /* best effort retry enable */ }
       appendReviewEvent(state.repo, { event: "review_monitor_start_failed", head: state.head, reason, error: String(error) });
-      return;
+      return false;
     }
 
     if (!agentId) {
+      try { unlinkSync(reviewMonitorPath(state)); } catch { /* best effort retry enable */ }
       appendReviewEvent(state.repo, { event: "review_monitor_unavailable", head: state.head, reason });
-      return;
+      return false;
     }
     writeReviewMonitorStarted(state, agentId, reason);
     appendReviewEvent(state.repo, { event: "review_monitor_started", head: state.head, agentId, reason });
-  }
-
-  // Completed durable jobs can be recovered after ack/reload so the monitor can still report.
-  function completedStateFromDurableJob(repo: string, head: string): PendingReview | undefined {
-    const job = readDurableReviewJob(repo, head);
-    if (!job?.lanes?.length) return undefined;
-    if (!job.lanes.every((lane) => existsSync(reviewResultPath(repo, head, lane)))) return undefined;
-    return {
-      repo,
-      prNumber: job.prNumber,
-      baseRefName: job.baseRefName,
-      head,
-      reviewBase: job.reviewBase,
-      lanes: job.lanes,
-      completed: new Set(job.lanes),
-      docPromptSent: true,
-      spawned: true,
-      spawnedIds: {},
-      fallbackLanes: new Set(),
-      requestedAt: {},
-      reviewStartedAt: job.startedAt,
-      spawnedAt: job.startedAt,
-    };
-  }
-
-  function recoverCompletedMonitorForLiveHead(ctx: any, reason: string): boolean {
-    const repo = reviewRepoForCtx(ctx);
-    if (!repo) return false;
-    const head = currentEnforcedPrHead(repo);
-    const completed = head ? completedStateFromDurableJob(repo, head) : undefined;
-    if (reviewMonitorRecoveryDecision({
-      currentHead: head,
-      ackHead: lastAckHead(repo),
-      completedJobExists: Boolean(completed),
-      monitorCompleted: completed ? existsSync(reviewMonitorCompletedPath(completed)) : false,
-    }) !== "recover" || !completed) return false;
-    startReviewMonitor(completed, ctx, reason);
     return true;
   }
 
@@ -1515,23 +1493,28 @@ export default function (pi: ExtensionAPI) {
   }
 
   function finalizeCompletedReview(state: PendingReview, ctx?: any): void {
-    appendReviewEvent(state.repo, { event: "review_acked", head: state.head, lanes: state.lanes });
     writeReviewSummaryFromDisk(state);
+    if (!startReviewMonitor(state, ctx, "review completed")) {
+      appendReviewEvent(state.repo, { event: "review_complete_waiting_for_monitor", head: state.head, lanes: state.lanes, reason: "monitor not running" });
+      if (ctx) updateReviewStatus(state, ctx);
+      return;
+    }
+    if (!existsSync(reviewMonitorCompletedPath(state))) {
+      appendReviewEvent(state.repo, { event: "review_complete_waiting_for_monitor", head: state.head, lanes: state.lanes, reason: "monitor running" });
+      if (ctx) updateReviewStatus(state, ctx);
+      return;
+    }
+    appendReviewEvent(state.repo, { event: "review_acked", head: state.head, lanes: state.lanes });
     writeAck(state.repo, state.head);
     resetBlockCount(state.repo);
     clearBreaker(state.repo);
     clearPending(state.repo);
-    // Execution is done; user-visible delivery is owned by the background review-monitor agent.
-    // The monitor waits for lane files + summary.md and reports REVIEW_RESULT through Pi's built-in
-    // subagent completion notification, avoiding custom transcript/nonce delivery plumbing.
-    startReviewMonitor(state, ctx, "review completed");
     pending = undefined;
   }
 
   function refreshReviewStatusFromDurable(ctx: any): void {
     const state = hydratePending(ctx);
     if (!state) {
-      recoverCompletedMonitorForLiveHead(ctx, "no-pending monitor recovery");
       clearReviewStatus(ctx);
       return;
     }
@@ -1658,8 +1641,8 @@ export default function (pi: ExtensionAPI) {
     updateReviewStatus(pending, ctx);
     appendReviewEvent(repo, { event: "boundary_detected", head, decision: "start_review", lanes: review.lanes, trigger });
     ctx.ui.notify(`PR-boundary review required for ${basename(repo)} at ${head.slice(0, 12)}. Lanes: ${review.lanes.join(", ")}.`, "warning");
-    await spawnReviewLanes(pending, { ...pr, headRefOid: head }, initialLanes, ctx, trigger);
-    startReviewMonitor(pending, ctx, trigger);
+    spawnReviewLanes(pending, { ...pr, headRefOid: head }, initialLanes, ctx, trigger);
+    startReviewMonitor(pending, ctx, `review window started: ${trigger}`);
     return true;
   }
 
@@ -2209,8 +2192,6 @@ export default function (pi: ExtensionAPI) {
     if (!activeHead) { pending = undefined; return; }
     if (isBreakerOpen(state.repo, activeHead)) { pending = undefined; return; } // latched: do no further work for this head
     if (acked(state.repo, activeHead)) {
-      const completed = completedStateFromDurableJob(state.repo, activeHead);
-      if (completed) startReviewMonitor(completed, ctx, "acked head monitor recovery");
       clearPending(state.repo);
       pending = undefined;
       return;
@@ -2279,7 +2260,7 @@ export default function (pi: ExtensionAPI) {
     }).filter((lane) => shouldRequestLane(currentState, lane));
     if (eligibleUnstarted.length > 0) {
       const currentPr = prState(currentState.repo) || { baseRefName: currentState.baseRefName, number: currentState.prNumber, headRefOid: currentState.head } as PrState;
-      await spawnReviewLanes(currentState, currentPr, eligibleUnstarted, ctx, "pending reviewer retry");
+      spawnReviewLanes(currentState, currentPr, eligibleUnstarted, ctx, "pending reviewer retry");
       return;
     }
 

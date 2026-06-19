@@ -110,7 +110,7 @@ function reviewStatusRepo(ctx: ExtensionCommandContext): string | undefined {
       activeRepo: recallActiveRepo(),
       processCwd: process.cwd(),
     },
-    findGitRoot,
+    (repo) => existsSync(join(repo, ".git")),
   );
   if (resolved) return resolved;
   let sentinelContent: string | undefined;
