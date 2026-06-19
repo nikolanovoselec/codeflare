@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, postCommandReconcileDecision, prCreateBoundaryBase, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { actionableReviewCount, allDurableReviewLanesComplete, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, deliveryAnnouncementHeads, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, pendingAnnouncementHeadsFrom, reapLaneDecision, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, reviewAutofixRequest, sendReviewAutofixRequest, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, shouldSendAnnouncement, summarizeLaneTranscript, type OpenPrReconcileInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { actionableReviewCount, allDurableReviewLanesComplete, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, deliveryAnnouncementHeads, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, pendingAnnouncementHeadsFrom, reapLaneDecision, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, reviewAutofixRequest, sendReviewAutofixRequest, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, shouldSendAnnouncement, summarizeLaneTranscript, transcriptEntryContainsDeliveryNonce, type OpenPrReconcileInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_CAPTURE_PENDING_TTL_MS, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { LOCAL_BUILD_BYPASS, attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { reviewLaneBlockReason, reviewScopeBlockReason } from '../../../preseed/agents/pi/extensions/review-lane-guards';
@@ -1336,6 +1336,46 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(shouldSendAnnouncement({ kind: 'summary', idle: false, hasLiveSessionContext: true })).toBe(false);
     expect(shouldSendAnnouncement({ kind: 'autofix', idle: true, hasLiveSessionContext: false })).toBe(false);
     expect(shouldSendAnnouncement({ kind: 'autofix', idle: true, hasLiveSessionContext: true })).toBe(true);
+  });
+
+  it('REQ-AGENT-062: transcript delivery proof accepts only nonce-bearing custom messages', () => {
+    const summaryNonce = 'cf-review-summary:abc123:9';
+    const summarySentinel = `<!-- cf-review-delivery ${summaryNonce} -->`;
+    const autofixNonce = 'cf-review-autofix:abc123:9';
+    const autofixSentinel = `<!-- cf-review-delivery ${autofixNonce} -->`;
+
+    expect(transcriptEntryContainsDeliveryNonce({
+      type: 'message',
+      message: { role: 'toolResult', toolName: 'ctx_execute', content: [{ type: 'text', text: summarySentinel }] },
+    }, summaryNonce)).toBe(false);
+    expect(transcriptEntryContainsDeliveryNonce({
+      type: 'message',
+      message: { role: 'assistant', content: [{ type: 'thinking', thinking: summarySentinel }] },
+    }, summaryNonce)).toBe(false);
+    expect(transcriptEntryContainsDeliveryNonce({
+      type: 'custom_message',
+      customType: 'codeflare-review-summary-v3',
+      content: summarySentinel,
+      display: false,
+    }, summaryNonce)).toBe(false);
+    expect(transcriptEntryContainsDeliveryNonce({
+      type: 'custom_message',
+      customType: 'codeflare-review-autofix-request',
+      content: summarySentinel,
+      display: true,
+    }, summaryNonce)).toBe(false);
+    expect(transcriptEntryContainsDeliveryNonce({
+      type: 'custom_message',
+      customType: 'codeflare-review-summary-v3',
+      content: summarySentinel,
+      display: true,
+    }, summaryNonce)).toBe(true);
+    expect(transcriptEntryContainsDeliveryNonce({
+      type: 'custom_message',
+      customType: 'codeflare-review-autofix-request',
+      content: autofixSentinel,
+      display: false,
+    }, autofixNonce)).toBe(true);
   });
 
   it('REQ-AGENT-062: announcementReconcileDecision proves delivery by the transcript nonce, fails only after the cap+window, else keeps retrying', () => {

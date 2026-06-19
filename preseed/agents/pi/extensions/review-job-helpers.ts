@@ -306,6 +306,21 @@ export function announcementReconcileDecision(input: AnnouncementReconcileInput)
   return "keep";
 }
 
+export function transcriptEntryContainsDeliveryNonce(entry: unknown, nonce: string): boolean {
+  if (!nonce || !entry || typeof entry !== "object") return false;
+  const record = entry as Record<string, unknown>;
+  if (record.type !== "custom_message") return false;
+  const content = typeof record.content === "string" ? record.content : "";
+  if (!content.includes(`<!-- cf-review-delivery ${nonce} -->`)) return false;
+  if (nonce.startsWith("cf-review-summary:")) {
+    return record.customType === "codeflare-review-summary-v3" && record.display === true;
+  }
+  if (nonce.startsWith("cf-review-autofix:")) {
+    return record.customType === "codeflare-review-autofix-request" && record.display === false;
+  }
+  return false;
+}
+
 export type ReviewSeverityCounts = {
   critical: number;
   high: number;

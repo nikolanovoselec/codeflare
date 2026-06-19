@@ -58,7 +58,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, boundaryFallbackHead, boundaryTriggerCommandEntries, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, commandTextsFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, gitPushCommandTarget, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prCreateCommandTarget, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, prUrlFromText, reusablePendingReview, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { actionableReviewCount, activeRepoCandidateForReview, agentHeadAdvanceRequiresReview, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, deliveryAnnouncementHeads, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, mergeGateDecision, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, shouldSendAnnouncement, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewAnnouncement, type ReviewSeverityCounts } from "./review-job-helpers";
+import { actionableReviewCount, activeRepoCandidateForReview, agentHeadAdvanceRequiresReview, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, deliveryAnnouncementHeads, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, mergeGateDecision, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, shouldSendAnnouncement, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, transcriptEntryContainsDeliveryNonce, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewAnnouncement, type ReviewSeverityCounts } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, ensureReviewAnnouncementPending, failedDurableReviewLanes, pendingReviewAnnouncementHeads, readDurableReviewJob, readReviewAnnouncement, reapDurableReviewLanes, reviewAnnouncementKinds, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes, writeReviewAnnouncement } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -857,19 +857,24 @@ function sessionUserMessages(ctx: any): string[] {
   }
 }
 
-// Proof-of-delivery for a review announcement: a custom message persists into the session transcript
-// ONLY when the agent session emits its `message_end` event (never from an off-turn send or a stale
-// sender), so a nonce embedded in the message appears in the JSONL iff it actually reached the live
-// session. Scan the raw transcript (ctx-bearing path, or the remembered file for the idle reaper).
+// Proof-of-delivery for a review announcement: the transcript must contain the expected persisted
+// custom-message entry with the exact delivery sentinel. Raw file substring checks are not enough:
+// tool output, assistant thinking, event logs, or stale/wrong remembered files can quote the nonce.
 function sessionContainsNonce(ctx: any, nonce: string): boolean {
   if (!nonce) return false;
   try {
     const file = ctx?.sessionManager?.getSessionFile?.() ?? recallSessionFile();
     if (!file || !existsSync(file)) return false;
-    // Match the full delivery sentinel, not the bare nonce: the autofix-request CONTENT is a prompt the
-    // agent could quote the nonce back from, which would falsely mark the announcement delivered. The
-    // sentinel form only lands in the JSONL when our custom message actually persisted.
-    return readFileSync(file, "utf8").includes(`<!-- cf-review-delivery ${nonce} -->`);
+    return readFileSync(file, "utf8")
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .some((line) => {
+        try {
+          return transcriptEntryContainsDeliveryNonce(JSON.parse(line), nonce);
+        } catch {
+          return false;
+        }
+      });
   } catch {
     return false;
   }

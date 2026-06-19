@@ -361,7 +361,7 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const visibleTerminalKeys = createMemo(() => {
     const activeWorkspace = terminalWorkspaceStore.getActiveWorkspace();
-    const sessionId = activeWorkspace?.kind === 'session' ? activeWorkspace.sessionId : null;
+    const sessionId = activeWorkspace && activeWorkspace.kind === 'session' ? activeWorkspace.sessionId : null;
     const terminals = sessionId ? sessionStore.getTerminalsForSession(sessionId) : null;
     const tiling = sessionId ? sessionStore.getTilingForSession(sessionId) : null;
     if (sessionId && terminals && tiling?.enabled) {
