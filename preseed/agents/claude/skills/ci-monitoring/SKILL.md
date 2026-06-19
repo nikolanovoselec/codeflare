@@ -35,6 +35,7 @@ head="$3"
 log="$4"
 cd "$repo" || exit 124
 : > "$log"
+stable_done=0
 deadline=$((SECONDS + 1800))
 while [ $SECONDS -lt $deadline ]; do
   gh run list --branch "$branch" --limit 24 \
@@ -44,18 +45,21 @@ while [ $SECONDS -lt $deadline ]; do
 const [head, file] = process.argv.slice(2)
 const fs = require('fs')
 const rows = JSON.parse(fs.readFileSync(file, 'utf8')).filter((r) => r.headSha === head)
-const requiredNames = ['PR Checks', 'Fuzz', 'CodeQL']
-const required = requiredNames.map((name) => rows.find((r) => r.workflowName === name)).filter(Boolean)
 const stamp = new Date().toISOString()
 console.log(`--- ${stamp} ${head.slice(0, 12)} ---`)
 if (rows.length === 0) console.log('waiting for workflows to appear')
 for (const r of rows) console.log(`${r.databaseId} ${r.workflowName} ${r.event} ${r.status}/${r.conclusion || ''} ${r.url}`)
-const bad = required.some((r) => r.status === 'completed' && !['success', 'skipped'].includes(r.conclusion))
-const done = required.length >= requiredNames.length && required.every((r) => r.status === 'completed')
+const bad = rows.some((r) => r.status === 'completed' && !['success', 'skipped'].includes(r.conclusion))
+const done = rows.length > 0 && rows.every((r) => r.status === 'completed')
 process.exit(bad ? 10 : done ? 0 : 2)
 NODE
   rc=$?
-  if [ $rc -eq 0 ]; then echo "CI_RESULT success" >> "$log"; exit 0; fi
+  if [ $rc -eq 0 ]; then
+    stable_done=$((stable_done + 1))
+    if [ "$stable_done" -ge 2 ]; then echo "CI_RESULT success" >> "$log"; exit 0; fi
+  else
+    stable_done=0
+  fi
   if [ $rc -eq 10 ]; then echo "CI_RESULT failure" >> "$log"; exit 10; fi
   sleep 15
 done
@@ -77,7 +81,7 @@ Only read the log after the background monitor has had time to finish, after the
 tail -80 /tmp/ci-monitor-<head>.log
 ```
 
-- `CI_RESULT success` and every required row is `completed/success` or `completed/skipped` -> CI passed.
+- `CI_RESULT success` and every workflow row returned for the monitored head is `completed/success` or `completed/skipped` across two consecutive checks -> CI passed.
 - `CI_RESULT failure` -> inspect the failed run with `gh run view <id> --log-failed`, fix, commit, push, and start a new detached monitor for the new HEAD.
 - `CI_RESULT timeout` -> stop and escalate to the user; do not claim green.
 

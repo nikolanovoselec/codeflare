@@ -6,7 +6,7 @@
 
 | Event | Skill |
 |---|---|
-| User explicitly asks to monitor CI, or deploy/merge requires a fresh CI result | `ci-monitoring` (one background continuous tail-followed monitor until green; never repeated chat-visible polling or `gh run watch`) |
+| User explicitly asks to monitor CI, or deploy/merge requires a fresh CI result | `ci-monitoring` (one detached monitor; report the log path and stop; never tail-follow in the main session) |
 | PR-boundary event with `sdd/` present | `git-review-pipeline` (spec/doc/code review pipeline) |
 | User asks to open a PR | `pr-workflow` (body template + REQ backlinks + test plan) |
 | Need gh/wrangler access, creds unclear | `deploy-credentials` (env-var table + check-then-fallback) |
