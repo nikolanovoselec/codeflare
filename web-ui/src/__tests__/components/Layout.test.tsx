@@ -883,14 +883,14 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(reconnectOnVisibilityReturn).toHaveBeenCalledWith(undefined, ['sess1:2']);
     });
 
-    it('includes every tiled terminal tab when reconnecting after visibility return', () => {
+    it('REQ-TERM-011: reconnects only visible tiled slots after visibility return', () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockActiveWorkspace = { kind: 'session', sessionId: 'sess1' };
-      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '2' }];
-      mockTerminalsForSession = { tabs: [{ id: '1' }, { id: '2' }, { id: '3' }], activeTabId: '2' };
-      mockTilingForSession = { enabled: true, layout: 'grid-2x2' };
-      mockTabOrder = ['1', '2', '3'];
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '4' }];
+      mockTerminalsForSession = { tabs: [{ id: '1' }, { id: '2' }, { id: '3' }, { id: '4' }], activeTabId: '4' };
+      mockTilingForSession = { enabled: true, layout: '2-split' };
+      mockTabOrder = ['1', '2', '3', '4'];
 
       render(() => <Layout />);
 
@@ -899,9 +899,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
       document.dispatchEvent(new Event('visibilitychange'));
 
-      const keys = vi.mocked(reconnectOnVisibilityReturn).mock.calls.at(-1)?.[1] ?? [];
-      expect(keys).toEqual(expect.arrayContaining(['sess1:1', 'sess1:2', 'sess1:3']));
-      expect(keys).toHaveLength(3);
+      expect(vi.mocked(reconnectOnVisibilityReturn).mock.calls.at(-1)?.[1]).toEqual(['sess1:1', 'sess1:2']);
     });
 
     it('does NOT call forceResetKeyboardState when on dashboard', () => {

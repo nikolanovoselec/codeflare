@@ -2006,16 +2006,16 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
   });
 });
 
-describe('REQ-AGENT-031 consult-llm invocation behaviour (5-choice model dialog + server-side selectors)', () => {
+describe('REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)', () => {
   function consultLlmSkill(key: string): string {
     const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === key);
     expect(doc, `${key} must be bundled in the seed`).toBeTruthy();
     return doc!.content;
   }
 
-  // AC5: when no model is named, the skill drives a single-select dialog of four
-  // explicit choices (+ the tool's automatic "Other" write-in = five): latest
-  // Gemini, latest OpenAI, both, and "list all available".
+  // REQ-AGENT-067 AC2: when no model is named, the skill drives a single-select
+  // dialog of four explicit choices (+ the tool's automatic "Other" write-in = five):
+  // latest Gemini, latest OpenAI, both, and "list all available".
   it('AC5: Claude skill mandates an AskUserQuestion model dialog with the five choices', () => {
     const body = consultLlmSkill('.claude/skills/consult-llm/SKILL.md');
     expect(body).toContain('AskUserQuestion');
@@ -2027,9 +2027,8 @@ describe('REQ-AGENT-031 consult-llm invocation behaviour (5-choice model dialog 
     expect(body).toMatch(/\bother\b/i);
   });
 
-  // AC5: "latest" is resolved by the server-side selectors, never a hardcoded model
-  // ID and never a live provider model-list fetch - the isolation-breaking curl that
-  // leaked the raw provider key is gone from both the Claude and Pi skills.
+  // REQ-AGENT-067 AC4: "latest" is resolved by server-side selectors, never a
+  // hardcoded model ID or live provider model-list fetch.
   it('AC5: both skills use the openai/gemini selectors and never curl a provider model list', () => {
     for (const key of ['.claude/skills/consult-llm/SKILL.md', '.pi/agent/skills/consult-llm/SKILL.md']) {
       const body = consultLlmSkill(key);
@@ -2044,7 +2043,7 @@ describe('REQ-AGENT-031 consult-llm invocation behaviour (5-choice model dialog 
     }
   });
 
-  // AC5 regression (consult-llm "List models" bug): the old skill told the agent to
+  // REQ-AGENT-067 AC3 regression (consult-llm "List models" bug): the old skill told the agent to
   // "read the supported set from the consult_llm tool's model parameter" — but that
   // parameter only documents provider SELECTORS (gemini/openai/...), so the agent
   // presented selectors as "all available models". The fix reads concrete IDs from the
@@ -2066,7 +2065,7 @@ describe('REQ-AGENT-031 consult-llm invocation behaviour (5-choice model dialog 
     }
   });
 
-  it('AC5: both skills forbid consult_llm without an explicit external-LLM request', () => {
+  it('REQ-AGENT-067 AC1: both skills forbid consult_llm without an explicit external-LLM request', () => {
     for (const key of ['.claude/skills/consult-llm/SKILL.md', '.pi/agent/skills/consult-llm/SKILL.md']) {
       const body = consultLlmSkill(key);
       expect(body, key).toContain('Hard gate');

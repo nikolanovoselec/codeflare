@@ -353,19 +353,25 @@ const Layout: Component<LayoutProps> = (props) => {
     storageStore.fetchStats();
   });
 
+  const tiledSlotCount = (layout: TileLayout) => {
+    if (layout === '4-grid') return 4;
+    if (layout === '3-split') return 3;
+    return layout === '2-split' ? 2 : 1;
+  };
+
   const visibleTerminalKeys = createMemo(() => {
-    const keys = new Set(terminalWorkspaceStore.getVisiblePanes().map((pane) => `${pane.sessionId}:${pane.terminalId}`));
     const activeWorkspace = terminalWorkspaceStore.getActiveWorkspace();
     const sessionId = activeWorkspace.kind === 'session' ? activeWorkspace.sessionId : null;
     const terminals = sessionId ? sessionStore.getTerminalsForSession(sessionId) : null;
     const tiling = sessionId ? sessionStore.getTilingForSession(sessionId) : null;
     if (sessionId && terminals && tiling?.enabled) {
       const terminalIds = new Set(terminals.tabs.map((tab) => tab.id));
-      for (const tabId of sessionStore.getTabOrder(sessionId)) {
-        if (terminalIds.has(tabId)) keys.add(`${sessionId}:${tabId}`);
-      }
+      return sessionStore.getTabOrder(sessionId)
+        .filter((tabId) => terminalIds.has(tabId))
+        .slice(0, tiledSlotCount(tiling.layout))
+        .map((tabId) => `${sessionId}:${tabId}`);
     }
-    return [...keys];
+    return terminalWorkspaceStore.getVisiblePanes().map((pane) => `${pane.sessionId}:${pane.terminalId}`);
   });
 
   // Auto-refresh sessions + storage when tab returns from background

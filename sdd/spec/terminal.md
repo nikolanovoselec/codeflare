@@ -391,9 +391,8 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 3. Running sessions outside the visible workspace have no connected terminal side effects. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea -->
 4. Workspace switches reconcile WebSocket ownership to the current visible pane set. <!-- @impl: web-ui/src/hooks/useTerminal.ts::canConnect -->
 5. Session indicators distinguish container-running state from visible-terminal-connected state. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::dotVariant -->
-6. Browser visibility return reconnects only panes or tiled tabs that are visible in the current workspace. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
+6. Browser visibility return reconnects only panes or tiled tabs that are visible in the current workspace. <!-- @impl: web-ui/src/components/Layout.tsx::visibleTerminalKeys -->
 7. A focused visible terminal claims resize authority before sending its current dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::claimResizeAuthority -->
-8. URL detection is owned by the focused connected pane; cleanup from a previously focused pane cannot clear the current pane's detected URLs. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::startUrlDetection -->
 
 **Constraints:**
 
@@ -404,7 +403,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-003](#req-term-003-automatic-websocket-reconnection-on-transient-failures)
 
-**Verification:** [Automated tests](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [Hook tests](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [Terminal store tests](../../web-ui/src/__tests__/stores/terminal.test.ts), [Layout tests](../../web-ui/src/__tests__/components/Layout.test.tsx), [URL detection tests](../../web-ui/src/__tests__/stores/terminal-url-detection.test.ts)
+**Verification:** [Automated tests](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [Hook tests](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [Terminal store tests](../../web-ui/src/__tests__/stores/terminal.test.ts), [Layout tests](../../web-ui/src/__tests__/components/Layout.test.tsx)
 
 **Status:** Implemented
 
@@ -519,5 +518,35 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-008](#req-term-008-write-batching-at-30fps), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
 
 **Verification:** [Automated tests](../../web-ui/src/__tests__/hooks/useScrollCorrection.test.ts) + [Resize authority test](../../host/__tests__/session-resize-authority.test.js) + [Layout transition test](../../web-ui/src/__tests__/components/Layout.test.tsx)
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-015: Focused Pane Owns URL Detection
+
+<!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
+<!-- @impl: web-ui/src/stores/terminal-url-detection.ts -->
+<!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (URL detection lifecycle describe -> AC1/AC2) -->
+<!-- @test: web-ui/src/__tests__/stores/terminal-url-detection.test.ts (owner-scoped cleanup describe -> AC1/AC2) -->
+
+**Intent:** Browser URL detection must belong to the focused connected terminal pane so stale panes cannot clear the active pane's detected URL.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Starting URL detection records the owning session and terminal id for the focused connected pane. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::startUrlDetection -->
+2. Cleanup stops URL detection only for the same owning session and terminal id. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::stopUrlDetection -->
+
+**Constraints:**
+
+- Unscoped cleanup is reserved for explicit global resets, not terminal component unmounts.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
+
+**Verification:** [Hook tests](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [URL detection tests](../../web-ui/src/__tests__/stores/terminal-url-detection.test.ts)
 
 **Status:** Implemented

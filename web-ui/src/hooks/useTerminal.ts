@@ -562,7 +562,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     cursorHideDisposable?.dispose();
     cursorShowDisposable?.dispose();
     resizeObserver?.disconnect();
-    terminalStore.stopUrlDetection();
+    terminalStore.stopUrlDetection(props.sessionId, props.terminalId);
     terminalStore.unregisterFitAddon(props.sessionId, props.terminalId);
     if (handleContextMenu) containerEl?.removeEventListener('contextmenu', handleContextMenu);
   });

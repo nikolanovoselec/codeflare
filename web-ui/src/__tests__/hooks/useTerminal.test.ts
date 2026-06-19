@@ -273,7 +273,7 @@ describe('useTerminal hook', () => {
       dispose();
     });
 
-    it('should stop URL detection on cleanup', () => {
+    it('should stop URL detection for only the unmounted pane on cleanup', () => {
       vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
 
       const dispose = createRoot((dispose) => {
@@ -285,6 +285,7 @@ describe('useTerminal hook', () => {
       dispose();
 
       expect(terminalStore.stopUrlDetection).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId);
+      expect(vi.mocked(terminalStore.stopUrlDetection).mock.calls).not.toContainEqual([]);
     });
   });
 

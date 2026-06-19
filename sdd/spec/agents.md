@@ -226,8 +226,7 @@ Multi-agent support, preseed system, and session modes.
 4. The generator is manifest-driven; files not in the manifest are ignored.
 5. No duplicate preseed source files exist on disk.
 6. The generator produces output for all supported agents (Claude Code as the source-of-truth lane plus adapted lanes for Codex, Copilot, OpenCode, Antigravity, and Pi).
-7. The shared git workflow rule that forbids pushing while a review is running unless the user explicitly authorizes it is present in Claude's source rule and every adapted agent instruction file.
-8. The shared engineering constitution includes work-continuity and review-push-gate rules: a new user message is queued while the current concrete step reaches a safe stopping point unless the user explicitly says to stop, pause, or reprioritize; and no push is allowed while a PR-boundary review is running, pending, missing, stale, or otherwise incomplete for the current head unless the user explicitly authorizes pushing despite that active/incomplete review. The rules are present in Claude's source rule and every adapted agent instruction file. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md --> <!-- @impl: scripts/generate-agent-seed.mjs --> <!-- @impl: src/lib/agent-seed.generated.ts --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (preseeds work continuity and the review push gate into every agent instruction surface -> AC8) -->
+7. Shared operational rules, including git review-push gating and engineering work-continuity, are present in their Claude source rules and every adapted agent instruction file. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Hard obligations --> <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Work continuity --> <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Review push gate --> <!-- @impl: scripts/generate-agent-seed.mjs::renderInstructionsFile --> <!-- @impl: src/lib/agent-seed.generated.ts::AGENTS_SEEDED_CONFIGS --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (preseeds running-review push gate + work continuity/review push gate -> AC7) -->
 
 **Constraints:**
 
@@ -2026,13 +2025,13 @@ None.
 2. The entrypoint maps the namespaced keys back to the standard `OPENAI_API_KEY` / `GEMINI_API_KEY` names ONLY inside the `consult-llm-mcp` MCP server's scoped `env` block (in `~/.claude.json` and `~/.pi/agent/mcp.json`), never as a global export. <!-- @impl: entrypoint.sh -->
 3. Per provider the entrypoint prefers the subscription over the API key: OpenAI uses the Codex CLI backend (`CONSULT_LLM_OPENAI_BACKEND=codex-cli`, `CONSULT_LLM_CODEX_REASONING_EFFORT=high`) when the user is logged into Codex (`~/.codex/auth.json` present), passing the API key only as a fallback; otherwise it uses the API key. Gemini always uses the API key. When no provider is usable, no MCP server is written. <!-- @impl: entrypoint.sh -->
 4. The `consult-llm` tooling is available to Claude Code AND Pi only: Claude reads it from `~/.claude.json`; Pi reads `~/.pi/agent/mcp.json` with `directTools:["consult_llm"]` promoting it to a first-class tool, and is seeded a native Pi `consult-llm` skill. The Pi server sets `lifecycle:"keep-alive"` so pi-mcp-adapter connects it on startup and auto-reconnects rather than lapsing to a `0/1 servers … cached` footer after the default idle timeout; the Claude server carries no `lifecycle` field (a pi-mcp-adapter-only concept). No other agent (codex/opencode/antigravity) receives the skill or the server. <!-- @impl: entrypoint.sh --> <!-- @impl: preseed/agents/pi/manifest.json -->
-5. The consult-llm skill is invoked only after the user's current request explicitly asks to consult external LLMs or names GPT, ChatGPT, Gemini, OpenAI, or `consult_llm`; it is forbidden at session start, during routine planning/review/debugging, during CI fixes, or for generic "second opinion" wording that does not name external LLMs. When the user invokes the consult-llm skill without naming a model, the agent shows a single-select dialog (`AskUserQuestion` on Claude, `ask_user_question` on Pi) of four explicit choices plus the tool's automatic "Other" write-in (five total): latest Google/Gemini, latest OpenAI/GPT, both, and "list all available models". For "list all available models" the skill surfaces **concrete** model IDs, never the bare provider selectors: consult-llm-mcp (v2.13.x) exposes no model-list tool and no schema enum (the concrete IDs were deliberately replaced by selectors), so the skill reads the latest `AVAILABLE MODELS:` block from the server startup log (`~/.local/state/consult-llm-mcp/mcp.log`), keeps only Gemini (`gemini-*`) and OpenAI (`gpt-*`) IDs, and falls back to clearly-labelled selectors only when the log is unreadable. "Latest" is resolved by the server-side `"openai"` / `"gemini"` model selectors — the skill never hardcodes a flagship ID and never performs a live provider model-list fetch with the raw key. When the user names a specific model, no dialog is shown and that exact ID is passed. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (both skills forbid consult_llm without an explicit external-LLM request -> AC5) -->
+5. Claude and Pi consult-llm skills implement the invocation and model-selection behavior in [REQ-AGENT-067](#req-agent-067-consult-llm-invocation-and-model-selection-behavior). <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md::Hard gate --> <!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md::Hard gate --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (consult-llm invocation behaviour -> AC5) -->
 6. In enterprise mode the entire LLM-keys-and-consult-llm surface is unavailable: the keys are not injected (AC1 suppressed), the `/api/llm-keys` routes return 403 on every method, the Settings "LLM API Keys" section is hidden, and the entrypoint writes no consult-llm MCP config and removes any seeded `consult-llm` skill dirs for both Claude and Pi. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: src/routes/llm-keys.ts --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx --> <!-- @impl: entrypoint.sh -->
 
 **Constraints:**
 
 - The container reads keys at start and on restart; mid-session key changes take effect only after the next session start.
-- AC5 is skill-directed agent behaviour; the consult-llm SKILL.md files (Claude + Pi) are the implementation surface and are verified by asserting their bundled-seed content (explicit-user-request-only gate, the five-choice dialog mandate, the `"openai"`/`"gemini"` selectors, the absence of any provider model-list curl, and the "list all" path reading concrete IDs from the server startup log rather than presenting provider selectors as the model list).
+- AC5 is skill-directed agent behaviour; the consult-llm SKILL.md files (Claude + Pi) are the implementation surface and are verified through [REQ-AGENT-067](#req-agent-067-consult-llm-invocation-and-model-selection-behavior).
 - The consult-llm MCP config is wrapped in a shell function invoked with `|| echo WARNING` so a jq/IO failure can never abort the entrypoint before the init-complete flag (a crash-loop class bug).
 
 **Priority:** P1
@@ -2040,6 +2039,39 @@ None.
 **Dependencies:** [REQ-AGENT-009](#req-agent-009-llm-api-key-storage-encrypted-in-kv)
 
 **Verification:** [Container-env test](../../src/__tests__/container/container-env.test.ts) (AC1/AC6), [entrypoint consult-llm host test](../../host/__tests__/entrypoint-consult-llm.test.js) (AC2/AC3/AC4/AC6), [agent-seed manifest test](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC4/AC5), and [LLM keys route test](../../src/__tests__/routes/llm-keys.test.ts) (AC6 enterprise 403).
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-067: consult-llm Invocation and Model-Selection Behavior
+
+<!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md -->
+<!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/066 consult-llm invocation behaviour describe -> AC1..AC5) -->
+
+**Intent:** consult-llm must only run when the user explicitly asks for external LLM input, and model selection must be explicit without leaking provider keys.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The skill is invoked only when the user's current request asks for external LLMs or names GPT, ChatGPT, Gemini, OpenAI, or `consult_llm`. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md::Hard gate --> <!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md::Hard gate -->
+2. Without a named model, the agent asks one model-selection question with latest Gemini, latest OpenAI, both, list-all, and the tool-provided write-in option. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md::Step 1 --> <!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md::Step 1 -->
+3. The list-all path reads concrete Gemini/OpenAI model IDs from the consult-llm startup log, not from provider selectors. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md::Listing concrete models --> <!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md::Listing concrete models -->
+4. Latest-model choices use server-side `"openai"` / `"gemini"` selectors and never perform provider model-list HTTP requests with raw keys. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md::Step 1 --> <!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md::Step 1 -->
+5. When the user names a specific model, no dialog is shown and that exact ID is passed. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md::Step 1 --> <!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md::Step 1 -->
+
+**Constraints:**
+
+- Generic "second opinion" wording is not enough unless the user names external LLMs.
+- Exact model discovery may fall back to clearly labelled provider selectors if the startup log is unreadable.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-031](#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)
+
+**Verification:** [Agent seed manifest test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
 **Status:** Implemented
 
