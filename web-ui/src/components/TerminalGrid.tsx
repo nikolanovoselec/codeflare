@@ -1,4 +1,4 @@
-import { createMemo, Index, JSX, Show } from 'solid-js';
+import { createMemo, For, JSX } from 'solid-js';
 import type { TileLayout } from '../types';
 import '../styles/tiled-terminal-container.css';
 
@@ -39,7 +39,9 @@ function getLayoutClass(layout: TileLayout): string {
 }
 
 const TerminalGrid = <T,>(props: TerminalGridProps<T>) => {
-  const slots = () => SLOT_INDEXES[props.layout];
+  const slotIndexes = () => SLOT_INDEXES[props.layout];
+  const visiblePaneIds = createMemo(() => props.panes.slice(0, slotIndexes().length).map((pane) => pane.id));
+  const emptySlotIndexes = createMemo(() => slotIndexes().slice(visiblePaneIds().length));
 
   return (
     <div
@@ -47,44 +49,36 @@ const TerminalGrid = <T,>(props: TerminalGridProps<T>) => {
       data-layout={props.layout}
       class={`tiled-terminal-container ${getLayoutClass(props.layout)}`}
     >
-      <Index each={slots()}>
-        {(slot) => {
-          const slotIndex = () => slot();
-          const slotPane = createMemo(() => props.panes[slotIndex()] ?? null);
-          const paneId = createMemo(() => slotPane()?.id ?? null);
+      <For each={visiblePaneIds()}>
+        {(paneId, slotIndex) => {
+          const slotPane = createMemo(() => props.panes[slotIndex()]);
+          const pane = {
+            get id() { return paneId; },
+            get data() { return slotPane()!.data; },
+            get active() { return slotPane()!.active; },
+          } as TerminalGridPane<T>;
+
           return (
-            <Show
-              keyed
-              when={paneId()}
-              fallback={
-                <div
-                  data-testid={props.emptySlotTestId ? props.emptySlotTestId(slotIndex()) : `terminal-grid-empty-${slotIndex()}`}
-                  data-active="false"
-                  class="tiled-terminal-slot tiled-terminal-slot--empty"
-                />
-              }
+            <div
+              data-testid={props.slotTestId ? props.slotTestId(pane.id) : `terminal-grid-slot-${pane.id}`}
+              data-active={pane.active ? 'true' : 'false'}
+              class={`tiled-terminal-slot ${pane.active ? 'tiled-terminal-slot--active' : ''}`}
+              onClick={() => props.onPaneClick(pane.id)}
             >
-              {(id) => {
-                const pane = {
-                  get id() { return id; },
-                  get data() { return slotPane()!.data; },
-                  get active() { return slotPane()!.active; },
-                } as TerminalGridPane<T>;
-                return (
-                  <div
-                    data-testid={props.slotTestId ? props.slotTestId(pane.id) : `terminal-grid-slot-${pane.id}`}
-                    data-active={pane.active ? 'true' : 'false'}
-                    class={`tiled-terminal-slot ${pane.active ? 'tiled-terminal-slot--active' : ''}`}
-                    onClick={() => props.onPaneClick(pane.id)}
-                  >
-                    {props.renderPane(pane, slotIndex())}
-                  </div>
-                );
-              }}
-            </Show>
+              {props.renderPane(pane, slotIndex())}
+            </div>
           );
         }}
-      </Index>
+      </For>
+      <For each={emptySlotIndexes()}>
+        {(slotIndex) => (
+          <div
+            data-testid={props.emptySlotTestId ? props.emptySlotTestId(slotIndex) : `terminal-grid-empty-${slotIndex}`}
+            data-active="false"
+            class="tiled-terminal-slot tiled-terminal-slot--empty"
+          />
+        )}
+      </For>
     </div>
   );
 };

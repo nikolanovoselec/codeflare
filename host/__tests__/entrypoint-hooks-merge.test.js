@@ -213,7 +213,7 @@ describe('plugin enablement', () => {
 // concrete reason.
 // ============================================================================
 // ============================================================================
-// Test: memory-capture counter location (post REQ-MEM-002 AC6 redesign)
+// Test: memory-capture counter location (REQ-MEM-002 counter-directory constraint)
 //
 // The counter directory moved from $HOME/.memory/counter/ to
 // /tmp/.memory-counter/ to leverage Cloudflare Containers' ephemeral-disk
@@ -222,7 +222,7 @@ describe('plugin enablement', () => {
 // and must be absent from entrypoint.sh; the hook script itself mkdir -p's the
 // new /tmp path on first fire.
 // ============================================================================
-describe('memory-capture counter location (REQ-MEM-002 AC6)', () => {
+describe('memory-capture counter location (REQ-MEM-002 counter-directory constraint)', () => {
   it('entrypoint.sh does NOT carry the obsolete .memory/counter bisync filter', () => {
     const start = entrypoint.indexOf('RCLONE_FILTERS_COMMON=(');
     const end = entrypoint.indexOf('\n)\n', start);
@@ -267,8 +267,8 @@ describe('memory-capture counter location (REQ-MEM-002 AC6)', () => {
 
 // merge_memory_files and cleanup_old_memory_files were removed alongside the
 // MCP server-memory subsystem; the vault is now the sole cross-session memory
-// store. The hook gate moved to /tmp/.memory-counter (REQ-MEM-002 AC6); see
-// counter directory test above.
+// store. The hook gate moved to /tmp/.memory-counter (REQ-MEM-002 counter-directory
+// constraint); see counter directory test above.
 
 // ============================================================================
 // REQ-STOR-011 AC1/AC2/AC3: workspaceSyncEnabled scope.

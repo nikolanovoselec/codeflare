@@ -129,11 +129,11 @@ describe('memory-capture.sh - first-run baseline + resume detection / REQ-MEM-01
     );
   });
 
-  // REQ-MEM-002 AC6: resumed session (no counter + transcript has >1 prompt)
+  // REQ-MEM-002 AC7: resumed session (no counter + transcript has >1 prompt)
   // force-fires capture from line 1 AND re-emits graph-query directive.
   // Models the canonical codeflare resume path: container recycled, /tmp wiped,
   // transcript restored on disk, CURRENT_COUNT reflects accumulated prior prompts.
-  it('AC6 - missing counter + transcript with >1 prompt force-fires capture from line 1', () => {
+  it('AC7 - missing counter + transcript with >1 prompt force-fires capture from line 1', () => {
     const fx = makeFixture();
     const lines = [];
     for (let i = 0; i < 8; i++) lines.push(realUserLine(`prior-session prompt ${i}`));
@@ -141,32 +141,32 @@ describe('memory-capture.sh - first-run baseline + resume detection / REQ-MEM-01
     const r = runHook(fx, { transcriptPath: t, sessionId: 'sess-resume' });
     assert.equal(r.status, 0);
     const out = JSON.parse(r.stdout);
-    // AC6 first contract: capture fires despite delta < 15
+    // AC7 first contract: capture fires despite delta < 15
     const vars = join(fx.counterDir, 'sess-resume.vars');
-    assert.equal(existsSync(vars), true, 'AC6: resumed session must force-fire capture');
+    assert.equal(existsSync(vars), true, 'AC7: resumed session must force-fire capture');
     const v = JSON.parse(readFileSync(vars, 'utf-8'));
-    assert.equal(v.last_line, '1', 'AC6: capture must start at transcript line 1 (no tail lost)');
-    assert.equal(v.current_count, '8', 'AC6: capture covers all prior prompts');
-    // AC6 second contract: graph-query directive re-emitted
+    assert.equal(v.last_line, '1', 'AC7: capture must start at transcript line 1 (no tail lost)');
+    assert.equal(v.current_count, '8', 'AC7: capture covers all prior prompts');
+    // AC7 second contract: graph-query directive re-emitted
     assert.match(
       out.hookSpecificOutput.additionalContext,
       /query the unified graph/i,
-      'AC6: must re-emit graph-query directive on resume',
+      'AC7: must re-emit graph-query directive on resume',
     );
     // Capture directive also present (compound directive)
     assert.match(
       out.hookSpecificOutput.additionalContext,
       /MANDATORY MEMORY CAPTURE/,
-      'AC6: capture directive must accompany graph-query directive',
+      'AC7: capture directive must accompany graph-query directive',
     );
     // Counter advanced past the captured range
     const counter = readFileSync(join(fx.counterDir, 'sess-resume'), 'utf-8').trim().split('\n');
-    assert.equal(counter[0], '8', 'AC6: counter advances to CURRENT_COUNT after force-fire');
+    assert.equal(counter[0], '8', 'AC7: counter advances to CURRENT_COUNT after force-fire');
   });
 
-  // REQ-MEM-002 AC6 boundary: counter absent but transcript has exactly 1 prompt
+  // REQ-MEM-002 AC7 boundary: counter absent but transcript has exactly 1 prompt
   // is the brand-new-session case, NOT a resume - must not force-fire.
-  it('AC6 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)', () => {
+  it('AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)', () => {
     const fx = makeFixture();
     const t = writeTranscript(fx.home, [realUserLine('only prompt')]);
     const r = runHook(fx, { transcriptPath: t, sessionId: 'sess-edge' });
@@ -178,7 +178,7 @@ describe('memory-capture.sh - first-run baseline + resume detection / REQ-MEM-01
     assert.equal(
       existsSync(join(fx.counterDir, 'sess-edge.vars')),
       false,
-      'AC6 boundary: CURRENT_COUNT=1 is brand-new, not resume',
+      'AC7 boundary: CURRENT_COUNT=1 is brand-new, not resume',
     );
     // No MANDATORY MEMORY CAPTURE wrapper text
     assert.equal(

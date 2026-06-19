@@ -47,6 +47,39 @@ describe('TerminalGrid reusable pane layout', () => {
     expect(screen.getByTestId('terminal-grid-empty-1')).toHaveAttribute('data-active', 'false');
   });
 
+  it('REQ-TERM-012: updates pane state without disposing stable pane ids', async () => {
+    const [panes, setPanes] = createSignal([
+      { id: 'pane-a', data: { label: 'A' }, active: true },
+      { id: 'pane-b', data: { label: 'B' }, active: false },
+    ]);
+    const disposed: string[] = [];
+    const PaneProbe = (props: { id: string; active: boolean }) => {
+      onCleanup(() => disposed.push(props.id));
+      return <div data-testid={`pane-content-${props.id}`} data-active={String(props.active)} />;
+    };
+
+    render(() => (
+      <TerminalGrid
+        layout="2-split"
+        panes={panes()}
+        onPaneClick={vi.fn()}
+        renderPane={(pane) => <PaneProbe id={pane.id} active={pane.active} />}
+      />
+    ));
+
+    expect(screen.getByTestId('pane-content-pane-a')).toHaveAttribute('data-active', 'true');
+    expect(screen.getByTestId('pane-content-pane-b')).toHaveAttribute('data-active', 'false');
+
+    setPanes([
+      { id: 'pane-a', data: { label: 'A' }, active: false },
+      { id: 'pane-b', data: { label: 'B' }, active: true },
+    ]);
+
+    await waitFor(() => expect(screen.getByTestId('pane-content-pane-b')).toHaveAttribute('data-active', 'true'));
+    expect(screen.getByTestId('pane-content-pane-a')).toHaveAttribute('data-active', 'false');
+    expect(disposed).toEqual([]);
+  });
+
   it('REQ-TERM-011: disposes the old pane subtree when a slot receives a different pane id', async () => {
     const [panes, setPanes] = createSignal([{ id: 'pane-a', data: { label: 'A' }, active: true }]);
     const mounted: string[] = [];

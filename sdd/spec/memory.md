@@ -111,7 +111,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts -->
 <!-- @test: host/__tests__/memory-capture-hook.test.js (input gating + first-run baseline + AC7 resume detection + 15-msg threshold + counter advance + tilde expansion + output protocol → AC1-AC4/AC7; AC7 covered by `AC7 - missing counter + transcript with >1 prompt force-fires capture from line 1` and `AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)`) -->
-<!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (describe `memory-capture counter location (REQ-MEM-002 AC7)` → asserts obsolete .memory/counter bisync filter absent, obsolete mkdir absent, MEMCAP_COUNTER_DIR default = /tmp/.memory-counter) -->
+<!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (describe `memory-capture counter location (REQ-MEM-002 counter-directory constraint)` → asserts obsolete .memory/counter bisync filter absent, obsolete mkdir absent, MEMCAP_COUNTER_DIR default = /tmp/.memory-counter) -->
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (isFirstMessage AC2 brand-new session + isResumedSession AC7 resume detection + realUserPromptCount / withCurrentPrompt synthetic-wrapper filtering + shouldCapture delta threshold + Pi counter-after-note contract -> AC2/AC3/AC4/AC5/AC6/AC7 Pi behavioral coverage) -->
 
 **Intent:** Memory capture must fire at a regular interval to balance context freshness against overhead.
