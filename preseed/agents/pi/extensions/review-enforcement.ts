@@ -71,6 +71,7 @@ const MAX_REVIEW_ATTEMPTS = 5;
 const MAX_REVIEW_AGE_MS = 20 * 60 * 1000;
 const REVIEW_REQUEST_RETRY_MS = 60 * 1000;
 const REVIEW_MONITOR_TTL_MS = 35 * 60 * 1000;
+const REVIEW_MONITOR_CLAIM_WRITE_GRACE_MS = 5 * 1000;
 
 // Open-PR reconciliation (REQ-AGENT-058) does a `gh pr view` to catch missed boundaries.
 // That is a network call, so throttle the unforced path (turn_start/turn_end/resources_discover)
@@ -1395,28 +1396,88 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  function reclaimStaleReviewMonitorClaim(state: PendingReview, now = Date.now()): void {
+    const path = reviewMonitorPath(state);
+    if (!existsSync(path)) return;
+    const startedAt = reviewMonitorStartedAt(state);
+    if (startedAt !== undefined) {
+      if (now - startedAt >= REVIEW_MONITOR_TTL_MS) {
+        try { unlinkSync(path); } catch { /* best effort stale reclaim */ }
+      }
+      return;
+    }
+    try {
+      if (now - statSync(path).mtimeMs >= REVIEW_MONITOR_CLAIM_WRITE_GRACE_MS) {
+        unlinkSync(path);
+      }
+    } catch {
+      /* best effort malformed-claim reclaim */
+    }
+  }
+
   function claimReviewMonitorStart(state: PendingReview, reason: string): boolean {
     const path = reviewMonitorPath(state);
-    const startedAt = reviewMonitorStartedAt(state);
-    if (startedAt !== undefined && Date.now() - startedAt >= REVIEW_MONITOR_TTL_MS) {
-      try { unlinkSync(path); } catch { /* best effort stale reclaim */ }
-    }
+    const now = Date.now();
+    reclaimStaleReviewMonitorClaim(state, now);
     mkdirSync(dirname(path), { recursive: true });
+    let fd: number | undefined;
+    let wroteClaim = false;
     try {
-      const fd = openSync(path, "wx");
-      try {
-        writeFileSync(fd, `${JSON.stringify({ repo: state.repo, head: state.head, reason, startedAt: Date.now() }, null, 2)}\n`, "utf8");
-      } finally {
-        closeSync(fd);
-      }
+      fd = openSync(path, "wx");
+      writeFileSync(fd, `${JSON.stringify({ repo: state.repo, head: state.head, reason, startedAt: now }, null, 2)}\n`, "utf8");
+      wroteClaim = true;
       return true;
     } catch {
       return false;
+    } finally {
+      if (fd !== undefined) {
+        try { closeSync(fd); } catch { /* best effort */ }
+      }
+      if (fd !== undefined && !wroteClaim) {
+        try { unlinkSync(path); } catch { /* best effort retry enable */ }
+      }
     }
   }
 
   function writeReviewMonitorStarted(state: PendingReview, agentId: string, reason: string): void {
     writeFileSync(reviewMonitorPath(state), `${JSON.stringify({ repo: state.repo, head: state.head, agentId, reason, startedAt: Date.now() }, null, 2)}\n`, "utf8");
+  }
+
+  function parseReviewMonitorCompletedAt(value: unknown): number | undefined {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value !== "string" || !value.trim()) return undefined;
+    const normalized = value.replace(/\.(\d{3})\d+(?=Z|[+-]\d{2}:?\d{2}$)/, ".$1");
+    const parsed = Date.parse(normalized);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  function unlinkInvalidReviewMonitorCompletion(state: PendingReview): void {
+    try { unlinkSync(reviewMonitorCompletedPath(state)); } catch { /* best effort stale completion reclaim */ }
+  }
+
+  function reviewMonitorCompletionReady(state: PendingReview): boolean {
+    const completionPath = reviewMonitorCompletedPath(state);
+    if (!existsSync(completionPath)) return false;
+    const summaryPath = join(reviewResultsDir(state.repo, state.head), "summary.md");
+    let completedAt: number | undefined;
+    try {
+      const parsed = JSON.parse(readFileSync(completionPath, "utf8")) as { repo?: unknown; head?: unknown; summaryPath?: unknown; completedAt?: unknown };
+      completedAt = parseReviewMonitorCompletedAt(parsed.completedAt);
+      if (parsed.repo !== state.repo || parsed.head !== state.head || parsed.summaryPath !== summaryPath || completedAt === undefined) {
+        unlinkInvalidReviewMonitorCompletion(state);
+        return false;
+      }
+      const inputs = [summaryPath, ...state.lanes.map((lane) => reviewResultPath(state.repo, state.head, lane))];
+      const latestInputMtime = Math.max(...inputs.map((path) => statSync(path).mtimeMs));
+      if (completedAt + 1000 < latestInputMtime) {
+        unlinkInvalidReviewMonitorCompletion(state);
+        return false;
+      }
+      return true;
+    } catch {
+      unlinkInvalidReviewMonitorCompletion(state);
+      return false;
+    }
   }
 
   function subagentsService(): any | undefined {
@@ -1433,15 +1494,17 @@ export default function (pi: ExtensionAPI) {
       `Head: ${state.head}`,
       `Summary path: ${summaryPath}`,
       `Completion marker: ${reviewMonitorCompletedPath(state)}`,
+      `Monitor request marker: ${reviewMonitorPath(state)}`,
       "Required lane result files:",
       JSON.stringify(lanes, null, 2),
       "",
       "Rules:",
       "- Background monitor only. Do not edit source, documentation, or spec files.",
       "- Do not run tests, builds, typechecks, linters, dev servers, CI watches, or deploy commands.",
-      "- Poll the listed lane result files and summary.md for up to 35 minutes, stopping sooner if they exist or a lane failure is visible in .git/codeflare-review-jobs/<head>/lanes/.",
+      "- Poll the listed lane result files and summary.md for up to 35 minutes, stopping sooner only when they all exist or a lane failure is visible in .git/codeflare-review-jobs/<head>/lanes/.",
+      "- If a lane failure is visible before every lane result and summary.md exist: do not write the completion marker, remove the monitor request marker, and return REVIEW_RESULT failed.",
       "- If every lane result exists but summary.md is missing, write summary.md by combining the lane reports with a severity table and ranked findings. Do not write the review ack; the extension owns exact-head gate state.",
-      "- Before exiting successfully, write the completion marker as JSON with repo, head, summaryPath, and completedAt.",
+      "- Before exiting successfully after every lane result and summary.md exists, write the completion marker as JSON with repo, head, summaryPath, completedAt, and result.",
       "- Final output must start with one of these exact contract lines: REVIEW_RESULT clean, REVIEW_RESULT findings, or REVIEW_RESULT failed.",
       "- For findings, include a compact user-facing overview in your final result: severity counts, lane status, and ranked finding titles.",
       "- Then tell the main session: first show that overview to the user, then read summary.md, verify every MEDIUM/HIGH/CRITICAL finding, fix only legitimate findings by default, and stop for approval only if the latest user instruction says not to autofix / wait for approval / do not push.",
@@ -1449,8 +1512,14 @@ export default function (pi: ExtensionAPI) {
   }
 
   function startReviewMonitor(state: PendingReview, ctx: any, reason: string): boolean {
+    const mainSessionFile = currentSessionFile(ctx);
+    if (!mainSessionFile || isTaskSessionFile(mainSessionFile)) {
+      appendReviewEvent(state.repo, { event: "review_monitor_waiting_for_main_session", head: state.head, reason });
+      return false;
+    }
+    reclaimStaleReviewMonitorClaim(state);
     const decision = reviewMonitorSpawnDecision({
-      completed: existsSync(reviewMonitorCompletedPath(state)),
+      completed: reviewMonitorCompletionReady(state),
       startedAt: reviewMonitorStartedAt(state),
       now: Date.now(),
       ttlMs: REVIEW_MONITOR_TTL_MS,
@@ -1499,7 +1568,7 @@ export default function (pi: ExtensionAPI) {
       if (ctx) updateReviewStatus(state, ctx);
       return;
     }
-    if (!existsSync(reviewMonitorCompletedPath(state))) {
+    if (!reviewMonitorCompletionReady(state)) {
       appendReviewEvent(state.repo, { event: "review_complete_waiting_for_monitor", head: state.head, lanes: state.lanes, reason: "monitor running" });
       if (ctx) updateReviewStatus(state, ctx);
       return;

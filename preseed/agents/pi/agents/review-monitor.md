@@ -23,8 +23,9 @@ The prompt gives you:
 - required lane result paths
 - summary path
 - completion marker path
+- monitor request marker path
 
-Wait in the background for up to 35 minutes until every required lane result exists and `summary.md` exists. If all lane result files exist but `summary.md` is missing, write a concise merged summary from the lane reports with:
+Wait in the background for up to 35 minutes until every required lane result exists and `summary.md` exists. If a lane failure appears before that complete set exists, do not write the completion marker; remove the monitor request marker and return `REVIEW_RESULT failed`. If all lane result files exist but `summary.md` is missing, write a concise merged summary from the lane reports with:
 
 - verdict
 - severity table
@@ -34,7 +35,7 @@ Wait in the background for up to 35 minutes until every required lane result exi
 
 Do not write review ack files; the extension owns exact-head gate state.
 
-Before successful exit, write the completion marker as JSON containing `repo`, `head`, `summaryPath`, and `completedAt`.
+Before successful exit after every lane result and `summary.md` exists, write the completion marker as JSON containing `repo`, `head`, `summaryPath`, `completedAt`, and `result`.
 
 Your final response must start with exactly one of:
 

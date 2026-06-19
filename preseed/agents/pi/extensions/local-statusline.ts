@@ -159,9 +159,8 @@ function truncateToWidth(text: string, width: number): string {
 // extension can only push its status via ctx.ui.setStatus on a user turn, so a lane advanced
 // by the autonomous reaper timer (no ctx) never repaints the footer. Reading the durable job
 // here — the footer already re-renders every CACHE_TTL_MS — makes the row reflect disk truth
-// (e.g. doc-updater turning yellow) regardless of who advanced it. Returns undefined only when no
-// review is active; while pending exists the row remains visible even after every lane is completed
-// so the user can still see review status until final ack/monitor delivery clears pending.
+// (e.g. doc-updater turning yellow) regardless of who advanced it. Returns undefined when no
+// review is active or every lane is done, so the row appears only while a review is in flight.
 function liveReviewRow(repo: string, theme: { fg(style: string, text: string): string }): string | undefined {
   try {
     const pending = JSON.parse(readFileSync(join(repo, ".git", "sdd-review-pending.json"), "utf8")) as { head?: string; lanes?: string[] };
@@ -175,6 +174,7 @@ function liveReviewRow(repo: string, theme: { fg(style: string, text: string): s
       // no durable job yet — lanes are all pending
     }
     const completed = lanes.filter((lane) => existsSync(join(repo, ".git", "sdd-review-results", head, `${lane}.md`)) || laneState[lane]?.status === "completed");
+    if (completed.length === lanes.length) return undefined; // review finished — clear the row
     const running = lanes.filter((lane) => laneState[lane]?.status === "running");
 
     // Leading timer badge: wall-clock since the earliest lane started (ticks each render).
@@ -242,12 +242,9 @@ export default function (pi: ExtensionAPI) {
           if (!cached || now - cached.checkedAt > CACHE_TTL_MS) {
             cached = { value: renderLine(ctx, pi.getThinkingLevel()), checkedAt: now };
           }
-          // Prefer the durable review row because it refreshes from disk on the footer timer. Keep the
-          // extension-provided codeflare-review row as fallback when repo resolution fails, instead of
-          // hiding review status entirely.
-          const extensionStatuses = footerData.getExtensionStatuses();
-          const reviewFallback = extensionStatuses.get("codeflare-review");
-          const statuses = Array.from(extensionStatuses.entries())
+          // Take every extension status EXCEPT codeflare-review (that one only refreshes on a
+          // user turn); compute the review row fresh from disk so timer-driven lane changes show.
+          const statuses = Array.from(footerData.getExtensionStatuses().entries())
             .filter(([key]) => key !== "codeflare-review")
             .map(([, value]) => value)
             .filter(Boolean);
@@ -255,7 +252,6 @@ export default function (pi: ExtensionAPI) {
             ?? recallReviewRepo() ?? recallActiveRepo() ?? sentinelRepoForDisplay(ctx);
           const reviewRow = repo ? liveReviewRow(repo, theme) : undefined;
           if (reviewRow) statuses.push(reviewRow);
-          else if (reviewFallback) statuses.push(reviewFallback);
           const lines = [theme.fg("dim", truncateToWidth(cached.value, width))];
           if (statuses.length > 0) lines.push(truncateToWidth(statuses.join(" | "), width));
           return lines;

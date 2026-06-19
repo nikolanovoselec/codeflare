@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
@@ -496,57 +496,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('REQ-AGENT-062: Pi local statusline keeps the durable review row while pending exists after all lanes complete', () => {
-    const repo = '/tmp/codeflare-statusline-review-complete';
-    const head = 'abc123abc123abc123abc123abc123abc123abc1';
-    rmSync(repo, { recursive: true, force: true });
-    mkdirSync(`${repo}/.git/sdd-review-results/${head}`, { recursive: true });
-    mkdirSync(`${repo}/.git/codeflare-review-jobs/${head}`, { recursive: true });
-    writeFileSync(`${repo}/.git/sdd-review-pending.json`, JSON.stringify({ head, lanes: ['code-reviewer', 'spec-reviewer', 'doc-updater'] }));
-    for (const lane of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
-      writeFileSync(`${repo}/.git/sdd-review-results/${head}/${lane}.md`, `# ${lane}\n`);
-    }
-    writeFileSync(`${repo}/.git/codeflare-review-jobs/${head}/job.json`, JSON.stringify({ laneState: {
-      'code-reviewer': { status: 'completed', startedAt: 1 },
-      'spec-reviewer': { status: 'completed', startedAt: 1 },
-      'doc-updater': { status: 'completed', startedAt: 1 },
-    } }));
-
-    const originalSetInterval = globalThis.setInterval;
-    const originalClearInterval = globalThis.clearInterval;
-    globalThis.setInterval = (() => 1) as never;
-    globalThis.clearInterval = (() => undefined) as never;
-    const handlers = new Map<string, Function>();
-    let footerFactory: Function | undefined;
-    const pi = { getThinkingLevel: () => 'xhigh', on: (event: string, handler: Function) => handlers.set(event, handler) };
-    const ctx = {
-      hasUI: true,
-      model: { id: 'gpt-5.5' },
-      cwd: repo,
-      sessionManager: { getCwd: () => repo },
-      getContextUsage: () => ({ percent: 42 }),
-      ui: { setFooter: (factory: Function) => { footerFactory = factory; } },
-    };
-
-    try {
-      localStatuslineExtension(pi as never);
-      handlers.get('session_start')?.({}, ctx);
-      const component = footerFactory?.(
-        { requestRender: () => undefined },
-        { fg: (_name: string, text: string) => text },
-        { onBranchChange: () => () => undefined, getExtensionStatuses: () => new Map() },
-      );
-      const lines = component.render(120);
-      expect(lines[1]).toContain('code');
-      expect(lines[1]).toContain('spec');
-      expect(lines[1]).toContain('docs');
-      component.dispose();
-    } finally {
-      globalThis.setInterval = originalSetInterval;
-      globalThis.clearInterval = originalClearInterval;
-      rmSync(repo, { recursive: true, force: true });
-    }
-  });
 
   it('REQ-AGENT-030 / REQ-AGENT-050 / REQ-AGENT-051: Pi command extensions dispatch through both ctx and pi user-message APIs', () => {
     const commandExtensionKeys = [
