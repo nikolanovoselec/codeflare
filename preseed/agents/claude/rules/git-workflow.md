@@ -8,7 +8,7 @@
 
 | Event | Skill |
 |---|---|
-| User explicitly asks to monitor CI, or deploy/merge requires a fresh CI result | `ci-monitoring` (one detached monitor; report the log path and stop; never tail-follow in the main session) |
+| Any push that can produce CI, unless the user explicitly says to skip CI monitoring | `ci-monitoring` (one backgrounded agent monitors CI and reports back to the main session; never tail-follow in the main session) |
 | PR-boundary event with `sdd/` present | `git-review-pipeline` (spec/doc/code review pipeline) |
 | User asks to open a PR | `pr-workflow` (body template + REQ backlinks + test plan) |
 | Need gh/wrangler access, creds unclear | `deploy-credentials` (env-var table + check-then-fallback) |
@@ -29,8 +29,9 @@ active or incomplete review.
 <!-- git-workflow-hard-obligations -->
 
 - Do not push while a review is running, unless explicitly authorized by the user.
-- Do not auto-start CI monitoring after routine pushes. Invoke `ci-monitoring` only when the user explicitly asks, or when deploy/merge requires a fresh CI result.
-- CI monitoring must be detached/background-only: never run `tail -f`, `gh run watch`, or any long-running CI polling loop in the main assistant turn. Start the detached monitor, report the log path, and stop so review results can be emitted into the main session.
-- Any long-running wait/monitor/poll (CI, deploy status, review completion, log tailing, `watch`, `tail -f`, `gh run watch`, `while sleep` loops, or `ctx_execute`/Bash used as a blocking monitor) must run detached/background or in a subagent/background task. Never keep the main session busy waiting for external state; `ctx_execute` is not an exception. Start only a short detached launcher, report how to check it, and stop.
+- After any push that can produce CI, invoke `ci-monitoring` unless the user explicitly says to skip CI monitoring for that push.
+- CI monitoring must run in a backgrounded agent/subagent. Never run `tail -f`, `gh run watch`, a foreground polling loop, or any long-running CI wait in the main assistant turn. Start the backgrounded agent, report the tracking/log path, and stop so review results can be emitted into the main session.
+- The CI-monitoring background agent does not fix, commit, or push. It reports `CI_RESULT success`, `CI_RESULT failure`, or `CI_RESULT timeout` plus relevant run/log pointers back to the main session; the main session owns any fix/commit/push work.
+- Any long-running wait/monitor/poll (CI, deploy status, review completion, log tailing, `watch`, `tail -f`, `gh run watch`, `while sleep` loops, or `ctx_execute`/Bash used as a blocking monitor) must run detached/background or in a subagent/background task. Never keep the main session busy waiting for external state; `ctx_execute` is not an exception. Start only a short background launcher, report how to check it, and stop.
 - Never deploy to integration until every required CI run is green.
-- If CI monitoring is required by an explicit user request or deploy/merge gate, skipping `ci-monitoring` is HIGH `ci-monitoring-skill-not-invoked`.
+- Skipping `ci-monitoring` after a CI-producing push without an explicit user skip instruction is HIGH `ci-monitoring-skill-not-invoked`.

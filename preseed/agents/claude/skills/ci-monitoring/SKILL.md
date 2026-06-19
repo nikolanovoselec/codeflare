@@ -1,28 +1,36 @@
 ---
 name: ci-monitoring
-description: On-demand CI monitoring. Starts one detached GitHub Actions monitor only when explicitly requested or required by deploy/merge; never blocks the main session.
-version: 1.4.0
+description: Background CI monitoring after every CI-producing push unless the user explicitly skips it; never blocks the main session.
+version: 1.5.0
 ---
 
-# On-Demand CI Monitoring
+# Background CI Monitoring
 
-A push can trigger multiple GitHub Actions workflows for the same commit. Do not auto-start this monitor after routine pushes. Start it only when the user explicitly asks to monitor CI, or when a deploy/merge action requires a fresh CI result.
+A push can trigger multiple GitHub Actions workflows for the same commit. After any push that can produce CI, start CI monitoring unless the user explicitly says to skip CI monitoring for that push. Monitoring is never owned by the main assistant turn: launch a backgrounded agent/subagent to monitor and report the result back to the main session.
 
 ## Hard rule: never monitor in the main session
 
 <!-- ci-no-main-session-monitor -->
 
-CI monitoring MUST be detached/background. Do not run `tail -f`, `gh run watch`, a foreground polling loop, `ctx_execute` as a blocking monitor, Bash as a blocking monitor, or any long-running CI wait in the main assistant turn. Never keep the main session busy waiting for CI or any external state. The main session must be able to stop immediately after the monitor is launched so PR-boundary review results can be emitted into the next main-session turn.
+CI monitoring MUST run in a backgrounded agent/subagent. Do not run `tail -f`, `gh run watch`, a foreground polling loop, `ctx_execute` as a blocking monitor, Bash as a blocking monitor, or any long-running CI wait in the main assistant turn. Never keep the main session busy waiting for CI or any external state. The main session must be able to stop immediately after the backgrounded agent is launched so PR-boundary review results can be emitted into the next main-session turn.
 
-If you catch yourself about to run any tool call that waits for CI and streams or accumulates output back to chat, stop and use the detached launch below instead.
+If you catch yourself about to run any tool call that waits for CI and streams or accumulates output back to chat, stop and launch the backgrounded CI agent instead.
 
-## Detached monitor pattern
+## Backgrounded agent pattern
 
-<!-- ci-detached-monitor -->
+<!-- ci-background-agent -->
 
-Use one bounded detached monitor per pushed HEAD. It writes status to a temp log and exits with one terminal line: `CI_RESULT success`, `CI_RESULT failure`, or `CI_RESULT timeout`.
+Start one backgrounded agent/subagent per pushed HEAD. The backgrounded agent owns a bounded monitor, writes status to a temp log, and reports back to the main session with one terminal line: `CI_RESULT success`, `CI_RESULT failure`, or `CI_RESULT timeout`.
 
-Launch the monitor with a short command that returns immediately, then end your turn with the log path. Do not read the log in a loop in the same turn.
+The main session launches the backgrounded agent, reports the tracking/log path, and stops. Do not read the log in a loop in the same turn.
+
+Use this task shape for the backgrounded CI agent:
+
+```text
+Monitor CI for <repo> at HEAD <head> on branch <branch>. Never block the main session. Use one bounded workflow-agnostic monitor with a stable workflow/run-id fingerprint. If CI succeeds, report success. If CI fails, report the failed workflow/run id and failed-log command or log path to the main session. Do not fix, commit, or push. If CI times out or credentials are missing, report the blocker and stop.
+```
+
+The backgrounded agent may use this detached monitor internally:
 
 ```bash
 cd <repo>
@@ -90,7 +98,7 @@ printf 'CI_MONITOR_STARTED head=%s pid=%s log=%s\n' "$HEAD" "$!" "$LOG"
 
 <!-- ci-workflow-row-fingerprint -->
 
-Use Bash or `ctx_execute` for the short launcher, but the launcher must return immediately. `ctx_execute(background: true)` is allowed only for this short detached launcher; do not use `ctx_execute` to keep a foreground `tail -f`, `while sleep`, `gh run watch`, or any other polling/monitoring wait alive.
+Use Bash or `ctx_execute` only inside the backgrounded agent, or for the short launcher that starts that agent. `ctx_execute(background: true)` is allowed only for a short detached launcher; do not use `ctx_execute` to keep a foreground `tail -f`, `while sleep`, `gh run watch`, or any other polling/monitoring wait alive in the main session.
 
 ## Reading the result
 
@@ -101,7 +109,7 @@ tail -80 /tmp/ci-monitor-<head>.log
 ```
 
 - `CI_RESULT success` and every workflow row returned for the monitored head is `completed/success` or `completed/skipped` across two consecutive checks with the same workflow/run-id fingerprint -> CI passed.
-- `CI_RESULT failure` -> inspect the failed run with `gh run view <id> --log-failed`, fix, commit, push, and start a new detached monitor for the new HEAD.
+- `CI_RESULT failure` -> the backgrounded agent reports the failed workflow/run id and failed-log command or log path to the main session. The main session decides and performs any fix/commit/push work.
 - `CI_RESULT timeout` -> stop and escalate to the user; do not claim green.
 
 Never claim CI is passing without seeing `CI_RESULT success` for the current HEAD.
@@ -118,4 +126,4 @@ gh run list --branch <branch> --limit 24 --json databaseId,status \
 
 ## Binding invocation rule
 
-Invoke this skill only when the user explicitly asks to monitor CI, or when a deploy/merge gate requires a fresh CI result. Routine pushes must not start a monitor. When invoked, start exactly one detached monitor for the target HEAD, report the log path, and stop the main-session turn.
+Invoke this skill after every push that can produce CI unless the user explicitly says to skip CI monitoring for that push. When invoked, start exactly one backgrounded agent for the target HEAD, report the tracking/log path, and stop the main-session turn. Skipping this skill without an explicit user skip instruction is HIGH `ci-monitoring-skill-not-invoked`.

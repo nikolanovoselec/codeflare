@@ -140,6 +140,33 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
+  it('propagates the background-agent CI monitoring policy into every agent instruction surface', () => {
+    const instructionKeys = [
+      '.codex/AGENTS.md',
+      '.gemini/GEMINI.md',
+      '.copilot/copilot-instructions.md',
+      '.config/opencode/AGENTS.md',
+      '.pi/agent/AGENTS.md',
+    ];
+    const gitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/git-workflow.md');
+    const ciSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/skills/ci-monitoring/SKILL.md');
+
+    expect(gitWorkflow?.content).toContain('After any push that can produce CI, invoke `ci-monitoring` unless the user explicitly says to skip CI monitoring for that push.');
+    expect(gitWorkflow?.content).toContain('CI monitoring must run in a backgrounded agent/subagent.');
+    expect(gitWorkflow?.content).toContain('The CI-monitoring background agent does not fix, commit, or push.');
+    expect(ciSkill?.content).toContain('start CI monitoring unless the user explicitly says to skip CI monitoring for that push');
+    expect(ciSkill?.content).toContain('Do not fix, commit, or push.');
+
+    for (const key of instructionKeys) {
+      const entries = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === key);
+      expect(entries, `${key} should have generated mode entries`).toHaveLength(2);
+      for (const entry of entries) {
+        expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('After any push that can produce CI, invoke `ci-monitoring` unless the user explicitly says to skip CI monitoring for that push.');
+        expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('CI monitoring must run in a backgrounded agent/subagent.');
+      }
+    }
+  });
+
   it('preseeds the running-review push gate into every agent instruction surface', () => {
     const rule = 'Do not push while a review is running, unless explicitly authorized by the user.';
     const instructionKeys = [

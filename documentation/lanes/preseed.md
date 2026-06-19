@@ -162,15 +162,14 @@ core environment rules (`cloudflare-environment`, `no-local-builds`,
 `git-workflow`) ship in both modes. `git-workflow` delegates branched mechanics
 to `ci-monitoring`, `git-review-pipeline`, `pr-workflow`, and `deploy-credentials`.
 
-CI monitoring is on-demand: routine pushes do not start a monitor unless the user
-asks, or a deploy/merge gate needs a fresh CI result. When invoked, it starts one
-detached monitor for the target HEAD ([REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
-AC5). The detached monitor evaluates every workflow row returned for the monitored
-HEAD and waits for a stable workflow/run-id fingerprint before success
-([REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
-AC6).
+CI monitoring is background-agent owned: after any CI-producing push, agents start
+`ci-monitoring` unless the user explicitly skips it for that push. The backgrounded
+agent monitors the target HEAD and reports success, failure, or timeout to the main
+session; it does not fix, commit, or push ([REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
+AC5/AC6). The monitor evaluates every workflow row returned for the monitored HEAD
+and waits for a stable workflow/run-id fingerprint before success.
 
-Monitoring and any other long-running wait/poll are detached-only: no agent may
+Monitoring and any other long-running wait/poll are background-only: no agent may
 keep the main session busy with `tail -f`, `gh run watch`, blocking `ctx_execute`,
 Bash loops, deploy-status waits, review-completion waits, or foreground polling
 ([REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
