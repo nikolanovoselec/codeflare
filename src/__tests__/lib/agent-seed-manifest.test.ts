@@ -1001,7 +1001,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
         { lane: 'doc-updater', path: '/tmp/docs.md', counts: { critical: 0, high: 0, medium: 0, low: 0 }, recommendation: 'none' },
       ],
       actionable: 1,
-      recommendation: 'automatically fix 1 actionable MEDIUM/HIGH/CRITICAL finding(s), commit, and push only the fix diff',
+      recommendation: 'verify 1 actionable MEDIUM/HIGH/CRITICAL finding(s), fix only legitimate findings, commit, and push only the fix diff',
     });
   });
 
@@ -1069,7 +1069,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
           fix: 'Allow the explicit fallback summary notification through.',
         },
       ],
-      recommendation: 'automatically fix 1 actionable MEDIUM/HIGH/CRITICAL finding(s), commit, and push only the fix diff',
+      recommendation: 'verify 1 actionable MEDIUM/HIGH/CRITICAL finding(s), fix only legitimate findings, commit, and push only the fix diff',
     });
     const escapedSummary = formatMergedReviewSummary({
       repoName: 'codeflare',
@@ -1219,10 +1219,10 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
             'Before editing, committing, or pushing, verify the review job for this exact head is complete and every required lane has a result file.',
             'If any required review lane is still running, pending, missing, or unknown, do not edit, commit, or push; wait for the final merged review summary.',
             'If the user has explicitly said not to automatically fix/implement this round, or to wait for GO/approval, do not edit, commit, or push; present the findings and wait for their command.',
-            'Otherwise, fix all legitimate MEDIUM, HIGH, and CRITICAL findings only.',
+            'Otherwise, verify every MEDIUM, HIGH, and CRITICAL finding against the code/spec/docs, then fix only findings that are legitimate.',
             'A finding\'s age is never a reason to skip it: fix every legitimate finding whether it is newly introduced or pre-existing, in this diff or adjacent. Do not exclude, defer, or ask about a legitimate finding because it pre-dates this change — legitimacy is the only criterion.',
             'Do not rerun or start CI monitoring unless explicitly asked or a merge/deploy gate requires it.',
-            'Commit the fix as a new commit and push to the same branch; do not amend or rewrite history.',
+            'If the user explicitly said not to push, do not push. Otherwise, commit the fix as a new commit and push to the same branch; do not amend or rewrite history.',
           ].join('\n'),
           display: false,
           details: { repo: '/repo/codeflare', head: 'abc123' },

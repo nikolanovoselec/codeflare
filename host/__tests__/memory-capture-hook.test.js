@@ -105,7 +105,7 @@ describe('memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every
   });
 });
 
-// REQ-MEM-002 AC2 + AC6 (no counter = fresh container; distinguish brand-new vs resumed)
+// REQ-MEM-002 AC2 + AC7 (no counter = fresh container; distinguish brand-new vs resumed)
 describe('memory-capture.sh - first-run baseline + resume detection / REQ-MEM-010 (memory capture hook plumbing)', () => {
   // REQ-MEM-002 AC2 + REQ-MEM-010 AC3: brand-new session (1 prompt) baselines and emits directive
   it('first run on a brand-new session baselines and emits memory-scan directive', () => {

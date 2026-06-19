@@ -418,7 +418,7 @@ export function reviewAutofixRequest(repo: string, head: string, nonce?: string)
     "Before editing, committing, or pushing, verify the review job for this exact head is complete and every required lane has a result file.",
     "If any required review lane is still running, pending, missing, or unknown, do not edit, commit, or push; wait for the final merged review summary.",
     "If the user has explicitly said not to automatically fix/implement this round, or to wait for GO/approval, do not edit, commit, or push; present the findings and wait for their command.",
-    "Otherwise, fix all legitimate MEDIUM, HIGH, and CRITICAL findings only.",
+    "Otherwise, verify every MEDIUM, HIGH, and CRITICAL finding against the code/spec/docs, then fix only findings that are legitimate.",
     "A finding's age is never a reason to skip it: fix every legitimate finding whether it is newly introduced or pre-existing, in this diff or adjacent. Do not exclude, defer, or ask about a legitimate finding because it pre-dates this change — legitimacy is the only criterion.",
     "Do not rerun or start CI monitoring unless explicitly asked or a merge/deploy gate requires it.",
     "If the user explicitly said not to push, do not push. Otherwise, commit the fix as a new commit and push to the same branch; do not amend or rewrite history.",
@@ -581,7 +581,7 @@ export function durableReviewSummaryModel(rows: DurableReviewSummaryRow[]): Dura
     rows,
     actionable,
     recommendation: actionable > 0
-      ? `automatically fix ${actionable} actionable MEDIUM/HIGH/CRITICAL finding(s), commit, and push only the fix diff`
+      ? `verify ${actionable} actionable MEDIUM/HIGH/CRITICAL finding(s), fix only legitimate findings, commit, and push only the fix diff`
       : "no actionable MEDIUM/HIGH/CRITICAL findings remain",
   };
 }
@@ -740,7 +740,7 @@ function mergedFindingsList(findings: ReviewFinding[]): string {
 
 export function mergedReviewRecommendation(counts: ReviewSeverityCounts): string {
   const actionable = actionableReviewCount(counts);
-  if (actionable > 0) return `automatically fix ${actionable} actionable MEDIUM/HIGH/CRITICAL finding(s), commit, and push only the fix diff`;
+  if (actionable > 0) return `verify ${actionable} actionable MEDIUM/HIGH/CRITICAL finding(s), fix only legitimate findings, commit, and push only the fix diff`;
   if (counts.low > 0) return "review LOW findings when convenient; no MEDIUM/HIGH/CRITICAL findings remain";
   return "no findings remain";
 }

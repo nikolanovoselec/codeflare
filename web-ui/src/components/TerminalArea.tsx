@@ -89,15 +89,18 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
     terminalWorkspaceStore.setSingleSessionWorkspace(sessionId, resolveTerminalIdForSession(sessionId));
   });
 
-  const multiViewGridPanes = createMemo<TerminalGridPane<VisibleTerminalPane>[]>(() =>
-    visiblePanes()
-      .filter((pane) => pane.source === 'multiview')
-      .map((pane) => ({
-        id: pane.id,
-        data: pane,
-        get active() { return pane.id === focusedPaneId(); },
-      }))
-  );
+  const multiViewGridPanes = createMemo<TerminalGridPane<VisibleTerminalPane>[]>((previous) => {
+    const panes = visiblePanes().filter((pane) => pane.source === 'multiview');
+    const previousIds = previous?.map((pane) => pane.id).join('\0');
+    const nextIds = panes.map((pane) => pane.id).join('\0');
+    if (previous && previousIds === nextIds) return previous;
+
+    return panes.map((pane) => ({
+      id: pane.id,
+      data: pane,
+      get active() { return pane.id === focusedPaneId(); },
+    }));
+  });
 
   return (
     <main class="layout-main">

@@ -532,10 +532,11 @@ All preseed content is deployed via the manifest pipeline:
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery).
 
   Partial lane results, including any missing, failed, timed-out, or still-running
-  lane, cannot trigger autofix. If legitimate MEDIUM/HIGH/CRITICAL findings remain
-  after the complete exact-head summary, Pi then requests a fix pass,
-  unless the latest explicit user directive opts out of auto-fixing for the round.
-  Implements [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-durable-review-fix-loop).
+  lane, cannot trigger autofix. If actionable MEDIUM/HIGH/CRITICAL findings remain
+  after the complete exact-head summary, Pi then requests a fix pass that tells the
+  agent to verify each finding against code/spec/docs and fix only legitimate
+  findings, unless the latest explicit user directive opts out of auto-fixing for
+  the round. Implements [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-durable-review-fix-loop).
 
   Timed-out or failed durable lanes are recorded as failed and do not produce
   the required result file. The PR head remains unacked until a later review run
