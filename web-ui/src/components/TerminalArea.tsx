@@ -95,7 +95,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
       .map((pane) => ({
         id: pane.id,
         data: pane,
-        active: pane.id === focusedPaneId(),
+        get active() { return pane.id === focusedPaneId(); },
       }))
   );
 
