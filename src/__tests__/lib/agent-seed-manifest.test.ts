@@ -162,7 +162,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('preseeds work continuity into every agent instruction surface', () => {
+  it('preseeds work continuity and the review push gate into every agent instruction surface', () => {
     const instructionKeys = [
       '.codex/AGENTS.md',
       '.gemini/GEMINI.md',
@@ -174,6 +174,8 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     const claudeRule = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/engineering-constitution.md');
     expect(claudeRule?.content).toContain('## Work continuity');
     expect(claudeRule?.content).toContain('Queue the new instruction');
+    expect(claudeRule?.content).toContain('## Review push gate');
+    expect(claudeRule?.content).toContain('Do not push while a PR-boundary review is running');
 
     for (const key of instructionKeys) {
       const entries = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === key);
@@ -181,6 +183,8 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       for (const entry of entries) {
         expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('## Work continuity');
         expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('Queue the new instruction');
+        expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('## Review push gate');
+        expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('Do not push while a PR-boundary review is running');
       }
     }
   });

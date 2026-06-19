@@ -43,6 +43,13 @@ finish the current concrete step to a safe stopping point, then handle the new r
 order. If the new message explicitly says to stop, pause, or reprioritize, obey it; otherwise
 complete what you were doing first.
 
+## Review push gate
+
+Do not push while a PR-boundary review is running, pending, missing, stale, or otherwise
+not complete for the current head, unless the user explicitly authorizes pushing despite
+that active/incomplete review. Wait for the final merged review summary for the exact head,
+then fix legitimate findings before pushing another head.
+
 ## Hard gates
 
 - **Plan gate (every plan / ExitPlanMode).** A plan MUST contain an explicit

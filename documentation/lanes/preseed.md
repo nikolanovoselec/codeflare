@@ -185,11 +185,14 @@ extract repeated structures, separate content from components,
 behavioral tests only).
 `engineering-constitution` rule is advanced-only (the four engineering
 mandates - no overengineering, behavioral tests only, composable
-components, SDD+TDD enforced - plus the work-continuity rule, plan gate,
-and done gate, [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents)).
+components, SDD+TDD enforced - plus the work-continuity rule, review push
+gate, plan gate, and done gate, [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents)).
 Work continuity means a new user message is queued while the active concrete
 step reaches a safe stopping point, unless the user explicitly says to stop,
-pause, or reprioritize.
+pause, or reprioritize. The review push gate means no push while a PR-boundary
+review is running, pending, missing, stale, or otherwise incomplete for the
+current head unless the user explicitly authorizes pushing despite that active
+or incomplete review.
 ECC-derived
 language rules in `{common,typescript,python,golang,swift}/` subdirs
 (advanced only). `common/coding-style.md`

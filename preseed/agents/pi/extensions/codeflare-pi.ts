@@ -65,6 +65,7 @@ const ENGINEERING_CONSTITUTION = [
   "3. Reusable, composable components — extract any structure used more than twice; tokens/one source of truth; validate at boundaries; immutability.",
   "4. SDD + TDD enforced — failing behavioral test first; every change traces to a REQ; specs/anchors/docs move with the code; never leave a REQ Partial.",
   "Work continuity: when a new user message arrives mid-task, do not switch topics just because it arrived; queue it, finish the current concrete step to a safe stopping point, then handle the new request unless the user explicitly says to stop/pause/reprioritize.",
+  "Review push gate: do not push while a PR-boundary review is running, pending, missing, stale, or otherwise not complete for the current head unless the user explicitly authorizes pushing despite that active/incomplete review; wait for the final merged review summary for the exact head, then fix legitimate findings before pushing another head.",
   "Plan gate: present no plan without a Success-criteria/verification section covering these four. Fix legitimate findings in-session.",
   "</codeflare_constitution>",
 ].join("\n");
