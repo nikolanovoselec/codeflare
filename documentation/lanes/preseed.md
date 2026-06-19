@@ -163,7 +163,8 @@ core environment rules (`cloudflare-environment`, `no-local-builds`,
 to `ci-monitoring`, `git-review-pipeline`, `pr-workflow`, and `deploy-credentials`.
 
 CI monitoring is on-demand: routine pushes do not start a monitor unless the user
-asks, or a deploy/merge gate needs a fresh CI result ([REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
+asks, or a deploy/merge gate needs a fresh CI result. When invoked, it starts one
+detached monitor for the target HEAD ([REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
 AC5). The detached monitor evaluates every workflow row returned for the monitored
 HEAD and waits for a stable workflow/run-id fingerprint before success
 ([REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
