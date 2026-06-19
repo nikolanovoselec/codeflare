@@ -174,7 +174,7 @@ Multi-agent support, preseed system, and session modes.
 <!-- @impl: src/lib/agent-seed.generated.ts -->
 <!-- @impl: entrypoint.sh -->
 <!-- @test: host/__tests__/entrypoint-context-mode.test.js (entrypoint-context-mode describe → mode-gated context-mode preseed + hooks → AC4/AC5/AC6) -->
-<!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly describe → context-mode enabled by default + 5 tool extensions in required + coexistence/idempotence/dedup → AC5/AC8) -->
+<!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly describe → context-mode enabled by default + 5 tool extensions in required + coexistence/idempotence/dedup + advisor guidance override preserves model config → AC5/AC7/Constraints) -->
 
 **Intent:** Pro mode must provide a significantly enhanced agent experience over Standard - more rules, skills, agent definitions, commands, hooks, and persistent memory. Pi sessions remain fully functional whether or not context-mode is active; context-mode is enabled by default for Pi, and its Custom-tier context-window-reduction behavior in Claude Code remains tier-gated.
 
@@ -187,20 +187,22 @@ Multi-agent support, preseed system, and session modes.
 3. Pro-mode hooks fire uniformly regardless of which tool surface invoked the underlying command, so coverage is identical whether the user is on Custom tier (commands route through context-mode) or any other tier (commands run directly): commit attribution is blocked before the commit lands, the SDD review pipeline is triggered at every PR-to-`main` boundary event, the turn cannot end while a PR HEAD remains unreviewed, and memory capture runs on the user-prompt cadence.
 4. Pi agents remain fully functional whether or not context-mode is active: native Bash/Read/Grep/Find/Edit/Write plus graphify tools are sufficient on their own. The shared agent definitions' context-mode helper tools are remapped to their Pi-native names (`ctx_execute`, `ctx_batch_execute`, `ctx_execute_file`, `ctx_search`, `ctx_fetch_and_index`) and kept in the Pi agent frontmatter rather than stripped: with context-mode enabled by default they are present at runtime, and a session that disables it via `/ctx off` simply drops them — with no Pi-specific agent variants.
 5. Pi starts with context-mode ENABLED by default — its `ctx_*` tools and the bash-curl-redirect hook are active without an explicit `/ctx on`. The Codeflare Pi extension provides `/ctx status`, `/ctx on`, and `/ctx off`; `/ctx off` disables the context-mode package for the current running session and reloads resources, while the next Codeflare container start resets Pi back to enabled. <!-- @impl: entrypoint.sh --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
-6. Custom-tier Claude Code users may receive context-mode's automatic context-window-reduction behavior: large tool output stays out of the conversation window unless the agent explicitly retrieves it, and commands that would flood the window are redirected to the equivalent helper tool.
-7. Downgrading away from Custom tier, switching away from Pro mode, or using Pi removes the Custom-tier-only behavior on the next reconcile so automatic context-mode redirection no longer fires.
-8. The Pi preseed installs five tool extensions in the settings `required` set — `@juicesharp/rpiv-advisor` (the user-invoked `advisor` stronger-model review tool plus the user-only `/advisor` configuration command), `@juicesharp/rpiv-ask-user-question` (the `ask_user_question` tool), `@juicesharp/rpiv-todo` (the `todo` tool), `pi-web-access` (`web_search`/`fetch_content`), and `pi-mcp-adapter` (the `mcp` proxy) — so they load in every Pi session independently of the context-mode toggle, each shipped with a skill documenting when to use which tool. The advisor guidance is overridden at startup so the assistant must not call `advisor`, run `/advisor`, or suggest `/advisor` unless the user's current message explicitly asks for advisor. The `advisor` and `web_search`/`fetch_content` tools authenticate through Pi's own model registry / zero-config Exa MCP, so they require no per-user API keys. The settings `packages` assembly is idempotent and identity-keyed, so it never duplicates a package and preserves any user-added packages/settings. <!-- @impl: entrypoint.sh --> <!-- @impl: preseed/agents/pi/package.json --> <!-- @impl: preseed/agents/pi/manifest.json -->
+6. Custom-tier Claude Code users may receive context-mode's automatic context-window-reduction behavior; downgrading away from Custom tier, switching away from Pro mode, or using Pi removes that Custom-tier-only behavior on the next reconcile.
+7. The Pi preseed installs five always-on tool extensions in the settings `required` set: `@juicesharp/rpiv-advisor`, `@juicesharp/rpiv-ask-user-question`, `@juicesharp/rpiv-todo`, `pi-web-access`, and `pi-mcp-adapter`. <!-- @impl: entrypoint.sh --> <!-- @impl: preseed/agents/pi/package.json --> <!-- @impl: preseed/agents/pi/manifest.json -->
 
 **Constraints:**
 
 - Cleanup on mode switch is scoped strictly to preseed-managed content; user-created files are never deleted.
 - The Custom-tier context-mode behavior must be delivered through the platform's preseed pipeline, never through a user-driven marketplace install that could mutate settings outside the platform's control.
+- Pi package assembly is idempotent and identity-keyed, preserving user-added packages while preventing duplicate managed packages. <!-- @impl: entrypoint.sh -->
+- The startup advisor-guidance merge preserves the user's selected advisor model and effort while overriding only `guidance`, so assistants must not call `advisor`, run `/advisor`, or suggest `/advisor` unless the current user message asks for advisor. The target config path is `~/.config/rpiv-advisor/advisor.json`, overridable by `ADVISOR_CONFIG_FILE` for hermetic tests. <!-- @impl: entrypoint.sh --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-005: advisor guidance override is user-invoked only and preserves model config) -->
+- `advisor` and `web_search` / `fetch_content` authenticate through Pi's own model registry or zero-config Exa MCP, so they require no per-user API keys.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** [Automated test](../../host/__tests__/entrypoint-context-mode.test.js); [Pi settings packages test](../../host/__tests__/pi-settings-packages.test.js) (AC5/AC8)
+**Verification:** [Automated test](../../host/__tests__/entrypoint-context-mode.test.js); [Pi settings packages test](../../host/__tests__/pi-settings-packages.test.js) (AC5/AC7)
 
 **Status:** Implemented
 
@@ -1371,7 +1373,7 @@ None.
 <!-- @impl: preseed/agents/pi/agents/review-monitor.md -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (review monitor waits for lane files + summary, handles failures, and dedupes spawn with TTL/completion marker -> AC1/AC2/AC5/AC6) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (review monitor waits for lane files + summary, handles failures, dedupes spawn with TTL/completion marker, and manual review-results display does not claim acknowledgement -> AC1/AC2/AC5/AC6) -->
 <!-- @test: src/__tests__/lib/review-state.test.ts (monitor decision requires complete lane results + summary before autofix_required -> AC2) -->
 
 **Intent:** A completed PR-boundary review must reliably reach the main Pi session as a background-agent result with a visible overview, not just ack the head and write `summary.md` to disk. Durable truth stays in lane files, `summary.md`, the exact-head ack, and the monitor completion marker; the background agent notification is the wakeup/delivery surface. Review execution and lane finalization live in [REQ-AGENT-054](#req-agent-054-pi-durable-review-lane-failure-handling)/[REQ-AGENT-061](#req-agent-061-pi-idle-durable-review-reaper); summary formatting in [REQ-AGENT-053](#req-agent-053-pi-durable-review-status-and-result-formatting).
@@ -1384,7 +1386,7 @@ None.
 2. The monitor waits until every required lane result file and `summary.md` exist; if lane results all exist but `summary.md` is missing, it writes a concise merged summary from those lane reports. <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorDecision -->
 3. After complete lane results and `summary.md` exist, the monitor writes `monitor.completed` JSON containing `repo`, `head`, `summaryPath`, `completedAt`, and result `clean` or `findings`. <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorCompletionReady --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorCompletionRecordReady -->
 4. Early lane failures return `REVIEW_RESULT failed` without writing `monitor.completed`. <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt -->
-5. `/review-results` remains a manual fallback that displays the saved `summary.md` for the current exact head without mutating delivery state, relying on nonce/announcement records, or claiming the head was acknowledged. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::review-results --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatMergedReviewSummary -->
+5. `/review-results` remains a manual fallback that displays the saved `summary.md` for the current exact head without mutating delivery state, relying on nonce/announcement records, or claiming the head was acknowledged. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::review-results --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewResultsSummaryMessage --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatMergedReviewSummary -->
 6. Task/subagent contexts may reap lanes and write durable state, but only a live main-session ctx starts `review-monitor`; delivery uses no nonce, announcement, or follow-up bus. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::remember --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::isTaskSessionFile -->
 
 **Constraints:**
@@ -1551,7 +1553,7 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::bypassAckHeadForStatus -->
 <!-- @test: host/__tests__/enforce-review-spawn.test.js (bypass 1: sentinel file + bypass 2: magic phrase + 3-strike circuit breaker describes -> AC1/AC2/AC3 user-only escape hatches with sticky-until-SHA-changes circuit) -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-041 / REQ-AGENT-055: Pi review bypass acknowledges only the current live PR head from a main session -> AC1 Pi advanced-head acknowledgement + task-session non-consumption) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-041 / REQ-AGENT-055: Pi review bypass acknowledges only the current live PR head from a main session -> AC2 Pi advanced-head acknowledgement + AC3 task-session non-consumption) -->
 
 **Intent:** The user needs a small set of explicit, user-only escape hatches when a PR-boundary review gate would otherwise block legitimate work (hermetic tests, deliberate skip, repeated false-block). The assistant MUST NEVER trip these surfaces in its own output.
 
@@ -1559,10 +1561,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. A user-creatable one-shot sentinel file bypasses the current PR-boundary gate exactly once and is auto-deleted on use, never committed and never surviving a container restart: in Claude Stop-hook enforcement it bypasses without advancing the acknowledgement checkpoint, while in Pi native enforcement only a main-session context may consume it, task/subagent sessions must leave it untouched, and acknowledgement happens only after successful consumption of the sentinel for the current live protected PR HEAD rather than any stale or superseded pending state. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::BYPASS_FILE --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBypass --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::consumeBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::bypassAckHeadForStatus --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::canMainSessionConsumeReviewBypass -->
-2. A magic phrase `skip review` or `skip verification` (case-insensitive, word-bounded) in any user message after the candidate push line in the transcript bypasses the gate for that push.
-3. A 3-strike circuit breaker exits silently after blocking the same un-acked PR HEAD SHA three times, sticky until the SHA changes.
-4. The assistant MUST NEVER create the sentinel file or write the magic phrase in its own output; both are explicitly user-only escape hatches. The native runtime reinforces this for the sentinel half structurally: the review extension only tests for and deletes the sentinel on use, with no code path that creates it. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBypass -->
+1. A user-creatable one-shot sentinel file bypasses the current PR-boundary gate exactly once and is auto-deleted on use, never committed, and never survives a container restart. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::BYPASS_FILE --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::consumeBypass -->
+2. Claude Stop-hook enforcement treats the sentinel as a one-turn bypass without advancing the acknowledgement checkpoint; Pi native enforcement acknowledges only the current live protected PR HEAD after successful sentinel consumption. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::bypassAckHeadForStatus -->
+3. Pi task/subagent sessions must leave the sentinel untouched and must not acknowledge a bypass if sentinel consumption fails. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::consumeBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::canMainSessionConsumeReviewBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewBypassConsumeDecision -->
+4. A magic phrase `skip review` or `skip verification` (case-insensitive, word-bounded) in any user message after the candidate push line in the transcript bypasses the gate for that push.
+5. A 3-strike circuit breaker exits silently after blocking the same un-acked PR HEAD SHA three times, sticky until the SHA changes.
+6. The assistant MUST NEVER create the sentinel file or write the magic phrase in its own output; both are explicitly user-only escape hatches. The native runtime reinforces this for the sentinel half structurally: the review extension only tests for and deletes the sentinel on use, with no code path that creates it. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBypass -->
 
 **Constraints:**
 

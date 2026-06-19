@@ -1167,7 +1167,9 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(escapedSummary).not.toContain('PR-boundary review acknowledged');
     expect(escapedSummary).toContain('a\\|b\\\\c.ts');
     expect(escapedSummary).toContain('Replace x\\|y\\\\z safely.');
+  });
 
+  it('REQ-AGENT-062 AC5: manual review-results display does not claim acknowledgement', () => {
     const legacyManualDisplay = reviewResultsSummaryMessage({
       repo: '/repo',
       head: '6769bca06f843a50e2d991563afc58498fd7cf81',
