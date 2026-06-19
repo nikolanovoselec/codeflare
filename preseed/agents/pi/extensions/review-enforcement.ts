@@ -57,7 +57,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
-import { ALL_REVIEW_LANES, boundaryFallbackHead, boundaryTriggerCommandEntries, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, commandTextsFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, gitPushCommandTarget, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prCreateCommandTarget, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, prUrlFromText, reusablePendingReview, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
+import { ALL_REVIEW_LANES, boundaryFallbackHead, boundaryTriggerCommandEntries, bypassAckHeadForStatus, canMainSessionConsumeReviewBypass, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, commandTextsFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, gitPushCommandTarget, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prCreateCommandTarget, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, prUrlFromText, reusablePendingReview, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
 import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewMonitorCompletionRecordReady, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, type DurableReviewSummaryRecord } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes } from "./review-jobs";
 
@@ -492,8 +492,13 @@ function clearBreaker(repo: string): void {
   try { unlinkSync(breakerPath(repo)); } catch { /* best effort */ }
 }
 
-function consumeBypass(): boolean {
-  if (!existsSync(REVIEW_BYPASS)) return false;
+function canConsumeBypass(ctx: any): boolean {
+  const file = currentSessionFile(ctx);
+  return canMainSessionConsumeReviewBypass(file, Boolean(file && isTaskSessionFile(file)));
+}
+
+function consumeBypass(ctx: any): boolean {
+  if (!canConsumeBypass(ctx) || !existsSync(REVIEW_BYPASS)) return false;
   try {
     unlinkSync(REVIEW_BYPASS);
     return true;
@@ -1152,6 +1157,7 @@ export default function (pi: ExtensionAPI) {
   };
 
   const acknowledgeBypass = (repo: string, head: string, ctx: any): void => {
+    appendReviewEvent(repo, { event: "review_bypassed", head, reason: "user_sentinel" });
     writeAck(repo, head);
     resetBlockCount(repo);
     clearBreaker(repo);
@@ -1308,7 +1314,7 @@ export default function (pi: ExtensionAPI) {
         // genuine near-miss. Audit it (reconciliation still backstops the start) so a future miss is
         // diagnosable instead of invisible. Healthy skips (acked/breaker/pending) are not audited.
         if (!head) { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "no_resolvable_head" }); continue; }
-        if (consumeBypass()) {
+        if (consumeBypass(ctx)) {
           acknowledgeBypass(repo, head, ctx);
           return;
         }
@@ -1919,7 +1925,7 @@ export default function (pi: ExtensionAPI) {
         bypassPresent: bypassPending(),
       });
       if (decision.action === "allow") return;
-      if (decision.action === "bypass") { consumeBypass(); acknowledgeBypass(repo, decision.head, ctx); return; }
+      if (decision.action === "bypass") { consumeBypass(ctx); acknowledgeBypass(repo, decision.head, ctx); return; }
       appendReviewEvent(repo, { event: "merge_blocked", head: decision.head, reason: decision.reason });
       const why = decision.reason === "head_not_acked"
         ? `PR-boundary review required before merge for ${basename(repo)} at ${decision.head.slice(0, 12)}.`
@@ -2254,7 +2260,7 @@ export default function (pi: ExtensionAPI) {
       pending = undefined;
       return;
     }
-    if (consumeBypass()) {
+    if (consumeBypass(ctx)) {
       acknowledgeBypass(state.repo, activeHead, ctx);
       return;
     }

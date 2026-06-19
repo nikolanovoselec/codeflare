@@ -1,5 +1,9 @@
 export const ALL_REVIEW_LANES = ["code-reviewer", "spec-reviewer", "doc-updater"];
 
+export function canMainSessionConsumeReviewBypass(sessionFile: string | undefined, isTaskSession: boolean): boolean {
+  return Boolean(sessionFile && !isTaskSession);
+}
+
 type ShellCommand = string[];
 
 function splitShellCommands(command: string): string[] {
