@@ -58,7 +58,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, boundaryFallbackHead, boundaryTriggerCommandEntries, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, commandTextsFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, gitPushCommandTarget, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prCreateCommandTarget, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, prUrlFromText, reusablePendingReview, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { actionableReviewCount, activeRepoCandidateForReview, agentHeadAdvanceRequiresReview, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, deliveryAnnouncementHeads, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, mergeGateDecision, registerReviewRefreshLifecycleHooks, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, reviewDeliverySessionFile, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, shouldSendAnnouncement, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, transcriptEntryContainsDeliveryNonce, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewAnnouncement, type ReviewSeverityCounts } from "./review-job-helpers";
+import { actionableReviewCount, activeRepoCandidateForReview, agentHeadAdvanceRequiresReview, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, deliveryAnnouncementHeads, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, mergeGateDecision, registerReviewRefreshLifecycleHooks, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, reviewDeliveryContent, reviewDeliverySendSessionFile, reviewDeliverySessionFile, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, shouldSendAnnouncement, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, transcriptEntryContainsDeliveryNonce, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewAnnouncement, type ReviewSeverityCounts } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, ensureReviewAnnouncementPending, failedDurableReviewLanes, pendingReviewAnnouncementHeads, readDurableReviewJob, readReviewAnnouncement, reapDurableReviewLanes, reviewAnnouncementKinds, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes, writeReviewAnnouncement } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -836,6 +836,9 @@ function recallSessionFile(): string | undefined {
   const file = (globalThis as Record<symbol, unknown>)[SESSION_FILE_KEY];
   return typeof file === "string" ? file : undefined;
 }
+function currentMainReviewSessionFile(ctx: any): string | undefined {
+  return reviewDeliverySendSessionFile({ current: currentSessionFile(ctx) });
+}
 function mainReviewSessionFile(ctx: any): string | undefined {
   return reviewDeliverySessionFile({ current: currentSessionFile(ctx), remembered: recallSessionFile() });
 }
@@ -1235,6 +1238,8 @@ export default function (pi: ExtensionAPI) {
   // without waiting for the user's next prompt. If the ctx becomes stale, sendAnnouncement catches the
   // throw and the next live hook replaces latestReviewCtx.
   const remember = (ctx: any): void => {
+    const mainSessionFile = currentMainReviewSessionFile(ctx);
+    if (!mainSessionFile) return;
     latestReviewCtx = ctx;
     installReviewNotifyFilter(ctx);
     rememberSessionFile(ctx);
@@ -1545,16 +1550,14 @@ export default function (pi: ExtensionAPI) {
   }
 
   function summaryDeliveryContent(state: PendingReview, nonce: string): string {
-    // The nonce rides in a trailing HTML comment — invisible in the rendered summary, but it lands
-    // verbatim in the persisted transcript line (custom messages persist regardless of `display`).
-    return `${reviewSummaryMarkdown(state)}\n\n<!-- cf-review-delivery ${nonce} -->`;
+    return reviewDeliveryContent(reviewSummaryMarkdown(state), nonce);
   }
 
   // Dispatch one announcement kind, embedding its nonce. Returns whether a message was actually sent
   // (false only when the autofix is intentionally suppressed / not actionable, so it stays pending).
   function sendAnnouncement(record: ReviewAnnouncement, state: PendingReview, ctx: any): { sent: boolean; error?: string } {
     try {
-      const deliverySessionFile = mainReviewSessionFile(ctx);
+      const deliverySessionFile = currentMainReviewSessionFile(ctx);
       if (!deliverySessionFile) return { sent: false };
       if (record.kind === "summary") {
         const summaryPath = join(reviewResultsDir(state.repo, state.head), "summary.md");
@@ -1619,7 +1622,7 @@ export default function (pi: ExtensionAPI) {
   // One delivery tick for an explicit (repo, head): reconcile each non-terminal announcement against
   // the transcript first (so a verified one is never re-sent), then (re)send anything still due.
   function drainAnnouncementsFor(repo: string, head: string, ctx: any): void {
-    if (!mainReviewSessionFile(ctx)) return;
+    if (!currentMainReviewSessionFile(ctx)) return;
     const state = completedStateFromDurableJob(repo, head);
     if (!state) return;
     const now = Date.now();
@@ -2162,10 +2165,13 @@ export default function (pi: ExtensionAPI) {
       const content = readFileSync(summaryPath, "utf8");
       try {
         // Manual escape hatch: display the persisted summary directly (bypasses the delivery state
-        // machine's dedupe — the user explicitly asked to see it), then mark the announcement delivered
-        // so the background retry loop stops and the "results ready (not shown)" status clears.
-        pi.sendMessage({ customType: "codeflare-review-summary-v3", content, display: true, details: { repo, head, manual: true } });
+        // machine's dedupe — the user explicitly asked to see it), with the same transcript nonce the
+        // automatic delivery path uses, then mark the announcement delivered so the background retry
+        // loop stops and the "results ready (not shown)" status clears.
         const summary = readReviewAnnouncement(repo, head, "summary");
+        const deliveredContent = summary ? reviewDeliveryContent(content, summary.nonce) : content;
+        const details = summary ? { repo, head, manual: true, nonce: summary.nonce } : { repo, head, manual: true };
+        pi.sendMessage({ customType: "codeflare-review-summary-v3", content: deliveredContent, display: true, details });
         if (summary && summary.status !== "visible") {
           writeReviewAnnouncement({ ...summary, status: "visible", deliveredAt: Date.now() });
           appendReviewEvent(repo, { event: "summary_announcement_visible", head, manual: true });

@@ -225,6 +225,11 @@ export function reviewAnnouncementNonce(kind: ReviewAnnouncementKind, head: stri
   return `cf-review-${kind}:${head.slice(0, 12)}:${stamp}`;
 }
 
+export function reviewDeliveryContent(content: string, nonce: string): string {
+  const sentinel = `<!-- cf-review-delivery ${nonce} -->`;
+  return content.includes(sentinel) ? content : `${content}\n\n${sentinel}`;
+}
+
 export function pendingAnnouncementHeadsFrom(
   heads: string[],
   readRecord: (head: string, kind: ReviewAnnouncementKind) => { status: ReviewAnnouncementStatus } | undefined,
@@ -326,6 +331,10 @@ export function reviewDeliverySessionFile(input: { current?: string; remembered?
   if (input.current && !isTaskSessionFile(input.current)) return input.current;
   if (input.remembered && !isTaskSessionFile(input.remembered)) return input.remembered;
   return undefined;
+}
+
+export function reviewDeliverySendSessionFile(input: { current?: string }): string | undefined {
+  return reviewDeliverySessionFile({ current: input.current });
 }
 
 export function transcriptEntryContainsDeliveryNonce(entry: unknown, nonce: string): boolean {

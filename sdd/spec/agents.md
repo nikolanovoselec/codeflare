@@ -701,15 +701,11 @@ None.
 1. Pro mode preseeds the `spec-driven-development` skill, the `sdd-init` and `sdd-clean` sub-command skills, the `vault-operations` skill, the `ci-monitoring` skill, the `/sdd` command, the `spec-discipline`, `documentation-discipline`, and `tdd-discipline` rules (loaded into every agent's instructions), and the `spec-reviewer` + `doc-updater` agents.
 2. Every `/sdd` sub-command (`init`, `edit`, `add`, `clean`, `mode`) works in Pi without context-mode by using native Bash/Read/Grep/Find/Write/Edit tools; context-management helper tools, when present in another runtime, are optional rather than required.
 3. Large discovery commands run through Pi-native discovery tools when context-mode is absent; runtime-specific output wrappers are optional optimizations.
-4. Pi-transformed SDD skills use Pi-native graphify tools and `Agent`/`Plan` terminology before the native `/sdd` command dispatches.
-5. Every CI-producing push starts `ci-monitoring` in a backgrounded agent unless the user explicitly skips that push. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::ci-background-agent --> <!-- @impl: preseed/agents/claude/rules/git-workflow.md::git-workflow-ci-route --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (CI monitoring policy anchors propagate to seeded agent instructions -> AC5) -->
-6. The CI monitor reports success only after every workflow row for the monitored HEAD is complete and the workflow/run-id fingerprint is stable. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::ci-workflow-row-fingerprint --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-021 AC6 ci monitor waits for a stable workflow/run set before success -> AC6) -->
-7. CI failures are report-only: the background agent reports the failed workflow/run/log pointer and never fixes, commits, or pushes. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::ci-background-agent --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-021 AC7 reports failed workflow rows -> AC7) -->
-8. Long-running waits, monitors, or polls never keep the main session busy; agents start backgrounded work, report how to check it, and stop. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::ci-no-main-session-monitor --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::ENGINEERING_CONSTITUTION --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-021 AC8 ci monitor launcher starts detached work and returns immediately -> AC8) -->
+4. Pi-transformed SDD skills use Pi-native graphify tools and `Agent`/`Plan` terminology, and the native `/sdd` command enforces command-file hard gates before dispatching to workflow skills.
 
 **Constraints:**
 
-- An explicit user skip instruction is the only reason to skip CI monitoring after a CI-producing push.
+- CI-monitoring launch, reporting, and non-blocking wait policy lives in [REQ-AGENT-068](#req-agent-068-ci-monitoring-background-agent-policy).
 - `/sdd init` scaffolding lives in [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render); enrichment lives in [REQ-AGENT-034](#req-agent-034-sdd-init-enrichment-pass-with-graphify).
 - Phase 7a / 7b verifier gates live in [REQ-AGENT-035](#req-agent-035-sdd-init-phase-7a-source-anchor-verifier-gate) and [REQ-AGENT-039](#req-agent-039-sdd-init-phase-7b-enumeration-coverage-verifier-gate).
 - PR-boundary review lives in [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions); `/sdd clean` rescue lives in [REQ-AGENT-037](#req-agent-037-sdd-clean-rescue-and-autonomy-modes).
@@ -719,6 +715,40 @@ None.
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-025](#req-agent-025-post-clone-graph-triage)
 
 **Verification:** [Automated tests](../../src/__tests__/lib/agent-seed-ecc-rules.test.ts), [Pi command dispatch tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [CI monitoring skill tests](../../host/__tests__/ci-monitoring-skill.test.js)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-068: CI Monitoring Background-Agent Policy
+
+<!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md -->
+<!-- @impl: preseed/agents/claude/rules/git-workflow.md -->
+<!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-068 propagates CI monitoring behavior from anchored source blocks into every agent instruction surface -> AC1/AC3/AC4) -->
+<!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 waits for a stable workflow/run set, reports failed workflow rows, and starts detached work -> AC2/AC3/AC4) -->
+
+**Intent:** Agents must monitor CI after pushes without blocking the main session or turning the monitor into an implementation worker.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Every CI-producing push starts `ci-monitoring` in a backgrounded agent unless the user explicitly skips that push.
+2. The CI monitor reports success only after every workflow row for the monitored HEAD is complete and the workflow/run-id fingerprint is stable.
+3. CI failures are report-only: the background agent reports the failed workflow/run/log pointer and never fixes, commits, or pushes.
+4. Long-running waits, monitors, or polls never keep the main session busy; agents start backgrounded work, report how to check it, and stop.
+
+**Constraints:**
+
+- An explicit user skip instruction is the only reason to skip CI monitoring after a CI-producing push.
+- The main session owns any fix, commit, or push after a reported CI failure.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
+
+**Verification:** [Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [CI monitoring skill tests](../../host/__tests__/ci-monitoring-skill.test.js)
 
 **Status:** Implemented
 

@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, postCommandReconcileDecision, prCreateBoundaryBase, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { actionableReviewCount, allDurableReviewLanesComplete, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, deliveryAnnouncementHeads, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, isTaskSessionFile, laneExtensionSources, mergedReviewSummaryModel, pendingAnnouncementHeadsFrom, reapLaneDecision, recoverDurableReviewLaneState, registerReviewRefreshLifecycleHooks, requestReviewAutofixForRows, REVIEW_REFRESH_LIFECYCLE_EVENTS, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, reviewAutofixRequest, reviewDeliverySessionFile, sendReviewAutofixRequest, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, shouldSendAnnouncement, summarizeLaneTranscript, transcriptEntryContainsDeliveryNonce, type OpenPrReconcileInput, type ReviewRefreshLifecycleEvent } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { actionableReviewCount, allDurableReviewLanesComplete, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, deliveryAnnouncementHeads, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, isTaskSessionFile, laneExtensionSources, mergedReviewSummaryModel, pendingAnnouncementHeadsFrom, reapLaneDecision, recoverDurableReviewLaneState, registerReviewRefreshLifecycleHooks, requestReviewAutofixForRows, REVIEW_REFRESH_LIFECYCLE_EVENTS, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, reviewAutofixRequest, reviewDeliveryContent, reviewDeliverySendSessionFile, reviewDeliverySessionFile, sendReviewAutofixRequest, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, shouldSendAnnouncement, summarizeLaneTranscript, transcriptEntryContainsDeliveryNonce, type OpenPrReconcileInput, type ReviewRefreshLifecycleEvent } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_CAPTURE_PENDING_TTL_MS, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { LOCAL_BUILD_BYPASS, attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { reviewLaneBlockReason, reviewScopeBlockReason } from '../../../preseed/agents/pi/extensions/review-lane-guards';
@@ -32,6 +32,18 @@ function stripPrefix(key: string): string {
 
 function claudeDocs() {
   return AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key.startsWith('.claude/'));
+}
+
+function normalizedMarkdown(text: string): string {
+  return text.replace(/\r\n/g, '\n').replace(/[ \t]+/g, ' ').trim();
+}
+
+function sectionFromHeading(content: string, heading: string): string {
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  const start = lines.findIndex((line) => line.trim() === heading);
+  expect(start, `${heading} heading should exist`).toBeGreaterThanOrEqual(0);
+  const end = lines.findIndex((line, index) => index > start && line.startsWith('## '));
+  return lines.slice(start, end === -1 ? undefined : end).join('\n').trim();
 }
 
 describe('agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)', () => {
@@ -140,7 +152,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('propagates the CI monitoring policy anchors into every agent instruction surface', () => {
+  it('REQ-AGENT-068: propagates CI monitoring behavior from anchored source blocks into every agent instruction surface', () => {
     const instructionKeys = [
       '.codex/AGENTS.md',
       '.gemini/GEMINI.md',
@@ -148,24 +160,43 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.config/opencode/AGENTS.md',
       '.pi/agent/AGENTS.md',
     ];
-    const gitWorkflowAnchors = ['git-workflow-ci-route', 'git-workflow-hard-obligations'];
-    const ciSkillAnchors = ['ci-no-main-session-monitor', 'ci-background-agent', 'ci-workflow-row-fingerprint'];
     const gitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/git-workflow.md');
     const ciSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/skills/ci-monitoring/SKILL.md');
+    const anchoredSection = (content: string, anchor: string) => {
+      const start = content.indexOf(`<!-- ${anchor} -->`);
+      expect(start, `${anchor} source anchor`).toBeGreaterThanOrEqual(0);
+      const rest = content.slice(start);
+      const nextHeading = rest.slice(1).search(/\n## /);
+      return nextHeading === -1 ? rest : rest.slice(0, nextHeading + 1);
+    };
+    const requiredLine = (block: string, tokens: string[]) => {
+      const line = block.split('\n').find((candidate) => tokens.every((token) => candidate.includes(token)));
+      expect(line, `source clause with ${tokens.join(' + ')}`).toBeTruthy();
+      return line!;
+    };
 
-    for (const anchor of gitWorkflowAnchors) {
-      expect(gitWorkflow?.content.match(new RegExp(anchor, 'g')) ?? [], `${anchor} source anchor`).toHaveLength(1);
+    expect(gitWorkflow, 'git workflow source must be seeded').toBeTruthy();
+    expect(ciSkill, 'ci-monitoring skill source must be seeded').toBeTruthy();
+    for (const anchor of ['ci-no-main-session-monitor', 'ci-background-agent', 'ci-workflow-row-fingerprint']) {
+      expect(ciSkill!.content.match(new RegExp(anchor, 'g')) ?? [], `${anchor} source anchor`).toHaveLength(1);
     }
-    for (const anchor of ciSkillAnchors) {
-      expect(ciSkill?.content.match(new RegExp(anchor, 'g')) ?? [], `${anchor} source anchor`).toHaveLength(1);
-    }
+
+    const routeBlock = anchoredSection(gitWorkflow!.content, 'git-workflow-ci-route');
+    const hardObligationsBlock = anchoredSection(gitWorkflow!.content, 'git-workflow-hard-obligations');
+    const requiredClauses = [
+      requiredLine(routeBlock, ['Any push that can produce CI', 'ci-monitoring', 'backgrounded agent']),
+      requiredLine(hardObligationsBlock, ['After any push that can produce CI', 'invoke `ci-monitoring`', 'skip CI monitoring']),
+      requiredLine(hardObligationsBlock, ['CI monitoring must run', 'backgrounded agent/subagent']),
+      requiredLine(hardObligationsBlock, ['does not fix, commit, or push', 'CI_RESULT success']),
+      requiredLine(hardObligationsBlock, ['long-running wait/monitor/poll', 'detached/background']),
+    ];
 
     for (const key of instructionKeys) {
       const entries = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === key);
       expect(entries, `${key} should have generated mode entries`).toHaveLength(2);
       for (const entry of entries) {
-        for (const anchor of gitWorkflowAnchors) {
-          expect(entry.content.match(new RegExp(anchor, 'g')) ?? [], `${key} ${entry.modes.join(',')} ${anchor}`).toHaveLength(1);
+        for (const clause of requiredClauses) {
+          expect(entry.content, `${key} ${entry.modes.join(',')} preserves source CI policy clause`).toContain(clause);
         }
       }
     }
@@ -1323,6 +1354,19 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(reviewAnnouncementNonce('summary', 'h', 1)).not.toBe(reviewAnnouncementNonce('summary', 'h', 2));
   });
 
+  it('REQ-AGENT-062: manual review-results summary payload is nonce-bearing before it can be marked visible', () => {
+    const nonce = 'cf-review-summary:abcdef123456:1700';
+    const content = reviewDeliveryContent('persisted review summary', nonce);
+
+    expect(transcriptEntryContainsDeliveryNonce({
+      type: 'custom_message',
+      customType: 'codeflare-review-summary-v3',
+      content,
+      display: true,
+    }, nonce)).toBe(true);
+    expect(reviewDeliveryContent(content, nonce)).toBe(content);
+  });
+
   it('REQ-AGENT-062: durable announcement delivery can rediscover pending completed heads', () => {
     const records = new Map([
       ['pending-head:summary', { status: 'pending' as const }],
@@ -1393,6 +1437,8 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(reviewDeliverySessionFile({ current: taskSession, remembered: mainSession })).toBe(mainSession);
     expect(reviewDeliverySessionFile({ current: taskSession, remembered: tmpTaskSession })).toBeUndefined();
     expect(reviewDeliverySessionFile({ current: mainSession, remembered: taskSession })).toBe(mainSession);
+    expect(reviewDeliverySendSessionFile({ current: taskSession })).toBeUndefined();
+    expect(reviewDeliverySendSessionFile({ current: mainSession })).toBe(mainSession);
   });
 
   it('REQ-AGENT-062: transcript delivery proof accepts only nonce-bearing custom messages', () => {

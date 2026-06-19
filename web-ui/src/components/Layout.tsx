@@ -367,8 +367,9 @@ const Layout: Component<LayoutProps> = (props) => {
     if (sessionId && terminals && tiling && tiling.enabled) {
       const activeSessionId = sessionId;
       const layout = tiling.layout;
+      const tabOrder = sessionStore.getTabOrder(activeSessionId) ?? [];
       const terminalIds = new Set(terminals.tabs.map((tab) => tab.id));
-      return sessionStore.getTabOrder(activeSessionId)
+      return tabOrder
         .filter((tabId) => terminalIds.has(tabId))
         .slice(0, tiledSlotCount(layout))
         .map((tabId) => `${activeSessionId}:${tabId}`);

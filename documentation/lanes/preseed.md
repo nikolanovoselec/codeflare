@@ -517,7 +517,11 @@ All preseed content is deployed via the manifest pipeline:
   `results ready (not shown) — /review-results` footer status. If an older agent marked
   a summary visible from a task transcript, the next main-session drain reopens it and
   retries delivery. The `/review-results` command displays the persisted summary on
-  demand, which is the guaranteed fallback if automatic delivery never lands.
+  demand, which is the guaranteed fallback if automatic delivery never lands. Implements
+  [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
+  AC2/AC4; source: `review-enforcement.ts::drainAnnouncementsFor`,
+  `review-enforcement.ts::refreshDeliveryStatus`, and the `review-results` command in
+  `review-enforcement.ts`.
 
   The summary itself is sent with plain `pi.sendMessage` and no `triggerTurn` /
   `deliverAs`, using the same synchronous append path as `/review-results`. That send
