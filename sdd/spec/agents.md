@@ -725,7 +725,7 @@ None.
 <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md -->
 <!-- @impl: preseed/agents/claude/rules/git-workflow.md -->
 <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-068 propagates CI monitoring behavior and CI-result handoff section into every agent instruction surface -> AC1/AC3/AC4/AC5) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-068 propagates CI monitoring behavior and CI-result handoff contract clauses into every agent instruction surface -> AC1/AC3/AC4/AC5) -->
 <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 waits for a stable workflow/run set, reports failed workflow rows, and starts detached work -> AC2/AC3/AC4) -->
 
 **Intent:** Agents must monitor CI after pushes without blocking the main session or turning the monitor into an implementation worker.
@@ -738,7 +738,7 @@ None.
 2. The CI monitor reports success only after every workflow row for the monitored HEAD is complete and the workflow/run-id fingerprint is stable. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::ci-workflow-row-fingerprint --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 waits for a stable workflow/run set -> AC2) -->
 3. CI failures are report-only: the background agent reports the failed workflow/run/log pointer and never fixes, commits, or pushes. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::ci-background-agent --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 reports failed workflow rows -> AC3) -->
 4. Long-running waits, monitors, or polls never keep the main session busy; agents start backgrounded work, report how to check it, and stop. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::ci-no-main-session-monitor --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 starts detached work -> AC4) -->
-5. After `CI_RESULT`, the main session first prints the CI summary, including monitored head, run/log pointers when present, and next action. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::ci-background-agent --> <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::ENGINEERING_CONSTITUTION --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (CI-result handoff section is generated into all instruction surfaces -> AC5) -->
+5. After `CI_RESULT`, the main session first prints the CI summary, including monitored head, run/log pointers when present, and next action. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::ci-background-agent --> <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::ENGINEERING_CONSTITUTION --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (CI-result handoff contract clauses are generated into all instruction surfaces -> AC5) -->
 
 **Constraints:**
 

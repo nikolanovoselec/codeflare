@@ -34,10 +34,17 @@ function claudeDocs() {
   return AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key.startsWith('.claude/'));
 }
 
-function markdownHeadings(content: string): string[] {
-  return content.split('\n')
-    .map((line) => line.match(/^#{1,6}\s+(.+)$/)?.[1]?.trim())
-    .filter((heading): heading is string => Boolean(heading));
+function markdownSection(content: string, heading: string): string {
+  const start = content.indexOf(`## ${heading}`);
+  expect(start, `section ${heading}`).toBeGreaterThanOrEqual(0);
+  const rest = content.slice(start);
+  const next = rest.slice(1).search(/\n## /);
+  return next === -1 ? rest : rest.slice(0, next + 1);
+}
+
+function expectSectionClause(section: string, tokens: string[]): void {
+  const normalized = section.replace(/\s+/g, ' ');
+  expect(tokens.every((token) => normalized.includes(token)), `section should contain contract tokens: ${tokens.join(' + ')}`).toBe(true);
 }
 
 describe('agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)', () => {
@@ -232,8 +239,18 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(claudeRule?.content).toContain('Queue the new instruction');
     expect(claudeRule?.content).toContain('## Review push gate');
     expect(claudeRule?.content).toContain('Do not push while a PR-boundary review is running');
-    expect(markdownHeadings(claudeRule?.content ?? '')).toContain('Review-result handoff gate');
-    expect(markdownHeadings(claudeRule?.content ?? '')).toContain('CI-result handoff gate');
+    const reviewHandoffSource = markdownSection(claudeRule?.content ?? '', 'Review-result handoff gate');
+    const ciHandoffSource = markdownSection(claudeRule?.content ?? '', 'CI-result handoff gate');
+    const reviewContractClauses = [
+      ['REVIEW_RESULT', 'very next', 'severity counts', 'summary path', 'planned next action'],
+      ['Only after that summary', 'read files', 'triage findings', 'edit code'],
+    ];
+    const ciContractClauses = [
+      ['CI_RESULT', 'very next', 'monitored head', 'workflow/run id', 'log path'],
+      ['failed-log command', 'planned next action', 'Only after that summary'],
+    ];
+    for (const clause of reviewContractClauses) expectSectionClause(reviewHandoffSource, clause);
+    for (const clause of ciContractClauses) expectSectionClause(ciHandoffSource, clause);
 
     for (const key of instructionKeys) {
       const entries = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === key);
@@ -243,8 +260,10 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
         expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('Queue the new instruction');
         expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('## Review push gate');
         expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('Do not push while a PR-boundary review is running');
-        expect(markdownHeadings(entry.content), `${key} ${entry.modes.join(',')}`).toContain('Review-result handoff gate');
-        expect(markdownHeadings(entry.content), `${key} ${entry.modes.join(',')}`).toContain('CI-result handoff gate');
+        const reviewHandoff = markdownSection(entry.content, 'Review-result handoff gate');
+        const ciHandoff = markdownSection(entry.content, 'CI-result handoff gate');
+        for (const clause of reviewContractClauses) expectSectionClause(reviewHandoff, clause);
+        for (const clause of ciContractClauses) expectSectionClause(ciHandoff, clause);
       }
     }
   });
