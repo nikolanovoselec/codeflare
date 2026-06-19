@@ -899,7 +899,8 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
       document.dispatchEvent(new Event('visibilitychange'));
 
-      expect(vi.mocked(reconnectOnVisibilityReturn).mock.calls.at(-1)?.[1]).toEqual(['sess1:1', 'sess1:2']);
+      const reconnectCalls = vi.mocked(reconnectOnVisibilityReturn).mock.calls;
+      expect(reconnectCalls[reconnectCalls.length - 1]?.[1]).toEqual(['sess1:1', 'sess1:2']);
     });
 
     it('does NOT call forceResetKeyboardState when on dashboard', () => {
