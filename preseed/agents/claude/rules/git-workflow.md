@@ -4,6 +4,8 @@
 
 ## Triggers and routes
 
+<!-- git-workflow-ci-route -->
+
 | Event | Skill |
 |---|---|
 | User explicitly asks to monitor CI, or deploy/merge requires a fresh CI result | `ci-monitoring` (one detached monitor; report the log path and stop; never tail-follow in the main session) |
@@ -23,6 +25,8 @@ incomplete for the current head unless the user explicitly authorizes pushing de
 active or incomplete review.
 
 ## Hard obligations
+
+<!-- git-workflow-hard-obligations -->
 
 - Do not push while a review is running, unless explicitly authorized by the user.
 - Do not auto-start CI monitoring after routine pushes. Invoke `ci-monitoring` only when the user explicitly asks, or when deploy/merge requires a fresh CI result.

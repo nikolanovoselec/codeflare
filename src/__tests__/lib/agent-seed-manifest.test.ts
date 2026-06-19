@@ -140,6 +140,43 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
+  it('REQ-AGENT-021 AC5-AC7: CI monitoring is detached, workflow-agnostic, and never blocks instruction surfaces', () => {
+    const instructionKeys = [
+      '.codex/AGENTS.md',
+      '.gemini/GEMINI.md',
+      '.copilot/copilot-instructions.md',
+      '.config/opencode/AGENTS.md',
+      '.pi/agent/AGENTS.md',
+    ];
+    const gitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/git-workflow.md');
+    const ciSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/skills/ci-monitoring/SKILL.md');
+
+    expect(gitWorkflow?.content).toContain('one detached monitor; report the log path and stop');
+    const staleMonitorSummary = 'background continuous tail-' + 'followed monitor until green';
+    expect(gitWorkflow?.content).not.toContain(staleMonitorSummary);
+    expect(gitWorkflow?.content).toContain('ctx_execute` is not an exception');
+
+    expect(ciSkill?.content).toContain('ci-workflow-row-fingerprint');
+    expect(ciSkill?.content).toContain('last_fingerprint');
+    expect(ciSkill?.content).toContain('stable_done');
+    expect(ciSkill?.content).toContain('rows.length > 0 && rows.every((r) => r.status === \'completed\')');
+    expect(ciSkill?.content).not.toContain('requiredNames');
+    const staleWorkflowNames = ['PR' + ' Checks', 'Fu' + 'zz', 'Code' + 'QL'];
+    for (const workflowName of staleWorkflowNames) {
+      expect(ciSkill?.content).not.toContain(workflowName);
+    }
+
+    for (const key of instructionKeys) {
+      const entries = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === key);
+      expect(entries, `${key} should have generated mode entries`).toHaveLength(2);
+      for (const entry of entries) {
+        expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('Never keep the main session busy');
+        expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('ctx_execute` is not an exception');
+        expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('one detached monitor; report the log path and stop');
+      }
+    }
+  });
+
   it('preseeds the running-review push gate into every agent instruction surface', () => {
     const rule = 'Do not push while a review is running, unless explicitly authorized by the user.';
     const instructionKeys = [
