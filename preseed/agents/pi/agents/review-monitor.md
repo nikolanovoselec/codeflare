@@ -35,7 +35,7 @@ Wait in the background for up to 35 minutes until every required lane result exi
 
 Do not write review ack files; the extension owns exact-head gate state.
 
-Before successful exit after every lane result and `summary.md` exists, write the completion marker as JSON containing `repo`, `head`, `summaryPath`, `completedAt`, and `result`.
+Before successful exit after every lane result and `summary.md` exists, write the completion marker as JSON containing `repo`, `head`, `summaryPath`, `completedAt`, and `result`. The `result` field must be exactly `clean` or `findings` (not the `REVIEW_RESULT ...` line).
 
 Your final response must start with exactly one of:
 

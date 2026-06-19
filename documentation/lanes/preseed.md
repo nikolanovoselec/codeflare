@@ -510,8 +510,8 @@ All preseed content is deployed via the manifest pipeline:
   The monitor is the delivery wakeup. Before successful exit after complete lane
   results and `summary.md`, it writes
   `.git/codeflare-review-jobs/<head>/monitor.completed` as JSON containing `repo`,
-  `head`, `summaryPath`, `completedAt`, and `result`; if a lane fails before that
-  complete set exists, it returns `REVIEW_RESULT failed` without that marker.
+  `head`, `summaryPath`, `completedAt`, and result `clean` or `findings`; if a lane
+  fails before that complete set exists, it returns `REVIEW_RESULT failed` without that marker.
   Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
   AC3/AC4; source: `preseed/agents/pi/agents/review-monitor.md`,
@@ -521,9 +521,11 @@ All preseed content is deployed via the manifest pipeline:
 
   Partial lane results, failed required lanes, or a missing `summary.md` cannot
   trigger autofix. If actionable MEDIUM/HIGH/CRITICAL findings remain after the
-  complete exact-head summary, the monitor tells the main session to print a
-  detailed review overview first, then read `summary.md`, verify each finding, and
-  fix only legitimate findings by default. If the latest user instruction says not
+  complete exact-head summary, the monitor result includes a detailed overview
+  (result line, severity counts, lane status, ranked findings, summary path,
+  monitor transcript path when available, and next action) and tells the main
+  session to print that overview first, then read `summary.md`, verify each
+  finding, and fix only legitimate findings by default. If the latest user instruction says not
   to autofix, wait for approval, or do not push, the monitor tells the main session
   to stop for approval instead. There is no hidden `autofix.requested` marker and
   no custom summary announcement channel. Implements

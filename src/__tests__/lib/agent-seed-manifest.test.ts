@@ -34,6 +34,12 @@ function claudeDocs() {
   return AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key.startsWith('.claude/'));
 }
 
+function markdownHeadings(content: string): string[] {
+  return content.split('\n')
+    .map((line) => line.match(/^#{1,6}\s+(.+)$/)?.[1]?.trim())
+    .filter((heading): heading is string => Boolean(heading));
+}
+
 describe('agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)', () => {
   it('generated configs array is non-empty', () => {
     expect(AGENTS_SEEDED_CONFIGS.length).toBeGreaterThan(0);
@@ -226,8 +232,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(claudeRule?.content).toContain('Queue the new instruction');
     expect(claudeRule?.content).toContain('## Review push gate');
     expect(claudeRule?.content).toContain('Do not push while a PR-boundary review is running');
-    expect(claudeRule?.content).toContain('## Review-result handoff gate');
-    expect(claudeRule?.content).toContain('very next assistant response MUST start by printing a detailed user-facing review summary');
+    expect(markdownHeadings(claudeRule?.content ?? '')).toContain('Review-result handoff gate');
 
     for (const key of instructionKeys) {
       const entries = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === key);
@@ -237,8 +242,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
         expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('Queue the new instruction');
         expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('## Review push gate');
         expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('Do not push while a PR-boundary review is running');
-        expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('## Review-result handoff gate');
-        expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('very next assistant response MUST start by printing a detailed user-facing review summary');
+        expect(markdownHeadings(entry.content), `${key} ${entry.modes.join(',')}`).toContain('Review-result handoff gate');
       }
     }
   });

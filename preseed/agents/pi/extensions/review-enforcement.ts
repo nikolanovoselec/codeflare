@@ -1492,9 +1492,9 @@ export default function (pi: ExtensionAPI) {
       "- Poll the listed lane result files and summary.md for up to 35 minutes, stopping sooner only when they all exist or a lane failure is visible in .git/codeflare-review-jobs/<head>/lanes/.",
       "- If a lane failure is visible before every lane result and summary.md exist: do not write the completion marker, remove the monitor request marker, and return REVIEW_RESULT failed.",
       "- If every lane result exists but summary.md is missing, write summary.md by combining the lane reports with a severity table and ranked findings. Do not write the review ack; the extension owns exact-head gate state.",
-      "- Before exiting successfully after every lane result and summary.md exists, write the completion marker as JSON with repo, head, summaryPath, completedAt, and result.",
+      "- Before exiting successfully after every lane result and summary.md exists, write the completion marker as JSON with repo, head, summaryPath, completedAt, and result. The result field must be exactly \"clean\" or \"findings\" (not the REVIEW_RESULT-prefixed line).",
       "- Final output must start with one of these exact contract lines: REVIEW_RESULT clean, REVIEW_RESULT findings, or REVIEW_RESULT failed.",
-      "- For findings, include a compact user-facing overview in your final result: severity counts, lane status, and ranked finding titles.",
+      "- For findings, include a detailed user-facing overview in your final result: severity counts, lane status, ranked finding titles, the summary.md path, your monitor transcript path if available, and the planned next action.",
       "- The main session's first response after receiving your result must start by printing a detailed review summary: exact REVIEW_RESULT line, severity counts, lane status, ranked findings, summary path, monitor transcript path if available, and next action. It must do this before analysis, tool calls, todo updates, or fixes.",
       "- Then tell the main session to read summary.md, verify every MEDIUM/HIGH/CRITICAL finding, fix only legitimate findings by default, and stop for approval only if the latest user instruction says not to autofix / wait for approval / do not push.",
     ].join("\n");
