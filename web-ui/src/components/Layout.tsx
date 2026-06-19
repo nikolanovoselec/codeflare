@@ -365,12 +365,13 @@ const Layout: Component<LayoutProps> = (props) => {
     const terminals = sessionId ? sessionStore.getTerminalsForSession(sessionId) : null;
     const tiling = sessionId ? sessionStore.getTilingForSession(sessionId) : null;
     if (sessionId && terminals && tiling && tiling.enabled) {
+      const activeSessionId = sessionId;
       const layout = tiling.layout;
       const terminalIds = new Set(terminals.tabs.map((tab) => tab.id));
-      return sessionStore.getTabOrder(sessionId)
+      return sessionStore.getTabOrder(activeSessionId)
         .filter((tabId) => terminalIds.has(tabId))
         .slice(0, tiledSlotCount(layout))
-        .map((tabId) => `${sessionId}:${tabId}`);
+        .map((tabId) => `${activeSessionId}:${tabId}`);
     }
     return terminalWorkspaceStore.getVisiblePanes().map((pane) => `${pane.sessionId}:${pane.terminalId}`);
   });

@@ -1,5 +1,17 @@
 import { basename } from "node:path";
 
+export const REVIEW_REFRESH_LIFECYCLE_EVENTS = ["resources_discover", "turn_start", "turn_end", "message_end"] as const;
+
+export type ReviewRefreshLifecycleEvent = typeof REVIEW_REFRESH_LIFECYCLE_EVENTS[number];
+
+export type ReviewRefreshHookApi = {
+  on: (event: ReviewRefreshLifecycleEvent, handler: (event: unknown, ctx: unknown) => void) => void;
+};
+
+export function registerReviewRefreshLifecycleHooks(api: ReviewRefreshHookApi, handler: (event: unknown, ctx: unknown) => void): void {
+  for (const event of REVIEW_REFRESH_LIFECYCLE_EVENTS) api.on(event, handler);
+}
+
 export type DurableReviewLaneSnapshot = {
   lane: string;
   status: "pending" | "running" | "completed" | "failed";
@@ -304,6 +316,16 @@ export function announcementReconcileDecision(input: AnnouncementReconcileInput)
   }
   if (input.kind === "summary" && input.maxAgeMs !== undefined && input.createdAt !== undefined && input.now - input.createdAt >= input.maxAgeMs) return "failed";
   return "keep";
+}
+
+export function isTaskSessionFile(file: string | undefined): boolean {
+  return typeof file === "string" && /(?:^|[\\/])tasks[\\/]/.test(file);
+}
+
+export function reviewDeliverySessionFile(input: { current?: string; remembered?: string }): string | undefined {
+  if (input.current && !isTaskSessionFile(input.current)) return input.current;
+  if (input.remembered && !isTaskSessionFile(input.remembered)) return input.remembered;
+  return undefined;
 }
 
 export function transcriptEntryContainsDeliveryNonce(entry: unknown, nonce: string): boolean {

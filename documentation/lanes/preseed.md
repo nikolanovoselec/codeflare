@@ -495,9 +495,14 @@ All preseed content is deployed via the manifest pipeline:
   `review-jobs.ts::ensureReviewAnnouncementPending`.
 
   Each summary/autofix message embeds a nonce and is marked delivered only when that
-  nonce is later found in the session transcript. A `sendMessage` return is never
-  assumed delivered. Pending or unverified announcements are retried on message-end,
-  turn, and reaper lifecycle ticks, with retry delay and attempt caps.
+  nonce is later found in the main session transcript. Task/subagent transcripts never
+  prove user-visible delivery, and a `sendMessage` return is never assumed delivered.
+  Pending or unverified announcements are retried on message-end, turn, and reaper
+  lifecycle ticks, with retry delay and attempt caps. Implements
+  [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
+  AC2/AC3; source: `review-enforcement.ts::sessionContainsNonce`,
+  `review-enforcement.ts::drainAnnouncementsFor`, and
+  `review-job-helpers.ts::reviewDeliverySessionFile`.
 
   The drain reads non-terminal announcement records for remembered/active review repos
   after the review window has been cleared, and drains acked heads only when there is no
@@ -509,9 +514,10 @@ All preseed content is deployed via the manifest pipeline:
   `review-job-helpers.ts::deliveryAnnouncementHeads`.
 
   A completed review whose summary is not yet delivered shows a persistent
-  `results ready (not shown) — /review-results` footer status. The `/review-results`
-  command displays the persisted summary on demand, which is the guaranteed fallback
-  if automatic delivery never lands.
+  `results ready (not shown) — /review-results` footer status. If an older agent marked
+  a summary visible from a task transcript, the next main-session drain reopens it and
+  retries delivery. The `/review-results` command displays the persisted summary on
+  demand, which is the guaranteed fallback if automatic delivery never lands.
 
   The summary itself is sent with plain `pi.sendMessage` and no `triggerTurn` /
   `deliverAs`, using the same synchronous append path as `/review-results`. That send

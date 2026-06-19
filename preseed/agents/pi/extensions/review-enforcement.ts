@@ -58,7 +58,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, boundaryFallbackHead, boundaryTriggerCommandEntries, bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, commandTextsFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, gitPushCommandTarget, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prCreateCommandTarget, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, prUrlFromText, reusablePendingReview, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { actionableReviewCount, activeRepoCandidateForReview, agentHeadAdvanceRequiresReview, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, deliveryAnnouncementHeads, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, mergeGateDecision, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, shouldSendAnnouncement, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, transcriptEntryContainsDeliveryNonce, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewAnnouncement, type ReviewSeverityCounts } from "./review-job-helpers";
+import { actionableReviewCount, activeRepoCandidateForReview, agentHeadAdvanceRequiresReview, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, deliveryAnnouncementHeads, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, mergeGateDecision, registerReviewRefreshLifecycleHooks, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, reviewDeliverySessionFile, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, shouldSendAnnouncement, reconcileBoundaryAction, reviewInSessionContinuation, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, transcriptEntryContainsDeliveryNonce, type DurableReviewSummaryRecord, type DurableReviewSummaryRow, type ReviewAnnouncement, type ReviewSeverityCounts } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, ensureReviewAnnouncementPending, failedDurableReviewLanes, pendingReviewAnnouncementHeads, readDurableReviewJob, readReviewAnnouncement, reapDurableReviewLanes, reviewAnnouncementKinds, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes, writeReviewAnnouncement } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -824,19 +824,26 @@ function textFromContent(content: unknown): string {
 // explicit "don't auto-fix, wait for my go" instruction before it fires an autofix turn off-turn.
 // Stored on globalThis for the usual reason: survive a reload, reset per process (this session).
 const SESSION_FILE_KEY = Symbol.for("codeflare.reviewSessionFilePath");
-function rememberSessionFile(ctx: any): void {
+function currentSessionFile(ctx: any): string | undefined {
   const file = ctx?.sessionManager?.getSessionFile?.();
-  if (typeof file === "string" && file) (globalThis as Record<symbol, unknown>)[SESSION_FILE_KEY] = file;
+  return typeof file === "string" && file ? file : undefined;
+}
+function rememberSessionFile(ctx: any): void {
+  const file = reviewDeliverySessionFile({ current: currentSessionFile(ctx) });
+  if (file) (globalThis as Record<symbol, unknown>)[SESSION_FILE_KEY] = file;
 }
 function recallSessionFile(): string | undefined {
   const file = (globalThis as Record<symbol, unknown>)[SESSION_FILE_KEY];
   return typeof file === "string" ? file : undefined;
 }
+function mainReviewSessionFile(ctx: any): string | undefined {
+  return reviewDeliverySessionFile({ current: currentSessionFile(ctx), remembered: recallSessionFile() });
+}
 
 function sessionUserMessages(ctx: any): string[] {
   try {
     // Fall back to the remembered path so this works ctx-free for the idle reaper.
-    const file = ctx?.sessionManager?.getSessionFile?.() ?? recallSessionFile();
+    const file = mainReviewSessionFile(ctx);
     if (!file || !existsSync(file)) return [];
     return readFileSync(file, "utf8")
       .split(/\r?\n/)
@@ -863,7 +870,7 @@ function sessionUserMessages(ctx: any): string[] {
 function sessionContainsNonce(ctx: any, nonce: string): boolean {
   if (!nonce) return false;
   try {
-    const file = ctx?.sessionManager?.getSessionFile?.() ?? recallSessionFile();
+    const file = mainReviewSessionFile(ctx);
     if (!file || !existsSync(file)) return false;
     return readFileSync(file, "utf8")
       .split(/\r?\n/)
@@ -1547,6 +1554,8 @@ export default function (pi: ExtensionAPI) {
   // (false only when the autofix is intentionally suppressed / not actionable, so it stays pending).
   function sendAnnouncement(record: ReviewAnnouncement, state: PendingReview, ctx: any): { sent: boolean; error?: string } {
     try {
+      const deliverySessionFile = mainReviewSessionFile(ctx);
+      if (!deliverySessionFile) return { sent: false };
       if (record.kind === "summary") {
         const summaryPath = join(reviewResultsDir(state.repo, state.head), "summary.md");
         try { mkdirSync(dirname(summaryPath), { recursive: true }); writeFileSync(summaryPath, `${reviewSummaryMarkdown(state)}\n`, "utf8"); } catch { /* persisted copy best-effort; chat copy is authoritative */ }
@@ -1575,7 +1584,7 @@ export default function (pi: ExtensionAPI) {
       // TRIGGERS a real fix/commit/push turn. That only runs in a LIVE session, and off-turn the
       // trigger no-ops — so firing off-turn would burn nothing useful AND, with the one-shot marker
       // below, permanently block the next real fire. Skip off-turn; stay pending for the next live tick.
-      if (!shouldSendAnnouncement({ kind: record.kind, idle: true, hasLiveSessionContext: Boolean(ctx?.sessionManager) })) return { sent: false };
+      if (!shouldSendAnnouncement({ kind: record.kind, idle: true, hasLiveSessionContext: Boolean(ctx?.sessionManager && deliverySessionFile) })) return { sent: false };
       const resultLanes = completedDurableReviewLanes(state.repo, state.head, state.lanes);
       const fired = requestReviewAutofixForRows({
         sender: pi,
@@ -1610,13 +1619,20 @@ export default function (pi: ExtensionAPI) {
   // One delivery tick for an explicit (repo, head): reconcile each non-terminal announcement against
   // the transcript first (so a verified one is never re-sent), then (re)send anything still due.
   function drainAnnouncementsFor(repo: string, head: string, ctx: any): void {
+    if (!mainReviewSessionFile(ctx)) return;
     const state = completedStateFromDurableJob(repo, head);
     if (!state) return;
     const now = Date.now();
     for (const kind of reviewAnnouncementKinds()) {
-      const record = readReviewAnnouncement(repo, head, kind);
-      if (!record || record.status === "visible" || record.status === "failed") continue;
+      let record = readReviewAnnouncement(repo, head, kind);
+      if (!record || record.status === "failed") continue;
       const nonceFound = sessionContainsNonce(ctx, record.nonce);
+      if (record.status === "visible") {
+        if (nonceFound) continue;
+        record = { ...record, status: "attempted", lastError: "visible record missing from main session transcript" };
+        writeReviewAnnouncement(record);
+        appendReviewEvent(repo, { event: `${kind}_announcement_reopened`, head, nonce: record.nonce, reason: "missing_from_main_session" });
+      }
       const verdict = announcementReconcileDecision({ kind: record.kind, status: record.status, attempts: record.attempts, lastAttemptAt: record.lastAttemptAt, nonceFound, now, maxAttempts: ANNOUNCE_MAX_ATTEMPTS, retryDelayMs: ANNOUNCE_RETRY_MS, createdAt: record.createdAt, maxAgeMs: ANNOUNCE_MAX_AGE_MS });
       if (verdict === "visible") {
         writeReviewAnnouncement({ ...record, status: "visible", deliveredAt: now });
@@ -1659,9 +1675,10 @@ export default function (pi: ExtensionAPI) {
     for (const repo of reviewDeliveryRepos(ctx)) {
       const pr = prState(repo);
       const currentHead = isEnforcedPr(pr) ? reviewCandidateHead(repo, pr) : undefined;
+      const pendingHeads = pendingReviewAnnouncementHeads(repo);
       const heads = deliveryAnnouncementHeads({
         currentHead,
-        pendingHeads: pendingReviewAnnouncementHeads(repo),
+        pendingHeads: [...new Set([currentHead, ...pendingHeads].filter((head): head is string => Boolean(head)))],
         acked: (head) => acked(repo, head),
       });
       for (const candidateHead of heads) drainAnnouncementsFor(repo, candidateHead, ctx);
@@ -2194,10 +2211,7 @@ export default function (pi: ExtensionAPI) {
     void reconcileOpenPrReview(ctx, false);
   };
 
-  pi.on("resources_discover", onUiRefresh);
-  pi.on("turn_start", onUiRefresh);
-  pi.on("turn_end", onUiRefresh);
-  pi.on("message_end", onUiRefresh);
+  registerReviewRefreshLifecycleHooks(pi as any, onUiRefresh);
 
   // Seed toolStartArgs from BOTH tool_call and tool_execution_start (keyed by tool id). The command is
   // recovered at tool_result via withStartArgs; if ONLY tool_execution_start seeded the cache and that
