@@ -167,10 +167,12 @@ asks, or a deploy/merge gate needs a fresh CI result ([REQ-AGENT-021](../../sdd/
 AC5). The detached monitor evaluates every workflow row returned for the monitored
 HEAD and waits for a stable workflow/run-id fingerprint before success
 ([REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
-AC6). Monitoring and any other long-running wait/poll are detached-only:
-no agent may keep the main session busy with `tail -f`, `gh run watch`, blocking
-`ctx_execute`, Bash loops, deploy-status waits, review-completion waits, or foreground
-polling ([REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
+AC6).
+
+Monitoring and any other long-running wait/poll are detached-only: no agent may
+keep the main session busy with `tail -f`, `gh run watch`, blocking `ctx_execute`,
+Bash loops, deploy-status waits, review-completion waits, or foreground polling
+([REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
 AC7). The discipline triad (`spec-discipline`, `documentation-discipline`,
 `tdd-discipline`) is advanced-only and points to the SDD workflow status,
 severity, and skill families.

@@ -140,7 +140,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('REQ-AGENT-021 AC5-AC7: CI monitoring is detached, workflow-agnostic, and never blocks instruction surfaces', () => {
+  it('propagates detached, workflow-agnostic CI monitoring instructions into seed surfaces', () => {
     const instructionKeys = [
       '.codex/AGENTS.md',
       '.gemini/GEMINI.md',
