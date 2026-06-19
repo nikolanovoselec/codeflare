@@ -71,7 +71,7 @@ vi.mock('../../components/FilePreview', () => ({
 }));
 
 vi.mock('../../components/Icon', () => ({
-  default: (props: any) => <svg data-testid="icon" data-path={props.path} />
+  default: (props: any) => <svg data-testid="icon" data-path={props.path}><path d={props.path} /></svg>
 }));
 
 vi.mock('../../components/SessionLimitPopup', () => ({

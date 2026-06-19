@@ -56,7 +56,8 @@ const TerminalGrid = <T,>(props: TerminalGridProps<T>) => {
       <Index each={slots()}>
         {(slot) => (
           <Show
-            when={slot().pane}
+            keyed
+            when={slot().pane?.id}
             fallback={
               <div
                 data-testid={props.emptySlotTestId ? props.emptySlotTestId(slot().index) : `terminal-grid-empty-${slot().index}`}
@@ -65,16 +66,23 @@ const TerminalGrid = <T,>(props: TerminalGridProps<T>) => {
               />
             }
           >
-            {(pane) => (
-              <div
-                data-testid={props.slotTestId ? props.slotTestId(pane().id) : `terminal-grid-slot-${pane().id}`}
-                data-active={pane().active ? 'true' : 'false'}
-                class={`tiled-terminal-slot ${pane().active ? 'tiled-terminal-slot--active' : ''}`}
-                onClick={() => props.onPaneClick(pane().id)}
-              >
-                {props.renderPane(pane(), slot().index)}
-              </div>
-            )}
+            {() => {
+              const pane = {
+                get id() { return slot().pane!.id; },
+                get data() { return slot().pane!.data; },
+                get active() { return slot().pane!.active; },
+              } as TerminalGridPane<T>;
+              return (
+                <div
+                  data-testid={props.slotTestId ? props.slotTestId(pane.id) : `terminal-grid-slot-${pane.id}`}
+                  data-active={pane.active ? 'true' : 'false'}
+                  class={`tiled-terminal-slot ${pane.active ? 'tiled-terminal-slot--active' : ''}`}
+                  onClick={() => props.onPaneClick(pane.id)}
+                >
+                  {props.renderPane(pane, slot().index)}
+                </div>
+              );
+            }}
           </Show>
         )}
       </Index>
