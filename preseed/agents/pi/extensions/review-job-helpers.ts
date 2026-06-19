@@ -1,4 +1,6 @@
-import { basename } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, relative, resolve } from "node:path";
 
 export const REVIEW_REFRESH_LIFECYCLE_EVENTS = ["resources_discover", "turn_start", "turn_end", "message_end"] as const;
 
@@ -190,167 +192,91 @@ export function durableReviewMessageKey(input: {
   return [input.customType, input.repo || "", input.head || "", input.lane || "summary", input.path || ""].join("\u0000");
 }
 
-// --- Review-result delivery announcements (two-phase: execution done != delivery done) ---
-// The durable review engine acks a head and writes summary.md, but pushing the summary BACK into
-// the live session is unreliable: pi.sendMessage only persists a custom message to the session
-// transcript when the agent session emits a `message_end` (role:"custom") event, which never fires
-// from the off-turn setInterval reaper (no live session loop) nor from a stale-bound sender after a
-// reload. The old code created a one-shot `<lane>.sent` marker BEFORE sending and trusted the send,
-// so a silent no-op permanently suppressed every retry. These helpers drive a small durable state
-// machine instead — pending -> attempted -> visible|failed — whose ONLY proof of delivery is the
-// announcement's nonce appearing in the session transcript (scannable plain text, written iff the
-// message actually persisted). Pure decision logic lives here; the disk records live in
-// review-jobs.ts and the wiring/transcript-scan in review-enforcement.ts.
-export type ReviewAnnouncementKind = "summary" | "autofix";
-export type ReviewAnnouncementStatus = "pending" | "attempted" | "visible" | "failed";
-export const REVIEW_ANNOUNCEMENT_KINDS: ReviewAnnouncementKind[] = ["summary", "autofix"];
+// --- Review monitor delivery decisions ---
+export type ReviewMonitorAction = "wait" | "clean" | "autofix_required" | "manual_review_required" | "failed";
+export type ReviewMonitorStatus = "waiting" | "ready" | "failed";
 
-export type ReviewAnnouncement = {
-  kind: ReviewAnnouncementKind;
-  repo: string;
-  head: string;
-  status: ReviewAnnouncementStatus;
-  attempts: number;
-  nonce: string;
-  createdAt: number;
-  lastAttemptAt?: number;
-  deliveredAt?: number;
-  lastError?: string;
+export type ReviewMonitorDecisionInput = {
+  lanes: string[];
+  resultExists: (lane: string) => boolean;
+  summaryExists: boolean;
+  failedLanes: string[];
+  counts: ReviewSeverityCounts;
+  approvalRequired: boolean;
 };
 
-// Deterministic, transcript-scannable delivery token. Caller passes the time stamp (Date.now in the
-// extension) so this stays pure/testable. No spaces; embeds kind+head so distinct announcements can
-// never collide, and the stamp distinguishes a re-created announcement from its predecessor.
-export function reviewAnnouncementNonce(kind: ReviewAnnouncementKind, head: string, stamp: number): string {
-  return `cf-review-${kind}:${head.slice(0, 12)}:${stamp}`;
+export type ReviewMonitorDecision = {
+  status: ReviewMonitorStatus;
+  action: ReviewMonitorAction;
+  missing: string[];
+  failed: string[];
+};
+
+export function reviewMonitorDecision(input: ReviewMonitorDecisionInput): ReviewMonitorDecision {
+  const failed = [...input.failedLanes];
+  if (failed.length > 0) return { status: "failed", action: "failed", missing: [], failed };
+
+  const missing = input.lanes.filter((lane) => !input.resultExists(lane));
+  if (!input.summaryExists) missing.push("summary");
+  if (missing.length > 0) return { status: "waiting", action: "wait", missing, failed: [] };
+
+  const action = actionableReviewCount(input.counts) > 0
+    ? (input.approvalRequired ? "manual_review_required" : "autofix_required")
+    : "clean";
+  return { status: "ready", action, missing: [], failed: [] };
 }
 
-export function reviewDeliveryContent(content: string, nonce: string): string {
-  const sentinel = `<!-- cf-review-delivery ${nonce} -->`;
-  return content.includes(sentinel) ? content : `${content}\n\n${sentinel}`;
+export type ReviewMonitorRecoveryDecisionInput = {
+  currentHead: string;
+  ackHead: string;
+  completedJobExists: boolean;
+  monitorCompleted: boolean;
+};
+
+export type ReviewMonitorRecoveryDecision = "recover" | "skip";
+
+export function reviewMonitorRecoveryDecision(input: ReviewMonitorRecoveryDecisionInput): ReviewMonitorRecoveryDecision {
+  if (!input.currentHead) return "skip";
+  if (input.ackHead !== input.currentHead) return "skip";
+  if (!input.completedJobExists) return "skip";
+  if (input.monitorCompleted) return "skip";
+  return "recover";
 }
 
-export function pendingAnnouncementHeadsFrom(
-  heads: string[],
-  readRecord: (head: string, kind: ReviewAnnouncementKind) => { status: ReviewAnnouncementStatus } | undefined,
-): string[] {
-  return heads.filter((head) => REVIEW_ANNOUNCEMENT_KINDS.some((kind) => {
-    const record = readRecord(head, kind);
-    return Boolean(record && record.status !== "visible" && record.status !== "failed");
-  }));
-}
-
-export function deliveryAnnouncementHeads(input: {
-  currentHead?: string;
-  pendingHeads: string[];
-  acked: (head: string) => boolean;
-}): string[] {
-  if (input.currentHead) return input.acked(input.currentHead) ? [input.currentHead] : [];
-  return input.pendingHeads.filter((head) => input.acked(head));
-}
-
-export type AnnouncementAttemptInput = {
-  status: ReviewAnnouncementStatus;
-  attempts: number;
-  lastAttemptAt?: number;
+export type ReviewMonitorSpawnDecisionInput = {
+  completed: boolean;
+  startedAt?: number;
   now: number;
-  maxAttempts: number;
-  retryDelayMs: number;
+  ttlMs: number;
 };
 
-export type AnnouncementSendInput = {
-  kind: ReviewAnnouncementKind;
-  idle: boolean;
-  hasLiveSessionContext: boolean;
+export type ReviewMonitorSpawnDecision = "spawn" | "skip_running" | "skip_completed";
+
+export function reviewMonitorSpawnDecision(input: ReviewMonitorSpawnDecisionInput): ReviewMonitorSpawnDecision {
+  if (input.completed) return "skip_completed";
+  if (input.startedAt !== undefined && input.now - input.startedAt < input.ttlMs) return "skip_running";
+  return "spawn";
+}
+
+export type ReviewSummaryMessage = {
+  customType: "codeflare-review-summary-v4";
+  content: string;
+  display: true;
+  details: { repo: string; head: string; manual: true };
 };
 
-// A review summary is a display-only custom message, so it may be sent by the idle reaper as long as
-// the agent runtime is idle; it does not need a ctx-bearing event. Autofix starts a real follow-up turn,
-// so it still requires a live session context.
-export function shouldSendAnnouncement(input: AnnouncementSendInput): boolean {
-  if (input.kind === "summary") return input.idle;
-  return input.hasLiveSessionContext;
+export function reviewResultsSummaryMessage(input: { repo: string; head: string; content: string }): ReviewSummaryMessage {
+  return {
+    customType: "codeflare-review-summary-v4",
+    content: input.content,
+    display: true,
+    details: { repo: input.repo, head: input.head, manual: true },
+  };
 }
-
-// Should emitPendingAnnouncements (re)send this announcement on this tick? `pending` sends once;
-// `attempted` re-sends only after the retry delay AND while under the attempt cap; terminal states
-// (`visible`/`failed`) never send. This is the SOLE owner of retry/backoff timing.
-export function shouldAttemptAnnouncement(input: AnnouncementAttemptInput): boolean {
-  if (input.status === "visible" || input.status === "failed") return false;
-  if (input.status === "pending") return true;
-  if (input.attempts >= input.maxAttempts) return false;
-  return input.now - (input.lastAttemptAt ?? 0) >= input.retryDelayMs;
-}
-
-export type AnnouncementReconcileInput = {
-  kind: ReviewAnnouncementKind;
-  status: ReviewAnnouncementStatus;
-  attempts: number;
-  lastAttemptAt?: number;
-  nonceFound: boolean;
-  now: number;
-  maxAttempts: number;
-  retryDelayMs: number;
-  createdAt?: number;
-  maxAgeMs?: number;
-};
-
-export type AnnouncementReconcileDecision = "visible" | "failed" | "keep";
-
-// Post-send verdict from observing whether the nonce is now in the session transcript. Proof of
-// delivery wins outright. An `attempted` announcement that has burned its attempt cap AND given the
-// final attempt its full retry window without ever appearing is `failed` (the user is told to run
-// /review-results); anything still in flight is `keep` (emit retries it per shouldAttemptAnnouncement).
-// Age backstop — SUMMARY ONLY: the idle-gated summary defers (no attempt burned) while the agent
-// streams, so a record that never observes an idle tick would otherwise retry forever without ever
-// escalating; once older than maxAgeMs it becomes `failed` so the documented /review-results fallback
-// stays reachable and nothing is acked-and-lost. The AUTOFIX announcement is deliberately EXEMPT: it
-// defers off-turn (no live session) without burning an attempt, so aging it would mark it `failed` at
-// attempts:0 — expiring the fix turn before it ever fired. An undelivered autofix instead reaches a
-// terminal state via head-supersede (a newer push retires the stale head via abandonReviewAnnouncements),
-// or via the attempt cap above while still claimable and a send keeps erroring — never on age alone.
-// (Once the one-shot autofix.requested marker is claimed, claim() returns false so the record can no
-// longer re-fire to accrue attempts; head-supersede is then its only terminal path.) Keyed on
-// createdAt, so the summary backstop is independent of the attempt counter and never penalises a
-// normal in-flight retry.
-export function announcementReconcileDecision(input: AnnouncementReconcileInput): AnnouncementReconcileDecision {
-  if (input.nonceFound) return "visible";
-  if (input.status === "failed") return "failed";
-  if (input.status === "attempted" && input.attempts >= input.maxAttempts) {
-    return input.now - (input.lastAttemptAt ?? 0) >= input.retryDelayMs ? "failed" : "keep";
-  }
-  if (input.kind === "summary" && input.maxAgeMs !== undefined && input.createdAt !== undefined && input.now - input.createdAt >= input.maxAgeMs) return "failed";
-  return "keep";
-}
-
 export function isTaskSessionFile(file: string | undefined): boolean {
   return typeof file === "string" && /(?:^|[\\/])tasks[\\/]/.test(file);
 }
 
-export function reviewDeliverySessionFile(input: { current?: string; remembered?: string }): string | undefined {
-  if (input.current && !isTaskSessionFile(input.current)) return input.current;
-  if (input.remembered && !isTaskSessionFile(input.remembered)) return input.remembered;
-  return undefined;
-}
-
-export function reviewDeliverySendSessionFile(input: { current?: string }): string | undefined {
-  return reviewDeliverySessionFile({ current: input.current });
-}
-
-export function transcriptEntryContainsDeliveryNonce(entry: unknown, nonce: string): boolean {
-  if (!nonce || !entry || typeof entry !== "object") return false;
-  const record = entry as Record<string, unknown>;
-  if (record.type !== "custom_message") return false;
-  const content = typeof record.content === "string" ? record.content : "";
-  if (!content.includes(`<!-- cf-review-delivery ${nonce} -->`)) return false;
-  if (nonce.startsWith("cf-review-summary:")) {
-    return record.customType === "codeflare-review-summary-v3" && record.display === true;
-  }
-  if (nonce.startsWith("cf-review-autofix:")) {
-    return record.customType === "codeflare-review-autofix-request" && record.display === false;
-  }
-  return false;
-}
 
 export type ReviewSeverityCounts = {
   critical: number;
@@ -405,31 +331,6 @@ export type MergedReviewSummaryModel = {
   recommendation: string;
 };
 
-export type ReviewAutofixMessage = {
-  customType: "codeflare-review-autofix-request";
-  content: string;
-  display: false;
-  details: { repo: string; head: string; nonce?: string };
-};
-
-export type ReviewAutofixOptions = {
-  triggerTurn: true;
-  deliverAs: "followUp";
-};
-
-export type ReviewAutofixRequest = {
-  message: ReviewAutofixMessage;
-  options: ReviewAutofixOptions;
-};
-
-export type ReviewAutofixSender = {
-  sendMessage: (message: ReviewAutofixMessage, options: ReviewAutofixOptions) => void;
-};
-
-export type ReviewAutofixRow = {
-  counts: ReviewSeverityCounts;
-};
-
 export type DurableReviewStatusState = "completed" | "running" | "pending";
 
 export type DurableReviewStatusSegment = {
@@ -443,68 +344,6 @@ export type DurableReviewStatusStyle = {
   running?: (text: string) => string;
   pending?: (text: string) => string;
 };
-
-export type ReviewAutofixMode = "auto" | "manual" | "unset";
-
-export function reviewAutofixModeFromUserMessages(messages: string[]): ReviewAutofixMode {
-  let mode: ReviewAutofixMode = "unset";
-  const manualPattern = /\b(?:do not|don't|dont|no|stop)\s+(?:auto(?:matically)?[-\s]*)?(?:fix|implement|apply)\b|\bdo\s+not\s+auto[-\s]*(?:fix|implement)\b|\bdon't\s+auto[-\s]*(?:fix|implement)\b|\bwait\s+for\s+(?:my\s+)?(?:go|approval|command)\b/i;
-  const autoPattern = /\bautomatic(?:ally)?\s+is\s+fine\b|\b(?:go|proceed)\b[^.!?]*\b(?:fix|implement|apply)\b[^.!?]*\bfindings?\b|\b(?:fix|implement)\s+(?:all\s+)?(?:legitimate\s+)?(?:PR-boundary\s+review\s+)?findings\b/i;
-  for (const message of messages) {
-    if (manualPattern.test(message)) mode = "manual";
-    if (autoPattern.test(message)) mode = "auto";
-  }
-  return mode;
-}
-
-export function reviewAutofixRequest(repo: string, head: string, nonce?: string): ReviewAutofixRequest {
-  const lines = [
-    `Fix legitimate PR-boundary review findings for ${basename(repo)} at ${head}.`,
-    "Use the merged review summary immediately above as the actionable finding list; do not fix from partial lane results.",
-    "Before editing, committing, or pushing, verify the review job for this exact head is complete and every required lane has a result file.",
-    "If any required review lane is still running, pending, missing, or unknown, do not edit, commit, or push; wait for the final merged review summary.",
-    "If the user has explicitly said not to automatically fix/implement this round, or to wait for GO/approval, do not edit, commit, or push; present the findings and wait for their command.",
-    "Otherwise, verify every MEDIUM, HIGH, and CRITICAL finding against the code/spec/docs, then fix only findings that are legitimate.",
-    "A finding's age is never a reason to skip it: fix every legitimate finding whether it is newly introduced or pre-existing, in this diff or adjacent. Do not exclude, defer, or ask about a legitimate finding because it pre-dates this change — legitimacy is the only criterion.",
-    "Do not rerun or start CI monitoring unless explicitly asked or a merge/deploy gate requires it.",
-    "If the user explicitly said not to push, do not push. Otherwise, commit the fix as a new commit and push to the same branch; do not amend or rewrite history.",
-  ];
-  // A delivery nonce (when supplied) rides in a trailing HTML comment so it lands verbatim in the
-  // persisted transcript line — the announcement state machine proves delivery by finding it there.
-  if (nonce) lines.push(`<!-- cf-review-delivery ${nonce} -->`);
-  return {
-    message: {
-      customType: "codeflare-review-autofix-request",
-      content: lines.join("\n"),
-      display: false,
-      details: nonce ? { repo, head, nonce } : { repo, head },
-    },
-    options: { triggerTurn: true, deliverAs: "followUp" },
-  };
-}
-
-export function sendReviewAutofixRequest(sender: ReviewAutofixSender, repo: string, head: string, nonce?: string): void {
-  const request = reviewAutofixRequest(repo, head, nonce);
-  sender.sendMessage(request.message, request.options);
-}
-
-export function requestReviewAutofixForRows(input: {
-  sender: ReviewAutofixSender;
-  repo: string;
-  head: string;
-  rows: ReviewAutofixRow[];
-  reviewComplete: boolean;
-  suppress?: boolean;
-  nonce?: string;
-  claim: () => boolean;
-}): boolean {
-  if (!input.reviewComplete) return false;
-  if (input.suppress) return false;
-  if (!input.rows.some((row) => actionableReviewCount(row.counts) > 0)) return false;
-  if (!input.claim()) return false;
-  sendReviewAutofixRequest(input.sender, input.repo, input.head, input.nonce);
-  return true;
-}
 
 export function durableReviewStatusSegments(input: {
   lanes: string[];
@@ -952,7 +791,7 @@ export type ReviewState = {
   overall: ReviewOverall;
   acked: boolean;
   summaryReady: boolean;
-  autofixRequested: boolean;
+  monitorCompleted: boolean;
   breakerOpen: boolean;
   attempts: number;
   startedAt?: number;
@@ -975,7 +814,7 @@ export type ComputeReviewStateInput = {
   ackHead: string;
   breakerHead: string;
   attempts: number;
-  autofixRequested: boolean;
+  monitorCompleted: boolean;
   startedAt?: number;
 };
 
@@ -1013,7 +852,7 @@ export function computeReviewStateFrom(input: ComputeReviewStateInput): ReviewSt
     overall,
     acked: input.head !== "" && input.ackHead === input.head,
     summaryReady: input.lanes.length > 0 && input.lanes.every((lane) => laneStatus[lane] === "completed"),
-    autofixRequested: input.autofixRequested,
+    monitorCompleted: input.monitorCompleted,
     breakerOpen: input.head !== "" && input.breakerHead === input.head,
     attempts: input.attempts,
     startedAt: input.startedAt,
@@ -1216,42 +1055,40 @@ export function mergeGateDecision(input: MergeGateInput): MergeGateDecision {
   return { action: "block", head: block.head, reason: block.reason };
 }
 
-// Resolve which repo a review handler should act on, WITHOUT consulting the shared graphify
-// active-cwd sentinel. That sentinel (/home/user/.cache/codeflare-hooks/graphify-active-cwd) is a
-// single-active-repo file written by BOTH Claude's graphify-active-repo.sh hook AND Pi's
-// codeflare-pi.ts (proactively, on every tool execution) from each agent's OWN cwd — so under
-// concurrent agents it flaps to whichever agent acted last, not the repo THIS Pi session is
-// reviewing. When Pi reviews a different (e.g. nested) repo than the one that last wrote the
-// sentinel, sentinel-based resolution silently misroutes finalize/footer to the wrong .git: the
-// summary never emits, autofix never starts, and the progress footer shows nothing. Precedence:
-//   commandCwd (explicit `cd`/`-C` in the boundary command) -> sessionCwd (Pi's session cwd)
-//   -> activeRepo (current repo remembered by codeflare-pi) -> sessionReviewRepo (remembered review
-//   repo fallback) -> processCwd (Pi process dir, last resort).
-// commandCwd/sessionCwd/processCwd/activeRepo are directories resolved to a git root via gitRootOf;
-// sessionReviewRepo is already a git root and is returned verbatim only after activeRepo. That ordering
-// is load-bearing for ctx-bearing user/lifecycle actions: after reviewing repo A, a user can switch
-// active work to repo B while Pi's session cwd remains `/home/user/workspace`; review commands and
-// reconciliation must follow repo B, not the last repo that happened to have a review. The no-ctx reaper
-// does not rely on this precedence — it iterates recallReviewRepos() directly.
-// activeRepo is the IN-MEMORY active-cwd codeflare-pi.ts tracks on every tool execution — the SAME signal
-// the statusline footer resolves the repo from. It is load-bearing when the Pi session cwd is a NON-repo
-// parent workspace (/home/user/workspace) and the user works in a nested clone via `cd`/`git -C`: commandCwd
-// is absent on a slash command (/review-run) and on a no-command reconciliation tick, sessionCwd/processCwd
-// resolve to the parentless workspace, and sessionReviewRepo may be unset — so without activeRepo BOTH
-// /review-run AND open-PR reconciliation returned undefined ("not inside an SDD repository" / reconciliation
-// silently bailed on hasRepo=false and never auto-started) even though the footer showed the repo. This is
-// the recallActiveRepo() in-memory value (this Pi process only), NOT the cross-process on-disk sentinel
-// that flaps under concurrent agents — so it is safe for routing, unlike the sentinel above.
+export const CODEFLARE_WORKSPACE = "/home/user/workspace";
+
+function workspaceChildRoot(path: string | undefined, workspace = CODEFLARE_WORKSPACE): string | undefined {
+  if (!path) return undefined;
+  const root = resolve(workspace);
+  const candidate = resolve(path);
+  const rel = relative(root, candidate);
+  if (!rel || rel.startsWith("..") || rel.startsWith("/")) return undefined;
+  const repoName = rel.split(/[\\/]/)[0];
+  return repoName ? join(root, repoName) : undefined;
+}
+
+export function workspaceRepoFromPath(
+  path: string | undefined,
+  hasGitDir: (repo: string) => boolean,
+  workspace = CODEFLARE_WORKSPACE,
+): string | undefined {
+  const repo = workspaceChildRoot(path, workspace);
+  return repo && hasGitDir(repo) ? repo : undefined;
+}
+
+// Codeflare clones repos only as direct children of /home/user/workspace. Review routing must stay
+// inside that shape; arbitrary git-root walking and graphify active-cwd sentinels are cross-agent
+// hazards. Precedence is intentionally small: command cwd -> session cwd -> active repo -> remembered
+// review repo -> process cwd, with every candidate narrowed to /home/user/workspace/<repo>.
 export function resolveReviewRepo(
   input: { commandCwd?: string; sessionCwd?: string; sessionReviewRepo?: string; activeRepo?: string; processCwd?: string },
-  gitRootOf: (dir: string) => string | undefined,
+  hasGitDir: (repo: string) => boolean,
 ): string | undefined {
-  const fromDir = (dir: string | undefined): string | undefined => (dir ? gitRootOf(dir) : undefined);
-  return fromDir(input.commandCwd)
-    ?? fromDir(input.sessionCwd)
-    ?? fromDir(input.activeRepo)
-    ?? input.sessionReviewRepo
-    ?? fromDir(input.processCwd);
+  return workspaceRepoFromPath(input.commandCwd, hasGitDir)
+    ?? workspaceRepoFromPath(input.sessionCwd, hasGitDir)
+    ?? workspaceRepoFromPath(input.activeRepo, hasGitDir)
+    ?? workspaceRepoFromPath(input.sessionReviewRepo, hasGitDir)
+    ?? workspaceRepoFromPath(input.processCwd, hasGitDir);
 }
 
 // In-session memory of the repos this Pi session is tracking, shared across
@@ -1276,20 +1113,49 @@ const REVIEW_REPO_KEY = Symbol.for("codeflare.reviewRepo");
 // no-ctx reaper can finalize ALL of them, not just the last one (P6) — otherwise a second repo's review
 // hangs unfinalized until the user returns to it.
 const REVIEW_REPOS_KEY = Symbol.for("codeflare.reviewRepos");
+const REVIEW_REPO_REGISTRY = join(homedir(), ".pi", "agent", "codeflare-review-repos.json");
 type CodeflareRepoMemory = { [ACTIVE_REPO_KEY]?: string; [REVIEW_REPO_KEY]?: string; [REVIEW_REPOS_KEY]?: Set<string> };
 const repoMemory = globalThis as unknown as CodeflareRepoMemory;
 
+function readPersistedReviewRepos(): string[] {
+  try {
+    if (!existsSync(REVIEW_REPO_REGISTRY)) return [];
+    const parsed = JSON.parse(readFileSync(REVIEW_REPO_REGISTRY, "utf8"));
+    return Array.isArray(parsed)
+      ? parsed.flatMap((repo): string[] => {
+        const root = typeof repo === "string" ? workspaceChildRoot(repo) : undefined;
+        return root ? [root] : [];
+      })
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePersistedReviewRepos(repos: string[]): void {
+  try {
+    mkdirSync(dirname(REVIEW_REPO_REGISTRY), { recursive: true });
+    writeFileSync(REVIEW_REPO_REGISTRY, `${JSON.stringify([...new Set(repos)].sort(), null, 2)}\n`, "utf8");
+  } catch {
+    // Best effort: in-memory delivery still works inside the current process.
+  }
+}
+
 export function rememberReviewRepo(repo: string | undefined): void {
-  if (!repo) return;
-  repoMemory[REVIEW_REPO_KEY] = repo;
+  const root = workspaceChildRoot(repo);
+  if (!root) return;
+  repoMemory[REVIEW_REPO_KEY] = root;
   if (!repoMemory[REVIEW_REPOS_KEY]) repoMemory[REVIEW_REPOS_KEY] = new Set<string>();
-  repoMemory[REVIEW_REPOS_KEY]!.add(repo);
+  repoMemory[REVIEW_REPOS_KEY]!.add(root);
+  writePersistedReviewRepos([...readPersistedReviewRepos(), root]);
 }
 export function recallReviewRepo(): string | undefined {
-  return repoMemory[REVIEW_REPO_KEY];
+  const remembered = workspaceChildRoot(repoMemory[REVIEW_REPO_KEY]);
+  return remembered ?? readPersistedReviewRepos()[0];
 }
 export function recallReviewRepos(): string[] {
-  return repoMemory[REVIEW_REPOS_KEY] ? [...repoMemory[REVIEW_REPOS_KEY]!] : [];
+  const remembered = repoMemory[REVIEW_REPOS_KEY] ? [...repoMemory[REVIEW_REPOS_KEY]!] : [];
+  return [...new Set([...remembered.flatMap((repo) => workspaceChildRoot(repo) ? [workspaceChildRoot(repo)!] : []), ...readPersistedReviewRepos()])];
 }
 
 export function rememberActiveRepo(repo: string | undefined): void {
@@ -1328,38 +1194,6 @@ export function activeRepoSentinelForDisplay(input: {
   hasGitDir: (path: string) => boolean;
 }): string | undefined {
   return guardedActiveRepoSentinel(input);
-}
-
-// Guarded persisted active-repo fallback for PR-boundary REVIEW ROUTING. This is stricter than the
-// display fallback above: the path must be a git repo, live under this session's roots, and be an SDD
-// project. It lets commandless reconciliation reach `gh pr view` for nested repos after a reload while
-// still preventing another agent's flapping sentinel from hijacking review enforcement.
-export function activeRepoSentinelForReview(input: {
-  sentinelContent: string | undefined;
-  sessionRoots: (string | undefined)[];
-  hasGitDir: (path: string) => boolean;
-  hasSddProject: (path: string) => boolean;
-}): string | undefined {
-  return guardedActiveRepoSentinel(input);
-}
-
-export function activeRepoCandidateForReview(input: {
-  rememberedActiveRepo: string | undefined;
-  persistedSentinelContents: (string | undefined)[];
-  sessionRoots: (string | undefined)[];
-  hasGitDir: (path: string) => boolean;
-  hasSddProject: (path: string) => boolean;
-}): string | undefined {
-  for (const sentinelContent of [input.rememberedActiveRepo, ...input.persistedSentinelContents]) {
-    const repo = activeRepoSentinelForReview({
-      sentinelContent,
-      sessionRoots: input.sessionRoots,
-      hasGitDir: input.hasGitDir,
-      hasSddProject: input.hasSddProject,
-    });
-    if (repo) return repo;
-  }
-  return undefined;
 }
 
 // Npm package source strings a durable review lane should load as additionalExtensionPaths.

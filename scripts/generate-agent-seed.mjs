@@ -231,8 +231,7 @@ function adaptAgentFrontmatter(content, agentId) {
     newLines.push('prompt_mode: replace');
     newLines.push('extensions: true');
     newLines.push('skills: true');
-    newLines.push('inherit_context: true');
-    newLines.push(/^name:\s*memory-capture\s*$/m.test(frontmatter) ? 'run_in_background: true' : 'run_in_background: false');
+    if (/^name:\s*memory-capture\s*$/m.test(frontmatter)) newLines.push('run_in_background: true');
   }
 
   let adaptedBody = adaptPaths(body, agentId);

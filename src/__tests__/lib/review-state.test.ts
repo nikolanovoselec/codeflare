@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { agentHeadAdvanceRequiresReview, computeReviewStateFrom, isAgentSpawnerToolEvent, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, reviewInSessionContinuation, mergeGateDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, activeRepoSentinelForReview, activeRepoCandidateForReview, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput, type MergeGateInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { agentHeadAdvanceRequiresReview, computeReviewStateFrom, isAgentSpawnerToolEvent, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, reviewInSessionContinuation, mergeGateDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, reviewMonitorDecision, workspaceRepoFromPath, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput, type MergeGateInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 
 /**
  * computeReviewStateFrom is the canonical review-state definition (review.md §17.2).
@@ -17,7 +17,7 @@ const base: ComputeReviewStateInput = {
   ackHead: '',
   breakerHead: '',
   attempts: 0,
-  autofixRequested: false,
+  monitorCompleted: false,
 };
 
 describe('computeReviewStateFrom (REQ-AGENT-057 AC1)', () => {
@@ -280,71 +280,43 @@ describe('reviewInSessionContinuation (boundaryActed primary, baseline backstop)
 });
 
 /**
- * resolveReviewRepo picks the repo a review handler acts on FROM ITS OWN candidate dirs, never the
- * shared graphify active-cwd sentinel (a cross-agent file that flaps to whichever agent acted
- * last). These fail if the precedence regresses, or if the resolver ever reaches outside its given
- * candidates — the regression that left a nested-repo review with no footer and no finalize because
- * the sentinel pointed at the outer repo Claude was in.
+ * Codeflare review routing is intentionally workspace-specific: cloned repos live at
+ * /home/user/workspace/<repo>. The resolver must not walk to arbitrary git roots or read the graphify
+ * active-cwd sentinel; those generic fallbacks let other agents misroute review delivery.
  */
-describe('resolveReviewRepo (review-repo resolution detached from the graphify sentinel)', () => {
-  const roots: Record<string, string> = {
-    '/ws/ai-news-digest/src': '/ws/ai-news-digest',
-    '/ws/ai-news-digest': '/ws/ai-news-digest',
-    '/ws': '/ws',
-    '/pi/proc': '/pi/proc-repo',
-    '/ws/other-repo/src': '/ws/other-repo',
-    '/ws/other-repo': '/ws/other-repo',
-  };
-  const gitRootOf = (dir: string): string | undefined => roots[dir];
+describe('resolveReviewRepo (Codeflare workspace-child routing only)', () => {
+  const gitRepos = new Set(['/home/user/workspace/codeflare', '/home/user/workspace/other-repo']);
+  const hasGitDir = (repo: string): boolean => gitRepos.has(repo);
 
-  it('prefers an explicit command cwd over the session cwd (boundary `cd <repo> && git push`)', () => {
-    expect(resolveReviewRepo({ commandCwd: '/ws/ai-news-digest', sessionCwd: '/ws' }, gitRootOf)).toBe('/ws/ai-news-digest');
+  it('resolves nested paths to their direct workspace child repo', () => {
+    expect(workspaceRepoFromPath('/home/user/workspace/codeflare/src/lib', hasGitDir)).toBe('/home/user/workspace/codeflare');
+    expect(workspaceRepoFromPath('/home/user/workspace/codeflare', hasGitDir)).toBe('/home/user/workspace/codeflare');
   });
 
-  it('falls back to the session cwd (walked up to its git root) when there is no command cwd', () => {
-    expect(resolveReviewRepo({ sessionCwd: '/ws/ai-news-digest/src' }, gitRootOf)).toBe('/ws/ai-news-digest');
+  it('rejects the workspace root, sibling-prefix paths, outside paths, and workspace children without .git', () => {
+    expect(workspaceRepoFromPath('/home/user/workspace', hasGitDir)).toBeUndefined();
+    expect(workspaceRepoFromPath('/home/user/workspace-other/codeflare', hasGitDir)).toBeUndefined();
+    expect(workspaceRepoFromPath('/tmp/codeflare', hasGitDir)).toBeUndefined();
+    expect(workspaceRepoFromPath('/home/user/workspace/plain-repo/src', hasGitDir)).toBeUndefined();
   });
 
-  it('uses the remembered in-session review repo for the no-ctx reaper, before the process cwd', () => {
-    expect(resolveReviewRepo({ sessionReviewRepo: '/ws/ai-news-digest', processCwd: '/pi/proc' }, gitRootOf)).toBe('/ws/ai-news-digest');
+  it('prefers command cwd, then session cwd, active repo, remembered review repo, then process cwd', () => {
+    expect(resolveReviewRepo({ commandCwd: '/home/user/workspace/codeflare/src', sessionCwd: '/home/user/workspace/other-repo' }, hasGitDir)).toBe('/home/user/workspace/codeflare');
+    expect(resolveReviewRepo({ sessionCwd: '/home/user/workspace/codeflare/src' }, hasGitDir)).toBe('/home/user/workspace/codeflare');
+    expect(resolveReviewRepo({ sessionCwd: '/home/user/workspace', activeRepo: '/home/user/workspace/codeflare/src' }, hasGitDir)).toBe('/home/user/workspace/codeflare');
+    expect(resolveReviewRepo({ sessionCwd: '/home/user/workspace', sessionReviewRepo: '/home/user/workspace/codeflare', processCwd: '/home/user/workspace/other-repo' }, hasGitDir)).toBe('/home/user/workspace/codeflare');
+    expect(resolveReviewRepo({ processCwd: '/home/user/workspace/other-repo/src' }, hasGitDir)).toBe('/home/user/workspace/other-repo');
   });
 
-  it('falls back to the in-memory active repo (walked to its git root) before the process cwd', () => {
-    // The /review-run + no-ctx-reaper fix: no commandCwd, the session cwd is the parentless
-    // workspace, and sessionReviewRepo is unset until a review has already run — so the active-cwd
-    // codeflare-pi.ts tracks on every tool execution is the only signal that finds the nested clone.
-    expect(resolveReviewRepo({ activeRepo: '/ws/ai-news-digest/src', processCwd: '/pi/proc' }, gitRootOf)).toBe('/ws/ai-news-digest');
+  it('rejects arbitrary git roots outside /home/user/workspace/<repo>', () => {
+    const arbitraryGitRoots = (repo: string): boolean => repo === '/tmp/codeflare' || repo === '/repo' || hasGitDir(repo);
+    expect(resolveReviewRepo({ commandCwd: '/tmp/codeflare/src', processCwd: '/repo' }, arbitraryGitRoots)).toBeUndefined();
   });
 
-  it('resolves the nested clone for /review-status when the session cwd is a non-repo parent workspace', () => {
-    // The /review-status nested-workspace bug: the Pi session cwd is the parentless workspace
-    // (/home/user/workspace, no .git) while the user worked in a nested clone via `cd repo && ...`.
-    // /review-status now passes exactly this shape to resolveReviewRepo, so the in-memory active
-    // repo (codeflare-pi tracks it per tool execution) resolves the nested clone instead of warning
-    // "not inside a git repository" — and it beats processCwd, which would resolve the wrong repo.
-    expect(resolveReviewRepo(
-      { sessionCwd: '/home/user/workspace', sessionReviewRepo: undefined, activeRepo: '/ws/ai-news-digest/src', processCwd: '/pi/proc' },
-      gitRootOf,
-    )).toBe('/ws/ai-news-digest');
-  });
-
-  it('prefers the current active repo over a previously remembered review repo for ctx-bearing routing', () => {
-    expect(resolveReviewRepo({ sessionReviewRepo: '/ws/ai-news-digest', activeRepo: '/ws/other-repo/src' }, gitRootOf)).toBe('/ws/other-repo');
-  });
-
-  it('falls back to the process cwd only when nothing else resolves', () => {
-    expect(resolveReviewRepo({ processCwd: '/pi/proc' }, gitRootOf)).toBe('/pi/proc-repo');
-  });
-
-  it('returns undefined when no candidate resolves and there is no remembered repo', () => {
-    expect(resolveReviewRepo({ sessionCwd: '/tmp/not-a-repo' }, gitRootOf)).toBeUndefined();
-  });
-
-  it('only ever probes the candidate dirs it was given — never an external sentinel path', () => {
+  it('only probes workspace-child candidates derived from supplied paths, never an external sentinel path', () => {
     const seen: string[] = [];
-    const tracking = (dir: string): string | undefined => { seen.push(dir); return roots[dir]; };
-    resolveReviewRepo({ commandCwd: '/ws/ai-news-digest', sessionCwd: '/ws', processCwd: '/pi/proc' }, tracking);
-    expect(seen).toEqual(['/ws/ai-news-digest']); // short-circuits on the first resolving candidate
+    resolveReviewRepo({ commandCwd: '/home/user/workspace/codeflare/src', sessionCwd: '/home/user/workspace/other-repo', processCwd: '/tmp/codeflare' }, (repo) => { seen.push(repo); return hasGitDir(repo); });
+    expect(seen).toEqual(['/home/user/workspace/codeflare']);
     expect(seen).not.toContain('/home/user/.cache/codeflare-hooks/graphify-active-cwd');
   });
 });
@@ -399,21 +371,22 @@ describe('REQ-AGENT-058 AC4: every suppressed reconcile gate names its own reaso
  * footer, the missing live lane row, and the on-turn summary that never emits for a nested clone.
  */
 describe('rememberReviewRepo / recallReviewRepo (shared in-session review-repo memory)', () => {
-  it('recall returns the last remembered repo so the no-ctx reaper + footer resolve the nested clone', () => {
-    rememberReviewRepo('/ws/ai-news-digest');
-    expect(recallReviewRepo()).toBe('/ws/ai-news-digest');
+  it('recall returns the last remembered workspace-child repo so the no-ctx reaper + footer resolve the clone', () => {
+    rememberReviewRepo('/home/user/workspace/ai-news-digest');
+    expect(recallReviewRepo()).toBe('/home/user/workspace/ai-news-digest');
   });
 
-  it('REQ-AGENT-061: recallReviewRepos returns every remembered review repo for the no-ctx reaper', () => {
-    rememberReviewRepo('/ws/review-one');
-    rememberReviewRepo('/ws/review-two');
-    expect(recallReviewRepos()).toEqual(expect.arrayContaining(['/ws/review-one', '/ws/review-two']));
+  it('REQ-AGENT-061: recallReviewRepos returns every remembered workspace-child review repo for the no-ctx reaper', () => {
+    rememberReviewRepo('/home/user/workspace/review-one');
+    rememberReviewRepo('/home/user/workspace/review-two');
+    expect(recallReviewRepos()).toEqual(expect.arrayContaining(['/home/user/workspace/review-one', '/home/user/workspace/review-two']));
   });
 
-  it('remembering undefined does NOT clobber a previously remembered repo (a failed resolve must not erase it)', () => {
-    rememberReviewRepo('/ws/ai-news-digest');
+  it('remembering undefined or a non-workspace path does NOT clobber a previously remembered repo', () => {
+    rememberReviewRepo('/home/user/workspace/ai-news-digest');
     rememberReviewRepo(undefined);
-    expect(recallReviewRepo()).toBe('/ws/ai-news-digest');
+    rememberReviewRepo('/tmp/other');
+    expect(recallReviewRepo()).toBe('/home/user/workspace/ai-news-digest');
   });
 });
 
@@ -436,9 +409,9 @@ describe('rememberActiveRepo / recallActiveRepo (shared in-session active-repo m
   });
 
   it('is a separate slot from the review-repo memory (working repo must not leak into review routing)', () => {
-    rememberReviewRepo('/ws/review-clone');
+    rememberReviewRepo('/home/user/workspace/review-clone');
     rememberActiveRepo('/home/user/workspace/ai-news-digest');
-    expect(recallReviewRepo()).toBe('/ws/review-clone');
+    expect(recallReviewRepo()).toBe('/home/user/workspace/review-clone');
     expect(recallActiveRepo()).toBe('/home/user/workspace/ai-news-digest');
   });
 });
@@ -495,51 +468,6 @@ describe('activeRepoSentinelForDisplay (guarded on-disk sentinel fallback)', () 
   it('returns undefined for missing or empty sentinel content', () => {
     expect(activeRepoSentinelForDisplay({ sentinelContent: undefined, sessionRoots: ['/r'], hasGitDir: hasGit([]) })).toBeUndefined();
     expect(activeRepoSentinelForDisplay({ sentinelContent: '  \n', sessionRoots: ['/r'], hasGitDir: hasGit([]) })).toBeUndefined();
-  });
-});
-
-describe('activeRepoSentinelForReview (guarded persisted repo fallback for gh-pr-view reconciliation)', () => {
-  const hasGit = (real: string[]) => (path: string) => real.includes(path);
-  const hasSdd = (real: string[]) => (path: string) => real.includes(path);
-
-  it('accepts a nested SDD repo under the session workspace so commandless reconciliation can query gh pr view', () => {
-    expect(activeRepoSentinelForReview({
-      sentinelContent: '/home/user/workspace/codeflare\n',
-      sessionRoots: ['/home/user/workspace'],
-      hasGitDir: hasGit(['/home/user/workspace/codeflare']),
-      hasSddProject: hasSdd(['/home/user/workspace/codeflare']),
-    })).toBe('/home/user/workspace/codeflare');
-  });
-
-  it('rejects non-SDD repos, stale paths, and repos outside this session root', () => {
-    expect(activeRepoSentinelForReview({
-      sentinelContent: '/home/user/workspace/plain-repo\n',
-      sessionRoots: ['/home/user/workspace'],
-      hasGitDir: hasGit(['/home/user/workspace/plain-repo']),
-      hasSddProject: hasSdd([]),
-    })).toBeUndefined();
-    expect(activeRepoSentinelForReview({
-      sentinelContent: '/home/user/workspace/deleted\n',
-      sessionRoots: ['/home/user/workspace'],
-      hasGitDir: hasGit([]),
-      hasSddProject: hasSdd(['/home/user/workspace/deleted']),
-    })).toBeUndefined();
-    expect(activeRepoSentinelForReview({
-      sentinelContent: '/tmp/other/codeflare\n',
-      sessionRoots: ['/home/user/workspace'],
-      hasGitDir: hasGit(['/tmp/other/codeflare']),
-      hasSddProject: hasSdd(['/tmp/other/codeflare']),
-    })).toBeUndefined();
-  });
-
-  it('rejects an out-of-session remembered repo and still falls through to a guarded persisted repo', () => {
-    expect(activeRepoCandidateForReview({
-      rememberedActiveRepo: '/tmp/other/codeflare',
-      persistedSentinelContents: ['/home/user/workspace/codeflare\n'],
-      sessionRoots: ['/home/user/workspace'],
-      hasGitDir: hasGit(['/tmp/other/codeflare', '/home/user/workspace/codeflare']),
-      hasSddProject: hasSdd(['/tmp/other/codeflare', '/home/user/workspace/codeflare']),
-    })).toBe('/home/user/workspace/codeflare');
   });
 });
 
@@ -631,5 +559,33 @@ describe('mergeGateDecision (the gh-pr-merge last-line-of-defense)', () => {
 
   it('does not consume a bypass when the merge would be allowed anyway', () => {
     expect(mergeGateDecision({ ...base, headAcked: true, bypassPresent: true })).toEqual({ action: 'allow' });
+  });
+});
+
+/**
+ * Review monitor delivery uses durable lane files + summary.md as the gate and Pi's normal
+ * background-agent completion notification as the wake-up path.
+ */
+describe('review monitor delivery', () => {
+  it('requires every lane result and summary before requesting autofix from the main session', () => {
+    const missingSummary = reviewMonitorDecision({
+      lanes: ['code-reviewer', 'spec-reviewer'],
+      resultExists: () => true,
+      summaryExists: false,
+      failedLanes: [],
+      counts: { critical: 0, high: 1, medium: 0, low: 0 },
+      approvalRequired: false,
+    });
+    const ready = reviewMonitorDecision({
+      lanes: ['code-reviewer', 'spec-reviewer'],
+      resultExists: () => true,
+      summaryExists: true,
+      failedLanes: [],
+      counts: { critical: 0, high: 1, medium: 0, low: 0 },
+      approvalRequired: false,
+    });
+
+    expect(missingSummary).toEqual({ status: 'waiting', action: 'wait', missing: ['summary'], failed: [] });
+    expect(ready).toEqual({ status: 'ready', action: 'autofix_required', missing: [], failed: [] });
   });
 });

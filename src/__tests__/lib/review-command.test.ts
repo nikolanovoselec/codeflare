@@ -24,7 +24,7 @@ function makeState(overrides: Partial<ReviewState> = {}): ReviewState {
     overall: 'running',
     acked: false,
     summaryReady: false,
-    autofixRequested: false,
+    monitorCompleted: false,
     breakerOpen: false,
     attempts: 1,
     ...overrides,
@@ -103,14 +103,14 @@ describe('renderReviewStatus (REQ-AGENT-057 AC1): renders all canonical review-s
     expect(out).not.toContain('summary.md');
   });
 
-  it('renders the autofix requested state (requested vs not requested)', () => {
-    const withAutofix = renderReviewStatus(makeInput({ state: makeState({ autofixRequested: true }) }));
-    const withoutAutofix = renderReviewStatus(makeInput({ state: makeState({ autofixRequested: false }) }));
-    // The two outputs must differ in the autofix field — not testing the prose itself
-    expect(withAutofix).not.toBe(withoutAutofix);
+  it('renders the monitor completion state (reported vs not reported)', () => {
+    const reported = renderReviewStatus(makeInput({ state: makeState({ monitorCompleted: true }) }));
+    const notReported = renderReviewStatus(makeInput({ state: makeState({ monitorCompleted: false }) }));
+    // The two outputs must differ in the monitor field — not testing the prose itself
+    expect(reported).not.toBe(notReported);
     // Gut-check: both must still contain the lane names (the rest of the output is present)
-    expect(withAutofix).toContain('code-reviewer');
-    expect(withoutAutofix).toContain('code-reviewer');
+    expect(reported).toContain('code-reviewer');
+    expect(notReported).toContain('code-reviewer');
   });
 
   it('renders a distinct breaker-open vs breaker-closed state', () => {

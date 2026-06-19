@@ -8,10 +8,10 @@
  */
 
 import { spawn } from "node:child_process";
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { computeReviewStateFrom, formatDurableReviewResult, laneExtensionSources, pendingAnnouncementHeadsFrom, reapLaneDecision, recoverDurableReviewLaneState, REVIEW_ANNOUNCEMENT_KINDS, summarizeLaneTranscript, type ReviewAnnouncement, type ReviewAnnouncementKind, type ReviewState } from "./review-job-helpers";
+import { computeReviewStateFrom, formatDurableReviewResult, laneExtensionSources, reapLaneDecision, recoverDurableReviewLaneState, summarizeLaneTranscript, type ReviewState } from "./review-job-helpers";
 import type { ReviewSpawnRequest } from "./review-helpers";
 
 export type DurableReviewLaneStatus = "pending" | "running" | "completed" | "failed";
@@ -136,60 +136,6 @@ export function reviewResultsDir(repo: string, head: string): string {
 
 export function reviewResultPath(repo: string, head: string, lane: string): string {
   return join(reviewResultsDir(repo, head), `${lane}.md`);
-}
-
-// --- Review-result delivery announcement records (durable side of the two-phase delivery state
-// machine; pure decision logic is in review-job-helpers.ts). Persisted per (head, kind) so a
-// superseded head's records never bleed into the new head, and so delivery survives Pi reloads. ---
-export function reviewAnnouncementKinds(): ReviewAnnouncementKind[] {
-  return [...REVIEW_ANNOUNCEMENT_KINDS];
-}
-
-export function reviewAnnouncementPath(repo: string, head: string, kind: ReviewAnnouncementKind): string {
-  return join(reviewJobDir(repo, head), "announcements", `${kind}.json`);
-}
-
-export function readReviewAnnouncement(repo: string, head: string, kind: ReviewAnnouncementKind): ReviewAnnouncement | undefined {
-  return readJson<ReviewAnnouncement>(reviewAnnouncementPath(repo, head, kind));
-}
-
-export function pendingReviewAnnouncementHeads(repo: string): string[] {
-  const root = join(repo, ".git", "codeflare-review-jobs");
-  try {
-    const heads = readdirSync(root).filter((head) => {
-      try { return statSync(join(root, head)).isDirectory(); } catch { return false; }
-    });
-    return pendingAnnouncementHeadsFrom(heads, (head, kind) => readReviewAnnouncement(repo, head, kind));
-  } catch {
-    return [];
-  }
-}
-
-export function writeReviewAnnouncement(record: ReviewAnnouncement): void {
-  safeWriteJson(reviewAnnouncementPath(record.repo, record.head, record.kind), record);
-}
-
-// Arm a `pending` announcement for (repo, head, kind). An already-`visible` record is delivered and
-// returned unchanged (never re-armed → no duplicate). A `pending`/`attempted` record is in flight and
-// returned unchanged (the emit/reconcile loop owns it). Only an absent or previously-`failed` record
-// gets a fresh pending arm with a new nonce, giving delivery another full shot.
-export function ensureReviewAnnouncementPending(repo: string, head: string, kind: ReviewAnnouncementKind, nonce: string, now: number): ReviewAnnouncement {
-  const existing = readReviewAnnouncement(repo, head, kind);
-  if (existing && existing.status !== "failed") return existing;
-  const record: ReviewAnnouncement = { kind, repo, head, status: "pending", attempts: 0, nonce, createdAt: now };
-  writeReviewAnnouncement(record);
-  return record;
-}
-
-// A superseded head's not-yet-delivered announcements are retired so a later tick (which resolves the
-// CURRENT head) never re-emits stale results. Keyed by head, so this only touches the old head.
-export function abandonReviewAnnouncements(repo: string, head: string): void {
-  for (const kind of reviewAnnouncementKinds()) {
-    const existing = readReviewAnnouncement(repo, head, kind);
-    if (existing && existing.status !== "visible" && existing.status !== "failed") {
-      writeReviewAnnouncement({ ...existing, status: "failed", lastError: "superseded by a newer head" });
-    }
-  }
 }
 
 function readJson<T>(path: string): T | undefined {
@@ -518,9 +464,6 @@ export function reapDurableReviewLanes(repo: string, head: string): void {
 // alive AND identity-matches its recorded start time, so a recycled pid's unrelated process group is
 // never killed. Each lane is recorded failed("superseded") so the reaper stops tracking it.
 export function abandonDurableReviewLanes(repo: string, head: string): void {
-  // Retire any undelivered announcements for this (now-superseded) head before touching lanes, so a
-  // later live tick that resolves the new head never re-emits the old head's stranded summary.
-  abandonReviewAnnouncements(repo, head);
   const job = readDurableReviewJob(repo, head);
   if (!job) return;
   for (const lane of job.lanes) {
@@ -637,7 +580,7 @@ export function computeReviewState(repo: string, head: string): ReviewState {
     ackHead: readTrimmedFile(join(gitDir, "sdd-last-ack-pr-head")),
     breakerHead: readTrimmedFile(join(gitDir, "sdd-review-breaker")),
     attempts: readIntFile(join(gitDir, "sdd-review-block-count")),
-    autofixRequested: existsSync(join(reviewJobDir(repo, head), "autofix.requested")),
+    monitorCompleted: existsSync(join(reviewJobDir(repo, head), "monitor.completed")),
     startedAt: job?.startedAt,
   });
 }

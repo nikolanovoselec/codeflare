@@ -178,7 +178,7 @@ export function renderReviewStatus(input: ReviewStatusInput): string {
     lines.push("Lanes:       none required for this head");
   }
   lines.push(`Summary:     ${state.summaryReady ? join(repo, ".git", "sdd-review-results", head, "summary.md") : "not ready yet"}`);
-  lines.push(`Autofix:     ${state.autofixRequested ? "requested" : "not requested"}`);
+  lines.push(`Monitor:     ${state.monitorCompleted ? "reported" : "not reported"}`);
   lines.push(`Breaker:     ${state.breakerOpen ? "OPEN — push a new commit or use /tmp/review-bypass" : "closed"}`);
   lines.push(`Merge gate:  ${state.acked ? "OPEN (current head acked)" : "BLOCKED until current head is acked"}`);
   if (events.length > 0) {

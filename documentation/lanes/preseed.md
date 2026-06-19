@@ -165,15 +165,16 @@ to `ci-monitoring`, `git-review-pipeline`, `pr-workflow`, and `deploy-credential
 CI monitoring is background-agent owned: after any CI-producing push, agents start
 `ci-monitoring` unless the user explicitly skips it for that push. The backgrounded
 agent monitors the target HEAD and reports success, failure, or timeout to the main
-session; it does not fix, commit, or push ([REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
-AC5/AC6). The monitor evaluates every workflow row returned for the monitored HEAD
-and waits for a stable workflow/run-id fingerprint before success.
+session; it does not fix, commit, or push ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
+AC1/AC3). The monitor evaluates every workflow row returned for the monitored HEAD
+and waits for a stable workflow/run-id fingerprint before success ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
+AC2).
 
 Monitoring and any other long-running wait/poll are background-only: no agent may
 keep the main session busy with `tail -f`, `gh run watch`, blocking `ctx_execute`,
 Bash loops, deploy-status waits, review-completion waits, or foreground polling
-([REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
-AC7). The discipline triad (`spec-discipline`, `documentation-discipline`,
+([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
+AC4). The discipline triad (`spec-discipline`, `documentation-discipline`,
 `tdd-discipline`) is advanced-only and points to the SDD workflow status,
 severity, and skill families.
 
@@ -433,17 +434,18 @@ All preseed content is deployed via the manifest pipeline:
   label green when that lane finishes). Colored review status rows truncate by
   visible width, preserve ANSI color sequences, and reset styling before the
   ellipsis. Operators can diagnose background review progress without visible
-  generic Agent tasks. Duplicate lane-result and summary announcements are
-  suppressed for the same repo/head/lane result.
+  generic Agent tasks. Duplicate lane-result notices are suppressed for the same
+  repo/head/lane result.
 
-  Review summaries have a second durable delivery phase: finalization arms a
-  nonce-bearing announcement record, and the idle reaper keeps draining those
-  records even after `pending.json` is cleared. This is intentionally separate
-  from lane reaping so a completed review can surface without waiting for the
-  user's next prompt, while `/review-results` remains the manual fallback if
-  automatic delivery cannot prove the nonce landed. When a newer PR head is the
-  active review window, delivery selects that head only so older completed results
-  do not appear in the newer review conversation. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::drainReviewAnnouncements --> <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::ensureReviewAnnouncementPending --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::deliveryAnnouncementHeads -->
+  Review summaries have a second monitor delivery phase: finalization or completed
+  job recovery starts the background `review-monitor`, and the monitor writes
+  `monitor.completed` before returning `REVIEW_RESULT clean|findings|failed` to
+  the main session. This is intentionally separate from lane reaping so a
+  completed review can surface without waiting for a new user prompt, while
+  `/review-results` remains the manual fallback for the saved exact-head summary.
+  When a newer PR head is the active review window, monitor recovery selects that
+  head only so older completed results do not appear in the newer review
+  conversation. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::completedStateFromDurableJob --> <!-- @impl: preseed/agents/pi/agents/review-monitor.md -->
 
   The disk-driven reaper that settles each lane is retry-aware: an attempt that
   ends with `willRetry: true` (pi auto-retrying the same child after a transient
@@ -479,83 +481,53 @@ All preseed content is deployed via the manifest pipeline:
   AC8.
 
   After the exact-head durable review job completes and every required lane has
-  a result file, Pi publishes one merged chat summary with `## Review Summary`,
-  `## Findings`, and `## Finding Details` sections. That chat summary aggregates
+  a result file, Pi writes one merged `summary.md` with `## Review Summary`,
+  `## Findings`, and `## Finding Details` sections. That summary aggregates
   severity counts across code/spec/docs, lists all findings sorted by
   criticality, and avoids per-lane result-file links; the per-lane `.md` files
   remain the durable evidence store. Implements
   [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-and-result-formatting).
 
-  Delivering that summary back into the live session is a separate, durable phase.
-  Finalization arms a per-`(head, kind)` durable announcement record under
-  `.git/codeflare-review-jobs/<head>/announcements/` instead of firing a one-shot
-  message. Implements
+  Delivering that summary back into the live session is a separate monitor phase.
+  Finalization or completed-job recovery starts one background `review-monitor`
+  per `(repo, head)` unless `monitor.completed` already exists or a recent monitor
+  start is still within its TTL. The monitor waits for every lane result file and
+  `summary.md`; if lane files exist but `summary.md` is missing, it writes a
+  concise merged summary from those lane reports. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC1; source: `review-enforcement.ts::finalizeCompletedReview` and
-  `review-jobs.ts::ensureReviewAnnouncementPending`.
+  AC1/AC2; source: `review-enforcement.ts::startReviewMonitor`,
+  `review-enforcement.ts::reviewMonitorPrompt`, `review-job-helpers.ts::reviewMonitorDecision`,
+  and `review-job-helpers.ts::reviewMonitorSpawnDecision`.
 
-  Each summary/autofix message embeds a nonce and is marked delivered only when that
-  nonce is later found in the main session transcript. Task/subagent transcripts never
-  prove user-visible delivery, and a `sendMessage` return is never assumed delivered.
-  Pending or unverified announcements are retried on message-end, turn, and reaper
-  lifecycle ticks, with retry delay and attempt caps. Implements
+  The monitor is the delivery wakeup. Before successful exit it writes
+  `.git/codeflare-review-jobs/<head>/monitor.completed` as JSON and its final
+  response starts with `REVIEW_RESULT clean`, `REVIEW_RESULT findings`, or
+  `REVIEW_RESULT failed`. For findings it includes a compact overview (severity
+  counts, lane status, ranked finding titles) and instructs the main session to
+  show that overview to the user before editing. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC2/AC3; source: `review-enforcement.ts::sessionContainsNonce`,
-  `review-enforcement.ts::drainAnnouncementsFor`, and
-  `review-job-helpers.ts::reviewDeliverySessionFile`.
+  AC3/AC4; source: `preseed/agents/pi/agents/review-monitor.md` and
+  `review-enforcement.ts::reviewMonitorPrompt`.
 
-  The drain reads non-terminal announcement records for remembered/active review repos
-  after the review window has been cleared, and drains acked heads only when there is no
-  newer current review head. A completed review cannot stay hidden merely because there
-  is no longer a live `sdd-review-pending.json` window or open PR, but stale older-head
-  results do not appear while a newer review is active. Implements
+  Partial lane results, failed required lanes, or a missing `summary.md` cannot
+  trigger autofix. If actionable MEDIUM/HIGH/CRITICAL findings remain after the
+  complete exact-head summary, the monitor tells the main session to read
+  `summary.md`, verify each finding against code/spec/docs, and fix only
+  legitimate findings by default. If the latest user instruction says not to
+  autofix, wait for approval, or do not push, the monitor tells the main session
+  to stop for approval instead. There is no hidden `autofix.requested` marker and
+  no custom summary announcement channel. Implements
+  [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-durable-review-fix-loop)
+  and [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
+  AC5.
+
+  Task/subagent contexts may reap lane children and write durable state, but only
+  a live main-session ctx starts the monitor. Delivery does not depend on a
+  custom transcript nonce, a summary announcement record, or a follow-up message
+  bus. The `/review-results` command remains the manual fallback: it displays the
+  persisted exact-head `summary.md` without mutating delivery state. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC5; source: `review-enforcement.ts::drainReviewAnnouncements` and
-  `review-job-helpers.ts::deliveryAnnouncementHeads`.
-
-  A completed review whose summary is not yet delivered shows a persistent
-  `results ready (not shown) — /review-results` footer status. If an older agent marked
-  a summary visible from a task transcript, the next main-session drain reopens it and
-  retries delivery. The `/review-results` command displays the persisted summary on
-  demand, which is the guaranteed fallback if automatic delivery never lands. Implements
-  [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC2/AC4; source: `review-enforcement.ts::drainAnnouncementsFor`,
-  `review-enforcement.ts::refreshDeliveryStatus`, and the `review-results` command in
-  `review-enforcement.ts`.
-
-  The summary itself is sent with plain `pi.sendMessage` and no `triggerTurn` /
-  `deliverAs`, using the same synchronous append path as `/review-results`. That send
-  may run from a message-end or idle reaper tick without a user-turn context, but still
-  defers while the agent is mid-turn. Implements
-  [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC6.
-
-  Autofix delivery still requires live session context because it starts a follow-up
-  turn. Implements [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC6.
-
-  A non-deliverable autofix remains pending for a later ctx-bearing lifecycle tick;
-  it terminates by head supersede or the attempt cap, never age alone. Implements
-  [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC3 and AC7.
-
-  An announcement that exhausts its capped retry window without its nonce appearing
-  is marked failed and points the user at `/review-results`. Implements
-  [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC7.
-
-  The autofix request still uses `triggerTurn`/`followUp` because it intentionally
-  triggers a fix turn. Its prompt now carries the user's no-push constraint through:
-  if the user explicitly said not to push, the follow-up fixes locally and does not
-  push. Implements
-  [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery).
-
-  Partial lane results, including any missing, failed, timed-out, or still-running
-  lane, cannot trigger autofix. If actionable MEDIUM/HIGH/CRITICAL findings remain
-  after the complete exact-head summary, Pi then requests a fix pass that tells the
-  agent to verify each finding against code/spec/docs and fix only legitimate
-  findings, unless the latest explicit user directive opts out of auto-fixing for
-  the round. Implements [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-durable-review-fix-loop).
+  AC6/AC7.
 
   Timed-out or failed durable lanes are recorded as failed and do not produce
   the required result file. The PR head remains unacked until a later review run
@@ -758,9 +730,9 @@ is done via `settings.json` (see above).
 - **codeflare-hooks**: Scripts for commit attribution blocking,
   git-push review reminders, and SDD review-agent enforcement.
 
-Review dispatch is non-blocking: `code-reviewer` and `spec-reviewer`
-spawn in parallel in the background (`run_in_background: true`), then
-`doc-updater` follows `spec-reviewer` sequentially, also in the background.
+Review dispatch is non-blocking: required code, spec, and documentation lanes
+spawn as independent background lanes. The durable summary waits for every
+required lane result; no lane depends on another lane's transcript.
 
 In-flight suppression is per lane. A fresh in-flight lane is skipped
 without masking other required lanes, while a stale uncompleted lane past
@@ -959,7 +931,7 @@ rm -rf .git/codeflare-review-jobs/$(git rev-parse HEAD)
 
 The legacy v4 timestamp file `.git/sdd-last-ack-push` (if present from a prior install) is auto-deleted on the first v5 invocation, so no manual cleanup is needed for the v4 to v5 migration path.
 
-To inspect enforcement state without reading `.git/` by hand, Pi exposes a read-only `/review-status` command ([REQ-AGENT-057](../../sdd/spec/agents.md#req-agent-057-pi-review-status-command), `review-command.ts`). It renders the canonical review state for the current repo's enforced head — PR / local / last-acked HEADs, per-lane status, overall verdict, summary readiness, autofix and circuit-breaker state, and the merge-gate verdict — followed by a short tail of the `.git/codeflare-review-events.jsonl` decision audit (every enforcement decision — boundary detected, review started, merge blocked, breaker opened — is appended there). The command never spawns a review, advances the ack, or mutates any enforcement state; it is purely diagnostic.
+To inspect enforcement state without reading `.git/` by hand, Pi exposes a read-only `/review-status` command ([REQ-AGENT-057](../../sdd/spec/agents.md#req-agent-057-pi-review-status-command), `review-command.ts`). It renders the canonical review state for the current repo's enforced head — PR / local / last-acked HEADs, per-lane status, overall verdict, summary readiness, monitor completion, circuit-breaker state, and the merge-gate verdict — followed by a short tail of the `.git/codeflare-review-events.jsonl` decision audit (every enforcement decision — boundary detected, review started, merge blocked, breaker opened — is appended there). The command never spawns a review, advances the ack, or mutates any enforcement state; it is purely diagnostic.
 
 ---
 

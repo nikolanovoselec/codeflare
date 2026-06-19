@@ -714,7 +714,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-025](#req-agent-025-post-clone-graph-triage)
 
-**Verification:** [Automated tests](../../src/__tests__/lib/agent-seed-ecc-rules.test.ts), [Pi command dispatch tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [CI monitoring skill tests](../../host/__tests__/ci-monitoring-skill.test.js)
+**Verification:** [Automated tests](../../src/__tests__/lib/agent-seed-ecc-rules.test.ts), [Pi command dispatch tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
 **Status:** Implemented
 
@@ -734,10 +734,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. Every CI-producing push starts `ci-monitoring` in a backgrounded agent unless the user explicitly skips that push.
-2. The CI monitor reports success only after every workflow row for the monitored HEAD is complete and the workflow/run-id fingerprint is stable.
-3. CI failures are report-only: the background agent reports the failed workflow/run/log pointer and never fixes, commits, or pushes.
-4. Long-running waits, monitors, or polls never keep the main session busy; agents start backgrounded work, report how to check it, and stop.
+1. Every CI-producing push starts `ci-monitoring` in a backgrounded agent unless the user explicitly skips that push. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::git-workflow-ci-route --> <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::ci-background-agent --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-068 propagates CI monitoring behavior from anchored source blocks into every agent instruction surface -> AC1) -->
+2. The CI monitor reports success only after every workflow row for the monitored HEAD is complete and the workflow/run-id fingerprint is stable. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::ci-workflow-row-fingerprint --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 waits for a stable workflow/run set -> AC2) -->
+3. CI failures are report-only: the background agent reports the failed workflow/run/log pointer and never fixes, commits, or pushes. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::ci-background-agent --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 reports failed workflow rows -> AC3) -->
+4. Long-running waits, monitors, or polls never keep the main session busy; agents start backgrounded work, report how to check it, and stop. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::ci-no-main-session-monitor --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 starts detached work -> AC4) -->
 
 **Constraints:**
 
@@ -1197,7 +1197,7 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
 <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (result model + compact status + announcement-key + summary/actionability tests -> AC1/AC3/AC4/AC5) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (result model + compact status + lane notice key + summary/actionability tests -> AC1/AC3/AC4/AC5) -->
 <!-- @test: src/__tests__/lib/review-state.test.ts (AC2 footer badge: see inline annotation below) -->
 
 **Intent:** Pi operators need consistent PR-boundary review output and a compact indication that internal durable lanes are active.
@@ -1208,8 +1208,8 @@ None.
 
 1. Durable PR-boundary result files use a shared `## Findings` plus severity-count Review Summary table format. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatDurableReviewResult -->
 2. Pi exposes compact durable-lane progress in the footer while PR-boundary review runs, rendering only lanes required for the current review job from the persisted pending review state, prefixed with an elapsed-time badge (`M:SS`, measured from the earliest lane start) and annotating each completed lane with its best-effort token count parsed from the lane transcript (the badge and token figures are omitted when their inputs are unavailable). <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::compactDurableReviewStatus --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatReviewElapsed --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatReviewTokens --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::laneTokensFromTranscript --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::updateReviewStatus --> <!-- @test: src/__tests__/lib/review-state.test.ts ("compactDurableReviewStatus timer + token badge (footer enhancement)" + "formatReviewElapsed / formatReviewTokens" describes -> badge rendering + graceful omission -> AC2) -->
-3. Pi suppresses duplicate PR-boundary review result and summary announcements for the same repo, head, lane, and result path. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::installReviewMessageDedupe -->
-4. After all required lanes complete, Pi publishes a merged chat summary instead of separate per-lane chat result blocks. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewSummaryMarkdown -->
+3. Pi suppresses duplicate PR-boundary lane-result notices for the same repo, head, lane, and result path, and still drops deprecated summary custom message types. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::claimLaneResultNotice --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::installReviewMessageDedupe -->
+4. After all required lanes complete, Pi writes a merged `summary.md` and uses the review-monitor overview instead of separate per-lane chat result blocks. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::writeReviewSummaryFromDisk --> <!-- @impl: preseed/agents/pi/agents/review-monitor.md -->
 5. The merged chat summary reports aggregate severity counts across code, spec, and documentation lanes and renders findings sorted by criticality, without requiring per-lane result-file links in chat. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::mergedReviewSummaryModel --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatMergedReviewSummary -->
 6. The finding extractor (`extractReviewFindings`) and the severity counter (`countReviewSeverities`) apply one byte-identical decoration rule — a severity word is a finding only when decorated as `[SEVERITY]`, `**SEVERITY**`, or `SEVERITY:` at the leading position of a header line — so the rendered finding list and the Review Summary counts never diverge. A bare severity word in prose ("High-level summary…") or one decorated elsewhere on the line is a finding in neither; a tally line (`HIGH: 2 (…)`) is excluded from both; and a decorated label with no inline title (`**CRITICAL**` alone) is counted once and surfaced as a finding with a placeholder `(untitled)` title rather than dropped from the list while still being counted. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::findingHeaderMatches --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::extractReviewFindings --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::countReviewSeverities --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (decoration lockstep: leading bare severity word with a decorated label elsewhere is not a finding and counts 0; bare decorated label with no title is counted once and extracted as untitled -> AC6) -->
 
@@ -1263,21 +1263,23 @@ None.
 
 ### REQ-AGENT-059: Pi Durable Review Fix Loop
 
-<!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
-<!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (autofix request gating + manual/auto directive tests -> AC1-AC5) -->
+<!-- @impl: preseed/agents/pi/agents/review-monitor.md -->
+<!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt -->
+<!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorDecision -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (review monitor waits for complete lane results + summary before autofix_required; approval-required path -> AC1/AC3/AC4) -->
+<!-- @test: src/__tests__/lib/review-state.test.ts (monitor decision requires complete lane results + summary before autofix_required -> AC1/AC4) -->
 
-**Intent:** Pi operators need actionable PR-boundary review findings to start a fix pass only when the exact-head review is complete.
+**Intent:** Pi operators need completed PR-boundary review findings to produce a visible overview and then start a fix pass by default, while still honoring an explicit user instruction to wait for approval.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Pi requests a fix pass only after every required exact-head result file exists and at least one actionable `MEDIUM`/`HIGH`/`CRITICAL` finding remains. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendAnnouncement --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::requestReviewAutofixForRows -->
-2. The fix-pass request instructs the agent to verify each `MEDIUM`/`HIGH`/`CRITICAL` finding and fix only legitimate findings. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewAutofixRequest --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::mergedReviewRecommendation -->
-3. Partial lane result sets never trigger a fix request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendAnnouncement --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewAckReady -->
-4. When a live session transcript is available, a wait/do-not-auto-fix directive makes Pi present findings without requesting a fix pass. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewAutofixModeFromUserMessages -->
-5. Idle finalization without live context keeps the default automatic fix behavior. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendAnnouncement -->
+1. Pi requests a fix pass only after every required exact-head lane result file exists, `summary.md` exists, no required lane failed, and at least one actionable `MEDIUM`/`HIGH`/`CRITICAL` finding remains. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorDecision -->
+2. For actionable findings, the review-monitor result tells the main session to first show a compact overview to the user, then read `summary.md`, verify every `MEDIUM`/`HIGH`/`CRITICAL` finding, and fix only legitimate findings by default. <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt -->
+3. If the latest user instruction says not to autofix, wait for approval, or do not push, the monitor result tells the main session to stop for approval instead of starting the fix pass. <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorDecision -->
+4. Partial lane result sets, missing `summary.md`, or failed required lanes never trigger an autofix request. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorDecision -->
+5. The fix loop is driven by the background review-monitor completion result, not by a hidden `autofix.requested` marker or custom summary announcement channel. <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor -->
 
 **Constraints:**
 
@@ -1285,9 +1287,9 @@ None.
 
 **Priority:** P2
 
-**Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-durable-review-status-and-result-formatting)
+**Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-durable-review-status-and-result-formatting), [REQ-AGENT-062](#req-agent-062-pi-pr-boundary-review-result-delivery)
 
-**Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts); [review-state tests](../../src/__tests__/lib/review-state.test.ts). The actual main-session autofix response to a background-agent completion notification is a Pi runtime integration path verified by live smoke/adversarial review, because the repo test pool cannot inject Pi's background subagent result UI.
 
 **Status:** Implemented
 
@@ -1343,9 +1345,9 @@ None.
 
 1. An idle Pi session with no user turn still reaps finished durable review lanes. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick -->
 2. An idle Pi session starts the next eligible durable review lane after prerequisite lanes complete. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick -->
-3. An idle Pi session finalizes completed durable reviews by acknowledging the exact head, saving the merged summary, and starting the autofix request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview -->
-4. The idle reaper keeps draining delivery announcements after the review window is cleared so summaries can display without another user message. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::drainReviewAnnouncements --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::deliveryAnnouncementHeads -->
-5. Ctx-bearing review routing prefers the boundary/session repo, then the current active repo, then a remembered review repo; routing never uses the shared graphify active-cwd sentinel. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::resolveReviewRepo --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewRepoForCtx --> <!-- @test: src/__tests__/lib/review-state.test.ts (resolveReviewRepo precedence incl. active repo beating remembered review repo + never probes the sentinel path -> AC5) -->
+3. An idle Pi session finalizes completed durable reviews by acknowledging the exact head, saving the merged summary, and asking the background review-monitor to deliver the result. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor -->
+4. If Pi reloads after a review was acknowledged and `summary.md`/lane files are already on disk, the next live lifecycle tick can recover the completed durable job and start the review-monitor for that exact head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::completedStateFromDurableJob --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::refreshReviewStatusFromDurable -->
+5. Ctx-bearing review routing accepts only direct Codeflare workspace children (`/home/user/workspace/<repo>`), preferring boundary/session repo, then current active repo, then remembered review repo; routing never uses the shared graphify active-cwd sentinel or arbitrary git-root walking. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::resolveReviewRepo --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::workspaceRepoFromPath --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewRepoForCtx --> <!-- @test: src/__tests__/lib/review-state.test.ts (resolveReviewRepo Codeflare workspace-child routing only -> AC5) -->
 6. The no-ctx idle reaper iterates remembered review repos instead of applying single-repo routing precedence, so all in-flight reviews can finish. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::rememberReviewRepo --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::recallReviewRepos --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- @test: src/__tests__/lib/review-state.test.ts (recallReviewRepos returns every remembered review repo -> AC6) -->
 7. Read-only `/review-status` may fall back to the guarded display sentinel only after review routing candidates fail. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::reviewStatusRepo --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::liveReviewRow --> <!-- @test: src/__tests__/lib/review-state.test.ts (resolveReviewRepo sentinel-independence -> AC7) -->
 
@@ -1355,9 +1357,9 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-054](#req-agent-054-pi-durable-review-lane-failure-handling), [REQ-AGENT-059](#req-agent-059-pi-durable-review-fix-loop)
+**Dependencies:** [REQ-AGENT-054](#req-agent-054-pi-durable-review-lane-failure-handling), [REQ-AGENT-059](#req-agent-059-pi-durable-review-fix-loop), [REQ-AGENT-062](#req-agent-062-pi-pr-boundary-review-result-delivery)
 
-**Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC1/AC2); [review-state.test.ts](../../src/__tests__/lib/review-state.test.ts) (AC5/AC6/AC7 — resolveReviewRepo precedence, remembered repo iteration, and sentinel-independence)
+**Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC1/AC2); [review-state.test.ts](../../src/__tests__/lib/review-state.test.ts) (AC5/AC6/AC7 — workspace-child repo routing, remembered repo iteration, and sentinel-independence). AC3/AC4 are Pi runtime integration paths verified by load-check plus live smoke/adversarial review.
 
 **Status:** Implemented
 
@@ -1365,24 +1367,25 @@ None.
 
 ### REQ-AGENT-062: Pi PR-Boundary Review Result Delivery
 
+<!-- @impl: preseed/agents/pi/agents/review-monitor.md -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
-<!-- @impl: preseed/agents/pi/extensions/review-jobs.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-062 delivery announcement nonce/retry/reconcile/send decision helpers, pending-head rediscovery, current-head delivery selection, and stale-head suppression -> AC2/AC3/AC5/AC6/AC7) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (review monitor waits for lane files + summary, handles failures, and dedupes spawn with TTL/completion marker -> AC1/AC2/AC5/AC6) -->
+<!-- @test: src/__tests__/lib/review-state.test.ts (monitor decision requires complete lane results + summary before autofix_required -> AC2) -->
 
-**Intent:** A completed PR-boundary review must reliably DELIVER its merged summary back into the main Pi session, not just ack the head and write `summary.md` to disk. Delivery is therefore a SECOND, separately-tracked durable phase: a send is never assumed delivered — it is proven against the transcript, retried, observable, and has a manual fallback, so a review's findings are never acked-and-lost. Review execution and lane finalization live in [REQ-AGENT-054](#req-agent-054-pi-durable-review-lane-failure-handling)/[REQ-AGENT-061](#req-agent-061-pi-idle-durable-review-reaper); summary formatting in [REQ-AGENT-053](#req-agent-053-pi-durable-review-status-and-result-formatting).
+**Intent:** A completed PR-boundary review must reliably reach the main Pi session as a background-agent result with a visible overview, not just ack the head and write `summary.md` to disk. Durable truth stays in lane files, `summary.md`, the exact-head ack, and the monitor completion marker; the background agent notification is the wakeup/delivery surface. Review execution and lane finalization live in [REQ-AGENT-054](#req-agent-054-pi-durable-review-lane-failure-handling)/[REQ-AGENT-061](#req-agent-061-pi-idle-durable-review-reaper); summary formatting in [REQ-AGENT-053](#req-agent-053-pi-durable-review-status-and-result-formatting).
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Finalization arms durable pending delivery records for the review summary and, when actionable findings remain, the autofix request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::armReviewAnnouncements --> <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::ensureReviewAnnouncementPending -->
-2. A delivery announcement becomes visible only after the main session transcript proves the announcement-specific nonce was delivered to the user; task/subagent transcripts, bare send attempts, tool output, event logs, or assistant reasoning text never prove delivery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sessionContainsNonce --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewDeliverySessionFile --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::transcriptEntryContainsDeliveryNonce --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::announcementReconcileDecision --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewAnnouncementNonce --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (review delivery ignores task/subagent transcripts; transcript delivery proof accepts only nonce-bearing custom messages; nonce determinism/uniqueness; reconcile nonce->visible; autofix request carries the nonce -> AC2) -->
-3. Pending or unverified announcements retry on lifecycle ticks and idle reaper ticks with delay/cap bounds. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::drainReviewAnnouncements --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::shouldAttemptAnnouncement --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (shouldAttemptAnnouncement retry/cap -> AC3) -->
-4. Until a completed review's summary is visible, the footer shows `results ready (not shown) — /review-results`; `/review-results` displays the saved summary fallback and marks it delivered. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::refreshDeliveryStatus --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::review-results -->
-5. Delivered announcements are never re-emitted, and when a current PR head exists, delivery selects that head only so older completed results do not appear in the newer review conversation. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::ensureReviewAnnouncementPending --> <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::abandonReviewAnnouncements --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::deliveryAnnouncementHeads -->
-6. Delivery gating distinguishes display-only summaries from autofix turns: summaries may be delivered while the agent runtime is idle, while autofix turns wait for live session context. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendAnnouncement --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::shouldSendAnnouncement --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (shouldSendAnnouncement allows idle no-context summaries and blocks no-context autofix -> AC6) -->
-7. An announcement missing its nonce after the capped retry window is marked `failed` and points the user at `/review-results`. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::announcementReconcileDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (reconcile under-cap keep vs cap+window failed -> AC7) -->
+1. Finalization or completed-job recovery starts at most one background `review-monitor` per `(repo, head)` unless the previous monitor is stale past the TTL; a `monitor.completed` marker suppresses future spawns. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorSpawnDecision -->
+2. The monitor waits until every required lane result file and `summary.md` exist; if lane results all exist but `summary.md` is missing, it writes a concise merged summary from those lane reports. <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorDecision -->
+3. Before successful exit, the monitor writes `monitor.completed` as JSON containing repo, head, summary path, and completion time, then its final response starts with exactly `REVIEW_RESULT clean`, `REVIEW_RESULT findings`, or `REVIEW_RESULT failed`. <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt -->
+4. For findings, the monitor final response includes a compact user-facing overview: severity counts, lane status, and ranked finding titles. <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt -->
+5. For findings, the monitor final response tells the main session to show the overview before making edits, then read `summary.md`, verify every `MEDIUM`/`HIGH`/`CRITICAL` finding, and fix legitimate findings by default unless the latest user instruction says not to autofix / wait for approval / do not push. <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt -->
+6. `/review-results` remains a manual fallback that displays the saved `summary.md` for the current exact head without mutating delivery state or relying on nonce/announcement records. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::review-results -->
+7. Task/subagent contexts may reap lanes and write durable state, but only a live main-session ctx starts the monitor; no custom transcript nonce, summary announcement, or follow-up message bus is used for delivery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::remember -->
 
 **Constraints:**
 
@@ -1392,7 +1395,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-061](#req-agent-061-pi-idle-durable-review-reaper), [REQ-AGENT-059](#req-agent-059-pi-durable-review-fix-loop), [REQ-AGENT-053](#req-agent-053-pi-durable-review-status-and-result-formatting)
 
-**Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC2/AC3/AC5/AC6/AC7 — custom-message nonce proof, nonce determinism, retry/reconcile decisions, pending announcement head rediscovery, current-head delivery selection, stale-head suppression, and summary/autofix send gating). The impure durable announcement-record I/O lifecycle (AC1/AC5), the live transcript-scan file read, per-tick emit/reconcile drain, `/review-results` command, and results-ready status (AC4) are verified by inspection plus a bundled-jiti load-check and a post-deploy live smoke test — the repo's runtime-coverage convention, since review-enforcement.ts top-level-imports the Pi SDK and cannot load in the Workers vitest pool.
+**Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts); [review-state tests](../../src/__tests__/lib/review-state.test.ts). The background subagent completion notification and main-session autofix handoff are Pi runtime integration paths verified by load-check plus live smoke/adversarial review.
 
 **Status:** Implemented
 
@@ -1471,7 +1474,7 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::computeReviewState -->
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::computeReviewStateFrom -->
 <!-- @test: src/__tests__/lib/review-state.test.ts (computeReviewStateFrom lane-status precedence + overall aggregation + acked/breaker semantics -> AC1) -->
-<!-- @test: src/__tests__/lib/review-command.test.ts (renderReviewStatus rendering contract: PR/local/acked SHAs, per-lane status, overall verdict, summaryReady path, autofix, breaker, merge-gate -> AC1) -->
+<!-- @test: src/__tests__/lib/review-command.test.ts (renderReviewStatus rendering contract: PR/local/acked SHAs, per-lane status, overall verdict, summaryReady path, monitor completion, breaker, merge-gate -> AC1) -->
 <!-- @test: src/__tests__/lib/review-command.test.ts (renderReviewStatus read-only contract: idempotency, string return-type, no input mutation -> AC2) -->
 <!-- @test: src/__tests__/lib/review-command.test.ts (recentReviewEvents JSONL tail: last-N ordering, .git path contract, blank-line filtering, empty-file, verbatim preservation -> AC3) -->
 
@@ -1481,7 +1484,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. A `/review-status` command renders the canonical review state for the current repo's enforced head: PR / local / last-acked heads, per-lane status, overall verdict, summary readiness, autofix state, breaker state, and the merge-gate verdict. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::formatReviewStatus --> <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::computeReviewState -->
+1. A `/review-status` command renders the canonical review state for the current repo's enforced head: PR / local / last-acked heads, per-lane status, overall verdict, summary readiness, monitor completion, breaker state, and the merge-gate verdict. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::formatReviewStatus --> <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::computeReviewState -->
 2. The command is read-only: it never spawns a review, advances the ack, or mutates any enforcement state. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::review-status -->
 3. The command appends a short tail of the decision audit log (`.git/codeflare-review-events.jsonl`) so recent enforcement decisions are visible inline. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::recentReviewEvents -->
 
@@ -1506,7 +1509,7 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::resolveEnforcedHead -->
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::shouldReconcileOpenPr -->
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reconcileBoundaryAction -->
-<!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::activeRepoSentinelForReview -->
+<!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::workspaceRepoFromPath -->
 <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::restoreActiveRepoFromPersistedFiles -->
 <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::appendReviewEvent -->
 <!-- @test: src/__tests__/lib/review-state.test.ts (shouldReconcileOpenPr decision gating -> AC1/AC6; reconcileBoundaryAction action gate: autostarts in-session continuation, offers a fresh clone once, no-ops on re-offer of a clone head and on a non-reconcilable head -> AC1; every suppressed gate names a distinct non-empty reason -> AC6) -->

@@ -46,7 +46,6 @@ type ExtensionAPI = {
 
 const CACHE_DIR = "/home/user/.cache/codeflare-hooks";
 const ACTIVE_REPO_FILE = join(CACHE_DIR, "graphify-active-cwd");
-const REVIEW_ACTIVE_REPO_FILE = join(CACHE_DIR, "review-active-cwd");
 const VAULT_ROOT = "/home/user/Vault";
 const GLOBAL_GRAPH_LOCK = "/tmp/graphify-global.lock";
 const PI_SETTINGS_FILE = "/home/user/.pi/agent/settings.json";
@@ -130,7 +129,6 @@ function repoIdentity(repo: string): string {
 function persistActiveRepo(repo: string): void {
   ensureCacheDir();
   writeFileSync(ACTIVE_REPO_FILE, repo + "\n", "utf8");
-  writeFileSync(REVIEW_ACTIVE_REPO_FILE, repo + "\n", "utf8");
 }
 
 function updateActiveRepoFromPath(path: string): string | undefined {
@@ -147,13 +145,11 @@ export function restoreActiveRepoFromPersistedFiles(
   paths: string[],
   read: (path: string) => string,
   exists: (path: string) => boolean,
-  remember: (repo: string) => void,
 ): string | undefined {
   for (const path of paths) {
     try {
       const value = read(path).trim();
       if (!value || !exists(value)) continue;
-      remember(value);
       return value;
     } catch {
       // Try the next persisted source.
@@ -166,14 +162,12 @@ function activeRepo(ctx: ExtensionContext): string | undefined {
   const liveRepo = updateActiveRepoFromPath(ctx.sessionManager.getCwd());
   if (liveRepo) return liveRepo;
   const restored = restoreActiveRepoFromPersistedFiles(
-    [REVIEW_ACTIVE_REPO_FILE, ACTIVE_REPO_FILE],
+    [ACTIVE_REPO_FILE],
     (path) => readFileSync(path, "utf8"),
     existsSync,
-    rememberActiveRepo,
   );
   if (restored) {
-    // Display/Graphify fallback only. PR-boundary review routing revalidates this memory against the
-    // session roots and SDD marker before it can influence review reconciliation or merge gating.
+    // Display/Graphify fallback only; do not write sentinel-restored paths into review-routing memory.
     persistActiveRepo(restored);
     return restored;
   }

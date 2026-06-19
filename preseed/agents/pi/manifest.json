@@ -69,6 +69,11 @@
       "advanced"
     ]
   },
+  "agents/review-monitor.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "extensions/graphify-helpers.ts": {
     "modes": [
       "default",
