@@ -64,6 +64,7 @@ const ENGINEERING_CONSTITUTION = [
   "2. Behavioral tests only — assert behavior/contract values (state, DOM, status codes, parsed values), never UI copy/prose; a test must fail if the implementation is gutted.",
   "3. Reusable, composable components — extract any structure used more than twice; tokens/one source of truth; validate at boundaries; immutability.",
   "4. SDD + TDD enforced — failing behavioral test first; every change traces to a REQ; specs/anchors/docs move with the code; never leave a REQ Partial.",
+  "Work continuity: when a new user message arrives mid-task, do not switch topics just because it arrived; queue it, finish the current concrete step to a safe stopping point, then handle the new request unless the user explicitly says to stop/pause/reprioritize.",
   "Plan gate: present no plan without a Success-criteria/verification section covering these four. Fix legitimate findings in-session.",
   "</codeflare_constitution>",
 ].join("\n");

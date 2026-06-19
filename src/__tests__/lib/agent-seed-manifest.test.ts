@@ -4,7 +4,7 @@ import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-see
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { bypassAckHeadForStatus, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, postCommandReconcileDecision, prCreateBoundaryBase, reusablePendingReview, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
 import { actionableReviewCount, allDurableReviewLanesComplete, announcementReconcileDecision, compactDurableReviewStatus, countReviewSeverities, deliveryAnnouncementHeads, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, laneExtensionSources, mergedReviewSummaryModel, pendingAnnouncementHeadsFrom, reapLaneDecision, recoverDurableReviewLaneState, requestReviewAutofixForRows, reviewAnnouncementNonce, reviewAutofixModeFromUserMessages, reviewAutofixRequest, sendReviewAutofixRequest, shouldAttemptAnnouncement, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, shouldSendAnnouncement, summarizeLaneTranscript, type OpenPrReconcileInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
-import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
+import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_CAPTURE_PENDING_TTL_MS, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { LOCAL_BUILD_BYPASS, attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { reviewLaneBlockReason, reviewScopeBlockReason } from '../../../preseed/agents/pi/extensions/review-lane-guards';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
@@ -137,6 +137,51 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       expect(entries, `${key} should have 2 entries`).toHaveLength(2);
       const modes = entries.map((e) => e.modes).flat().sort();
       expect(modes).toEqual(['advanced', 'default']);
+    }
+  });
+
+  it('preseeds the running-review push gate into every agent instruction surface', () => {
+    const rule = 'Do not push while a review is running, unless explicitly authorized by the user.';
+    const instructionKeys = [
+      '.codex/AGENTS.md',
+      '.gemini/GEMINI.md',
+      '.copilot/copilot-instructions.md',
+      '.config/opencode/AGENTS.md',
+      '.pi/agent/AGENTS.md',
+    ];
+
+    const claudeRule = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/git-workflow.md');
+    expect(claudeRule?.content).toContain(rule);
+
+    for (const key of instructionKeys) {
+      const entries = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === key);
+      expect(entries, `${key} should have generated mode entries`).toHaveLength(2);
+      for (const entry of entries) {
+        expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain(rule);
+      }
+    }
+  });
+
+  it('preseeds work continuity into every agent instruction surface', () => {
+    const instructionKeys = [
+      '.codex/AGENTS.md',
+      '.gemini/GEMINI.md',
+      '.copilot/copilot-instructions.md',
+      '.config/opencode/AGENTS.md',
+      '.pi/agent/AGENTS.md',
+    ];
+
+    const claudeRule = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/engineering-constitution.md');
+    expect(claudeRule?.content).toContain('## Work continuity');
+    expect(claudeRule?.content).toContain('Queue the new instruction');
+
+    for (const key of instructionKeys) {
+      const entries = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === key);
+      expect(entries, `${key} should have generated mode entries`).toHaveLength(2);
+      for (const entry of entries) {
+        expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('## Work continuity');
+        expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('Queue the new instruction');
+      }
     }
   });
 
@@ -1256,7 +1301,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     ))).toEqual(new Set(['pending-head', 'attempted-head']));
   });
 
-  it('REQ-AGENT-062: delivery drains acked pending heads even without an open current PR', () => {
+  it('REQ-AGENT-062: delivery drains idle heads only when no newer PR head is active', () => {
     expect(deliveryAnnouncementHeads({
       currentHead: undefined,
       pendingHeads: ['acked-head', 'unacked-head'],
@@ -1266,7 +1311,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       currentHead: 'current-head',
       pendingHeads: ['current-head', 'older-acked-head'],
       acked: (head) => head !== 'unacked-head',
-    })).toEqual(['current-head', 'older-acked-head']);
+    })).toEqual(['current-head']);
   });
 
   it('REQ-AGENT-062: shouldAttemptAnnouncement sends pending once, retries attempted only past the delay and under the cap, never terminal', () => {
@@ -1838,6 +1883,30 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(isResumedSession(true, 5)).toBe(false);
   });
 
+  it('REQ-MEM-002: Pi capture counter advances only after a capture note is written', () => {
+    const prompt = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/prompts/memory-agent-prompt.md');
+    expect(prompt, 'Pi memory capture prompt must be seeded').toBeTruthy();
+    const step1 = prompt!.content.slice(prompt!.content.indexOf('### 1.'), prompt!.content.indexOf('### 2.'));
+    const noteExists = prompt!.content.indexOf('After the markdown capture file exists');
+    const counterWrite = prompt!.content.indexOf('printf \'%s\' "<promptCount>" > "<counterFile>"');
+    const varsDelete = prompt!.content.indexOf('rm -f "<VARS_FILE>"', counterWrite);
+
+    expect(step1).not.toContain('rm -f "<VARS_FILE>"');
+    expect(noteExists).toBeGreaterThan(0);
+    expect(counterWrite).toBeGreaterThan(noteExists);
+    expect(varsDelete).toBeGreaterThan(counterWrite);
+    expect(MEMORY_CAPTURE_PENDING_TTL_MS).toBe(30 * 60 * 1000);
+  });
+
+  it('REQ-MEM-014: Pi memory-capture is configured as a background subagent', () => {
+    const agent = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/agents/memory-capture.md');
+    expect(agent, 'Pi memory-capture agent must be seeded').toBeTruthy();
+    const frontmatter = agent!.content.slice(0, agent!.content.indexOf('---', 4));
+    expect(frontmatter).toContain('run_in_background: true');
+    expect(agent!.content).not.toContain('delete the `.vars` file (dedup gate)');
+    expect(agent!.content).toContain('pending-capture lock');
+  });
+
   it('REQ-VAULT-003: Pi vars/in-flight sentinels are namespaced so the Claude vault-monitor daemon cannot wedge Pi', () => {
     const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
     // The entrypoint vault-monitor daemon (Claude's producer) writes the
@@ -1990,6 +2059,17 @@ describe('REQ-AGENT-031 consult-llm invocation behaviour (5-choice model dialog 
       expect(body, key).toMatch(/gemini-\*/);
       expect(body, key).toMatch(/gpt-\*/);
       expect(body.toLowerCase(), key).toContain('ignore any');
+    }
+  });
+
+  it('AC5: both skills forbid consult_llm without an explicit external-LLM request', () => {
+    for (const key of ['.claude/skills/consult-llm/SKILL.md', '.pi/agent/skills/consult-llm/SKILL.md']) {
+      const body = consultLlmSkill(key);
+      expect(body, key).toContain('Hard gate');
+      expect(body, key).toContain('explicitly asks to consult external LLMs');
+      expect(body, key).toContain('session start');
+      expect(body, key).toContain('CI fixes');
+      expect(body, key).toContain('If unsure, ask; do not call `consult_llm`.');
     }
   });
 
@@ -2178,9 +2258,10 @@ describe('Pi memory model-fidelity lever / REQ-MEM-014 AC5 (buildSpawnOptions ap
     }
   });
 
-  it('always carries the description and inheritContext:false base options', () => {
+  it('always carries the description, inheritContext:false, and background service options', () => {
     const opts = buildSpawnOptions('Capture resumed session memory', 'm');
     expect(opts.description).toBe('Capture resumed session memory');
     expect(opts.inheritContext).toBe(false);
+    expect(opts.foreground).toBe(false);
   });
 });

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
+import { createSignal, onCleanup, onMount } from 'solid-js';
+import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
 import TerminalGrid from '../../components/TerminalGrid';
 
 describe('TerminalGrid reusable pane layout', () => {
@@ -44,5 +45,34 @@ describe('TerminalGrid reusable pane layout', () => {
     expect(screen.getByTestId('session-session-a')).toBeInTheDocument();
     expect(screen.queryByTestId('session-session-b')).not.toBeInTheDocument();
     expect(screen.getByTestId('terminal-grid-empty-1')).toHaveAttribute('data-active', 'false');
+  });
+
+  it('REQ-TERM-011: disposes the old pane subtree when a slot receives a different pane id', async () => {
+    const [panes, setPanes] = createSignal([{ id: 'pane-a', data: { label: 'A' }, active: true }]);
+    const mounted: string[] = [];
+    const disposed: string[] = [];
+    const PaneProbe = (props: { id: string }) => {
+      onMount(() => mounted.push(props.id));
+      onCleanup(() => disposed.push(props.id));
+      return <div data-testid={`pane-content-${props.id}`} />;
+    };
+
+    render(() => (
+      <TerminalGrid
+        layout="2-split"
+        panes={panes()}
+        onPaneClick={vi.fn()}
+        renderPane={(pane) => <PaneProbe id={pane.id} />}
+      />
+    ));
+
+    expect(screen.getByTestId('pane-content-pane-a')).toBeInTheDocument();
+
+    setPanes([{ id: 'pane-b', data: { label: 'B' }, active: true }]);
+
+    await waitFor(() => expect(screen.getByTestId('pane-content-pane-b')).toBeInTheDocument());
+    expect(screen.queryByTestId('pane-content-pane-a')).not.toBeInTheDocument();
+    expect(mounted).toEqual(['pane-a', 'pane-b']);
+    expect(disposed).toEqual(['pane-a']);
   });
 });

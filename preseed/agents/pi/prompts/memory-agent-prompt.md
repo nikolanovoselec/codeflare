@@ -17,7 +17,8 @@ The Pi extension wrote a JSON file at the `VARS_FILE` path named in your
 spawn prompt. It contains exactly these fields - do NOT invent others:
 
 - `PROMPT_FILE`: path to this contract (already loaded).
-- `VARS_FILE`: path to the vars JSON (delete it in step 1).
+- `VARS_FILE`: path to the vars JSON (delete it only after the capture note is written and the counter is advanced).
+- `counterFile`: path to the prompt counter file. Write `promptCount` here only after the capture note is on disk.
 - `sessionId`: the session identifier; use verbatim in frontmatter.
 - `promptCount`: user-message count at capture time.
 - `captureTimestamp`: the wall-clock timestamp string, already resolved
@@ -47,20 +48,11 @@ You will also derive:
 
 ## Steps
 
-### 1. Read vars, then immediately delete vars (dedup gate)
+### 1. Read vars and keep them pending
 
-Read the `VARS_FILE` JSON to load every variable above. Then IMMEDIATELY
-delete it - this is the deduplication gate. The Pi extension checks for
-this file's absence before spawning again; deleting it now prevents a
-duplicate capture if another prompt lands while you run.
+Read the `VARS_FILE` JSON to load every variable above. Do NOT delete it yet. The Pi extension treats this file as the pending-capture lock: while it exists, no duplicate memory-capture agent is spawned. If this agent is stopped before writing the note, the vars file remains and the extension can retry later instead of advancing the counter and skipping the window.
 
-```bash
-rm -f "<VARS_FILE>"
-```
-
-Do NOT touch the message counter under `/tmp/.memory-counter/`. The Pi
-extension owns and already advanced it before spawning you; rewriting it
-here would move it backwards and make the next capture mis-count.
+Do NOT touch the message counter under `/tmp/.memory-counter/` yet. The counter advances only after the capture note is written successfully.
 
 ### 2. Stage the transcript and chunk it
 
@@ -207,6 +199,17 @@ Coverage check before saving: count chunks processed vs major arcs named
 in `## Context`. If a chunk contributed zero bullets to the final note,
 that is almost always recency bias creeping back - go back and add at
 least one bullet from that chunk.
+
+### 4.5. Advance the counter and clear the pending marker
+
+After the markdown capture file exists under `/home/user/Vault/Raw/Sessions/<captureFilename>`, write `promptCount` to `counterFile`, then delete `VARS_FILE`:
+
+```bash
+printf '%s' "<promptCount>" > "<counterFile>"
+rm -f "<VARS_FILE>"
+```
+
+This order is mandatory: a stopped or failed capture must leave the old counter intact so the next trigger retries the same window instead of skipping it.
 
 ### 5. Enrich the vault graph (best effort, never blocks)
 

@@ -387,12 +387,13 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 **Acceptance Criteria:**
 
 1. Dashboard view opens zero terminal WebSocket connections even when sessions are running or initializing. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::setDashboardWorkspace -->
-2. Single-session view opens exactly one terminal WebSocket for the visible session pane. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::setSingleSessionWorkspace -->
+2. Single-session view opens terminal WebSockets only for the visible session surface: one active tab in tabbed mode, or each visible tiled tab when tiling is enabled. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::setSingleSessionWorkspace --> <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea -->
 3. Running sessions outside the visible workspace have no connected terminal side effects. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea -->
 4. Workspace switches reconcile WebSocket ownership to the current visible pane set. <!-- @impl: web-ui/src/hooks/useTerminal.ts::canConnect -->
 5. Session indicators distinguish container-running state from visible-terminal-connected state. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::dotVariant -->
-6. Browser visibility return reconnects only panes that are visible in the current workspace. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
+6. Browser visibility return reconnects only panes or tiled tabs that are visible in the current workspace. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 7. A focused visible terminal claims resize authority before sending its current dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::claimResizeAuthority -->
+8. URL detection is owned by the focused connected pane; cleanup from a previously focused pane cannot clear the current pane's detected URLs. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::startUrlDetection -->
 
 **Constraints:**
 
@@ -403,7 +404,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-003](#req-term-003-automatic-websocket-reconnection-on-transient-failures)
 
-**Verification:** [Automated tests](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [Hook tests](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [Terminal store tests](../../web-ui/src/__tests__/stores/terminal.test.ts)
+**Verification:** [Automated tests](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [Hook tests](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [Terminal store tests](../../web-ui/src/__tests__/stores/terminal.test.ts), [Layout tests](../../web-ui/src/__tests__/components/Layout.test.tsx), [URL detection tests](../../web-ui/src/__tests__/stores/terminal-url-detection.test.ts)
 
 **Status:** Implemented
 
@@ -417,7 +418,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (terminalWorkspaceStore describe -> desktop/tablet/mobile capacity + reconciliation -> AC1,2,5) -->
 <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (TerminalArea describe -> one connected pane per MultiView member + focus changes do not remount panes + workspace terminal id source of truth + no nested tabs -> AC4,5,6) -->
 <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard describe -> virtual MultiView never renders as a session card; icon-only dashboard action opens it without backend session ID -> AC3) -->
-<!-- @test: web-ui/src/__tests__/components/TerminalGrid.test.tsx (TerminalGrid describe -> reusable layout slots -> AC4) -->
+<!-- @test: web-ui/src/__tests__/components/TerminalGrid.test.tsx (TerminalGrid describe -> reusable layout slots and keyed pane-id subtree replacement -> AC4, AC5) -->
 ### REQ-TERM-012: MultiView virtual session workspace
 
 **Intent:** Users can open one virtual MultiView workspace that displays multiple existing sessions side by side without creating a backend session or changing the member sessions' lifecycle.

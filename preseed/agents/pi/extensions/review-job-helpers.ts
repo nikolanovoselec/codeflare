@@ -228,10 +228,8 @@ export function deliveryAnnouncementHeads(input: {
   pendingHeads: string[];
   acked: (head: string) => boolean;
 }): string[] {
-  const heads = new Set<string>();
-  if (input.currentHead && input.acked(input.currentHead)) heads.add(input.currentHead);
-  for (const head of input.pendingHeads) if (input.acked(head)) heads.add(head);
-  return [...heads];
+  if (input.currentHead) return input.acked(input.currentHead) ? [input.currentHead] : [];
+  return input.pendingHeads.filter((head) => input.acked(head));
 }
 
 export type AnnouncementAttemptInput = {

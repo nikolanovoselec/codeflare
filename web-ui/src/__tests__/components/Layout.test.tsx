@@ -92,6 +92,9 @@ let mockSessions: any[] = [];
 let mockActiveSessionId: string | null = null;
 let mockPreferences: Record<string, any> = {};
 let mockVisiblePanes: Array<{ sessionId: string; terminalId: string }> = [];
+let mockTerminalsForSession: any = null;
+let mockTilingForSession: any = null;
+let mockTabOrder: string[] = [];
 let mockActiveWorkspace: { kind: 'dashboard' } | { kind: 'session'; sessionId: string } | { kind: 'multiview'; id: 'multiview:1' } = { kind: 'dashboard' };
 let readSessionStoreVersion = () => 0;
 let bumpSessionStoreVersion = () => {};
@@ -118,7 +121,7 @@ vi.mock('../../stores/session', () => ({
     getInitProgressForSession: vi.fn(() => null),
     getMetricsForSession: vi.fn(() => null),
     stopAllPolling: vi.fn(),
-    getTerminalsForSession: vi.fn(() => null),
+    getTerminalsForSession: vi.fn(() => mockTerminalsForSession),
     initializeTerminalsForSession: vi.fn(),
     addTerminalTab: vi.fn(),
     removeTerminalTab: vi.fn(),
@@ -126,8 +129,8 @@ vi.mock('../../stores/session', () => ({
     cleanupTerminalsForSession: vi.fn(),
     reorderTerminalTabs: vi.fn(),
     setTilingLayout: vi.fn(),
-    getTilingForSession: vi.fn(() => null),
-    getTabOrder: vi.fn(() => []),
+    getTilingForSession: vi.fn(() => mockTilingForSession),
+    getTabOrder: vi.fn(() => mockTabOrder),
     renameSession: vi.fn(),
     loadPreferences: vi.fn(),
     updatePreferences: vi.fn(),
@@ -203,6 +206,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     mockActiveSessionId = null;
     mockPreferences = {};
     mockVisiblePanes = [];
+    mockTerminalsForSession = null;
+    mockTilingForSession = null;
+    mockTabOrder = [];
     mockActiveWorkspace = { kind: 'dashboard' };
     const [sessionStoreVersion, setSessionStoreVersion] = createSignal(0);
     readSessionStoreVersion = sessionStoreVersion;
@@ -875,6 +881,27 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
 
       expect(forceResetKeyboardState).toHaveBeenCalled();
       expect(reconnectOnVisibilityReturn).toHaveBeenCalledWith(undefined, ['sess1:2']);
+    });
+
+    it('includes every tiled terminal tab when reconnecting after visibility return', () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockActiveWorkspace = { kind: 'session', sessionId: 'sess1' };
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '2' }];
+      mockTerminalsForSession = { tabs: [{ id: '1' }, { id: '2' }, { id: '3' }], activeTabId: '2' };
+      mockTilingForSession = { enabled: true, layout: 'grid-2x2' };
+      mockTabOrder = ['1', '2', '3'];
+
+      render(() => <Layout />);
+
+      vi.mocked(reconnectOnVisibilityReturn).mockClear();
+
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      const keys = vi.mocked(reconnectOnVisibilityReturn).mock.calls.at(-1)?.[1] ?? [];
+      expect(keys).toEqual(expect.arrayContaining(['sess1:1', 'sess1:2', 'sess1:3']));
+      expect(keys).toHaveLength(3);
     });
 
     it('does NOT call forceResetKeyboardState when on dashboard', () => {

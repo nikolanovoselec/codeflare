@@ -240,7 +240,7 @@ function gitPushTargetFromWords(words: ShellCommand): GitPushCommandTarget {
 
   const args = git.slice(1);
   if (args.some((arg) => arg === "--dry-run" || arg === "--delete" || arg === "-n" || arg === "-d")) return { advancing: false };
-  if (args.length > 0 && args.every((arg) => arg === "--tags" || arg === "--follow-tags" || arg.startsWith("refs/tags/"))) return { advancing: false };
+  if (args.length > 0 && args.every((arg) => arg === "--tags" || arg.startsWith("refs/tags/"))) return { advancing: false };
 
   const positionals: string[] = [];
   for (let index = 0; index < args.length; index += 1) {

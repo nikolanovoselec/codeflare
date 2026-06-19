@@ -232,10 +232,17 @@ function adaptAgentFrontmatter(content, agentId) {
     newLines.push('extensions: true');
     newLines.push('skills: true');
     newLines.push('inherit_context: true');
-    newLines.push('run_in_background: false');
+    newLines.push(/^name:\s*memory-capture\s*$/m.test(frontmatter) ? 'run_in_background: true' : 'run_in_background: false');
   }
 
-  return `---\n${newLines.join('\n')}\n---\n${adaptPaths(body, agentId)}`;
+  let adaptedBody = adaptPaths(body, agentId);
+  if (agentId === 'pi' && /^name:\s*memory-capture\s*$/m.test(frontmatter)) {
+    adaptedBody = adaptedBody
+      .replace('The contract\'s first step is to delete the `.vars` file (dedup gate).', 'On Pi, the contract keeps the `.vars` file as the pending-capture lock until the note is written and the counter is advanced.')
+      .replace('`VARS_FILE`: path to the trigger marker at `/tmp/.memory-counter/<session_id>.vars` (delete first).', '`VARS_FILE`: path to the trigger marker at `/tmp/.memory-counter/<session_id>.vars` (cleared after the note is written and the counter is advanced).');
+  }
+
+  return `---\n${newLines.join('\n')}\n---\n${adaptedBody}`;
 }
 
 const PI_SDD_SKILLS = new Set([

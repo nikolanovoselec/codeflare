@@ -73,9 +73,10 @@ describe('isPrBoundaryTrigger', () => {
     expect(isPrBoundaryTrigger('git push origin --tags')).toBe(false);
     expect(isPrBoundaryTrigger('git push origin tag v1')).toBe(false);
     expect(isPrBoundaryTrigger('git push origin refs/tags/v1')).toBe(false);
-    // But a real push — including a branch+tags push or a force push — is still a boundary.
+    // But a real push — including a branch+tags push, follow-tags, or a force push — is still a boundary.
     expect(isPrBoundaryTrigger('git push origin main')).toBe(true);
     expect(isPrBoundaryTrigger('git push origin main --tags')).toBe(true);
+    expect(isPrBoundaryTrigger('git push --follow-tags')).toBe(true);
     expect(isPrBoundaryTrigger('git push --force origin main')).toBe(true);
   });
 });
@@ -93,6 +94,7 @@ describe('command target parsing for PR-boundary recovery (REQ-AGENT-063 / REQ-A
     expect(gitPushCommandTarget('git push --tags')).toEqual({ advancing: false });
     expect(gitPushCommandTarget('git push origin --tags')).toEqual({ advancing: false });
     expect(gitPushCommandTarget('git push origin tag v1')).toEqual({ advancing: false });
+    expect(gitPushCommandTarget('git push --follow-tags')).toEqual({ advancing: true, branch: undefined, source: undefined, targets: undefined });
   });
 
   it('extracts target selectors from the same protected-boundary shell segment', () => {

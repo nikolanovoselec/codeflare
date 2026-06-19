@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { buildSpawnOptions, captureTimestamp, compactMessages as compactMessagesHelper, isFirstMessage, isResumedSession, isVaultExcludedPath as isVaultExcludedRel, parseSessionMessages as parseSessionMessagesHelper, realUserPromptCount, sessionId as sessionIdHelper, shouldCapture, withCurrentPrompt } from "./memory-vault-helpers";
+import { MEMORY_CAPTURE_PENDING_TTL_MS, buildSpawnOptions, captureTimestamp, compactMessages as compactMessagesHelper, isFirstMessage, isResumedSession, isVaultExcludedPath as isVaultExcludedRel, parseSessionMessages as parseSessionMessagesHelper, realUserPromptCount, sessionId as sessionIdHelper, shouldCapture, withCurrentPrompt } from "./memory-vault-helpers";
 
 const USER_HOME = "/home/user";
 const VAULT_ROOT = join(USER_HOME, "Vault");
@@ -167,6 +167,7 @@ function captureVars(session: string, count: number, resumed: boolean, prompt: s
   writeFileSync(vars, JSON.stringify({
     PROMPT_FILE: MEMORY_PROMPT_FILE,
     VARS_FILE: vars,
+    counterFile: counterPath(session),
     sessionId: session,
     promptCount: count,
     captureTimestamp: ts,
@@ -176,6 +177,18 @@ function captureVars(session: string, count: number, resumed: boolean, prompt: s
     transcript,
   }, null, 2), "utf8");
   return vars;
+}
+
+function memoryVarsPending(session: string): boolean {
+  const vars = varsPath(session);
+  if (!existsSync(vars)) return false;
+  try {
+    if (Date.now() - statSync(vars).mtimeMs > MEMORY_CAPTURE_PENDING_TTL_MS) {
+      unlinkSync(vars);
+      return false;
+    }
+  } catch { /* keep the marker if we cannot prove it is stale */ }
+  return true;
 }
 
 function vaultVarsPending(): boolean {
@@ -230,6 +243,8 @@ export default function (pi: ExtensionAPI) {
     const currentCount = realUserPromptCount(messages);
     const tz = process.env.TZ || process.env.USER_TIMEZONE || undefined;
 
+    if (memoryVarsPending(id)) return;
+
     if (isFirstMessage(counterExists, currentCount)) {
       // Brand-new session: baseline only, exactly like Claude's missing-counter + CURRENT_COUNT==1 path.
       writeFileSync(path, String(currentCount), "utf8");
@@ -240,8 +255,6 @@ export default function (pi: ExtensionAPI) {
     if (isResumedSession(counterExists, currentCount)) {
       const vars = captureVars(id, currentCount, true, prompt, messages, tz);
       if (!vars) return;
-      // Advance counter before trigger emission, matching Claude's dedup contract.
-      writeFileSync(path, String(currentCount), "utf8");
       const p = `PROMPT_FILE=${MEMORY_PROMPT_FILE}\nVARS_FILE=${vars}\nResumed session detected. Capture from transcript start. Use captureFilename from vars for the output file.`;
       const spawned = spawn("memory-capture", p, "Capture resumed session memory", process.env.CODEFLARE_MEMORY_MODEL);
       if (!spawned) pi.sendUserMessage(`Agent({ subagent_type: "memory-capture", prompt: ${JSON.stringify(p)}, description: "Capture resumed session memory", run_in_background: true })`, { deliverAs: "followUp" });
@@ -253,8 +266,6 @@ export default function (pi: ExtensionAPI) {
 
     const vars = captureVars(id, currentCount, false, prompt, messages, tz);
     if (!vars) return;
-    // Advance counter before trigger emission, matching Claude's dedup contract.
-    writeFileSync(path, String(currentCount), "utf8");
     const p = `PROMPT_FILE=${MEMORY_PROMPT_FILE}\nVARS_FILE=${vars}\nRun the Pi memory-capture contract. Use captureFilename from vars for the output file. Write to /home/user/Vault/Raw/Sessions/.`;
     const spawned = spawn("memory-capture", p, "Capture session memory", process.env.CODEFLARE_MEMORY_MODEL);
     if (!spawned) pi.sendUserMessage(`Agent({ subagent_type: "memory-capture", prompt: ${JSON.stringify(p)}, description: "Capture session memory", run_in_background: true })`, { deliverAs: "followUp" });

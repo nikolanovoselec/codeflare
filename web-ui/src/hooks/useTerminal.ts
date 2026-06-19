@@ -437,7 +437,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     if ((!canConnect() || !shouldConnect) && cleanup) {
       cleanup();
       cleanup = undefined;
-      terminalStore.stopUrlDetection();
+      terminalStore.stopUrlDetection(props.sessionId, props.terminalId);
       return;
     }
 
@@ -446,7 +446,6 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       const terminals = sessionStore.getTerminalsForSession(props.sessionId);
       const tab = terminals?.tabs.find(t => t.id === props.terminalId);
       cleanup = terminalStore.connect(props.sessionId, props.terminalId, term, props.onError, tab?.manual);
-      terminalStore.startUrlDetection(props.sessionId, props.terminalId);
     }
   });
 
@@ -460,11 +459,15 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       return;
     }
     terminalStore.claimResizeAuthority(props.sessionId, props.terminalId);
+    terminalStore.startUrlDetection(props.sessionId, props.terminalId);
     if (!isTouchDevice()) focusedTerm.focus();
     if (focusedTerm.cols > 0 && focusedTerm.rows > 0) {
       terminalStore.resize(props.sessionId, props.terminalId, focusedTerm.cols, focusedTerm.rows);
     }
-    onCleanup(() => terminalStore.clearPendingResizeAuthority(props.sessionId, props.terminalId));
+    onCleanup(() => {
+      terminalStore.clearPendingResizeAuthority(props.sessionId, props.terminalId);
+      terminalStore.stopUrlDetection(props.sessionId, props.terminalId);
+    });
   });
 
   // Keyboard lifecycle for mobile

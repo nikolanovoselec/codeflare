@@ -255,7 +255,7 @@ describe('useTerminal hook', () => {
   });
 
   describe('URL detection lifecycle', () => {
-    it('should start URL detection after WebSocket connects', () => {
+    it('should start URL detection when the pane is focused', () => {
       // isSessionInitializing returns false so the connect effect fires immediately
       vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
 
@@ -284,7 +284,7 @@ describe('useTerminal hook', () => {
 
       dispose();
 
-      expect(terminalStore.stopUrlDetection).toHaveBeenCalled();
+      expect(terminalStore.stopUrlDetection).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId);
     });
   });
 
@@ -377,6 +377,7 @@ describe('useTerminal hook', () => {
       });
 
       expect(terminalStore.connect).toHaveBeenCalled();
+      expect(terminalStore.startUrlDetection).not.toHaveBeenCalled();
       expect(mockFocus).not.toHaveBeenCalled();
 
       dispose();
@@ -404,6 +405,7 @@ describe('useTerminal hook', () => {
       setFocused(true);
 
       await vi.waitFor(() => expect(terminalStore.claimResizeAuthority).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId));
+      expect(terminalStore.startUrlDetection).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId);
       expect(terminalStore.resize).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId, 80, 24);
       expect(mockFocus).toHaveBeenCalled();
 
@@ -429,6 +431,7 @@ describe('useTerminal hook', () => {
       setFocused(false);
 
       await vi.waitFor(() => expect(terminalStore.clearPendingResizeAuthority).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId));
+      expect(terminalStore.stopUrlDetection).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId);
 
       dispose();
     });

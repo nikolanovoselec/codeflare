@@ -1,6 +1,7 @@
 import { relative } from "node:path";
 
 export const MEMORY_EVERY_N_PROMPTS = 15;
+export const MEMORY_CAPTURE_PENDING_TTL_MS = 30 * 60 * 1000;
 
 // SINGLE source of truth for vault paths that are generated/agent-owned and must NOT
 // trigger vault-extract. Mirrors prompts/vault-extract-prompt.md output paths plus the
@@ -132,7 +133,7 @@ export function isFirstMessage(counterFileExists: boolean, messageCount: number)
 }
 
 export function buildSpawnOptions(description: string, model?: string): Record<string, unknown> {
-  const options: Record<string, unknown> = { description, inheritContext: false };
+  const options: Record<string, unknown> = { description, inheritContext: false, foreground: false };
   // Optional fidelity pin (no hardcoded model name): the model comes from
   // CODEFLARE_MEMORY_MODEL at the call site and is applied only when set, so the
   // runtime default model is used when the env var is absent.

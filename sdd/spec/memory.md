@@ -112,7 +112,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts -->
 <!-- @test: host/__tests__/memory-capture-hook.test.js (input gating + first-run baseline + AC6 resume detection + 15-msg threshold + counter advance + tilde expansion + output protocol → AC1-AC6; AC6 covered by `AC6 - missing counter + transcript with >1 prompt force-fires capture from line 1` and `AC6 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)`) -->
 <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (describe `memory-capture counter location (REQ-MEM-002 AC6)` → asserts obsolete .memory/counter bisync filter absent, obsolete mkdir absent, MEMCAP_COUNTER_DIR default = /tmp/.memory-counter) -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (isFirstMessage AC2 brand-new session + isResumedSession AC6 resume detection + realUserPromptCount / withCurrentPrompt synthetic-wrapper filtering + shouldCapture delta threshold -> AC2/AC3/AC4/AC6 Pi behavioral coverage) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (isFirstMessage AC2 brand-new session + isResumedSession AC6 resume detection + realUserPromptCount / withCurrentPrompt synthetic-wrapper filtering + shouldCapture delta threshold + Pi counter-after-note contract -> AC2/AC3/AC4/AC5/AC6 Pi behavioral coverage) -->
 
 **Intent:** Memory capture must fire at a regular interval to balance context freshness against overhead.
 
@@ -124,7 +124,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 2. On the first run for a session whose transcript contains exactly one real-user prompt (CURRENT_COUNT == 1), the hook treats this as a brand-new session: it initialises a baseline at the current transcript size, writes the counter, injects the first-message graph-query directive ([REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3), and exits without triggering capture. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh -->
 3. If the counter file exists and the delta since the last capture is less than 15 messages, the hook exits silently. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh -->
 4. When the delta reaches 15, the capture subagent is triggered. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh -->
-5. The counter is advanced before the trigger emits, preventing re-triggering on subsequent hook invocations within the same window. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh -->
+5. A triggered capture cannot permanently skip its prompt window: duplicate triggers are suppressed while capture is pending, and the Pi counter advances only after the capture note is written so a stopped capture retries instead of marking the window complete. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts --> <!-- @impl: preseed/agents/pi/prompts/memory-agent-prompt.md -->
 6. When the hook fires with no counter file and the transcript already contains more than one real-user prompt (CURRENT_COUNT > 1), it treats the session as resumed: it force-fires a capture covering the transcript from line 1 and re-emits the graph-query directive ([REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3). <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh -->
 
 **Constraints:**
@@ -132,6 +132,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 - The counter file MUST live under an ephemeral path (default `/tmp/.memory-counter/`) so that its presence/absence reliably encodes "fresh container instance vs. mid-session continuation". Persisting the counter under `$HOME` or any R2-synced path would defeat resume detection.
 - The two first-run sub-cases (brand-new vs. resumed) are distinguished entirely by `CURRENT_COUNT`: a value of 1 means the just-submitted prompt is the only one in the transcript (brand-new); a value greater than 1 means a prior session's prompts persisted in the transcript (resumed). No timestamps, mtimes, or external sentinels are involved.
 - The in-session `/compact` case (same container, same PID, counter survives) is not detected by this hook; the 15-prompt cadence catches up within one window, and the compressed summary left by `/compact` keeps the agent oriented in the meantime. Documented as a known limitation; revisit if observed to bite in practice.
+- On Pi, the `.vars` carrier file is also the pending-capture lock. The memory-capture subagent clears it only after writing the note and advancing the counter; a stale marker self-clears after the pending TTL so a killed capture retries rather than wedging forever.
 
 **Priority:** P0
 
@@ -381,7 +382,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 describe -> prompt files shipped advanced-only at deployed path, not inline -> AC1,AC2,AC3) -->
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-001: compactMessages prefilter (AD58) describe -> drops tool/thinking, keeps user+assistant -> AC4) -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory model-fidelity lever / REQ-MEM-014 AC5 describe -> spawn applies model only when set + no hardcoded default -> AC5) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory model-fidelity lever / REQ-MEM-014 AC5 describe -> spawn applies model only when set + no hardcoded default + background service option -> AC5) -->
 
 **Intent:** Pi's memory-capture and vault-extract subagents must follow the same full capture contract as the Claude memory plugin ([AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) parity) - chunk the transcript, accumulate per-chunk observations, synthesise a structured note, and cite REQ/ADR/SHA/PR identifiers verbatim - rather than the thin inline contract Pi previously carried. The transcript handed to the capture agent must be prefiltered to preserve the conversational arc, and the capture/extract agents must be able to run on a higher-fidelity model without a hardcoded model name.
 
@@ -393,7 +394,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 2. The Pi extension points its prompt-file constants at the deployed prompt files under `~/.pi/agent/prompts/` and no longer writes the prompt contracts inline. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::default -->
 3. The seed generator maps `prompts/` source files to the deployed `~/.pi/agent/prompts/` location, and both prompt files are delivered advanced-only via the Pi manifest. <!-- @impl: scripts/generate-agent-seed.mjs -->
 4. Before the transcript is handed to the capture agent, it is prefiltered to user and assistant text only - tool-use, tool-result, and thinking blocks are dropped - bounded to the last 200 turns at up to 8000 characters per turn, replacing the prior raw last-40-message JSON slice. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::compactMessages -->
-5. The capture/extract subagent spawn accepts an optional model argument sourced from the `CODEFLARE_MEMORY_MODEL` container environment variable; when unset, the runtime default model is used and no model name is hardcoded. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildSpawnOptions -->
+5. The capture/extract subagent spawn accepts an optional model argument sourced from the `CODEFLARE_MEMORY_MODEL` container environment variable; when unset, the runtime default model is used and no model name is hardcoded. The Pi memory-capture agent is configured to run in the background so main-session work cannot cancel it. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildSpawnOptions --> <!-- @impl: scripts/generate-agent-seed.mjs -->
 
 **Constraints:**
 

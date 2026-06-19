@@ -156,13 +156,13 @@ Stores: `terminal-workspace.ts` (active workspace and visible pane ownership: da
 
 #### Visible Terminal Workspace and MultiView
 
-The frontend implements [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace), and [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow) by separating **running**, **visible**, **connected**, and **focused** terminal state. `terminal-workspace.ts` is the source of truth for visible panes: Dashboard has zero panes, a real session has exactly one visible pane (its active terminal tab), and `MultiView #1` has one pane per selected member session. `TerminalArea.tsx` renders only those panes, so hidden running sessions do not mount xterm instances, open WebSockets, send resize frames, forward input, or participate in URL detection.
+The frontend implements [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace), and [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow) by separating **running**, **visible**, **connected**, and **focused** terminal state. `terminal-workspace.ts` is the source of truth for visible workspace panes: Dashboard has zero panes, a real session has one active workspace pane plus any currently visible tiled tabs, and `MultiView #1` has one pane per selected member session. `TerminalArea.tsx` renders only those visible surfaces, so hidden running sessions do not mount xterm instances, open WebSockets, send resize frames, forward input, or participate in URL detection. URL detection is focused-pane-owned, so cleanup from a previously focused pane cannot clear the current pane's detected URL.
 
 `MultiView #1` is a virtual frontend workspace, not a backend session. It is persisted only in browser storage, validates membership against currently running or initializing sessions, accepts two to four members on desktop, exactly two on tablet, and is hidden on mobile while preserving saved membership. It appears in the session switcher as `Launch MultiView`; on Dashboard it never renders as a session card and is reopened through the icon-only action beside `+ New Session` when saved panes exist. It is never sent to session lifecycle, quota, storage, metrics, or terminal-route APIs.
 
 #### Dashboard WS Disconnect Flow
 
-When user navigates to dashboard, `Layout.tsx` calls `scheduleDisconnect(DASHBOARD_WS_DISCONNECT_DELAY_MS)` (60s grace period). After the grace period, `disconnectAll()` closes all WS connections with reason `'dashboard-disconnect'`. Container can then idle to `sleepAfter` (user-configurable, default 30m for paying users, 15m for free tier). When user returns to terminal view, `cancelScheduledDisconnect()` cancels any pending timer, then visibility-return reconnect receives the exact visible pane keys from `terminal-workspace.ts` and reconnects only those panes.
+When user navigates to dashboard, `Layout.tsx` calls `scheduleDisconnect(DASHBOARD_WS_DISCONNECT_DELAY_MS)` (60s grace period). After the grace period, `disconnectAll()` closes all WS connections with reason `'dashboard-disconnect'`. Container can then idle to `sleepAfter` (user-configurable, default 30m for paying users, 15m for free tier). When user returns to terminal view, `cancelScheduledDisconnect()` cancels any pending timer, then visibility-return reconnect receives the exact visible terminal keys: current workspace panes plus visible tiled tabs for the active single-session workspace.
 
 **Tab Visibility Auto-Refresh:** `Layout.tsx` listens for `visibilitychange` events. When the tab returns from background (mobile browser tab switch, screen off/on), it auto-refreshes session statuses and storage listing. This prevents stale "Failed to fetch" errors that appear when background tabs have their network requests aborted by the browser. Storage refresh is silent (no loading spinner) to avoid UI flicker.
 
@@ -188,7 +188,7 @@ sequenceDiagram
     Note over TS: Status: gray -> green (reconnected)
 ```
 
-**Source:** `Layout` passes `terminalWorkspaceStore.getVisiblePanes()` keys into `reconnectDisconnectedTerminals()`, which filters reconnects to that set. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/stores/terminal.ts::reconnectDisconnectedTerminals -->
+**Source:** `Layout` passes visible terminal keys into `reconnectDisconnectedTerminals()`, which filters reconnects to that set. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/stores/terminal.ts::reconnectDisconnectedTerminals -->
 
 #### Three-Color Session Status
 

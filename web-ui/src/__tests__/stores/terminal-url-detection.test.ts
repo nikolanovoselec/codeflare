@@ -94,6 +94,45 @@ describe('terminal-url-detection / REQ-AGENT-013 (browser shim for OAuth)', () =
     expect(setNormalUrl).toHaveBeenCalledWith(null);
   });
 
+  it('keeps the focused pane scanner when an older pane cleans up', () => {
+    const scanned: string[] = [];
+    const setAuthUrl = vi.fn();
+    const setNormalUrl = vi.fn();
+
+    const focusedTerminal = {
+      cols: 80,
+      rows: 24,
+      buffer: {
+        active: {
+          length: 1,
+          viewportY: 0,
+          getLine: () => ({ isWrapped: false, translateToString: () => 'https://console.anthropic.com/login' }),
+        },
+      },
+    } as unknown as Terminal;
+
+    registerUrlDetectionDeps(
+      (sessionId: string, terminalId: string) => {
+        scanned.push(`${sessionId}:${terminalId}`);
+        return sessionId === 'session-b' && terminalId === '1' ? focusedTerminal : undefined;
+      },
+      setAuthUrl,
+      setNormalUrl,
+    );
+
+    startUrlDetection('session-a', '1');
+    startUrlDetection('session-b', '1');
+    setAuthUrl.mockClear();
+    setNormalUrl.mockClear();
+    stopUrlDetection('session-a', '1');
+
+    vi.advanceTimersByTime(60);
+
+    expect(scanned).toContain('session-b:1');
+    expect(scanned).not.toContain('session-a:1');
+    expect(setAuthUrl).toHaveBeenCalledWith(expect.stringContaining('console.anthropic.com'));
+  });
+
   it('joins a long OAuth URL whose tail wraps past the viewport edge (no truncation)', () => {
     // Regression: a real Antigravity Google sign-in URL printed by `agy` wraps
     // across ~13 narrow-mobile rows. With the on-screen keyboard open `rows` is

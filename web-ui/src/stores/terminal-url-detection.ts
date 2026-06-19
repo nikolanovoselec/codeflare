@@ -160,9 +160,17 @@ function setDetectedUrl(url: string | null): void {
 }
 
 let urlDetectionInterval: ReturnType<typeof setInterval> | null = null;
+let urlDetectionOwner: string | null = null;
+
+function ownerKey(sessionId: string, terminalId: string): string {
+  return `${sessionId}:${terminalId}`;
+}
 
 export function startUrlDetection(sessionId: string, terminalId: string): void {
+  const owner = ownerKey(sessionId, terminalId);
+  if (urlDetectionOwner === owner && urlDetectionInterval) return;
   stopUrlDetection();
+  urlDetectionOwner = owner;
   urlDetectionInterval = setInterval(() => {
     const term = getTerminalFn(sessionId, terminalId);
     const url = term ? getLastUrlFromBuffer(term) : null;
@@ -170,10 +178,12 @@ export function startUrlDetection(sessionId: string, terminalId: string): void {
   }, URL_CHECK_INTERVAL_MS);
 }
 
-export function stopUrlDetection(): void {
+export function stopUrlDetection(sessionId?: string, terminalId?: string): void {
+  if (sessionId && terminalId && urlDetectionOwner !== ownerKey(sessionId, terminalId)) return;
   if (urlDetectionInterval) {
     clearInterval(urlDetectionInterval);
     urlDetectionInterval = null;
   }
+  urlDetectionOwner = null;
   setDetectedUrl(null);
 }

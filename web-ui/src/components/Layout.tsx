@@ -353,6 +353,21 @@ const Layout: Component<LayoutProps> = (props) => {
     storageStore.fetchStats();
   });
 
+  const visibleTerminalKeys = createMemo(() => {
+    const keys = new Set(terminalWorkspaceStore.getVisiblePanes().map((pane) => `${pane.sessionId}:${pane.terminalId}`));
+    const activeWorkspace = terminalWorkspaceStore.getActiveWorkspace();
+    const sessionId = activeWorkspace.kind === 'session' ? activeWorkspace.sessionId : null;
+    const terminals = sessionId ? sessionStore.getTerminalsForSession(sessionId) : null;
+    const tiling = sessionId ? sessionStore.getTilingForSession(sessionId) : null;
+    if (sessionId && terminals && tiling?.enabled) {
+      const terminalIds = new Set(terminals.tabs.map((tab) => tab.id));
+      for (const tabId of sessionStore.getTabOrder(sessionId)) {
+        if (terminalIds.has(tabId)) keys.add(`${sessionId}:${tabId}`);
+      }
+    }
+    return [...keys];
+  });
+
   // Auto-refresh sessions + storage when tab returns from background
   const handleVisibilityChange = () => {
     if (!document.hidden) {
@@ -376,7 +391,7 @@ const Layout: Component<LayoutProps> = (props) => {
       scheduleDisconnect(DASHBOARD_WS_DISCONNECT_DELAY_MS);
     } else {
       cancelScheduledDisconnect();
-      reconnectDisconnectedTerminals(undefined, terminalWorkspaceStore.getVisiblePanes().map((pane) => `${pane.sessionId}:${pane.terminalId}`));
+      reconnectDisconnectedTerminals(undefined, visibleTerminalKeys());
     }
   });
 
@@ -402,7 +417,7 @@ const Layout: Component<LayoutProps> = (props) => {
               sessionStore.setActiveSession(sessionId);
               setViewState('terminal');
               setTimeout(() => terminalStore.triggerLayoutResize(), 50);
-              reconnectOnVisibilityReturn(undefined, terminalWorkspaceStore.getVisiblePanes().map((pane) => `${pane.sessionId}:${pane.terminalId}`));
+              reconnectOnVisibilityReturn(undefined, visibleTerminalKeys());
             }, 50);
             return;
           }
@@ -411,7 +426,7 @@ const Layout: Component<LayoutProps> = (props) => {
         setTimeout(() => {
           if (viewState() !== 'dashboard') enableVirtualKeyboardOverlay();
         }, 300);
-        reconnectOnVisibilityReturn(undefined, terminalWorkspaceStore.getVisiblePanes().map((pane) => `${pane.sessionId}:${pane.terminalId}`));
+        reconnectOnVisibilityReturn(undefined, visibleTerminalKeys());
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);

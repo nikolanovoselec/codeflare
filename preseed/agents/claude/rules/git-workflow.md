@@ -18,6 +18,7 @@
 
 ## Hard obligations
 
+- Do not push while a review is running, unless explicitly authorized by the user.
 - Do not auto-start CI monitoring after routine pushes. Invoke `ci-monitoring` only when the user explicitly asks, or when deploy/merge requires a fresh CI result.
 - Never deploy to integration until every required CI run is green.
 - If CI monitoring is required by an explicit user request or deploy/merge gate, skipping `ci-monitoring` is HIGH `ci-monitoring-skill-not-invoked`.

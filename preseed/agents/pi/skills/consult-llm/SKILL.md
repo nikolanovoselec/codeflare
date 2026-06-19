@@ -1,6 +1,6 @@
 ---
 name: consult-llm
-description: Consult external LLMs (OpenAI GPT, Google Gemini) for a second opinion via the consult_llm tool. Use when the user says "consult llms", "ask LLMs", "get a second opinion", "ask GPT", "ask ChatGPT", "ask Gemini", "consult Gemini", "what do other LLMs think".
+description: Use only when the user explicitly asks to consult an external LLM or names GPT, ChatGPT, Gemini, OpenAI, or consult_llm. Never use at session start, for routine planning/review/debugging, or for a generic "second opinion" unless the user names external LLMs.
 ---
 
 # Consult LLM (Pi): Query External AI Models
@@ -8,6 +8,16 @@ description: Consult external LLMs (OpenAI GPT, Google Gemini) for a second opin
 Query external LLM providers via the `consult_llm` tool (promoted to a first-class tool by the pi-mcp-adapter) and present their responses for comparison. Two providers are available: **OpenAI** (GPT) and **Google Gemini**.
 
 The server picks the backend automatically — for OpenAI it uses your **Codex subscription** when you are logged into Codex (no API spend), otherwise your OpenAI API key; for Gemini it uses your Gemini API key. Keys/login are managed in **Settings → LLM API Keys** (and `codex login`) and take effect on the next session start.
+
+## Hard gate — explicit user request only
+
+Do not call `consult_llm` unless the user's current request explicitly asks to consult external LLMs or names GPT, ChatGPT, Gemini, OpenAI, or `consult_llm` as the target. This skill is forbidden for:
+
+- session start, orientation, planning, routine code review/debugging, or CI fixes;
+- satisfying generic "ask advisor", "stronger model", or "second opinion" instructions when no external LLM is named;
+- proactive sanity checks chosen by the assistant.
+
+If the user asks for a generic second opinion, use the advisor workflow when available or ask whether they want external LLMs. If unsure, ask; do not call `consult_llm`.
 
 ## Step 1 — Choose the model
 

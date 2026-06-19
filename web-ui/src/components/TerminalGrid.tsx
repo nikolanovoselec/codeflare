@@ -66,9 +66,9 @@ const TerminalGrid = <T,>(props: TerminalGridProps<T>) => {
               />
             }
           >
-            {() => {
+            {(paneId) => {
               const pane = {
-                get id() { return slot().pane!.id; },
+                get id() { return paneId; },
                 get data() { return slot().pane!.data; },
                 get active() { return slot().pane!.active; },
               } as TerminalGridPane<T>;

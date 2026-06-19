@@ -153,7 +153,10 @@ Preseeded to
 agents that support skills). `consult-llm` is scoped to Claude + Pi
 only (both get the consult-llm MCP server — Claude via `~/.claude.json`,
 Pi via `~/.pi/agent/mcp.json` `directTools` — so the skill never
-references a tool the agent lacks); see [REQ-AGENT-031](../../sdd/spec/agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity).
+references a tool the agent lacks) and its skill hard-gates use to an
+explicit current user request naming external LLMs/GPT/ChatGPT/Gemini/OpenAI;
+it is not a session-start, CI-fix, routine-review, or generic-second-opinion
+tool; see [REQ-AGENT-031](../../sdd/spec/agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity).
 That same Pi `~/.pi/agent/mcp.json` entry also sets `lifecycle: "keep-alive"`
 so pi-mcp-adapter reconnects it instead of dropping the MCP footer to
 `0/1 … cached` after the default idle timeout.
@@ -182,8 +185,11 @@ extract repeated structures, separate content from components,
 behavioral tests only).
 `engineering-constitution` rule is advanced-only (the four engineering
 mandates - no overengineering, behavioral tests only, composable
-components, SDD+TDD enforced - plus the plan gate and done gate,
-[REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents)).
+components, SDD+TDD enforced - plus the work-continuity rule, plan gate,
+and done gate, [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents)).
+Work continuity means a new user message is queued while the active concrete
+step reaches a safe stopping point, unless the user explicitly says to stop,
+pause, or reprioritize.
 ECC-derived
 language rules in `{common,typescript,python,golang,swift}/` subdirs
 (advanced only). `common/coding-style.md`
@@ -431,7 +437,9 @@ All preseed content is deployed via the manifest pipeline:
   records even after `pending.json` is cleared. This is intentionally separate
   from lane reaping so a completed review can surface without waiting for the
   user's next prompt, while `/review-results` remains the manual fallback if
-  automatic delivery cannot prove the nonce landed. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::drainReviewAnnouncements --> <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::ensureReviewAnnouncementPending --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::deliveryAnnouncementHeads -->
+  automatic delivery cannot prove the nonce landed. When a newer PR head is the
+  active review window, delivery selects that head only so older completed results
+  do not appear in the newer review conversation. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::drainReviewAnnouncements --> <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::ensureReviewAnnouncementPending --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::deliveryAnnouncementHeads -->
 
   The disk-driven reaper that settles each lane is retry-aware: an attempt that
   ends with `willRetry: true` (pi auto-retrying the same child after a transient
@@ -487,9 +495,10 @@ All preseed content is deployed via the manifest pipeline:
   assumed delivered. Pending or unverified announcements are retried on live lifecycle
   ticks, with retry delay and attempt caps. The drain reads non-terminal announcement
   records for remembered/active review repos after the review window has been cleared,
-  and drains acked heads even if the PR was merged or closed before the next idle tick.
-  A completed review therefore cannot stay hidden merely because there is no longer a
-  live `sdd-review-pending.json` window or open PR.
+  and drains acked heads only when there is no newer current review head. A completed
+  review therefore cannot stay hidden merely because there is no longer a live
+  `sdd-review-pending.json` window or open PR, but stale older-head results do not
+  appear while a newer review is active.
 
   A completed review whose summary is not yet delivered shows a persistent
   `results ready (not shown) — /review-results` footer status. The `/review-results`
@@ -512,7 +521,7 @@ All preseed content is deployed via the manifest pipeline:
   An announcement that exhausts its capped retry window without its nonce appearing
   is marked failed and points the user at `/review-results`. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC8.
+  AC7.
 
   The autofix request still uses `triggerTurn`/`followUp` because it intentionally
   triggers a fix turn. Its prompt now carries the user's no-push constraint through:
@@ -547,11 +556,16 @@ All preseed content is deployed via the manifest pipeline:
   user prompts (synthetic `<task-notification>` / command wrappers are
   ignored), and prefilters to user/assistant text (dropping tool and
   thinking blocks) before spawning the capture subagent once the delta
-  since the last capture reaches 15 real user prompts (`delta >= 15`,
+  since the last successful capture reaches 15 real user prompts (`delta >= 15`,
   [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages)); an
   empty resolved transcript skips capture instead of writing a hollow note.
-  A missing `/tmp` counter with more than one real user prompt force-fires
-  resumed-session capture, matching Claude. Vault indexing uses the shared
+  The pending `.vars` carrier stays on disk while the background memory-capture
+  subagent runs, so Pi does not spawn duplicates; the subagent writes the prompt
+  counter only after the Vault note exists, then clears `.vars`. A stale `.vars`
+  marker self-clears after the pending TTL, so a stopped capture retries instead
+  of permanently skipping the prompt window. A missing `/tmp` counter with more
+  than one real user prompt force-fires resumed-session capture, matching Claude.
+  Vault indexing uses the shared
   `vault-extract.last` high-water marker
   ([REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session)) and excludes `Raw/Sessions/`,
   `graphify-out/`, `.silverbullet/`, and the four preseed root pages, so the
@@ -566,7 +580,9 @@ All preseed content is deployed via the manifest pipeline:
 
 The generator produces adapted config files for all supported agents
 from CC's preseed as single source of truth. No duplicate preseed
-files exist on disk.
+files exist on disk. Shared operational rules in the Claude rule tree fan out to
+every agent instruction surface; the git workflow rule includes the review gate:
+Do not push while a review is running unless the user explicitly authorizes it.
 
 **Supported agents and their config locations:**
 
@@ -883,7 +899,7 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Its transcript-based trigger surface is `git push`, `gh pr merge`, and protected-base `gh pr edit --base main|master`; `git-push-review-reminder.sh` handles the in-turn reminder path for `git push`, `gh pr create`, and protected-base `gh pr edit`.
 
-Pi native enforcement covers the wider local command set (`git push`, `git -C <repo> push`, command-local `cd <repo>` prefixes, `gh pr create`, protected-base `gh pr edit`, `gh pr merge`, `gh pr update-branch`, and `gh repo sync`) and ignores metadata-only PR commands. Passive lifecycle events never create a review window solely because the current branch already has an open protected-base PR. All surfaces enforce only when the open PR targets `main` or `master`; intermediate-branch PRs are deferred until their PR-to-`main` opens.
+Pi native enforcement covers the wider local command set (`git push`, `git push --follow-tags`, `git -C <repo> push`, command-local `cd <repo>` prefixes, `gh pr create`, protected-base `gh pr edit`, `gh pr merge`, `gh pr update-branch`, and `gh repo sync`) and ignores metadata-only PR commands. Passive lifecycle events never create a review window solely because the current branch already has an open protected-base PR. All surfaces enforce only when the open PR targets `main` or `master`; intermediate-branch PRs are deferred until their PR-to-`main` opens.
 
 On Pi's boundary fast path, shell start-args are captured on both the `tool_call` and `tool_execution_start` events, keyed by the same tool id. Same-tool PR-boundary commands are remembered only when they are actual triggers and are recovered at `tool_result` if the successful end event loses command text.
 

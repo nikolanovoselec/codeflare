@@ -35,6 +35,14 @@ use judgment.)
    piece) until the REQ is honestly `Implemented`. See [[spec-discipline]],
    [[tdd-discipline]], [[documentation-discipline]].
 
+## Work continuity
+
+When a new user message arrives while you are mid-task, do not abandon or switch away from
+the active task just because the new message exists. Queue the new instruction mentally,
+finish the current concrete step to a safe stopping point, then handle the new request in
+order. If the new message explicitly says to stop, pause, or reprioritize, obey it; otherwise
+complete what you were doing first.
+
 ## Hard gates
 
 - **Plan gate (every plan / ExitPlanMode).** A plan MUST contain an explicit
