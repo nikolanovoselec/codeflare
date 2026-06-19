@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-06-19
 
+- **Review delivery drains on message end** ([REQ-AGENT-062](agents.md#req-agent-062-pi-pr-boundary-review-result-delivery); stays Implemented). Pending review-summary and autofix announcements now also drain on Pi `message_end`, in addition to existing turn/reaper triggers, so completed review results do not wait for a later user interruption before the delivery retry path runs. AC2 was reworded to state the user-visible delivery guarantee without embedding the storage mechanism. **Status:** REQ-AGENT-062 stays Implemented.
+
 - **CI monitoring default changed to background-agent always-on** ([REQ-AGENT-021](agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability); stays Implemented). After any CI-producing push, agents must start `ci-monitoring` in a backgrounded agent unless the user explicitly says to skip it for that push. The backgrounded agent monitors and reports success, failure, or timeout back to the main session; it does not fix, commit, or push, and the main session never blocks on CI. **Status:** REQ-AGENT-021 stays Implemented.
 
 - **Review summary delivery proof tightened** ([REQ-AGENT-062](agents.md#req-agent-062-pi-pr-boundary-review-result-delivery); stays Implemented). A review summary/autofix announcement is now considered delivered only when the session transcript contains the expected persisted custom-message entry for that nonce. Tool output, event logs, or assistant reasoning text cannot satisfy delivery, so undelivered summaries remain retryable or visible via `/review-results`. **Status:** REQ-AGENT-062 stays Implemented.

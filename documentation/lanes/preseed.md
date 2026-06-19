@@ -496,8 +496,8 @@ All preseed content is deployed via the manifest pipeline:
 
   Each summary/autofix message embeds a nonce and is marked delivered only when that
   nonce is later found in the session transcript. A `sendMessage` return is never
-  assumed delivered. Pending or unverified announcements are retried on live lifecycle
-  ticks, with retry delay and attempt caps.
+  assumed delivered. Pending or unverified announcements are retried on message-end,
+  turn, and reaper lifecycle ticks, with retry delay and attempt caps.
 
   The drain reads non-terminal announcement records for remembered/active review repos
   after the review window has been cleared, and drains acked heads only when there is no
@@ -515,8 +515,8 @@ All preseed content is deployed via the manifest pipeline:
 
   The summary itself is sent with plain `pi.sendMessage` and no `triggerTurn` /
   `deliverAs`, using the same synchronous append path as `/review-results`. That send
-  may run from an idle reaper tick without a user-turn context, but still defers while
-  the agent is mid-turn. Implements
+  may run from a message-end or idle reaper tick without a user-turn context, but still
+  defers while the agent is mid-turn. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
   AC6.
 

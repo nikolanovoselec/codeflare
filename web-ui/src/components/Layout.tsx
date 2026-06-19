@@ -364,11 +364,12 @@ const Layout: Component<LayoutProps> = (props) => {
     const sessionId = activeWorkspace && activeWorkspace.kind === 'session' ? activeWorkspace.sessionId : null;
     const terminals = sessionId ? sessionStore.getTerminalsForSession(sessionId) : null;
     const tiling = sessionId ? sessionStore.getTilingForSession(sessionId) : null;
-    if (sessionId && terminals && tiling?.enabled) {
+    if (sessionId && terminals && tiling && tiling.enabled) {
+      const layout = tiling.layout;
       const terminalIds = new Set(terminals.tabs.map((tab) => tab.id));
       return sessionStore.getTabOrder(sessionId)
         .filter((tabId) => terminalIds.has(tabId))
-        .slice(0, tiledSlotCount(tiling.layout))
+        .slice(0, tiledSlotCount(layout))
         .map((tabId) => `${sessionId}:${tabId}`);
     }
     return terminalWorkspaceStore.getVisiblePanes().map((pane) => `${pane.sessionId}:${pane.terminalId}`);

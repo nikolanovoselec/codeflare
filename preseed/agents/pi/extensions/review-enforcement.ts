@@ -2197,6 +2197,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("resources_discover", onUiRefresh);
   pi.on("turn_start", onUiRefresh);
   pi.on("turn_end", onUiRefresh);
+  pi.on("message_end", onUiRefresh);
 
   // Seed toolStartArgs from BOTH tool_call and tool_execution_start (keyed by tool id). The command is
   // recovered at tool_result via withStartArgs; if ONLY tool_execution_start seeded the cache and that
