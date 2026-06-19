@@ -110,9 +110,9 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 ### REQ-MEM-002: Capture triggers every 15 user messages
 
 <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts -->
-<!-- @test: host/__tests__/memory-capture-hook.test.js (input gating + first-run baseline + AC6 resume detection + 15-msg threshold + counter advance + tilde expansion + output protocol → AC1-AC6; AC6 covered by `AC6 - missing counter + transcript with >1 prompt force-fires capture from line 1` and `AC6 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)`) -->
-<!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (describe `memory-capture counter location (REQ-MEM-002 AC6)` → asserts obsolete .memory/counter bisync filter absent, obsolete mkdir absent, MEMCAP_COUNTER_DIR default = /tmp/.memory-counter) -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (isFirstMessage AC2 brand-new session + isResumedSession AC6 resume detection + realUserPromptCount / withCurrentPrompt synthetic-wrapper filtering + shouldCapture delta threshold + Pi counter-after-note contract -> AC2/AC3/AC4/AC5/AC6 Pi behavioral coverage) -->
+<!-- @test: host/__tests__/memory-capture-hook.test.js (input gating + first-run baseline + AC7 resume detection + 15-msg threshold + counter advance + tilde expansion + output protocol → AC1-AC4/AC7; AC7 covered by `AC7 - missing counter + transcript with >1 prompt force-fires capture from line 1` and `AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)`) -->
+<!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (describe `memory-capture counter location (REQ-MEM-002 AC7)` → asserts obsolete .memory/counter bisync filter absent, obsolete mkdir absent, MEMCAP_COUNTER_DIR default = /tmp/.memory-counter) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (isFirstMessage AC2 brand-new session + isResumedSession AC7 resume detection + realUserPromptCount / withCurrentPrompt synthetic-wrapper filtering + shouldCapture delta threshold + Pi counter-after-note contract -> AC2/AC3/AC4/AC5/AC6/AC7 Pi behavioral coverage) -->
 
 **Intent:** Memory capture must fire at a regular interval to balance context freshness against overhead.
 
@@ -383,7 +383,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 describe -> prompt files shipped advanced-only at deployed path, not inline -> AC1,AC2,AC3) -->
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-001: compactMessages prefilter (AD58) describe -> drops tool/thinking, keeps user+assistant -> AC4) -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory model-fidelity lever / REQ-MEM-014 AC5 describe -> spawn applies model only when set + no hardcoded default + background service option -> AC5) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory model-fidelity lever / REQ-MEM-014 AC5/AC6 describe -> spawn applies model only when set + no hardcoded default + background service option -> AC5/AC6) -->
 
 **Intent:** Pi's memory-capture and vault-extract subagents must follow the same full capture contract as the Claude memory plugin ([AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) parity) - chunk the transcript, accumulate per-chunk observations, synthesise a structured note, and cite REQ/ADR/SHA/PR identifiers verbatim - rather than the thin inline contract Pi previously carried. The transcript handed to the capture agent must be prefiltered to preserve the conversational arc, and the capture/extract agents must be able to run on a higher-fidelity model without a hardcoded model name.
 

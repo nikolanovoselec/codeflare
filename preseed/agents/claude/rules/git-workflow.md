@@ -16,6 +16,12 @@
 - **Vibe-coding** (no `sdd/`): `git push` + `gh pr create` proceed with NO review agents.
 - **SDD mode** (`sdd/` + `sdd/README.md`): review agents fire only on PR-boundary events targeting `main`/`master`. PRs into integration branches (`develop`, `staging`) defer until the integration→main PR opens.
 
+## Review push gate
+
+Do not push while a PR-boundary review is running, pending, missing, stale, or otherwise
+incomplete for the current head unless the user explicitly authorizes pushing despite that
+active or incomplete review.
+
 ## Hard obligations
 
 - Do not push while a review is running, unless explicitly authorized by the user.

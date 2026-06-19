@@ -226,7 +226,7 @@ Multi-agent support, preseed system, and session modes.
 4. The generator is manifest-driven; files not in the manifest are ignored.
 5. No duplicate preseed source files exist on disk.
 6. The generator produces output for all supported agents (Claude Code as the source-of-truth lane plus adapted lanes for Codex, Copilot, OpenCode, Antigravity, and Pi).
-7. Shared operational rules, including git review-push gating and engineering work-continuity, are present in their Claude source rules and every adapted agent instruction file. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Hard obligations --> <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Work continuity --> <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Review push gate --> <!-- @impl: scripts/generate-agent-seed.mjs::renderInstructionsFile --> <!-- @impl: src/lib/agent-seed.generated.ts::AGENTS_SEEDED_CONFIGS --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (preseeds running-review push gate + work continuity/review push gate -> AC7) -->
+7. Shared operational rules, including git review-push gating and engineering work-continuity, are present in their Claude source rules and every adapted agent instruction file. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Review push gate --> <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Work continuity --> <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Review push gate --> <!-- @impl: scripts/generate-agent-seed.mjs::renderInstructionsFile --> <!-- @impl: src/lib/agent-seed.generated.ts::AGENTS_SEEDED_CONFIGS --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (preseeds running-review push gate + work continuity/review push gate -> AC7) -->
 
 **Constraints:**
 
@@ -2048,7 +2048,7 @@ None.
 
 <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md -->
 <!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/066 consult-llm invocation behaviour describe -> AC1..AC5) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour describe -> AC1..AC5) -->
 
 **Intent:** consult-llm must only run when the user explicitly asks for external LLM input, and model selection must be explicit without leaking provider keys.
 

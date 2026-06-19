@@ -26,7 +26,7 @@ import {
   getLastUrlFromBuffer,
 } from '../../stores/terminal-url-detection';
 
-describe('terminal-url-detection / REQ-AGENT-013 (browser shim for OAuth)', () => {
+describe('terminal-url-detection / REQ-AGENT-013 / REQ-TERM-015 (browser shim for OAuth)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -94,7 +94,7 @@ describe('terminal-url-detection / REQ-AGENT-013 (browser shim for OAuth)', () =
     expect(setNormalUrl).toHaveBeenCalledWith(null);
   });
 
-  it('keeps the focused pane scanner when an older pane cleans up', () => {
+  it('REQ-TERM-015: keeps the focused pane scanner when an older pane cleans up', () => {
     const scanned: string[] = [];
     const setAuthUrl = vi.fn();
     const setNormalUrl = vi.fn();

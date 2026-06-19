@@ -254,7 +254,7 @@ describe('useTerminal hook', () => {
     });
   });
 
-  describe('URL detection lifecycle', () => {
+  describe('URL detection lifecycle / REQ-TERM-015', () => {
     it('should start URL detection when the pane is focused', () => {
       // isSessionInitializing returns false so the connect effect fires immediately
       vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
@@ -273,7 +273,7 @@ describe('useTerminal hook', () => {
       dispose();
     });
 
-    it('should stop URL detection for only the unmounted pane on cleanup', () => {
+    it('REQ-TERM-015: stops URL detection for only the unmounted pane on cleanup', () => {
       vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
 
       const dispose = createRoot((dispose) => {

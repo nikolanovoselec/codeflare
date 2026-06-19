@@ -1698,7 +1698,7 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(compactMessages(messages)).not.toContain('task-notification');
   });
 
-  it('REQ-MEM-002 AC6: withCurrentPrompt counts the submitted prompt once for resume detection', () => {
+  it('REQ-MEM-002 AC7: withCurrentPrompt counts the submitted prompt once for resume detection', () => {
     const prior = [{ role: 'user', content: 'older prompt' }, { role: 'assistant', content: 'older answer' }];
     const withCurrent = withCurrentPrompt(prior, 'current prompt');
     expect(realUserPromptCount(withCurrent)).toBe(2);
@@ -1881,7 +1881,7 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(isFirstMessage(false, 5)).toBe(false);
   });
 
-  it('REQ-MEM-002 AC6: isResumedSession detects resumed session (no counter, count>1)', () => {
+  it('REQ-MEM-002 AC7: isResumedSession detects resumed session (no counter, count>1)', () => {
     expect(isResumedSession(false, 5)).toBe(true);
     expect(isResumedSession(false, 1)).toBe(false);
     expect(isResumedSession(true, 5)).toBe(false);
@@ -2245,7 +2245,7 @@ describe('Incremental review scope confinement / REQ-AGENT-040 AC8 (reviewer def
   });
 });
 
-describe('Pi memory model-fidelity lever / REQ-MEM-014 AC5 (buildSpawnOptions applies the model only when set; no hardcoded model)', () => {
+describe('Pi memory model-fidelity lever / REQ-MEM-014 AC5/AC6 (buildSpawnOptions applies the model only when set; no hardcoded model)', () => {
   it('applies the model option only when a model argument is provided', () => {
     expect(buildSpawnOptions('Capture session memory', 'higher-fidelity-model').model).toBe('higher-fidelity-model');
     expect('model' in buildSpawnOptions('Capture session memory', undefined)).toBe(false);

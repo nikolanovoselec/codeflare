@@ -180,14 +180,14 @@ is advanced-only and covers composable-UI standards: extract repeated structures
 separate content from components, and write behavioral tests only.
 
 `engineering-constitution` is advanced-only. It carries the four engineering
-mandates plus the work-continuity rule, review push gate, plan gate, and done
-gate ([REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents)).
+mandates plus the work-continuity rule, plan gate, and done gate
+([REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents)).
 Work continuity queues new messages until the active concrete step reaches a safe
 stopping point unless the user says to stop, pause, or reprioritize.
 
-The review push gate forbids pushing while a PR-boundary review is running,
-pending, missing, stale, or otherwise incomplete for the current head unless the
-user explicitly authorizes pushing despite that active or incomplete review.
+The stricter PR-boundary review push gate is present in default+advanced
+`git-workflow` and repeated in advanced `engineering-constitution`, so generated
+agent instructions receive it through [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) AC7 and advanced sessions also receive the constitution copy through [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents). Source: `preseed/agents/claude/rules/git-workflow.md::Review push gate` and `preseed/agents/claude/rules/engineering-constitution.md::Review push gate`.
 ECC-derived language rules in `{common,typescript,python,golang,swift}/` subdirs
 are advanced-only. `common/coding-style.md` covers shared style; per-language
 `security.md` files stand alone after `common/security.md` removal.
@@ -565,6 +565,7 @@ All preseed content is deployed via the manifest pipeline:
   does not spawn duplicates. The subagent writes the prompt counter only after
   the Vault note exists, then clears `.vars`; stale `.vars` markers self-clear
   after the pending TTL so stopped captures retry instead of skipping a window.
+  Implements [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages) AC5-AC6; source: `preseed/agents/pi/extensions/memory-vault.ts::memoryVarsPending`, `preseed/agents/pi/extensions/memory-vault.ts::captureVars`, and `preseed/agents/pi/prompts/memory-agent-prompt.md::Advance the counter and clear the pending marker`.
 
   A missing `/tmp` counter with more than one real user prompt force-fires
   resumed-session capture, matching Claude. Vault indexing uses the shared
@@ -587,8 +588,7 @@ files exist on disk.
 Shared operational rules in `preseed/agents/claude/rules/git-workflow.md` and
 `preseed/agents/claude/rules/engineering-constitution.md` fan out through
 `scripts/generate-agent-seed.mjs` to every agent instruction surface. The git
-workflow rule includes the review gate: do not push while a review is running
-unless the user explicitly authorizes it. Implements
+workflow rule includes the review gate: do not push while a PR-boundary review is running, pending, missing, stale, or otherwise incomplete for the current head unless the user explicitly authorizes it. Implements
 [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 AC7 and [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents).
 
