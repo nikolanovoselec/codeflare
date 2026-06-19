@@ -168,7 +168,10 @@ agent monitors the target HEAD and reports success, failure, or timeout to the m
 session; it does not fix, commit, or push ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
 AC1/AC3). The monitor evaluates every workflow row returned for the monitored HEAD
 and waits for a stable workflow/run-id fingerprint before success ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC2).
+AC2). When the background CI agent returns `CI_RESULT`, the main session must print
+that CI summary first, including the monitored head, run/log pointers when present,
+and planned next action, before inspecting logs or editing ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
+AC5).
 
 Monitoring and any other long-running wait/poll are background-only: no agent may
 keep the main session busy with `tail -f`, `gh run watch`, blocking `ctx_execute`,

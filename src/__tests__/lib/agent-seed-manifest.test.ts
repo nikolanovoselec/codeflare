@@ -218,7 +218,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('preseeds work continuity, review push gate, and review-result handoff into every agent instruction surface', () => {
+  it('preseeds work continuity, push gates, and result handoff gates into every agent instruction surface', () => {
     const instructionKeys = [
       '.codex/AGENTS.md',
       '.gemini/GEMINI.md',
@@ -233,6 +233,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(claudeRule?.content).toContain('## Review push gate');
     expect(claudeRule?.content).toContain('Do not push while a PR-boundary review is running');
     expect(markdownHeadings(claudeRule?.content ?? '')).toContain('Review-result handoff gate');
+    expect(markdownHeadings(claudeRule?.content ?? '')).toContain('CI-result handoff gate');
 
     for (const key of instructionKeys) {
       const entries = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === key);
@@ -243,6 +244,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
         expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('## Review push gate');
         expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('Do not push while a PR-boundary review is running');
         expect(markdownHeadings(entry.content), `${key} ${entry.modes.join(',')}`).toContain('Review-result handoff gate');
+        expect(markdownHeadings(entry.content), `${key} ${entry.modes.join(',')}`).toContain('CI-result handoff gate');
       }
     }
   });

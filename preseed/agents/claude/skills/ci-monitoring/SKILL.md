@@ -27,7 +27,7 @@ The main session launches the backgrounded agent, reports the tracking/log path,
 Use this task shape for the backgrounded CI agent:
 
 ```text
-Monitor CI for <repo> at HEAD <head> on branch <branch>. Never block the main session. Use one bounded workflow-agnostic monitor with a stable workflow/run-id fingerprint. If CI succeeds, report success. If CI fails, report the failed workflow/run id and failed-log command or log path to the main session. Do not fix, commit, or push. If CI times out or credentials are missing, report the blocker and stop.
+Monitor CI for <repo> at HEAD <head> on branch <branch>. Never block the main session. Use one bounded workflow-agnostic monitor with a stable workflow/run-id fingerprint. Your final result must start with exactly `CI_RESULT success`, `CI_RESULT failure`, or `CI_RESULT timeout`. Include the monitored head and log path every time. If CI fails, include the failed workflow name, run id, run URL, and failed-log command. Do not fix, commit, or push. If CI times out or credentials are missing, report the blocker and stop. Tell the main session that its first response after receiving your result must print the CI summary before analysis, tool calls, todo updates, fixes, deploys, or pushes.
 ```
 
 The backgrounded agent may use this detached monitor internally:
@@ -108,9 +108,9 @@ Only read the log after the background monitor has had time to finish, after the
 tail -80 /tmp/ci-monitor-<head>.log
 ```
 
-- `CI_RESULT success` and every workflow row returned for the monitored head is `completed/success` or `completed/skipped` across two consecutive checks with the same workflow/run-id fingerprint -> CI passed.
-- `CI_RESULT failure` -> the backgrounded agent reports the failed workflow/run id and failed-log command or log path to the main session. The main session decides and performs any fix/commit/push work.
-- `CI_RESULT timeout` -> stop and escalate to the user; do not claim green.
+- `CI_RESULT success` plus monitored head and log path, and every workflow row returned for that head is `completed/success` or `completed/skipped` across two consecutive checks with the same workflow/run-id fingerprint -> CI passed.
+- `CI_RESULT failure` plus monitored head, failed workflow name, run id, run URL, log path, and failed-log command -> CI failed. The main session must print that CI summary first, then inspect logs and decide/fix.
+- `CI_RESULT timeout` plus monitored head, log path, and blocker details -> stop and escalate to the user; do not claim green.
 
 Never claim CI is passing without seeing `CI_RESULT success` for the current HEAD.
 

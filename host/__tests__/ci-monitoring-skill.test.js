@@ -26,7 +26,7 @@ function launcherScript(repo) {
 
 function speedUp(script) {
   return script
-    .replace('deadline=$((SECONDS + 1800))', 'deadline=$((SECONDS + 1))')
+    .replace('deadline=$((SECONDS + 1800))', 'deadline=$((SECONDS + 2))')
     .replaceAll('sleep 15', 'sleep 0.02');
 }
 

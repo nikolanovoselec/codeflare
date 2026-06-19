@@ -59,6 +59,14 @@ severity counts, lane status, ranked findings, summary path, monitor transcript 
 available, and the planned next action. Only after that summary may you read files,
 triage findings, or edit code.
 
+## CI-result handoff gate
+
+When a background CI monitor completes with `CI_RESULT`, the very next assistant response
+MUST start by printing a user-facing CI summary before analysis, tool calls, todo updates,
+review-status checks, fixes, deploys, or pushes. Include the exact result line, monitored
+head, workflow/run id and URL when present, log path, failed-log command when present, and
+planned next action. Only after that summary may you inspect logs or edit code.
+
 ## Hard gates
 
 - **Plan gate (every plan / ExitPlanMode).** A plan MUST contain an explicit
