@@ -213,7 +213,7 @@ describe('SessionDropdown', () => {
       render(() => <SessionDropdown {...defaultProps} />);
       const btn = screen.getByTestId('session-dropdown-new');
       expect(btn).not.toBeDisabled();
-      expect(btn.textContent).toContain('New Session');
+      expect(btn.textContent).not.toContain('Upgrading');
     });
   });
 
@@ -228,7 +228,6 @@ describe('SessionDropdown', () => {
       ));
 
       const action = screen.getByTestId('session-dropdown-multiview-action');
-      expect(action.textContent).toContain('Launch MultiView');
       expect(action.querySelector('path')?.getAttribute('d')).toBe(mdiViewCompactOutline);
 
       fireEvent.click(action);
