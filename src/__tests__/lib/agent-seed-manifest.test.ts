@@ -38,6 +38,15 @@ function markdownHeadings(content: string): string[] {
   return [...content.matchAll(/^##+\s+(.+)$/gm)].map((match) => match[1]);
 }
 
+function markdownSection(content: string, heading: string): string {
+  const match = [...content.matchAll(/^##+\s+(.+)$/gm)].find((candidate) => candidate[1] === heading);
+  expect(match, `section ${heading}`).toBeTruthy();
+  const start = match?.index ?? 0;
+  const rest = content.slice(start);
+  const next = rest.slice(1).search(/\n##+\s+/);
+  return next === -1 ? rest : rest.slice(0, next + 1);
+}
+
 function fencedCodeBlocks(content: string, language: string): string[] {
   return [...content.matchAll(new RegExp(`^\`\`\`${language}\\n([\\s\\S]*?)\\n\`\`\``, 'gm'))].map((match) => match[1]);
 }
@@ -170,9 +179,18 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(claudeGitWorkflow?.content).not.toEqual(piGitWorkflow?.content);
     expect(claudeCiSkill?.content).not.toEqual(piCiSkill?.content);
 
-    expect(markdownHeadings(piGitWorkflow?.content ?? '')).toContain('Hard obligations');
-    expect(markdownHeadings(claudeGitWorkflow?.content ?? '')).toContain('Hard obligations');
+    const piHardObligations = markdownSection(piGitWorkflow?.content ?? '', 'Hard obligations');
+    expect(piHardObligations).toContain('After any push that can produce CI');
+    expect(piHardObligations).toContain('CI monitoring must run in a backgrounded agent/subagent');
+    expect(piHardObligations).toContain('ci-monitoring-skill-not-invoked');
+    const claudeHardObligations = markdownSection(claudeGitWorkflow?.content ?? '', 'Hard obligations');
+    expect(claudeHardObligations).toContain('Do not auto-start CI monitoring after routine pushes.');
+    expect(claudeHardObligations).toContain('Invoke `ci-monitoring` only when the user explicitly asks');
+    expect(claudeGitWorkflow?.content).not.toContain('After any push that can produce CI');
+
     const piMonitorScript = fencedCodeBlocks(piCiSkill?.content ?? '', 'bash').join('\n');
+    expect(piMonitorScript.split('\n')).toContain('  if current_head=$(git rev-parse "refs/heads/$branch" 2>/dev/null) && [ -n "$current_head" ] && [ "$current_head" != "$head" ]; then');
+    expect(piMonitorScript).toMatch(/CI_RESULT timeout superseded head=\$head current_head=\$current_head branch=\$branch/);
     expect(piMonitorScript.split('\n')).toContain('  if ! gh run list --commit "$head" --limit 24 \\');
     expect(piMonitorScript).toMatch(/CI_RESULT timeout no_workflows_for_head=\$head/);
     expect(piMonitorScript).toMatch(/CI_RESULT timeout gh_unavailable_or_auth_failed head=\$head/);
@@ -187,7 +205,9 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     const piInstructionEntries = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === '.pi/agent/AGENTS.md');
     expect(piInstructionEntries.map((entry) => entry.modes[0]).sort()).toEqual(['advanced', 'default']);
     for (const entry of piInstructionEntries) {
-      expect(markdownHeadings(entry.content), `Pi instructions ${entry.modes.join(',')} include git workflow`).toContain('Git Workflow');
+      const gitWorkflow = markdownSection(entry.content, 'Git Workflow');
+      expect(gitWorkflow).toContain('After any push that can produce CI');
+      expect(gitWorkflow).toContain('ci-monitoring-skill-not-invoked');
     }
   });
 
@@ -219,6 +239,17 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
           'Review-result handoff gate',
           'CI-result handoff gate',
         ]));
+        const reviewGate = markdownSection(entry.content, 'Review-result handoff gate');
+        expect(reviewGate).toContain('REVIEW_RESULT');
+        expect(reviewGate).toContain('severity counts');
+        expect(reviewGate).toContain('summary path');
+        expect(reviewGate).toContain('planned next action');
+        const ciGate = markdownSection(entry.content, 'CI-result handoff gate');
+        expect(ciGate).toContain('CI_RESULT');
+        expect(ciGate).toContain('monitored head');
+        expect(ciGate).toContain('workflow/run id');
+        expect(ciGate).toContain('log path');
+        expect(ciGate).toContain('failed-log command');
       }
     }
   });
@@ -2082,6 +2113,11 @@ describe('REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit
         'Step 1 — Choose the model',
         'Step 2 — Build the prompt and call',
       ]));
+      const hardGate = markdownSection(doc?.content ?? '', 'Hard gate — explicit user request only');
+      expect(hardGate).toContain('explicitly asks to consult external LLMs');
+      expect(hardGate).toContain('Do not call `consult_llm`');
+      expect(hardGate).toContain('session start');
+      expect(hardGate).toContain('CI fixes');
     }
 
     const piSkill = AGENTS_SEEDED_CONFIGS.find((entry) => entry.key === '.pi/agent/skills/consult-llm/SKILL.md');

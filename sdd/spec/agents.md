@@ -730,7 +730,7 @@ None.
 <!-- @impl: preseed/agents/pi/rules/git-workflow.md -->
 <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-068 keeps Claude git-workflow on the baseline while Pi gets native CI workflow files -> AC1/AC3/AC4/AC5/AC6/AC7) -->
-<!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 waits for a stable workflow/run set, reports failed workflow rows, starts detached work, and reports gh access failures -> AC2/AC3/AC4/AC7) -->
+<!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 waits for a stable workflow/run set, stops as superseded after branch advance, reports failed workflow rows, starts detached work, and reports gh access failures -> AC2/AC3/AC4/AC7) -->
 
 **Intent:** Pi agents must monitor CI after pushes without blocking the main session or turning the monitor into an implementation worker, while Claude keeps its baseline git workflow rule.
 
@@ -739,7 +739,7 @@ None.
 **Acceptance Criteria:**
 
 1. Every Pi CI-producing push starts `ci-monitoring` in a backgrounded agent unless the user explicitly skips that push. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-ci-route --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi git-workflow rule is native and contains the CI-producing push route -> AC1) -->
-2. The CI monitor reports success only after every workflow row for the monitored HEAD is complete and the workflow/run-id fingerprint is stable. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (ci monitor waits for a stable workflow/run set before success -> AC2) -->
+2. The CI monitor reports success only after every workflow row for the monitored HEAD is complete, the workflow/run-id fingerprint is stable, and the local branch still points at the monitored HEAD; if the branch advances first, it reports `CI_RESULT timeout superseded` instead of success/failure for the stale head. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (ci monitor waits for a stable workflow/run set before success + stops as superseded when the branch advances -> AC2) -->
 3. CI failures are report-only: the background agent reports the failed workflow/run/log pointer and never fixes, commits, or pushes. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (ci monitor reports failed workflow rows -> AC3) -->
 4. Long-running waits, monitors, or polls never keep the main session busy; agents start backgrounded work, report how to check it, and stop. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (ci monitor launcher starts detached work and returns immediately -> AC4) -->
 5. After `CI_RESULT`, the main session first prints the CI summary, including monitored head, run/log pointers when present, and next action. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::CI-result handoff gate --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::ENGINEERING_CONSTITUTION --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (CI-result handoff contract clauses are generated into all instruction surfaces -> AC5) -->
@@ -1592,8 +1592,10 @@ None.
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::bypassAckHeadForStatus -->
+<!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewWindowStartDecision -->
 <!-- @test: host/__tests__/enforce-review-spawn.test.js (bypass 1: sentinel file + bypass 2: magic phrase + 3-strike circuit breaker describes -> AC1/AC2/AC3 user-only escape hatches with sticky-until-SHA-changes circuit) -->
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-041 / REQ-AGENT-055: Pi review bypass acknowledges only the current live PR head from a main session -> AC2 Pi advanced-head acknowledgement + AC3 task-session non-consumption) -->
+<!-- @test: src/__tests__/lib/review-state.test.ts (reviewWindowStartDecision starts, acknowledges, or waits based on bypass presence and main-session consumption rights -> AC1/AC3) -->
 
 **Intent:** The user needs a small set of explicit, user-only escape hatches when a PR-boundary review gate would otherwise block legitimate work (hermetic tests, deliberate skip, repeated false-block). The assistant MUST NEVER trip these surfaces in its own output.
 
@@ -1601,7 +1603,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. A user-creatable one-shot sentinel file bypasses the current PR-boundary gate exactly once and is auto-deleted on use, never committed, and never survives a container restart. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::BYPASS_FILE --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::consumeBypass -->
+1. A user-creatable one-shot sentinel file bypasses the current PR-boundary gate exactly once and is auto-deleted on use, never committed, and never survives a container restart; in Pi, a pending sentinel prevents review-window startup and monitor/reaper progress until a main-session context consumes it or leaves it untouched for the user. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::BYPASS_FILE --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::consumeBypass --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewWindowStartDecision -->
 2. Claude Stop-hook enforcement treats the sentinel as a one-turn bypass without advancing the acknowledgement checkpoint; Pi native enforcement acknowledges only the current live protected PR HEAD after successful sentinel consumption. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::bypassAckHeadForStatus -->
 3. Pi task/subagent sessions must leave the sentinel untouched and must not acknowledge a bypass if sentinel consumption fails. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::consumeBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::canMainSessionConsumeReviewBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewBypassConsumeDecision -->
 4. A user-authored `skip review` or `skip verification` phrase after the candidate push line bypasses that push. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh -->

@@ -74,26 +74,47 @@ function fakeGit(binDir) {
   const path = join(binDir, 'git');
   writeFileSync(path, `#!/usr/bin/env bash
 set -eu
-[ "$1 \${2:-}" = "rev-parse HEAD" ] && { printf '%s\n' "$GIT_HEAD"; exit 0; }
+if [ "$1 \${2:-}" = "rev-parse HEAD" ]; then
+  printf '%s\n' "$GIT_HEAD"
+  exit 0
+fi
+if [ "$1" = "rev-parse" ] && [[ "\${2:-}" == refs/heads/* ]]; then
+  count=0
+  if [ -n "\${GIT_REF_CALLS:-}" ] && [ -f "$GIT_REF_CALLS" ]; then count=$(cat "$GIT_REF_CALLS"); fi
+  count=$((count + 1))
+  if [ -n "\${GIT_REF_CALLS:-}" ]; then printf '%s' "$count" > "$GIT_REF_CALLS"; fi
+  file="\${GIT_REF_FIXTURES:-}/$count.txt"
+  if [ -n "\${GIT_REF_FIXTURES:-}" ] && [ -f "$file" ]; then
+    cat "$file"
+  else
+    printf '%s\n' "\${GIT_BRANCH_HEAD:-$GIT_HEAD}"
+  fi
+  exit 0
+fi
 exit 2
 `);
   chmodSync(path, 0o755);
 }
 
-function runMonitorFor(skill, sequence, fallback = sequence.at(-1) ?? []) {
+function runMonitorFor(skill, sequence, fallback = sequence.at(-1) ?? [], branchHeads = []) {
   const dir = mkdtempSync(join(tmpdir(), 'ci-monitor-'));
   const bin = join(dir, 'bin');
   const fixtures = join(dir, 'fixtures');
+  const refs = join(dir, 'refs');
   const repo = join(dir, 'repo');
   const calls = join(dir, 'calls');
+  const refCalls = join(dir, 'ref-calls');
   const script = join(dir, 'monitor.sh');
   const log = join(dir, 'monitor.log');
 
   mkdirSync(bin);
   mkdirSync(fixtures);
+  mkdirSync(refs);
   mkdirSync(repo);
   fakeGh(bin);
+  fakeGit(bin);
   sequence.forEach((rows, index) => writeFileSync(join(fixtures, `${index + 1}.json`), JSON.stringify(rows)));
+  branchHeads.forEach((head, index) => writeFileSync(join(refs, `${index + 1}.txt`), `${head}\n`));
   writeFileSync(join(fixtures, 'default.json'), JSON.stringify(fallback));
   writeFileSync(script, monitorScript(skill));
   chmodSync(script, 0o755);
@@ -102,7 +123,16 @@ function runMonitorFor(skill, sequence, fallback = sequence.at(-1) ?? []) {
     const result = spawnSync('bash', [script, repo, 'multiview', HEAD, log], {
       encoding: 'utf8',
       timeout: 6000,
-      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, GH_CALLS: calls, GH_FIXTURES: fixtures },
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        GH_CALLS: calls,
+        GH_FIXTURES: fixtures,
+        GIT_HEAD: HEAD,
+        GIT_BRANCH_HEAD: HEAD,
+        GIT_REF_CALLS: refCalls,
+        GIT_REF_FIXTURES: refs,
+      },
     });
     return {
       status: result.status,
@@ -115,8 +145,8 @@ function runMonitorFor(skill, sequence, fallback = sequence.at(-1) ?? []) {
   }
 }
 
-function runMonitor(sequence, fallback = sequence.at(-1) ?? []) {
-  return runMonitorFor(PI_SKILL, sequence, fallback);
+function runMonitor(sequence, fallback = sequence.at(-1) ?? [], branchHeads = []) {
+  return runMonitorFor(PI_SKILL, sequence, fallback, branchHeads);
 }
 
 test('REQ-AGENT-068 AC1/AC4: ci monitor launcher starts detached work and returns immediately', () => {
@@ -169,6 +199,16 @@ test('REQ-AGENT-068 AC2: ci monitor waits for a stable workflow/run set before s
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.calls, 3);
   assert.match(result.log, /CI_RESULT success/);
+});
+
+test('REQ-AGENT-068 AC2: ci monitor stops as superseded when the branch advances', () => {
+  const nextHead = '0123456789abcdef0123456789abcdef01234567';
+  const result = runMonitor([[row(1)], [row(1)]], [row(1)], [HEAD, nextHead]);
+
+  assert.equal(result.status, 124, result.stderr);
+  assert.equal(result.calls, 1);
+  assert.match(result.log, new RegExp(`CI_RESULT timeout superseded head=${HEAD} current_head=${nextHead} branch=multiview`));
+  assert.doesNotMatch(result.log, /CI_RESULT success/);
 });
 
 test('REQ-AGENT-068 AC3: ci monitor reports failed workflow rows', () => {

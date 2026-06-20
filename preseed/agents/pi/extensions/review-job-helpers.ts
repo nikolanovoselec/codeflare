@@ -975,6 +975,17 @@ export function shouldReconcileOpenPr(input: OpenPrReconcileInput): OpenPrReconc
   return { reconcile: true, reason: "open enforced PR head is unacknowledged with no review window" };
 }
 
+export type ReviewWindowStartDecisionInput = {
+  bypassPresent: boolean;
+  canConsumeBypass: boolean;
+};
+export type ReviewWindowStartDecision = "start" | "ack_bypass" | "wait_for_main_session";
+
+export function reviewWindowStartDecision(input: ReviewWindowStartDecisionInput): ReviewWindowStartDecision {
+  if (!input.bypassPresent) return "start";
+  return input.canConsumeBypass ? "ack_bypass" : "wait_for_main_session";
+}
+
 // Action gate for a reconciled (missed-boundary) PR head (REQ-AGENT-058 revised).
 // shouldReconcileOpenPr decides WHETHER a head is reconcilable; this decides what the
 // reconciler DOES with it. The locked design is: an in-session push still AUTO-STARTS the

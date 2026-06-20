@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { agentHeadAdvanceRequiresReview, computeReviewStateFrom, isAgentSpawnerToolEvent, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, reviewInSessionContinuation, mergeGateDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, reviewMonitorDecision, workspaceRepoFromPath, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput, type MergeGateInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { agentHeadAdvanceRequiresReview, computeReviewStateFrom, isAgentSpawnerToolEvent, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, reviewInSessionContinuation, reviewWindowStartDecision, mergeGateDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, reviewMonitorDecision, workspaceRepoFromPath, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput, type MergeGateInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 
 /**
  * computeReviewStateFrom is the canonical review-state definition (review.md §17.2).
@@ -148,6 +148,20 @@ describe('shouldReconcileOpenPr (REQ-AGENT-058 AC1)', () => {
  * autostart/offer/noop branching regresses — the reconciler's only behaviour on a missed
  * boundary is one of these three actions.
  */
+describe('reviewWindowStartDecision (REQ-AGENT-041: bypass blocks review startup)', () => {
+  it('starts review when no bypass sentinel is present', () => {
+    expect(reviewWindowStartDecision({ bypassPresent: false, canConsumeBypass: true })).toBe('start');
+  });
+
+  it('acks instead of starting review when the main session can consume the bypass', () => {
+    expect(reviewWindowStartDecision({ bypassPresent: true, canConsumeBypass: true })).toBe('ack_bypass');
+  });
+
+  it('waits instead of starting review when a task/subagent context sees the bypass', () => {
+    expect(reviewWindowStartDecision({ bypassPresent: true, canConsumeBypass: false })).toBe('wait_for_main_session');
+  });
+});
+
 describe('reconcileBoundaryAction (REQ-AGENT-058 revised: autostart in-session, offer-once on clone)', () => {
   it('AUTO-STARTS an in-session continuation (missed onToolEnd auto-start), even when not yet offered', () => {
     const input: ReconcileBoundaryInput = { reconcile: true, alreadyOffered: false, inSessionContinuation: true };

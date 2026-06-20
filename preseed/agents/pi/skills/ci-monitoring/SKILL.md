@@ -17,7 +17,7 @@ CI monitoring MUST run in a backgrounded subagent. Do not run `tail -f`, `gh run
 Use this task shape:
 
 ```text
-Monitor CI for <repo> at HEAD <head> on branch <branch>. Never block the main session. Use the Pi-native CI monitor contract from the ci-monitoring skill. Query workflows by exact commit with `gh run list --commit <head>`, not only by branch. If no workflows appear for the pushed head within 5 minutes, report `CI_RESULT timeout` with `no_workflows_for_head=<head>` and stop. If CI fails, report `CI_RESULT failure` with workflow/run id, URL, log path, and failed-log command. If CI succeeds, report `CI_RESULT success` with the monitored head and run rows. Do not fix, commit, or push.
+Monitor CI for <repo> at HEAD <head> on branch <branch>. Never block the main session. Use the Pi-native CI monitor contract from the ci-monitoring skill. Query workflows by exact commit with `gh run list --commit <head>`, not only by branch. Before every poll, compare `refs/heads/<branch>` to `<head>`; if the branch advanced, report `CI_RESULT timeout superseded head=<head> current_head=<current> branch=<branch>` and stop instead of emitting stale success/failure. If no workflows appear for the pushed head within 5 minutes, report `CI_RESULT timeout` with `no_workflows_for_head=<head>` and stop. If CI fails, report `CI_RESULT failure` with workflow/run id, URL, log path, and failed-log command. If CI succeeds, report `CI_RESULT success` with the monitored head and run rows. Do not fix, commit, or push.
 ```
 
 ## Detached monitor script for the background subagent
@@ -45,6 +45,11 @@ last_fingerprint=""
 no_rows_deadline=$((SECONDS + 300))
 deadline=$((SECONDS + 1800))
 while [ $SECONDS -lt $deadline ]; do
+  current_head=""
+  if current_head=$(git rev-parse "refs/heads/$branch" 2>/dev/null) && [ -n "$current_head" ] && [ "$current_head" != "$head" ]; then
+    echo "CI_RESULT timeout superseded head=$head current_head=$current_head branch=$branch" >> "$log"
+    exit 124
+  fi
   if ! gh run list --commit "$head" --limit 24 \
     --json databaseId,workflowName,headSha,status,conclusion,event,url \
     > "$log.json" 2>> "$log"; then
@@ -104,6 +109,6 @@ The background monitor final result must start with exactly one of:
 - `CI_RESULT failure`
 - `CI_RESULT timeout`
 
-Include the monitored head and log path every time. For failures, include workflow name, run id, URL, and `cd <repo> && gh run view <id> --log-failed`.
+A superseded monitor reports `CI_RESULT timeout superseded head=<old> current_head=<new> branch=<branch>` and must not report success or failure for the old head. Include the monitored head and log path every time. For failures, include workflow name, run id, URL, and `cd <repo> && gh run view <id> --log-failed`.
 
 The main session's first response after receiving `CI_RESULT` must print the CI summary before analysis, tool calls, todo updates, fixes, deploys, or pushes.
