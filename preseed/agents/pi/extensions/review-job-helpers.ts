@@ -257,6 +257,27 @@ export function parseReviewMonitorCompletedAt(value: unknown): number | undefine
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+// Returns the first field that fails validation, or undefined when the record is valid.
+// Callers use the reason to emit a diagnostic event instead of silently deleting a rejected
+// completion record (which is otherwise indistinguishable from "monitor still running").
+export function reviewMonitorCompletionRejectReason(input: {
+  record: ReviewMonitorCompletionRecord;
+  repo: string;
+  head: string;
+  summaryPath: string;
+  latestInputMtime: number;
+}): string | undefined {
+  if (input.record.repo !== input.repo) return "repo_mismatch";
+  if (input.record.head !== input.head) return "head_mismatch";
+  if (input.record.summaryPath !== input.summaryPath) return "summary_path_mismatch";
+  const result = input.record.result;
+  if (result !== "clean" && result !== "findings") return "invalid_result";
+  const completedAt = parseReviewMonitorCompletedAt(input.record.completedAt);
+  if (completedAt === undefined) return "missing_completed_at";
+  if (completedAt + 1000 < input.latestInputMtime) return "stale_completed_at";
+  return undefined;
+}
+
 export function reviewMonitorCompletionRecordReady(input: {
   record: ReviewMonitorCompletionRecord;
   repo: string;
@@ -264,14 +285,32 @@ export function reviewMonitorCompletionRecordReady(input: {
   summaryPath: string;
   latestInputMtime: number;
 }): boolean {
-  const completedAt = parseReviewMonitorCompletedAt(input.record.completedAt);
-  const result = input.record.result;
-  return input.record.repo === input.repo
-    && input.record.head === input.head
-    && input.record.summaryPath === input.summaryPath
-    && (result === "clean" || result === "findings")
-    && completedAt !== undefined
-    && completedAt + 1000 >= input.latestInputMtime;
+  return reviewMonitorCompletionRejectReason(input) === undefined;
+}
+
+// Normalize the untyped subagents-service spawn() return into an agent id. Different service
+// versions return a bare id string or an object carrying the id under one of several keys. A
+// successful spawn must not be misread as a failure (empty/missing -> undefined), so the
+// review-monitor dedup claim latches on a real id instead of re-spawning every cycle.
+export function resolveSpawnedAgentId(spawned: unknown): string | undefined {
+  if (typeof spawned === "string") return spawned.trim() ? spawned : undefined;
+  if (spawned && typeof spawned === "object") {
+    const record = spawned as Record<string, unknown>;
+    for (const key of ["agentId", "id", "agent_id"]) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim()) return value;
+    }
+  }
+  return undefined;
+}
+
+// All lanes are complete but the monitor has not produced a valid completion record. If the
+// review has been pending past the age bound the monitor cannot deliver (service down, lost
+// subagent, repeatedly-rejected completion record): give up and surface it instead of
+// re-spawning forever and blocking merge silently.
+export function reviewCompletionDeliveryStalled(input: { completionReady: boolean; deliveryAgeMs: number; maxAgeMs: number }): boolean {
+  if (input.completionReady) return false;
+  return input.deliveryAgeMs >= input.maxAgeMs;
 }
 
 export type ReviewMonitorStartupFailureMessage = {

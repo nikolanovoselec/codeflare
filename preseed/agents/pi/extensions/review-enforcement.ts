@@ -58,7 +58,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, boundaryFallbackHead, boundaryTriggerCommandEntries, bypassAckHeadForStatus, canMainSessionConsumeReviewBypass, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, commandTextsFromEvent, completeTranscriptDelta, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, gitPushCommandTarget, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prCreateCommandTarget, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, prUrlFromText, reusablePendingReview, reviewBypassConsumeDecision, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewBoundaryStartDecision, reviewMonitorCompletionRecordReady, reviewMonitorStartupFailureMessage, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, reviewWindowStartDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, type DurableReviewSummaryRecord } from "./review-job-helpers";
+import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewBoundaryStartDecision, reviewMonitorCompletionRejectReason, resolveSpawnedAgentId, reviewCompletionDeliveryStalled, reviewMonitorStartupFailureMessage, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, reviewWindowStartDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, type DurableReviewSummaryRecord } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -72,6 +72,11 @@ const MAX_REVIEW_AGE_MS = 20 * 60 * 1000;
 const REVIEW_REQUEST_RETRY_MS = 60 * 1000;
 const REVIEW_MONITOR_TTL_MS = 35 * 60 * 1000;
 const REVIEW_MONITOR_CLAIM_WRITE_GRACE_MS = 5 * 1000;
+// Background subagent spawn flags for the untyped pi-subagents service. `foreground: false`
+// is the contract honored across the codebase (see memory-vault); `runInBackground` is silently
+// ignored and breaks agentId capture (it caused the review-monitor re-spawn storm). The single
+// spawn site reads this const so the option shape can never drift per-call again.
+const BACKGROUND_SUBAGENT_SPAWN = { inheritContext: false, foreground: false } as const;
 
 // Open-PR reconciliation (REQ-AGENT-058) does a `gh pr view` to catch missed boundaries.
 // That is a network call, so throttle the unforced path (turn_start/turn_end/resources_discover)
@@ -1515,7 +1520,9 @@ export default function (pi: ExtensionAPI) {
       const parsed = JSON.parse(readFileSync(completionPath, "utf8"));
       const inputs = [summaryPath, ...state.lanes.map((lane) => reviewResultPath(state.repo, state.head, lane))];
       const latestInputMtime = Math.max(...inputs.map((path) => statSync(path).mtimeMs));
-      if (!reviewMonitorCompletionRecordReady({ record: parsed, repo: state.repo, head: state.head, summaryPath, latestInputMtime })) {
+      const rejectReason = reviewMonitorCompletionRejectReason({ record: parsed, repo: state.repo, head: state.head, summaryPath, latestInputMtime });
+      if (rejectReason) {
+        appendReviewEvent(state.repo, { event: "review_monitor_completion_rejected", head: state.head, reason: rejectReason });
         unlinkInvalidReviewMonitorCompletion(state);
         return false;
       }
@@ -1609,8 +1616,8 @@ export default function (pi: ExtensionAPI) {
     const service = subagentsService();
     try {
       if (service?.spawn) {
-        const spawned = service.spawn("review-monitor", prompt, { description, inheritContext: false, runInBackground: true });
-        agentId = typeof spawned === "string" ? spawned : undefined;
+        const spawned = service.spawn("review-monitor", prompt, { description, ...BACKGROUND_SUBAGENT_SPAWN });
+        agentId = resolveSpawnedAgentId(spawned);
       }
     } catch (error) {
       appendReviewEvent(state.repo, { event: "review_monitor_start_failed", head: state.head, reason, error: String(error) });
@@ -1648,6 +1655,18 @@ export default function (pi: ExtensionAPI) {
       clearPending(state.repo);
       pending = undefined;
       if (ctx) clearReviewStatus(ctx);
+      return;
+    }
+    if (reviewCompletionDeliveryStalled({ completionReady: false, deliveryAgeMs: Date.now() - state.reviewStartedAt, maxAgeMs: MAX_REVIEW_AGE_MS })) {
+      openBreaker(state.repo, state.head);
+      appendReviewEvent(state.repo, { event: "review_delivery_gave_up", head: state.head, lanes: state.lanes });
+      clearPending(state.repo);
+      resetBlockCount(state.repo);
+      pending = undefined;
+      if (ctx) {
+        ctx.ui.notify(`Review for ${basename(state.repo)} at ${state.head.slice(0, 12)} finished all lanes but the review-monitor never delivered a result within ${Math.round(MAX_REVIEW_AGE_MS / 60000)}m. Merge stays blocked; run /review-results to view findings, or push a new commit to retry.`, "warning");
+        clearReviewStatus(ctx);
+      }
       return;
     }
     if (!startReviewMonitor(state, ctx, "review completed")) {

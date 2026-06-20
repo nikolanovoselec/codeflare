@@ -1,0 +1,78 @@
+import { describe, it, expect } from 'vitest';
+import {
+  resolveSpawnedAgentId,
+  reviewCompletionDeliveryStalled,
+  reviewMonitorCompletionRejectReason,
+  reviewMonitorCompletionRecordReady,
+} from '../../../preseed/agents/pi/extensions/review-job-helpers';
+
+/**
+ * Tier-1 review/CI monitor reliability fixes. These pin the contract values, not prose —
+ * gut any of the three helpers and a case here fails.
+ */
+
+describe('resolveSpawnedAgentId (R1: untyped subagents-service spawn return)', () => {
+  it('returns a non-empty string id verbatim', () => {
+    expect(resolveSpawnedAgentId('agent-123')).toBe('agent-123');
+  });
+
+  it('reads the id from the object return shapes the service may use', () => {
+    expect(resolveSpawnedAgentId({ agentId: 'a1' })).toBe('a1');
+    expect(resolveSpawnedAgentId({ id: 'b2' })).toBe('b2');
+    expect(resolveSpawnedAgentId({ agent_id: 'c3' })).toBe('c3');
+  });
+
+  it('treats empty / missing / non-string ids as no-spawn (undefined), so a real spawn never reads as failure and a non-spawn never reads as success', () => {
+    expect(resolveSpawnedAgentId('')).toBeUndefined();
+    expect(resolveSpawnedAgentId('   ')).toBeUndefined();
+    expect(resolveSpawnedAgentId({})).toBeUndefined();
+    expect(resolveSpawnedAgentId({ id: 42 })).toBeUndefined();
+    expect(resolveSpawnedAgentId(null)).toBeUndefined();
+    expect(resolveSpawnedAgentId(undefined)).toBeUndefined();
+    expect(resolveSpawnedAgentId(42)).toBeUndefined();
+  });
+});
+
+describe('reviewCompletionDeliveryStalled (R2: bounded give-up on an undelivered completion)', () => {
+  it('is never stalled while a valid completion is ready', () => {
+    expect(reviewCompletionDeliveryStalled({ completionReady: true, deliveryAgeMs: 10 ** 9, maxAgeMs: 1000 })).toBe(false);
+  });
+
+  it('gives up once the age bound is reached with no completion', () => {
+    expect(reviewCompletionDeliveryStalled({ completionReady: false, deliveryAgeMs: 1000, maxAgeMs: 1000 })).toBe(true);
+    expect(reviewCompletionDeliveryStalled({ completionReady: false, deliveryAgeMs: 5000, maxAgeMs: 1000 })).toBe(true);
+  });
+
+  it('keeps waiting before the age bound (no premature give-up)', () => {
+    expect(reviewCompletionDeliveryStalled({ completionReady: false, deliveryAgeMs: 999, maxAgeMs: 1000 })).toBe(false);
+  });
+});
+
+describe('reviewMonitorCompletionRejectReason (R3: diagnostic completion validation)', () => {
+  const valid = {
+    record: { repo: '/repo', head: 'abc', summaryPath: '/repo/s.md', completedAt: 2000, result: 'findings' },
+    repo: '/repo',
+    head: 'abc',
+    summaryPath: '/repo/s.md',
+    latestInputMtime: 1500,
+  };
+
+  it('accepts a valid record (no reason) and stays consistent with the boolean wrapper', () => {
+    expect(reviewMonitorCompletionRejectReason(valid)).toBeUndefined();
+    expect(reviewMonitorCompletionRecordReady(valid)).toBe(true);
+  });
+
+  it('names the specific field that failed instead of failing opaquely', () => {
+    expect(reviewMonitorCompletionRejectReason({ ...valid, repo: '/other' })).toBe('repo_mismatch');
+    expect(reviewMonitorCompletionRejectReason({ ...valid, head: 'def' })).toBe('head_mismatch');
+    expect(reviewMonitorCompletionRejectReason({ ...valid, summaryPath: '/other/s.md' })).toBe('summary_path_mismatch');
+    expect(reviewMonitorCompletionRejectReason({ ...valid, record: { ...valid.record, result: 'CLEAN' } })).toBe('invalid_result');
+    expect(reviewMonitorCompletionRejectReason({ ...valid, record: { ...valid.record, completedAt: undefined } })).toBe('missing_completed_at');
+  });
+
+  it('rejects a stale completion written more than 1s before the latest input mtime', () => {
+    const stale = { ...valid, record: { ...valid.record, completedAt: 1000 }, latestInputMtime: 5000 };
+    expect(reviewMonitorCompletionRejectReason(stale)).toBe('stale_completed_at');
+    expect(reviewMonitorCompletionRecordReady(stale)).toBe(false);
+  });
+});

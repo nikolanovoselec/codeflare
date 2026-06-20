@@ -27,7 +27,10 @@ Monitor CI for <repo> at HEAD <head> on branch <branch>. Never block the main se
 ```bash
 cd <repo>
 BRANCH=<branch>
-HEAD=$(git rev-parse HEAD)
+# Use the exact head the main session pushed (from the task prompt), NOT a live
+# `git rev-parse HEAD`: the local HEAD can have advanced past, or differ from, the pushed
+# remote commit that CI actually ran on, which silently monitors the wrong run.
+HEAD=<head>
 LOG="/tmp/ci-monitor-${HEAD}.log"
 SCRIPT="/tmp/ci-monitor-${HEAD}.sh"
 cat > "$SCRIPT" <<'BASH'
