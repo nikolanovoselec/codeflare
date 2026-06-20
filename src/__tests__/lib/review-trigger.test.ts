@@ -194,7 +194,7 @@ describe('completeTranscriptDelta', () => {
       start: 12_345,
       nextCursor: 12_345 + Buffer.byteLength(line, 'utf8'),
     });
-    expect(commandFromToolCallLine(delta?.text.trim() || '')).toBe('git push origin multiview');
+    expect(commandFromToolCallLine(delta?.text.trim() || '')).toBe('cd /repo && git commit -m x && git push origin multiview');
   });
 
   it('drops only the first partial record for fallback scans', () => {
