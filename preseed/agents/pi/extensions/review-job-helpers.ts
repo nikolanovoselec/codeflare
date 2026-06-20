@@ -254,6 +254,19 @@ export function reviewMonitorContextDecision(input: ReviewMonitorContextDecision
   return "allow";
 }
 
+export type ReviewMonitorContextSourceInput = {
+  current: ReviewMonitorContextDecisionInput;
+  remembered: ReviewMonitorContextDecisionInput;
+};
+
+export type ReviewMonitorContextSource = "current" | "remembered" | "wait_for_main_session";
+
+export function reviewMonitorContextSource(input: ReviewMonitorContextSourceInput): ReviewMonitorContextSource {
+  if (reviewMonitorContextDecision(input.current) === "allow") return "current";
+  if (reviewMonitorContextDecision(input.remembered) === "allow") return "remembered";
+  return "wait_for_main_session";
+}
+
 export type ReviewMonitorCompletionRecord = {
   repo?: unknown;
   head?: unknown;
