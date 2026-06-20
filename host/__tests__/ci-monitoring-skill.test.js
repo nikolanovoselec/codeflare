@@ -149,7 +149,7 @@ function runMonitor(sequence, fallback = sequence.at(-1) ?? [], branchHeads = []
   return runMonitorFor(PI_SKILL, sequence, fallback, branchHeads);
 }
 
-test('REQ-AGENT-068 AC1/AC4: ci monitor launcher starts detached work and returns immediately', () => {
+test('REQ-AGENT-068 AC1/AC5: ci monitor launcher starts detached work and returns immediately', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ci-monitor-launch-'));
   const bin = join(dir, 'bin');
   const fixtures = join(dir, 'fixtures');
@@ -201,17 +201,37 @@ test('REQ-AGENT-068 AC2: ci monitor waits for a stable workflow/run set before s
   assert.match(result.log, /CI_RESULT success/);
 });
 
-test('REQ-AGENT-068 AC2: ci monitor stops as superseded when the branch advances', () => {
+test('REQ-AGENT-068 AC3: ci monitor stops as superseded when the branch advances before polling', () => {
   const nextHead = '0123456789abcdef0123456789abcdef01234567';
-  const result = runMonitor([[row(1)], [row(1)]], [row(1)], [HEAD, nextHead]);
+  const result = runMonitor([[row(1)], [row(1)]], [row(1)], [nextHead]);
 
   assert.equal(result.status, 124, result.stderr);
-  assert.equal(result.calls, 1);
+  assert.equal(result.calls, 0);
   assert.match(result.log, new RegExp(`CI_RESULT timeout superseded head=${HEAD} current_head=${nextHead} branch=multiview`));
   assert.doesNotMatch(result.log, /CI_RESULT success/);
 });
 
-test('REQ-AGENT-068 AC3: ci monitor reports failed workflow rows', () => {
+test('REQ-AGENT-068 AC3: ci monitor re-checks superseded status before terminal success', () => {
+  const nextHead = '0123456789abcdef0123456789abcdef01234567';
+  const result = runMonitor([[row(1)], [row(1)]], [row(1)], [HEAD, HEAD, nextHead]);
+
+  assert.equal(result.status, 124, result.stderr);
+  assert.equal(result.calls, 2);
+  assert.match(result.log, new RegExp(`CI_RESULT timeout superseded head=${HEAD} current_head=${nextHead} branch=multiview`));
+  assert.doesNotMatch(result.log, /CI_RESULT success/);
+});
+
+test('REQ-AGENT-068 AC3: ci monitor re-checks superseded status before terminal failure', () => {
+  const nextHead = '0123456789abcdef0123456789abcdef01234567';
+  const result = runMonitor([[row(1, { conclusion: 'failure' })]], undefined, [HEAD, nextHead]);
+
+  assert.equal(result.status, 124, result.stderr);
+  assert.equal(result.calls, 1);
+  assert.match(result.log, new RegExp(`CI_RESULT timeout superseded head=${HEAD} current_head=${nextHead} branch=multiview`));
+  assert.doesNotMatch(result.log, /CI_RESULT failure/);
+});
+
+test('REQ-AGENT-068 AC4: ci monitor reports failed workflow rows', () => {
   const result = runMonitor([[row(1, { conclusion: 'failure' })]]);
 
   assert.equal(result.status, 10, result.stderr);
@@ -228,7 +248,7 @@ test('REQ-AGENT-068 AC2: ci monitor times out when workflows never finish', () =
   assert.match(result.log, /CI_RESULT timeout/);
 });
 
-test('REQ-AGENT-068 AC7: ci monitor reports gh access failures instead of waiting', () => {
+test('REQ-AGENT-068 AC8: ci monitor reports gh access failures instead of waiting', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ci-monitor-gh-fail-'));
   const bin = join(dir, 'bin');
   const repo = join(dir, 'repo');

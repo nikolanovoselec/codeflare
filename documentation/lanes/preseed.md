@@ -174,22 +174,23 @@ Pi CI monitoring is background-agent owned. After any CI-producing push, Pi agen
 `ci-monitoring` unless the user explicitly skips that push; the backgrounded agent
 monitors the target HEAD, reports success/failure/timeout, and never fixes, commits,
 or pushes ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC1/AC3).
+AC1/AC4).
 
 The monitor waits for every workflow row returned for the monitored HEAD to complete
-and for the workflow/run-id fingerprint to stabilize before success. Before each poll,
-it also compares the local branch ref to the monitored HEAD; if a later push advanced
-the branch, the monitor exits with `CI_RESULT timeout superseded ...` instead of
-reporting stale success/failure for the old head ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC2). After `CI_RESULT`, the main session prints the CI summary first, including
+and for the workflow/run-id fingerprint to stabilize before success. Before each poll
+and before terminal success/failure, it also compares the local branch ref to the
+monitored HEAD; if a later push advanced the branch, the monitor exits with
+`CI_RESULT timeout superseded ...` instead of reporting stale success/failure for the
+old head ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
+AC2/AC3). After `CI_RESULT`, the main session prints the CI summary first, including
 monitored head, run/log pointers when present, and planned next action ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC5).
+AC6).
 
 Pi receives its native `preseed/agents/pi/skills/ci-monitoring/SKILL.md` entry from
 the Pi manifest instead of a Claude-transformed skill ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC6). That native skill queries exact commits and reports `CI_RESULT timeout` when
+AC7). That native skill queries exact commits and reports `CI_RESULT timeout` when
 GitHub CLI access fails or no workflow rows appear for the pushed head ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC7).
+AC8).
 
 Claude CI monitoring remains on-demand ([REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy)): routine pushes do not start `ci-monitoring`; Claude invokes it only when the user asks or a deploy/merge gate needs a fresh CI result. When invoked, the Claude skill launches a detached temp-script monitor, prints `CI_MONITOR_STARTED head=<sha> pid=<pid> log=<path>`, requires a non-empty workflow/run fingerprint to stay stable across two polls before success, and writes terminal `CI_RESULT failure` / `CI_RESULT timeout` lines to that durable log on workflow failure or GitHub CLI access failure.
 
@@ -197,7 +198,7 @@ Monitoring and any other long-running wait/poll are background-only: no agent ma
 keep the main session busy with `tail -f`, `gh run watch`, blocking `ctx_execute`,
 Bash loops, deploy-status waits, review-completion waits, or foreground polling
 ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC4). The discipline triad (`spec-discipline`, `documentation-discipline`,
+AC5). The discipline triad (`spec-discipline`, `documentation-discipline`,
 `tdd-discipline`) is advanced-only and points to the SDD workflow status,
 severity, and skill families.
 
@@ -965,9 +966,9 @@ Pi also persists compatibility pending state in `.git/sdd-review-pending.json` a
 
 When a new push lands while review is still in flight, Pi rolls the pending review window forward if the new PR head descends from the pending head, keeps the first unreviewed base for cumulative review, and does not treat a remote-tracking previous head as reviewed unless an explicit ack or completed prior review proves that coverage. This preserves earlier findings during fix-push cascades while keeping intermediate-branch PRs deferred until their PR-to-`main` review. See [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) for lane dispatch and in-flight gating, and [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-pr-boundary-review-window-advancement) for review-window roll-forward semantics.
 
-Three USER-ONLY bypass methods exist (the agent must never invoke these autonomously): the user runs `touch /tmp/review-bypass`, the user says "skip review" or "skip verification" in a message, or the user waits for the 3-strike circuit breaker to clear after 3 blocks on the same un-acknowledged PR HEAD. The sentinel is one-shot, per-session, not committed, and auto-deleted on use. In Pi, a visible sentinel stops review-window startup and idle monitor/reaper progress until the live main session can consume it. Implements [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces) AC1/AC4/AC5/AC6; source: `review-enforcement.ts::consumeBypass`, `review-job-helpers.ts::reviewWindowStartDecision`, and `enforce-review-spawn.sh`.
+Three USER-ONLY bypass methods exist (the agent must never invoke these autonomously): the user runs `touch /tmp/review-bypass`, the user says "skip review" or "skip verification" in a message, or the user waits for the 5-strike circuit breaker to clear after 5 blocks on the same un-acknowledged PR HEAD. The sentinel is one-shot, per-session, not committed, and auto-deleted on use. In Pi, a visible sentinel stops review-window startup and idle monitor/reaper progress until the live main session can consume it. Implements [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces) AC1/AC2/AC5/AC6/AC7; source: `review-enforcement.ts::consumeBypass`, `review-job-helpers.ts::reviewWindowStartDecision`, and `enforce-review-spawn.sh`.
 
-Runtime semantics differ intentionally: Claude treats the sentinel as a one-turn Stop-hook escape that does not advance `.git/sdd-last-ack-pr-head`, while Pi consumes it as an explicit acknowledgement of the current protected PR HEAD only from a live main-session context. Pi task/subagent contexts leave the sentinel untouched and cannot acknowledge the bypass if consumption fails. Before consuming it, Pi checks pending-state freshness: stale pending state is discarded without using the sentinel, and an advanced pending window acknowledges the live PR head rather than the superseded pending head. Implements [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces) AC2/AC3; source: `review-enforcement.ts::consumeBypass`, `review-enforcement.ts::acknowledgeBypass`, `review-helpers.ts::canMainSessionConsumeReviewBypass`, and `review-helpers.ts::reviewBypassConsumeDecision`.
+Runtime semantics differ intentionally: Claude treats the sentinel as a one-turn Stop-hook escape that does not advance `.git/sdd-last-ack-pr-head`, while Pi consumes it as an explicit acknowledgement of the current protected PR HEAD only from a live main-session context. Pi task/subagent contexts leave the sentinel untouched and cannot acknowledge the bypass if consumption fails. Before consuming it, Pi checks pending-state freshness: stale pending state is discarded without using the sentinel, and an advanced pending window acknowledges the live PR head rather than the superseded pending head. Implements [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces) AC3/AC4; source: `review-enforcement.ts::consumeBypass`, `review-enforcement.ts::acknowledgeBypass`, `review-helpers.ts::canMainSessionConsumeReviewBypass`, and `review-helpers.ts::reviewBypassConsumeDecision`.
 
 If enforcement fires spuriously after a legitimate pipeline completed and local `HEAD` is the current PR head, preserve the acknowledgement and clear only transient runtime state:
 
