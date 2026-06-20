@@ -313,7 +313,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   // We assert the gating by inspecting the prop Layout hands to Header.
   // =========================================================================
 
-  describe('Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018)', () => {
+  describe('Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)', () => {
     it('does NOT pass onVaultOpen (vault button hidden) when active session is default mode', () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
@@ -364,7 +364,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect((window as any).__headerProps.vaultStatus).toBe('ready');
     });
 
-    it('starts browser prewarm even when terminal input is focused', async () => {
+    it('REQ-VAULT-020: starts browser prewarm even when terminal input is focused', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
@@ -381,7 +381,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect((window as any).__headerProps.vaultStatus).toBe('prewarming');
     });
 
-    it('rechecks this browser cache before opening the Vault tab', async () => {
+    it('REQ-VAULT-019: rechecks this browser cache before opening the Vault tab', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };

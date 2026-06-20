@@ -143,7 +143,7 @@ describe('checkVaultLocalReadiness', () => {
   });
 });
 
-describe('checkVaultKeyRecoverable', () => {
+describe('REQ-VAULT-019: checkVaultKeyRecoverable', () => {
   const okResponse = (key: unknown) => ({ ok: true, json: async () => ({ key }) }) as unknown as Response;
 
   it('GETs the session /.vault-key endpoint with credentials and returns true on a non-empty key', async () => {

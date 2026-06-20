@@ -360,9 +360,9 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(right.classList.contains('dashboard-panel-right')).toBe(true);
   });
 
-  // === Mobile right-column flip face (REQ-GITHUB-002) ===
+  // === Mobile right-column flip face (REQ-GITHUB-010) ===
 
-  it('forces the storage face active when GitHub is disabled so the empty GitHub panel cannot cover R2', () => {
+  it('REQ-GITHUB-010: forces the storage face active when GitHub is disabled so the empty GitHub panel cannot cover R2', () => {
     (githubStore as any)._setEnabled(false);
     render(() => <Dashboard {...defaultProps} />);
 
@@ -379,7 +379,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(screen.queryByTestId('files-panel-title')).not.toBeInTheDocument();
   });
 
-  it('defaults to the GitHub face and offers the storage back-button when GitHub is enabled', () => {
+  it('REQ-GITHUB-010: defaults to the GitHub face and offers the storage back-button when GitHub is enabled', () => {
     (githubStore as any)._setEnabled(true);
     render(() => <Dashboard {...defaultProps} />);
 
@@ -415,7 +415,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(right.getAttribute('data-face')).toBe('github');
   });
 
-  it('flips GitHub <-> storage when enabled and the flip controls are used', () => {
+  it('REQ-GITHUB-010: flips GitHub <-> storage when enabled and the flip controls are used', () => {
     (githubStore as any)._setEnabled(true);
     render(() => <Dashboard {...defaultProps} />);
 

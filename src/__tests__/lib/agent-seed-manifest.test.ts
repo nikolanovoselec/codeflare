@@ -155,18 +155,30 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
 
   it('REQ-AGENT-068: keeps Claude git-workflow on the baseline while Pi gets native CI workflow files', () => {
     const claudeGitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/git-workflow.md');
+    const claudeCiSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/skills/ci-monitoring/SKILL.md');
     const piGitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/rules/git-workflow.md');
     const piCiSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/skills/ci-monitoring/SKILL.md');
 
     expect(claudeGitWorkflow, 'Claude git-workflow source must be seeded').toBeTruthy();
     expect(claudeGitWorkflow!.content).toContain('Do not auto-start CI monitoring after routine pushes.');
     expect(claudeGitWorkflow!.content).not.toContain('After any push that can produce CI, invoke `ci-monitoring`');
+    expect(claudeCiSkill, 'Claude ci-monitoring skill must be seeded').toBeTruthy();
+    expect(claudeCiSkill!.content).toContain('Do not auto-start this monitor after routine pushes.');
+    expect(claudeCiSkill!.content).toContain('only when the user explicitly asks to monitor CI');
 
     expect(piGitWorkflow, 'Pi-native git-workflow rule must be seeded').toBeTruthy();
     expect(piGitWorkflow!.content).toContain('After any push that can produce CI, invoke `ci-monitoring`');
     expect(piGitWorkflow!.content).toContain('CI monitoring must run in a backgrounded agent/subagent');
 
+    const piInstructionEntries = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === '.pi/agent/AGENTS.md');
+    expect(piInstructionEntries, 'Pi instructions should be generated for both modes').toHaveLength(2);
+    for (const entry of piInstructionEntries) {
+      expect(entry.content, `Pi ${entry.modes.join(',')} instructions include native git workflow`).toContain('# Git Workflow');
+      expect(entry.content, `Pi ${entry.modes.join(',')} instructions include CI route`).toContain('After any push that can produce CI, invoke `ci-monitoring`');
+    }
+
     expect(piCiSkill, 'Pi-native ci-monitoring skill must be seeded').toBeTruthy();
+    expect(piCiSkill!.modes.sort()).toEqual(['advanced', 'default']);
     expect(piCiSkill!.content).toContain('Pi Background CI Monitoring');
     expect(piCiSkill!.content).toContain('gh run list --commit "$head"');
   });
@@ -177,6 +189,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(piSkill!.content).toContain('Pi Background CI Monitoring');
     expect(piSkill!.content).toContain('gh run list --commit "$head"');
     expect(piSkill!.content).toContain('CI_RESULT timeout no_workflows_for_head=$head');
+    expect(piSkill!.content).toContain('CI_RESULT timeout gh_unavailable_or_auth_failed head=$head');
   });
 
   it('preseeds the review push gate into every agent instruction surface', () => {

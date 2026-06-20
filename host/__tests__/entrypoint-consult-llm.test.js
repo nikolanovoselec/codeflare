@@ -118,7 +118,7 @@ describe('entrypoint consult-llm configuration / REQ-AGENT-031 (key isolation, s
   });
 
   // AC4: Pi gets the same server through the pi-mcp-adapter lazy proxy.
-  it('Pi mcp.json mirrors the server through the lazy mcp proxy', () => {
+  it('REQ-AGENT-069: Pi mcp.json mirrors the server through the lazy mcp proxy', () => {
     const h = buildHarness(baseTmp, { codexAuth: true });
     const pi = h.piMcp.mcpServers['consult-llm'];
     assert.equal(pi.command, 'consult-llm-mcp');

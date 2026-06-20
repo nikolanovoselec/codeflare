@@ -102,19 +102,19 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (no-repos vs search-empty states + repo-row scroll container -> AC1,AC2) -->
 ### REQ-GITHUB-009: GitHub repository list viewport and empty states
 
-<!-- @impl: web-ui/src/components/github/RepoList.tsx -->
-<!-- @impl: web-ui/src/styles/github-panel.css -->
-<!-- @impl: web-ui/src/styles/dashboard.css -->
+<!-- @impl: web-ui/src/components/github/RepoList.tsx::RepoList -->
+<!-- @impl: web-ui/src/styles/github-panel.css::.github-repo-rows -->
+<!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-right -->
 **Intent:** Repository lists stay searchable and scrollable without hiding fetched repositories.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A connected account with zero repositories shows the repository-panel empty state. <!-- @impl: web-ui/src/components/github/RepoList.tsx -->
-2. Search with no matching repositories shows the search-empty state. <!-- @impl: web-ui/src/components/github/RepoList.tsx -->
-3. The repo list renders every fetched repository inside a scroll container. <!-- @impl: web-ui/src/components/github/RepoList.tsx -->
-4. The visible viewport caps rows by breakpoint: seven desktop rows and five tablet/mobile rows before scrolling. <!-- @impl: web-ui/src/styles/github-panel.css -->
+1. A connected account with zero repositories shows the repository-panel empty state. <!-- @impl: web-ui/src/components/github/RepoList.tsx::RepoList -->
+2. Search with no matching repositories shows the search-empty state. <!-- @impl: web-ui/src/components/github/RepoList.tsx::RepoList -->
+3. The repo list renders every fetched repository inside a scroll container. <!-- @impl: web-ui/src/components/github/RepoList.tsx::RepoList -->
+4. The visible viewport caps rows by breakpoint: seven desktop rows and five tablet/mobile rows before scrolling. <!-- @impl: web-ui/src/styles/github-panel.css::.github-repo-rows -->
 
 **Constraints:**
 
@@ -134,17 +134,17 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (mobile right-column flip face: storage forced when GitHub disabled, flip round-trip when enabled -> AC1-AC4) -->
 ### REQ-GITHUB-010: Mobile GitHub and storage face switching
 
-<!-- @impl: web-ui/src/components/github/GitHubPanel.tsx -->
+<!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel -->
 <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace -->
-<!-- @impl: web-ui/src/styles/dashboard.css -->
+<!-- @impl: web-ui/src/styles/dashboard.css::.panel-flip-face -->
 **Intent:** Mobile users can switch between GitHub and R2 storage without an unavailable GitHub face covering files.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. On mobile, the header flip control swaps GitHub and R2 storage in place when GitHub is available. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace -->
-2. On desktop, both panels stack and the flip control is hidden. <!-- @impl: web-ui/src/styles/dashboard.css -->
+1. On mobile, the header flip control swaps GitHub and R2 storage in place when GitHub is available. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace -->
+2. On desktop, both panels stack and the flip control is hidden. <!-- @impl: web-ui/src/styles/dashboard.css::.panel-flip-face -->
 3. If GitHub is unavailable, R2 storage is the sole mobile right-column face. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace -->
 4. When GitHub is available, the storage face carries a matching header and flip-back control. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace -->
 

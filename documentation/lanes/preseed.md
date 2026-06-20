@@ -160,7 +160,7 @@ Claude receives consult-llm through `~/.claude.json`; Pi receives it through
 `~/.pi/agent/mcp.json` via the pi-mcp-adapter `mcp` proxy. The Pi entrypoint-owned
 `consult-llm` server entry is replaced on each start with `lifecycle: "lazy"`,
 removing the old always-on `keep-alive` / `directTools` fields while preserving
-unrelated user MCP servers in the same file.
+unrelated user MCP servers in the same file ([REQ-AGENT-069](../../sdd/spec/agents.md#req-agent-069-pi-consult-llm-mcp-lazy-wiring)).
 
 **Rules** (core environment rules in both modes; the rest advanced-only) ([REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode),
 [REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session)):
@@ -170,16 +170,23 @@ Pi gets its own native `preseed/agents/pi/rules/git-workflow.md` from the Pi man
 which delegates branched mechanics to `ci-monitoring`, `git-review-pipeline`,
 `pr-workflow`, and `deploy-credentials`.
 
-Pi CI monitoring is background-agent owned: after any CI-producing push, Pi agents start
-`ci-monitoring` unless the user explicitly skips it for that push. The backgrounded
-agent monitors the target HEAD and reports success, failure, or timeout to the main
-session; it does not fix, commit, or push ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC1/AC3). The monitor evaluates every workflow row returned for the monitored HEAD
-and waits for a stable workflow/run-id fingerprint before success ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC2). When the background CI agent returns `CI_RESULT`, the main session must print
-that CI summary first, including the monitored head, run/log pointers when present,
-and planned next action, before inspecting logs or editing ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC5). Pi uses its own native `preseed/agents/pi/skills/ci-monitoring/SKILL.md` entry from the Pi manifest, so it is not generated from the Claude skill; that native skill queries exact commits and stops when no workflow rows appear for the pushed head ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy) AC6).
+Pi CI monitoring is background-agent owned. After any CI-producing push, Pi agents start
+`ci-monitoring` unless the user explicitly skips that push; the backgrounded agent
+monitors the target HEAD, reports success/failure/timeout, and never fixes, commits,
+or pushes ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
+AC1/AC3).
+
+The monitor waits for every workflow row returned for the monitored HEAD to complete
+and for the workflow/run-id fingerprint to stabilize before success ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
+AC2). After `CI_RESULT`, the main session prints the CI summary first, including
+monitored head, run/log pointers when present, and planned next action ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
+AC5).
+
+Pi receives its native `preseed/agents/pi/skills/ci-monitoring/SKILL.md` entry from
+the Pi manifest instead of a Claude-transformed skill ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
+AC6). That native skill queries exact commits and reports `CI_RESULT timeout` when
+GitHub CLI access fails or no workflow rows appear for the pushed head ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
+AC7).
 
 Monitoring and any other long-running wait/poll are background-only: no agent may
 keep the main session busy with `tail -f`, `gh run watch`, blocking `ctx_execute`,
@@ -606,13 +613,13 @@ All preseed content is deployed via the manifest pipeline:
 ## Multi-Agent Preseed
 
 The generator produces adapted config files for all supported agents
-from CC's preseed as single source of truth. No duplicate preseed
-files exist on disk.
+from CC's preseed as the default source of truth. Pi-specific runtime contracts
+that must differ from Claude, such as `git-workflow` and `ci-monitoring`, live as
+native Pi manifest entries instead of transformed Claude files.
 
-Shared operational rules in `preseed/agents/claude/rules/git-workflow.md` and
-`preseed/agents/claude/rules/engineering-constitution.md` fan out through
-`scripts/generate-agent-seed.mjs` to every agent instruction surface. The git
-workflow rule includes the review gate: do not push while a PR-boundary review is running, pending, missing, stale, or otherwise incomplete for the current head unless the user explicitly authorizes it. Implements
+Shared operational rules in `preseed/agents/claude/rules/engineering-constitution.md`
+fan out through `scripts/generate-agent-seed.mjs` to every agent instruction surface.
+The review push gate is sourced from that constitution: do not push while a PR-boundary review is running, pending, missing, stale, or otherwise incomplete for the current head unless the user explicitly authorizes it. Implements
 [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 AC7 and [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents).
 
@@ -645,10 +652,12 @@ commands (CC slash commands), plugins (CC plugin system, including
 codeflare-memory and codeflare-vault), `preseed/agents/claude/rules/memory.md` (references
 CC-specific `mcp__graphify__*` tools and the vault hook system; the
 vault trigger/route content lives in that preseed rule as folded subsections,
-not a separate rules/vault.md), `consult-llm` skill (depends on the
-consult-llm MCP tool, so it is excluded from the codex/opencode/antigravity
-transform lane — but Pi gets a native `consult-llm` skill + MCP server via
-`~/.pi/agent/mcp.json`, see [REQ-AGENT-031](../../sdd/spec/agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)).
+not a separate rules/vault.md), `preseed/agents/claude/rules/git-workflow.md`
+for Pi only (Pi gets `preseed/agents/pi/rules/git-workflow.md` instead), and
+`consult-llm` skill (depends on the consult-llm MCP tool, so it is excluded from
+the codex/opencode/antigravity transform lane — but Pi gets a native
+`consult-llm` skill + MCP server via `~/.pi/agent/mcp.json`, see
+[REQ-AGENT-031](../../sdd/spec/agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)).
 Pi receives native TypeScript extensions for the
 runtime behaviors that cannot be represented as transformed prose:
 `/sdd`, `/graphify`, `/vault`, `/note`, `/debug`, `/deploy`, `/brainstorm`, graphify
@@ -1006,6 +1015,8 @@ To inspect enforcement state without reading `.git/` by hand, Pi exposes a read-
 - [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing) - PR-Boundary Command Parsing
 - [REQ-AGENT-066](../../sdd/spec/agents.md#req-agent-066-pr-boundary-command-targeting-and-failure-recovery) - PR-Boundary Command Targeting and Failure Recovery
 - [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior) - consult-llm Invocation and Model-Selection Behavior
+- [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy) - CI Monitoring Background-Agent Policy
+- [REQ-AGENT-069](../../sdd/spec/agents.md#req-agent-069-pi-consult-llm-mcp-lazy-wiring) - Pi consult-llm MCP lazy wiring
 - [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-pr-boundary-review-window-advancement) - Pi PR-Boundary Review Window Advancement
 - [REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer) - Pi Local Statusline Footer
 - [REQ-AGENT-057](../../sdd/spec/agents.md#req-agent-057-pi-review-status-command) - Pi Review-Status Command

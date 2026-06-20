@@ -121,7 +121,7 @@ describe('CF-045: vault-html direct unit tests', () => {
     });
   });
 
-  describe('vault prewarm helpers', () => {
+  describe('REQ-MOB-014 / REQ-VAULT-020: vault prewarm helpers', () => {
     async function countPrewarmBridgeScripts(html: string): Promise<number> {
       let count = 0;
       await new HTMLRewriter()

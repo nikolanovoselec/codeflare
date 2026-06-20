@@ -239,7 +239,7 @@ describe('useTerminal hook', () => {
   });
 
   describe('cleanup on unmount', () => {
-    it('should unregister fit addon on dispose', () => {
+    it('should dispose local terminal resources on unmount', () => {
       const dispose = createRoot((dispose) => {
         const result = useTerminal(defaultProps);
         result.containerRef(containerEl);

@@ -389,10 +389,10 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 1. Dashboard view opens zero terminal WebSocket connections even when sessions are running or initializing. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::setDashboardWorkspace -->
 2. Single-session view opens terminal WebSockets only for the visible session surface: one active tab in tabbed mode, or each visible tiled tab when tiling is enabled. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::setSingleSessionWorkspace --> <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea -->
 3. Running sessions outside the visible workspace have no connected terminal side effects. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea -->
-4. Workspace switches reconcile WebSocket ownership to the current visible pane set. <!-- @impl: web-ui/src/hooks/useTerminal.ts::canConnect -->
+4. Workspace switches dispose local UI terminal resources for panes that leave the visible set without stopping the underlying PTY. <!-- @impl: web-ui/src/hooks/useTerminal.ts::canConnect --> <!-- @impl: web-ui/src/stores/terminal.ts::disposeLocalTerminal -->
 5. Session indicators distinguish container-running state from visible-terminal-connected state. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::dotVariant -->
 6. Browser visibility return reconnects only panes or tiled tabs that are visible in the current workspace. <!-- @impl: web-ui/src/components/Layout.tsx::visibleTerminalKeys -->
-7. A focused visible terminal claims resize authority before sending its current dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::claimResizeAuthority -->
+7. A focused visible terminal claims resize authority before sending dimensions, including retry reconnects that remain focused. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::claimResizeAuthority -->
 
 **Constraints:**
 

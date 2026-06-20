@@ -288,7 +288,7 @@ Admin groups also widen the JIT entry gate (union of user-access + admin groups)
 - Setup complete, SaaS mode -> `/` shows login page with "Sign in with GitHub" button
 - Unauthenticated marketing-landing Sign in clicks target `/login` (`APP_LINKS.signIn` in `landing/src/config.ts`).
 
-In onboarding mode, `/login` is the landing-built sign-in page: it shares landing tokens, preloaded fonts, and nav chrome, but omits marketing WebGL/motion hooks so first paint is stable. In SaaS mode, `/login` remains the SPA provider chooser (GitHub, Google, OIDC, one-time-pin). `/app/` is not the Sign-in target because the SPA guard redirects unauthenticated requests back to `/` before login UI renders.
+In onboarding mode, `/login` is the landing-built sign-in page: it shares landing tokens, preloaded fonts, and nav chrome, but omits marketing WebGL/motion hooks so first paint is stable. In SaaS mode, `/login` remains the SPA provider chooser (GitHub, Google, OIDC, one-time-pin). `/app/` is not the Sign-in target because the SPA guard redirects unauthenticated requests back to `/` before login UI renders. See [REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-shell), [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow), `src/index.ts`, and `landing/src/pages/login.astro`.
 
 ---
 
@@ -352,6 +352,8 @@ Implements [REQ-AUTH-016](../../sdd/spec/authentication.md#req-auth-016-header-u
 - [REQ-AUTH-015](../../sdd/spec/authentication.md#req-auth-015-guided-onboarding-flow) - Guided onboarding flow
 - [REQ-AUTH-016](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown) - Header user dropdown
 - [REQ-AUTH-017](../../sdd/spec/authentication.md#req-auth-017-gravatar-integration) - Gravatar integration
+- [REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-shell) - Onboarding `/login` landing shell
+- [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow) - Onboarding sign-in choices and access-request flow
 - [REQ-ENTERPRISE-008](../../sdd/spec/enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression) - Enterprise frontend surface suppression (avatar/dropdown inert, Usage SaaS-only)
 - [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) - Access-gated JIT provisioning runs before SaaS path in enterprise mode
 - [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) - Admin authorization via Cloudflare Access groups (live requireAdmin elevation)

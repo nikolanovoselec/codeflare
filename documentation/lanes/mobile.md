@@ -46,7 +46,7 @@ The `overlaysContent` flag must be managed carefully throughout the terminal lif
 
 ### Background prewarm focus safety
 
-Vault browser prewarm runs in a hidden same-origin iframe while the user may already be typing in the terminal. It is intentionally not delayed by terminal focus or an open virtual keyboard. Instead, `injectVaultPrewarmFocusGuard()` makes only the valid-token prewarm shell focus-inert before SilverBullet app scripts run: script `focus()`, `select()`, and `window.focus()` calls are no-ops, focus-in events inside the hidden document are blurred, and `startVaultPrewarm()` restores the previously focused terminal/input element if the outer iframe captures parent focus. Normal user-opened Vault tabs do not carry prewarm parameters and keep regular editor focus behavior.
+Vault browser prewarm runs in a hidden same-origin iframe while the user may already be typing in the terminal. It is intentionally not delayed by terminal focus or an open virtual keyboard. Instead, `injectVaultPrewarmFocusGuard()` makes only the valid-token prewarm shell focus-inert before SilverBullet app scripts run: script `focus()`, `select()`, and `window.focus()` calls are no-ops, focus-in events inside the hidden document are blurred, and `startVaultPrewarm()` restores the previously focused terminal/input element if the outer iframe captures parent focus. Normal user-opened Vault tabs do not carry prewarm parameters and keep regular editor focus behavior. Vault browser prewarm implements [REQ-MOB-014](../../sdd/spec/mobile.md#req-mob-014-mobile-background-surface-focus-isolation) and [REQ-VAULT-020](../../sdd/spec/vault.md#req-vault-020-vault-prewarm-focus-safety).
 
 ### Samsung Internet Quirks
 
@@ -302,6 +302,7 @@ The Verification fields in [`sdd/spec/mobile.md`](../../sdd/spec/mobile.md) poin
 - [REQ-MOB-010](../../sdd/spec/mobile.md#req-mob-010-fitaddon-fit-calls-are-coordinated) - FitAddon fit calls are coordinated
 - [REQ-MOB-011](../../sdd/spec/mobile.md#req-mob-011-samsung-internet-keyboard-state-recovery) - Samsung Internet keyboard state recovery
 - [REQ-MOB-013](../../sdd/spec/mobile.md#req-mob-013-mobile-input-system-platform-compatibility) - Mobile input-system platform compatibility
+- [REQ-MOB-014](../../sdd/spec/mobile.md#req-mob-014-mobile-background-surface-focus-isolation) - Mobile background-surface focus isolation
 
 ---
 

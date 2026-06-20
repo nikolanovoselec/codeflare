@@ -22,6 +22,8 @@ Monitor CI for <repo> at HEAD <head> on branch <branch>. Never block the main se
 
 ## Detached monitor script for the background subagent
 
+<!-- ci-monitor-detached-script -->
+
 ```bash
 cd <repo>
 BRANCH=<branch>
@@ -37,15 +39,19 @@ head="$3"
 log="$4"
 cd "$repo" || exit 124
 : > "$log"
+if ! command -v gh >/dev/null 2>&1; then echo "CI_RESULT timeout gh_unavailable_or_auth_failed head=$head" >> "$log"; exit 124; fi
 stable_done=0
 last_fingerprint=""
 no_rows_deadline=$((SECONDS + 300))
 deadline=$((SECONDS + 1800))
 while [ $SECONDS -lt $deadline ]; do
-  gh run list --commit "$head" --limit 24 \
+  if ! gh run list --commit "$head" --limit 24 \
     --json databaseId,workflowName,headSha,status,conclusion,event,url \
-    > "$log.json"
-  node - "$head" "$log.json" "$log.state" >> "$log" <<'NODE'
+    > "$log.json" 2>> "$log"; then
+    echo "CI_RESULT timeout gh_unavailable_or_auth_failed head=$head" >> "$log"
+    exit 124
+  fi
+  node - "$head" "$log.json" "$log.state" >> "$log" 2>> "$log" <<'NODE'
 const [head, file, stateFile] = process.argv.slice(2)
 const fs = require('fs')
 const rows = JSON.parse(fs.readFileSync(file, 'utf8')).filter((r) => r.headSha === head)
@@ -64,6 +70,7 @@ const done = rows.every((r) => r.status === 'completed')
 process.exit(bad ? 10 : done ? 0 : 2)
 NODE
   rc=$?
+  if [ $rc -eq 1 ]; then echo "CI_RESULT timeout invalid_workflow_json head=$head" >> "$log"; exit 124; fi
   if [ $rc -eq 3 ] && [ $SECONDS -ge $no_rows_deadline ]; then echo "CI_RESULT timeout no_workflows_for_head=$head" >> "$log"; exit 124; fi
   if [ $rc -eq 0 ]; then
     fingerprint=$(node -e 'const fs=require("fs"); try { process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).fingerprint || "") } catch {}' "$log.state")

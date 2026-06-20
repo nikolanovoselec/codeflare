@@ -50,7 +50,7 @@ function createMockCtx(): ExecutionContext {
   } as unknown as ExecutionContext;
 }
 
-describe('REQ-AUTH-020: onboarding login + access-request', () => {
+describe('REQ-AUTH-020 / REQ-AUTH-021: onboarding login + access-request', () => {
   let mockKV: ReturnType<typeof createMockKV>;
   let originalFetch: typeof globalThis.fetch;
 

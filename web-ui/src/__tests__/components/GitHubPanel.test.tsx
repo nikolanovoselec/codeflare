@@ -276,7 +276,7 @@ describe('GitHubPanel Component', () => {
     expect(link.getAttribute('rel')).toContain('noopener');
   });
 
-  it('renders every repo inside the scroll container (the row cap is a CSS viewport, not truncation)', async () => {
+  it('REQ-GITHUB-009: renders every repo inside the scroll container (the row cap is a CSS viewport, not truncation)', async () => {
     mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: true, login: 'octocat' });
     const repos = Array.from({ length: 15 }, (_, i) => makeRepo({ full_name: `octocat/r${i}`, name: `r${i}` }));
     mockGetGithubRepos.mockResolvedValueOnce({ repos, page: 1, hasMore: false });
@@ -287,7 +287,7 @@ describe('GitHubPanel Component', () => {
     expect(screen.getAllByTestId('github-repo-row')).toHaveLength(15);
   });
 
-  it('shows the no-repositories empty state only when the account has no repos', async () => {
+  it('REQ-GITHUB-009: shows the no-repositories empty state only when the account has no repos', async () => {
     mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: true, login: 'octocat' });
     mockGetGithubRepos.mockResolvedValueOnce({ repos: [], page: 1, hasMore: false });
 
@@ -298,7 +298,7 @@ describe('GitHubPanel Component', () => {
     expect(screen.queryByTestId('github-repo-rows')).not.toBeInTheDocument();
   });
 
-  it('keeps search-empty results distinct from the no-repositories empty state', async () => {
+  it('REQ-GITHUB-009: keeps search-empty results distinct from the no-repositories empty state', async () => {
     mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: true, login: 'octocat' });
     mockGetGithubRepos.mockResolvedValueOnce({
       repos: [makeRepo({ full_name: 'octocat/alpha', name: 'alpha' })],
@@ -315,7 +315,7 @@ describe('GitHubPanel Component', () => {
     expect(empty).toHaveAttribute('data-empty-state', 'no-search-results');
   });
 
-  it('renders the mobile flip control only when onFlip is provided, and fires it', async () => {
+  it('REQ-GITHUB-010: renders the mobile flip control only when onFlip is provided, and fires it', async () => {
     mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: false });
     const onFlip = vi.fn();
 

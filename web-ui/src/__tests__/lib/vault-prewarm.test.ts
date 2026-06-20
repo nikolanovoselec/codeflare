@@ -28,7 +28,7 @@ const localOnlyProof = {
   hasIndexedDbDatabasesApi: true,
 };
 
-describe('vault browser prewarm protocol', () => {
+describe('REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     document.body.innerHTML = '';

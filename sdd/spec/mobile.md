@@ -114,11 +114,11 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Constraints:**
 
-- Background prewarm must not be delayed just because the keyboard is open.
+- Background prewarm remains eager while the keyboard is open.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-VAULT-020](vault.md#req-vault-020-vault-prewarm-focus-safety)
+**Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap)
 
 **Verification:** [Vault prewarm test](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [Vault shell helper test](../../src/__tests__/routes/vault-html-direct.test.ts)
 

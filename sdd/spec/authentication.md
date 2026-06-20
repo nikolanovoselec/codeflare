@@ -484,7 +484,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode), [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings), [REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth)
+**Dependencies:** [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode), [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings), [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth)
 
 **Verification:** [Integration test](../../web-ui/src/__tests__/components/OnboardingPage.test.tsx)
 
@@ -612,58 +612,84 @@ None.
 
 ---
 
-<!-- @test: landing/src/__tests__/login-page.test.ts (REQ-AUTH-020 structural oracle for the composed Header + LoginCard + SsoAccordion + RequestedPanel + Footer login page, rendered via the Container API -> GitHub is the single primary action: .login-github href equals LOGIN.github.href (/auth/github/login) with btn-primary -> AC5; one native exclusive <details name="sso"> per LOGIN.ssoProviders carrying its data-sso id, every SSO button a CTA deep-linking to LOGIN.sso.cta.href (#contact + topic=enterprise-deployment) with none pointing at a real /auth/ route -> AC5; the [data-login-requested] confirmation ships hidden while the [data-login-choices] sign-in choices ship visible, plus a hidden [data-login-error] slot and a parseable JSON #login-errors map carrying the known codes (no-verified-email, default) -> AC6; inherits the shared nav and font preloads while omitting landing-only motion hooks (no data-flare-fluid / ticker / terminal-loop / proof hooks) + robots noindex,nofollow + no em/en dash in the rendered copy -> AC2,AC3) -->
+<!-- @test: landing/src/__tests__/login-page.test.ts (onboarding login page (REQ-AUTH-020 / REQ-AUTH-021) describe -> inherits the shared nav and font preloads while omitting landing-only motion hooks (no data-flare-fluid / ticker / terminal-loop / proof hooks) + robots noindex,nofollow + no em/en dash in the rendered copy -> REQ-AUTH-020 AC2/AC3) -->
 <!-- @test: landing/src/__tests__/components.test.ts (REQ-AUTH-020 Header (one nav, two variants) describe -> variant=login renders only the .login-back link equal to LOGIN.back.href + the back arrow, no pillar .nav-links -> AC2) -->
-<!-- @test: landing/src/__tests__/login.script.test.ts (REQ-AUTH-020 describe -> ?status / ?error param state handling reshapes the page -> AC6) -->
-<!-- @test: landing/src/__tests__/contact-controller.test.ts (contact-controller (REQ-LANDING-002) describe / pickDeepLinkTopic describe -> returns the enterprise-deployment topic from ?topic= and rejects crafted values -> REQ-AUTH-020 AC5) -->
-<!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 describe -> /login rewrite to /landing/login/ in onboarding mode + callback mode-aware redirect + access-request record + emails + sendAccessRequestConfirmation -> AC1,AC4,AC6,AC7) -->
+<!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021 describe -> /login rewrite to /landing/login/ in onboarding mode + SaaS callback mode-aware redirect -> REQ-AUTH-020 AC1/AC4) -->
 <!-- @test: host/__tests__/wrangler-run-worker-first.test.js (wrangler run_worker_first control-plane routes describe -> /login is in run_worker_first so the onboarding rewrite runs at the edge instead of the SPA asset being served directly -> AC1) -->
-<!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-020 onboarding mode trusts the codeflare_session cookie describe -> valid session authenticates with SAAS inactive + onboarding active, not trusted when neither mode active, AuthError when JWT secret missing, no fallthrough to CF Access on invalid session -> AC8) -->
-<!-- @test: src/__tests__/middleware/auth-saas.test.ts (requireActiveUser REQ-AUTH-020 -> active tier passes and pending is 403 PENDING in onboarding mode with SAAS inactive -> AC9) -->
-<!-- @test: src/__tests__/lib/onboarding.test.ts (isSessionOidcMode REQ-AUTH-020 describe -> true for SaaS or onboarding, false when both inactive -> AC8) -->
-### REQ-AUTH-020: Onboarding-mode landing-integrated login and access-request flow
+### REQ-AUTH-020: Onboarding-mode landing-integrated login shell
 
 <!-- @impl: landing/src/pages/login.astro -->
-<!-- @impl: landing/src/scripts/login.ts -->
 <!-- @impl: landing/src/content/site.ts -->
 <!-- @impl: src/index.ts -->
 <!-- @impl: wrangler.toml -->
-<!-- @impl: src/routes/github-auth.ts -->
-<!-- @impl: landing/src/components/ContactForm.astro -->
-<!-- @impl: landing/src/components/LoginCard.astro -->
-<!-- @impl: landing/src/components/SsoAccordion.astro -->
-<!-- @impl: landing/src/components/RequestedPanel.astro -->
 <!-- @impl: landing/src/components/Header.astro -->
-<!-- @impl: src/lib/onboarding.ts::isSessionOidcMode -->
-<!-- @impl: src/lib/access.ts::getUserFromRequest -->
 
-**Intent:** In onboarding mode, sign-in shares the marketing landing's design system: visitors get a GitHub sign-in plus enterprise-SSO request affordances on a landing-built `/login` page, and a GitHub OAuth that does not resolve to an approved user records an access request and tells the visitor it was received, rather than dropping them at a subscribe page.
+**Intent:** In onboarding mode, `/login` is served by the marketing landing system while SaaS keeps the existing SPA login page.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. In onboarding mode (`ONBOARDING_LANDING_PAGE` active, `SAAS_MODE` not active), the Worker rewrites `/login` asset requests to `/landing/login/`. <!-- @impl: src/index.ts::fetch -->
-2. The landing-built `/login` page uses the shared landing design tokens, preloaded fonts, and login nav chrome. <!-- @impl: landing/src/pages/login.astro --> <!-- @impl: landing/src/layouts/BaseLayout.astro -->
-3. The landing-built `/login` page omits landing-only WebGL/motion hooks for stable first paint. <!-- @impl: landing/src/layouts/BaseLayout.astro -->
+2. The landing-built `/login` page uses the shared landing design tokens, preloaded fonts, and login nav chrome. <!-- @impl: landing/src/pages/login.astro::BaseLayout --> <!-- @impl: landing/src/layouts/BaseLayout.astro::BaseLayout -->
+3. The landing-built `/login` page omits landing-only WebGL/motion hooks for stable first paint. <!-- @impl: landing/src/layouts/BaseLayout.astro::BaseLayout -->
 4. In SaaS mode, `/login` is unchanged and continues to serve the SPA login. <!-- @impl: src/index.ts::fetch -->
-5. The page offers a GitHub sign-in linking to `/auth/github/login` and four enterprise SSO buttons (Microsoft Entra ID, Okta, Ping Identity, Google Workspace) rendered as expand-to-CTA controls that deep-link to the contact form with `topic=enterprise-deployment` (preselected via `pickDeepLinkTopic`); these controls never start an OIDC flow. <!-- @impl: landing/src/scripts/contact-controller.ts::pickDeepLinkTopic -->
-6. After GitHub OAuth, an active-tier user is redirected to `/app/`; a non-approved user in onboarding mode has an access request recorded on their stored record (pending tier plus `requestedAt`, idempotent across repeat sign-ins), admin and user confirmation emails are sent via Resend (`sendAccessRequestConfirmation`), and the user is redirected to `/login?status=requested`, which the page reshapes into a "request submitted" confirmation state. <!-- @impl: src/lib/email.ts::sendAccessRequestConfirmation -->
-7. The onboarding access-request branch never runs in SaaS mode (which keeps the existing `/app/subscribe` redirect for pending users) or in enterprise mode.
-8. In onboarding mode the app trusts and refreshes the `codeflare_session` cookie from the GitHub callback, gated by `isSessionOidcMode` (SaaS active OR onboarding active). <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @impl: src/lib/onboarding.ts::isSessionOidcMode -->
-9. Active-tier middleware applies in onboarding; pending visitors with sessions remain gated out of app APIs. Enterprise and default deployments still use Cloudflare Access. <!-- @impl: src/middleware/auth.ts::requireActiveUser -->
+
 **Constraints:**
 
-- The enterprise SSO buttons are contact-form deep links, not identity providers; no real OIDC handshake is configured for them.
-- Onboarding sign-in is backed by the app's own GitHub OAuth (the `codeflare_session` path), not Cloudflare Access. The GitHub OAuth App's authorization callback URL must therefore match the deployment's own domain (`https://<domain>/auth/github/callback`). A classic GitHub OAuth App permits only one callback URL, so each deployment domain (e.g. integration vs production) needs its own OAuth App; pointing one app's callback at a different domain makes GitHub bounce sign-in back to the registered domain.
-- The access-request branch is reached only after a completed GitHub OAuth, so the human is already authenticated; no Turnstile re-challenge is applied on this path.
-- Email delivery is best-effort via the shared `sendEmail` helper; a Resend failure or missing `RESEND_API_KEY` does not block the redirect.
-- The `/login` rewrite only executes if `/login` is listed in the Cloudflare Assets `run_worker_first` allowlist (`wrangler.toml`); without it the asset layer serves the SPA `index.html` at the edge and the Worker never runs for `/login`, so AC1 silently fails in production while the worker-level unit test still passes.
+- The `/login` rewrite only executes if `/login` is listed in the Cloudflare Assets `run_worker_first` allowlist (`wrangler.toml`).
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth), [REQ-AUTH-013](#req-auth-013-custom-branded-login-page), [REQ-LANDING-001](landing.md#req-landing-001-mode-aware-public-landing-serving)
+**Dependencies:** [REQ-AUTH-013](#req-auth-013-custom-branded-login-page), [REQ-LANDING-001](landing.md#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** [Login page render tests](../../landing/src/__tests__/login-page.test.ts), [Onboarding login route tests](../../src/__tests__/routes/onboarding-login.test.ts)
+**Verification:** [Login page render tests](../../landing/src/__tests__/login-page.test.ts), [Onboarding login route tests](../../src/__tests__/routes/onboarding-login.test.ts), [wrangler control-plane test](../../host/__tests__/wrangler-run-worker-first.test.js)
+
+**Status:** Implemented
+
+---
+
+<!-- @test: landing/src/__tests__/login-page.test.ts (onboarding login page (REQ-AUTH-020 / REQ-AUTH-021) describe -> GitHub is the single primary action; one native exclusive <details name="sso"> per provider; requested confirmation ships hidden while sign-in choices ship visible -> AC1/AC2) -->
+<!-- @test: landing/src/__tests__/login.script.test.ts (REQ-AUTH-021 login.ts onboarding /login outcome handling describe -> ?status / ?error param state handling reshapes the page -> AC2) -->
+<!-- @test: landing/src/__tests__/contact-controller.test.ts (contact-controller (REQ-LANDING-002) describe / pickDeepLinkTopic describe -> returns the enterprise-deployment topic from ?topic= and rejects crafted values -> AC1) -->
+<!-- @test: src/__tests__/routes/onboarding-login.test.ts (REQ-AUTH-020 / REQ-AUTH-021 describe -> active redirect, access-request record, emails, sendAccessRequestConfirmation, and SaaS/enterprise exclusions -> AC2/AC3) -->
+<!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-021 onboarding mode trusts the codeflare_session cookie describe -> valid session authenticates with SaaS inactive + onboarding active, not trusted when neither mode active, AuthError when JWT secret missing, no fallthrough to CF Access on invalid session -> AC4) -->
+<!-- @test: src/__tests__/middleware/auth-saas.test.ts (requireActiveUser REQ-AUTH-021 -> active tier passes and pending is 403 PENDING in onboarding mode with SaaS inactive -> AC5) -->
+<!-- @test: src/__tests__/lib/onboarding.test.ts (isSessionOidcMode REQ-AUTH-021 describe -> true for SaaS or onboarding, false when both inactive -> AC4) -->
+### REQ-AUTH-021: Onboarding-mode sign-in choices and access-request flow
+
+<!-- @impl: landing/src/scripts/login.ts -->
+<!-- @impl: src/routes/github-auth.ts -->
+<!-- @impl: landing/src/components/ContactForm.astro -->
+<!-- @impl: landing/src/components/LoginCard.astro -->
+<!-- @impl: landing/src/components/SsoAccordion.astro -->
+<!-- @impl: landing/src/components/RequestedPanel.astro -->
+<!-- @impl: src/lib/onboarding.ts::isSessionOidcMode -->
+<!-- @impl: src/lib/access.ts::getUserFromRequest -->
+<!-- @impl: src/middleware/auth.ts::requireActiveUser -->
+
+**Intent:** Onboarding sign-in offers GitHub plus enterprise-SSO request affordances and records access requests when GitHub OAuth resolves to a non-approved user.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The page offers a GitHub sign-in and enterprise SSO request controls that deep-link to the contact form. <!-- @impl: landing/src/scripts/contact-controller.ts::pickDeepLinkTopic -->
+2. Non-approved onboarding GitHub users are recorded as pending, emailed, and redirected to the requested state. <!-- @impl: src/routes/github-auth.ts::app.get('/callback') --> <!-- @impl: src/lib/email.ts::sendAccessRequestConfirmation -->
+3. The onboarding access-request branch never runs in SaaS mode or enterprise mode. <!-- @impl: src/routes/github-auth.ts::app.get('/callback') -->
+4. Onboarding trusts and refreshes `codeflare_session` only when `isSessionOidcMode` is active. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @impl: src/lib/onboarding.ts::isSessionOidcMode -->
+5. Active-tier middleware applies in onboarding; pending visitors with sessions remain gated out of app APIs. <!-- @impl: src/middleware/auth.ts::requireActiveUser -->
+
+**Constraints:**
+
+- Enterprise SSO controls are contact-form deep links, not identity providers.
+- The GitHub OAuth App callback URL must match the deployment domain.
+- Email delivery is best-effort via `sendEmail`.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AUTH-002](#req-auth-002-saas-mode-uses-direct-github-oauth), [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode), [REQ-AUTH-020](#req-auth-020-onboarding-mode-landing-integrated-login-shell)
+
+**Verification:** [Login page render tests](../../landing/src/__tests__/login-page.test.ts), [login script tests](../../landing/src/__tests__/login.script.test.ts), [Onboarding login route tests](../../src/__tests__/routes/onboarding-login.test.ts), [auth gap tests](../../src/__tests__/lib/auth-gaps.test.ts), [auth middleware tests](../../src/__tests__/middleware/auth-saas.test.ts), [onboarding helper tests](../../src/__tests__/lib/onboarding.test.ts)
 
 **Status:** Implemented

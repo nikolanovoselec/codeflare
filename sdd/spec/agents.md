@@ -738,12 +738,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. Every Pi CI-producing push starts `ci-monitoring` in a backgrounded agent unless the user explicitly skips that push. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-ci-route --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi git-workflow rule is native and contains the CI-producing push route -> AC1) -->
-2. The CI monitor reports success only after every workflow row for the monitored HEAD is complete and the workflow/run-id fingerprint is stable. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::ci-workflow-row-fingerprint --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 waits for a stable workflow/run set -> AC2) -->
-3. CI failures are report-only: the background agent reports the failed workflow/run/log pointer and never fixes, commits, or pushes. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::ci-background-agent --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 reports failed workflow rows -> AC3) -->
-4. Long-running waits, monitors, or polls never keep the main session busy; agents start backgrounded work, report how to check it, and stop. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi git-workflow rule keeps monitoring background-only -> AC4) -->
-5. After `CI_RESULT`, the main session first prints the CI summary, including monitored head, run/log pointers when present, and next action. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::ci-background-agent --> <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::ENGINEERING_CONSTITUTION --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (CI-result handoff contract clauses are generated into all instruction surfaces -> AC5) -->
-6. Pi receives native `git-workflow` and `ci-monitoring` files from the Pi manifest; it does not inherit the Claude git-workflow or Claude-transformed CI skill. <!-- @impl: preseed/agents/pi/manifest.json --> <!-- @impl: preseed/agents/pi/rules/git-workflow.md --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi gets native CI workflow files while Claude git-workflow remains baseline -> AC6) -->
+1. Every Pi CI-producing push starts `ci-monitoring` in a backgrounded agent unless the user explicitly skips that push. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-ci-route --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi git-workflow rule is native and contains the CI-producing push route -> AC1) -->
+2. The CI monitor reports success only after every workflow row for the monitored HEAD is complete and the workflow/run-id fingerprint is stable. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi CI skill uses exact-head monitor with stable fingerprint -> AC2) -->
+3. CI failures are report-only: the background agent reports the failed workflow/run/log pointer and never fixes, commits, or pushes. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi CI skill keeps CI monitor report-only -> AC3) -->
+4. Long-running waits, monitors, or polls never keep the main session busy; agents start backgrounded work, report how to check it, and stop. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi git-workflow rule keeps monitoring background-only -> AC4) -->
+5. After `CI_RESULT`, the main session first prints the CI summary, including monitored head, run/log pointers when present, and next action. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::CI-result handoff gate --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::ENGINEERING_CONSTITUTION --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (CI-result handoff contract clauses are generated into all instruction surfaces -> AC5) -->
+6. Pi receives native `git-workflow` and `ci-monitoring` files from the Pi manifest in every mode; it does not inherit the Claude git-workflow or Claude-transformed CI skill. <!-- @impl: preseed/agents/pi/manifest.json::rules/git-workflow.md --> <!-- @impl: preseed/agents/pi/manifest.json::skills/ci-monitoring/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi gets native CI workflow files while Claude git-workflow remains baseline -> AC6) -->
+7. The native Pi CI monitor queries GitHub Actions by exact pushed HEAD and reports a timeout blocker when GitHub CLI access fails or no workflow rows appear for that HEAD within five minutes. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi native CI skill contains exact-head query, no-workflows timeout, and gh failure timeout -> AC7) -->
 
 **Constraints:**
 
@@ -1354,7 +1355,7 @@ None.
 3. An idle Pi session finalizes completed durable reviews by saving the merged summary while the already-running background review-monitor delivers the result; Pi acknowledges and clears the pending window only after `monitor.completed` exists. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor -->
 4. Pi does not resurrect old acked review jobs after pending state is cleared; monitor delivery is tied to the active review window started by a real PR-boundary trigger. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::refreshReviewStatusFromDurable --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ensureReviewWindow -->
 5. Ctx-bearing review routing accepts only direct Codeflare workspace children (`/home/user/workspace/<repo>`), preferring boundary/session repo, then current active repo, then remembered review repo; routing never uses the shared graphify active-cwd sentinel or arbitrary git-root walking. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::resolveReviewRepo --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::workspaceRepoFromPath --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewRepoForCtx --> <!-- @test: src/__tests__/lib/review-state.test.ts (resolveReviewRepo Codeflare workspace-child routing only -> AC5) -->
-6. The no-ctx idle reaper iterates remembered review repos instead of applying single-repo routing precedence, so all in-flight reviews can finish. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::rememberReviewRepo --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::recallReviewRepos --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- @test: src/__tests__/lib/review-state.test.ts (recallReviewRepos returns every remembered review repo -> AC6) -->
+6. The no-ctx idle reaper iterates remembered review repos instead of applying single-repo routing precedence; persisted entries are accepted only while the workspace child still has a local `.git` directory. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::rememberReviewRepo --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::readPersistedReviewRepos --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::localHasGitDir --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::recallReviewRepos --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- @test: src/__tests__/lib/review-state.test.ts (REQ-AGENT-061 recallReviewRepos returns every remembered workspace-child review repo; persisted recall ignores stale workspace-child paths without a .git directory -> AC6) -->
 7. Read-only `/review-status` may fall back to the guarded display sentinel only after review routing candidates fail. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::reviewStatusRepo --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::liveReviewRow --> <!-- @test: src/__tests__/lib/review-state.test.ts (resolveReviewRepo sentinel-independence -> AC7) -->
 
 **Constraints:**
@@ -2096,7 +2097,8 @@ None.
 
 ### REQ-AGENT-069: Pi consult-llm MCP lazy wiring
 
-<!-- @impl: entrypoint.sh -->
+<!-- @impl: entrypoint.sh::configure_consult_llm -->
+<!-- @impl: entrypoint.sh::_merge_consult_llm_mcp -->
 <!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md -->
 <!-- @test: host/__tests__/entrypoint-consult-llm.test.js (Pi mcp.json mirrors the server through the lazy mcp proxy; replaces only the owned consult-llm entry and stays idempotent across starts) -->
 
@@ -2106,10 +2108,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. Pi reads `consult-llm` from `~/.pi/agent/mcp.json` through the pi-mcp-adapter `mcp` proxy. <!-- @impl: entrypoint.sh -->
-2. The Pi `consult-llm` entry uses `lifecycle:"lazy"`, so `consult-llm-mcp` starts on proxy use rather than session start. <!-- @impl: entrypoint.sh -->
-3. Each container start replaces Codeflare's owned `mcpServers["consult-llm"]` object, removing stale `keep-alive` and `directTools` fields. <!-- @impl: entrypoint.sh -->
-4. The replacement preserves unrelated user MCP servers in the same file. <!-- @impl: entrypoint.sh -->
+1. Pi reads `consult-llm` from `~/.pi/agent/mcp.json` through the pi-mcp-adapter `mcp` proxy. <!-- @impl: entrypoint.sh::configure_consult_llm -->
+2. The Pi `consult-llm` entry uses `lifecycle:"lazy"`, so `consult-llm-mcp` starts on proxy use rather than session start. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp -->
+3. Each container start replaces Codeflare's owned `mcpServers["consult-llm"]` object, removing stale `keep-alive` and `directTools` fields. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp -->
+4. The replacement preserves unrelated user MCP servers in the same file. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp -->
 
 **Constraints:**
 

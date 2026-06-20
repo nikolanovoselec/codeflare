@@ -441,6 +441,7 @@ async function generate() {
   const piManifestPath = path.join(piDir, 'manifest.json');
   let piNativeCount = 0;
   const piNativeSkillKeys = new Set();
+  const piNativeRuleFiles = [];
   try {
     const piManifest = JSON.parse(await fs.readFile(piManifestPath, 'utf8'));
     validateModes(piManifest, 'Pi');
@@ -454,6 +455,9 @@ async function generate() {
         content = await fs.readFile(absolutePath, 'utf8');
       } catch {
         throw new Error(`Pi manifest references "${withinPi}" but file does not exist`);
+      }
+      if (withinPi.startsWith('rules/')) {
+        piNativeRuleFiles.push({ withinClaude: withinPi, content, modes: entry.modes, category: 'rule' });
       }
       documents.push({
         key: piNativeKey(withinPi),
@@ -471,13 +475,16 @@ async function generate() {
   for (const [agentId, config] of Object.entries(AGENT_CONFIGS)) {
     // Instructions files (one per mode, same key, different content)
     for (const mode of ['default', 'advanced']) {
-      const rules = sourceFiles.filter(
-        (f) =>
-          f.category === 'rule' &&
-          f.modes.includes(mode) &&
-          !isClaudeOnlyFile(f.withinClaude) &&
-          !(agentId === 'pi' && PI_EXCLUDED_CLAUDE_FILES.has(f.withinClaude))
-      );
+      const rules = [
+        ...sourceFiles.filter(
+          (f) =>
+            f.category === 'rule' &&
+            f.modes.includes(mode) &&
+            !isClaudeOnlyFile(f.withinClaude) &&
+            !(agentId === 'pi' && PI_EXCLUDED_CLAUDE_FILES.has(f.withinClaude))
+        ),
+        ...(agentId === 'pi' ? piNativeRuleFiles.filter((f) => f.modes.includes(mode)) : []),
+      ];
       if (rules.length > 0) {
         documents.push({
           key: config.instructionsKey,

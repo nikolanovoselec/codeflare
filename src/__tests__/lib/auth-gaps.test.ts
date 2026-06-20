@@ -661,12 +661,12 @@ describe('REQ-AUTH-011: Auth resolution order', () => {
 });
 
 // ===========================================================================
-// REQ-AUTH-020: Onboarding mode trusts the app-owned GitHub OIDC session.
+// REQ-AUTH-021: Onboarding mode trusts the app-owned GitHub OIDC session.
 // The onboarding GitHub callback issues a codeflare_session cookie, so the
 // access layer must trust it even though SAAS_MODE is inactive — otherwise an
 // approved user can never reach /app in onboarding (the regression this guards).
 // ===========================================================================
-describe('REQ-AUTH-020: onboarding mode trusts the codeflare_session cookie', () => {
+describe('REQ-AUTH-021: onboarding mode trusts the codeflare_session cookie', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {
@@ -679,7 +679,7 @@ describe('REQ-AUTH-020: onboarding mode trusts the codeflare_session cookie', ()
     return { KV: mockKV as unknown as KVNamespace, ...overrides } as Env;
   }
 
-  it('REQ-AUTH-020: valid codeflare_session authenticates in onboarding mode (SAAS inactive)', async () => {
+  it('REQ-AUTH-021: valid codeflare_session authenticates in onboarding mode (SAAS inactive)', async () => {
     const env = makeEnv({
       SAAS_MODE: 'inactive',
       ONBOARDING_LANDING_PAGE: 'active',
@@ -700,7 +700,7 @@ describe('REQ-AUTH-020: onboarding mode trusts the codeflare_session cookie', ()
     expect(user.email).toBe('approved@example.com');
   });
 
-  it('REQ-AUTH-020: the session is NOT trusted when neither SaaS nor onboarding is active', async () => {
+  it('REQ-AUTH-021: the session is NOT trusted when neither SaaS nor onboarding is active', async () => {
     // Regression guard: the cookie is trusted only in app-owned OIDC modes.
     const env = makeEnv({
       SAAS_MODE: 'inactive',
@@ -722,7 +722,7 @@ describe('REQ-AUTH-020: onboarding mode trusts the codeflare_session cookie', ()
     expect(user.authenticated).toBe(false);
   });
 
-  it('REQ-AUTH-020: throws AuthError when onboarding is active but OAUTH_JWT_SECRET is missing', async () => {
+  it('REQ-AUTH-021: throws AuthError when onboarding is active but OAUTH_JWT_SECRET is missing', async () => {
     const env = makeEnv({
       ONBOARDING_LANDING_PAGE: 'active',
       OAUTH_CLIENT_ID: 'gh-client-id',
@@ -735,7 +735,7 @@ describe('REQ-AUTH-020: onboarding mode trusts the codeflare_session cookie', ()
     await expect(getUserFromRequest(request, env)).rejects.toBeInstanceOf(AuthError);
   });
 
-  it('REQ-AUTH-020: onboarding OIDC branch does not fall through to CF Access on an invalid session', async () => {
+  it('REQ-AUTH-021: onboarding OIDC branch does not fall through to CF Access on an invalid session', async () => {
     const env = makeEnv({
       ONBOARDING_LANDING_PAGE: 'active',
       OAUTH_CLIENT_ID: 'gh-client-id',

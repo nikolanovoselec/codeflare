@@ -44,7 +44,7 @@ afterEach(() => {
   setUrl('');
 });
 
-describe('login.ts onboarding /login outcome handling (REQ-AUTH-020)', () => {
+describe('REQ-AUTH-021: login.ts onboarding /login outcome handling', () => {
   it('default URL: keeps the sign-in choices visible, confirmation and error hidden', async () => {
     setUrl('');
     buildFixture();

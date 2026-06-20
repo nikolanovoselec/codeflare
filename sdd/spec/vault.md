@@ -385,7 +385,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Constraints:**
 
-- The key check runs after browser prewarm because SilverBullet drops the in-memory key shortly after the prewarm client disconnects.
+- The key check runs after browser prewarm.
 
 **Priority:** P0
 

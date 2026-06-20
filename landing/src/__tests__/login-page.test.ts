@@ -1,6 +1,6 @@
 /**
  * Structural / behavioural tests for the composed onboarding login page
- * (REQ-AUTH-020). The page is now Header + LoginCard (+ SsoAccordion +
+ * (REQ-AUTH-020 / REQ-AUTH-021). The page is now Header + LoginCard (+ SsoAccordion +
  * RequestedPanel) + Footer; these tests render it through the Container API and
  * assert the wiring that matters — the GitHub OAuth entry, the SSO buttons being
  * CTAs (never real auth routes), the hidden-by-default confirmation, the
@@ -25,7 +25,7 @@ beforeAll(async () => {
   text = decodeEntities(html);
 });
 
-describe('onboarding login page (REQ-AUTH-020)', () => {
+describe('onboarding login page (REQ-AUTH-020 / REQ-AUTH-021)', () => {
   it('GitHub is the single primary action and links to the OAuth entry route', () => {
     const gh = body.querySelector('.login-github')!;
     expect(gh).not.toBeNull();

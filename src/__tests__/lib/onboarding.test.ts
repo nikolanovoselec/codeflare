@@ -55,7 +55,7 @@ describe('deployment mode helpers - REQ-SETUP-003 AC4 binding semantics', () => 
   });
 });
 
-describe('isSessionOidcMode / REQ-AUTH-020 (app-owned codeflare_session trust)', () => {
+describe('isSessionOidcMode / REQ-AUTH-021 (app-owned codeflare_session trust)', () => {
   it('is true when SaaS mode is active', () => {
     expect(isSessionOidcMode({ SAAS_MODE: 'active', ONBOARDING_LANDING_PAGE: 'inactive' })).toBe(true);
   });
