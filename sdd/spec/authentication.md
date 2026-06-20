@@ -675,8 +675,8 @@ None.
 **Acceptance Criteria:**
 
 1. The page offers a GitHub sign-in and enterprise SSO request controls that deep-link to the contact form. <!-- @impl: landing/src/scripts/contact-controller.ts::pickDeepLinkTopic -->
-2. Non-approved onboarding GitHub users are recorded as pending, emailed, and redirected to the requested state. <!-- @impl: src/routes/github-auth.ts::app.get('/callback') --> <!-- @impl: src/lib/email.ts::sendAccessRequestConfirmation -->
-3. The onboarding access-request branch never runs in SaaS mode or enterprise mode. <!-- @impl: src/routes/github-auth.ts::app.get('/callback') -->
+2. Non-approved onboarding GitHub users are recorded as pending, emailed, and redirected to the requested state. <!-- @impl: src/routes/github-auth.ts::onboardingAccessRequest --> <!-- @impl: src/lib/user-record.ts::updateUserRecord --> <!-- @impl: src/lib/email.ts::sendAccessRequestConfirmation -->
+3. The onboarding access-request branch never runs in SaaS mode or enterprise mode. <!-- @impl: src/routes/github-auth.ts::onboardingAccessRequest -->
 4. Onboarding trusts and refreshes `codeflare_session` only when `isSessionOidcMode` is active. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @impl: src/lib/onboarding.ts::isSessionOidcMode -->
 5. Active-tier middleware applies in onboarding; pending visitors with sessions remain gated out of app APIs. <!-- @impl: src/middleware/auth.ts::requireActiveUser -->
 

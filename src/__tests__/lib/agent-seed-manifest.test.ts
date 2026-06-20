@@ -183,6 +183,17 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(piCiSkill!.content).toContain('gh run list --commit "$head"');
   });
 
+  it('REQ-AGENT-070: keeps Claude CI monitoring on-demand with a recoverable stable launcher', () => {
+    const claudeGitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/git-workflow.md');
+    const claudeCiSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/skills/ci-monitoring/SKILL.md');
+
+    expect(claudeGitWorkflow?.content).toContain('Do not auto-start CI monitoring after routine pushes.');
+    expect(claudeCiSkill?.content).toContain('only when the user explicitly asks to monitor CI');
+    expect(claudeCiSkill?.content).toContain('CI_MONITOR_STARTED head=%s pid=%s log=%s');
+    expect(claudeCiSkill?.content).toContain('stable_done=$((stable_done + 1))');
+    expect(claudeCiSkill?.content).toContain('setsid bash "$SCRIPT"');
+  });
+
   it('REQ-AGENT-068: Pi gets a native CI monitoring skill instead of the Claude-transformed skill', () => {
     const piSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/skills/ci-monitoring/SKILL.md');
     expect(piSkill, 'Pi-native ci-monitoring skill must be seeded').toBeTruthy();
@@ -361,7 +372,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(piRun!.content).toContain('Decision order');
   });
 
-  it('Pi has skills, native runtime extensions, and subagent definitions', () => {
+  it('REQ-AGENT-021: Pi has skills, native runtime extensions, and subagent definitions', () => {
     const piDocs = AGENTS_SEEDED_CONFIGS.filter((d) => d.key.startsWith('.pi/agent/'));
     const skills = piDocs.filter((d) => d.key.startsWith('.pi/agent/skills/'));
     const agents = piDocs.filter((d) => d.key.startsWith('.pi/agent/agents/') && !d.key.endsWith('AGENTS.md'));
@@ -394,6 +405,14 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/spec-reviewer.md');
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/doc-updater.md');
     expect(skills.map((d) => d.key).filter((key) => key === '.pi/agent/skills/graphify/SKILL.md')).toHaveLength(1);
+    for (const skill of ['spec-driven-development', 'sdd-init', 'sdd-clean']) {
+      const doc = skills.find((d) => d.key === `.pi/agent/skills/${skill}/SKILL.md`);
+      expect(doc, `REQ-AGENT-021 ${skill} skill`).toBeDefined();
+      expect(doc!.content).toContain('Pi runtime compatibility');
+      expect(doc!.content).toContain('graphify_query');
+      expect(doc!.content).toContain('Agent');
+    }
+    expect(extensions.map((d) => d.key)).toContain('.pi/agent/extensions/sdd-helpers.ts');
     expect(scripts.map((d) => d.key)).toContain('.pi/agent/scripts/safe-graphify-update.sh');
     expect(scripts.map((d) => d.key)).toContain('.pi/agent/scripts/build-graphify-ast.sh');
     expect(scripts.map((d) => d.key)).toContain('.pi/agent/scripts/build-graphify-architecture.sh');

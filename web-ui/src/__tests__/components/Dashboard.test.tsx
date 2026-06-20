@@ -395,7 +395,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(screen.getByTestId('files-panel-header')).toBeInTheDocument();
   });
 
-  it('hides the GitHub face for a non-advanced non-enterprise session even when enabled (advanced gate)', () => {
+  it('REQ-GITHUB-007: hides the GitHub face for a non-advanced non-enterprise session even when enabled (advanced gate)', () => {
     (githubStore as any)._setEnabled(true);
     (sessionStore as any)._setSessionMode('standard'); // not advanced
     render(() => <Dashboard {...defaultProps} />);
@@ -405,7 +405,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(screen.queryByTestId('storage-flip-btn')).not.toBeInTheDocument();
   });
 
-  it('shows the GitHub face for an enterprise session regardless of session mode', () => {
+  it('REQ-GITHUB-007: shows the GitHub face for an enterprise session regardless of session mode', () => {
     (githubStore as any)._setEnabled(true);
     (sessionStore as any)._setSessionMode('standard');
     (sessionStore as any)._setEnterpriseMode(true);

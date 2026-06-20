@@ -66,6 +66,16 @@ function githubFeatureEnabled(_env: Env): boolean {
   return true;
 }
 
+interface GithubRepoApiResponse {
+  full_name: string;
+  name: string;
+  owner?: { login?: string };
+  private: boolean;
+  visibility?: string;
+  default_branch?: string;
+  updated_at?: string;
+}
+
 interface RepoSummary {
   full_name: string;
   name: string;
@@ -74,6 +84,18 @@ interface RepoSummary {
   visibility: string;
   default_branch: string;
   updated_at: string;
+}
+
+function toRepoSummary(repo: GithubRepoApiResponse): RepoSummary {
+  return {
+    full_name: repo.full_name,
+    name: repo.name,
+    owner: repo.owner?.login ?? repo.full_name.split('/')[0] ?? '',
+    private: repo.private,
+    visibility: repo.visibility ?? (repo.private ? 'private' : 'public'),
+    default_branch: repo.default_branch ?? 'main',
+    updated_at: repo.updated_at ?? '',
+  };
 }
 
 // GET /api/github/status — connection state (never the token).
@@ -119,24 +141,8 @@ app.get('/repos', reposRateLimiter, async (c) => {
     return c.json({ error: 'GitHub repo list failed', code: 'UPSTREAM_ERROR' }, 502);
   }
 
-  const raw = (await upstream.json()) as Array<{
-    full_name: string;
-    name: string;
-    owner?: { login?: string };
-    private: boolean;
-    visibility?: string;
-    default_branch?: string;
-    updated_at?: string;
-  }>;
-  const repos: RepoSummary[] = raw.map((r) => ({
-    full_name: r.full_name,
-    name: r.name,
-    owner: r.owner?.login ?? r.full_name.split('/')[0] ?? '',
-    private: r.private,
-    visibility: r.visibility ?? (r.private ? 'private' : 'public'),
-    default_branch: r.default_branch ?? 'main',
-    updated_at: r.updated_at ?? '',
-  }));
+  const raw = (await upstream.json()) as GithubRepoApiResponse[];
+  const repos = raw.map(toRepoSummary);
 
   return c.json({ repos, page, hasMore: raw.length === REPOS_PER_PAGE });
 });

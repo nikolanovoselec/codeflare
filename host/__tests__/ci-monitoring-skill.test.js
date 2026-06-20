@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-const SKILL = new URL('../../preseed/agents/claude/skills/ci-monitoring/SKILL.md', import.meta.url);
+const SKILL = new URL('../../preseed/agents/pi/skills/ci-monitoring/SKILL.md', import.meta.url);
 const HEAD = 'ef819ed35e9cc57d66209d1330bc8a87519736df';
 
 function monitorScript() {
@@ -26,6 +26,7 @@ function launcherScript(repo) {
 
 function speedUp(script) {
   return script
+    .replace('no_rows_deadline=$((SECONDS + 300))', 'no_rows_deadline=$((SECONDS + 1))')
     .replace('deadline=$((SECONDS + 1800))', 'deadline=$((SECONDS + 2))')
     .replaceAll('sleep 15', 'sleep 0.02');
 }
@@ -41,6 +42,16 @@ function row(id, patch = {}) {
     url: `https://example.test/runs/${id}`,
     ...patch,
   };
+}
+
+function fakeFailingGh(binDir) {
+  const path = join(binDir, 'gh');
+  writeFileSync(path, `#!/usr/bin/env bash
+set -eu
+printf 'gh auth failed\n' >&2
+exit 4
+`);
+  chmodSync(path, 0o755);
 }
 
 function fakeGh(binDir) {
@@ -170,4 +181,31 @@ test('REQ-AGENT-068 AC2: ci monitor times out when workflows never finish', () =
   assert.equal(result.status, 124, result.stderr);
   assert.ok(result.calls > 0);
   assert.match(result.log, /CI_RESULT timeout/);
+});
+
+test('REQ-AGENT-068 AC7: ci monitor reports gh access failures instead of waiting', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ci-monitor-gh-fail-'));
+  const bin = join(dir, 'bin');
+  const repo = join(dir, 'repo');
+  const script = join(dir, 'monitor.sh');
+  const log = join(dir, 'monitor.log');
+
+  mkdirSync(bin);
+  mkdirSync(repo);
+  fakeFailingGh(bin);
+  writeFileSync(script, monitorScript());
+  chmodSync(script, 0o755);
+
+  try {
+    const result = spawnSync('bash', [script, repo, 'multiview', HEAD, log], {
+      encoding: 'utf8',
+      timeout: 2000,
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` },
+    });
+
+    assert.equal(result.status, 124, result.stderr);
+    assert.match(readFileSync(log, 'utf8'), /CI_RESULT timeout gh_unavailable_or_auth_failed head=/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

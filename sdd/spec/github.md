@@ -61,15 +61,16 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 ### REQ-GITHUB-002: GitHub panel and repository listing
 
-<!-- @impl: src/routes/github.ts -->
-<!-- @impl: web-ui/src/components/github/GitHubPanel.tsx -->
-<!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx -->
-<!-- @impl: web-ui/src/components/github/RepoList.tsx -->
-<!-- @impl: web-ui/src/components/github/RepoRow.tsx -->
-<!-- @impl: web-ui/src/components/ui/IconButton.tsx -->
-<!-- @impl: web-ui/src/components/Dashboard.tsx -->
-<!-- @test: src/__tests__/routes/github.test.ts (status/repos/connect/disconnect -> AC1,AC2) -->
-<!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (panel gating + connection states, refresh, icon-disconnect, external links -> AC3,AC4,AC5,AC6) -->
+<!-- @impl: src/routes/github.ts::githubFeatureEnabled -->
+<!-- @impl: src/routes/github.ts::toRepoSummary -->
+<!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel -->
+<!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx::ConnectedHeader -->
+<!-- @impl: web-ui/src/components/github/RepoList.tsx::RepoList -->
+<!-- @impl: web-ui/src/components/github/RepoRow.tsx::RepoRow -->
+<!-- @impl: web-ui/src/components/ui/IconButton.tsx::IconButton -->
+<!-- @impl: web-ui/src/components/Dashboard.tsx::githubPanelAvailable -->
+<!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-002 status connected/source and repos token-hidden behavior -> AC1,AC2) -->
+<!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-002 repo-row count, private badge, clone button data, search filter, connection states, refresh, icon-disconnect, external links -> AC3,AC4,AC5,AC6) -->
 <!-- @test: web-ui/src/__tests__/components/IconButton.test.tsx (icon path, onClick, disabled, active/spin -> AC4) -->
 **Intent:** A panel beside the R2 storage panel lets a user connect GitHub and browse the repositories they can access, gated by deployment mode and tier.
 
@@ -309,8 +310,8 @@ None.
 <!-- @impl: web-ui/src/components/github/ConnectCard.tsx -->
 <!-- @impl: web-ui/src/components/connect/TierChooserDialog.tsx -->
 <!-- @impl: src/lib/oauth-scopes.ts::githubScopeForTier -->
-<!-- @test: src/__tests__/routes/github.test.ts (status enabled in non-enterprise; connect/repos/clone reachable in non-enterprise; tier->scope -> AC1,AC3,AC6) -->
-<!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (advanced gate shows/hides the GitHub face -> AC1,AC2) -->
+<!-- @test: src/__tests__/routes/github.test.ts (REQ-GITHUB-007 status enabled in non-enterprise; connect/repos/clone reachable in non-enterprise; tier->scope -> AC1,AC3,AC6) -->
+<!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-007 advanced gate hides non-advanced non-enterprise and shows enterprise -> AC1,AC2) -->
 <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (shared card state matrix + connectUrl/tier/disconnect contracts -> AC4) -->
 <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (non-enterprise: bare connect URL, button opens tier dialog, pick navigates with ?tier=; enterprise: direct connect, no dialog -> AC4,AC6) -->
 <!-- @test: web-ui/src/__tests__/components/connect/TierChooserDialog.test.tsx (dialog renders all tiers + descriptions, marks selected, pick fires onPick, closes on backdrop/Escape -> AC4,AC6) -->

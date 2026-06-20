@@ -23,55 +23,85 @@ The monitor is a plain shell body (below) and runs identically under either tool
 
 Detection rule: if a `git push`/`gh` Bash call returns a routing-gate error, use the `ctx_*` path; otherwise use the Bash path. Either way it is exactly **one** continuous background monitor per HEAD.
 
-### The monitor (shell body, identical for both toolsets)
+### The monitor launcher
+
+Use the temp-script launcher below for both Bash and `ctx_execute`; it prints the durable log path before returning.
 
 ```bash
 cd <repo>
 BRANCH=<branch>
 HEAD=$(git rev-parse HEAD)
-LOG=$(mktemp /tmp/ci-monitor.XXXXXX.log)
-(
-  deadline=$((SECONDS + 1800))
-  while [ $SECONDS -lt $deadline ]; do
-    gh run list --branch "$BRANCH" --limit 12 \
-      --json databaseId,workflowName,headSha,status,conclusion,event,url \
-      > "$LOG.json"
-    node - "$HEAD" "$LOG.json" >> "$LOG" <<'NODE'
-const [head, file] = process.argv.slice(2)
+LOG="/tmp/ci-monitor-${HEAD}.log"
+SCRIPT="/tmp/ci-monitor-${HEAD}.sh"
+cat > "$SCRIPT" <<'BASH'
+#!/usr/bin/env bash
+set -u
+repo="$1"
+branch="$2"
+head="$3"
+log="$4"
+cd "$repo" || exit 124
+: > "$log"
+if ! command -v gh >/dev/null 2>&1; then echo "CI_RESULT timeout gh_unavailable_or_auth_failed head=$head" >> "$log"; exit 124; fi
+stable_done=0
+last_fingerprint=""
+deadline=$((SECONDS + 1800))
+while [ $SECONDS -lt $deadline ]; do
+  if ! gh run list --branch "$branch" --limit 24 \
+    --json databaseId,workflowName,headSha,status,conclusion,event,url \
+    > "$log.json" 2>> "$log"; then
+    echo "CI_RESULT timeout gh_unavailable_or_auth_failed head=$head" >> "$log"
+    exit 124
+  fi
+  node - "$head" "$log.json" "$log.state" >> "$log" 2>> "$log" <<'NODE'
+const [head, file, stateFile] = process.argv.slice(2)
 const fs = require('fs')
 const rows = JSON.parse(fs.readFileSync(file, 'utf8')).filter((r) => r.headSha === head)
+const fingerprint = rows
+  .map((r) => `${r.databaseId}:${r.workflowName}:${r.event}`)
+  .sort()
+  .join('|')
+fs.writeFileSync(stateFile, JSON.stringify({ fingerprint }))
 const stamp = new Date().toISOString()
 console.log(`--- ${stamp} ${head.slice(0, 12)} ---`)
+if (rows.length === 0) console.log('waiting for workflows to appear')
 for (const r of rows) console.log(`${r.databaseId} ${r.workflowName} ${r.event} ${r.status}/${r.conclusion || ''} ${r.url}`)
-const done = rows.length > 0 && rows.every((r) => r.status === 'completed')
 const bad = rows.some((r) => r.status === 'completed' && !['success', 'skipped'].includes(r.conclusion))
+const done = rows.length > 0 && rows.every((r) => r.status === 'completed')
 process.exit(bad ? 10 : done ? 0 : 2)
 NODE
-    rc=$?
-    if [ $rc -eq 0 ]; then echo "CI_RESULT success" >> "$LOG"; exit 0; fi
-    if [ $rc -eq 10 ]; then echo "CI_RESULT failure" >> "$LOG"; exit 10; fi
-    sleep 15
-  done
-  echo "CI_RESULT timeout" >> "$LOG"
-  exit 124
-) &
-pid=$!
-tail -n +1 -f "$LOG" --pid=$pid
-wait $pid
+  rc=$?
+  if [ $rc -eq 1 ]; then echo "CI_RESULT timeout invalid_workflow_json head=$head" >> "$log"; exit 124; fi
+  if [ $rc -eq 0 ]; then
+    fingerprint=$(node -e 'const fs=require("fs"); try { process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).fingerprint || "") } catch {}' "$log.state")
+    if [ -n "$fingerprint" ] && [ "$fingerprint" = "$last_fingerprint" ]; then
+      stable_done=$((stable_done + 1))
+    else
+      last_fingerprint="$fingerprint"
+      stable_done=1
+    fi
+    if [ "$stable_done" -ge 2 ]; then echo "CI_RESULT success" >> "$log"; exit 0; fi
+  else
+    stable_done=0
+    last_fingerprint=""
+  fi
+  if [ $rc -eq 10 ]; then echo "CI_RESULT failure" >> "$log"; exit 10; fi
+  sleep 15
+done
+echo "CI_RESULT timeout" >> "$log"
+exit 124
+BASH
+chmod +x "$SCRIPT"
+setsid bash "$SCRIPT" "$PWD" "$BRANCH" "$HEAD" "$LOG" >/dev/null 2>&1 &
+printf 'CI_MONITOR_STARTED head=%s pid=%s log=%s\n' "$HEAD" "$!" "$LOG"
 ```
 
 ### Launch wrappers
 
-The body above is launch-neutral. Wrap it per toolset:
+The launcher above is safe to run through either toolset:
 
-- **Bash tool:** pass the body verbatim as the command with `run_in_background: true`. The `( … ) & … tail -f … --pid` shape keeps the call alive until the loop exits; the harness notifies you on completion.
-- **`ctx_execute` (context-mode):** detach the body from the turn so it outlives the session stopping:
-
-  ```bash
-  setsid bash -c '<body>' >/dev/null 2>&1 &
-  ```
-
-  invoked via `ctx_execute(language: "shell", background: true)`. The detached monitor keeps appending to its `$LOG` after the turn ends; read that log to retrieve the terminal `CI_RESULT` line. (Inside the ctx subprocess `gh`/`node` are not gated.)
+- **Bash tool:** run it as a short background-launch command and stop after printing `CI_MONITOR_STARTED`.
+- **`ctx_execute` (context-mode):** run the same launcher with `language: "shell"` and `background: true`; the detached `setsid bash "$SCRIPT" ...` monitor owns the long poll, and the printed log path is the recovery handle.
 
 ## Reading the result
 

@@ -124,7 +124,7 @@ describe('GitHubPanel Component', () => {
     }
   });
 
-  it('renders exactly N RepoRow elements for N repos when connected', async () => {
+  it('REQ-GITHUB-002: renders exactly N RepoRow elements for N repos when connected', async () => {
     mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: true, login: 'octocat' });
     mockGetGithubRepos.mockResolvedValueOnce({
       repos: [
@@ -141,7 +141,7 @@ describe('GitHubPanel Component', () => {
     await waitFor(() => expect(screen.getAllByTestId('github-repo-row')).toHaveLength(3));
   });
 
-  it('renders a private-variant badge element for a private repo', async () => {
+  it('REQ-GITHUB-002: renders a private-variant badge element for a private repo', async () => {
     mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: true, login: 'octocat' });
     mockGetGithubRepos.mockResolvedValueOnce({
       repos: [makeRepo({ full_name: 'octocat/secret', name: 'secret', private: true, visibility: 'private' })],
@@ -159,7 +159,7 @@ describe('GitHubPanel Component', () => {
     expect(badge.classList.contains('github-repo-badge--public')).toBe(false);
   });
 
-  it('renders an enabled Clone button carrying repo + branch data', async () => {
+  it('REQ-GITHUB-002: renders an enabled Clone button carrying repo + branch data', async () => {
     mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: true, login: 'octocat' });
     mockGetGithubRepos.mockResolvedValueOnce({
       repos: [makeRepo({ full_name: 'octocat/hello', default_branch: 'trunk' })],
@@ -176,7 +176,7 @@ describe('GitHubPanel Component', () => {
     expect(clone.getAttribute('data-branch')).toBe('trunk');
   });
 
-  it('search input filters the rendered row count', async () => {
+  it('REQ-GITHUB-002: search input filters the rendered row count', async () => {
     mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: true, login: 'octocat' });
     mockGetGithubRepos.mockResolvedValueOnce({
       repos: [

@@ -729,8 +729,8 @@ None.
 <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md -->
 <!-- @impl: preseed/agents/pi/rules/git-workflow.md -->
 <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-068 keeps Claude git-workflow on the baseline while Pi gets native CI workflow files -> AC1/AC3/AC4/AC5/AC6) -->
-<!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 waits for a stable workflow/run set, reports failed workflow rows, and starts detached work -> AC2/AC3/AC4) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-068 keeps Claude git-workflow on the baseline while Pi gets native CI workflow files -> AC1/AC3/AC4/AC5/AC6/AC7) -->
+<!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 waits for a stable workflow/run set, reports failed workflow rows, starts detached work, and reports gh access failures -> AC2/AC3/AC4/AC7) -->
 
 **Intent:** Pi agents must monitor CI after pushes without blocking the main session or turning the monitor into an implementation worker, while Claude keeps its baseline git workflow rule.
 
@@ -739,12 +739,12 @@ None.
 **Acceptance Criteria:**
 
 1. Every Pi CI-producing push starts `ci-monitoring` in a backgrounded agent unless the user explicitly skips that push. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-ci-route --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi git-workflow rule is native and contains the CI-producing push route -> AC1) -->
-2. The CI monitor reports success only after every workflow row for the monitored HEAD is complete and the workflow/run-id fingerprint is stable. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi CI skill uses exact-head monitor with stable fingerprint -> AC2) -->
-3. CI failures are report-only: the background agent reports the failed workflow/run/log pointer and never fixes, commits, or pushes. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi CI skill keeps CI monitor report-only -> AC3) -->
-4. Long-running waits, monitors, or polls never keep the main session busy; agents start backgrounded work, report how to check it, and stop. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi git-workflow rule keeps monitoring background-only -> AC4) -->
+2. The CI monitor reports success only after every workflow row for the monitored HEAD is complete and the workflow/run-id fingerprint is stable. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (ci monitor waits for a stable workflow/run set before success -> AC2) -->
+3. CI failures are report-only: the background agent reports the failed workflow/run/log pointer and never fixes, commits, or pushes. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (ci monitor reports failed workflow rows -> AC3) -->
+4. Long-running waits, monitors, or polls never keep the main session busy; agents start backgrounded work, report how to check it, and stop. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (ci monitor launcher starts detached work and returns immediately -> AC4) -->
 5. After `CI_RESULT`, the main session first prints the CI summary, including monitored head, run/log pointers when present, and next action. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::CI-result handoff gate --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::ENGINEERING_CONSTITUTION --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (CI-result handoff contract clauses are generated into all instruction surfaces -> AC5) -->
 6. Pi receives native `git-workflow` and `ci-monitoring` files from the Pi manifest in every mode; it does not inherit the Claude git-workflow or Claude-transformed CI skill. <!-- @impl: preseed/agents/pi/manifest.json::rules/git-workflow.md --> <!-- @impl: preseed/agents/pi/manifest.json::skills/ci-monitoring/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi gets native CI workflow files while Claude git-workflow remains baseline -> AC6) -->
-7. The native Pi CI monitor queries GitHub Actions by exact pushed HEAD and reports a timeout blocker when GitHub CLI access fails or no workflow rows appear for that HEAD within five minutes. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi native CI skill contains exact-head query, no-workflows timeout, and gh failure timeout -> AC7) -->
+7. The native Pi CI monitor queries GitHub Actions by exact pushed HEAD and reports a timeout blocker when GitHub CLI access fails or no workflow rows appear for that HEAD within five minutes. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi native CI skill contains exact-head query, no-workflows timeout, and gh failure timeout -> AC7) --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (ci monitor reports gh access failures instead of waiting -> AC7) -->
 
 **Constraints:**
 
@@ -756,6 +756,37 @@ None.
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
 
 **Verification:** [Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [CI monitoring skill tests](../../host/__tests__/ci-monitoring-skill.test.js)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-070: Claude on-demand CI monitoring policy
+
+<!-- @impl: preseed/agents/claude/rules/git-workflow.md::Hard obligations -->
+<!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Binding invocation rule -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-070 keeps Claude CI monitoring on-demand -> AC1/AC2/AC3/AC4) -->
+
+**Intent:** Claude and Claude-transformed agents monitor CI only when a user asks or a deploy/merge decision needs a fresh result.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Routine pushes do not auto-start Claude `ci-monitoring`. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Hard obligations -->
+2. Claude invokes `ci-monitoring` only when the user explicitly asks or a deploy/merge gate needs a fresh result. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Binding invocation rule -->
+3. The Claude monitor uses a durable temp-script launcher that prints the monitored head, pid, and log path before detaching. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::The monitor launcher -->
+4. Claude success requires a non-empty workflow/run fingerprint to stay stable across two polls. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::The monitor launcher -->
+
+**Constraints:**
+
+- This does not change Pi's after-push CI policy in [REQ-AGENT-068](#req-agent-068-ci-monitoring-background-agent-policy).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-068](#req-agent-068-ci-monitoring-background-agent-policy)
+
+**Verification:** [Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
 **Status:** Implemented
 
@@ -1377,7 +1408,7 @@ None.
 <!-- @impl: preseed/agents/pi/agents/review-monitor.md -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts -->
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (review monitor waits for lane files + summary, handles failures, dedupes spawn with TTL/completion marker, and manual review-results display does not claim acknowledgement -> AC1/AC2/AC5/AC6) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (review monitor waits for lane files + summary, handles failures, dedupes spawn with TTL/completion marker, main-session context does not require transcript path, and manual review-results display does not claim acknowledgement -> AC1/AC2/AC5/AC6) -->
 <!-- @test: src/__tests__/lib/review-state.test.ts (monitor decision requires complete lane results + summary before autofix_required -> AC2) -->
 
 **Intent:** A completed PR-boundary review must reliably reach the main Pi session as a background-agent result with a visible overview, not just ack the head and write `summary.md` to disk. Durable truth stays in lane files, `summary.md`, the exact-head ack, and the monitor completion marker; the background agent notification is the wakeup/delivery surface. Review execution and lane finalization live in [REQ-AGENT-054](#req-agent-054-pi-durable-review-lane-failure-handling)/[REQ-AGENT-061](#req-agent-061-pi-idle-durable-review-reaper); summary formatting in [REQ-AGENT-053](#req-agent-053-pi-durable-review-status-and-result-formatting).
@@ -1391,7 +1422,7 @@ None.
 3. After complete lane results and `summary.md` exist, the monitor writes `monitor.completed` JSON containing `repo`, `head`, `summaryPath`, `completedAt`, and result `clean` or `findings`. <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorCompletionReady --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorCompletionRecordReady -->
 4. Early lane failures return `REVIEW_RESULT failed` without writing `monitor.completed`. <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt -->
 5. `/review-results` remains a manual fallback that displays the saved `summary.md` for the current exact head without mutating delivery state, relying on nonce/announcement records, or claiming the head was acknowledged. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::review-results --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewResultsSummaryMessage --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatMergedReviewSummary -->
-6. Task/subagent contexts may reap lanes and write durable state, but only a live main-session ctx starts `review-monitor`; delivery uses no nonce, announcement, or follow-up bus. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::remember --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::isTaskSessionFile -->
+6. Task/subagent contexts may reap lanes and write durable state, but only a live main-session ctx starts `review-monitor`; a main-session ctx is allowed even when no transcript/session-file path is available, while task paths and absent ctx wait for the main session. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::remember --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorContextDecision --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::isTaskSessionFile -->
 
 **Constraints:**
 

@@ -64,8 +64,8 @@ beforeEach(() => {
 
 // ─── GET /status (REQ-GITHUB-002 AC1) ───────────────────────────────────────
 
-describe('GET /api/github/status', () => {
-  it('reports enabled outside enterprise too (panel available in every mode)', async () => {
+describe('REQ-GITHUB-002 / REQ-GITHUB-007: GET /api/github/status', () => {
+  it('REQ-GITHUB-007: reports enabled outside enterprise too (panel available in every mode)', async () => {
     const res = await createTestApp({}).request('/api/github/status');
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
@@ -73,7 +73,7 @@ describe('GET /api/github/status', () => {
     expect(body.connected).toBe(false);
   });
 
-  it('reports enabled + not connected in enterprise with no token', async () => {
+  it('REQ-GITHUB-002: reports enabled + not connected in enterprise with no token', async () => {
     const res = await createTestApp(ENT).request('/api/github/status');
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.enabled).toBe(true);
@@ -81,7 +81,7 @@ describe('GET /api/github/status', () => {
     expect(body.connected).toBe(false);
   });
 
-  it('reports connected with login + source when a token exists', async () => {
+  it('REQ-GITHUB-002: reports connected with login + source when a token exists', async () => {
     mockKV._set(KEY, { githubToken: 'gho_x', githubTokenSource: 'app', githubLogin: 'octo' } satisfies DeployKeys);
     const res = await createTestApp(ENT).request('/api/github/status');
     const body = (await res.json()) as Record<string, unknown>;
@@ -93,21 +93,21 @@ describe('GET /api/github/status', () => {
 
 // ─── GET /repos (REQ-GITHUB-002 AC2) ────────────────────────────────────────
 
-describe('GET /api/github/repos', () => {
-  it('401s when not connected and never calls GitHub', async () => {
+describe('REQ-GITHUB-002 / REQ-GITHUB-007: GET /api/github/repos', () => {
+  it('REQ-GITHUB-002: 401s when not connected and never calls GitHub', async () => {
     const res = await createTestApp(ENT).request('/api/github/repos');
     expect(res.status).toBe(401);
     expect((await res.json() as Record<string, unknown>).code).toBe('NOT_CONNECTED');
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('is reachable in non-enterprise (panel no longer enterprise-gated) — 401 when not connected', async () => {
+  it('REQ-GITHUB-007: is reachable in non-enterprise (panel no longer enterprise-gated) — 401 when not connected', async () => {
     const res = await createTestApp({}).request('/api/github/repos');
     expect(res.status).toBe(401);
     expect((await res.json() as Record<string, unknown>).code).toBe('NOT_CONNECTED');
   });
 
-  it('proxies the user repos with the stored token and never returns the token', async () => {
+  it('REQ-GITHUB-002: proxies the user repos with the stored token and never returns the token', async () => {
     mockKV._set(KEY, { githubToken: 'gho_secret_tok', githubTokenSource: 'app' } satisfies DeployKeys);
     mockFetch.mockResolvedValueOnce(
       ok([
