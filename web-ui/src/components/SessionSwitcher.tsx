@@ -3,7 +3,7 @@ import { mdiChevronDown, mdiLayersTripleOutline } from '@mdi/js';
 import Icon from './Icon';
 import SessionDropdown from './SessionDropdown';
 import type { SessionWithStatus, SessionStatus, AgentType, TabConfig } from '../types';
-import { getTerminalViewportClass, isMobile } from '../lib/mobile';
+import { createTerminalViewportClass, isMobile } from '../lib/mobile';
 import { terminalWorkspaceStore } from '../stores/terminal-workspace';
 import '../styles/session-switcher.css';
 
@@ -28,10 +28,11 @@ interface SessionSwitcherProps {
 const SessionSwitcher: Component<SessionSwitcherProps> = (props) => {
   const [isOpen, setIsOpen] = createSignal(false);
 
+  const viewport = createTerminalViewportClass();
   const activeSession = createMemo(() =>
     props.sessions.find(s => s.id === props.activeSessionId)
   );
-  const existingMultiView = createMemo(() => terminalWorkspaceStore.reconcileMultiView(props.sessions, getTerminalViewportClass()));
+  const existingMultiView = createMemo(() => terminalWorkspaceStore.reconcileMultiView(props.sessions, viewport()));
   const activeMultiView = createMemo(() =>
     terminalWorkspaceStore.getActiveWorkspace().kind === 'multiview'
       ? existingMultiView()
@@ -48,9 +49,9 @@ const SessionSwitcher: Component<SessionSwitcherProps> = (props) => {
   const handleToggle = () => setIsOpen(!isOpen());
   const handleClose = () => setIsOpen(false);
 
-  const multiViewCapacity = createMemo(() => terminalWorkspaceStore.getMultiViewCapacity(getTerminalViewportClass()));
+  const multiViewCapacity = createMemo(() => terminalWorkspaceStore.getMultiViewCapacity(viewport()));
   const handleLaunchMultiView = (sessionIds: string[]) => {
-    const created = terminalWorkspaceStore.createOrUpdateMultiView(sessionIds, props.sessions, getTerminalViewportClass());
+    const created = terminalWorkspaceStore.createOrUpdateMultiView(sessionIds, props.sessions, viewport());
     if (!created) return;
     if (terminalWorkspaceStore.openMultiView()) {
       props.onOpenMultiView?.();

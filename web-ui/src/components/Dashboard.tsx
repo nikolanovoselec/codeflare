@@ -20,7 +20,7 @@ import KittScanner from './KittScanner';
 import DashboardCard from './TipsRotator';
 import { sessionStore, isAtUsageQuota } from '../stores/session';
 import { terminalWorkspaceStore } from '../stores/terminal-workspace';
-import { getTerminalViewportClass } from '../lib/mobile';
+import { createTerminalViewportClass } from '../lib/mobile';
 import { githubStore } from '../stores/github';
 import { getBrowserTimezone, syncBrowserTimezone } from '../lib/timezone-sync';
 import { MULTIVIEW_ICON } from '../lib/terminal-config';
@@ -43,7 +43,8 @@ interface DashboardProps {
 
 const Dashboard: Component<DashboardProps> = (props) => {
   const [collapseReady, setCollapseReady] = createSignal(false);
-  const multiViewWorkspace = createMemo(() => terminalWorkspaceStore.reconcileMultiView(props.sessions, getTerminalViewportClass()));
+  const viewport = createTerminalViewportClass();
+  const multiViewWorkspace = createMemo(() => terminalWorkspaceStore.reconcileMultiView(props.sessions, viewport()));
   // Mobile-only: which right-column face is shown (GitHub vs R2 storage). The
   // flip control in each panel header toggles it; desktop shows both stacked.
   const [panelFace, setPanelFace] = createSignal<'github' | 'storage'>('github');

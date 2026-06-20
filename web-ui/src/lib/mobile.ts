@@ -1,4 +1,4 @@
-import { createSignal } from 'solid-js';
+import { createSignal, type Accessor } from 'solid-js';
 import { loadSettings } from './settings';
 
 /** Navigator with non-standard properties used for mobile keyboard detection. */
@@ -30,25 +30,44 @@ const nav: ExtendedNavigator = typeof navigator !== 'undefined'
 const mobileQuery = typeof window !== 'undefined' && window.matchMedia
   ? window.matchMedia('(max-width: 640px)')
   : null;
+const tabletQuery = typeof window !== 'undefined' && window.matchMedia
+  ? window.matchMedia('(max-width: 1023px)')
+  : null;
+
+export type TerminalViewportClass = 'mobile' | 'tablet' | 'desktop';
+
+function currentTerminalViewportClass(): TerminalViewportClass {
+  if (mobileQuery?.matches) return 'mobile';
+  if (tabletQuery?.matches) return 'tablet';
+  return 'desktop';
+}
 
 const [mobile, setMobile] = createSignal(mobileQuery?.matches ?? false);
+const [terminalViewportClass, setTerminalViewportClass] = createSignal<TerminalViewportClass>(currentTerminalViewportClass());
 
 if (mobileQuery) {
-  const handleMobileChange = (e: MediaQueryListEvent) => setMobile(e.matches);
+  const handleMobileChange = (e: MediaQueryListEvent) => {
+    setMobile(e.matches);
+    setTerminalViewportClass(currentTerminalViewportClass());
+  };
   mobileQuery.addEventListener('change', handleMobileChange);
+}
+
+if (tabletQuery) {
+  const handleTabletChange = () => setTerminalViewportClass(currentTerminalViewportClass());
+  tabletQuery.addEventListener('change', handleTabletChange);
 }
 
 export function isMobile(): boolean {
   return mobile();
 }
 
-export type TerminalViewportClass = 'mobile' | 'tablet' | 'desktop';
-
 export function getTerminalViewportClass(): TerminalViewportClass {
-  if (typeof window === 'undefined' || !window.matchMedia) return 'desktop';
-  if (window.matchMedia('(max-width: 640px)').matches) return 'mobile';
-  if (window.matchMedia('(max-width: 1023px)').matches) return 'tablet';
-  return 'desktop';
+  return terminalViewportClass();
+}
+
+export function createTerminalViewportClass(): Accessor<TerminalViewportClass> {
+  return terminalViewportClass;
 }
 
 // Touch device detection — targets phones/tablets with coarse (finger) input.

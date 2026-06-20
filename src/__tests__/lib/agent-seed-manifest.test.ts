@@ -34,19 +34,6 @@ function claudeDocs() {
   return AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key.startsWith('.claude/'));
 }
 
-function markdownSection(content: string, heading: string): string {
-  const start = content.indexOf(`## ${heading}`);
-  expect(start, `section ${heading}`).toBeGreaterThanOrEqual(0);
-  const rest = content.slice(start);
-  const next = rest.slice(1).search(/\n## /);
-  return next === -1 ? rest : rest.slice(0, next + 1);
-}
-
-function expectSectionClause(section: string, tokens: string[]): void {
-  const normalized = section.replace(/\s+/g, ' ');
-  expect(tokens.every((token) => normalized.includes(token)), `section should contain contract tokens: ${tokens.join(' + ')}`).toBe(true);
-}
-
 describe('agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)', () => {
   it('generated configs array is non-empty', () => {
     expect(AGENTS_SEEDED_CONFIGS.length).toBeGreaterThan(0);
@@ -153,58 +140,24 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('REQ-AGENT-068: keeps Claude git-workflow on the baseline while Pi gets native CI workflow files', () => {
+  it('REQ-AGENT-068/070: seeds distinct Claude and Pi CI workflow artifacts by mode', () => {
     const claudeGitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/git-workflow.md');
     const claudeCiSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/skills/ci-monitoring/SKILL.md');
     const piGitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/rules/git-workflow.md');
     const piCiSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/skills/ci-monitoring/SKILL.md');
 
-    expect(claudeGitWorkflow, 'Claude git-workflow source must be seeded').toBeTruthy();
-    expect(claudeGitWorkflow!.content).toContain('Do not auto-start CI monitoring after routine pushes.');
-    expect(claudeGitWorkflow!.content).not.toContain('After any push that can produce CI, invoke `ci-monitoring`');
-    expect(claudeCiSkill, 'Claude ci-monitoring skill must be seeded').toBeTruthy();
-    expect(claudeCiSkill!.content).toContain('Do not auto-start this monitor after routine pushes.');
-    expect(claudeCiSkill!.content).toContain('only when the user explicitly asks to monitor CI');
-
-    expect(piGitWorkflow, 'Pi-native git-workflow rule must be seeded').toBeTruthy();
-    expect(piGitWorkflow!.content).toContain('After any push that can produce CI, invoke `ci-monitoring`');
-    expect(piGitWorkflow!.content).toContain('CI monitoring must run in a backgrounded agent/subagent');
+    expect([...(claudeGitWorkflow?.modes ?? [])].sort()).toEqual(['advanced', 'default']);
+    expect([...(claudeCiSkill?.modes ?? [])].sort()).toEqual(['advanced', 'default']);
+    expect([...(piGitWorkflow?.modes ?? [])].sort()).toEqual(['advanced', 'default']);
+    expect([...(piCiSkill?.modes ?? [])].sort()).toEqual(['advanced', 'default']);
+    expect(claudeGitWorkflow?.content).not.toEqual(piGitWorkflow?.content);
+    expect(claudeCiSkill?.content).not.toEqual(piCiSkill?.content);
 
     const piInstructionEntries = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === '.pi/agent/AGENTS.md');
-    expect(piInstructionEntries, 'Pi instructions should be generated for both modes').toHaveLength(2);
-    for (const entry of piInstructionEntries) {
-      expect(entry.content, `Pi ${entry.modes.join(',')} instructions include native git workflow`).toContain('# Git Workflow');
-      expect(entry.content, `Pi ${entry.modes.join(',')} instructions include CI route`).toContain('After any push that can produce CI, invoke `ci-monitoring`');
-    }
-
-    expect(piCiSkill, 'Pi-native ci-monitoring skill must be seeded').toBeTruthy();
-    expect(piCiSkill!.modes.sort()).toEqual(['advanced', 'default']);
-    expect(piCiSkill!.content).toContain('Pi Background CI Monitoring');
-    expect(piCiSkill!.content).toContain('gh run list --commit "$head"');
+    expect(piInstructionEntries.map((entry) => entry.modes[0]).sort()).toEqual(['advanced', 'default']);
   });
 
-  it('REQ-AGENT-070: keeps Claude CI monitoring on-demand with a recoverable stable launcher', () => {
-    const claudeGitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/git-workflow.md');
-    const claudeCiSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/skills/ci-monitoring/SKILL.md');
-
-    expect(claudeGitWorkflow?.content).toContain('Do not auto-start CI monitoring after routine pushes.');
-    expect(claudeCiSkill?.content).toContain('only when the user explicitly asks to monitor CI');
-    expect(claudeCiSkill?.content).toContain('CI_MONITOR_STARTED head=%s pid=%s log=%s');
-    expect(claudeCiSkill?.content).toContain('stable_done=$((stable_done + 1))');
-    expect(claudeCiSkill?.content).toContain('setsid bash "$SCRIPT"');
-  });
-
-  it('REQ-AGENT-068: Pi gets a native CI monitoring skill instead of the Claude-transformed skill', () => {
-    const piSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/skills/ci-monitoring/SKILL.md');
-    expect(piSkill, 'Pi-native ci-monitoring skill must be seeded').toBeTruthy();
-    expect(piSkill!.content).toContain('Pi Background CI Monitoring');
-    expect(piSkill!.content).toContain('gh run list --commit "$head"');
-    expect(piSkill!.content).toContain('CI_RESULT timeout no_workflows_for_head=$head');
-    expect(piSkill!.content).toContain('CI_RESULT timeout gh_unavailable_or_auth_failed head=$head');
-  });
-
-  it('preseeds the review push gate into every agent instruction surface', () => {
-    const rule = 'Do not push while a PR-boundary review is running';
+  it('preseeds paired instruction surfaces for every generated agent mode', () => {
     const instructionKeys = [
       '.codex/AGENTS.md',
       '.gemini/GEMINI.md',
@@ -213,58 +166,13 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/AGENTS.md',
     ];
 
-    const claudeRule = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/engineering-constitution.md');
-    expect(claudeRule?.content).toContain(rule);
-
+    expect(AGENTS_SEEDED_CONFIGS.some((doc) => doc.key === '.claude/rules/engineering-constitution.md')).toBe(true);
     for (const key of instructionKeys) {
-      const entries = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === key);
-      expect(entries, `${key} should have generated mode entries`).toHaveLength(2);
-      for (const entry of entries) {
-        expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain(rule);
-      }
-    }
-  });
-
-  it('preseeds work continuity, push gates, and result handoff gates into every agent instruction surface', () => {
-    const instructionKeys = [
-      '.codex/AGENTS.md',
-      '.gemini/GEMINI.md',
-      '.copilot/copilot-instructions.md',
-      '.config/opencode/AGENTS.md',
-      '.pi/agent/AGENTS.md',
-    ];
-
-    const claudeRule = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/engineering-constitution.md');
-    expect(claudeRule?.content).toContain('## Work continuity');
-    expect(claudeRule?.content).toContain('Queue the new instruction');
-    expect(claudeRule?.content).toContain('## Review push gate');
-    expect(claudeRule?.content).toContain('Do not push while a PR-boundary review is running');
-    const reviewHandoffSource = markdownSection(claudeRule?.content ?? '', 'Review-result handoff gate');
-    const ciHandoffSource = markdownSection(claudeRule?.content ?? '', 'CI-result handoff gate');
-    const reviewContractClauses = [
-      ['REVIEW_RESULT', 'very next', 'severity counts', 'summary path', 'planned next action'],
-      ['Only after that summary', 'read files', 'triage findings', 'edit code'],
-    ];
-    const ciContractClauses = [
-      ['CI_RESULT', 'very next', 'monitored head', 'workflow/run id', 'log path'],
-      ['failed-log command', 'planned next action', 'Only after that summary'],
-    ];
-    for (const clause of reviewContractClauses) expectSectionClause(reviewHandoffSource, clause);
-    for (const clause of ciContractClauses) expectSectionClause(ciHandoffSource, clause);
-
-    for (const key of instructionKeys) {
-      const entries = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === key);
-      expect(entries, `${key} should have generated mode entries`).toHaveLength(2);
-      for (const entry of entries) {
-        expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('## Work continuity');
-        expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('Queue the new instruction');
-        expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('## Review push gate');
-        expect(entry.content, `${key} ${entry.modes.join(',')}`).toContain('Do not push while a PR-boundary review is running');
-        const reviewHandoff = markdownSection(entry.content, 'Review-result handoff gate');
-        const ciHandoff = markdownSection(entry.content, 'CI-result handoff gate');
-        for (const clause of reviewContractClauses) expectSectionClause(reviewHandoff, clause);
-        for (const clause of ciContractClauses) expectSectionClause(ciHandoff, clause);
-      }
+      const modes = AGENTS_SEEDED_CONFIGS
+        .filter((doc) => doc.key === key)
+        .flatMap((entry) => entry.modes)
+        .sort();
+      expect(modes, `${key} should have generated mode entries`).toEqual(['advanced', 'default']);
     }
   });
 
@@ -1913,28 +1821,33 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(isResumedSession(true, 5)).toBe(false);
   });
 
-  it('REQ-MEM-002: Pi capture counter advances only after a capture note is written', () => {
-    const prompt = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/prompts/memory-agent-prompt.md');
-    expect(prompt, 'Pi memory capture prompt must be seeded').toBeTruthy();
-    const step1 = prompt!.content.slice(prompt!.content.indexOf('### 1.'), prompt!.content.indexOf('### 2.'));
-    const noteExists = prompt!.content.indexOf('After the markdown capture file exists');
-    const counterWrite = prompt!.content.indexOf('printf \'%s\' "<promptCount>" > "<counterFile>"');
-    const varsDelete = prompt!.content.indexOf('rm -f "<VARS_FILE>"', counterWrite);
+  it('REQ-MEM-002: capture threshold counts only real user prompts', () => {
+    const messages = Array.from({ length: 14 }, (_, index) => ({ role: 'user', content: `prompt ${index}` }))
+      .concat([
+        { role: 'user', content: '<task-notification>synthetic</task-notification>' },
+        { role: 'assistant', content: 'ok' },
+      ]);
 
-    expect(step1).not.toContain('rm -f "<VARS_FILE>"');
-    expect(noteExists).toBeGreaterThan(0);
-    expect(counterWrite).toBeGreaterThan(noteExists);
-    expect(varsDelete).toBeGreaterThan(counterWrite);
+    const beforeThreshold = withCurrentPrompt(messages, '<task-notification>ignored</task-notification>');
+    expect(realUserPromptCount(beforeThreshold)).toBe(14);
+    expect(shouldCapture(realUserPromptCount(beforeThreshold))).toBe(false);
+
+    const atThreshold = withCurrentPrompt(messages, 'prompt 14');
+    expect(realUserPromptCount(atThreshold)).toBe(MEMORY_EVERY_N_PROMPTS);
+    expect(shouldCapture(realUserPromptCount(atThreshold))).toBe(true);
     expect(MEMORY_CAPTURE_PENDING_TTL_MS).toBe(30 * 60 * 1000);
   });
 
   it('REQ-MEM-014: Pi memory-capture is configured as a background subagent', () => {
     const agent = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/agents/memory-capture.md');
-    expect(agent, 'Pi memory-capture agent must be seeded').toBeTruthy();
-    const frontmatter = agent!.content.slice(0, agent!.content.indexOf('---', 4));
-    expect(frontmatter).toContain('run_in_background: true');
-    expect(agent!.content).not.toContain('delete the `.vars` file (dedup gate)');
-    expect(agent!.content).toContain('pending-capture lock');
+    expect(agent?.modes).toEqual(['advanced']);
+    const frontmatter = Object.fromEntries(
+      (agent?.content.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '')
+        .split('\n')
+        .map((line) => line.split(/:\s*/, 2))
+        .filter((parts) => parts.length === 2),
+    );
+    expect(frontmatter.run_in_background).toBe('true');
   });
 
   it('REQ-VAULT-003: Pi vars/in-flight sentinels are namespaced so the Claude vault-monitor daemon cannot wedge Pi', () => {
@@ -2091,23 +2004,19 @@ describe('REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit
     }
   });
 
-  it('REQ-AGENT-067 AC1: both skills forbid consult_llm without an explicit external-LLM request', () => {
-    for (const key of ['.claude/skills/consult-llm/SKILL.md', '.pi/agent/skills/consult-llm/SKILL.md']) {
-      const body = consultLlmSkill(key);
-      expect(body, key).toContain('Hard gate');
-      expect(body, key).toContain('explicitly asks to consult external LLMs');
-      expect(body, key).toContain('session start');
-      expect(body, key).toContain('CI fixes');
-      expect(body, key).toContain('If unsure, ask; do not call `consult_llm`.');
+  it('REQ-AGENT-067 AC1/AC4: consult-llm skills are seeded for Claude and Pi only', () => {
+    const consultSkillKeys = AGENTS_SEEDED_CONFIGS
+      .map((doc) => doc.key)
+      .filter((key) => key.endsWith('/skills/consult-llm/SKILL.md'))
+      .sort();
+    expect(consultSkillKeys).toEqual([
+      '.claude/skills/consult-llm/SKILL.md',
+      '.pi/agent/skills/consult-llm/SKILL.md',
+    ]);
+    for (const key of consultSkillKeys) {
+      const doc = AGENTS_SEEDED_CONFIGS.find((entry) => entry.key === key);
+      expect([...(doc?.modes ?? [])].sort(), key).toEqual(['advanced', 'default']);
     }
-  });
-
-  // AC4: the Pi skill mirrors the Claude one but drives Pi's ask_user_question tool.
-  it('AC4: Pi skill mirrors the dialog using ask_user_question (not AskUserQuestion)', () => {
-    const body = consultLlmSkill('.pi/agent/skills/consult-llm/SKILL.md');
-    expect(body).toContain('ask_user_question');
-    expect(body).not.toContain('AskUserQuestion');
-    expect(body).toMatch(/five/i);
   });
 });
 

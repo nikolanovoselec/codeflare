@@ -1,15 +1,27 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
+import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
 import SessionSwitcher from '../../components/SessionSwitcher';
 import type { SessionWithStatus } from '../../types';
 import { terminalWorkspaceStore } from '../../stores/terminal-workspace';
 
-// Mock isMobile
-const isMobileMock = vi.hoisted(() => ({ value: false }));
-vi.mock('../../lib/mobile', () => ({
-  isMobile: () => isMobileMock.value,
-  getTerminalViewportClass: () => isMobileMock.value ? 'mobile' : 'desktop',
+// Mock responsive viewport state
+const viewportMock = vi.hoisted(() => ({
+  isMobile: false,
+  setViewport: undefined as undefined | ((viewport: 'mobile' | 'tablet' | 'desktop') => void),
 }));
+vi.mock('../../lib/mobile', async () => {
+  const { createSignal } = await vi.importActual<typeof import('solid-js')>('solid-js');
+  const [viewport, setViewport] = createSignal<'mobile' | 'tablet' | 'desktop'>('desktop');
+  viewportMock.setViewport = (next) => {
+    viewportMock.isMobile = next === 'mobile';
+    setViewport(next);
+  };
+  return {
+    isMobile: () => viewportMock.isMobile,
+    getTerminalViewportClass: viewport,
+    createTerminalViewportClass: () => viewport,
+  };
+});
 
 const dropdownProps = vi.hoisted(() => ({ latest: null as any }));
 
@@ -70,7 +82,7 @@ describe('SessionSwitcher', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    isMobileMock.value = false;
+    viewportMock.setViewport?.('desktop');
     dropdownProps.latest = null;
   });
   afterEach(() => cleanup());
@@ -96,7 +108,7 @@ describe('SessionSwitcher', () => {
 
   describe('Mobile rendering', () => {
     it('shows layers icon instead of session name on mobile', () => {
-      isMobileMock.value = true;
+      viewportMock.setViewport?.('mobile');
       render(() => <SessionSwitcher {...defaultProps} />);
       expect(screen.getByTestId('session-switcher-mobile-icon')).toBeInTheDocument();
       expect(screen.queryByTestId('session-switcher-name')).not.toBeInTheDocument();
@@ -142,6 +154,29 @@ describe('SessionSwitcher', () => {
       expect(terminalWorkspaceStore.createOrUpdateMultiView).toHaveBeenCalledWith(['s1', 's2'], expect.any(Array), 'desktop');
       expect(terminalWorkspaceStore.openMultiView).toHaveBeenCalled();
       expect(onOpenMultiView).toHaveBeenCalled();
+    });
+
+    it('REQ-TERM-013: updates MultiView capacity and reconciliation when viewport changes', async () => {
+      render(() => (
+        <SessionSwitcher
+          {...defaultProps}
+          sessions={[
+            createSession({ id: 's1', status: 'running' }),
+            createSession({ id: 's2', status: 'running' }),
+          ]}
+        />
+      ));
+
+      vi.mocked(terminalWorkspaceStore.reconcileMultiView).mockClear();
+      vi.mocked(terminalWorkspaceStore.getMultiViewCapacity).mockClear();
+
+      viewportMock.setViewport?.('mobile');
+
+      await waitFor(() => {
+        expect(terminalWorkspaceStore.reconcileMultiView).toHaveBeenCalledWith(expect.any(Array), 'mobile');
+        expect(terminalWorkspaceStore.getMultiViewCapacity).toHaveBeenCalledWith('mobile');
+        expect(dropdownProps.latest.multiView.capacity).toBe(0);
+      });
     });
   });
 });

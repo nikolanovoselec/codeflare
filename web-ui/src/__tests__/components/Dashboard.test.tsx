@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
+import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
 import { mdiViewCompactOutline, mdiXml } from '@mdi/js';
 import Dashboard from '../../components/Dashboard';
 import { sessionStore } from '../../stores/session';
@@ -8,11 +8,19 @@ import { githubStore } from '../../stores/github';
 import * as vaultCache from '../../lib/vault-cache';
 import type { SessionWithStatus } from '../../types';
 
+const viewportMock = vi.hoisted(() => ({
+  setViewport: undefined as undefined | ((viewport: 'mobile' | 'tablet' | 'desktop') => void),
+}));
+
 vi.mock('../../lib/mobile', async () => {
   const actual = await vi.importActual<typeof import('../../lib/mobile')>('../../lib/mobile');
+  const { createSignal } = await vi.importActual<typeof import('solid-js')>('solid-js');
+  const [viewport, setViewport] = createSignal<'mobile' | 'tablet' | 'desktop'>('desktop');
+  viewportMock.setViewport = setViewport;
   return {
     ...actual,
-    getTerminalViewportClass: () => 'desktop',
+    getTerminalViewportClass: viewport,
+    createTerminalViewportClass: () => viewport,
   };
 });
 
@@ -187,6 +195,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    viewportMock.setViewport?.('desktop');
   });
 
   afterEach(() => {
@@ -249,6 +258,19 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(onOpenMultiView).toHaveBeenCalledTimes(1);
     expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
     expect(defaultProps.onOpenSessionById).not.toHaveBeenCalledWith('multiview:1');
+  });
+
+  it('REQ-TERM-013: reconciles MultiView against the current viewport after resize', async () => {
+    render(() => <Dashboard {...defaultProps} />);
+
+    const store = await import('../../stores/terminal-workspace');
+    vi.mocked(store.terminalWorkspaceStore.reconcileMultiView).mockClear();
+
+    viewportMock.setViewport?.('mobile');
+
+    await waitFor(() => {
+      expect(store.terminalWorkspaceStore.reconcileMultiView).toHaveBeenCalledWith(expect.any(Array), 'mobile');
+    });
   });
 
   it('calls storageStore.fetchStats on mount', () => {

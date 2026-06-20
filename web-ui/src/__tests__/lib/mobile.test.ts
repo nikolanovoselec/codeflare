@@ -415,6 +415,58 @@ describe('mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ
     });
   });
 
+  describe('terminal viewport class', () => {
+    it('REQ-TERM-013: exposes a reactive viewport class for MultiView capacity', async () => {
+      const originalMatchMedia = window.matchMedia;
+      let mobileMatches = false;
+      let tabletMatches = false;
+      const listeners = new Map<string, Set<(event: { matches: boolean }) => void>>();
+      const listenerSet = (query: string) => {
+        const existing = listeners.get(query);
+        if (existing) return existing;
+        const next = new Set<(event: { matches: boolean }) => void>();
+        listeners.set(query, next);
+        return next;
+      };
+      const dispatch = (query: string, matches: boolean) => {
+        for (const listener of listenerSet(query)) listener({ matches });
+      };
+
+      try {
+        Object.defineProperty(window, 'matchMedia', {
+          configurable: true,
+          value: vi.fn((query: string) => ({
+            get matches() {
+              if (query.includes('640px')) return mobileMatches;
+              if (query.includes('1023px')) return tabletMatches;
+              return false;
+            },
+            media: query,
+            addEventListener: (_event: string, listener: (event: { matches: boolean }) => void) => listenerSet(query).add(listener),
+            removeEventListener: (_event: string, listener: (event: { matches: boolean }) => void) => listenerSet(query).delete(listener),
+          })),
+        });
+
+        vi.resetModules();
+        const mobile = await import('../../lib/mobile');
+        const viewport = mobile.createTerminalViewportClass();
+
+        expect(viewport()).toBe('desktop');
+        tabletMatches = true;
+        dispatch('(max-width: 1023px)', true);
+        expect(viewport()).toBe('tablet');
+        mobileMatches = true;
+        dispatch('(max-width: 640px)', true);
+        expect(viewport()).toBe('mobile');
+        mobileMatches = false;
+        dispatch('(max-width: 640px)', false);
+        expect(viewport()).toBe('tablet');
+      } finally {
+        Object.defineProperty(window, 'matchMedia', { configurable: true, value: originalMatchMedia });
+      }
+    });
+  });
+
   describe('enableVirtualKeyboardOverlay / disableVirtualKeyboardOverlay', () => {
     // REQ-MOB-002 AC1: overlaysContent enabled before focus
     // REQ-MOB-002 AC2: overlaysContent disabled on terminal exit
