@@ -313,6 +313,27 @@ export function reviewCompletionDeliveryStalled(input: { completionReady: boolea
   return input.deliveryAgeMs >= input.maxAgeMs;
 }
 
+// The monitor delivery window opens when all lanes complete and the monitor is spawned, so the
+// give-up clock must run from the monitor's own spawn time (its claim's startedAt) bounded by the
+// monitor's polling TTL — never from the review-window start against the lane budget, which the
+// lanes already consume and which would kill a slow-but-healthy monitor. Before a live monitor
+// claim exists (first finalize tick, or a monitor that never spawned) fall back to the window
+// start discounted by the lane budget, so the lanes keep their full budget and the monitor its
+// full TTL before we give up, while still terminating the wait instead of blocking merge forever.
+export function reviewDeliveryGiveUp(input: {
+  completionReady: boolean;
+  now: number;
+  reviewStartedAt: number;
+  monitorStartedAt: number | undefined;
+  laneBudgetMs: number;
+  monitorTtlMs: number;
+}): boolean {
+  const deliveryAgeMs = input.monitorStartedAt !== undefined
+    ? input.now - input.monitorStartedAt
+    : input.now - input.reviewStartedAt - input.laneBudgetMs;
+  return reviewCompletionDeliveryStalled({ completionReady: input.completionReady, deliveryAgeMs, maxAgeMs: input.monitorTtlMs });
+}
+
 export type ReviewMonitorStartupFailureMessage = {
   customType: "codeflare-review-monitor-startup-failed";
   content: string;

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   resolveSpawnedAgentId,
   reviewCompletionDeliveryStalled,
+  reviewDeliveryGiveUp,
   reviewMonitorCompletionRejectReason,
   reviewMonitorCompletionRecordReady,
 } from '../../../preseed/agents/pi/extensions/review-job-helpers';
@@ -45,6 +46,49 @@ describe('reviewCompletionDeliveryStalled (R2: bounded give-up on an undelivered
 
   it('keeps waiting before the age bound (no premature give-up)', () => {
     expect(reviewCompletionDeliveryStalled({ completionReady: false, deliveryAgeMs: 999, maxAgeMs: 1000 })).toBe(false);
+  });
+});
+
+describe('reviewDeliveryGiveUp (give-up clock anchored to monitor spawn, not review-window start)', () => {
+  const now = 10_000_000;
+  const m = 60_000;
+  const laneBudgetMs = 20 * m;
+  const monitorTtlMs = 35 * m;
+
+  it('never gives up while a valid completion is ready, regardless of age', () => {
+    expect(reviewDeliveryGiveUp({ completionReady: true, now, reviewStartedAt: now - 99 * m, monitorStartedAt: now - 99 * m, laneBudgetMs, monitorTtlMs })).toBe(false);
+  });
+
+  describe('with a live monitor claim — anchor is the monitor spawn time, bound is its polling TTL', () => {
+    it('keeps waiting while the monitor is within its polling TTL', () => {
+      expect(reviewDeliveryGiveUp({ completionReady: false, now, reviewStartedAt: now - 99 * m, monitorStartedAt: now - 34 * m, laneBudgetMs, monitorTtlMs })).toBe(false);
+    });
+
+    it('gives up once the monitor has exhausted its polling TTL', () => {
+      expect(reviewDeliveryGiveUp({ completionReady: false, now, reviewStartedAt: now - 99 * m, monitorStartedAt: now - 35 * m, laneBudgetMs, monitorTtlMs })).toBe(true);
+      expect(reviewDeliveryGiveUp({ completionReady: false, now, reviewStartedAt: now - 99 * m, monitorStartedAt: now - 40 * m, laneBudgetMs, monitorTtlMs })).toBe(true);
+    });
+
+    it('does not kill a healthy monitor spawned late in a long lane run (the window-start regression)', () => {
+      // Lanes ran ~19m, monitor spawned 1m ago. The old code measured now-reviewStartedAt (20m) >= 20m
+      // and wrongly gave up on a monitor that has 34m of budget left.
+      expect(reviewDeliveryGiveUp({ completionReady: false, now, reviewStartedAt: now - 20 * m, monitorStartedAt: now - 1 * m, laneBudgetMs, monitorTtlMs })).toBe(false);
+    });
+  });
+
+  describe('before any monitor claim exists — anchor is the window start discounted by the lane budget', () => {
+    it('does not give up on the first finalize tick right after lanes complete', () => {
+      expect(reviewDeliveryGiveUp({ completionReady: false, now, reviewStartedAt: now - 5 * m, monitorStartedAt: undefined, laneBudgetMs, monitorTtlMs })).toBe(false);
+    });
+
+    it('keeps waiting until the lane budget plus the monitor TTL elapse', () => {
+      expect(reviewDeliveryGiveUp({ completionReady: false, now, reviewStartedAt: now - 54 * m, monitorStartedAt: undefined, laneBudgetMs, monitorTtlMs })).toBe(false);
+    });
+
+    it('gives up once a monitor that never claimed exceeds lane budget + TTL, so merge is never blocked forever', () => {
+      expect(reviewDeliveryGiveUp({ completionReady: false, now, reviewStartedAt: now - 55 * m, monitorStartedAt: undefined, laneBudgetMs, monitorTtlMs })).toBe(true);
+      expect(reviewDeliveryGiveUp({ completionReady: false, now, reviewStartedAt: now - 60 * m, monitorStartedAt: undefined, laneBudgetMs, monitorTtlMs })).toBe(true);
+    });
   });
 });
 
