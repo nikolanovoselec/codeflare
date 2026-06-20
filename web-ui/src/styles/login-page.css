@@ -5,11 +5,6 @@
 
 /* ── Keyframes ── */
 
-@keyframes logoFloat {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-9px); }
-}
-
 @keyframes floatLayer1 {
   0% { transform: translate(0, 0) rotate(0deg); }
   33% { transform: translate(-30px, -20px) rotate(2deg); }
@@ -27,11 +22,6 @@
 
 @keyframes spin {
   to { transform: rotate(360deg); }
-}
-
-@keyframes glowPulse {
-  0%, 100% { filter: drop-shadow(0 4px 16px rgba(59, 130, 246, 0.15)); }
-  50% { filter: drop-shadow(0 4px 24px rgba(59, 130, 246, 0.3)); }
 }
 
 /* ── Page ── */
@@ -115,7 +105,6 @@
 .login-logo-img {
   width: 80px;
   height: 80px;
-  animation: logoFloat 3s ease-in-out infinite, glowPulse 4s ease-in-out infinite;
   object-fit: contain;
 }
 

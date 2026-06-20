@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, cleanup, waitFor } from '@solidjs/testing-library';
 import LoginPage from '../../components/LoginPage';
@@ -15,7 +16,7 @@ const mockedGetAuthProviders = vi.mocked(getAuthProviders);
 const mockedGetAuthStatus = vi.mocked(getAuthStatus);
 
 function cssBlock(selector: string): string {
-  const css = readFileSync(new URL('../../styles/login-page.css', import.meta.url), 'utf8');
+  const css = readFileSync(resolve(__dirname, '../../styles/login-page.css'), 'utf8');
   return css.match(new RegExp(`${selector.replace('.', '\\.')}(\\s*)\\{([\\s\\S]*?)\\}`))?.[2] ?? '';
 }
 

@@ -1229,16 +1229,6 @@ svg {
   will-change: opacity, transform;
 }
 
-/* Smooth cross-document navigation (landing <-> /login): a default cross-fade
-   between same-origin pages, so clicking "Sign in" transitions instead of a hard
-   cut. Progressive enhancement (Chromium); unsupported browsers navigate
-   normally. Gated on motion preference so reduced-motion gets the plain cut. */
-@media (prefers-reduced-motion: no-preference) {
-  @view-transition {
-    navigation: auto;
-  }
-}
-
 /* --------------------------------------------------------------------------
    Proof artifacts — turn the load-bearing claims into evidence in the
    terminal/mono aesthetic of the hero. Each [data-proof] renders its resolved
