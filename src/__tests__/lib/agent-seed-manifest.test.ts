@@ -1554,7 +1554,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
 
   // REQ-AGENT-031 AC4: consult-llm is scoped to Claude + Pi ONLY. Claude gets it
   // from its manifest; Pi gets it as a native skill (pi/manifest.json) paired with
-  // the pi-mcp-adapter directTools promotion. codex/opencode/antigravity never get
+  // the pi-mcp-adapter lazy proxy. codex/opencode/antigravity never get
   // it (they have no consult-llm MCP server, so the skill would reference a missing
   // tool) - it stays in CLAUDE_ONLY_SKILLS, which excludes it from the transform lane.
   it('consult-llm skill is available to Claude and Pi only', () => {

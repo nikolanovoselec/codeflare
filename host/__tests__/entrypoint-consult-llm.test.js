@@ -1,6 +1,6 @@
 // REQ-AGENT-031: the entrypoint consult-llm block isolates provider keys to the
-// MCP server, prefers the Codex subscription over the API key for OpenAI, gives
-// Pi the tool via directTools, and is fully disabled in enterprise mode.
+// MCP server, prefers the Codex subscription over the API key for OpenAI,
+// configures Pi through the lazy mcp proxy, and is fully disabled in enterprise mode.
 //
 // "Run the real thing" per tdd-discipline.md: we extract the two bash functions
 // from entrypoint.sh and execute them against fixture filesystems. A regression
@@ -35,7 +35,9 @@ function buildHarness(baseTmp, opts = {}) {
     openaiKey = null,
     geminiKey = null,
     claudeJsonInitial = null, // string => pre-existing file; null => absent
+    piMcpInitial = null,      // string => pre-existing file; null => absent
     seedSkills = false,       // pre-create skill dirs to test enterprise removal
+    runs = 1,
   } = opts;
 
   const cwd = mkdtempSync(join(baseTmp, 'consult-'));
@@ -43,6 +45,11 @@ function buildHarness(baseTmp, opts = {}) {
   mkdirSync(userHome, { recursive: true });
   const userClaudeJson = join(userHome, '.claude.json');
   if (claudeJsonInitial !== null) writeFileSync(userClaudeJson, claudeJsonInitial);
+  const piMcpPath = join(userHome, '.pi', 'agent', 'mcp.json');
+  if (piMcpInitial !== null) {
+    mkdirSync(dirname(piMcpPath), { recursive: true });
+    writeFileSync(piMcpPath, piMcpInitial);
+  }
 
   if (codexAuth) {
     mkdirSync(join(userHome, '.codex'), { recursive: true });
@@ -69,7 +76,9 @@ function buildHarness(baseTmp, opts = {}) {
 set -euo pipefail
 ${envLines}
 ${extractConsultLlmBlock()}
-configure_consult_llm
+for i in $(seq 1 ${runs}); do
+  configure_consult_llm
+done
 `;
 
   const result = spawnSync('bash', ['-c', script], { encoding: 'utf-8' });
@@ -77,7 +86,6 @@ configure_consult_llm
     throw new Error(`harness bash exited ${result.status}: ${result.stderr}\n${result.stdout}`);
   }
 
-  const piMcpPath = join(userHome, '.pi', 'agent', 'mcp.json');
   return {
     stdout: result.stdout,
     claudeJson: existsSync(userClaudeJson) ? JSON.parse(readFileSync(userClaudeJson, 'utf-8')) : null,
@@ -109,16 +117,15 @@ describe('entrypoint consult-llm configuration / REQ-AGENT-031 (key isolation, s
     assert.ok(!('lifecycle' in claude), 'Claude server carries no Pi-only lifecycle field');
   });
 
-  // AC4: Pi gets the same server with directTools promoting consult_llm to first-class.
-  it('Pi mcp.json mirrors the server and promotes consult_llm via directTools', () => {
+  // AC4: Pi gets the same server through the pi-mcp-adapter lazy proxy.
+  it('Pi mcp.json mirrors the server through the lazy mcp proxy', () => {
     const h = buildHarness(baseTmp, { codexAuth: true });
     const pi = h.piMcp.mcpServers['consult-llm'];
     assert.equal(pi.command, 'consult-llm-mcp');
     assert.deepEqual(pi.args, []);
-    assert.deepEqual(pi.directTools, ['consult_llm']);
+    assert.ok(!('directTools' in pi), 'Pi consult-llm is not promoted to a startup-bootstrapped direct tool');
     assert.equal(pi.env.CONSULT_LLM_OPENAI_BACKEND, 'codex-cli');
-    // keep-alive so pi-mcp-adapter reconnects instead of dropping to "0/1 ... cached" on idle.
-    assert.equal(pi.lifecycle, 'keep-alive', 'Pi consult-llm server is keep-alive');
+    assert.equal(pi.lifecycle, 'lazy', 'Pi consult-llm starts only when the mcp proxy connects');
   });
 
   // AC3: no Codex login => fall back to the API key (api backend, no codex env var).
@@ -165,14 +172,48 @@ describe('entrypoint consult-llm configuration / REQ-AGENT-031 (key isolation, s
     assert.match(h.stdout, /no usable provider/);
   });
 
-  // AC1: merge preserves any pre-existing mcpServers (jq `. * $mcp` deep-merge).
-  it('preserves existing mcpServers entries when merging consult-llm', () => {
-    const initial = JSON.stringify({
-      mcpServers: { 'context-mode': { command: 'context-mode', args: [] } },
+  // AC1/AC4: merge replaces only Codeflare's owned consult-llm entry and preserves user MCP servers.
+  it('replaces only the owned consult-llm entry and stays idempotent across starts', () => {
+    const claudeInitial = JSON.stringify({
+      mcpServers: {
+        'context-mode': { command: 'context-mode', args: [] },
+        'consult-llm': { command: 'old-consult', args: ['stale'], env: { STALE: '1' } },
+      },
     });
-    const h = buildHarness(baseTmp, { codexAuth: true, claudeJsonInitial: initial });
-    assert.ok(h.claudeJson.mcpServers['context-mode'], 'existing server preserved');
-    assert.ok(h.claudeJson.mcpServers['consult-llm'], 'consult-llm added alongside');
+    const piInitial = JSON.stringify({
+      mcpServers: {
+        'user-server': { command: 'user-mcp', args: ['--flag'] },
+        'consult-llm': {
+          command: 'old-consult',
+          args: ['stale'],
+          env: { STALE: '1' },
+          lifecycle: 'keep-alive',
+          directTools: ['consult_llm'],
+        },
+      },
+    });
+    const h = buildHarness(baseTmp, {
+      codexAuth: true,
+      claudeJsonInitial: claudeInitial,
+      piMcpInitial: piInitial,
+      runs: 2,
+    });
+
+    assert.deepEqual(h.claudeJson.mcpServers['context-mode'], { command: 'context-mode', args: [] });
+    const claude = h.claudeJson.mcpServers['consult-llm'];
+    assert.equal(claude.command, 'consult-llm-mcp');
+    assert.deepEqual(claude.args, []);
+    assert.ok(!('STALE' in claude.env), 'Claude consult-llm entry is replaced, not deep-merged');
+
+    const piServers = h.piMcp.mcpServers;
+    assert.deepEqual(piServers['user-server'], { command: 'user-mcp', args: ['--flag'] });
+    assert.deepEqual(Object.keys(piServers).sort(), ['consult-llm', 'user-server']);
+    const pi = piServers['consult-llm'];
+    assert.equal(pi.command, 'consult-llm-mcp');
+    assert.deepEqual(pi.args, []);
+    assert.equal(pi.lifecycle, 'lazy');
+    assert.ok(!('directTools' in pi), 'stale directTools are removed on rerun');
+    assert.ok(!('STALE' in pi.env), 'Pi consult-llm env is replaced, not deep-merged');
   });
 
   // AC6: enterprise mode disables consult-llm entirely and removes the seeded skill

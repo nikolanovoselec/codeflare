@@ -154,9 +154,10 @@ ChatGPT, Gemini, or OpenAI; see [REQ-AGENT-031](../../sdd/spec/agents.md#req-age
 and [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior).
 
 Claude receives consult-llm through `~/.claude.json`; Pi receives it through
-`~/.pi/agent/mcp.json` `directTools`. That same Pi entry sets
-`lifecycle: "keep-alive"` so pi-mcp-adapter reconnects it instead of dropping the
-MCP footer to `0/1 … cached` after the default idle timeout.
+`~/.pi/agent/mcp.json` via the pi-mcp-adapter `mcp` proxy. The Pi entrypoint-owned
+`consult-llm` server entry is replaced on each start with `lifecycle: "lazy"`,
+removing the old always-on `keep-alive` / `directTools` fields while preserving
+unrelated user MCP servers in the same file.
 
 **Rules** (core environment rules in both modes; the rest advanced-only) ([REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode),
 [REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session)):

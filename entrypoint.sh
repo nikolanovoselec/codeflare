@@ -1816,7 +1816,7 @@ _merge_consult_llm_mcp() {
     local target="$1" cfg="$2" label="$3" tmp
     if [ -f "$target" ]; then
         tmp=$(mktemp)
-        if jq --argjson mcp "$cfg" '. * $mcp' "$target" > "$tmp" 2>/dev/null; then
+        if jq --argjson mcp "$cfg" '.mcpServers = ((.mcpServers // {}) + {"consult-llm": $mcp.mcpServers["consult-llm"]})' "$target" > "$tmp" 2>/dev/null; then
             mv "$tmp" "$target"
         else
             echo "[entrypoint] WARNING: could not merge consult-llm MCP config into $target (malformed?)"
@@ -1875,14 +1875,12 @@ configure_consult_llm() {
         "$(jq -n --argjson env "$env_obj" '{"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env}}}')" \
         "Claude Code"
 
-    # Pi's pi-mcp-adapter reads ~/.pi/agent/mcp.json (same shape); directTools
-    # promotes consult_llm to a first-class Pi tool (not buried behind the proxy).
+    # Pi's pi-mcp-adapter reads ~/.pi/agent/mcp.json (same shape). Keep the
+    # server behind the adapter's lazy `mcp` proxy so consult-llm-mcp starts only
+    # when the user explicitly asks to consult an external LLM.
     mkdir -p "$USER_HOME/.pi/agent"
-    # lifecycle:keep-alive — pi-mcp-adapter defaults a server with no lifecycle to "lazy", which
-    # closes the consult-llm process on idle and shows the footer as "0/1
-    # servers ... cached". keep-alive connects on startup and auto-reconnects if it drops.
     _merge_consult_llm_mcp "$USER_HOME/.pi/agent/mcp.json" \
-        "$(jq -n --argjson env "$env_obj" '{"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env,"lifecycle":"keep-alive","directTools":["consult_llm"]}}}')" \
+        "$(jq -n --argjson env "$env_obj" '{"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env,"lifecycle":"lazy"}}}')" \
         "Pi"
 }
 configure_consult_llm || echo "[entrypoint] WARNING: consult-llm configuration failed; continuing startup"

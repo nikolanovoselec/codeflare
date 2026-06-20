@@ -520,7 +520,7 @@ GET `/api/llm-keys` - returns masked keys (`****` + last 4 chars), never full ke
 PUT `/api/llm-keys` - set or clear keys. Body: `{ openaiApiKey?: string | null, geminiApiKey?: string | null }`. `null` deletes the key, `undefined`/omitted = no change, string = set. Returns masked keys. When `ENCRYPTION_KEY` is set, values are encrypted with AES-256-GCM before KV storage.
 DELETE `/api/llm-keys` - removes all LLM keys from KV.
 
-Keys are stored in KV as `llm-keys:{bucketName}` and scoped per user (derived from auth). On container start, keys are read from KV and injected as `OPENAI_API_KEY` / `GEMINI_API_KEY` env vars. The `entrypoint.sh` detects these env vars and configures the `consult-llm-mcp` MCP server in `~/.claude.json`. The LLM Keys accordion in Settings is only visible when the user can use advanced mode (`canUseAdvanced()`) AND has selected advanced session mode (`currentSessionMode() === 'advanced'`). Admins always qualify for advanced mode but must still select it.
+Keys are stored in KV as `llm-keys:{bucketName}` and scoped per user (derived from auth). On container start, keys are read from KV and injected only as `CODEFLARE_OPENAI_API_KEY` / `CODEFLARE_GEMINI_API_KEY`; `entrypoint.sh` maps them back to bare provider env names only inside the scoped `consult-llm-mcp` server config for Claude (`~/.claude.json`) and Pi (`~/.pi/agent/mcp.json`). The LLM Keys accordion in Settings is only visible when the user can use advanced mode (`canUseAdvanced()`) AND has selected advanced session mode (`currentSessionMode() === 'advanced'`). Admins always qualify for advanced mode but must still select it.
 
 ### Public (Onboarding)
 
