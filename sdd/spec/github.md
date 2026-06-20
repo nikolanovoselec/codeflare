@@ -163,16 +163,13 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 ---
 
-<!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel -->
-<!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx::ConnectedHeader -->
-<!-- @impl: web-ui/src/components/github/RepoSearch.tsx::RepoSearch -->
-<!-- @impl: web-ui/src/lib/mobile.ts::isTouchDevice -->
 <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (REQ-GITHUB-011 describe -> AC1 touch hides search behind a magnify toggle left of refresh + AC2 tap reveals and focuses the input (keyboard) + toggle reflects open state + AC3 re-tap hides and clears the filter + AC4 desktop always-visible, no toggle) -->
 ### REQ-GITHUB-011: Mobile search disclosure with autofocus
 
 <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel -->
 <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx::ConnectedHeader -->
 <!-- @impl: web-ui/src/components/github/RepoSearch.tsx::RepoSearch -->
+<!-- @impl: web-ui/src/lib/mobile.ts::isTouchDevice -->
 
 **Intent:** On touch devices the GitHub panel's repository search is disclosed on demand — hidden behind a magnify toggle so the repository list keeps its full whole-row viewport — and revealing it focuses the input so the on-screen keyboard opens immediately. On desktop the search bar stays always visible.
 

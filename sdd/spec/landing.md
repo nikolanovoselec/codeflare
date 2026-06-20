@@ -193,7 +193,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 <!-- @impl: web-ui/public/manifest.webmanifest -->
 <!-- @impl: src/index.ts -->
 <!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004 describe -> AC1 the landing layout declares color-scheme dark via a <meta name="color-scheme" content="dark"> plus an inline html{} rule painting the root dark before any external stylesheet) -->
-<!-- @test: src/__tests__/index.test.ts (REQ-LANDING-004 describe -> AC2 /_astro/ content-hashed assets get Cache-Control public, max-age=31536000, immutable while a non-hashed asset response keeps its revalidating default) -->
+<!-- @test: src/__tests__/index.test.ts (REQ-LANDING-004 describe -> AC2 a real /_astro/ content-hashed asset gets Cache-Control public, max-age=31536000, immutable; the SPA-fallback HTML served for a non-existent /_astro/ URL does NOT; a non-hashed asset keeps its revalidating default) -->
 ### REQ-LANDING-004: First-paint stability and immutable asset caching
 
 <!-- @impl: landing/src/layouts/BaseLayout.astro -->
@@ -213,6 +213,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 - The SPA shell (`web-ui/index.html`) carries the same dark `color-scheme` meta and inline root paint, so navigating landing → `/login` (SPA) and back never flashes white; this is the SPA half of the same cross-document fix and complements [REQ-SETUP-010](setup.md#req-setup-010-social-share-preview-metadata-on-the-public-landing-page), which owns the shell's social-share metadata.
 - The installable manifest's `theme_color` and `background_color` (`web-ui/public/manifest.webmanifest`) match the dark first-paint background so the PWA splash/install surface is consistent with the app's dark canvas.
 - Immutability is keyed on the `/_astro/` path segment (Astro's content-hashed output directory): only those filenames change when content changes, so a stale cache entry is impossible; HTML and other non-hashed responses must keep revalidating so content stays fresh.
+- Immutability is applied only to a real `200` asset whose response is not `text/html`, never the SPA fallback that `not_found_handling = "single-page-application"` returns for a non-existent `/_astro/` URL — caching that HTML shell forever-immutable under an asset URL would be a stale-shell trap.
 
 **Priority:** P2
 

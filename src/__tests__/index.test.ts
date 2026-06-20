@@ -491,9 +491,13 @@ describe('REQ-LANDING-004: immutable /_astro/ asset caching', () => {
   });
 
   it('serves content-hashed /_astro/ assets with a long immutable Cache-Control', async () => {
-    const { env, mockKV } = createMockEnv();
+    const { env, mockKV, mockAssets } = createMockEnv();
     // Setup complete so the request reaches the asset layer instead of redirecting.
     mockKV.get.mockResolvedValue('true');
+    // A real hashed asset resolves to its own content type (here CSS), not the SPA shell.
+    mockAssets.fetch.mockResolvedValueOnce(
+      new Response('body{}', { status: 200, headers: { 'Content-Type': 'text/css' } }),
+    );
 
     const response = await worker.fetch(
       new Request('https://example.com/landing/_astro/index.DEADBEEF.css'),
@@ -503,6 +507,24 @@ describe('REQ-LANDING-004: immutable /_astro/ asset caching', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
+  });
+
+  it('does NOT immutable-cache the SPA fallback HTML served for a non-existent /_astro/ URL', async () => {
+    const { env, mockKV, mockAssets } = createMockEnv();
+    mockKV.get.mockResolvedValue('true');
+    // not_found_handling = "single-page-application": a missing hashed asset resolves
+    // to index.html (text/html, 200) — it must NOT be cached forever-immutable.
+    mockAssets.fetch.mockResolvedValueOnce(
+      new Response('<!doctype html>', { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } }),
+    );
+
+    const response = await worker.fetch(
+      new Request('https://example.com/landing/_astro/missing.OLDHASH.js'),
+      env,
+      createMockCtx(),
+    );
+
+    expect(response.headers.get('Cache-Control')).not.toBe('public, max-age=31536000, immutable');
   });
 
   it('does NOT mark a non-hashed asset immutable (HTML/other keep the revalidating default)', async () => {

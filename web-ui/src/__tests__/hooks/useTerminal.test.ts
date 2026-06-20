@@ -955,6 +955,34 @@ describe('useTerminal hook', () => {
       mockTerminalInstance.textarea = null;
     });
 
+    it('clears the pending focusout defer on cleanup so it cannot fire after unmount', async () => {
+      (mobileModule as any).isSamsungBrowser = true;
+      vi.mocked(isVirtualKeyboardOpen).mockReturnValue(true);
+      vi.mocked(mobileModule.isFocusOnTerminalInput).mockReturnValue(false);
+
+      const mockTextarea = document.createElement('textarea');
+      mockTerminalInstance.textarea = mockTextarea as any;
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      vi.mocked(forceResetKeyboardState).mockClear();
+      // Schedule the deferred dismiss decision, then tear down before the tick fires.
+      mockTextarea.dispatchEvent(new Event('focusout'));
+      dispose();
+      // The unmount teardown itself may reset once; capture that baseline.
+      const afterCleanup = vi.mocked(forceResetKeyboardState).mock.calls.length;
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Timer was cleared on cleanup, so the deferred callback adds no further reset.
+      expect(vi.mocked(forceResetKeyboardState).mock.calls.length).toBe(afterCleanup);
+
+      mockTerminalInstance.textarea = null;
+    });
+
     it('should NOT register focusout handler on non-Samsung browsers', () => {
       (mobileModule as any).isSamsungBrowser = false;
 

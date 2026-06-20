@@ -467,7 +467,16 @@ export default {
     // landing stylesheet was revalidated on every full-page navigation — delaying
     // first paint and causing the inter-page flash. Long-cache them immutably;
     // HTML keeps its revalidating default so content stays fresh.
-    if (path.includes('/_astro/')) {
+    // Guard against caching the SPA fallback: with not_found_handling =
+    // "single-page-application", a request to a non-existent /_astro/ URL (a stale
+    // hashed reference after a deploy, or a crafted request) resolves to index.html
+    // (200, text/html). Stamping that immutable would cache the shell forever under
+    // an asset URL, so only a real, non-HTML 200 asset is long-cached.
+    if (
+      path.includes('/_astro/') &&
+      assetResponse.status === 200 &&
+      secureResponse.headers.get('Content-Type')?.startsWith('text/html') !== true
+    ) {
       secureResponse.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
     }
     // CSP includes Turnstile origins (challenges.cloudflare.com) because the SPA
