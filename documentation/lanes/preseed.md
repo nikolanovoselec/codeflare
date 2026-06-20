@@ -188,7 +188,7 @@ AC6). That native skill queries exact commits and reports `CI_RESULT timeout` wh
 GitHub CLI access fails or no workflow rows appear for the pushed head ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
 AC7).
 
-Claude CI monitoring remains on-demand ([REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy)): routine pushes do not start `ci-monitoring`; Claude invokes it only when the user asks or a deploy/merge gate needs a fresh CI result. When invoked, the Claude skill launches a detached temp-script monitor, prints `CI_MONITOR_STARTED head=<sha> pid=<pid> log=<path>`, and requires a non-empty workflow/run fingerprint to stay stable across two polls before success.
+Claude CI monitoring remains on-demand ([REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy)): routine pushes do not start `ci-monitoring`; Claude invokes it only when the user asks or a deploy/merge gate needs a fresh CI result. When invoked, the Claude skill launches a detached temp-script monitor, prints `CI_MONITOR_STARTED head=<sha> pid=<pid> log=<path>`, requires a non-empty workflow/run fingerprint to stay stable across two polls before success, and writes terminal `CI_RESULT failure` / `CI_RESULT timeout` lines to that durable log on workflow failure or GitHub CLI access failure.
 
 Monitoring and any other long-running wait/poll are background-only: no agent may
 keep the main session busy with `tail -f`, `gh run watch`, blocking `ctx_execute`,

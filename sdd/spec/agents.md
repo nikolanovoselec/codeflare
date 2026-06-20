@@ -766,7 +766,7 @@ None.
 <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Hard obligations -->
 <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Binding invocation rule -->
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-070 keeps Claude CI monitoring on-demand -> AC1/AC2) -->
-<!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 Claude launcher returns durable log path; monitor reports success only after stable fingerprint, failure rows, and gh access failures -> AC3/AC4) -->
+<!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 Claude launcher returns durable log path; monitor reports success only after stable fingerprint and writes failure/timeout result lines -> AC3/AC4/AC5) -->
 
 **Intent:** Claude and Claude-transformed agents monitor CI only when a user asks or a deploy/merge decision needs a fresh result.
 
@@ -778,6 +778,7 @@ None.
 2. Claude invokes `ci-monitoring` only when the user explicitly asks or a deploy/merge gate needs a fresh result. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Binding invocation rule -->
 3. The Claude monitor uses a durable temp-script launcher that prints the monitored head, pid, and log path before detaching. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::The monitor launcher -->
 4. Claude success requires a non-empty workflow/run fingerprint to stay stable across two polls. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::The monitor launcher -->
+5. Claude writes terminal failure and timeout result lines to the durable log when workflow rows fail or GitHub CLI access is unavailable. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::The monitor launcher -->
 
 **Constraints:**
 

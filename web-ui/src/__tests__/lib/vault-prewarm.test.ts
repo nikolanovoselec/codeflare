@@ -90,8 +90,9 @@ describe('REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol', () => {
 
     startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
     const iframe = currentIframe();
+    if (!iframe) throw new Error('prewarm iframe missing');
 
-    iframe?.focus();
+    iframe.focus();
     if (document.activeElement === iframe) {
       iframe.dispatchEvent(new FocusEvent('focus'));
     }
