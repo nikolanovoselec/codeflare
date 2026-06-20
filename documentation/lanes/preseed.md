@@ -470,12 +470,12 @@ All preseed content is deployed via the manifest pipeline:
   Review summaries have a second monitor delivery phase. `review-monitor` is a
   background agent/subagent, not an extension. When a real PR-boundary trigger
   creates an active review window, the Pi extension records durable lane state and
-  signals that the main-session assistant must start or await the background
-  `review-monitor` for the same exact head. The monitor waits for lane results and
-  `summary.md`, writes `monitor.completed` only after that complete set exists, then
-  returns `REVIEW_RESULT clean|findings` to the main session. An early lane failure
-  returns `REVIEW_RESULT failed` without a completion marker so a later retry can
-  deliver the final summary.
+  starts the background `review-monitor` for the same exact head. If startup fails,
+  Pi sends the main session a fallback message containing the monitor prompt. The
+  monitor waits for lane results and `summary.md`, writes `monitor.completed` only
+  after that complete set exists, then returns `REVIEW_RESULT clean|findings` to the
+  main session. An early lane failure returns `REVIEW_RESULT failed` without a
+  completion marker so a later retry can deliver the final summary.
 
   Pi keeps the pending review window unacked until a valid `monitor.completed`
   exists, and it does not resurrect old acked jobs after pending state is cleared.
@@ -524,22 +524,29 @@ All preseed content is deployed via the manifest pipeline:
   [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-and-result-formatting).
 
   Delivering that summary back into the live session is a separate monitor phase.
-  For each `(repo, head)`, the main-session assistant starts or awaits one
-  background `review-monitor` agent unless a valid `monitor.completed` already
-  exists or a fresh monitor claim is still within its TTL. The Pi extension owns
-  the durable claim/completion files and emits the handoff signal; the monitor
-  agent owns waiting and returning `REVIEW_RESULT`. Malformed or stale monitor
-  claim files are reclaimed, so a partial `monitor.json` cannot block delivery
-  forever. The monitor waits for every lane result file and `summary.md`; if lane
-  files exist but `summary.md` is missing, it writes a concise merged summary from
-  those lane reports. Implements
+  For each `(repo, head)`, the Pi extension may start one background
+  `review-monitor` agent only from a live main-session context. Valid
+  `monitor.completed` files and fresh monitor claims suppress duplicate starts.
+
+  The Pi extension owns the durable claim/completion files; the monitor agent owns
+  waiting and returning `REVIEW_RESULT`. Malformed or stale monitor claim files are
+  reclaimed, so a partial `monitor.json` cannot block delivery forever. If monitor
+  startup throws or returns no agent id, Pi keeps the durable monitor claim and
+  sends the main session a one-shot fallback message containing the exact monitor
+  prompt; the claim suppresses duplicate extension starts across reload.
+
+  The monitor waits for every lane result file and `summary.md`; if lane files
+  exist but `summary.md` is missing, it writes a concise merged summary from those
+  lane reports. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC1/AC2; source: `review-enforcement.ts::startReviewMonitor`,
+  AC1/AC2/AC7; source: `review-enforcement.ts::startReviewMonitor`,
   `review-enforcement.ts::claimReviewMonitorStart`,
   `review-enforcement.ts::reviewMonitorCompletionReady`,
+  `review-enforcement.ts::sendReviewMonitorFallbackMessage`,
   `review-enforcement.ts::reviewMonitorPrompt`,
-  `review-job-helpers.ts::reviewMonitorDecision`, and
-  `review-job-helpers.ts::reviewMonitorSpawnDecision`.
+  `review-job-helpers.ts::reviewMonitorDecision`,
+  `review-job-helpers.ts::reviewMonitorSpawnDecision`, and
+  `review-job-helpers.ts::reviewMonitorStartupFailureMessage`.
 
   The monitor is the delivery wakeup. Before successful exit after complete lane
   results and `summary.md`, it writes
@@ -566,12 +573,11 @@ All preseed content is deployed via the manifest pipeline:
   [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-durable-review-fix-loop).
 
   Task/subagent contexts may reap lane children and write durable state, but they
-  do not own review-monitor delivery. Only the main-session assistant starts or
-  awaits `review-monitor`, using the extension's durable handoff state; old acked
-  jobs are not resurrected after pending state is cleared. Delivery does not depend
-  on a custom transcript nonce, a summary announcement record, or a follow-up
-  message bus. The
-  `/review-results` command remains the manual fallback: it displays the persisted
+  do not own review-monitor delivery. Only a live main-session context lets the
+  extension start `review-monitor`; old acked jobs are not resurrected after
+  pending state is cleared. Delivery does not depend on a custom transcript nonce,
+  a summary announcement record, or a follow-up message bus. The `/review-results`
+  command remains the manual fallback: it displays the persisted
   exact-head `summary.md` without mutating delivery state or claiming the head was
   acknowledged. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
@@ -972,9 +978,9 @@ Pi also persists compatibility pending state in `.git/sdd-review-pending.json` a
 
 When a new push lands while review is still in flight, Pi rolls the pending review window forward if the new PR head descends from the pending head, keeps the first unreviewed base for cumulative review, and does not treat a remote-tracking previous head as reviewed unless an explicit ack or completed prior review proves that coverage. This preserves earlier findings during fix-push cascades while keeping intermediate-branch PRs deferred until their PR-to-`main` review. See [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) for lane dispatch and in-flight gating, and [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-pr-boundary-review-window-advancement) for review-window roll-forward semantics.
 
-Three USER-ONLY bypass methods exist (the agent must never invoke these autonomously): the user runs `touch /tmp/review-bypass`, the user says "skip review" or "skip verification" in a message, or the user waits for the 5-strike circuit breaker to clear after 5 blocks on the same un-acknowledged PR HEAD. The sentinel is one-shot, per-session, not committed, and auto-deleted on use. In Pi, a visible sentinel stops review-window startup and idle monitor/reaper progress until the live main session can consume it. Implements [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces) AC1/AC2/AC5/AC6/AC7; source: `review-enforcement.ts::consumeBypass`, `review-job-helpers.ts::reviewWindowStartDecision`, and `enforce-review-spawn.sh`.
+Three USER-ONLY bypass methods exist (the agent must never invoke these autonomously): the user runs `touch /tmp/review-bypass`, the user says "skip review" or "skip verification" in a message, or the user waits for the 5-strike circuit breaker to clear after 5 blocks on the same un-acknowledged PR HEAD. The sentinel is one-shot, per-session, not committed, and auto-deleted on use. In Pi, only a live PR-boundary command or merge gate may consume it; passive status refresh, monitor delivery, lane completion, and idle reaping leave it untouched. Implements [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces) AC1/AC2/AC5/AC6/AC7; source: `review-enforcement.ts::consumeBypass`, `review-job-helpers.ts::reviewWindowStartDecision`, and `enforce-review-spawn.sh`.
 
-Runtime semantics differ intentionally: Claude treats the sentinel as a one-turn Stop-hook escape that does not advance `.git/sdd-last-ack-pr-head`, while Pi consumes it as an explicit acknowledgement of the current protected PR HEAD only from a live main-session context. Pi task/subagent contexts leave the sentinel untouched and cannot acknowledge the bypass if consumption fails. Before consuming it, Pi checks pending-state freshness: stale pending state is discarded without using the sentinel, and an advanced pending window acknowledges the live PR head rather than the superseded pending head. Implements [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces) AC3/AC4; source: `review-enforcement.ts::consumeBypass`, `review-enforcement.ts::acknowledgeBypass`, `review-helpers.ts::canMainSessionConsumeReviewBypass`, and `review-helpers.ts::reviewBypassConsumeDecision`.
+Runtime semantics differ intentionally: Claude treats the sentinel as a one-turn Stop-hook escape that does not advance `.git/sdd-last-ack-pr-head`, while Pi consumes it as an explicit acknowledgement only after a live PR-boundary command or merge gate resolves the protected PR head to acknowledge. Pi task/subagent contexts leave the sentinel untouched and cannot acknowledge the bypass if consumption fails. Implements [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces) AC3/AC4; source: `review-enforcement.ts::consumeBypass`, `review-enforcement.ts::acknowledgeBypass`, `review-helpers.ts::canMainSessionConsumeReviewBypass`, and `review-helpers.ts::reviewBypassConsumeDecision`.
 
 If enforcement fires spuriously after a legitimate pipeline completed and local `HEAD` is the current PR head, preserve the acknowledgement and clear only transient runtime state:
 

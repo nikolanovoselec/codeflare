@@ -287,6 +287,31 @@ export function reviewMonitorCompletionRecordReady(input: {
     && completedAt + 1000 >= input.latestInputMtime;
 }
 
+export type ReviewMonitorStartupFailureMessage = {
+  customType: "codeflare-review-monitor-startup-failed";
+  content: string;
+  display: true;
+  details: { repo: string; head: string; reason: string; prompt: string };
+};
+
+export function reviewMonitorStartupFailureMessage(input: { repo: string; head: string; reason: string; prompt: string }): ReviewMonitorStartupFailureMessage {
+  return {
+    customType: "codeflare-review-monitor-startup-failed",
+    content: [
+      `PR-boundary review-monitor startup failed for ${input.repo} at ${input.head.slice(0, 12)} (${input.reason}).`,
+      "Start the fallback review-monitor now as a background subagent and use the prompt below exactly.",
+      "A durable monitor claim is already recorded for this head; do not start more than one fallback monitor.",
+      "Do not edit files before starting the monitor; its REVIEW_RESULT handoff must reach the main session.",
+      "",
+      "```text",
+      input.prompt,
+      "```",
+    ].join("\n"),
+    display: true,
+    details: { repo: input.repo, head: input.head, reason: input.reason, prompt: input.prompt },
+  };
+}
+
 export type ReviewSummaryMessage = {
   customType: "codeflare-review-summary-v4";
   content: string;
@@ -978,11 +1003,12 @@ export function shouldReconcileOpenPr(input: OpenPrReconcileInput): OpenPrReconc
 export type ReviewWindowStartDecisionInput = {
   bypassPresent: boolean;
   canConsumeBypass: boolean;
+  boundaryEvent: boolean;
 };
 export type ReviewWindowStartDecision = "start" | "ack_bypass" | "wait_for_main_session";
 
 export function reviewWindowStartDecision(input: ReviewWindowStartDecisionInput): ReviewWindowStartDecision {
-  if (!input.bypassPresent) return "start";
+  if (!input.bypassPresent || !input.boundaryEvent) return "start";
   return input.canConsumeBypass ? "ack_bypass" : "wait_for_main_session";
 }
 

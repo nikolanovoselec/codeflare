@@ -148,17 +148,21 @@ describe('shouldReconcileOpenPr (REQ-AGENT-058 AC1)', () => {
  * autostart/offer/noop branching regresses — the reconciler's only behaviour on a missed
  * boundary is one of these three actions.
  */
-describe('reviewWindowStartDecision (REQ-AGENT-041: bypass blocks review startup)', () => {
+describe('reviewWindowStartDecision (REQ-AGENT-041: bypass is consumed only by PR-boundary events)', () => {
   it('starts review when no bypass sentinel is present', () => {
-    expect(reviewWindowStartDecision({ bypassPresent: false, canConsumeBypass: true })).toBe('start');
+    expect(reviewWindowStartDecision({ bypassPresent: false, canConsumeBypass: true, boundaryEvent: true })).toBe('start');
   });
 
-  it('acks instead of starting review when the main session can consume the bypass', () => {
-    expect(reviewWindowStartDecision({ bypassPresent: true, canConsumeBypass: true })).toBe('ack_bypass');
+  it('ignores the sentinel during passive status refreshes', () => {
+    expect(reviewWindowStartDecision({ bypassPresent: true, canConsumeBypass: true, boundaryEvent: false })).toBe('start');
   });
 
-  it('waits instead of starting review when a task/subagent context sees the bypass', () => {
-    expect(reviewWindowStartDecision({ bypassPresent: true, canConsumeBypass: false })).toBe('wait_for_main_session');
+  it('acks instead of starting review when a live PR-boundary event can consume the bypass', () => {
+    expect(reviewWindowStartDecision({ bypassPresent: true, canConsumeBypass: true, boundaryEvent: true })).toBe('ack_bypass');
+  });
+
+  it('waits instead of starting review when a task/subagent context sees the bypass on a PR-boundary event', () => {
+    expect(reviewWindowStartDecision({ bypassPresent: true, canConsumeBypass: false, boundaryEvent: true })).toBe('wait_for_main_session');
   });
 });
 
