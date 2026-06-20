@@ -125,9 +125,11 @@ describe('hero terminal (the reel, looping)', () => {
     expect(hero.querySelector('.terminal-foot[data-agentfoot] [data-tf-reason]')).not.toBeNull();
   });
 
-  it('renders the scramble + fluid client hooks', () => {
-    expect(html).toContain('data-flare-fluid');
+  it('opts the marketing page into the scramble, fluid, and proof client hooks', () => {
+    expect(body.querySelector('[data-flare-fluid]')).not.toBeNull();
     expect(body.querySelector('.hero-headline .flare[data-scramble]')).not.toBeNull();
+    expect(body.querySelector('.terminal[data-proof]')).not.toBeNull();
+    expect(body.querySelector('[data-agentfoot]')).not.toBeNull();
   });
 });
 

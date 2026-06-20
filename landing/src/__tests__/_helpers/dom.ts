@@ -18,6 +18,12 @@ export function dom(html: string): HTMLElement {
   return win.document.body as unknown as HTMLElement;
 }
 
+export function documentDom(html: string): Document {
+  const win = new Window();
+  win.document.write(html);
+  return win.document as unknown as Document;
+}
+
 /** Undo Astro's entity escaping, for raw-copy / no-dash invariant checks. */
 export function decodeEntities(rendered: string): string {
   return rendered

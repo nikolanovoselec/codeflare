@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-06-20
 
+- **Onboarding login first paint stabilized** ([REQ-AUTH-020](authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-and-access-request-flow); stays Implemented). The landing-built `/login` page keeps the shared tokens, fonts, preloaded font files, and nav chrome, but no longer loads the marketing page's WebGL/motion/proof hooks. The marketing landing remains opted into those effects. Login uses a static flare motif and stable viewport sizing so cold browsers do not paint fallback-font/layout state and then visibly adjust. Behavioral coverage: `login-page.test.ts` and `index-page.test.ts`. **Status:** REQ-AUTH-020 stays Implemented.
+
 - **Pi transcript backstop keeps first post-cursor boundary records** ([REQ-AGENT-058](agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery); stays Implemented). The missed-event recovery cursor now advances only through complete JSONL records and no longer drops the first complete record after an existing cursor, so a compound `git commit && git push` tool call written after the previous scan can mark the session as boundary-acted and auto-start durable review. Fallback scans that begin mid-file still discard only the partial leading record, and clone/reload inherited heads still offer rather than auto-start. Behavioral coverage: `review-trigger.test.ts` (`completeTranscriptDelta`). **Status:** REQ-AGENT-058 stays Implemented.
 
 ## 2026-06-19

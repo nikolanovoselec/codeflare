@@ -2024,9 +2024,13 @@ svg {
   margin: 0 auto;
   padding: clamp(2.5rem, 1.5rem + 5vw, 5rem) 1.25rem var(--section-y);
   min-height: calc(100vh - var(--nav-height));
+  min-height: calc(100svh - var(--nav-height));
   display: flex;
   flex-direction: column;
   justify-content: center;
+  background:
+    radial-gradient(70% 42% at 50% 8%, rgb(var(--accent-rgb) / 0.13), transparent 72%),
+    transparent;
 }
 
 /* The back arrow is an inline SVG, not the &larr; font glyph: a glyph's ink

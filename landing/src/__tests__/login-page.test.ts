@@ -10,16 +10,18 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { experimental_AstroContainer as AstroContainer } from 'astro/container';
 import LoginPage from '../pages/login.astro';
 import { LOGIN } from '../content/site';
-import { dom, decodeEntities } from './_helpers/dom';
+import { documentDom, dom, decodeEntities } from './_helpers/dom';
 
 let html: string;
 let body: HTMLElement;
+let documentNode: Document;
 let text: string;
 
 beforeAll(async () => {
   const container = await AstroContainer.create();
   html = await container.renderToString(LoginPage);
   body = dom(html);
+  documentNode = documentDom(html);
   text = decodeEntities(html);
 });
 
@@ -68,9 +70,15 @@ describe('onboarding login page (REQ-AUTH-020)', () => {
     expect(map.default).toBeTruthy();
   });
 
-  it('inherits the shared layout: the splash mount-point and the back link', () => {
-    expect(html).toContain('data-flare-fluid');
+  it('inherits the shared nav and font preloads while omitting landing-only motion hooks', () => {
     expect(body.querySelector('.login-back')?.getAttribute('href')).toBe(LOGIN.back.href);
+    const preloads = Array.from(documentNode.head.querySelectorAll('link[rel="preload"][as="font"]'));
+    expect(preloads.map((link) => link.getAttribute('type'))).toEqual(['font/woff2', 'font/woff2']);
+    expect(body.querySelector('[data-flare-fluid]')).toBeNull();
+    expect(body.querySelector('[data-hero-kicker]')).toBeNull();
+    expect(body.querySelector('[data-ft-loop]')).toBeNull();
+    expect(body.querySelector('[data-agentfoot]')).toBeNull();
+    expect(body.querySelector('[data-proof]')).toBeNull();
   });
 
   it('is excluded from search indexing (auth URLs carry ?status / ?error)', () => {

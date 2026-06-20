@@ -14,7 +14,7 @@ Strict separation of concerns; each layer changes independently:
 | Global styles | `src/styles/global.css` | Layout and component styles; resolves through tokens. Mobile-first. |
 | Content | `src/content/site.ts` | All copy, typed. Components never carry their own text. |
 | Integration config | `src/config.ts` | Every Worker endpoint / app link the page touches. |
-| Logic | `src/scripts/*.ts`, `src/lib/splash-*.ts` | Browser modules: the pure, unit-tested `contact-controller.ts`; `scramble.ts` (hero accent-word effect); `splash.ts` + the `splash-*` / `webgl-utils` fluid set (the page-wide flare-fluid; sets `html.flare-on` to switch the page onto its glass surfaces, paused while the tab is hidden — desktop pointers drive it with the cursor, touch devices from page scroll, and reduced-motion or no-WebGL visitors never set it and keep the solid surfaces); and `proof.ts` (arms the body's proof artifacts: adds `.is-live` to each `[data-proof]` once on scroll-in to play a one-shot reveal sequence; the markup renders the resolved state by default, so it is fully legible with no JS, and reduced-motion visitors keep that static state); `type-on-view.ts` (types the last line of each `animate='cursor'` proof terminal in when it scrolls into view — clears the `[data-typeline]` span ahead of the viewport so it never flashes the full text first; reduced-motion and no-JS keep the resolved line); and `reveal.ts` (scroll-driven entrance for `.reveal` elements and `[data-stagger]` grids, extracted from `BaseLayout.astro` for testability — one-shot per element and flicker-safe for above-the-fold content — plus the sticky-nav `.is-scrolled` depth seam); `agentfoot.ts`, `feature-terminals.ts`, and `orch.ts` are also presentational and reduced-motion gated. `login.ts` reads the `?status` / `?error` query parameters from the Worker's OAuth round-trip and reshapes the page (swaps in the confirmation panel or shows an error); it has no animation and no reduced-motion gate. |
+| Logic | `src/scripts/*.ts`, `src/lib/splash-*.ts` | Browser modules: the pure, unit-tested `contact-controller.ts`; marketing-page opt-in scripts (`scramble.ts`, `splash.ts` + the `splash-*` / `webgl-utils` fluid set, `proof.ts`, `type-on-view.ts`, `reveal.ts`, `agentfoot.ts`, `feature-terminals.ts`, and `orch.ts`) run only on `index.astro`, so the marketing page keeps its WebGL/motion/proof system while login/privacy keep a clean first paint. `splash.ts` sets `html.flare-on` to switch the marketing page onto glass surfaces only after WebGL is live; reduced-motion or no-WebGL visitors keep solid surfaces. `login.ts` is the only login-page script: it reads the `?status` / `?error` query parameters from the Worker's OAuth round-trip and reshapes the page (swaps in the confirmation panel or shows an error); it has no animation and no reduced-motion gate. |
 | Components | `src/components/*.astro` | Markup rendering content data; components never carry their own text (it comes from `src/content/site.ts`). Layout primitives (`Section`, `SectionHead`, `Header`, `Footer`); the terminal system (`Terminal` chrome + `Transcript` [last-line cursor / typed / roll-middle styler] + `GateSteps` [rolling-rows styler] + `LedgerTable` / `ReviewBoard` / `OrchTree` bodies); sections (`Hero` / `HeroHeadline`, `FeatureTerminals`, `FeatureGrid` / `FeatureCard`, `TrustStrip`, `MicroCta`, `ContactForm`); login UI (`LoginCard`, `SsoAccordion`, `RequestedPanel`). Pages are pure composition of these. |
 | Pages | `src/pages/*.astro` | `index.astro` (composition), `login.astro` (onboarding sign-in: GitHub OAuth + enterprise-SSO request flow), `privacy.astro`. |
 
@@ -42,7 +42,7 @@ reviewer lanes converging on one human triage gate; a cost attribution ledger
 that closes on zero unattributed, feature columns, cost layers, tenancy
 checklist, FAQ accordion). The governance sections carry the page; the platform
 capability sections follow as the payoff the boundary makes safe.
-The full page renders statically with no JS (every proof artifact ships its
+The marketing page renders statically with no JS (every proof artifact ships its
 resolved final state in the markup). The motion: a quiet scroll-reveal, a
 scramble on the single hero accent word (the Codeflare ScrambleText effect, ported
 to vanilla DOM), one-shot proof-artifact reveal sequences armed on scroll-in
@@ -53,8 +53,10 @@ Desktop pointers drive it with the cursor; touch devices have no cursor, so the
 fluid is driven by page scroll (a virtual pointer sweeps a gentle path across the
 canvas as the page moves). When the fluid is live the content panels become
 translucent glass floating over it; no-JS / no-WebGL / reduced-motion visitors
-keep solid surfaces. All of it collapses under `prefers-reduced-motion`.
-Product brief and voice in `PRODUCT.md`.
+keep solid surfaces. All of it collapses under `prefers-reduced-motion`. The
+login page shares tokens, preloaded fonts, and nav chrome, but uses a static flare
+motif and omits the marketing motion/WebGL hooks so a cold browser does not
+visibly settle after first paint. Product brief and voice in `PRODUCT.md`.
 
 ## Build & serving
 
