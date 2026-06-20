@@ -371,6 +371,12 @@ All preseed content is deployed via the manifest pipeline:
   a clone/reload inherited head has `baseline === head` and is offered instead.
   <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewBaselineContinuation -->
 
+  The main-session transcript backstop scans complete JSONL records only: it keeps
+  the first complete record after an existing cursor (so a just-written compound
+  `git commit && git push` tool call is not skipped) and leaves incomplete trailing
+  records for the next scan. This repairs missed real pushes without changing the
+  offer-only behavior for clone/reload inherited heads. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::completeTranscriptDelta -->
+
   Agent and subagent pushes need one more guard because their internal `git push`
   runs inside another Pi process and never appears as a main-session Bash tool
   event. `review-enforcement.ts` records the enforced PR head at Agent tool start

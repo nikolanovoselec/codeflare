@@ -1509,13 +1509,14 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reconcileOpenPrReview -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ensureReviewWindow -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::resolveEnforcedHead -->
+<!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::completeTranscriptDelta -->
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::shouldReconcileOpenPr -->
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reconcileBoundaryAction -->
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::workspaceRepoFromPath -->
 <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::restoreActiveRepoFromPersistedFiles -->
 <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::appendReviewEvent -->
 <!-- @test: src/__tests__/lib/review-state.test.ts (shouldReconcileOpenPr decision gating -> AC1/AC6; reconcileBoundaryAction action gate: autostarts in-session continuation, offers a fresh clone once, no-ops on re-offer of a clone head and on a non-reconcilable head -> AC1; every suppressed gate names a distinct non-empty reason -> AC6) -->
-<!-- @test: src/__tests__/lib/review-trigger.test.ts (enforcedHeadDecision pushed-vs-unpushed table -> AC5; prUrlFromText PR-URL boundary detection -> AC6) -->
+<!-- @test: src/__tests__/lib/review-trigger.test.ts (completeTranscriptDelta keeps the first post-cursor boundary record and waits for complete JSONL records -> AC1/AC2; enforcedHeadDecision pushed-vs-unpushed table -> AC5; prUrlFromText PR-URL boundary detection -> AC6) -->
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (postCommandReconcileDecision fresh PR-state decision -> AC1; seeded review-enforcement wires reconcileOpenPrReview + shouldReconcileOpenPr -> AC1/AC4) -->
 
 **Intent:** Review initiation must not depend solely on capturing a transient tool event. A missed or mis-parsed boundary command must not silently skip review: an open enforced PR whose head was never reviewed is recoverable on a later turn, the start path is shared with the boundary path so the two cannot drift, and every near-miss leaves a durable diagnostic so a skipped review is detectable instead of silent.
@@ -1524,7 +1525,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Reconciliation reads PR state on lifecycle ticks, after successful shell commands that invoke `git` or `gh`, and after successful Bash results whose command text was lost; post-command reads bypass stale PR cache. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reconcileOpenPrReview --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::postCommandReconcileDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (postCommandReconcileDecision forces fresh PR-state reconcile after git/gh shell commands -> AC1) -->
+1. Reconciliation reads PR state on lifecycle ticks, after successful shell commands that invoke `git` or `gh`, and after successful Bash results whose command text was lost; transcript backstop cursors keep the first complete post-cursor record and do not consume incomplete JSONL records; post-command reads bypass stale PR cache. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reconcileOpenPrReview --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::completeTranscriptDelta --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::postCommandReconcileDecision --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (completeTranscriptDelta keeps the first post-cursor boundary record and waits for complete JSONL records -> AC1) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (postCommandReconcileDecision forces fresh PR-state reconcile after git/gh shell commands -> AC1) -->
 2. An unacknowledged protected PR head advanced during the current session starts a durable review automatically. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::shouldReconcileOpenPr --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewInSessionContinuation --> <!-- @test: src/__tests__/lib/review-state.test.ts (shouldReconcileOpenPr gates enforced open PR heads; reviewInSessionContinuation distinguishes in-session advances from inherited heads -> AC2) -->
 3. An inherited protected PR head is offered once and remains merge-blocking until the user starts or skips review. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reconcileBoundaryAction -->
 4. Boundary-command and reconciliation paths call one shared routine, so windows match in lanes, base, durable job, and audit trail. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ensureReviewWindow -->

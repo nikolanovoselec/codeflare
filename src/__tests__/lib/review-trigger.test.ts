@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { boundaryFallbackHead, boundaryTriggerCommands, commandTextFromEvent, gitPushCommandTarget, isFailedToolExecution, isPrBoundaryTrigger, isPrBoundaryCommand, isGhPrMergeCommand, isGitPushOnlyCommand, mergeCommandTarget, prBoundaryCommandBase, prCreateCommandTarget, prEditBoundaryBase, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision, ghPrCreateBase, startedBoundaryCommandForToolEnd } from '../../../preseed/agents/pi/extensions/review-helpers';
+import { boundaryFallbackHead, boundaryTriggerCommands, commandTextFromEvent, completeTranscriptDelta, gitPushCommandTarget, isFailedToolExecution, isPrBoundaryTrigger, isPrBoundaryCommand, isGhPrMergeCommand, isGitPushOnlyCommand, mergeCommandTarget, prBoundaryCommandBase, prCreateCommandTarget, prEditBoundaryBase, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, classifyReviewFiles, isGeneratedArtifactPath, isGeneratedOnlyDiff, prUrlFromText, enforcedHeadDecision, ghPrCreateBase, startedBoundaryCommandForToolEnd } from '../../../preseed/agents/pi/extensions/review-helpers';
 
 /**
  * isPrBoundaryTrigger is the single "should this command start a review?" predicate.
@@ -166,6 +166,49 @@ describe('isGhPrMergeCommand / isGitPushOnlyCommand are env-prefix tolerant', ()
   it('does not match gh repo sync or non-push git', () => {
     expect(isGitPushOnlyCommand('gh repo sync')).toBe(false);
     expect(isGitPushOnlyCommand('git status')).toBe(false);
+  });
+});
+
+describe('completeTranscriptDelta', () => {
+  function bashToolCallLine(command: string): string {
+    return `${JSON.stringify({
+      message: {
+        role: 'assistant',
+        content: [{ type: 'toolCall', name: 'bash', arguments: { command } }],
+      },
+    })}\n`;
+  }
+
+  function commandFromToolCallLine(line: string): string {
+    const entry = JSON.parse(line);
+    const part = entry.message.content[0];
+    return commandTextFromEvent({ toolName: part.name, input: part.arguments, args: part.arguments, params: part.arguments, arguments: part.arguments });
+  }
+
+  it('keeps the first new complete record after an existing cursor', () => {
+    const line = bashToolCallLine('cd /repo && git commit -m x && git push origin multiview');
+    const delta = completeTranscriptDelta({ text: line, start: 12_345, fromCursor: true });
+
+    expect(delta).toEqual({
+      text: line,
+      start: 12_345,
+      nextCursor: 12_345 + Buffer.byteLength(line, 'utf8'),
+    });
+    expect(commandFromToolCallLine(delta?.text.trim() || '')).toBe('git push origin multiview');
+  });
+
+  it('drops only the first partial record for fallback scans', () => {
+    const line = bashToolCallLine('git push origin multiview');
+    const delta = completeTranscriptDelta({ text: `partial-json-record\n${line}`, start: 10, fromCursor: false });
+
+    expect(delta?.text).toBe(line);
+    expect(commandFromToolCallLine(delta?.text.trim() || '')).toBe('git push origin multiview');
+  });
+
+  it('does not advance past an incomplete trailing record', () => {
+    const partial = bashToolCallLine('git push origin multiview').trimEnd();
+
+    expect(completeTranscriptDelta({ text: partial, start: 0, fromCursor: true })).toBeUndefined();
   });
 });
 

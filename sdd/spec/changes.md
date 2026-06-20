@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-06-20
+
+- **Pi transcript backstop keeps first post-cursor boundary records** ([REQ-AGENT-058](agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery); stays Implemented). The missed-event recovery cursor now advances only through complete JSONL records and no longer drops the first complete record after an existing cursor, so a compound `git commit && git push` tool call written after the previous scan can mark the session as boundary-acted and auto-start durable review. Fallback scans that begin mid-file still discard only the partial leading record, and clone/reload inherited heads still offer rather than auto-start. Behavioral coverage: `review-trigger.test.ts` (`completeTranscriptDelta`). **Status:** REQ-AGENT-058 stays Implemented.
+
 ## 2026-06-19
 
 - **Pi review bypass and manual results wording hardened** ([REQ-AGENT-041](agents.md#req-agent-041-pr-boundary-review-bypass-surfaces), [REQ-AGENT-062](agents.md#req-agent-062-pi-pr-boundary-review-result-delivery), and [REQ-AGENT-005](agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers); all stay Implemented). Pi now consumes `/tmp/review-bypass` only from a live main-session context and acknowledges the PR head only after successful sentinel consumption; task/subagent sessions leave the sentinel untouched and fail closed. Manual `/review-results` displays saved summaries as review results, not acknowledgement proof, including legacy summaries already written with the old first line. The advisor prompt-guidance override is documented as a startup merge that preserves the user's selected model/effort and allows `ADVISOR_CONFIG_FILE` only as a hermetic-test path override. **Status:** REQ-AGENT-005, REQ-AGENT-041, and REQ-AGENT-062 stay Implemented.

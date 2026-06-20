@@ -165,6 +165,29 @@ function stripHeredocs(command: string): string {
   return out.join("\n");
 }
 
+export function completeTranscriptDelta(input: { text: string; start: number; fromCursor: boolean }): { text: string; start: number; nextCursor: number } | undefined {
+  let text = input.text;
+  let start = input.start;
+
+  if (!input.fromCursor && input.start > 0) {
+    const firstNewline = text.indexOf("\n");
+    if (firstNewline < 0) return undefined;
+    const skipped = text.slice(0, firstNewline + 1);
+    start += Buffer.byteLength(skipped, "utf8");
+    text = text.slice(firstNewline + 1);
+  }
+
+  const lastNewline = text.lastIndexOf("\n");
+  if (lastNewline < 0) return undefined;
+
+  const completeText = text.slice(0, lastNewline + 1);
+  return {
+    text: completeText,
+    start,
+    nextCursor: start + Buffer.byteLength(completeText, "utf8"),
+  };
+}
+
 function reviewBoundaryCommands(command: string): ShellCommand[] {
   return splitShellCommands(stripHeredocs(command))
     .map(shellWords)
