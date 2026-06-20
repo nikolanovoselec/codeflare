@@ -3,6 +3,8 @@ import { render, screen, cleanup } from '@solidjs/testing-library';
 import FloatingTerminalButtons from '../../components/FloatingTerminalButtons';
 import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
+import { terminalWorkspaceStore } from '../../stores/terminal-workspace';
+import { sendTerminalKey } from '../../lib/touch-gestures';
 
 // Mocks for mobile detection
 const mobileMock = vi.hoisted(() => ({
@@ -26,6 +28,18 @@ vi.mock('../../lib/settings', () => ({
 
 vi.mock('../../lib/touch-gestures', () => ({
   sendTerminalKey: vi.fn(),
+}));
+
+const workspaceMock = vi.hoisted(() => ({
+  focusedPaneId: null as string | null,
+  panes: [] as Array<{ id: string; sessionId: string; terminalId: string }>,
+}));
+
+vi.mock('../../stores/terminal-workspace', () => ({
+  terminalWorkspaceStore: {
+    getFocusedPaneId: vi.fn(() => workspaceMock.focusedPaneId),
+    getVisiblePanes: vi.fn(() => workspaceMock.panes),
+  },
 }));
 
 const terminalStoreMock = vi.hoisted(() => ({
@@ -78,6 +92,8 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
     vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue(undefined as any);
     terminalStoreMock.authUrl = null;
     terminalStoreMock.normalUrl = null;
+    workspaceMock.focusedPaneId = null;
+    workspaceMock.panes = [];
   });
 
   describe('Label Visibility', () => {
@@ -221,6 +237,29 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
 
       const mobileButtons = document.querySelector('.floating-terminal-buttons');
       expect(mobileButtons).not.toBeInTheDocument();
+    });
+  });
+
+  describe('MultiView focused pane targeting', () => {
+    it('REQ-TERM-012: sends floating-button keys to the focused MultiView pane when activeSessionId is null', () => {
+      const paneA = { input: vi.fn(), textarea: document.createElement('textarea') };
+      const paneB = { input: vi.fn(), textarea: document.createElement('textarea') };
+      workspaceMock.panes = [
+        { id: 'multiview:session-a:1', sessionId: 'session-a', terminalId: '1' },
+        { id: 'multiview:session-b:1', sessionId: 'session-b', terminalId: '1' },
+      ];
+      workspaceMock.focusedPaneId = 'multiview:session-b:1';
+      vi.mocked(terminalWorkspaceStore.getVisiblePanes).mockImplementation(() => workspaceMock.panes as any);
+      vi.mocked(terminalWorkspaceStore.getFocusedPaneId).mockImplementation(() => workspaceMock.focusedPaneId);
+      vi.mocked(terminalStore.getTerminal).mockImplementation((sessionId: string) => (sessionId === 'session-b' ? paneB : paneA) as any);
+
+      render(() => <FloatingTerminalButtons showTerminal={true} />);
+
+      screen.getByTitle('TAB').click();
+
+      expect(terminalStore.getTerminal).toHaveBeenCalledWith('session-b', '1');
+      expect(sendTerminalKey).toHaveBeenCalledWith(paneB, '\t');
+      expect(sendTerminalKey).not.toHaveBeenCalledWith(paneA, expect.anything());
     });
   });
 

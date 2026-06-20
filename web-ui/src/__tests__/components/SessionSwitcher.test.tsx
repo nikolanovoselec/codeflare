@@ -133,7 +133,7 @@ describe('SessionSwitcher', () => {
   });
 
   describe('MultiView launch', () => {
-    it('REQ-TERM-013: creates and opens MultiView from selected session ids', () => {
+    it('REQ-TERM-013: creates MultiView from selected session ids and delegates opening to Layout', () => {
       const onOpenMultiView = vi.fn();
       vi.mocked(terminalWorkspaceStore.createOrUpdateMultiView).mockReturnValue(true);
       vi.mocked(terminalWorkspaceStore.openMultiView).mockReturnValue(true);
@@ -152,8 +152,39 @@ describe('SessionSwitcher', () => {
       dropdownProps.latest.multiView.onLaunch(['s1', 's2']);
 
       expect(terminalWorkspaceStore.createOrUpdateMultiView).toHaveBeenCalledWith(['s1', 's2'], expect.any(Array), 'desktop');
-      expect(terminalWorkspaceStore.openMultiView).toHaveBeenCalled();
+      expect(terminalWorkspaceStore.openMultiView).not.toHaveBeenCalled();
       expect(onOpenMultiView).toHaveBeenCalled();
+    });
+
+    it('REQ-TERM-013: delegates existing MultiView open and close to Layout callbacks', () => {
+      const onOpenMultiView = vi.fn();
+      const onCloseMultiView = vi.fn();
+      vi.mocked(terminalWorkspaceStore.reconcileMultiView).mockReturnValue({
+        id: 'multiview:1',
+        name: 'MultiView #1',
+        memberSessionIds: ['s1', 's2'],
+        focusedSessionId: 's1',
+        layout: '2-split',
+      } as any);
+
+      render(() => (
+        <SessionSwitcher
+          {...defaultProps}
+          sessions={[
+            createSession({ id: 's1', status: 'running' }),
+            createSession({ id: 's2', status: 'running' }),
+          ]}
+          onOpenMultiView={onOpenMultiView}
+          onCloseMultiView={onCloseMultiView}
+        />
+      ));
+
+      dropdownProps.latest.multiView.onOpen();
+      dropdownProps.latest.multiView.onClose();
+
+      expect(terminalWorkspaceStore.openMultiView).not.toHaveBeenCalled();
+      expect(onOpenMultiView).toHaveBeenCalledTimes(1);
+      expect(onCloseMultiView).toHaveBeenCalledTimes(1);
     });
 
     it('REQ-TERM-013: updates MultiView capacity and reconciliation when viewport changes', async () => {

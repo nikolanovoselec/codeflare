@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { activeRepoSentinelForDisplay, compactDurableReviewStatus, recallActiveRepo, recallReviewRepo } from "./review-job-helpers";
+import { activeRepoSentinelForDisplay, compactDurableReviewStatus, recallActiveRepo, recallReviewRepo, recallReviewRepos } from "./review-job-helpers";
+import { computeReviewState } from "./review-jobs";
 
 const CACHE_TTL_MS = 1_000;
 
@@ -155,27 +156,52 @@ function truncateToWidth(text: string, width: number): string {
   return `${output}\x1b[0m…`;
 }
 
+function latestReviewJobHead(repo: string): string | undefined {
+  try {
+    const jobsDir = join(repo, ".git", "codeflare-review-jobs");
+    return readdirSync(jobsDir)
+      .flatMap((head): Array<{ head: string; startedAt: number }> => {
+        try {
+          const job = JSON.parse(readFileSync(join(jobsDir, head, "job.json"), "utf8")) as { startedAt?: unknown; updatedAt?: unknown };
+          return [{ head, startedAt: typeof job.updatedAt === "number" ? job.updatedAt : typeof job.startedAt === "number" ? job.startedAt : 0 }];
+        } catch {
+          return [];
+        }
+      })
+      .sort((a, b) => b.startedAt - a.startedAt)[0]?.head;
+  } catch {
+    return undefined;
+  }
+}
+
+function reviewHeadForRepo(repo: string): string | undefined {
+  try {
+    const pending = JSON.parse(readFileSync(join(repo, ".git", "sdd-review-pending.json"), "utf8")) as { head?: string };
+    if (pending.head) return pending.head;
+  } catch {
+    // No pending file: completed lanes can still be waiting for monitor/ack finalization.
+  }
+  const head = gitOutput(repo, ["rev-parse", "HEAD"]);
+  if (head && existsSync(join(repo, ".git", "codeflare-review-jobs", head, "job.json"))) return head;
+  return latestReviewJobHead(repo);
+}
+
 // Compute the PR-boundary review row FRESH FROM DISK each render. The review-enforcement
 // extension can only push its status via ctx.ui.setStatus on a user turn, so a lane advanced
-// by the autonomous reaper timer (no ctx) never repaints the footer. Reading the durable job
-// here — the footer already re-renders every CACHE_TTL_MS — makes the row reflect disk truth
-// (e.g. doc-updater turning yellow) regardless of who advanced it. Returns undefined when no
-// review is active or every lane is done, so the row appears only while a review is in flight.
+// by the autonomous reaper timer (no ctx) never repaints the footer. Reading canonical durable
+// job/result/ack state here makes the row reflect disk truth regardless of who advanced it.
+// Hide only after the exact head is acked; completed lanes can still be awaiting monitor/ack.
 function liveReviewRow(repo: string, theme: { fg(style: string, text: string): string }): string | undefined {
   try {
-    const pending = JSON.parse(readFileSync(join(repo, ".git", "sdd-review-pending.json"), "utf8")) as { head?: string; lanes?: string[] };
-    const head = pending.head;
-    const lanes = pending.lanes;
-    if (!head || !lanes || lanes.length === 0) return undefined;
-    let laneState: Record<string, { status?: string; startedAt?: number; completedAt?: number; transcriptPath?: string }> = {};
-    try {
-      laneState = (JSON.parse(readFileSync(join(repo, ".git", "codeflare-review-jobs", head, "job.json"), "utf8")).laneState) || {};
-    } catch {
-      // no durable job yet — lanes are all pending
-    }
-    const completed = lanes.filter((lane) => existsSync(join(repo, ".git", "sdd-review-results", head, `${lane}.md`)) || laneState[lane]?.status === "completed");
-    if (completed.length === lanes.length) return undefined; // review finished — clear the row
-    const running = lanes.filter((lane) => laneState[lane]?.status === "running");
+    const head = reviewHeadForRepo(repo);
+    if (!head) return undefined;
+    const state = computeReviewState(repo, head);
+    const lanes = state.lanes;
+    if (state.acked || lanes.length === 0) return undefined;
+    const job = JSON.parse(readFileSync(join(repo, ".git", "codeflare-review-jobs", head, "job.json"), "utf8")) as { laneState?: Record<string, { startedAt?: number; transcriptPath?: string }> };
+    const laneState = job.laneState || {};
+    const completed = lanes.filter((lane) => state.laneStatus[lane] === "completed");
+    const running = lanes.filter((lane) => state.laneStatus[lane] === "running");
 
     // Leading timer badge: wall-clock since the earliest lane started (ticks each render).
     const startTimes = lanes.map((lane) => laneState[lane]?.startedAt).filter((t): t is number => typeof t === "number");
@@ -250,10 +276,16 @@ export default function (pi: ExtensionAPI) {
             .filter(([key]) => key !== "codeflare-review")
             .map(([, value]) => value)
             .filter(Boolean);
-          const repo = findGitRoot(ctx.sessionManager.getCwd()) ?? findGitRoot(ctx.cwd)
-            ?? recallReviewRepo() ?? recallActiveRepo() ?? sentinelRepoForDisplay(ctx);
-          const reviewRow = repo ? liveReviewRow(repo, theme) : undefined;
-          const reviewStatus = reviewRow ?? (!repo ? reviewFallback : undefined);
+          const candidateRepos = [
+            findGitRoot(ctx.sessionManager.getCwd()),
+            findGitRoot(ctx.cwd),
+            ...recallReviewRepos(),
+            recallReviewRepo(),
+            recallActiveRepo(),
+            sentinelRepoForDisplay(ctx),
+          ].filter((repo, index, repos): repo is string => Boolean(repo) && repos.indexOf(repo) === index);
+          const reviewRow = candidateRepos.map((repo) => liveReviewRow(repo, theme)).find(Boolean);
+          const reviewStatus = reviewRow ?? reviewFallback;
           const lines = [theme.fg("dim", truncateToWidth(cached.value, width))];
           if (statuses.length > 0) lines.push(truncateToWidth(statuses.join(" | "), width));
           if (reviewStatus) lines.push(truncateToWidth(reviewStatus, width));

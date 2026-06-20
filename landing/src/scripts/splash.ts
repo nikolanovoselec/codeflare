@@ -12,8 +12,8 @@
  * touch devices have no cursor, so the fluid is driven by page scroll (a virtual
  * pointer sweeps a gentle path across the canvas as the page moves). Pure
  * progressive enhancement: with no JS, no WebGL, or under reduced motion, no
- * canvas is created, html.flare-on is never set, and the page renders from its
- * static markup with solid (non-glass) panels.
+ * canvas is created, and the page renders from server-stable markup without a
+ * late visual-mode class flip.
  */
 import { createSplashSimulation, type SplashConfig } from '../lib/splash-cursor-logic';
 
@@ -57,10 +57,9 @@ function initFlareFluid(): void {
   }
   sim.start();
 
-  // Switch the page onto its glass surfaces only now that the fluid is actually
-  // live: the veil and the translucent panels key off html.flare-on, so a
-  // no-WebGL or reduced-motion visitor keeps the solid default styles.
-  document.documentElement.classList.add('flare-on');
+  // The landing layout renders html.flare-on on the server. Do not add or remove
+  // page-wide visual classes here; late class flips repaint every section and are
+  // visible as a load twitch on slower devices.
 
   // Touch devices have no cursor, so drive the fluid from page scroll: a virtual
   // pointer sweeps a gentle Lissajous path across the canvas as the page moves,

@@ -171,6 +171,11 @@ vi.mock('../../stores/terminal-workspace', () => ({
       bumpSessionStoreVersion();
       return true;
     }),
+    closeMultiView: vi.fn(() => {
+      mockActiveWorkspace = { kind: 'dashboard' };
+      mockVisiblePanes = [];
+      bumpSessionStoreVersion();
+    }),
   },
 }));
 
@@ -717,8 +722,62 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
 
       (window as any).__headerProps.onOpenMultiView();
 
-      expect(terminalWorkspaceStore.openMultiView).toHaveBeenCalled();
+      expect(terminalWorkspaceStore.openMultiView).toHaveBeenCalledTimes(1);
       expect(sessionStore.setActiveSession).toHaveBeenCalledWith(null);
+      expect((window as any).__terminalAreaProps.showTerminal).toBe(true);
+    });
+
+    it('REQ-TERM-012: deactivates MultiView through the Layout-owned header callback', async () => {
+      const { sessionStore } = await import('../../stores/session');
+      mockSessions = [createMockSession({ id: 'sess1', status: 'running' }), createMockSession({ id: 'sess2', status: 'running' })];
+      mockActiveSessionId = null;
+      mockActiveWorkspace = { kind: 'multiview', id: 'multiview:1' };
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }, { sessionId: 'sess2', terminalId: '1' }];
+
+      render(() => <Layout />);
+      await waitFor(() => expect((window as any).__headerProps?.onCloseMultiView).toBeTypeOf('function'));
+
+      (window as any).__headerProps.onCloseMultiView();
+
+      expect(terminalWorkspaceStore.closeMultiView).toHaveBeenCalledTimes(1);
+      expect(sessionStore.setActiveSession).toHaveBeenCalledWith(null);
+      await waitFor(() => expect((window as any).__terminalAreaProps.showTerminal).toBe(false));
+      expect((window as any).__terminalAreaProps.viewState).toBe('dashboard');
+    });
+
+    it('REQ-TERM-011: selecting a running session while in MultiView opens a single-session workspace', async () => {
+      const { sessionStore } = await import('../../stores/session');
+      mockSessions = [createMockSession({ id: 'sess1', status: 'running' }), createMockSession({ id: 'sess2', status: 'running' })];
+      mockActiveSessionId = null;
+      mockActiveWorkspace = { kind: 'multiview', id: 'multiview:1' };
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }, { sessionId: 'sess2', terminalId: '1' }];
+
+      render(() => <Layout />);
+      await waitFor(() => expect((window as any).__headerProps?.onSelectSession).toBeTypeOf('function'));
+
+      (window as any).__headerProps.onSelectSession('sess2');
+
+      expect(sessionStore.setActiveSession).toHaveBeenCalledWith('sess2');
+      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess2', '1');
+      expect((window as any).__terminalAreaProps.showTerminal).toBe(true);
+      expect(mockActiveWorkspace).toEqual({ kind: 'session', sessionId: 'sess2' });
+    });
+
+    it('REQ-TERM-011: selecting an initializing session opens it instead of silently doing nothing', async () => {
+      const { sessionStore } = await import('../../stores/session');
+      mockSessions = [createMockSession({ id: 'sess1', status: 'running' }), createMockSession({ id: 'sess2', status: 'initializing' })];
+      mockActiveSessionId = null;
+      mockActiveWorkspace = { kind: 'multiview', id: 'multiview:1' };
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }, { sessionId: 'sess2', terminalId: '1' }];
+
+      render(() => <Layout />);
+      await waitFor(() => expect((window as any).__headerProps?.onSelectSession).toBeTypeOf('function'));
+
+      (window as any).__headerProps.onSelectSession('sess2');
+
+      expect(sessionStore.setActiveSession).toHaveBeenCalledWith('sess2');
+      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess2', '1');
+      expect(sessionStore.startSession).not.toHaveBeenCalled();
       expect((window as any).__terminalAreaProps.showTerminal).toBe(true);
     });
 

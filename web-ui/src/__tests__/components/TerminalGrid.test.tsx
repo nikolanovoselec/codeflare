@@ -80,6 +80,32 @@ describe('TerminalGrid reusable pane layout', () => {
     expect(disposed).toEqual([]);
   });
 
+  it('REQ-TERM-012: clearing panes during a transition renders empty slots without dereferencing stale pane data', async () => {
+    const [panes, setPanes] = createSignal([
+      { id: 'pane-a', data: { sessionId: 'session-a' }, active: true },
+      { id: 'pane-b', data: { sessionId: 'session-b' }, active: false },
+    ]);
+
+    render(() => (
+      <TerminalGrid
+        layout="2-split"
+        panes={panes()}
+        onPaneClick={vi.fn()}
+        renderPane={(pane) => <div data-testid={`session-${pane.data.sessionId}`} />}
+      />
+    ));
+
+    expect(screen.getByTestId('session-session-a')).toBeInTheDocument();
+    expect(screen.getByTestId('session-session-b')).toBeInTheDocument();
+
+    expect(() => setPanes([])).not.toThrow();
+
+    await waitFor(() => expect(screen.queryByTestId('session-session-a')).not.toBeInTheDocument());
+    expect(screen.queryByTestId('session-session-b')).not.toBeInTheDocument();
+    expect(screen.getByTestId('terminal-grid-empty-0')).toHaveAttribute('data-active', 'false');
+    expect(screen.getByTestId('terminal-grid-empty-1')).toHaveAttribute('data-active', 'false');
+  });
+
   it('REQ-TERM-011: disposes the old pane subtree when a slot receives a different pane id', async () => {
     const [panes, setPanes] = createSignal([{ id: 'pane-a', data: { label: 'A' }, active: true }]);
     const mounted: string[] = [];

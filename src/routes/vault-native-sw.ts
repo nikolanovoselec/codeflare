@@ -68,6 +68,9 @@ const CF_IDB_RECORDER =
 const ANCHOR_VARY = ";var y;setInterval(";
 const ANCHOR_GETKEY = "case\"get-encryption-key\":{a.source.postMessage({type:\"encryption-key\",key:y&&await me(y)});break}";
 const ANCHOR_CONFIG_GATE = "if(t.enableClientEncryption&&!y){console.error(\"Supposed to use encryption, but no phrase set yet, auth error\"),g({type:\"auth-error\",message:\"Re-authentication required, redirecting...\",actionOrRedirectHeader:\".auth\"});return}";
+const ANCHOR_NO_CLIENTS_INFO = "t.length===0&&console.info(\"No clients are listening for messages, dropping message\",a)";
+const ANCHOR_SERVICE_PROXY_ERROR = "console.error(\"[service proxy error]\",c,p),c===N.message&&u.reset(),g({type:\"auth-error\",message:c,actionOrRedirectHeader:p})";
+const ANCHOR_SYNC_SPACE_ERROR = "console.error(\"Sync space error\",t.message)";
 
 /**
  * Apply the codeflare key-recovery graft to the verbatim SilverBullet worker:
@@ -81,6 +84,9 @@ export function graftVaultKeyRecovery(verbatim: string): string {
     ["VARY", ANCHOR_VARY],
     ["GETKEY", ANCHOR_GETKEY],
     ["CONFIG_GATE", ANCHOR_CONFIG_GATE],
+    ["NO_CLIENTS_INFO", ANCHOR_NO_CLIENTS_INFO],
+    ["SERVICE_PROXY_ERROR", ANCHOR_SERVICE_PROXY_ERROR],
+    ["SYNC_SPACE_ERROR", ANCHOR_SYNC_SPACE_ERROR],
   ] as const) {
     if (!verbatim.includes(anchor)) {
       throw new Error(
@@ -95,7 +101,13 @@ export function graftVaultKeyRecovery(verbatim: string): string {
       ANCHOR_GETKEY,
       'case"get-encryption-key":{if(y===void 0)await __cfRecover();a.source.postMessage({type:"encryption-key",key:y&&await me(y)});break}',
     )
-    .replace(ANCHOR_CONFIG_GATE, "if(t.enableClientEncryption&&!y){await __cfRecover()}" + ANCHOR_CONFIG_GATE);
+    .replace(ANCHOR_CONFIG_GATE, "if(t.enableClientEncryption&&!y){await __cfRecover()}" + ANCHOR_CONFIG_GATE)
+    .replace(ANCHOR_NO_CLIENTS_INFO, "void 0")
+    .replace(
+      ANCHOR_SERVICE_PROXY_ERROR,
+      "c===N.message?console.info(\"[service proxy auth]\",c):console.error(\"[service proxy error]\",c,p),c===N.message&&u.reset(),g({type:\"auth-error\",message:c,actionOrRedirectHeader:p})",
+    )
+    .replace(ANCHOR_SYNC_SPACE_ERROR, "console.warn(\"Sync space error\",t.message)");
 }
 
 /**

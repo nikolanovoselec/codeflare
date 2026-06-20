@@ -220,7 +220,7 @@ Each authenticated user is mapped to a unique R2 bucket and a set of scoped cred
 
 ## SaaS Mode
 
-When `SAAS_MODE=active`, Codeflare replaces the Cloudflare Access interstitial with a branded login page. New users are auto-provisioned with `pending` subscription tier and require subscription selection.
+When `SAAS_MODE=active`, Codeflare replaces the Cloudflare Access interstitial with a branded login page. New users are auto-provisioned with `pending` subscription tier and require subscription selection. The SPA login surface renders core content visible at first paint; ambient particle/logo motion remains, but the content/features are not hidden behind entrance opacity or translate animations.
 
 ### Deployment Modes
 

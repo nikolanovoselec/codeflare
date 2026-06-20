@@ -1,9 +1,11 @@
-import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { bypassAckHeadForStatus, canMainSessionConsumeReviewBypass, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, postCommandReconcileDecision, prCreateBoundaryBase, reusablePendingReview, reviewBypassConsumeDecision, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, isTaskSessionFile, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, registerReviewRefreshLifecycleHooks, REVIEW_REFRESH_LIFECYCLE_EVENTS, reviewMonitorCompletionRecordReady, reviewMonitorContextDecision, reviewMonitorContextSource, reviewMonitorDecision, reviewMonitorSpawnDecision, reviewMonitorStartupFailureMessage, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput, type ReviewRefreshLifecycleEvent } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, isTaskSessionFile, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, registerReviewRefreshLifecycleHooks, REVIEW_REFRESH_LIFECYCLE_EVENTS, reviewMonitorCompletionRecordReady, reviewMonitorDecision, reviewMonitorSpawnDecision, reviewMonitorStartupFailureMessage, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput, type ReviewRefreshLifecycleEvent } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_CAPTURE_PENDING_TTL_MS, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { LOCAL_BUILD_BYPASS, attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { reviewLaneBlockReason, reviewScopeBlockReason } from '../../../preseed/agents/pi/extensions/review-lane-guards';
@@ -527,6 +529,62 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
+  it('REQ-AGENT-056: Pi local statusline renders durable review jobs even after pending is gone', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'codeflare-statusline-review-'));
+    const head = 'abcdef1234567890abcdef1234567890abcdef12';
+    const jobDir = join(repo, '.git', 'codeflare-review-jobs', head);
+    const resultsDir = join(repo, '.git', 'sdd-review-results', head);
+    mkdirSync(jobDir, { recursive: true });
+    mkdirSync(resultsDir, { recursive: true });
+    writeFileSync(join(jobDir, 'job.json'), JSON.stringify({
+      head,
+      lanes: ['spec-reviewer', 'doc-updater'],
+      startedAt: 1000,
+      updatedAt: 2000,
+      laneState: {
+        'spec-reviewer': { status: 'completed', startedAt: 1000 },
+        'doc-updater': { status: 'completed', startedAt: 1000 },
+      },
+    }), 'utf8');
+    writeFileSync(join(resultsDir, 'spec-reviewer.md'), 'ok', 'utf8');
+    writeFileSync(join(resultsDir, 'doc-updater.md'), 'ok', 'utf8');
+
+    const handlers = new Map<string, Function>();
+    let footerFactory: Function | undefined;
+    const originalSetInterval = globalThis.setInterval;
+    const originalClearInterval = globalThis.clearInterval;
+    globalThis.setInterval = ((handler: Function) => handler) as never;
+    globalThis.clearInterval = (() => undefined) as never;
+    try {
+      localStatuslineExtension({
+        getThinkingLevel: () => 'low',
+        on: (event: string, handler: Function) => handlers.set(event, handler),
+      } as never);
+      handlers.get('session_start')?.({}, {
+        hasUI: true,
+        cwd: repo,
+        sessionManager: { getCwd: () => repo },
+        ui: { setFooter: (factory: Function) => { footerFactory = factory; } },
+      });
+      const component = footerFactory?.(
+        { requestRender: () => undefined },
+        { fg: (_name: string, text: string) => text },
+        { onBranchChange: () => () => undefined, getExtensionStatuses: () => new Map() },
+      );
+      const visible = component.render(120);
+      expect(visible).toHaveLength(2);
+      expect(visible[1]).toContain('spec');
+      expect(visible[1]).toContain('docs');
+
+      writeFileSync(join(repo, '.git', 'sdd-last-ack-pr-head'), head, 'utf8');
+      const acked = component.render(120);
+      expect(acked).toHaveLength(1);
+    } finally {
+      globalThis.setInterval = originalSetInterval;
+      globalThis.clearInterval = originalClearInterval;
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
 
   it('REQ-AGENT-030 / REQ-AGENT-050 / REQ-AGENT-051: Pi command extensions dispatch through both ctx and pi user-message APIs', () => {
     const commandExtensionKeys = [
@@ -1342,26 +1400,50 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(reviewMonitorSpawnDecision({ completed: false, startedAt: undefined, now: 1000, ttlMs: 500 })).toBe('spawn');
   });
 
-  it('REQ-AGENT-062: main-session monitor handoff does not require a transcript path', () => {
-    expect(reviewMonitorContextDecision({ hasContext: true, sessionFile: undefined })).toBe('allow');
-    expect(reviewMonitorContextDecision({ hasContext: true, sessionFile: '/home/user/.pi/agent/sessions/session.jsonl' })).toBe('allow');
-    expect(reviewMonitorContextDecision({ hasContext: true, sessionFile: '/home/user/.pi/agent/sessions/tasks/review-monitor.jsonl' })).toBe('wait_for_main_session');
-    expect(reviewMonitorContextDecision({ hasContext: false, sessionFile: undefined })).toBe('wait_for_main_session');
+  it('REQ-AGENT-062: monitor handoff is not gated on main-session ctx', () => {
+    const reviewEnforcement = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/review-enforcement.ts')?.content ?? '';
+    expect(reviewMonitorSpawnDecision({ completed: false, startedAt: undefined, now: 1000, ttlMs: 500 })).toBe('spawn');
+    expect(reviewEnforcement).toContain('service.spawn("review-monitor"');
+    expect(reviewEnforcement).toContain('runInBackground: true');
+    expect(reviewEnforcement).not.toContain('review_monitor_waiting_for_main_session');
+    expect(reviewEnforcement).not.toContain('reviewMonitorContextSource');
   });
 
-  it('REQ-AGENT-062: monitor handoff reuses the remembered main-session context when a refresh has no usable ctx', () => {
-    expect(reviewMonitorContextSource({
-      current: { hasContext: false, sessionFile: undefined },
-      remembered: { hasContext: true, sessionFile: '/home/user/.pi/agent/sessions/session.jsonl' },
-    })).toBe('remembered');
-    expect(reviewMonitorContextSource({
-      current: { hasContext: true, sessionFile: '/home/user/.pi/agent/sessions/tasks/reaper.jsonl' },
-      remembered: { hasContext: true, sessionFile: '/home/user/.pi/agent/sessions/session.jsonl' },
-    })).toBe('remembered');
-    expect(reviewMonitorContextSource({
-      current: { hasContext: true, sessionFile: '/home/user/.pi/agent/sessions/session.jsonl' },
-      remembered: { hasContext: true, sessionFile: '/home/user/.pi/agent/sessions/older.jsonl' },
-    })).toBe('current');
+  it('REQ-AGENT-062: reload refresh can ack a completed durable review even when pending.json is gone', () => {
+    const reviewEnforcement = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/review-enforcement.ts')?.content ?? '';
+    const start = reviewEnforcement.indexOf('function acknowledgeCompletedReviewWithoutPending');
+    const end = reviewEnforcement.indexOf('function refreshReviewStatusFromDurable');
+    const body = reviewEnforcement.slice(start, end);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(body).toContain('pendingFromDurableJob(repo, head)');
+    expect(body).toContain('reviewMonitorCompletionReady(state)');
+    expect(body).toContain('writeAck(repo, head)');
+    expect(body).toContain('clearBreaker(repo)');
+  });
+
+  it('REQ-AGENT-062: completed monitor markers are consumed before any monitor spawn attempt', () => {
+    const reviewEnforcement = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/review-enforcement.ts')?.content ?? '';
+    const start = reviewEnforcement.indexOf('function finalizeCompletedReview');
+    const end = reviewEnforcement.indexOf('function refreshReviewStatusFromDurable');
+    const body = reviewEnforcement.slice(start, end);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(body.indexOf('if (reviewMonitorCompletionReady(state))')).toBeGreaterThan(-1);
+    expect(body.indexOf('startReviewMonitor(state, ctx, "review completed")')).toBeGreaterThan(-1);
+    expect(body.indexOf('if (reviewMonitorCompletionReady(state))')).toBeLessThan(body.indexOf('startReviewMonitor(state, ctx, "review completed")'));
+  });
+
+  it('REQ-AGENT-062: completed durable lanes are finalized before breaker attempts are counted', () => {
+    const reviewEnforcement = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/review-enforcement.ts')?.content ?? '';
+    const start = reviewEnforcement.indexOf('const completedLanes = [...new Set([...currentState.completed');
+    const end = reviewEnforcement.indexOf('ctx.ui.notify(`PR-boundary review still pending');
+    const body = reviewEnforcement.slice(start, end);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(body.indexOf('if (remainingLanes.length === 0)')).toBeGreaterThan(-1);
+    expect(body.indexOf('const attempts = incrementBlockCount(currentState.repo)')).toBeGreaterThan(-1);
+    expect(body.indexOf('if (remainingLanes.length === 0)')).toBeLessThan(body.indexOf('const attempts = incrementBlockCount(currentState.repo)'));
   });
 
   it('REQ-AGENT-062: monitor startup failure message gives the main session a fallback monitor prompt', () => {

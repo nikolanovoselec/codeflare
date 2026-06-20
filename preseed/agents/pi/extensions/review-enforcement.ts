@@ -58,7 +58,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, boundaryFallbackHead, boundaryTriggerCommandEntries, bypassAckHeadForStatus, canMainSessionConsumeReviewBypass, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, commandTextsFromEvent, completeTranscriptDelta, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, gitPushCommandTarget, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prCreateCommandTarget, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, prUrlFromText, reusablePendingReview, reviewBypassConsumeDecision, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewBoundaryStartDecision, reviewMonitorCompletionRecordReady, reviewMonitorContextDecision, reviewMonitorContextSource, reviewMonitorStartupFailureMessage, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, reviewWindowStartDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, type DurableReviewSummaryRecord } from "./review-job-helpers";
+import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewBoundaryStartDecision, reviewMonitorCompletionRecordReady, reviewMonitorStartupFailureMessage, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, reviewWindowStartDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, type DurableReviewSummaryRecord } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -561,6 +561,27 @@ function loadPending(repo: string): PendingReview | undefined {
   } catch {
     return undefined;
   }
+}
+
+function pendingFromDurableJob(repo: string, head: string): PendingReview | undefined {
+  const job = readDurableReviewJob(repo, head);
+  if (!job || !Array.isArray(job.lanes) || job.lanes.length === 0) return undefined;
+  return {
+    repo,
+    prNumber: job.prNumber,
+    baseRefName: job.baseRefName,
+    head: job.head,
+    reviewBase: job.reviewBase,
+    lanes: job.lanes,
+    completed: new Set(completedDurableReviewLanes(repo, head, job.lanes)),
+    docPromptSent: false,
+    spawned: true,
+    spawnedIds: Object.fromEntries(job.lanes.map((lane) => [lane, `durable:${lane}`])),
+    fallbackLanes: new Set(),
+    requestedAt: {},
+    reviewStartedAt: job.startedAt,
+    spawnedAt: job.startedAt,
+  };
 }
 
 function savePending(pending: PendingReview): void {
@@ -1124,12 +1145,10 @@ export default function (pi: ExtensionAPI) {
       originalNotify(message, type);
     };
   };
-  // Every ctx-bearing lifecycle hook passes through remember(). Keep the latest main-session ctx only
-  // so durable review completion can request the background review-monitor agent from the main session.
-  // Durable state remains on disk and all lane reaping is disk-driven; stale/task contexts are ignored.
+  // Every ctx-bearing lifecycle hook passes through remember() for UI refreshes only.
+  // Review-monitor startup is ctx-free and uses an explicit prompt with inheritContext:false.
   const remember = (ctx: any): void => {
-    const mainSessionFile = currentSessionFile(ctx);
-    if (reviewMonitorContextDecision({ hasContext: !!ctx, sessionFile: mainSessionFile }) !== "allow") return;
+    if (!ctx) return;
     latestReviewCtx = ctx;
     installReviewNotifyFilter(ctx);
     rememberSessionFile(ctx);
@@ -1430,8 +1449,8 @@ export default function (pi: ExtensionAPI) {
 
   function reviewMonitorStartedAt(state: PendingReview): number | undefined {
     try {
-      const parsed = JSON.parse(readFileSync(reviewMonitorPath(state), "utf8")) as { startedAt?: unknown };
-      return typeof parsed.startedAt === "number" ? parsed.startedAt : undefined;
+      const parsed = JSON.parse(readFileSync(reviewMonitorPath(state), "utf8")) as { agentId?: unknown; startedAt?: unknown };
+      return typeof parsed.agentId === "string" && parsed.agentId && typeof parsed.startedAt === "number" ? parsed.startedAt : undefined;
     } catch {
       return undefined;
     }
@@ -1570,17 +1589,7 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
-  function startReviewMonitor(state: PendingReview, ctx: any, reason: string): boolean {
-    const source = reviewMonitorContextSource({
-      current: { hasContext: !!ctx, sessionFile: currentSessionFile(ctx) },
-      remembered: { hasContext: !!latestReviewCtx, sessionFile: currentSessionFile(latestReviewCtx) },
-    });
-    if (source === "wait_for_main_session") {
-      appendReviewEvent(state.repo, { event: "review_monitor_waiting_for_main_session", head: state.head, reason });
-      return false;
-    }
-    const monitorCtx = source === "current" ? ctx : latestReviewCtx;
-    remember(monitorCtx);
+  function startReviewMonitor(state: PendingReview, _ctx: any, reason: string): boolean {
     reclaimStaleReviewMonitorClaim(state);
     const decision = reviewMonitorSpawnDecision({
       completed: reviewMonitorCompletionReady(state),
@@ -1600,7 +1609,7 @@ export default function (pi: ExtensionAPI) {
     const service = subagentsService();
     try {
       if (service?.spawn) {
-        const spawned = service.spawn("review-monitor", prompt, { description, inheritContext: false, foreground: false });
+        const spawned = service.spawn("review-monitor", prompt, { description, inheritContext: false, runInBackground: true });
         agentId = typeof spawned === "string" ? spawned : undefined;
       }
     } catch (error) {
@@ -1631,27 +1640,51 @@ export default function (pi: ExtensionAPI) {
 
   function finalizeCompletedReview(state: PendingReview, ctx?: any): void {
     writeReviewSummaryFromDisk(state);
+    if (reviewMonitorCompletionReady(state)) {
+      appendReviewEvent(state.repo, { event: "review_acked", head: state.head, lanes: state.lanes });
+      writeAck(state.repo, state.head);
+      resetBlockCount(state.repo);
+      clearBreaker(state.repo);
+      clearPending(state.repo);
+      pending = undefined;
+      if (ctx) clearReviewStatus(ctx);
+      return;
+    }
     if (!startReviewMonitor(state, ctx, "review completed")) {
       appendReviewEvent(state.repo, { event: "review_complete_waiting_for_monitor", head: state.head, lanes: state.lanes, reason: "monitor not running" });
       if (ctx) updateReviewStatus(state, ctx);
       return;
     }
-    if (!reviewMonitorCompletionReady(state)) {
-      appendReviewEvent(state.repo, { event: "review_complete_waiting_for_monitor", head: state.head, lanes: state.lanes, reason: "monitor running" });
-      if (ctx) updateReviewStatus(state, ctx);
-      return;
+    appendReviewEvent(state.repo, { event: "review_complete_waiting_for_monitor", head: state.head, lanes: state.lanes, reason: "monitor running" });
+    if (ctx) updateReviewStatus(state, ctx);
+  }
+
+  function acknowledgeCompletedReviewWithoutPending(ctx: any): boolean {
+    const repos = [reviewRepoForCtx(ctx), ...recallReviewRepos(), recallReviewRepo(), recallActiveRepo()]
+      .filter((repo, index, all): repo is string => Boolean(repo) && all.indexOf(repo) === index);
+    for (const repo of repos) {
+      const head = localHead(repo);
+      if (!head || acked(repo, head)) continue;
+      const state = pendingFromDurableJob(repo, head);
+      if (!state) continue;
+      if (!durableReviewAckReady({ lanes: state.lanes, resultLanes: completedDurableReviewLanes(repo, head, state.lanes) })) continue;
+      if (!reviewMonitorCompletionReady(state)) continue;
+      appendReviewEvent(repo, { event: "review_orphan_completion_acked", head, lanes: state.lanes });
+      writeAck(repo, head);
+      resetBlockCount(repo);
+      clearBreaker(repo);
+      clearPending(repo);
+      pending = undefined;
+      clearReviewStatus(ctx);
+      return true;
     }
-    appendReviewEvent(state.repo, { event: "review_acked", head: state.head, lanes: state.lanes });
-    writeAck(state.repo, state.head);
-    resetBlockCount(state.repo);
-    clearBreaker(state.repo);
-    clearPending(state.repo);
-    pending = undefined;
+    return false;
   }
 
   function refreshReviewStatusFromDurable(ctx: any): void {
     const state = hydratePending(ctx);
     if (!state) {
+      if (acknowledgeCompletedReviewWithoutPending(ctx)) return;
       clearReviewStatus(ctx);
       return;
     }
@@ -2372,25 +2405,13 @@ export default function (pi: ExtensionAPI) {
       ctx.ui.notify(`PR-boundary durable review lane(s) failed for ${basename(currentState.repo)} at ${currentState.head.slice(0, 12)}: ${failed.join(", ")}. Retrying eligible lanes; state: ${reviewJobDir(currentState.repo, currentState.head)}`, "warning");
     }
 
-    const pendingAge = Date.now() - currentState.reviewStartedAt;
-
-    // Reviewers are not running (or have stalled past the timeout). Count this fruitless
-    // decision cycle and latch the breaker once we exceed the attempt or age bound, so a
-    // review that can never complete (e.g. stale subagent ctx after compaction) stops
-    // re-spawning and re-reminding on every agent_end instead of spiralling unbounded.
-    // The counter is reset on real progress (markCompleted) and when a new head is pushed.
-    const attempts = incrementBlockCount(currentState.repo);
-    if (attempts >= MAX_REVIEW_ATTEMPTS || pendingAge >= MAX_REVIEW_AGE_MS) {
-      openBreaker(currentState.repo, currentState.head);
-      appendReviewEvent(currentState.repo, { event: "breaker_opened", head: currentState.head, attempts });
-      clearPending(currentState.repo);
-      resetBlockCount(currentState.repo);
-      pending = undefined;
-      ctx.ui.notify(`Review enforcement gave up for ${basename(currentState.repo)} at ${currentState.head.slice(0, 12)} after ${attempts} attempts; merge stays blocked. Push a new commit to retry, or use the user-only ${REVIEW_BYPASS} bypass.`, "warning");
+    const completedLanes = [...new Set([...currentState.completed, ...completedDurableReviewLanes(currentState.repo, currentState.head, currentState.lanes)])];
+    const remainingLanes = currentState.lanes.filter((lane) => !completedLanes.includes(lane));
+    if (remainingLanes.length === 0) {
+      finalizeCompletedReview(currentState, ctx);
       return;
     }
 
-    const completedLanes = [...new Set([...currentState.completed, ...completedDurableReviewLanes(currentState.repo, currentState.head, currentState.lanes)])];
     const runningLanes = runningDurableReviewLanes(currentState.repo, currentState.head, currentState.lanes);
     const eligibleUnstarted = durableReviewEligibleLanes({
       lanes: currentState.lanes,
@@ -2406,11 +2427,21 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    const remainingLanes = currentState.lanes.filter((lane) => !completedLanes.includes(lane));
-    if (remainingLanes.length === 0) {
-      const summaryPath = join(reviewResultsDir(currentState.repo, currentState.head), "summary.md");
-      const summaryState = existsSync(summaryPath) ? `Summary: ${summaryPath}.` : "Merged summary is not ready yet.";
-      ctx.ui.notify(`PR-boundary review lanes are complete for ${basename(currentState.repo)} at ${currentState.head.slice(0, 12)}, but the review-monitor agent has not acknowledged the head yet. ${summaryState} No reviewer lane will be retried; wait for REVIEW_RESULT, check for a review-monitor fallback message, or run /review-results to display current findings.`, "warning");
+    const pendingAge = Date.now() - currentState.reviewStartedAt;
+
+    // Reviewers are not running (or have stalled past the timeout). Count this fruitless
+    // decision cycle and latch the breaker once we exceed the attempt or age bound, so a
+    // review that can never complete (e.g. stale subagent ctx after compaction) stops
+    // re-spawning and re-reminding on every agent_end instead of spiralling unbounded.
+    // The counter is reset on real progress (markCompleted) and when a new head is pushed.
+    const attempts = incrementBlockCount(currentState.repo);
+    if (attempts >= MAX_REVIEW_ATTEMPTS || pendingAge >= MAX_REVIEW_AGE_MS) {
+      openBreaker(currentState.repo, currentState.head);
+      appendReviewEvent(currentState.repo, { event: "breaker_opened", head: currentState.head, attempts });
+      clearPending(currentState.repo);
+      resetBlockCount(currentState.repo);
+      pending = undefined;
+      ctx.ui.notify(`Review enforcement gave up for ${basename(currentState.repo)} at ${currentState.head.slice(0, 12)} after ${attempts} attempts; merge stays blocked. Push a new commit to retry, or use the user-only ${REVIEW_BYPASS} bypass.`, "warning");
       return;
     }
 

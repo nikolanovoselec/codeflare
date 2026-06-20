@@ -244,6 +244,35 @@ describe('SessionDropdown', () => {
       expect(onLaunchMultiView).toHaveBeenCalledWith(['s1', 's3']);
     });
 
+    it('REQ-TERM-013: deactivates existing MultiView and closes the dropdown from the row close button', () => {
+      const onCloseMultiView = vi.fn();
+      const onCloseDropdown = vi.fn();
+      render(() => (
+        <SessionDropdown
+          {...defaultProps}
+          onClose={onCloseDropdown}
+          multiView={{
+            capacity: 4,
+            existing: {
+              id: 'multiview:1',
+              name: 'MultiView #1',
+              memberSessionIds: ['s1', 's3'],
+              focusedSessionId: 's1',
+              layout: '2-split',
+            },
+            onLaunch: vi.fn(),
+            onOpen: vi.fn(),
+            onClose: onCloseMultiView,
+          }}
+        />
+      ));
+
+      fireEvent.click(screen.getByTestId('session-dropdown-multiview-close'));
+
+      expect(onCloseMultiView).toHaveBeenCalledTimes(1);
+      expect(onCloseDropdown).toHaveBeenCalledTimes(1);
+    });
+
     it('REQ-TERM-013: rejects selection beyond desktop capacity without changing selected sessions', () => {
       render(() => (
         <SessionDropdown

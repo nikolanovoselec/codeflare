@@ -61,6 +61,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let hasInitialScrolled = false;
   let kbDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let handleContextMenu: ((e: MouseEvent) => void) | undefined;
+  let disposed = false;
 
   const [dimensions, setDimensions] = createSignal({ cols: 80, rows: 24 });
   const [terminalInstance, setTerminalInstance] = createSignal<Terminal | undefined>(undefined);
@@ -72,6 +73,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   const isVisible = () => props.visible ?? props.active;
   const isFocused = () => props.focused ?? props.active;
   const canConnect = () => props.connect ?? isVisible();
+  const isMounted = () => !disposed && !!term && !!fitAddon && !!containerEl;
 
   function setContainerRef(el: HTMLDivElement) {
     containerEl = el;
@@ -234,7 +236,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   }
 
   onMount(() => {
-    if (!containerEl) return;
+    if (!containerEl || disposed) return;
 
     const { termBg } = initializeTerminal(containerEl);
     // initializeTerminal guarantees term and fitAddon are set
@@ -264,15 +266,18 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     let fitRetries = 0;
     const MAX_FIT_RETRIES = 20; // ~330ms at 60fps
     function tryFit() {
-      if (!fitAddon || !containerEl || !term) return;
-      if (containerEl.clientHeight === 0) {
+      if (!isMounted()) return;
+      const mountedContainer = containerEl!;
+      const mountedFitAddon = fitAddon!;
+      const mountedTerm = term!;
+      if (mountedContainer.clientHeight === 0) {
         if (fitRetries++ < MAX_FIT_RETRIES) {
           requestAnimationFrame(tryFit);
         }
         return;
       }
-      fitAddon.fit();
-      setDimensions({ cols: term.cols, rows: term.rows });
+      mountedFitAddon.fit();
+      setDimensions({ cols: mountedTerm.cols, rows: mountedTerm.rows });
     }
     requestAnimationFrame(() => requestAnimationFrame(tryFit));
 
@@ -282,10 +287,13 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       if (fitAddon && shouldResize) {
         if (kbDebounceTimer !== null) return;
         requestAnimationFrame(() => {
-          if (!fitAddon || !term || !containerEl || kbDebounceTimer !== null) return;
-          if (containerEl.clientHeight === 0) return;
-          const wasBottom = isAtBottom(term);
-          fitAddon.fit();
+          if (!isMounted() || kbDebounceTimer !== null) return;
+          const mountedContainer = containerEl!;
+          const mountedFitAddon = fitAddon!;
+          const mountedTerm = term!;
+          if (mountedContainer.clientHeight === 0) return;
+          const wasBottom = isAtBottom(mountedTerm);
+          mountedFitAddon.fit();
           // Fix 16: ResizeObserver should NOT call scrollToBottom() when keyboard
           // is open. The keyboard height change effect (leading + trailing edge)
           // already handles fit + scrollToBottom during keyboard animation.
@@ -293,11 +301,11 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
           // Only scroll on desktop/keyboard-closed when user was following output.
           if (!isTouchDevice() || !isVirtualKeyboardOpen()) {
             if (wasBottom) {
-              term.scrollToBottom();
+              mountedTerm.scrollToBottom();
             }
           }
-          const cols = term.cols;
-          const rows = term.rows;
+          const cols = mountedTerm.cols;
+          const rows = mountedTerm.rows;
           setDimensions({ cols, rows });
           if (isFocused()) terminalStore.claimResizeAuthority(props.sessionId, props.terminalId);
           terminalStore.resize(props.sessionId, props.terminalId, cols, rows);
@@ -311,7 +319,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     let isCursorHidden = false;
 
     const applyCursorVisibility = () => {
-      if (!term) return;
+      if (!term || disposed) return;
       // Always keep cursor visible — CLI apps (Copilot, Claude Code, Codex)
       // in alternate buffer mode need xterm's cursor layer. Hiding it caused
       // invisible cursors in newer CLI versions that rely on it.
@@ -347,7 +355,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     if (document.fonts) {
       const currentFont = t.options.fontFamily;
       document.fonts.ready.then(() => {
-        if (term?.element && currentFont) {
+        if (isMounted() && term?.element && currentFont) {
           const wasBottom = isAtBottom(term);
           term.options.fontFamily = currentFont;
           fitAddon?.fit();
@@ -380,7 +388,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     const kbHeight = getKeyboardHeight();
     const _kbOpen = isVirtualKeyboardOpen();
     if (!isTouchDevice()) return;
-    if (!term || !fitAddon) return;
+    if (!isMounted()) return;
     if (!(canConnect() && (isVisible() || props.alwaysObserveResize))) return;
 
     // Leading edge: immediate fit on first REAL keyboard change (height > 0).
@@ -390,14 +398,17 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     // browser's rendering pipeline (layout, ResizeObserver, rAF, paint).
     if (kbDebounceTimer === null && kbHeight > 0) {
       queueMicrotask(() => {
-        if (!fitAddon || !term || !containerEl) return;
-        if (containerEl.clientHeight === 0) return;
-        fitAddon.fit();
+        if (!isMounted()) return;
+        const mountedContainer = containerEl!;
+        const mountedFitAddon = fitAddon!;
+        const mountedTerm = term!;
+        if (mountedContainer.clientHeight === 0) return;
+        mountedFitAddon.fit();
         // Read signal at execution time — not the stale closure capture
         if (isVirtualKeyboardOpen()) {
-          term.scrollToBottom();
+          mountedTerm.scrollToBottom();
         }
-        setDimensions({ cols: term.cols, rows: term.rows });
+        setDimensions({ cols: mountedTerm.cols, rows: mountedTerm.rows });
       });
     }
 
@@ -407,16 +418,19 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     if (kbDebounceTimer !== null) clearTimeout(kbDebounceTimer);
     kbDebounceTimer = setTimeout(() => {
       kbDebounceTimer = null;
-      if (!fitAddon || !term || !containerEl) return;
-      if (containerEl.clientHeight === 0) return;
-      fitAddon.fit();
+      if (!isMounted()) return;
+      const mountedContainer = containerEl!;
+      const mountedFitAddon = fitAddon!;
+      const mountedTerm = term!;
+      if (mountedContainer.clientHeight === 0) return;
+      mountedFitAddon.fit();
       // Read signal at execution time — not the stale closure capture
       if (isVirtualKeyboardOpen()) {
-        term.scrollToBottom();
+        mountedTerm.scrollToBottom();
       }
-      setDimensions({ cols: term.cols, rows: term.rows });
+      setDimensions({ cols: mountedTerm.cols, rows: mountedTerm.rows });
       if (isFocused()) terminalStore.claimResizeAuthority(props.sessionId, props.terminalId);
-      terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
+      terminalStore.resize(props.sessionId, props.terminalId, mountedTerm.cols, mountedTerm.rows);
     }, KEYBOARD_REFIT_DEBOUNCE_MS);
     onCleanup(() => {
       if (kbDebounceTimer !== null) {
@@ -476,10 +490,14 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       resetKeyboardStateIfStale();
       enableVirtualKeyboardOverlay();
       requestAnimationFrame(() => {
-        if (fitAddon && term && containerEl && containerEl.clientHeight > 0) {
-          const wasBottom = isAtBottom(term);
-          fitAddon.fit();
-          if (wasBottom) term.scrollToBottom();
+        if (!isMounted()) return;
+        const mountedContainer = containerEl!;
+        const mountedFitAddon = fitAddon!;
+        const mountedTerm = term!;
+        if (mountedContainer.clientHeight > 0) {
+          const wasBottom = isAtBottom(mountedTerm);
+          mountedFitAddon.fit();
+          if (wasBottom) mountedTerm.scrollToBottom();
         }
       });
 
@@ -513,22 +531,25 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   createEffect(() => {
     if (isVisible() && fitAddon && term) {
       requestAnimationFrame(() => {
-        if (!fitAddon || !term || !containerEl) return;
-        if (containerEl.clientHeight === 0) return;
-        const wasBottom = isAtBottom(term);
-        fitAddon.fit();
+        if (!isMounted()) return;
+        const mountedContainer = containerEl!;
+        const mountedFitAddon = fitAddon!;
+        const mountedTerm = term!;
+        if (mountedContainer.clientHeight === 0) return;
+        const wasBottom = isAtBottom(mountedTerm);
+        mountedFitAddon.fit();
         // First activation: always scroll to bottom so user sees the prompt.
         // Subsequent activations: only if user was already following output,
         // or if the mobile keyboard is open (user expects to see the prompt).
         if (!hasInitialScrolled || wasBottom || (isTouchDevice() && isVirtualKeyboardOpen())) {
-          term.scrollToBottom();
+          mountedTerm.scrollToBottom();
           hasInitialScrolled = true;
         }
-        term.refresh(0, term.rows - 1);
-        if (isFocused() && !isTouchDevice()) term.focus();
+        mountedTerm.refresh(0, mountedTerm.rows - 1);
+        if (isFocused() && !isTouchDevice()) mountedTerm.focus();
         if (canConnect()) {
           if (isFocused()) terminalStore.claimResizeAuthority(props.sessionId, props.terminalId);
-          terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
+          terminalStore.resize(props.sessionId, props.terminalId, mountedTerm.cols, mountedTerm.rows);
         }
       });
     }
@@ -540,15 +561,18 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     if (!initializing && fitAddon && term && isVisible()) {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          if (!fitAddon || !term || !containerEl) return;
-          if (containerEl.clientHeight === 0) return;
-          const wasBottom = isAtBottom(term);
-          fitAddon.fit();
-          if (wasBottom) term.scrollToBottom();
-          term.refresh(0, term.rows - 1);
+          if (!isMounted()) return;
+          const mountedContainer = containerEl!;
+          const mountedFitAddon = fitAddon!;
+          const mountedTerm = term!;
+          if (mountedContainer.clientHeight === 0) return;
+          const wasBottom = isAtBottom(mountedTerm);
+          mountedFitAddon.fit();
+          if (wasBottom) mountedTerm.scrollToBottom();
+          mountedTerm.refresh(0, mountedTerm.rows - 1);
           if (canConnect()) {
             if (isFocused()) terminalStore.claimResizeAuthority(props.sessionId, props.terminalId);
-            terminalStore.resize(props.sessionId, props.terminalId, term.cols, term.rows);
+            terminalStore.resize(props.sessionId, props.terminalId, mountedTerm.cols, mountedTerm.rows);
           }
         });
       });
@@ -556,6 +580,12 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   });
 
   onCleanup(() => {
+    disposed = true;
+    const mountedContainer = containerEl;
+    if (kbDebounceTimer !== null) {
+      clearTimeout(kbDebounceTimer);
+      kbDebounceTimer = null;
+    }
     cleanup?.();
     cleanupGestures?.();
     bufferChangeDisposable?.dispose();
@@ -563,8 +593,12 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     cursorShowDisposable?.dispose();
     resizeObserver?.disconnect();
     terminalStore.stopUrlDetection(props.sessionId, props.terminalId);
+    if (handleContextMenu) mountedContainer?.removeEventListener('contextmenu', handleContextMenu);
+    term = undefined;
+    fitAddon = undefined;
+    containerEl = undefined;
+    setTerminalInstance(undefined);
     terminalStore.disposeLocalTerminal(props.sessionId, props.terminalId);
-    if (handleContextMenu) containerEl?.removeEventListener('contextmenu', handleContextMenu);
   });
 
   return {

@@ -23,6 +23,7 @@ interface SessionSwitcherProps {
   onDeleteSession: (id: string) => void;
   onCreateSession: (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => void;
   onOpenMultiView?: () => void;
+  onCloseMultiView?: () => void;
 }
 
 const SessionSwitcher: Component<SessionSwitcherProps> = (props) => {
@@ -53,15 +54,11 @@ const SessionSwitcher: Component<SessionSwitcherProps> = (props) => {
   const handleLaunchMultiView = (sessionIds: string[]) => {
     const created = terminalWorkspaceStore.createOrUpdateMultiView(sessionIds, props.sessions, viewport());
     if (!created) return;
-    if (terminalWorkspaceStore.openMultiView()) {
-      props.onOpenMultiView?.();
-    }
+    props.onOpenMultiView?.();
   };
 
   const handleOpenMultiView = () => {
-    if (terminalWorkspaceStore.openMultiView()) {
-      props.onOpenMultiView?.();
-    }
+    props.onOpenMultiView?.();
   };
 
   return (
@@ -103,7 +100,7 @@ const SessionSwitcher: Component<SessionSwitcherProps> = (props) => {
           existing: existingMultiView(),
           onLaunch: handleLaunchMultiView,
           onOpen: handleOpenMultiView,
-          onClose: terminalWorkspaceStore.closeMultiView,
+          onClose: () => props.onCloseMultiView?.(),
         }}
       />
     </div>

@@ -404,7 +404,7 @@ None. Authentication is foundational; other domains depend on it.
 
 ---
 
-<!-- @test: web-ui/src/__tests__/components/LoginPage.test.tsx (LoginPage / REQ-AUTH-013 describe -> renders Codeflare branding + animated logo + Sign in with GitHub button + lists auth providers -> AC1, AC2, AC3) -->
+<!-- @test: web-ui/src/__tests__/components/LoginPage.test.tsx (LoginPage / REQ-AUTH-013 describe -> renders Codeflare branding + animated logo + Sign in with GitHub button + lists auth providers + core login content has no entrance opacity/transform animation -> AC1, AC2, AC3, AC4) -->
 ### REQ-AUTH-013: Custom branded login page
 
 **Intent:** SaaS mode provides a branded login experience instead of the raw CF Access login page.
@@ -416,6 +416,7 @@ None. Authentication is foundational; other domains depend on it.
 1. The SaaS login page shows Codeflare branding with an animated logo. <!-- @impl: web-ui/src/components/LoginPage.tsx::LoginPage -->
 2. A "Continue with <provider>" button is displayed for the configured identity provider. <!-- @impl: web-ui/src/components/LoginPage.tsx::LoginPage -->
 3. Available auth providers are listed. <!-- @impl: web-ui/src/components/LoginPage.tsx::LoginPage -->
+4. Core login content is visible at first paint and is not hidden behind entrance opacity or transform animation. <!-- @impl: web-ui/src/styles/login-page.css::.login-content -->
 
 **Constraints:**
 

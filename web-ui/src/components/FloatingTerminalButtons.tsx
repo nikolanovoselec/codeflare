@@ -6,6 +6,7 @@ import { sendTerminalKey } from '../lib/touch-gestures';
 import { activateStickyCtrl, deactivateStickyCtrl, isStickyCtrlActive } from '../lib/terminal-mobile-input';
 import { terminalStore } from '../stores/terminal';
 import { sessionStore } from '../stores/session';
+import { terminalWorkspaceStore } from '../stores/terminal-workspace';
 import { markScrollIntent } from '../lib/terminal-scroll-intent';
 import { loadSettings } from '../lib/settings';
 import { BUTTON_LABEL_VISIBLE_DURATION_MS } from '../lib/constants';
@@ -37,13 +38,24 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
     }
   });
 
-  const getActiveTerm = () => {
+  const getActiveTerminalTarget = () => {
     const sessionId = sessionStore.activeSessionId;
-    if (!sessionId) return null;
-    const terminals = sessionStore.getTerminalsForSession(sessionId);
-    const terminalId = terminals?.activeTabId || '1';
-    return terminalStore.getTerminal(sessionId, terminalId);
+    if (sessionId) {
+      const terminals = sessionStore.getTerminalsForSession(sessionId);
+      const terminalId = terminals?.activeTabId || '1';
+      return { sessionId, terminalId, term: terminalStore.getTerminal(sessionId, terminalId) };
+    }
+    const focusedPaneId = terminalWorkspaceStore.getFocusedPaneId();
+    const focusedPane = terminalWorkspaceStore.getVisiblePanes().find((pane) => pane.id === focusedPaneId);
+    if (!focusedPane) return null;
+    return {
+      sessionId: focusedPane.sessionId,
+      terminalId: focusedPane.terminalId,
+      term: terminalStore.getTerminal(focusedPane.sessionId, focusedPane.terminalId),
+    };
   };
+
+  const getActiveTerm = () => getActiveTerminalTarget()?.term ?? null;
 
   // Stop speech recognition on component unmount
   onCleanup(() => { if (isListening()) stopListening(); });
@@ -257,13 +269,10 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
             tabIndex={-1}
             onPointerDown={preventFocusSteal}
             onClick={() => {
-              const term = getActiveTerm();
-              if (term) {
-                const sessionId = sessionStore.activeSessionId;
-                const terminals = sessionId ? sessionStore.getTerminalsForSession(sessionId) : undefined;
-                const terminalId = terminals?.activeTabId || '1';
-                if (sessionId) markScrollIntent(sessionId, terminalId);
-                term.scrollPages(-1);
+              const target = getActiveTerminalTarget();
+              if (target?.term) {
+                markScrollIntent(target.sessionId, target.terminalId);
+                target.term.scrollPages(-1);
               }
               refocusTerminal();
             }}
@@ -280,13 +289,10 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
             tabIndex={-1}
             onPointerDown={preventFocusSteal}
             onClick={() => {
-              const term = getActiveTerm();
-              if (term) {
-                const sessionId = sessionStore.activeSessionId;
-                const terminals = sessionId ? sessionStore.getTerminalsForSession(sessionId) : undefined;
-                const terminalId = terminals?.activeTabId || '1';
-                if (sessionId) markScrollIntent(sessionId, terminalId);
-                term.scrollToBottom();
+              const target = getActiveTerminalTarget();
+              if (target?.term) {
+                markScrollIntent(target.sessionId, target.terminalId);
+                target.term.scrollToBottom();
               }
               refocusTerminal();
             }}

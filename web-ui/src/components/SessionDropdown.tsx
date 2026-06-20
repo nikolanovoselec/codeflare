@@ -171,6 +171,7 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
               props.multiView?.onClose();
               setSelectingMultiView(false);
               setSelectedMultiViewIds([]);
+              props.onClose();
             }}
           />
           <div

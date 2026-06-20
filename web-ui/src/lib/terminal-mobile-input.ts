@@ -119,7 +119,7 @@ interface MobileInputCallbacks {
  */
 export function setupMobileInput(
   terminal: XTerm,
-  props: { active: boolean },
+  props: { active: boolean; focused?: boolean },
   callbacks: MobileInputCallbacks,
 ): () => void {
   // Create the iframe compositor jail
@@ -164,8 +164,10 @@ export function setupMobileInput(
     }
   };
 
+  const isInputActive = () => props.focused ?? props.active;
+
   const restoreFocusIfNeeded = () => {
-    if (wasInputFocused && iframeInputRef && !iframeInputRef.readOnly && props.active) {
+    if (wasInputFocused && iframeInputRef && !iframeInputRef.readOnly && isInputActive()) {
       wasInputFocused = false;
       // Force-zero ALL keyboard signals unconditionally. resetKeyboardStateIfStale()
       // trusts boundingRect.height which returns stale cached values on browser resume.
@@ -192,7 +194,7 @@ export function setupMobileInput(
       if (isSamsungBrowser) {
         setTimeout(() => {
           // Re-check: don't enable if terminal was deactivated during the delay
-          if (props.active) enableVirtualKeyboardOverlay();
+          if (isInputActive()) enableVirtualKeyboardOverlay();
         }, 300);
         return;
       }

@@ -76,6 +76,8 @@ const retryTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 const abortControllers = new Map<string, AbortController>();
 const pendingFocusClaims = new Set<string>();
 const desiredFocusClaims = new Set<string>();
+const connectionOwners = new Map<string, number>();
+let nextConnectionOwner = 0;
 
 // Bug 1 fix: Store inputDisposable outside the connect function to properly clean up
 const inputDisposables = new Map<string, { dispose: () => void }>();
@@ -261,6 +263,8 @@ function connect(
   // Close existing connection if any
   disconnect(sessionId, terminalId);
 
+  const owner = ++nextConnectionOwner;
+  connectionOwners.set(key, owner);
   terminals.set(key, terminal);
 
   // Bug 1 fix: Dispose any existing input handler before creating a new one
@@ -283,8 +287,10 @@ function connect(
   // Whether this terminal has ever successfully connected (for dead container detection).
 
   // Attempt connection with retries
+  const ownsConnection = () => connectionOwners.get(key) === owner;
+
   function attemptConnection(attemptNumber: number): void {
-    if (signal.aborted) return;
+    if (signal.aborted || !ownsConnection()) return;
 
     // Clear any existing retry timeout
     const existingTimeout = retryTimeouts.get(key);
@@ -308,7 +314,7 @@ function connect(
     ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
-      if (signal.aborted) {
+      if (signal.aborted || !ownsConnection()) {
         ws.close();
         return;
       }
@@ -354,7 +360,7 @@ function connect(
     };
 
     function handleWebSocketMessage(event: MessageEvent): void {
-      if (signal.aborted) return;
+      if (signal.aborted || !ownsConnection()) return;
 
       // Server sends RAW terminal data - write directly to xterm
       let messageData: string;
@@ -416,9 +422,12 @@ function connect(
     }
 
     function handleWebSocketClose(event: CloseEvent): void {
-      if (signal.aborted) return;
+      if (signal.aborted || !ownsConnection()) return;
 
-      logger.warn(`[Terminal ${key}] WS CLOSED: code=${event.code}, reason="${event.reason}", state=${getConnectionState(sessionId, terminalId)}`);
+      const expectedStartupClose = event.code === WS_CONTAINER_STOPPED_CODE || event.code === 1013;
+      const closeLog = `[Terminal ${key}] WS CLOSED: code=${event.code}, reason="${event.reason}", state=${getConnectionState(sessionId, terminalId)}`;
+      if (expectedStartupClose) logger.debug(closeLog);
+      else logger.warn(closeLog);
       connections.delete(key);
 
       // Intentional disconnect from dashboard — do not reconnect
@@ -439,7 +448,9 @@ function connect(
       // Retry on retryable close codes (flat delay, no limit).
       // Network errors (1006) just retry — KV polling handles session status.
       if (WS_RETRYABLE_CLOSE_CODES.has(event.code) && !signal.aborted) {
-        logger.warn(`[Terminal ${key}] Retrying connection, attempt ${attemptNumber + 1}, code=${event.code}`);
+        const retryLog = `[Terminal ${key}] Retrying connection, attempt ${attemptNumber + 1}, code=${event.code}`;
+        if (event.code === 1013) logger.debug(retryLog);
+        else logger.warn(retryLog);
         const timeout = setTimeout(() => {
           attemptConnection(attemptNumber + 1);
         }, WS_RETRY_DELAY_MS);
@@ -469,6 +480,8 @@ function connect(
   // Return cleanup function
   return () => {
     controller.abort();
+    if (!ownsConnection()) return;
+
     cancelPendingFlush(key);
 
     // Bug 1 fix: Dispose input handler from the external Map
@@ -504,6 +517,8 @@ function disconnect(sessionId: string, terminalId: string): void {
     abortControllers.delete(key);
   }
 
+  connectionOwners.delete(key);
+
   // Clear any pending retry
   const timeout = retryTimeouts.get(key);
   if (timeout) {
@@ -525,6 +540,7 @@ function disconnect(sessionId: string, terminalId: string): void {
     connections.delete(key);
   }
   pendingFocusClaims.delete(key);
+  desiredFocusClaims.delete(key);
   setConnectionState(sessionId, terminalId, 'disconnected');
 }
 
@@ -667,6 +683,7 @@ function disposeAll(): void {
     controller.abort();
   }
   abortControllers.clear();
+  connectionOwners.clear();
   pendingFocusClaims.clear();
   desiredFocusClaims.clear();
 

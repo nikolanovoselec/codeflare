@@ -109,6 +109,43 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff u
       expect(typeof cleanup).toBe('function');
     });
 
+    it('REQ-TERM-012: stale cleanup from an older connection cannot close a newer connection for the same terminal', () => {
+      const OriginalWebSocket = globalThis.WebSocket;
+      const sockets: Array<WebSocket & { send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; _open: () => void; readyState: number }> = [];
+      vi.stubGlobal('WebSocket', class {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+        onopen: (() => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
+        onclose: ((event: CloseEvent) => void) | null = null;
+        readyState = WebSocket.CONNECTING;
+        binaryType = 'arraybuffer';
+        send = vi.fn();
+        close = vi.fn(() => { this.readyState = WebSocket.CLOSED; });
+        constructor(_url: string) { sockets.push(this as any); }
+        _open() { this.readyState = WebSocket.OPEN; this.onopen?.(); }
+      } as unknown as typeof WebSocket);
+
+      try {
+        const firstCleanup = terminalStore.connect(sessionId, terminalId, createMockTerminal());
+        sockets[0]._open();
+        const secondCleanup = terminalStore.connect(sessionId, terminalId, createMockTerminal());
+        sockets[1]._open();
+
+        firstCleanup();
+
+        expect(sendInputToTerminal(sessionId, terminalId, 'x')).toBe(true);
+        expect(sockets[1].send).toHaveBeenCalledWith('x');
+        expect(sockets[1].close).not.toHaveBeenCalled();
+        secondCleanup();
+      } finally {
+        vi.stubGlobal('WebSocket', OriginalWebSocket);
+      }
+    });
+
     it('should set connection state to "connected" on WebSocket open', async () => {
       const terminal = createMockTerminal();
 

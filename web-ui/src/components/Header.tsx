@@ -45,6 +45,7 @@ interface HeaderProps {
   onDeleteSession: (id: string) => void;
   onCreateSession: (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => void;
   onOpenMultiView?: () => void;
+  onCloseMultiView?: () => void;
   // Note: logout goes through /auth/logout which routes to OIDC or CF Access as appropriate
 }
 
@@ -243,6 +244,7 @@ const Header: Component<HeaderProps> = (props) => {
         onDeleteSession={props.onDeleteSession}
         onCreateSession={props.onCreateSession}
         onOpenMultiView={props.onOpenMultiView}
+        onCloseMultiView={props.onCloseMultiView}
       />
 
       {/* Spacer for flex layout */}

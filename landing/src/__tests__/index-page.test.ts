@@ -60,6 +60,11 @@ beforeAll(async () => {
 });
 
 describe('landing page composition (REQ-LANDING-001)', () => {
+  it('server-renders the flare visual mode when the flare field exists', () => {
+    expect(html).toMatch(/<html[^>]*class="flare-on"/);
+    expect(html).toMatch(/<div class="flare-field"[^>]*data-flare-fluid/);
+  });
+
   it('renders every top-level section, in order, via <Section>', () => {
     const ids = Array.from(body.querySelectorAll('main > section')).map((s) => s.id);
     expect(ids).toEqual(SECTION_ORDER);

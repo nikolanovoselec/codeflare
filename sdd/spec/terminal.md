@@ -393,6 +393,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 5. Session indicators distinguish container-running state from visible-terminal-connected state. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::dotVariant -->
 6. Browser visibility return reconnects only panes or tiled tabs that are visible in the current workspace. <!-- @impl: web-ui/src/components/Layout.tsx::visibleTerminalKeys -->
 7. A focused visible terminal claims resize authority before sending dimensions, including retry reconnects that remain focused. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::claimResizeAuthority -->
+8. Cleanup from a stale connection owner cannot dispose the newer WebSocket or input handler for the same visible terminal. <!-- @impl: web-ui/src/stores/terminal.ts::connect -->
 
 **Constraints:**
 
@@ -417,7 +418,8 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (terminalWorkspaceStore describe -> desktop/tablet/mobile capacity + reconciliation -> AC1,2,5) -->
 <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (TerminalArea describe -> one connected pane per MultiView member + focus changes do not remount panes + workspace terminal id source of truth + no nested tabs -> AC4,AC6,AC7) -->
 <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard describe -> virtual MultiView never renders as a session card; icon-only dashboard action opens it without backend session ID -> AC3) -->
-<!-- @test: web-ui/src/__tests__/components/TerminalGrid.test.tsx (TerminalGrid describe -> reusable layout slots + stable pane ids do not dispose + keyed pane-id subtree replacement -> AC4,AC6) -->
+<!-- @test: web-ui/src/__tests__/components/TerminalGrid.test.tsx (TerminalGrid describe -> reusable layout slots + stable pane ids do not dispose + keyed pane-id subtree replacement + clearing panes during dashboard transition renders empty slots without stale pane data dereference -> AC4,AC5,AC6) -->
+<!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (FloatingTerminalButtons MultiView focused pane targeting describe -> floating-button keys route to the focused MultiView pane when activeSessionId is null -> AC8) -->
 ### REQ-TERM-012: MultiView virtual session workspace
 
 **Intent:** Users can open one virtual MultiView workspace that displays multiple existing sessions side by side without creating a backend session or changing the member sessions' lifecycle.
@@ -433,6 +435,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 5. Workspace switches preserve MultiView membership while reconciling connections to visible panes. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 6. Clicking between MultiView panes changes focus only and does not remount panes or reconnect their WebSockets. <!-- @impl: web-ui/src/components/TerminalArea.tsx::multiViewGridPanes --> <!-- @impl: web-ui/src/components/TerminalArea.tsx::sessionNamesById --> <!-- @impl: web-ui/src/components/TerminalGrid.tsx::TerminalGrid -->
 7. Each MultiView member gets exactly one terminal surface; nested tab controls are absent. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea -->
+8. Keyboard and floating-button input targets the focused MultiView pane even though no single session is active. <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::FloatingTerminalButtons --> <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput -->
 
 **Constraints:**
 
@@ -443,7 +446,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Dependencies:** [REQ-TERM-001](#req-term-001-up-to-6-terminal-tabs-per-session), [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-007](#req-term-007-tiling-layouts-2-split-3-split-4-grid), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
 
-**Verification:** [Workspace store tests](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts) + [TerminalArea tests](../../web-ui/src/__tests__/components/TerminalArea.test.tsx) + [TerminalGrid tests](../../web-ui/src/__tests__/components/TerminalGrid.test.tsx) + [Dashboard tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx)
+**Verification:** [Workspace store tests](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts) + [TerminalArea tests](../../web-ui/src/__tests__/components/TerminalArea.test.tsx) + [TerminalGrid tests](../../web-ui/src/__tests__/components/TerminalGrid.test.tsx) + [Dashboard tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx) + [Floating button tests](../../web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx)
 
 **Status:** Implemented
 
@@ -453,8 +456,8 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 <!-- @impl: web-ui/src/components/MultiViewActionRow.tsx::MultiViewActionRow -->
 <!-- @impl: web-ui/src/components/SelectableSessionCard.tsx::SelectableSessionCard -->
 <!-- @impl: web-ui/src/lib/mobile.ts::getTerminalViewportClass -->
-<!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (SessionDropdown MultiView selection describe -> Launch MultiView label/icon, open selection, cancel/launch paths, capacity rejection, mobile hidden -> AC1..AC7) -->
-<!-- @test: web-ui/src/__tests__/components/SessionSwitcher.test.tsx (SessionSwitcher MultiView launch describe -> selected ids create and open the workspace -> AC4, AC7) -->
+<!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (SessionDropdown MultiView selection describe -> Launch MultiView label/icon, open selection, cancel/launch paths, capacity rejection, close button deactivates existing MultiView and closes dropdown, mobile hidden -> AC1..AC8) -->
+<!-- @test: web-ui/src/__tests__/components/SessionSwitcher.test.tsx (SessionSwitcher MultiView launch describe -> selected ids create the workspace and existing open/close delegates to Layout -> AC4, AC7, AC8) -->
 ### REQ-TERM-013: MultiView selection flow
 
 **Intent:** Users create or reopen MultiView from the existing session switcher using a selection mode that is clear on desktop and tablet and unavailable on mobile.
@@ -470,6 +473,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 5. Selecting beyond the viewport capacity is rejected without changing the existing selected set. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown -->
 6. Selected session rows expose a selected state using the success visual variant. <!-- @impl: web-ui/src/components/SelectableSessionCard.tsx::SelectableSessionCard -->
 7. Reopening an existing MultiView opens the same virtual workspace rather than creating another MultiView. <!-- @impl: web-ui/src/components/SessionSwitcher.tsx::SessionSwitcher -->
+8. Closing an existing MultiView from the session switcher deactivates the virtual workspace and closes the dropdown. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @impl: web-ui/src/components/Layout.tsx::handleCloseMultiView -->
 
 **Constraints:**
 
@@ -480,7 +484,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Dependencies:** [REQ-TERM-012](#req-term-012-multiview-virtual-session-workspace)
 
-**Verification:** [Automated tests](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx)
+**Verification:** [Automated tests](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [Session switcher tests](../../web-ui/src/__tests__/components/SessionSwitcher.test.tsx)
 
 **Status:** Implemented
 

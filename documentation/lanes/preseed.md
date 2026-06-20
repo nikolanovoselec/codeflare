@@ -525,10 +525,11 @@ All preseed content is deployed via the manifest pipeline:
 
   Delivering that summary back into the live session is a separate monitor phase.
   For each `(repo, head)`, the Pi extension may start one background
-  `review-monitor` agent from the current live main-session context or the last
-  remembered main-session context. Task contexts and absent contexts wait only
-  when no remembered main-session context is available. Valid `monitor.completed`
-  files and fresh monitor claims suppress duplicate starts.
+  `review-monitor` agent from durable review state with an explicit prompt and
+  `inheritContext:false`; startup is not gated on a live main-session ctx. Valid
+  `monitor.completed` files and fresh monitor claims suppress duplicate starts;
+  reload/status refresh also consumes valid exact-head completion markers when the
+  transient pending file is already gone.
 
   The Pi extension owns the durable claim/completion files; the monitor agent owns
   waiting and returning `REVIEW_RESULT`. Malformed or stale monitor claim files are

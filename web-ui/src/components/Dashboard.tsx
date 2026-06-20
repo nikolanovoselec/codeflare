@@ -306,11 +306,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     data-testid="dashboard-multiview-action"
                     aria-label="Open MultiView"
                     title="Open MultiView"
-                    onClick={() => {
-                      if (terminalWorkspaceStore.openMultiView()) {
-                        props.onOpenMultiView?.();
-                      }
-                    }}
+                    onClick={() => props.onOpenMultiView?.()}
                   >
                     <Icon path={MULTIVIEW_ICON} size={22} />
                   </button>

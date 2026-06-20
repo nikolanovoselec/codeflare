@@ -28,6 +28,13 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     );
   });
 
+  it('REQ-VAULT-017: served worker drops no-client info spam and downgrades expected auth/sync startup noise', () => {
+    expect(VAULT_NATIVE_SW_VERBATIM).toContain('No clients are listening for messages, dropping message');
+    expect(VAULT_NATIVE_SERVICE_WORKER_JS).not.toContain('No clients are listening for messages, dropping message');
+    expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('console.info("[service proxy auth]",c)');
+    expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('console.warn("Sync space error",t.message)');
+  });
+
   it('throws when an anchor substring is missing (SilverBullet version drift guard)', () => {
     expect(() => graftVaultKeyRecovery('not the silverbullet worker at all')).toThrow(
       /anchor/i,

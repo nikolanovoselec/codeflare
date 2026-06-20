@@ -1751,9 +1751,8 @@ svg {
    A fixed full-viewport WebGL canvas (injected by splash.ts into .flare-field)
    sits behind every section as a cursor- and scroll-reactive background (cursor
    on desktop, page scroll on touch), with a readability veil above it. All of
-   this activates only once the fluid is actually live: splash.ts sets
-   html.flare-on, so no-WebGL / reduced-motion visitors keep the solid default
-   surfaces and never see a darkened, empty field.
+   the layout server-renders html.flare-on on the landing page so the visual
+   treatment is stable before first paint; splash.ts only mounts the canvas.
    -------------------------------------------------------------------------- */
 .flare-field {
   position: fixed;

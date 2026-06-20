@@ -472,17 +472,20 @@ const Layout: Component<LayoutProps> = (props) => {
     }, VIEW_TRANSITION_DURATION_MS);
   };
 
+  const openSessionWorkspace = (id: string, shouldStart = false) => {
+    const terminalId = shouldStart ? '1' : sessionStore.getTerminalsForSession(id)?.activeTabId || '1';
+    sessionStore.setActiveSession(id);
+    terminalWorkspaceStore.setSingleSessionWorkspace(id, terminalId);
+    enterTerminalView();
+    if (shouldStart) void sessionStore.startSession(id).catch(() => {});
+  };
+
   const handleSelectSession = (id: string) => {
     const session = sessionStore.sessions.find((s) => s.id === id);
-    if (session?.status === 'running') {
-      sessionStore.setActiveSession(id);
-      terminalWorkspaceStore.setSingleSessionWorkspace(id, sessionStore.getTerminalsForSession(id)?.activeTabId || '1');
-      enterTerminalView();
+    if (session?.status === 'running' || session?.status === 'initializing') {
+      openSessionWorkspace(id);
     } else if (session?.status === 'stopped') {
-      sessionStore.setActiveSession(id);
-      terminalWorkspaceStore.setSingleSessionWorkspace(id, '1');
-      void sessionStore.startSession(id).catch(() => {});
-      enterTerminalView();
+      openSessionWorkspace(id, true);
     }
   };
 
@@ -526,6 +529,14 @@ const Layout: Component<LayoutProps> = (props) => {
     enterTerminalView();
   };
 
+  const handleCloseMultiView = () => {
+    terminalWorkspaceStore.closeMultiView();
+    setShowTilingOverlay(false);
+    clearViewTransitionTimer();
+    sessionStore.setActiveSession(null);
+    setViewState('dashboard');
+  };
+
   // Handler for per-session init progress dismiss
   const handleOpenSessionById = (sessionId: string) => {
     sessionStore.dismissInitProgressForSession(sessionId);
@@ -551,19 +562,14 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const handleDashboardSessionSelect = (sessionId: string) => {
     const session = sessionStore.sessions.find(s => s.id === sessionId);
-    if (session?.status === 'running') {
-      sessionStore.setActiveSession(sessionId);
-      terminalWorkspaceStore.setSingleSessionWorkspace(sessionId, sessionStore.getTerminalsForSession(sessionId)?.activeTabId || '1');
+    if (session?.status === 'running' || session?.status === 'initializing') {
+      openSessionWorkspace(sessionId);
     } else if (session?.status === 'stopped') {
       // Always do a full start — even if the container could auto-wake via SDK,
       // the filesystem is empty after sleep (no R2 sync). startSession() runs
       // entrypoint.sh which restores files from R2 before starting the terminal.
-      sessionStore.setActiveSession(sessionId);
-      terminalWorkspaceStore.setSingleSessionWorkspace(sessionId, '1');
-      void sessionStore.startSession(sessionId).catch(() => {});
+      openSessionWorkspace(sessionId, true);
     }
-
-    enterTerminalView();
   };
 
   const handleSettingsClick = () => {
@@ -668,6 +674,7 @@ const Layout: Component<LayoutProps> = (props) => {
           onDeleteSession={handleDeleteSession}
           onCreateSession={handleCreateSession}
           onOpenMultiView={handleOpenMultiView}
+          onCloseMultiView={handleCloseMultiView}
         />
       </Show>
 

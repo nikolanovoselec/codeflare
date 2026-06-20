@@ -460,6 +460,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 <!-- @test: src/__tests__/routes/vault.test.ts (isServiceWorkerRegistration / REQ-VAULT-017 (native SW short-circuit selector) + VAULT_NATIVE_SERVICE_WORKER_JS / REQ-VAULT-017 AC1 (native SW served, AD69) + isServiceWorkerContextFetch / REQ-VAULT-017 AC4 (SW precache vs navigation) → AC1-AC4) -->
 <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (native SW + shell-302 suppression (REQ-VAULT-017 AC1/AC4, AD69) → AC1/AC4) -->
+<!-- @test: src/__tests__/routes/vault-native-sw-direct.test.ts (served worker injects key recovery and downgrades expected no-client/auth/sync startup logs while preserving the upstream drift guard -> AC1, AC5) -->
 <!-- @cites: REQ-VAULT-013 (split-prose: the native-service-worker contract foreshadowed in REQ-VAULT-013's Intent - registration short-circuit, key delivery, precache - is specified here) -->
 ### REQ-VAULT-017: SilverBullet native service worker
 
@@ -475,6 +476,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 2. The short-circuit selector requires all of: GET method, exact path match for the service-worker script, and the browser-only Service-Worker request header (a Fetch-spec forbidden header name not settable from page JavaScript). Cookie presence is intentionally not checked because Samsung Internet and other Chromium forks may send cookies on SW registration fetches; rejecting those requests would force the registration through the cookie-gated proxy chain and 401.
 3. The native service-worker script body is identical across sessions (version-locked to the Dockerfile-pinned SilverBullet 2.9.0 binary, guarded by a recorded SHA-256 drift hash); the per-session vault encryption key is delivered to it via postMessage from the bootstrap-hop page ([REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption) AC5), never baked into the script. <!-- @impl: src/routes/vault-native-sw.ts::VAULT_NATIVE_SERVICE_WORKER_JS -->
 4. The native worker precaches the shell `/` via `cache.addAll` during install, BEFORE the bootstrap-hop sets the bootstrap cookie. The shell-path redirect to the bootstrap-hop is suppressed for Service-Worker-context fetches (identified by a `Sec-Fetch-Mode` header present and not equal to `navigate`) so the precache resolves against the real shell instead of a 302 that would make `cache.addAll` reject and hang the SW install. Top-level navigations (`Sec-Fetch-Mode: navigate`) and clients with no `Sec-Fetch-Mode` header still receive the redirect (fail-safe), so a real first navigation never boots without the encryption key wired. <!-- @impl: src/routes/vault-html.ts::isServiceWorkerContextFetch -->
+5. The served worker suppresses or downgrades expected startup-only log noise (no controlled clients, auth-gated service-proxy reset, and sync retry errors) without changing the message flow to clients or the version-drift guard. <!-- @impl: src/routes/vault-native-sw.ts::graftVaultKeyRecovery -->
 
 **Notes:** Documented in [AD69](../../documentation/decisions/README.md) and the [vault lane](../../documentation/lanes/vault.md#service-worker-registration-noop-bypass). Under enterprise Cloudflare Access the host-wide Access app would 302 this credential-less registration fetch to the IdP login before the Worker runs; the setup wizard auto-provisions a higher-precedence bypass app scoped to the SW path so the request reaches this short-circuit ([REQ-ENTERPRISE-006](enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC6). The `/.client/*` precache-auth exemption was evaluated and left unimplemented (the integration deploy showed `cache.addAll` resolves because the precache fetches carry the session cookie); it is reserved only as a future fallback if a browser strips credentials on precache fetches.
 
@@ -486,7 +488,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Dependencies:** [REQ-VAULT-013](#req-vault-013-silverbullet-subpath-adapter), [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption)
 
-**Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts), [Auth-chain test](../../src/__tests__/routes/vault-auth-chain.test.ts)
+**Verification:** [Automated test](../../src/__tests__/routes/vault.test.ts), [Auth-chain test](../../src/__tests__/routes/vault-auth-chain.test.ts), [Direct worker graft test](../../src/__tests__/routes/vault-native-sw-direct.test.ts)
 
 **Status:** Implemented
 

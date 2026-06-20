@@ -1,4 +1,4 @@
-import { createMemo, For, JSX } from 'solid-js';
+import { createMemo, For, JSX, Show } from 'solid-js';
 import type { TileLayout } from '../types';
 import '../styles/tiled-terminal-container.css';
 
@@ -41,6 +41,7 @@ function getLayoutClass(layout: TileLayout): string {
 const TerminalGrid = <T,>(props: TerminalGridProps<T>) => {
   const slotIndexes = () => SLOT_INDEXES[props.layout];
   const visiblePaneIds = createMemo(() => props.panes.slice(0, slotIndexes().length).map((pane) => pane.id));
+  const paneById = createMemo(() => new Map(props.panes.map((pane) => [pane.id, pane] as const)));
   const emptySlotIndexes = createMemo(() => slotIndexes().slice(visiblePaneIds().length));
 
   return (
@@ -51,22 +52,24 @@ const TerminalGrid = <T,>(props: TerminalGridProps<T>) => {
     >
       <For each={visiblePaneIds()}>
         {(paneId, slotIndex) => {
-          const slotPane = createMemo(() => props.panes[slotIndex()]);
+          const currentPane = createMemo(() => paneById().get(paneId));
           const pane = {
             get id() { return paneId; },
-            get data() { return slotPane()!.data; },
-            get active() { return slotPane()!.active; },
+            get data() { return currentPane()?.data as T; },
+            get active() { return currentPane()?.active ?? false; },
           } as TerminalGridPane<T>;
 
           return (
-            <div
-              data-testid={props.slotTestId ? props.slotTestId(pane.id) : `terminal-grid-slot-${pane.id}`}
-              data-active={pane.active ? 'true' : 'false'}
-              class={`tiled-terminal-slot ${pane.active ? 'tiled-terminal-slot--active' : ''}`}
-              onClick={() => props.onPaneClick(pane.id)}
-            >
-              {props.renderPane(pane, slotIndex())}
-            </div>
+            <Show when={currentPane()}>
+              <div
+                data-testid={props.slotTestId ? props.slotTestId(pane.id) : `terminal-grid-slot-${pane.id}`}
+                data-active={pane.active ? 'true' : 'false'}
+                class={`tiled-terminal-slot ${pane.active ? 'tiled-terminal-slot--active' : ''}`}
+                onClick={() => props.onPaneClick(pane.id)}
+              >
+                {props.renderPane(pane, slotIndex())}
+              </div>
+            </Show>
           );
         }}
       </For>
