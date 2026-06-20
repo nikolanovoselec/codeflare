@@ -1,13 +1,22 @@
 import { Component, Show } from 'solid-js';
-import { mdiGithub, mdiSync, mdiConnection } from '@mdi/js';
+import { mdiGithub, mdiSync, mdiConnection, mdiMagnify } from '@mdi/js';
 import Icon from '../Icon';
 import IconButton from '../ui/IconButton';
 import { githubStore } from '../../stores/github';
 
+interface ConnectedHeaderProps {
+  /** Mobile only (REQ-GITHUB-011): when provided, a magnify control renders to the
+      left of Refresh and toggles the search bar's visibility. Absent on desktop,
+      where the search bar is always shown. */
+  onToggleSearch?: () => void;
+  /** Reflects the search bar's open state on the magnify toggle. */
+  searchOpen?: boolean;
+}
+
 // Shows the connected login (linking out to the user's GitHub page), a Refresh
 // control that reloads the repo list, and an icon Disconnect control. Disconnect
 // calls the store action (POSTs /api/github/disconnect, flips to not-connected).
-const ConnectedHeader: Component = () => {
+const ConnectedHeader: Component<ConnectedHeaderProps> = (props) => {
   return (
     <div class="github-connected-header" data-testid="github-connected-header">
       <Icon path={mdiGithub} size={18} class="github-connected-icon" />
@@ -32,6 +41,15 @@ const ConnectedHeader: Component = () => {
         )}
       </Show>
       <div class="github-connected-actions">
+        <Show when={props.onToggleSearch}>
+          <IconButton
+            icon={mdiMagnify}
+            label="Search repositories"
+            active={props.searchOpen}
+            onClick={() => props.onToggleSearch!()}
+            testId="github-search-toggle-btn"
+          />
+        </Show>
         <IconButton
           icon={mdiSync}
           label="Refresh repositories"

@@ -185,3 +185,39 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Verification:** [Metadata render tests](../../landing/src/__tests__/index-page.test.ts), [SEO document unit tests](../../src/__tests__/lib/seo.test.ts), [Worker discoverability serving tests](../../src/__tests__/index.test.ts)
 
 **Status:** Implemented
+
+---
+
+<!-- @impl: landing/src/layouts/BaseLayout.astro -->
+<!-- @impl: web-ui/index.html -->
+<!-- @impl: web-ui/public/manifest.webmanifest -->
+<!-- @impl: src/index.ts -->
+<!-- @test: landing/src/__tests__/index-page.test.ts (REQ-LANDING-004 describe -> AC1 the landing layout declares color-scheme dark via a <meta name="color-scheme" content="dark"> plus an inline html{} rule painting the root dark before any external stylesheet) -->
+<!-- @test: src/__tests__/index.test.ts (REQ-LANDING-004 describe -> AC2 /_astro/ content-hashed assets get Cache-Control public, max-age=31536000, immutable while a non-hashed asset response keeps its revalidating default) -->
+### REQ-LANDING-004: First-paint stability and immutable asset caching
+
+<!-- @impl: landing/src/layouts/BaseLayout.astro -->
+<!-- @impl: src/index.ts::default -->
+
+**Intent:** Full-page navigations between the marketing landing and the SPA (Sign in → `/login`, and "Back to codeflare.ch") never flash the browser's default white canvas, and the landing's content-hashed build assets are cached immutably so its stylesheet is not revalidated on every navigation — eliminating both the inter-page white flash and the delayed background/haze paint.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The landing layout declares the dark color scheme — a `<meta name="color-scheme" content="dark">` and an inline `html { color-scheme: dark; background-color: … }` rule emitted before any external stylesheet — so a cross-document navigation holds a dark canvas instead of flashing the browser's white default. <!-- @impl: landing/src/layouts/BaseLayout.astro -->
+2. The Worker serves content-hashed `/_astro/` build assets with `Cache-Control: public, max-age=31536000, immutable`, while non-hashed asset responses keep their revalidating default so HTML stays fresh. <!-- @impl: src/index.ts::default -->
+
+**Constraints:**
+
+- The SPA shell (`web-ui/index.html`) carries the same dark `color-scheme` meta and inline root paint, so navigating landing → `/login` (SPA) and back never flashes white; this is the SPA half of the same cross-document fix and complements [REQ-SETUP-010](setup.md#req-setup-010-social-share-preview-metadata-on-the-public-landing-page), which owns the shell's social-share metadata.
+- The installable manifest's `theme_color` and `background_color` (`web-ui/public/manifest.webmanifest`) match the dark first-paint background so the PWA splash/install surface is consistent with the app's dark canvas.
+- Immutability is keyed on the `/_astro/` path segment (Astro's content-hashed output directory): only those filenames change when content changes, so a stale cache entry is impossible; HTML and other non-hashed responses must keep revalidating so content stays fresh.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
+
+**Verification:** [Landing first-paint render test](../../landing/src/__tests__/index-page.test.ts), [Worker asset-cache serving test](../../src/__tests__/index.test.ts)
+
+**Status:** Implemented

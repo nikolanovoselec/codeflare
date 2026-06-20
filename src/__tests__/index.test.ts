@@ -479,3 +479,43 @@ describe('REQ-OPS-008 AC6 (SAAS_MODE + STRESS_TEST_MODE conflict guard)', () => 
     expect(response.status).not.toBe(503);
   });
 });
+
+// ============================================================================
+// REQ-LANDING-004: immutable caching for content-hashed build assets
+// ============================================================================
+describe('REQ-LANDING-004: immutable /_astro/ asset caching', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetSetupCacheShared();
+    vi.mocked(validateWebSocketRoute).mockReturnValue({ isWebSocketRoute: false });
+  });
+
+  it('serves content-hashed /_astro/ assets with a long immutable Cache-Control', async () => {
+    const { env, mockKV } = createMockEnv();
+    // Setup complete so the request reaches the asset layer instead of redirecting.
+    mockKV.get.mockResolvedValue('true');
+
+    const response = await worker.fetch(
+      new Request('https://example.com/landing/_astro/index.DEADBEEF.css'),
+      env,
+      createMockCtx(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
+  });
+
+  it('does NOT mark a non-hashed asset immutable (HTML/other keep the revalidating default)', async () => {
+    const { env, mockKV } = createMockEnv();
+    mockKV.get.mockResolvedValue('true');
+
+    const response = await worker.fetch(
+      new Request('https://example.com/favicon.svg'),
+      env,
+      createMockCtx(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).not.toBe('public, max-age=31536000, immutable');
+  });
+});

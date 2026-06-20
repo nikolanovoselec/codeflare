@@ -70,6 +70,12 @@ const structuredData = {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {/* Dark first paint: declare the dark color scheme and paint the root dark
+        inline, before any external stylesheet loads. Without this the root is
+        light-scheme with a body-only background, so full-page navigations
+        (home <-> /login) flash the browser's default white canvas. */}
+    <meta name="color-scheme" content="dark" />
+    <style is:inline>html{color-scheme:dark;background-color:#0a0a0c}</style>
     <title>{title}</title>
     <meta name="description" content={description} />
     {robots && <meta name="robots" content={robots} />}

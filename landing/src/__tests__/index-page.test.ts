@@ -13,7 +13,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { experimental_AstroContainer as AstroContainer } from 'astro/container';
 import IndexPage from '../pages/index.astro';
 import PrivacyPage from '../pages/privacy.astro';
-import { dom, decodeEntities } from './_helpers/dom';
+import { dom, decodeEntities, documentDom } from './_helpers/dom';
 import { APP_LINKS } from '../config';
 import {
   AGENTS,
@@ -250,5 +250,29 @@ describe('content invariants', () => {
     const privacy = await container.renderToString(PrivacyPage);
     expect(privacy.length).toBeGreaterThan(0);
     expect(decodeEntities(privacy)).not.toMatch(/[–—]/);
+  });
+});
+
+describe('REQ-LANDING-004: dark first paint (anti-flash contract)', () => {
+  // BaseLayout declares the dark color scheme + paints the root dark inline so a
+  // full-page navigation (landing <-> /login) never flashes the browser's white
+  // default. Asserted as contract values on the head, not copy.
+  let doc: Document;
+  beforeAll(() => {
+    doc = documentDom(html);
+  });
+
+  it('AC1: declares color-scheme dark in the head', () => {
+    const meta = doc.querySelector('meta[name="color-scheme"]');
+    expect(meta).not.toBeNull();
+    expect(meta!.getAttribute('content')).toBe('dark');
+  });
+
+  it('AC1: paints the document root dark inline, before any external stylesheet', () => {
+    const rootPaint = [...doc.querySelectorAll('style')]
+      .map((s) => (s.textContent ?? '').replace(/\s+/g, ''))
+      .find((css) => /^html\{[^}]*background-color:#[0-9a-f]{3,8}/i.test(css));
+    expect(rootPaint, 'an inline html{} rule sets the dark root background').toBeTruthy();
+    expect(rootPaint).toContain('color-scheme:dark');
   });
 });

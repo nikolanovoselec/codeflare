@@ -461,6 +461,15 @@ export default {
     for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
       secureResponse.headers.set(key, value);
     }
+    // Content-hashed build assets (Astro emits CSS/JS/font/image files under
+    // /_astro/ with a content hash in the filename) are immutable for a given URL.
+    // Workers Assets otherwise serves them `max-age=0, must-revalidate`, so the
+    // landing stylesheet was revalidated on every full-page navigation — delaying
+    // first paint and causing the inter-page flash. Long-cache them immutably;
+    // HTML keeps its revalidating default so content stays fresh.
+    if (path.includes('/_astro/')) {
+      secureResponse.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+    }
     // CSP includes Turnstile origins (challenges.cloudflare.com) because the SPA
     // renders the onboarding landing page with Turnstile widget when onboarding is active.
     // style-src retains 'unsafe-inline' (CF-016): the React SPA renders many inline
