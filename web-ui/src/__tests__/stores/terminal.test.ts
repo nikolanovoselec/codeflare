@@ -322,9 +322,9 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff u
 
       sendSpy.mockClear();
       sockets[0].readyState = 3;
-      sockets[0].onclose?.(new CloseEvent('close', { code: 1006, reason: 'network' }));
-      await vi.advanceTimersByTimeAsync(100);
-      await vi.advanceTimersByTimeAsync(0);
+      sockets[0].onclose?.({ code: 1006, reason: 'network' } as CloseEvent);
+      await vi.runOnlyPendingTimersAsync();
+      await vi.runOnlyPendingTimersAsync();
 
       expect(sendSpy.mock.calls.map(([frame]) => frame)).toEqual([
         JSON.stringify({ type: 'focus' }),

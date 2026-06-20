@@ -765,7 +765,8 @@ None.
 
 <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Hard obligations -->
 <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Binding invocation rule -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-070 keeps Claude CI monitoring on-demand -> AC1/AC2/AC3/AC4) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-070 keeps Claude CI monitoring on-demand -> AC1/AC2) -->
+<!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 Claude launcher returns durable log path; monitor reports success only after stable fingerprint, failure rows, and gh access failures -> AC3/AC4) -->
 
 **Intent:** Claude and Claude-transformed agents monitor CI only when a user asks or a deploy/merge decision needs a fresh result.
 
@@ -786,7 +787,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-068](#req-agent-068-ci-monitoring-background-agent-policy)
 
-**Verification:** [Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** [Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [CI monitoring skill tests](../../host/__tests__/ci-monitoring-skill.test.js)
 
 **Status:** Implemented
 

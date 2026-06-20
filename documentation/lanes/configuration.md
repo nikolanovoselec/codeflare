@@ -126,7 +126,7 @@ The env-var pairs below are the fallback provider source when no Setup config ex
 | `GITHUB_HOST` | Web host for OAuth authorize/token. Override only for GitHub Enterprise Server-style hosts. | `github.com` | no | wrangler.toml | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) |
 | `GITHUB_API_HOST` | REST API host. Override paired with `GITHUB_HOST`. | `api.github.com` | no | wrangler.toml | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) |
 
-**OAuth callback domain:** `OAUTH_CLIENT_ID` selects Direct GitHub OAuth for SaaS login and onboarding `/login` sign-in. A classic GitHub OAuth App allows one callback URL, so each deployment domain needs its own App with `https://<domain>/auth/github/callback`; sharing an App redirects users to the registered domain.
+**OAuth callback domain** ([REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth), [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow)): `OAUTH_CLIENT_ID` selects Direct GitHub OAuth for SaaS login and onboarding `/login` sign-in. A classic GitHub OAuth App allows one callback URL, so each deployment domain needs its own App with `https://<domain>/auth/github/callback`; sharing an App redirects users to the registered domain.
 
 `OAUTH_CLIENT_ID` and `OAUTH_CLIENT_SECRET` (documented in [Worker Environment](#worker-environment)) are reused as the OAuth-App Connect provider whenever Setup has no GitHub provider config and no GitHub App env pair is configured ([REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage)).
 
