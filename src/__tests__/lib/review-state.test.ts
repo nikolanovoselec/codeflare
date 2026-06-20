@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { agentHeadAdvanceRequiresReview, computeReviewStateFrom, isAgentSpawnerToolEvent, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, reviewInSessionContinuation, mergeGateDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, reviewMonitorDecision, workspaceRepoFromPath, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput, type MergeGateInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 
 /**
@@ -371,6 +374,28 @@ describe('REQ-AGENT-058 AC4: every suppressed reconcile gate names its own reaso
  * footer, the missing live lane row, and the on-turn summary that never emits for a nested clone.
  */
 describe('rememberReviewRepo / recallReviewRepo (shared in-session review-repo memory)', () => {
+  let registryDir: string;
+  let previousRegistry: string | undefined;
+
+  function clearRepoMemory(): void {
+    delete (globalThis as Record<symbol, unknown>)[Symbol.for('codeflare.reviewRepo')];
+    delete (globalThis as Record<symbol, unknown>)[Symbol.for('codeflare.reviewRepos')];
+  }
+
+  beforeEach(() => {
+    previousRegistry = process.env.CODEFLARE_REVIEW_REPO_REGISTRY;
+    registryDir = mkdtempSync(join(tmpdir(), 'codeflare-review-repos-'));
+    process.env.CODEFLARE_REVIEW_REPO_REGISTRY = join(registryDir, 'repos.json');
+    clearRepoMemory();
+  });
+
+  afterEach(() => {
+    clearRepoMemory();
+    if (previousRegistry === undefined) delete process.env.CODEFLARE_REVIEW_REPO_REGISTRY;
+    else process.env.CODEFLARE_REVIEW_REPO_REGISTRY = previousRegistry;
+    rmSync(registryDir, { recursive: true, force: true });
+  });
+
   it('recall returns the last remembered workspace-child repo so the no-ctx reaper + footer resolve the clone', () => {
     rememberReviewRepo('/home/user/workspace/ai-news-digest');
     expect(recallReviewRepo()).toBe('/home/user/workspace/ai-news-digest');
@@ -388,6 +413,16 @@ describe('rememberReviewRepo / recallReviewRepo (shared in-session review-repo m
     rememberReviewRepo('/tmp/other');
     expect(recallReviewRepo()).toBe('/home/user/workspace/ai-news-digest');
   });
+
+  it('REQ-AGENT-061: persisted recall ignores stale workspace-child paths without a .git directory', () => {
+    writeFileSync(
+      process.env.CODEFLARE_REVIEW_REPO_REGISTRY as string,
+      JSON.stringify(['/home/user/workspace/not-a-real-review-repo'])
+    );
+
+    expect(recallReviewRepos()).toEqual([]);
+    expect(recallReviewRepo()).toBeUndefined();
+  });
 });
 
 /**
@@ -397,6 +432,29 @@ describe('rememberReviewRepo / recallReviewRepo (shared in-session review-repo m
  * in a nested repo via git -C (the footer was blank in exactly that session shape).
  */
 describe('rememberActiveRepo / recallActiveRepo (shared in-session active-repo memory)', () => {
+  let registryDir: string;
+  let previousRegistry: string | undefined;
+
+  function clearRepoMemory(): void {
+    delete (globalThis as Record<symbol, unknown>)[Symbol.for('codeflare.reviewRepo')];
+    delete (globalThis as Record<symbol, unknown>)[Symbol.for('codeflare.reviewRepos')];
+    delete (globalThis as Record<symbol, unknown>)[Symbol.for('codeflare.activeRepo')];
+  }
+
+  beforeEach(() => {
+    previousRegistry = process.env.CODEFLARE_REVIEW_REPO_REGISTRY;
+    registryDir = mkdtempSync(join(tmpdir(), 'codeflare-review-repos-'));
+    process.env.CODEFLARE_REVIEW_REPO_REGISTRY = join(registryDir, 'repos.json');
+    clearRepoMemory();
+  });
+
+  afterEach(() => {
+    clearRepoMemory();
+    if (previousRegistry === undefined) delete process.env.CODEFLARE_REVIEW_REPO_REGISTRY;
+    else process.env.CODEFLARE_REVIEW_REPO_REGISTRY = previousRegistry;
+    rmSync(registryDir, { recursive: true, force: true });
+  });
+
   it('recall returns the last remembered repo so the footer resolves a nested working repo', () => {
     rememberActiveRepo('/home/user/workspace/ai-news-digest');
     expect(recallActiveRepo()).toBe('/home/user/workspace/ai-news-digest');

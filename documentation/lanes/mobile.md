@@ -11,7 +11,6 @@ Technical reference for the mobile terminal implementation covering keyboard han
 - [MultiView Availability](#multiview-availability)
 - [Cursor Visibility](#cursor-visibility)
 - [Keyboard Management](#keyboard-management)
-  - [Background prewarm focus safety](#background-prewarm-focus-safety)
 - [Touch Input](#touch-input)
 - [Scroll Stability](#scroll-stability)
 - [WebSocket Recovery](#websocket-recovery)

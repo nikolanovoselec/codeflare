@@ -286,7 +286,9 @@ Admin groups also widen the JIT entry gate (union of user-access + admin groups)
 - Setup complete, default mode -> `/` redirects to `/app/`
 - Setup complete, onboarding mode -> authenticated users to `/app/`, unauthenticated to public landing
 - Setup complete, SaaS mode -> `/` shows login page with "Sign in with GitHub" button
-- Unauthenticated marketing-landing visitors who click Sign in go to `/login` (`APP_LINKS.signIn` in `landing/src/config.ts`). In onboarding mode this is the landing-built sign-in page: it shares the landing tokens, preloaded fonts, and nav chrome, but omits the marketing WebGL/motion hooks so first paint is stable. In SaaS mode it remains the SPA provider chooser (GitHub, Google, OIDC, one-time-pin). `/app/` is not used as the Sign-in link target because the SPA guard redirects an unauthenticated request back to `/` before the login UI renders.
+- Unauthenticated marketing-landing Sign in clicks target `/login` (`APP_LINKS.signIn` in `landing/src/config.ts`).
+
+In onboarding mode, `/login` is the landing-built sign-in page: it shares landing tokens, preloaded fonts, and nav chrome, but omits marketing WebGL/motion hooks so first paint is stable. In SaaS mode, `/login` remains the SPA provider chooser (GitHub, Google, OIDC, one-time-pin). `/app/` is not the Sign-in target because the SPA guard redirects unauthenticated requests back to `/` before login UI renders.
 
 ---
 

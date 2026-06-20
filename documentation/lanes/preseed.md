@@ -147,10 +147,13 @@ but localhost `live` browser server scripts are not active in codeflare.
 verbatim, so detector scripts are never mangled by Claude-to-Pi text adaptation.
 
 Skills are preseeded to `~/.claude/skills/<name>/SKILL.md` and adapted equivalents
-for agents that support skills. `consult-llm` is scoped to Claude + Pi only: both
-get the consult-llm MCP server, so the skill never references a missing tool. Its
-skill hard-gates use to explicit current user requests naming external LLMs/GPT,
-ChatGPT, Gemini, or OpenAI; see [REQ-AGENT-031](../../sdd/spec/agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)
+for agents that support skills. `consult-llm` is scoped to Claude + Pi only. On
+container start, `configure_consult_llm` keeps the skill and MCP server only when
+at least one provider is usable (Codex login or `CODEFLARE_OPENAI_API_KEY` /
+`CODEFLARE_GEMINI_API_KEY`); when no provider is usable, and in Enterprise Mode,
+it removes the Claude/Pi skill directories so no agent sees a skill for a missing
+MCP server. Its skill hard-gates use to explicit current user requests naming
+external LLMs/GPT, ChatGPT, Gemini, or OpenAI; see [REQ-AGENT-031](../../sdd/spec/agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)
 and [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior).
 
 Claude receives consult-llm through `~/.claude.json`; Pi receives it through

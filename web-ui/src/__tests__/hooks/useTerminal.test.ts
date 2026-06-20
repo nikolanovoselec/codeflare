@@ -72,6 +72,7 @@ vi.mock('../../stores/terminal', () => ({
     setTerminal: vi.fn(),
     registerFitAddon: vi.fn(),
     unregisterFitAddon: vi.fn(),
+    disposeLocalTerminal: vi.fn(),
     connect: vi.fn(() => vi.fn()),
     claimResizeAuthority: vi.fn(),
     clearPendingResizeAuthority: vi.fn(),
@@ -247,7 +248,7 @@ describe('useTerminal hook', () => {
 
       dispose();
 
-      expect(terminalStore.unregisterFitAddon).toHaveBeenCalledWith(
+      expect(terminalStore.disposeLocalTerminal).toHaveBeenCalledWith(
         defaultProps.sessionId,
         defaultProps.terminalId
       );

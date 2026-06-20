@@ -276,6 +276,64 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff u
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
+    it('REQ-TERM-011: resends focused resize authority after a retry reconnect opens', async () => {
+      const terminal = {
+        ...createMockTerminal(),
+        cols: 120,
+        rows: 40,
+      } as unknown as Terminal;
+      const sendSpy = vi.fn();
+      const sockets: Array<{
+        readyState: number;
+        onopen: ((event: Event) => void) | null;
+        onclose: ((event: CloseEvent) => void) | null;
+      }> = [];
+      const OriginalWebSocket = globalThis.WebSocket;
+      vi.stubGlobal('WebSocket', class {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+        readyState = 0;
+        onopen: ((event: Event) => void) | null = null;
+        onclose: ((event: CloseEvent) => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
+        send = sendSpy;
+        constructor(_url: string) {
+          sockets.push(this);
+          setTimeout(() => {
+            this.readyState = 1;
+            this.onopen?.(new Event('open'));
+          }, 0);
+        }
+        close(): void {
+          this.readyState = 3;
+        }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      terminalStore.claimResizeAuthority(sessionId, terminalId);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(sendSpy.mock.calls.map(([frame]) => frame)).toEqual([
+        JSON.stringify({ type: 'focus' }),
+        JSON.stringify({ type: 'resize', cols: 120, rows: 40 }),
+      ]);
+
+      sendSpy.mockClear();
+      sockets[0].readyState = 3;
+      sockets[0].onclose?.(new CloseEvent('close', { code: 1006, reason: 'network' }));
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(sendSpy.mock.calls.map(([frame]) => frame)).toEqual([
+        JSON.stringify({ type: 'focus' }),
+        JSON.stringify({ type: 'resize', cols: 120, rows: 40 }),
+      ]);
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
     it('REQ-TERM-014: clears a stale queued focus claim before WebSocket open', async () => {
       const terminal = {
         ...createMockTerminal(),
@@ -356,6 +414,31 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff u
       terminalStore.dispose(sessionId, terminalId);
 
       expect(sendSpy).toHaveBeenCalledWith(JSON.stringify({ type: 'kill' }));
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
+    it('REQ-TERM-011: disposes local terminal UI without killing the PTY', async () => {
+      const terminal = createMockTerminal();
+      const sendSpy = vi.fn();
+      const OriginalWebSocket = globalThis.WebSocket;
+      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+        send = sendSpy;
+        constructor(url: string) {
+          super(url);
+        }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+      sendSpy.mockClear();
+
+      terminalStore.disposeLocalTerminal(sessionId, terminalId);
+
+      expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('disconnected');
+      expect(terminalStore.getTerminal(sessionId, terminalId)).toBeUndefined();
+      expect(terminal.dispose).toHaveBeenCalled();
+      expect(sendSpy).not.toHaveBeenCalledWith(JSON.stringify({ type: 'kill' }));
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });

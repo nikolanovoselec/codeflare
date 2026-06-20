@@ -64,12 +64,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 <!-- @impl: web-ui/src/lib/mobile.ts::enableVirtualKeyboardOverlay -->
 <!-- @impl: web-ui/src/lib/mobile.ts::disableVirtualKeyboardOverlay -->
 <!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight -->
-<!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmFocusGuard -->
-<!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm -->
 <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts describe -> enableVirtualKeyboardOverlay / disableVirtualKeyboardOverlay -> AC1, AC2; stale geometrychange ignore window -> AC1, AC3; baselineInnerHeight stability -> AC4; visualViewport fallback -> AC3) -->
 <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-002 describe -> AC1, AC2, AC3, AC4, AC6) -->
-<!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (vault browser prewarm protocol describe -> eager hidden prewarm keeps prior terminal focus and restores it if the iframe captures focus -> AC8) -->
-<!-- @test: src/__tests__/routes/vault-html-direct.test.ts (vault prewarm helpers describe -> valid prewarm shell disables script focus/select/window.focus while generic shell focus remains normal -> AC8) -->
 
 **Intent:** Tapping the terminal must reliably open the device's virtual keyboard, and the terminal must resize correctly to accommodate it.
 
@@ -84,19 +80,47 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 5. An isolated compositor context prevents the Android IME native caret from appearing outside the terminal bounds.
 6. Autocorrect is suppressed at the OS level on mobile.
 7. Focus state detection uses a live browser query rather than a cached value.
-8. Background same-origin surfaces that run while the keyboard is open, including Vault browser prewarm, must not blur the terminal input or dismiss the keyboard; they remain eager but are focus-inert and restore the terminal/input focus if their hidden iframe captures it.
 
 **Constraints:**
 
 - The overlay mode is only re-stamped on genuine state changes; redundant no-op toggles must not restart the stale-event ignore window.
 - The stale-event ignore window applies only to genuine toggles.
-- Background prewarm must not be delayed just because the keyboard is open; focus safety is enforced by making the hidden document unable to claim focus.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-MOB-001](#req-mob-001-terminal-fully-usable-on-mobile-devices)
 
 **Verification:** [Integration test](../../web-ui/src/__tests__/lib/mobile.test.ts)
+
+**Status:** Implemented
+
+---
+
+<!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (vault browser prewarm protocol describe -> eager hidden prewarm keeps prior terminal focus and restores it if the iframe captures focus -> AC1,AC3) -->
+<!-- @test: src/__tests__/routes/vault-html-direct.test.ts (vault prewarm helpers describe -> valid prewarm shell disables script focus/select/window.focus while generic shell focus remains normal -> AC2) -->
+### REQ-MOB-014: Mobile background-surface focus isolation
+
+<!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm -->
+<!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmFocusGuard -->
+**Intent:** Hidden same-origin surfaces must not steal focus from an active mobile terminal.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Background same-origin surfaces that run while the keyboard is open do not blur the terminal input or dismiss the keyboard. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm -->
+2. Vault browser prewarm remains eager but uses a focus-inert hidden document. <!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmFocusGuard -->
+3. If a hidden iframe captures focus, the terminal/input focus is restored. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm -->
+
+**Constraints:**
+
+- Background prewarm must not be delayed just because the keyboard is open.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-VAULT-020](vault.md#req-vault-020-vault-prewarm-focus-safety)
+
+**Verification:** [Vault prewarm test](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [Vault shell helper test](../../src/__tests__/routes/vault-html-direct.test.ts)
 
 **Status:** Implemented
 

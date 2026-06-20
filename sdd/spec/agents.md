@@ -187,7 +187,7 @@ Multi-agent support, preseed system, and session modes.
 3. Pro-mode hooks fire uniformly regardless of which tool surface invoked the underlying command, so coverage is identical whether the user is on Custom tier (commands route through context-mode) or any other tier (commands run directly): commit attribution is blocked before the commit lands, the SDD review pipeline is triggered at every PR-to-`main` boundary event, the turn cannot end while a PR HEAD remains unreviewed, and memory capture runs on the user-prompt cadence.
 4. Pi agents remain fully functional whether or not context-mode is active: native Bash/Read/Grep/Find/Edit/Write plus graphify tools are sufficient on their own. The shared agent definitions' context-mode helper tools are remapped to their Pi-native names (`ctx_execute`, `ctx_batch_execute`, `ctx_execute_file`, `ctx_search`, `ctx_fetch_and_index`) and kept in the Pi agent frontmatter rather than stripped: with context-mode enabled by default they are present at runtime, and a session that disables it via `/ctx off` simply drops them — with no Pi-specific agent variants.
 5. Pi starts with context-mode ENABLED by default — its `ctx_*` tools and the bash-curl-redirect hook are active without an explicit `/ctx on`. The Codeflare Pi extension provides `/ctx status`, `/ctx on`, and `/ctx off`; `/ctx off` disables the context-mode package for the current running session and reloads resources, while the next Codeflare container start resets Pi back to enabled. <!-- @impl: entrypoint.sh --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts -->
-6. Custom-tier Claude Code users may receive context-mode's automatic context-window-reduction behavior; downgrading away from Custom tier, switching away from Pro mode, or using Pi removes that Custom-tier-only behavior on the next reconcile.
+6. Custom-tier Claude Code users may receive context-mode's automatic context-window-reduction behavior; downgrades, non-Pro mode, and Pi remove it on the next reconcile. <!-- @impl: src/lib/r2-seed.ts::getConfigsForMode -->
 7. The Pi preseed installs five always-on tool extensions in the settings `required` set: `@juicesharp/rpiv-advisor`, `@juicesharp/rpiv-ask-user-question`, `@juicesharp/rpiv-todo`, `pi-web-access`, and `pi-mcp-adapter`. <!-- @impl: entrypoint.sh --> <!-- @impl: preseed/agents/pi/package.json --> <!-- @impl: preseed/agents/pi/manifest.json -->
 
 **Constraints:**
@@ -702,8 +702,9 @@ None.
 
 1. Pro mode preseeds the `spec-driven-development` skill, the `sdd-init` and `sdd-clean` sub-command skills, the `vault-operations` skill, the `ci-monitoring` skill, the `/sdd` command, the `spec-discipline`, `documentation-discipline`, and `tdd-discipline` rules (loaded into every agent's instructions), and the `spec-reviewer` + `doc-updater` agents.
 2. Every `/sdd` sub-command (`init`, `edit`, `add`, `clean`, `mode`) works in Pi without context-mode by using native Bash/Read/Grep/Find/Write/Edit tools; context-management helper tools, when present in another runtime, are optional rather than required.
-3. Large discovery commands run through Pi-native discovery tools when context-mode is absent; runtime-specific output wrappers are optional optimizations.
-4. Pi-transformed SDD skills use Pi-native graphify tools and `Agent`/`Plan` terminology, and the native `/sdd` command enforces command-file hard gates before dispatching to workflow skills.
+3. Large discovery commands use Pi-native discovery tools when context-mode is absent. <!-- @impl: scripts/generate-agent-seed.mjs::PI_SDD_COMPATIBILITY_NOTE -->
+4. Pi-transformed SDD skills use Pi-native graphify tools and `Agent`/`Plan` terminology. <!-- @impl: scripts/generate-agent-seed.mjs::PI_SDD_COMPATIBILITY_NOTE -->
+5. The native `/sdd` command enforces command-file hard gates before workflow dispatch. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::sddRepoState --> <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddCommandDecision -->
 
 **Constraints:**
 
@@ -1441,8 +1442,8 @@ None.
 
 <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts -->
 <!-- @impl: preseed/agents/pi/manifest.json -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-056 local statusline fake-footer render -> AC1/AC2/AC3/AC4/AC5, including separate review line under other background statuses) -->
-<!-- @test: src/__tests__/lib/review-state.test.ts (active-repo remember/recall + separate slot from review-repo memory + sentinel guard accept/reject including path-boundary workspace-other case -> AC2) -->
+<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-056 local statusline fake-footer render -> AC1/AC2/AC5/AC6/AC7, including separate review line under other background statuses) -->
+<!-- @test: src/__tests__/lib/review-state.test.ts (active-repo remember/recall + separate slot from review-repo memory + sentinel guard accept/reject including path-boundary workspace-other case -> AC3/AC4) -->
 
 **Intent:** Pi users need a compact footer in every session mode that shows session context without hiding extension-owned status rows such as PR-boundary review progress.
 
@@ -1451,10 +1452,12 @@ None.
 **Acceptance Criteria:**
 
 1. The Pi local statusline extension is preseeded in both Standard and Pro modes. <!-- @impl: preseed/agents/pi/manifest.json::local-statusline.ts -->
-2. The footer's first line renders current context usage, active model ID with thinking effort as `model:effort`, and the active repository label when one can be resolved. When neither the session cwd nor the ctx cwd is inside a git repo (e.g. the session cwd is a non-repo parent workspace and work happens in a nested repo via `git -C`), the label falls back — display-only, never for review routing — through: the in-session active repo remembered by codeflare-pi whenever a command resolves a git root, the in-session remembered review repo (nested review clones), and finally the on-disk graphify active-cwd sentinel guarded to a git repo inside a session root so a concurrent agent's unrelated repo cannot hijack the footer. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::renderLine --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::contextPercent --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::repositoryLabel --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::sentinelRepoForDisplay --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::rememberActiveRepo --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::activeRepoSentinelForDisplay --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::rememberReviewRepo --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::updateActiveRepoFromPath -->
-3. Extension-owned non-review statuses are preserved on an additional footer line only while statuses exist, and PR-boundary review progress renders on its own footer line beneath them so narrow/mobile terminals do not hide review progress behind other background-agent status text. Idle sessions do not render empty extra lines. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::installFooter -->
-4. Footer lines are truncated by visible width, preserving ANSI color sequences and appending a reset before the ellipsis so colored review statuses do not consume visible width or bleed styling past truncation. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::truncateToWidth -->
-5. The statusline refreshes on session start, resource discovery, turn boundaries, model changes, thinking-effort changes, and cache-TTL repaint intervals. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::refreshFooter --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::CACHE_TTL_MS -->
+2. The first footer line renders context usage, active model with thinking effort, and the active repository label when resolved. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::renderLine --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::contextPercent --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::repositoryLabel -->
+3. If cwd metadata is outside git, the footer falls back to in-session active-repo memory and then review-repo memory. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::rememberActiveRepo --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::rememberReviewRepo --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::updateActiveRepoFromPath -->
+4. The graphify active-cwd sentinel is display-only and accepted only for git repos inside a session root. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::sentinelRepoForDisplay --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::activeRepoSentinelForDisplay -->
+5. Non-review extension statuses render on an extra footer line only while present; PR-boundary review progress renders on a separate line below them. Idle sessions render no empty extra lines. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::installFooter -->
+6. Footer lines are truncated by visible width, preserving ANSI color sequences and appending a reset before the ellipsis so colored review statuses do not consume visible width or bleed styling past truncation. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::truncateToWidth -->
+7. The statusline refreshes on session start, resource discovery, turn boundaries, model changes, thinking-effort changes, and cache-TTL repaint intervals. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::refreshFooter --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::CACHE_TTL_MS -->
 
 **Constraints:**
 
@@ -1464,7 +1467,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** [Pi local statusline render test](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC1-AC5); [review-state.test.ts](../../src/__tests__/lib/review-state.test.ts) (AC2 — repo-label resolution via rememberReviewRepo/recallReviewRepo, rememberActiveRepo/recallActiveRepo, and the guarded activeRepoSentinelForDisplay fallback)
+**Verification:** [Pi local statusline render test](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC1-AC2, AC5-AC7); [review-state.test.ts](../../src/__tests__/lib/review-state.test.ts) (AC3-AC4 — repo-label resolution via rememberReviewRepo/recallReviewRepo, rememberActiveRepo/recallActiveRepo, and the guarded activeRepoSentinelForDisplay fallback)
 
 **Status:** Implemented
 
@@ -1525,7 +1528,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Reconciliation reads PR state on lifecycle ticks, after successful shell commands that invoke `git` or `gh`, and after successful Bash results whose command text was lost; transcript backstop cursors keep the first complete post-cursor record and do not consume incomplete JSONL records; post-command reads bypass stale PR cache. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reconcileOpenPrReview --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::completeTranscriptDelta --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::postCommandReconcileDecision --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (completeTranscriptDelta keeps the first post-cursor boundary record and waits for complete JSONL records -> AC1) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (postCommandReconcileDecision forces fresh PR-state reconcile after git/gh shell commands -> AC1) -->
+1. Reconciliation reads fresh PR state on lifecycle ticks and after successful `git`/`gh` commands; transcript cursors keep the first complete post-cursor record and ignore incomplete JSONL. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reconcileOpenPrReview --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::completeTranscriptDelta --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::postCommandReconcileDecision --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (completeTranscriptDelta keeps the first post-cursor boundary record and waits for complete JSONL records -> AC1) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (postCommandReconcileDecision forces fresh PR-state reconcile after git/gh shell commands -> AC1) -->
 2. An unacknowledged protected PR head advanced during the current session starts a durable review automatically. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::shouldReconcileOpenPr --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewInSessionContinuation --> <!-- @test: src/__tests__/lib/review-state.test.ts (shouldReconcileOpenPr gates enforced open PR heads; reviewInSessionContinuation distinguishes in-session advances from inherited heads -> AC2) -->
 3. An inherited protected PR head is offered once and remains merge-blocking until the user starts or skips review. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reconcileBoundaryAction -->
 4. Boundary-command and reconciliation paths call one shared routine, so windows match in lanes, base, durable job, and audit trail. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ensureReviewWindow -->
@@ -1565,9 +1568,9 @@ None.
 1. A user-creatable one-shot sentinel file bypasses the current PR-boundary gate exactly once and is auto-deleted on use, never committed, and never survives a container restart. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::BYPASS_FILE --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::consumeBypass -->
 2. Claude Stop-hook enforcement treats the sentinel as a one-turn bypass without advancing the acknowledgement checkpoint; Pi native enforcement acknowledges only the current live protected PR HEAD after successful sentinel consumption. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::bypassAckHeadForStatus -->
 3. Pi task/subagent sessions must leave the sentinel untouched and must not acknowledge a bypass if sentinel consumption fails. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::consumeBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::canMainSessionConsumeReviewBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewBypassConsumeDecision -->
-4. A magic phrase `skip review` or `skip verification` (case-insensitive, word-bounded) in any user message after the candidate push line in the transcript bypasses the gate for that push.
-5. A 3-strike circuit breaker exits silently after blocking the same un-acked PR HEAD SHA three times, sticky until the SHA changes.
-6. The assistant MUST NEVER create the sentinel file or write the magic phrase in its own output; both are explicitly user-only escape hatches. The native runtime reinforces this for the sentinel half structurally: the review extension only tests for and deletes the sentinel on use, with no code path that creates it. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBypass -->
+4. A user-authored `skip review` or `skip verification` phrase after the candidate push line bypasses that push. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh -->
+5. A 3-strike circuit breaker exits silently for the same unacked PR HEAD until the SHA changes. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::openBreaker --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::isBreakerOpen -->
+6. The assistant MUST NEVER create the sentinel file or write the magic phrase in its own output. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBypass -->
 
 **Constraints:**
 
@@ -2056,7 +2059,7 @@ None.
 
 <!-- @impl: scripts/generate-agent-seed.mjs -->
 <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars describe → AC1 CODEFLARE_-namespaced injection + bare-name regression + AC6 enterprise no-inject) -->
-<!-- @test: host/__tests__/entrypoint-consult-llm.test.js (entrypoint consult-llm configuration describe → AC2 scoped env mapping + AC3 codex-cli/API backend selection + AC4 Pi lazy proxy + AC6 enterprise gate) -->
+<!-- @test: host/__tests__/entrypoint-consult-llm.test.js (entrypoint consult-llm configuration describe → AC2 scoped env mapping + AC3 codex-cli/API backend selection + AC4 agent scoping + AC6 enterprise gate; REQ-AGENT-069 covers Pi lazy proxy) -->
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (consult-llm available to Claude and Pi only → AC4; REQ-AGENT-031 consult-llm invocation behaviour describe → AC5 five-choice model dialog + selectors) -->
 <!-- @test: src/__tests__/routes/llm-keys.test.ts (enterprise mode describe → AC6 403 on GET/PUT/DELETE) -->
 
@@ -2069,7 +2072,7 @@ None.
 1. LLM provider keys are injected into the container ONLY under a `CODEFLARE_`-namespaced name (`CODEFLARE_OPENAI_API_KEY` / `CODEFLARE_GEMINI_API_KEY`); the bare `OPENAI_API_KEY` / `GEMINI_API_KEY` names NEVER appear in the container's global environment. Keys are read fresh from KV on each container start and are not persisted in DO storage. <!-- @impl: src/container/container-env.ts::buildEnvVars -->
 2. The entrypoint maps the namespaced keys back to the standard `OPENAI_API_KEY` / `GEMINI_API_KEY` names ONLY inside the `consult-llm-mcp` MCP server's scoped `env` block (in `~/.claude.json` and `~/.pi/agent/mcp.json`), never as a global export. <!-- @impl: entrypoint.sh -->
 3. Per provider the entrypoint prefers the subscription over the API key: OpenAI uses the Codex CLI backend (`CONSULT_LLM_OPENAI_BACKEND=codex-cli`, `CONSULT_LLM_CODEX_REASONING_EFFORT=high`) when the user is logged into Codex (`~/.codex/auth.json` present), passing the API key only as a fallback; otherwise it uses the API key. Gemini always uses the API key. When no provider is usable, no MCP server is written. <!-- @impl: entrypoint.sh -->
-4. The `consult-llm` tooling is available to Claude Code AND Pi only: Claude reads it from `~/.claude.json`; Pi reads `~/.pi/agent/mcp.json` through the pi-mcp-adapter `mcp` proxy, is seeded a native Pi `consult-llm` skill, and sets `lifecycle:"lazy"` so `consult-llm-mcp` starts only when the user explicitly invokes the proxy for the `consult-llm` server. The entrypoint replaces Codeflare's owned `mcpServers["consult-llm"]` object on each start, removing the old always-on `lifecycle:"keep-alive"` / `directTools:["consult_llm"]` fields while preserving unrelated user MCP servers. The Claude server carries no `lifecycle` field (a pi-mcp-adapter-only concept). No other agent (codex/opencode/antigravity) receives the skill or the server. <!-- @impl: entrypoint.sh --> <!-- @impl: preseed/agents/pi/manifest.json -->
+4. The `consult-llm` tooling is scoped to Claude Code and Pi only; no other agent receives the skill or MCP server. <!-- @impl: entrypoint.sh --> <!-- @impl: preseed/agents/pi/manifest.json -->
 5. Claude and Pi consult-llm skills implement the invocation and model-selection behavior in [REQ-AGENT-067](#req-agent-067-consult-llm-invocation-and-model-selection-behavior). <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md::Hard gate --> <!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md::Hard gate --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (consult-llm invocation behaviour -> AC5) -->
 6. In enterprise mode the entire LLM-keys-and-consult-llm surface is unavailable: the keys are not injected (AC1 suppressed), the `/api/llm-keys` routes return 403 on every method, the Settings "LLM API Keys" section is hidden, and the entrypoint writes no consult-llm MCP config and removes any seeded `consult-llm` skill dirs for both Claude and Pi. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: src/routes/llm-keys.ts --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx --> <!-- @impl: entrypoint.sh -->
 
@@ -2083,7 +2086,39 @@ None.
 
 **Dependencies:** [REQ-AGENT-009](#req-agent-009-llm-api-key-storage-encrypted-in-kv)
 
-**Verification:** [Container-env test](../../src/__tests__/container/container-env.test.ts) (AC1/AC6), [entrypoint consult-llm host test](../../host/__tests__/entrypoint-consult-llm.test.js) (AC2/AC3/AC4/AC6), [agent-seed manifest test](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC4/AC5), and [LLM keys route test](../../src/__tests__/routes/llm-keys.test.ts) (AC6 enterprise 403).
+**Verification:** [Container-env test](../../src/__tests__/container/container-env.test.ts) (AC1/AC6), [entrypoint consult-llm host test](../../host/__tests__/entrypoint-consult-llm.test.js) (AC2/AC3/AC4/AC6 and REQ-AGENT-069), [agent-seed manifest test](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC4/AC5), and [LLM keys route test](../../src/__tests__/routes/llm-keys.test.ts) (AC6 enterprise 403).
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-069: Pi consult-llm MCP lazy wiring
+
+<!-- @impl: entrypoint.sh -->
+<!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md -->
+<!-- @test: host/__tests__/entrypoint-consult-llm.test.js (Pi mcp.json mirrors the server through the lazy mcp proxy; replaces only the owned consult-llm entry and stays idempotent across starts) -->
+
+**Intent:** Pi must reach consult-llm through the MCP adapter without starting `consult-llm-mcp` until the user explicitly asks for external LLM input.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Pi reads `consult-llm` from `~/.pi/agent/mcp.json` through the pi-mcp-adapter `mcp` proxy. <!-- @impl: entrypoint.sh -->
+2. The Pi `consult-llm` entry uses `lifecycle:"lazy"`, so `consult-llm-mcp` starts on proxy use rather than session start. <!-- @impl: entrypoint.sh -->
+3. Each container start replaces Codeflare's owned `mcpServers["consult-llm"]` object, removing stale `keep-alive` and `directTools` fields. <!-- @impl: entrypoint.sh -->
+4. The replacement preserves unrelated user MCP servers in the same file. <!-- @impl: entrypoint.sh -->
+
+**Constraints:**
+
+- The Claude server carries no Pi-only `lifecycle` field.
+- Pi's native consult skill must call through `mcp`, not through a promoted direct tool.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-031](#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity), [REQ-AGENT-067](#req-agent-067-consult-llm-invocation-and-model-selection-behavior)
+
+**Verification:** [entrypoint consult-llm host test](../../host/__tests__/entrypoint-consult-llm.test.js)
 
 **Status:** Implemented
 

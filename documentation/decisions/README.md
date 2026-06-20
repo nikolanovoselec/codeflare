@@ -1441,7 +1441,7 @@ Load only explicit `-e` extensions: `graphify-native.ts`, `review-lane-guards.ts
 **Consequences:**
 
 - Lanes survive the spawning session and are reaped from disk. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::reapDurableReviewLanes -->
-- The idle reaper advances and finalizes durable jobs without a user turn. It also drains nonce-verified result announcements after the active review window clears. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::drainReviewAnnouncements -->
+- The idle reaper advances durable jobs without a user turn, and completed windows start a background `review-monitor` that reports `REVIEW_RESULT` back to the main session. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview -->
 - Reviewers get a bounded inspection tool allowlist: bash for git/gh inspection, graphify tools, local-build blockers, and optional `ctx_search`.
 - Lanes do not load `codeflare-pi.ts`, `review-enforcement`, or `@gotgenes/pi-subagents`.
 
@@ -1583,18 +1583,18 @@ Load only explicit `-e` extensions: `graphify-native.ts`, `review-lane-guards.ts
 
 **Status:** Accepted (2026-06-18)
 
-**Decision:** The browser opens terminal WebSockets only for panes visible in the current frontend workspace. Dashboard has zero visible panes, a real session has one visible pane, and `MultiView #1` is a local virtual workspace that renders one visible pane for each selected real session. MultiView is never represented as a backend session ID.
+**Decision:** The browser opens terminal WebSockets only for panes visible in the current frontend workspace. Dashboard has zero visible panes, a real session has one visible pane, and `MultiView #1` is a local virtual workspace that renders one visible pane for each selected real session. MultiView is never represented as a backend session ID. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::terminalWorkspaceStore --> <!-- @impl: web-ui/src/stores/terminal-workspace.ts::createOrUpdateMultiView -->
 
-**Context:** Dashboard and hidden session surfaces previously mounted terminals for every running session. Those hidden terminals attached extra WebSocket clients to server PTYs, sent stale resize frames, and made the Dashboard status look connected even when the user was not viewing a terminal. The same problem would become worse with a multi-session view unless running, visible, connected, and focused were separated.
+**Context:** Dashboard and hidden session surfaces previously mounted terminals for every running session. Those hidden terminals attached extra WebSocket clients to server PTYs, sent stale resize frames, and made the Dashboard status look connected even when the user was not viewing a terminal. The same problem would become worse with a multi-session view unless running, visible, connected, and focused were separated. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea -->
 
 **Consequences:**
 
 - Dashboard status and storage polling are no longer coupled to terminal side effects.
-- Hidden running sessions do not mount terminals, reconnect, resize, forward input, or run URL detection.
-- Browser visibility return reconnects only the current workspace's visible pane keys.
-- `MultiView #1` can compose existing running or initializing sessions without quota, storage, lifecycle, or terminal-route changes.
-- A shared `TerminalGrid` renders tiled terminal surfaces for both per-session tab tiling and MultiView, so repeated layout structure stays centralized.
-- The host terminal server assigns resize authority to the focused WebSocket so stale clients cannot shrink a shared PTY.
+- Hidden running sessions do not mount terminals, reconnect, resize, forward input, or run URL detection. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea -->
+- Browser visibility return reconnects only the current workspace's visible pane keys. <!-- @impl: web-ui/src/components/Layout.tsx::visibleTerminalKeys -->
+- `MultiView #1` can compose existing running or initializing sessions without quota, storage, lifecycle, or terminal-route changes. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::createOrUpdateMultiView -->
+- A shared `TerminalGrid` renders tiled terminal surfaces for both per-session tab tiling and MultiView, so repeated layout structure stays centralized. <!-- @impl: web-ui/src/components/TerminalGrid.tsx::TerminalGrid -->
+- The host terminal server assigns resize authority to the focused WebSocket so stale clients cannot shrink a shared PTY. <!-- @impl: host/src/session.ts::claimResizeAuthority -->
 
 **Related:** [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace), [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow), [REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming).
 

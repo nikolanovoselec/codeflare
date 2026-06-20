@@ -1083,6 +1083,10 @@ function workspaceChildRoot(path: string | undefined, workspace = CODEFLARE_WORK
   return repoName ? join(root, repoName) : undefined;
 }
 
+function localHasGitDir(repo: string): boolean {
+  return existsSync(join(repo, ".git"));
+}
+
 export function workspaceRepoFromPath(
   path: string | undefined,
   hasGitDir: (repo: string) => boolean,
@@ -1129,18 +1133,23 @@ const REVIEW_REPO_KEY = Symbol.for("codeflare.reviewRepo");
 // no-ctx reaper can finalize ALL of them, not just the last one (P6) — otherwise a second repo's review
 // hangs unfinalized until the user returns to it.
 const REVIEW_REPOS_KEY = Symbol.for("codeflare.reviewRepos");
-const REVIEW_REPO_REGISTRY = join(homedir(), ".pi", "agent", "codeflare-review-repos.json");
+const DEFAULT_REVIEW_REPO_REGISTRY = join(homedir(), ".pi", "agent", "codeflare-review-repos.json");
 type CodeflareRepoMemory = { [ACTIVE_REPO_KEY]?: string; [REVIEW_REPO_KEY]?: string; [REVIEW_REPOS_KEY]?: Set<string> };
 const repoMemory = globalThis as unknown as CodeflareRepoMemory;
 
+function reviewRepoRegistryPath(): string {
+  return process.env.CODEFLARE_REVIEW_REPO_REGISTRY || DEFAULT_REVIEW_REPO_REGISTRY;
+}
+
 function readPersistedReviewRepos(): string[] {
   try {
-    if (!existsSync(REVIEW_REPO_REGISTRY)) return [];
-    const parsed = JSON.parse(readFileSync(REVIEW_REPO_REGISTRY, "utf8"));
+    const registryPath = reviewRepoRegistryPath();
+    if (!existsSync(registryPath)) return [];
+    const parsed = JSON.parse(readFileSync(registryPath, "utf8"));
     return Array.isArray(parsed)
       ? parsed.flatMap((repo): string[] => {
         const root = typeof repo === "string" ? workspaceChildRoot(repo) : undefined;
-        return root ? [root] : [];
+        return root && localHasGitDir(root) ? [root] : [];
       })
       : [];
   } catch {
@@ -1150,8 +1159,9 @@ function readPersistedReviewRepos(): string[] {
 
 function writePersistedReviewRepos(repos: string[]): void {
   try {
-    mkdirSync(dirname(REVIEW_REPO_REGISTRY), { recursive: true });
-    writeFileSync(REVIEW_REPO_REGISTRY, `${JSON.stringify([...new Set(repos)].sort(), null, 2)}\n`, "utf8");
+    const registryPath = reviewRepoRegistryPath();
+    mkdirSync(dirname(registryPath), { recursive: true });
+    writeFileSync(registryPath, `${JSON.stringify([...new Set(repos)].sort(), null, 2)}\n`, "utf8");
   } catch {
     // Best effort: in-memory delivery still works inside the current process.
   }

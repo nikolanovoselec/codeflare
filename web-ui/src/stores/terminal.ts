@@ -75,6 +75,7 @@ const terminals = new Map<string, Terminal>();
 const retryTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 const abortControllers = new Map<string, AbortController>();
 const pendingFocusClaims = new Set<string>();
+const desiredFocusClaims = new Set<string>();
 
 // Bug 1 fix: Store inputDisposable outside the connect function to properly clean up
 const inputDisposables = new Map<string, { dispose: () => void }>();
@@ -334,7 +335,7 @@ function connect(
       inputDisposables.set(key, inputDisposable);
       logger.debug(`[Terminal ${key}] Created new input handler`);
 
-      if (pendingFocusClaims.has(key)) {
+      if (desiredFocusClaims.has(key) || pendingFocusClaims.has(key)) {
         ws.send(JSON.stringify({ type: 'focus' }));
         pendingFocusClaims.delete(key);
       }
@@ -502,6 +503,13 @@ function disconnect(sessionId: string, terminalId: string): void {
     abortControllers.delete(key);
   }
 
+  // Clear any pending retry
+  const timeout = retryTimeouts.get(key);
+  if (timeout) {
+    clearTimeout(timeout);
+    retryTimeouts.delete(key);
+  }
+
   // Bug 1 fix: Dispose input handler before closing WebSocket
   const disposable = inputDisposables.get(key);
   if (disposable) {
@@ -521,6 +529,7 @@ function disconnect(sessionId: string, terminalId: string): void {
 
 function claimResizeAuthority(sessionId: string, terminalId: string): void {
   const key = makeKey(sessionId, terminalId);
+  desiredFocusClaims.add(key);
   const ws = connections.get(key);
   if (ws?.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'focus' }));
@@ -530,7 +539,9 @@ function claimResizeAuthority(sessionId: string, terminalId: string): void {
 }
 
 function clearPendingResizeAuthority(sessionId: string, terminalId: string): void {
-  pendingFocusClaims.delete(makeKey(sessionId, terminalId));
+  const key = makeKey(sessionId, terminalId);
+  pendingFocusClaims.delete(key);
+  desiredFocusClaims.delete(key);
 }
 
 // Send resize event to terminal
@@ -547,6 +558,19 @@ function isConnected(sessionId: string, terminalId: string): boolean {
   return getConnectionState(sessionId, terminalId) === 'connected';
 }
 
+// Dispose terminal UI resources without killing the server-side PTY.
+function disposeLocalTerminal(sessionId: string, terminalId: string): void {
+  const key = makeKey(sessionId, terminalId);
+  disconnect(sessionId, terminalId);
+  clearPendingResizeAuthority(sessionId, terminalId);
+  _unregisterFitAddon(sessionId, terminalId);
+  const terminal = terminals.get(key);
+  if (terminal) {
+    terminal.dispose();
+    terminals.delete(key);
+  }
+}
+
 // Dispose terminal and connection
 function dispose(sessionId: string, terminalId: string): void {
   const key = makeKey(sessionId, terminalId);
@@ -558,6 +582,7 @@ function dispose(sessionId: string, terminalId: string): void {
   }
 
   disconnect(sessionId, terminalId);
+  clearPendingResizeAuthority(sessionId, terminalId);
   const terminal = terminals.get(key);
   if (terminal) {
     terminal.dispose();
@@ -586,6 +611,9 @@ function disposeSession(sessionId: string): void {
   cleanupMapByPrefix(writeBuffers, prefix);
   for (const key of [...pendingFocusClaims]) {
     if (key.startsWith(prefix)) pendingFocusClaims.delete(key);
+  }
+  for (const key of [...desiredFocusClaims]) {
+    if (key.startsWith(prefix)) desiredFocusClaims.delete(key);
   }
 
   // Clean up state
@@ -638,6 +666,7 @@ function disposeAll(): void {
   }
   abortControllers.clear();
   pendingFocusClaims.clear();
+  desiredFocusClaims.clear();
 
   clearFitAddons();
 }
@@ -765,6 +794,7 @@ function disconnectAll(): void {
   }
   connections.clear();
   pendingFocusClaims.clear();
+  desiredFocusClaims.clear();
 
   // Clear pending retries — we intentionally disconnected
   for (const timeout of retryTimeouts.values()) {
@@ -848,6 +878,7 @@ export const terminalStore = {
   connect,
   disconnect,
   reconnect,
+  disposeLocalTerminal,
   claimResizeAuthority,
   clearPendingResizeAuthority,
   resize,

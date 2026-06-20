@@ -81,6 +81,7 @@ vi.mock('../../stores/terminal', () => ({
     // FitAddon management for layout changes
     registerFitAddon: vi.fn(),
     unregisterFitAddon: vi.fn(),
+    disposeLocalTerminal: vi.fn(),
     triggerLayoutResize: vi.fn(),
     layoutChangeCounter: 0,
     startUrlDetection: vi.fn(),

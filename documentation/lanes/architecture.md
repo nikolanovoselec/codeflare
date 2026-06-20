@@ -174,18 +174,15 @@ sequenceDiagram
     participant L as Layout.tsx
     participant TS as TerminalStore
     participant DO as ContainerDO
-
     U->>L: Navigate to dashboard
     L->>TS: scheduleDisconnect() (60s grace)
-    Note over TS: Status: green -> yellow (grace period)
-    TS->>TS: 60s timer expires
-    TS->>DO: disconnectAll()<br/>(close reason 'dashboard-disconnect')
-    Note over TS: Status: yellow -> gray (disconnected)
-    DO->>DO: No WS clients -><br/>sleepAfter can expire
+    TS->>TS: Grace timer expires
+    TS->>DO: disconnectAll()<br/>(dashboard-disconnect)
+    DO->>DO: No WS clients; sleepAfter may expire
     U->>L: Return to session
     L->>TS: cancelScheduledDisconnect()
-    TS->>DO: reconnectDisconnectedTerminals()<br/>(visible pane keys only)
-    Note over TS: Status: gray -> green (reconnected)
+    TS->>DO: reconnectDisconnectedTerminals()<br/>(visible keys only)
+    Note over TS: Status moves green -> yellow -> gray -> green
 ```
 
 **Source:** `Layout` passes visible terminal keys into `reconnectDisconnectedTerminals()`, which filters reconnects to that set. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/stores/terminal.ts::reconnectDisconnectedTerminals -->

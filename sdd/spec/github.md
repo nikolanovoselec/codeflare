@@ -69,9 +69,8 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 <!-- @impl: web-ui/src/components/ui/IconButton.tsx -->
 <!-- @impl: web-ui/src/components/Dashboard.tsx -->
 <!-- @test: src/__tests__/routes/github.test.ts (status/repos/connect/disconnect -> AC1,AC2) -->
-<!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (panel gating + states, no-repos vs search-empty states, refresh, icon-disconnect, external links, repo-row scroll container, mobile flip -> AC3,AC4,AC5,AC6,AC7,AC8) -->
-<!-- @test: web-ui/src/__tests__/components/IconButton.test.tsx (icon path, onClick, disabled, active/spin -> AC4,AC6) -->
-<!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (mobile right-column flip face: storage forced when GitHub disabled, flip round-trip when enabled -> AC8) -->
+<!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (panel gating + connection states, refresh, icon-disconnect, external links -> AC3,AC4,AC5,AC6) -->
+<!-- @test: web-ui/src/__tests__/components/IconButton.test.tsx (icon path, onClick, disabled, active/spin -> AC4) -->
 **Intent:** A panel beside the R2 storage panel lets a user connect GitHub and browse the repositories they can access, gated by deployment mode and tier.
 
 **Applies To:** User
@@ -81,24 +80,83 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 1. `GET /api/github/status` reports connection state (connected, login, source) without exposing the token. <!-- @impl: src/routes/github.ts -->
 2. `GET /api/github/repos` returns the repos the user can access (personal + org via `read:org`), searchable and paginated, fetched server-side with the stored token; the token never reaches the browser. <!-- @impl: src/routes/github.ts -->
 3. The panel renders beside the storage panel; its backend feature flag (`githubFeatureEnabled`) is on in every mode, and the advanced-session entitlement is applied in the dashboard ([REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)). <!-- @impl: src/routes/github.ts::githubFeatureEnabled --> <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx --> <!-- @impl: web-ui/src/components/Dashboard.tsx::githubPanelAvailable -->
-4. Not-connected shows a "Connect GitHub" action that starts the authorize flow; connected shows the account, a refresh control (reloads the repo list, the same `mdiSync` icon as the storage panel) and an icon-only Disconnect control (`mdiConnection`), and the searchable repo list. A connected account with zero repositories shows the repository-panel empty state. The refresh and disconnect controls reuse one tested `IconButton` primitive. <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx --> <!-- @impl: web-ui/src/components/github/RepoList.tsx --> <!-- @impl: web-ui/src/components/ui/IconButton.tsx -->
-5. The panel is mobile-first / responsive — it stacks with the storage panel at the existing narrow breakpoint.
-6. The repo list is a scroll container, not a truncating list: every fetched repo is rendered, but the viewport caps the visible rows by breakpoint — 7 rows on desktop (`>=1024px`, `--repo-row-h` × 7, hidden scrollbar), 5 rows on tablet (`600-1023px`, `--repo-row-h` × 5), and 5 actual repository rows on mobile (`<=599px`, `--repo-row-h` × 5) before scrolling. <!-- @impl: web-ui/src/styles/github-panel.css --> <!-- @impl: web-ui/src/styles/dashboard.css --> <!-- @impl: web-ui/src/components/github/RepoList.tsx -->
-7. The owner/login label and each repo name are external links to GitHub (`https://github.com/<login>` and `https://github.com/<full_name>`), opening in a new tab (`target="_blank" rel="noopener noreferrer"`); a repo-name click does not trigger the row/clone action. <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx --> <!-- @impl: web-ui/src/components/github/RepoRow.tsx -->
-8. On mobile a flip control (`mdiFlipVertical`) at the right of the panel header swaps the GitHub panel with the R2 storage panel in place; on desktop both panels stack as before and the flip control is hidden. The flip applies only when the GitHub panel is available; when it is not (a non-advanced, non-enterprise session) the R2 storage panel is the sole mobile right-column face and no flip control is shown, so the empty GitHub panel can never become the active face and cover the file browser. When the GitHub panel is enabled the storage face carries a matching "STORAGE BROWSER" panel header — an uppercase label with a gray bottom border mirroring the GitHub panel header ("GITHUB BROWSER") — and the flip-back control lives in that header; when GitHub is disabled the storage panel has no such header (it is the lone panel, so there is no GitHub header to mirror). <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @impl: web-ui/src/styles/dashboard.css -->
+4. Not-connected shows a Connect GitHub action; connected shows the account, refresh, Disconnect, and searchable repo list. The controls reuse one tested `IconButton` primitive. <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx --> <!-- @impl: web-ui/src/components/github/RepoList.tsx --> <!-- @impl: web-ui/src/components/ui/IconButton.tsx -->
+5. The panel is mobile-first and stacks with the storage panel at the existing narrow breakpoint. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx -->
+6. The owner/login label and each repo name link to GitHub in a new tab; repo-name clicks do not trigger clone. <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx --> <!-- @impl: web-ui/src/components/github/RepoRow.tsx -->
 
 **Constraints:**
 
 - `/repos` and `/connect` are rate-limited; repo responses never include the token.
 - The panel is available in every mode; outside enterprise it is gated to the `advanced` session (matching the Vault), enforced in the dashboard. See [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise).
-- The per-breakpoint row caps (7 desktop / 5 tablet / 5 mobile) are CSS viewports (max-height), not data limits — all fetched repos remain in the scroll container and searchable; the px caps are not unit-asserted in jsdom.
-- The mobile flip transition is animated; the stylesheet honours `prefers-reduced-motion: reduce` with an instant swap. This is CSS-only (`web-ui/src/styles/dashboard.css`) and, like the row cap, is not unit-asserted in jsdom.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage)
 
-**Verification:** [Route test](../../src/__tests__/routes/github.test.ts) + [Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx) + [IconButton test](../../web-ui/src/__tests__/components/IconButton.test.tsx) (AC4, AC6)
+**Verification:** [Route test](../../src/__tests__/routes/github.test.ts) + [Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx) + [IconButton test](../../web-ui/src/__tests__/components/IconButton.test.tsx)
+
+**Status:** Implemented
+
+---
+
+<!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (no-repos vs search-empty states + repo-row scroll container -> AC1,AC2) -->
+### REQ-GITHUB-009: GitHub repository list viewport and empty states
+
+<!-- @impl: web-ui/src/components/github/RepoList.tsx -->
+<!-- @impl: web-ui/src/styles/github-panel.css -->
+<!-- @impl: web-ui/src/styles/dashboard.css -->
+**Intent:** Repository lists stay searchable and scrollable without hiding fetched repositories.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A connected account with zero repositories shows the repository-panel empty state. <!-- @impl: web-ui/src/components/github/RepoList.tsx -->
+2. Search with no matching repositories shows the search-empty state. <!-- @impl: web-ui/src/components/github/RepoList.tsx -->
+3. The repo list renders every fetched repository inside a scroll container. <!-- @impl: web-ui/src/components/github/RepoList.tsx -->
+4. The visible viewport caps rows by breakpoint: seven desktop rows and five tablet/mobile rows before scrolling. <!-- @impl: web-ui/src/styles/github-panel.css -->
+
+**Constraints:**
+
+- The row caps are CSS viewports, not data limits; px caps are not unit-asserted in jsdom.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing)
+
+**Verification:** [Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx)
+
+**Status:** Implemented
+
+---
+
+<!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (mobile flip control appears only when available -> AC1,AC2) -->
+<!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (mobile right-column flip face: storage forced when GitHub disabled, flip round-trip when enabled -> AC1-AC4) -->
+### REQ-GITHUB-010: Mobile GitHub and storage face switching
+
+<!-- @impl: web-ui/src/components/github/GitHubPanel.tsx -->
+<!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace -->
+<!-- @impl: web-ui/src/styles/dashboard.css -->
+**Intent:** Mobile users can switch between GitHub and R2 storage without an unavailable GitHub face covering files.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. On mobile, the header flip control swaps GitHub and R2 storage in place when GitHub is available. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace -->
+2. On desktop, both panels stack and the flip control is hidden. <!-- @impl: web-ui/src/styles/dashboard.css -->
+3. If GitHub is unavailable, R2 storage is the sole mobile right-column face. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace -->
+4. When GitHub is available, the storage face carries a matching header and flip-back control. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace -->
+
+**Constraints:**
+
+- The flip transition honors `prefers-reduced-motion: reduce` with an instant CSS-only swap.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)
+
+**Verification:** [Dashboard test](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx)
 
 **Status:** Implemented
 
@@ -277,7 +335,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-006](#req-github-006-other-mode-container-transport)
+**Dependencies:** [REQ-GITHUB-001](#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-006](#req-github-006-other-mode-container-transport), [REQ-AUTH-015](authentication.md#req-auth-015-guided-onboarding-flow), [REQ-AGENT-018](agents.md#req-agent-018-push--deploy-credential-management-ui)
 
 **Verification:** [Route test](../../src/__tests__/routes/github.test.ts) + [Dashboard test](../../web-ui/src/__tests__/components/Dashboard.test.tsx) + [Connect card test](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx) + [Scope test](../../src/__tests__/lib/oauth-scopes.test.ts)
 
