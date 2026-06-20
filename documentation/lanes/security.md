@@ -373,6 +373,8 @@ Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (i
 
 Every entry carries an inline comment recording the affected package, the impact, and which conditions apply. The allowlist is reviewed monthly and entries are removed once a fix reaches the image. (Pre-existing entries for unfixed CVEs are now redundant with `ignore-unfixed` but are left in place as a documented record.)
 
+**Build-time remediation:** Fixable vendored package CVEs are remediated in the image rather than suppressed when the fix can be applied safely. The `Dockerfile::undici-cve-patch` layer replaces vulnerable bundled `undici` copies in npm/agent/preseed tool trees with the fixed patch release for the same major version and fails the build if any vulnerable copy remains ([REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy)).
+
 ### Protected R2 Paths
 
 **`PROTECTED_PATHS` is now empty** (`[]` in `src/lib/constants.ts`). Previously, paths like `.claude/`, `.anthropic/`, `.ssh/`, `.config/`, `.claude.json` were blocked from the web storage API. The protection was removed - all R2 paths are now accessible via browse, upload, and delete. The `validateKey()` function in `src/routes/storage/validation.ts` still checks the array but it's a no-op with an empty list.

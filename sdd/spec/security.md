@@ -499,6 +499,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 <!-- @impl: .github/workflows/deploy.yml -->
 <!-- @impl: .github/workflows/deploy-dockerhub.yml -->
 <!-- @impl: .trivyignore -->
+<!-- @impl: Dockerfile::undici-cve-patch -->
 <!-- @test: host/__tests__/workflow-files.test.js (container image pipeline describe → trivy scan job → AC1/AC2/AC3/AC4) -->
 
 **Intent:** Every container image must be scanned for known vulnerabilities before being deployed to production.
