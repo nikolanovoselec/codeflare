@@ -294,6 +294,7 @@ function connect(
     }
 
     setConnectionState(sessionId, terminalId, 'connecting');
+    if (desiredFocusClaims.has(key)) pendingFocusClaims.add(key);
 
     if (attemptNumber > 1) {
       setRetryMessage(sessionId, terminalId, `Reconnecting... (attempt ${attemptNumber})`);
@@ -335,7 +336,7 @@ function connect(
       inputDisposables.set(key, inputDisposable);
       logger.debug(`[Terminal ${key}] Created new input handler`);
 
-      if (desiredFocusClaims.has(key) || pendingFocusClaims.has(key)) {
+      if (pendingFocusClaims.has(key)) {
         ws.send(JSON.stringify({ type: 'focus' }));
         pendingFocusClaims.delete(key);
       }
@@ -533,6 +534,7 @@ function claimResizeAuthority(sessionId: string, terminalId: string): void {
   const ws = connections.get(key);
   if (ws?.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'focus' }));
+    pendingFocusClaims.delete(key);
   } else if (ws?.readyState === WebSocket.CONNECTING) {
     pendingFocusClaims.add(key);
   }
