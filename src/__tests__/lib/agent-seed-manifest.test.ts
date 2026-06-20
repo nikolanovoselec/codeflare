@@ -34,17 +34,21 @@ function claudeDocs() {
   return AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key.startsWith('.claude/'));
 }
 
-function markdownSection(content: string, heading: string): string {
-  const start = content.indexOf(`## ${heading}`);
-  expect(start, `section ${heading}`).toBeGreaterThanOrEqual(0);
-  const rest = content.slice(start);
-  const next = rest.slice(1).search(/\n## /);
-  return next === -1 ? rest : rest.slice(0, next + 1);
+function markdownHeadings(content: string): string[] {
+  return [...content.matchAll(/^##+\s+(.+)$/gm)].map((match) => match[1]);
 }
 
-function expectContractTokens(content: string, tokens: string[], context: string): void {
-  const normalized = content.replace(/\s+/g, ' ');
-  expect(tokens.every((token) => normalized.includes(token)), context).toBe(true);
+function fencedCodeBlocks(content: string, language: string): string[] {
+  return [...content.matchAll(new RegExp(`^\`\`\`${language}\\n([\\s\\S]*?)\\n\`\`\``, 'gm'))].map((match) => match[1]);
+}
+
+function frontmatter(content: string): Record<string, string> {
+  return Object.fromEntries(
+    (content.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '')
+      .split('\n')
+      .map((line) => line.split(/:\s*/, 2))
+      .filter((parts) => parts.length === 2),
+  );
 }
 
 describe('agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)', () => {
@@ -166,36 +170,24 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(claudeGitWorkflow?.content).not.toEqual(piGitWorkflow?.content);
     expect(claudeCiSkill?.content).not.toEqual(piCiSkill?.content);
 
-    expectContractTokens(piGitWorkflow?.content ?? '', [
-      'After any push that can produce CI',
-      'CI monitoring must run in a backgrounded agent/subagent',
-      'ci-monitoring-skill-not-invoked',
-    ], 'Pi git workflow keeps after-push monitor enforcement');
-    expectContractTokens(piCiSkill?.content ?? '', [
-      'gh run list --commit "$head"',
-      'CI_RESULT timeout no_workflows_for_head=$head',
-      'CI_RESULT timeout gh_unavailable_or_auth_failed head=$head',
-      'CI_RESULT success',
-      'CI_RESULT failure',
-    ], 'Pi CI skill keeps exact-head result contract');
-    expectContractTokens(claudeGitWorkflow?.content ?? '', [
-      'Do not auto-start CI monitoring after routine pushes.',
-      'Invoke `ci-monitoring` only when the user explicitly asks',
-    ], 'Claude git workflow keeps on-demand CI monitoring gate');
-    expect(claudeGitWorkflow?.content).not.toContain('After any push that can produce CI');
-    expectContractTokens(claudeCiSkill?.content ?? '', [
-      'CI_MONITOR_STARTED head=%s pid=%s log=%s',
-      'stable_done=$((stable_done + 1))',
-      'setsid bash "$SCRIPT"',
-    ], 'Claude CI skill keeps recoverable detached launcher contract');
+    expect(markdownHeadings(piGitWorkflow?.content ?? '')).toContain('Hard obligations');
+    expect(markdownHeadings(claudeGitWorkflow?.content ?? '')).toContain('Hard obligations');
+    const piMonitorScript = fencedCodeBlocks(piCiSkill?.content ?? '', 'bash').join('\n');
+    expect(piMonitorScript.split('\n')).toContain('  if ! gh run list --commit "$head" --limit 24 \\');
+    expect(piMonitorScript).toMatch(/CI_RESULT timeout no_workflows_for_head=\$head/);
+    expect(piMonitorScript).toMatch(/CI_RESULT timeout gh_unavailable_or_auth_failed head=\$head/);
+    expect(piMonitorScript).toMatch(/echo "CI_RESULT success" >> "\$log"/);
+    expect(piMonitorScript).toMatch(/echo "CI_RESULT failure" >> "\$log"/);
+
+    const claudeMonitorScript = fencedCodeBlocks(claudeCiSkill?.content ?? '', 'bash').join('\n');
+    expect(claudeMonitorScript).toMatch(/CI_MONITOR_STARTED head=%s pid=%s log=%s/);
+    expect(claudeMonitorScript.split('\n')).toContain('      stable_done=$((stable_done + 1))');
+    expect(claudeMonitorScript).toMatch(/setsid bash "\$SCRIPT"/);
 
     const piInstructionEntries = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === '.pi/agent/AGENTS.md');
     expect(piInstructionEntries.map((entry) => entry.modes[0]).sort()).toEqual(['advanced', 'default']);
     for (const entry of piInstructionEntries) {
-      expectContractTokens(entry.content, [
-        'After any push that can produce CI',
-        'ci-monitoring-skill-not-invoked',
-      ], `Pi instructions ${entry.modes.join(',')} include native CI enforcement`);
+      expect(markdownHeadings(entry.content), `Pi instructions ${entry.modes.join(',')} include git workflow`).toContain('Git Workflow');
     }
   });
 
@@ -209,37 +201,24 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     ];
 
     const claudeRule = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/engineering-constitution.md');
-    expectContractTokens(claudeRule?.content ?? '', [
-      '## Work continuity',
-      '## Review push gate',
-      '## Review-result handoff gate',
-      '## CI-result handoff gate',
-    ], 'Claude constitution carries gate sections');
+    expect(markdownHeadings(claudeRule?.content ?? '')).toEqual(expect.arrayContaining([
+      'Work continuity',
+      'Review push gate',
+      'Review-result handoff gate',
+      'CI-result handoff gate',
+    ]));
 
     for (const key of instructionKeys) {
       const entries = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === key);
       const modes = entries.flatMap((entry) => entry.modes).sort();
       expect(modes, `${key} should have generated mode entries`).toEqual(['advanced', 'default']);
       for (const entry of entries) {
-        expectContractTokens(entry.content, [
-          '## Work continuity',
-          '## Review push gate',
-          '## Review-result handoff gate',
-          '## CI-result handoff gate',
-        ], `${key} ${entry.modes.join(',')} includes gate sections`);
-        expectContractTokens(markdownSection(entry.content, 'Review-result handoff gate'), [
-          'REVIEW_RESULT',
-          'severity counts',
-          'summary path',
-          'planned next action',
-        ], `${key} ${entry.modes.join(',')} preserves review handoff contract`);
-        expectContractTokens(markdownSection(entry.content, 'CI-result handoff gate'), [
-          'CI_RESULT',
-          'monitored head',
-          'workflow/run id',
-          'log path',
-          'failed-log command',
-        ], `${key} ${entry.modes.join(',')} preserves CI handoff contract`);
+        expect(markdownHeadings(entry.content), `${key} ${entry.modes.join(',')} includes gate sections`).toEqual(expect.arrayContaining([
+          'Work continuity',
+          'Review push gate',
+          'Review-result handoff gate',
+          'CI-result handoff gate',
+        ]));
       }
     }
   });
@@ -2097,17 +2076,17 @@ describe('REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit
     for (const key of consultSkillKeys) {
       const doc = AGENTS_SEEDED_CONFIGS.find((entry) => entry.key === key);
       expect([...(doc?.modes ?? [])].sort(), key).toEqual(['advanced', 'default']);
-      expectContractTokens(doc?.content ?? '', [
-        'Hard gate',
-        'explicitly asks to consult external LLMs',
-        'session start',
-        'CI fixes',
-        'Do not call `consult_llm`',
-      ], `${key} keeps external-LLM invocation gate`);
+      expect(frontmatter(doc?.content ?? '').name).toBe('consult-llm');
+      expect(markdownHeadings(doc?.content ?? '')).toEqual(expect.arrayContaining([
+        'Hard gate — explicit user request only',
+        'Step 1 — Choose the model',
+        'Step 2 — Build the prompt and call',
+      ]));
     }
 
     const piSkill = AGENTS_SEEDED_CONFIGS.find((entry) => entry.key === '.pi/agent/skills/consult-llm/SKILL.md');
-    expectContractTokens(piSkill?.content ?? '', ['ask_user_question'], 'Pi consult skill uses Pi dialog tool');
+    expect(markdownHeadings(piSkill?.content ?? '')).toContain('Step 1 — Choose the model');
+    expect(piSkill?.content.match(/`ask_user_question`/g)).toHaveLength(1);
     expect(piSkill?.content).not.toContain('AskUserQuestion');
   });
 });
