@@ -162,6 +162,20 @@
   gap: var(--space-3);
   padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--color-border-subtle);
+  /* Fixed, deterministic height so the list viewport always caps on a whole-row
+     boundary: max-height = repo-row-h * N shows exactly N rows. flex-shrink: 0
+     keeps each row full-height when the flex column scrolls past the cap. The
+     two text lines are pinned (line-height below) so content never exceeds it. */
+  box-sizing: border-box;
+  height: var(--repo-row-h);
+  flex-shrink: 0;
+}
+
+/* No trailing divider on the final row — it otherwise reads as a phantom
+   line clipped by the panel's rounded bottom corner. The load-more button
+   (when present) carries its own border-top separator. */
+.github-repo-row:last-child {
+  border-bottom: none;
 }
 
 .github-repo-icon {
@@ -186,6 +200,7 @@
 .github-repo-name {
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
+  line-height: 1.3;
   color: var(--color-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -194,6 +209,7 @@
 
 .github-repo-fullname {
   font-size: var(--text-xs);
+  line-height: 1.3;
   color: var(--color-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
