@@ -126,6 +126,40 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ---
 
+<!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (isFocusOnTerminalInput / REQ-MOB-015 describe -> AC1) -->
+<!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-015: keyboard persists across terminal pane focus handoff describe -> AC2, AC4; Samsung focusout keyboard dismiss describe -> AC3) -->
+### REQ-MOB-015: Virtual keyboard persists across terminal pane focus handoff
+
+<!-- @impl: web-ui/src/lib/mobile.ts::isFocusOnTerminalInput -->
+<!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
+<!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput -->
+
+**Intent:** On touch devices the virtual-keyboard mode (locked/anchored layout, swipe-as-arrows, keyboard-height padding) is driven by a single shared signal. When several terminal panes are visible at once (tiling layouts, tablet MultiView) and focus moves between panes while the keyboard is open, the keyboard must stay open and the newly focused pane must keep keyboard mode without the user dismissing and reopening the keyboard. The shared keyboard state is torn down only when focus leaves the terminal, not on a pane-to-pane handoff.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A live focus query reports whether browser focus currently rests on a terminal input surface; it is the single discriminator used by every per-pane keyboard-teardown site. <!-- @impl: web-ui/src/lib/mobile.ts::isFocusOnTerminalInput -->
+2. When a terminal pane loses focus to a sibling terminal pane, the per-pane focus-loss cleanup does not disable the keyboard overlay or zero the keyboard signals, so the newly focused pane stays in keyboard mode. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput -->
+3. A Samsung back-button keyboard dismiss still zeroes keyboard state, but a pane-to-pane focus handoff does not. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
+4. When focus leaves all terminal surfaces (a non-terminal element gains focus, or the terminal unmounts) the shared keyboard overlay and signals are released. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput -->
+
+**Constraints:**
+
+- The discriminator reads live focus state, never a cached value.
+- The exit/unmount teardown path stays unconditional so overlay mode is never left enabled for subsequent non-terminal inputs.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-MOB-009](#req-mob-009-visibility-return-recovers-keyboard-state)
+
+**Verification:** [Mobile keyboard test](../../web-ui/src/__tests__/lib/mobile.test.ts), [useTerminal hook test](../../web-ui/src/__tests__/hooks/useTerminal.test.ts)
+
+**Status:** Implemented
+
+---
+
 <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (stale geometrychange ignore window (Fix 2) describe -> ignores geometrychange within 50ms of enableVirtualKeyboardOverlay + accepts after 50ms grace -> AC1, AC2) -->
 <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (getKeyboardHeight - Samsung compensation describe -> raw height when address bar at top + raw on wide screens -> AC3 Samsung bottom-bar viewport-inflation compensation) -->
 <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (baselineInnerHeight stability on keyboard close describe -> consistent keyboard height across close/reopen cycles -> AC4 baseline immutable, AC5 not updated on keyboard close) -->

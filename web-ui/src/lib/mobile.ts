@@ -221,6 +221,22 @@ export function isVirtualKeyboardOpen(): boolean {
   return vkOpen();
 }
 
+// Whether browser focus currently rests on a terminal input surface — the
+// off-screen iframe (class "terminal-input-iframe") each terminal pane uses for
+// mobile input. When an input inside that iframe is focused, the parent
+// document's activeElement is the iframe element itself.
+//
+// This is the single discriminator that separates a pane-to-pane focus handoff
+// (focus stays on a terminal, e.g. tiled panes / tablet MultiView) from
+// genuinely leaving the terminal. The shared virtual-keyboard state must
+// survive a handoff and only be torn down on a real exit, so the per-pane
+// focus-loss teardown sites gate on this. Reads live focus, never a cached value.
+export function isFocusOnTerminalInput(): boolean {
+  if (typeof document === 'undefined') return false;
+  const el = document.activeElement;
+  return el instanceof HTMLElement && el.classList.contains('terminal-input-iframe');
+}
+
 // Keyboard height compensated for Samsung Internet's viewport growth.
 // When the keyboard opens, Samsung hides the bottom nav bar, growing innerHeight
 // by ~48px. With address bar at BOTTOM, this growth extends behind the address bar

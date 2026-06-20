@@ -522,4 +522,31 @@ describe('mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ
     });
   });
 
+  describe('isFocusOnTerminalInput / REQ-MOB-015 (keyboard persists across pane focus handoff) AC1', () => {
+    it('reports focus resting on a terminal input iframe', async () => {
+      const mobile = await import('../../lib/mobile');
+      const iframe = document.createElement('iframe');
+      iframe.className = 'terminal-input-iframe';
+      document.body.appendChild(iframe);
+      iframe.focus();
+      expect(mobile.isFocusOnTerminalInput()).toBe(true);
+      iframe.remove();
+    });
+
+    it('reports focus NOT on a terminal input when a non-terminal element is focused', async () => {
+      const mobile = await import('../../lib/mobile');
+      const input = document.createElement('input');
+      document.body.appendChild(input);
+      input.focus();
+      expect(mobile.isFocusOnTerminalInput()).toBe(false);
+      input.remove();
+    });
+
+    it('reports focus NOT on a terminal input when focus is on the document body', async () => {
+      const mobile = await import('../../lib/mobile');
+      (document.activeElement as HTMLElement | null)?.blur?.();
+      expect(mobile.isFocusOnTerminalInput()).toBe(false);
+    });
+  });
+
 });

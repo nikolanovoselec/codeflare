@@ -1,5 +1,5 @@
 import type { Terminal as XTerm } from '@xterm/xterm';
-import { disableVirtualKeyboardOverlay, enableVirtualKeyboardOverlay, forceResetKeyboardState, isSamsungBrowser } from './mobile';
+import { disableVirtualKeyboardOverlay, enableVirtualKeyboardOverlay, forceResetKeyboardState, isFocusOnTerminalInput, isSamsungBrowser } from './mobile';
 import { logger } from './logger';
 import { getXtermCore, setIframeInput, setRemoveFocusGuard } from './xterm-internals';
 
@@ -372,7 +372,10 @@ export function setupMobileInput(
         // Samsung geometrychange cascade that resets keyboard height signals.
         blurTimeoutId = setTimeout(() => {
           blurTimeoutId = null;
-          disableVirtualKeyboardOverlay();
+          // Skip the global overlay teardown when focus moved to a sibling
+          // terminal pane (handoff): the keyboard stays open and that pane owns
+          // it now. Still blur this pane's cursor.
+          if (!isFocusOnTerminalInput()) disableVirtualKeyboardOverlay();
           if (typeof coreRef._handleTextAreaBlur === 'function') {
             coreRef._handleTextAreaBlur();
           }
@@ -384,7 +387,8 @@ export function setupMobileInput(
         if (blurTimeoutId !== null) { clearTimeout(blurTimeoutId); }
         blurTimeoutId = setTimeout(() => {
           blurTimeoutId = null;
-          disableVirtualKeyboardOverlay();
+          // Handoff to a sibling terminal pane keeps the shared keyboard alive.
+          if (!isFocusOnTerminalInput()) disableVirtualKeyboardOverlay();
         }, 100);
       });
     }

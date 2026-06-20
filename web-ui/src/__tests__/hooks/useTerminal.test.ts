@@ -105,6 +105,7 @@ vi.mock('../../lib/mobile', () => ({
   disableVirtualKeyboardOverlay: vi.fn(),
   resetKeyboardStateIfStale: vi.fn(),
   forceResetKeyboardState: vi.fn(),
+  isFocusOnTerminalInput: vi.fn(() => false),
   isSamsungBrowser: false,
 }));
 
@@ -127,7 +128,7 @@ vi.mock('../../lib/settings', () => ({
 import { useTerminal, type UseTerminalOptions, DECTCEM_CURSOR_PARAM, KEYBOARD_REFIT_DEBOUNCE_MS } from '../../hooks/useTerminal';
 import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
-import { isTouchDevice, getKeyboardHeight, isVirtualKeyboardOpen, forceResetKeyboardState } from '../../lib/mobile';
+import { isTouchDevice, getKeyboardHeight, isVirtualKeyboardOpen, forceResetKeyboardState, disableVirtualKeyboardOverlay } from '../../lib/mobile';
 import * as mobileModule from '../../lib/mobile';
 import { loadSettings } from '../../lib/settings';
 
@@ -903,9 +904,11 @@ describe('useTerminal hook', () => {
       mockTerminalInstance.textarea = null;
     });
 
-    it('should call forceResetKeyboardState when focusout fires while keyboard is open on Samsung', () => {
+    it('should call forceResetKeyboardState when focusout fires while keyboard is open on Samsung', async () => {
       (mobileModule as any).isSamsungBrowser = true;
       vi.mocked(isVirtualKeyboardOpen).mockReturnValue(true);
+      // Genuine back-button dismiss: focus has left every terminal surface.
+      vi.mocked(mobileModule.isFocusOnTerminalInput).mockReturnValue(false);
 
       const mockTextarea = document.createElement('textarea');
       mockTerminalInstance.textarea = mockTextarea as any;
@@ -918,8 +921,35 @@ describe('useTerminal hook', () => {
 
       // Simulate focusout event (Samsung back-button dismiss)
       mockTextarea.dispatchEvent(new Event('focusout'));
+      // Handler defers one tick before deciding dismiss-vs-handoff.
+      await new Promise((r) => setTimeout(r, 0));
 
       expect(forceResetKeyboardState).toHaveBeenCalled();
+
+      dispose();
+      mockTerminalInstance.textarea = null;
+    });
+
+    it('does NOT forceReset on focusout when focus moved to a sibling terminal pane (handoff)', async () => {
+      (mobileModule as any).isSamsungBrowser = true;
+      vi.mocked(isVirtualKeyboardOpen).mockReturnValue(true);
+      // Pane-to-pane handoff: focus stays on a terminal input iframe.
+      vi.mocked(mobileModule.isFocusOnTerminalInput).mockReturnValue(true);
+
+      const mockTextarea = document.createElement('textarea');
+      mockTerminalInstance.textarea = mockTextarea as any;
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      vi.mocked(forceResetKeyboardState).mockClear();
+      mockTextarea.dispatchEvent(new Event('focusout'));
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(forceResetKeyboardState).not.toHaveBeenCalled();
 
       dispose();
       mockTerminalInstance.textarea = null;
@@ -943,6 +973,60 @@ describe('useTerminal hook', () => {
 
       dispose();
       mockTerminalInstance.textarea = null;
+    });
+  });
+
+  describe('REQ-MOB-015: keyboard persists across terminal pane focus handoff', () => {
+    beforeEach(() => {
+      vi.mocked(isTouchDevice).mockReturnValue(true);
+    });
+    afterEach(() => {
+      vi.mocked(isTouchDevice).mockReturnValue(false);
+    });
+
+    it('AC2: keeps shared keyboard state when a pane loses focus to a sibling terminal pane', () => {
+      // Handoff: focus stays on a terminal input iframe.
+      vi.mocked(mobileModule.isFocusOnTerminalInput).mockReturnValue(true);
+      const [focused, setFocused] = createSignal(true);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, get focused() { return focused(); } });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      vi.mocked(disableVirtualKeyboardOverlay).mockClear();
+      vi.mocked(forceResetKeyboardState).mockClear();
+
+      // Deselect this pane — focus is handed to a sibling pane.
+      setFocused(false);
+
+      expect(disableVirtualKeyboardOverlay).not.toHaveBeenCalled();
+      expect(forceResetKeyboardState).not.toHaveBeenCalled();
+
+      dispose();
+    });
+
+    it('AC4: tears down shared keyboard state when focus leaves the terminal entirely', () => {
+      // Exit: focus is no longer on any terminal input.
+      vi.mocked(mobileModule.isFocusOnTerminalInput).mockReturnValue(false);
+      const [focused, setFocused] = createSignal(true);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, get focused() { return focused(); } });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      vi.mocked(disableVirtualKeyboardOverlay).mockClear();
+      vi.mocked(forceResetKeyboardState).mockClear();
+
+      setFocused(false);
+
+      expect(disableVirtualKeyboardOverlay).toHaveBeenCalled();
+      expect(forceResetKeyboardState).toHaveBeenCalled();
+
+      dispose();
     });
   });
 

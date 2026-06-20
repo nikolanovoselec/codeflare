@@ -5,7 +5,7 @@ import '@xterm/xterm/css/xterm.css';
 import { terminalStore } from '../stores/terminal';
 import { sessionStore } from '../stores/session';
 import { logger } from '../lib/logger';
-import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight, enableVirtualKeyboardOverlay, disableVirtualKeyboardOverlay, resetKeyboardStateIfStale, forceResetKeyboardState, isSamsungBrowser } from '../lib/mobile';
+import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight, enableVirtualKeyboardOverlay, disableVirtualKeyboardOverlay, resetKeyboardStateIfStale, forceResetKeyboardState, isFocusOnTerminalInput, isSamsungBrowser } from '../lib/mobile';
 import { attachSwipeGestures } from '../lib/touch-gestures';
 import { registerMultiLineLinkProvider } from '../lib/terminal-link-provider';
 import { isSpeechSupported, isListening, startListening, stopListening } from '../lib/speech-input';
@@ -508,7 +508,13 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         const inputEl = term ? getIframeInput(term) || term.textarea : undefined;
         if (inputEl) {
           focusoutHandler = () => {
-            if (isVirtualKeyboardOpen()) forceResetKeyboardState();
+            // Defer one tick so the focus transition settles, then tell a real
+            // back-button dismiss (focus left the terminal) from a pane-to-pane
+            // handoff (focus moved to a sibling terminal input — keep keyboard).
+            setTimeout(() => {
+              if (isFocusOnTerminalInput()) return;
+              if (isVirtualKeyboardOpen()) forceResetKeyboardState();
+            }, 0);
           };
           inputEl.addEventListener('focusout', focusoutHandler);
         }
@@ -519,6 +525,11 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
           const inputEl = term ? getIframeInput(term) || term.textarea : undefined;
           inputEl?.removeEventListener('focusout', focusoutHandler);
         }
+        // Focus moving to a sibling terminal pane is a handoff, not an exit:
+        // keep the shared virtual-keyboard state so the newly focused pane stays
+        // in keyboard mode. Tear down only when focus has left the terminal
+        // (true exit / unmount is covered here and by the iframe-removal cleanup).
+        if (isFocusOnTerminalInput()) return;
         const iframeInput = term ? getIframeInput(term) : undefined;
         if (iframeInput) iframeInput.blur();
         disableVirtualKeyboardOverlay();
