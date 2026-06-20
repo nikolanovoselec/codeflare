@@ -1339,7 +1339,7 @@ export default function (pi: ExtensionAPI) {
           acked: acked(repo, head),
           breakerOpen: isBreakerOpen(repo, head),
           windowExists: currentPending?.head === head,
-          dedupeAllowed: shouldProcessPrBoundaryToolEnd(toolId, true),
+          dedupeAllowed: () => shouldProcessPrBoundaryToolEnd(toolId, true),
           bypassPresent: bypassPending(),
           canConsumeBypass: canConsumeBypass(ctx),
         });

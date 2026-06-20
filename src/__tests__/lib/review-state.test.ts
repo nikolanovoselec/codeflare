@@ -170,10 +170,25 @@ describe('reviewWindowStartDecision (REQ-AGENT-041: bypass is consumed only by l
       acked: true,
       breakerOpen: false,
       windowExists: false,
-      dedupeAllowed: true,
+      dedupeAllowed: () => true,
       bypassPresent: true,
       canConsumeBypass: true,
     })).toBe('skip_acked');
+  });
+
+  it('preserves the dedupe token when a no-op guard wins before review start', () => {
+    let dedupeCalls = 0;
+    const decision = reviewBoundaryStartDecision({
+      acked: true,
+      breakerOpen: false,
+      windowExists: false,
+      dedupeAllowed: () => { dedupeCalls += 1; return true; },
+      bypassPresent: true,
+      canConsumeBypass: true,
+    });
+
+    expect(decision).toBe('skip_acked');
+    expect(dedupeCalls).toBe(0);
   });
 
   it('preserves the sentinel when a pending review window already exists', () => {
@@ -181,7 +196,7 @@ describe('reviewWindowStartDecision (REQ-AGENT-041: bypass is consumed only by l
       acked: false,
       breakerOpen: false,
       windowExists: true,
-      dedupeAllowed: true,
+      dedupeAllowed: () => true,
       bypassPresent: true,
       canConsumeBypass: true,
     })).toBe('skip_window_exists');

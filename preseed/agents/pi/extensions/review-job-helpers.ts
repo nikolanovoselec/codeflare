@@ -1016,7 +1016,7 @@ export type ReviewBoundaryStartDecisionInput = {
   acked: boolean;
   breakerOpen: boolean;
   windowExists: boolean;
-  dedupeAllowed: boolean;
+  dedupeAllowed: () => boolean;
   bypassPresent: boolean;
   canConsumeBypass: boolean;
 };
@@ -1026,7 +1026,7 @@ export function reviewBoundaryStartDecision(input: ReviewBoundaryStartDecisionIn
   if (input.acked) return "skip_acked";
   if (input.breakerOpen) return "skip_breaker";
   if (input.windowExists) return "skip_window_exists";
-  if (!input.dedupeAllowed) return "skip_dedupe";
+  if (!input.dedupeAllowed()) return "skip_dedupe";
   return reviewWindowStartDecision({ bypassPresent: input.bypassPresent, canConsumeBypass: input.canConsumeBypass, boundaryEvent: true });
 }
 
