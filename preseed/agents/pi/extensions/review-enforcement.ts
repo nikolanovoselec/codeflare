@@ -58,7 +58,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, boundaryFallbackHead, boundaryTriggerCommandEntries, bypassAckHeadForStatus, canMainSessionConsumeReviewBypass, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, commandTextsFromEvent, completeTranscriptDelta, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, gitPushCommandTarget, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prCreateCommandTarget, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, prUrlFromText, reusablePendingReview, reviewBypassConsumeDecision, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewMonitorCompletionRecordReady, reviewMonitorContextDecision, reviewMonitorStartupFailureMessage, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, reviewWindowStartDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, type DurableReviewSummaryRecord } from "./review-job-helpers";
+import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewBoundaryStartDecision, reviewMonitorCompletionRecordReady, reviewMonitorContextDecision, reviewMonitorStartupFailureMessage, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, reviewWindowStartDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, type DurableReviewSummaryRecord } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -1335,11 +1335,26 @@ export default function (pi: ExtensionAPI) {
         // diagnosable instead of invisible. Healthy skips (acked/breaker/pending) are not audited.
         if (!head) { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "no_resolvable_head" }); continue; }
         const currentPending = loadPending(repo);
-        if (acknowledgeBoundaryBypassForHead(repo, head, ctx, "review_bypass_boundary_event", currentPending?.head)) return;
-        if (acked(repo, head)) continue;
-        if (isBreakerOpen(repo, head)) continue; // breaker already gave up on this exact head; push a new commit to retry
-        if (currentPending?.head === head) continue; // a window for this head already exists
-        if (!shouldProcessPrBoundaryToolEnd(toolId, true)) { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "dedupe_skipped", head }); return; }
+        const startDecision = reviewBoundaryStartDecision({
+          acked: acked(repo, head),
+          breakerOpen: isBreakerOpen(repo, head),
+          windowExists: currentPending?.head === head,
+          dedupeAllowed: shouldProcessPrBoundaryToolEnd(toolId, true),
+          bypassPresent: bypassPending(),
+          canConsumeBypass: canConsumeBypass(ctx),
+        });
+        if (startDecision === "skip_acked") continue;
+        if (startDecision === "skip_breaker") continue; // breaker already gave up on this exact head; push a new commit to retry
+        if (startDecision === "skip_window_exists") continue; // a window for this head already exists
+        if (startDecision === "skip_dedupe") { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "dedupe_skipped", head }); return; }
+        if (startDecision === "wait_for_main_session") { appendReviewEvent(repo, { event: "boundary_candidate_ignored", head, reason: "review_bypass_waiting_for_main_session" }); return; }
+        if (startDecision === "ack_bypass") {
+          if (!consumeBypass(ctx)) { appendReviewEvent(repo, { event: "boundary_candidate_ignored", head, reason: "bypass_not_consumed" }); return; }
+          if (currentPending?.head) abandonDurableReviewLanes(repo, currentPending.head);
+          appendReviewEvent(repo, { event: "boundary_candidate_ignored", head, reason: "review_bypass_boundary_event" });
+          acknowledgeBypass(repo, head, ctx);
+          return;
+        }
         await ensureReviewWindow({ repo, pr, head, ctx, trigger, command: targetCommand });
         return;
       }
@@ -1704,8 +1719,8 @@ export default function (pi: ExtensionAPI) {
   async function ensureReviewWindow(input: { repo: string; pr: PrState; head: string; ctx: any; trigger: string; command?: string; allowBypass?: boolean }): Promise<boolean> {
     const { repo, pr, head, ctx, trigger, command } = input;
     const rawPrevious = loadPending(repo);
-    if (input.allowBypass && acknowledgeBoundaryBypassForHead(repo, head, ctx, "review_bypass_boundary_recovery", rawPrevious?.head)) return true;
     if (rawPrevious?.head === head) return false;
+    if (input.allowBypass && acknowledgeBoundaryBypassForHead(repo, head, ctx, "review_bypass_boundary_recovery", rawPrevious?.head)) return true;
     const reusablePrevious = reusablePendingReview(rawPrevious, head, (ancestor, current) => isAncestor(repo, ancestor, current));
     if (rawPrevious && rawPrevious.head !== head) {
       // The window is moving to a new head, so the PREVIOUS head's still-running lane children are
@@ -1921,7 +1936,7 @@ export default function (pi: ExtensionAPI) {
     })) return false;
     markBoundaryActed(before.repo, pr?.headRefName);
     appendReviewEvent(before.repo, { event: "boundary_detected", head, decision: "agent_head_advance", trigger: "Agent tool advanced enforced PR head" });
-    return ensureReviewWindow({ repo: before.repo, pr: pr as PrState, head, ctx, trigger: "Agent/subagent advanced PR head" });
+    return ensureReviewWindow({ repo: before.repo, pr: pr as PrState, head, ctx, trigger: "Agent/subagent advanced PR head", allowBypass: true });
   };
 
   const onAgentStart = (event: any, ctx: any) => {

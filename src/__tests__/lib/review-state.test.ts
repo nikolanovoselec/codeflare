@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { agentHeadAdvanceRequiresReview, computeReviewStateFrom, isAgentSpawnerToolEvent, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, reviewInSessionContinuation, reviewWindowStartDecision, mergeGateDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, reviewMonitorDecision, workspaceRepoFromPath, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput, type MergeGateInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { agentHeadAdvanceRequiresReview, computeReviewStateFrom, isAgentSpawnerToolEvent, shouldReconcileOpenPr, reconcileBoundaryAction, reviewBaselineContinuation, reviewBoundaryStartDecision, reviewInSessionContinuation, reviewWindowStartDecision, mergeGateDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, rememberActiveRepo, recallActiveRepo, activeRepoSentinelForDisplay, compactDurableReviewStatus, formatReviewElapsed, formatReviewTokens, reviewMonitorDecision, workspaceRepoFromPath, type ComputeReviewStateInput, type OpenPrReconcileInput, type ReconcileBoundaryInput, type MergeGateInput } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 
 /**
  * computeReviewStateFrom is the canonical review-state definition (review.md §17.2).
@@ -164,6 +164,28 @@ describe('reviewWindowStartDecision (REQ-AGENT-041: bypass is consumed only by l
   it('waits instead of starting review when a task/subagent context sees the bypass on a review-start decision', () => {
     expect(reviewWindowStartDecision({ bypassPresent: true, canConsumeBypass: false, boundaryEvent: true })).toBe('wait_for_main_session');
   });
+
+  it('preserves the sentinel when an already-acked boundary event would not start review', () => {
+    expect(reviewBoundaryStartDecision({
+      acked: true,
+      breakerOpen: false,
+      windowExists: false,
+      dedupeAllowed: true,
+      bypassPresent: true,
+      canConsumeBypass: true,
+    })).toBe('skip_acked');
+  });
+
+  it('preserves the sentinel when a pending review window already exists', () => {
+    expect(reviewBoundaryStartDecision({
+      acked: false,
+      breakerOpen: false,
+      windowExists: true,
+      dedupeAllowed: true,
+      bypassPresent: true,
+      canConsumeBypass: true,
+    })).toBe('skip_window_exists');
+  });
 });
 
 describe('reconcileBoundaryAction (REQ-AGENT-058 revised: autostart in-session, offer-once on clone)', () => {
@@ -256,6 +278,15 @@ describe('isAgentSpawnerToolEvent / agentHeadAdvanceRequiresReview (REQ-AGENT-05
 
   it('starts review when an Agent tool advances an enforced PR head', () => {
     expect(agentHeadAdvanceRequiresReview(base)).toBe(true);
+  });
+
+  it('honors the bypass sentinel for a live Agent head-advance review start', () => {
+    expect(agentHeadAdvanceRequiresReview(base)).toBe(true);
+    expect(reviewWindowStartDecision({
+      bypassPresent: true,
+      canConsumeBypass: true,
+      boundaryEvent: agentHeadAdvanceRequiresReview(base),
+    })).toBe('ack_bypass');
   });
 
   it('does not start review for inherited same-head, draft, acked, breaker, or existing-window states', () => {

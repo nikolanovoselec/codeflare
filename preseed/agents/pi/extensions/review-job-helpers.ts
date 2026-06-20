@@ -1012,6 +1012,24 @@ export function reviewWindowStartDecision(input: ReviewWindowStartDecisionInput)
   return input.canConsumeBypass ? "ack_bypass" : "wait_for_main_session";
 }
 
+export type ReviewBoundaryStartDecisionInput = {
+  acked: boolean;
+  breakerOpen: boolean;
+  windowExists: boolean;
+  dedupeAllowed: boolean;
+  bypassPresent: boolean;
+  canConsumeBypass: boolean;
+};
+export type ReviewBoundaryStartDecision = ReviewWindowStartDecision | "skip_acked" | "skip_breaker" | "skip_window_exists" | "skip_dedupe";
+
+export function reviewBoundaryStartDecision(input: ReviewBoundaryStartDecisionInput): ReviewBoundaryStartDecision {
+  if (input.acked) return "skip_acked";
+  if (input.breakerOpen) return "skip_breaker";
+  if (input.windowExists) return "skip_window_exists";
+  if (!input.dedupeAllowed) return "skip_dedupe";
+  return reviewWindowStartDecision({ bypassPresent: input.bypassPresent, canConsumeBypass: input.canConsumeBypass, boundaryEvent: true });
+}
+
 // Action gate for a reconciled (missed-boundary) PR head (REQ-AGENT-058 revised).
 // shouldReconcileOpenPr decides WHETHER a head is reconcilable; this decides what the
 // reconciler DOES with it. The locked design is: an in-session push still AUTO-STARTS the
