@@ -460,14 +460,14 @@ describe('REQ-MOB-010: FitAddon fit calls are coordinated', () => {
     // triggered by the active-state effect chain. At least one raf+fit
     // pairing must exist (current source has multiple - the inactive-tab
     // and the active-state initial paint each contribute).
-    const rafFitMatches = useTerminalSrc.match(/requestAnimationFrame\([\s\S]{0,300}fitAddon\??\.fit\(\)/g) ?? [];
+    const rafFitMatches = useTerminalSrc.match(/requestAnimationFrame\([\s\S]{0,300}(?:mounted)?[Ff]itAddon\??\.fit\(\)/g) ?? [];
     expect(rafFitMatches.length).toBeGreaterThanOrEqual(1);
 
     // Path 3: ResizeObserver - the observer callback calls fit() (gated by
     // kbDebounceTimer per AC2). The literal "ResizeObserver" + a downstream
     // fit() call inside the same function body proves the path exists.
     expect(useTerminalSrc).toMatch(/ResizeObserver/);
-    const fitCallCount = (useTerminalSrc.match(/fitAddon\??\.fit\(\)/g) ?? []).length;
+    const fitCallCount = (useTerminalSrc.match(/(?:mounted)?[Ff]itAddon\??\.fit\(\)/g) ?? []).length;
     // useTerminal must have multiple fit() call sites (active-state path +
     // ResizeObserver path + keyboard-refit path), proving the paths are
     // distinct. Current source has 8; demand >= 3 (the AC count).
