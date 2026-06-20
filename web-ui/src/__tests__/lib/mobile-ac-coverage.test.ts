@@ -522,10 +522,13 @@ describe('REQ-MOB-010: FitAddon fit calls are coordinated', () => {
     // useTerminal must import isVirtualKeyboardOpen and use it as a gate
     // for scrollToBottom calls that happen after fit().
     expect(useTerminalSrc).toMatch(/isVirtualKeyboardOpen/);
-    // A fit() call followed within ~200 chars by scrollToBottom proves the
-    // post-fit scroll path exists. If the path is deleted, this regex
-    // returns null.
-    const fitThenScroll = useTerminalSrc.match(/fitAddon\??\.fit\(\)[\s\S]{0,400}scrollToBottom\(\)/);
+    // Target the keyboard-refit path specifically: fit() -> a POSITIVE
+    // `if (isVirtualKeyboardOpen())` gate -> scrollToBottom(). Requiring the
+    // positive gate between fit() and scrollToBottom() excludes the font-loading
+    // path (fitAddon?.fit() -> if (wasBottom) scrollToBottom()) and the
+    // ResizeObserver path (whose gate is the NEGATED !isVirtualKeyboardOpen()),
+    // so deleting the keyboard-open post-fit scroll makes this regex return null.
+    const fitThenScroll = useTerminalSrc.match(/(?:mounted)?[Ff]itAddon\??\.fit\(\)[\s\S]{0,200}if\s*\(isVirtualKeyboardOpen\(\)\)[\s\S]{0,160}scrollToBottom\(\)/);
     expect(fitThenScroll).not.toBeNull();
   });
 
