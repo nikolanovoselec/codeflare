@@ -11,6 +11,8 @@ Diagnostic commands, common failure modes, and resolution steps.
 - [GitHub Integration](#github-integration)
 - [Browser Run](#browser-run)
 - [Diagnostic Commands](#diagnostic-commands)
+- [Related Documentation](#related-documentation)
+- [Specification Coverage](#specification-coverage)
 
 ---
 

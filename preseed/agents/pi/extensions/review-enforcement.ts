@@ -1334,10 +1334,11 @@ export default function (pi: ExtensionAPI) {
         // genuine near-miss. Audit it (reconciliation still backstops the start) so a future miss is
         // diagnosable instead of invisible. Healthy skips (acked/breaker/pending) are not audited.
         if (!head) { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "no_resolvable_head" }); continue; }
-        if (acknowledgeBoundaryBypassForHead(repo, head, ctx, "review_bypass_boundary_event")) return;
+        const currentPending = loadPending(repo);
+        if (acknowledgeBoundaryBypassForHead(repo, head, ctx, "review_bypass_boundary_event", currentPending?.head)) return;
         if (acked(repo, head)) continue;
         if (isBreakerOpen(repo, head)) continue; // breaker already gave up on this exact head; push a new commit to retry
-        if (loadPending(repo)?.head === head) continue; // a window for this head already exists
+        if (currentPending?.head === head) continue; // a window for this head already exists
         if (!shouldProcessPrBoundaryToolEnd(toolId, true)) { appendReviewEvent(repo, { event: "boundary_tool_end_ignored", reason: "dedupe_skipped", head }); return; }
         await ensureReviewWindow({ repo, pr, head, ctx, trigger, command: targetCommand });
         return;
@@ -1700,9 +1701,10 @@ export default function (pi: ExtensionAPI) {
   // byte-identical window (REQ-AGENT-058 AC2). Idempotent: a no-op when a window for this exact
   // head already exists (AC6). Returns true when it created a window or acked a no-lane diff
   // (e.g. a generated-only graphify-out/ change, which classifyReviewFiles skips to zero lanes).
-  async function ensureReviewWindow(input: { repo: string; pr: PrState; head: string; ctx: any; trigger: string; command?: string }): Promise<boolean> {
+  async function ensureReviewWindow(input: { repo: string; pr: PrState; head: string; ctx: any; trigger: string; command?: string; allowBypass?: boolean }): Promise<boolean> {
     const { repo, pr, head, ctx, trigger, command } = input;
     const rawPrevious = loadPending(repo);
+    if (input.allowBypass && acknowledgeBoundaryBypassForHead(repo, head, ctx, "review_bypass_boundary_recovery", rawPrevious?.head)) return true;
     if (rawPrevious?.head === head) return false;
     const reusablePrevious = reusablePendingReview(rawPrevious, head, (ancestor, current) => isAncestor(repo, ancestor, current));
     if (rawPrevious && rawPrevious.head !== head) {
@@ -1787,6 +1789,7 @@ export default function (pi: ExtensionAPI) {
           ctx,
           trigger: `${trigger}: transcript git/gh offset ${seen.offset}`,
           command: seen.command,
+          allowBypass: true,
         });
       }
       return false;
@@ -1872,7 +1875,7 @@ export default function (pi: ExtensionAPI) {
     });
     if (action === "noop") return false;
     if (action === "autostart") {
-      return await ensureReviewWindow({ repo: resolvedRepo, pr: pr as PrState, head, ctx, trigger: "open-PR reconciliation (in-session continuation)" });
+      return await ensureReviewWindow({ repo: resolvedRepo, pr: pr as PrState, head, ctx, trigger: "open-PR reconciliation (in-session continuation)", allowBypass: true });
     }
     markOfferSurfaced(resolvedRepo, head);
     appendReviewEvent(resolvedRepo, { event: "boundary_offered", head, reason: decision.reason });

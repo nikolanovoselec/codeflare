@@ -1425,12 +1425,13 @@ None.
 3. After complete lane results and `summary.md` exist, the monitor writes `monitor.completed` JSON containing `repo`, `head`, `summaryPath`, `completedAt`, and result `clean` or `findings`. <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorCompletionReady --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorCompletionRecordReady -->
 4. Early lane failures return `REVIEW_RESULT failed` without writing `monitor.completed`. <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt -->
 5. `/review-results` remains a manual fallback that displays the saved `summary.md` for the current exact head without mutating delivery state, relying on nonce/announcement records, or claiming the head was acknowledged. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::review-results --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewResultsSummaryMessage --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatMergedReviewSummary -->
-6. Task/subagent contexts may reap lanes and write durable state, but only a live main-session ctx may start `review-monitor`; task paths and absent ctx wait. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::remember --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorContextDecision --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::isTaskSessionFile -->
-7. If extension-owned monitor startup throws or returns no agent id, Pi keeps the durable monitor claim and sends the main session a one-shot fallback message containing the exact `review-monitor` prompt. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendReviewMonitorFallbackMessage --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorStartupFailureMessage --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (startup failure message includes fallback monitor prompt and claim warning -> AC7) -->
+6. Only a live main-session ctx may start `review-monitor`; task paths and absent ctx wait. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorContextDecision --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::isTaskSessionFile -->
+7. Extension-owned monitor startup failure sends the main session a one-shot fallback message containing the exact `review-monitor` prompt. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendReviewMonitorFallbackMessage --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorStartupFailureMessage --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (startup failure message includes fallback monitor prompt and claim warning -> AC7) -->
 
 **Constraints:**
 
-None.
+- Task/subagent contexts may reap lanes and write durable state, but they do not start `review-monitor`.
+- A monitor startup failure keeps the durable monitor claim unless the fallback message cannot be sent.
 
 **Priority:** P1
 
@@ -1597,7 +1598,7 @@ None.
 <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewWindowStartDecision -->
 <!-- @test: host/__tests__/enforce-review-spawn.test.js (bypass 1: sentinel file + bypass 2: magic phrase + 5-strike circuit breaker describes -> AC1/AC3/AC5/AC6 user-only escape hatches with sticky-until-SHA-changes circuit) -->
 <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-041 / REQ-AGENT-055: Pi bypass consumption stays main-session-only and active-head selection rejects stale states -> AC3/AC4) -->
-<!-- @test: src/__tests__/lib/review-state.test.ts (reviewWindowStartDecision ignores passive sentinel sightings and acknowledges only live PR-boundary events from the main session -> AC2/AC4) -->
+<!-- @test: src/__tests__/lib/review-state.test.ts (reviewWindowStartDecision ignores passive sentinel sightings and acknowledges only live review-start decisions from the main session -> AC2/AC4) -->
 
 **Intent:** The user needs a small set of explicit, user-only escape hatches when a PR-boundary review gate would otherwise block legitimate work (hermetic tests, deliberate skip, repeated false-block). The assistant MUST NEVER trip these surfaces in its own output.
 
@@ -1606,7 +1607,7 @@ None.
 **Acceptance Criteria:**
 
 1. A user-creatable one-shot sentinel file bypasses the current PR-boundary gate exactly once and is auto-deleted on use. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::BYPASS_FILE --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::consumeBypass -->
-2. In Pi, a pending sentinel is consumed only by a live PR-boundary command or merge gate; passive status refresh, monitor delivery, lane completion, and idle reaping leave it untouched. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewWindowStartDecision --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBoundaryBypassForHead -->
+2. In Pi, a pending sentinel is consumed only by live review-start or merge-gate decisions. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewWindowStartDecision --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBoundaryBypassForHead --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::onAgentStart --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::mergeGateDecision --> <!-- @test: src/__tests__/lib/review-state.test.ts (reviewWindowStartDecision passive-vs-boundary cases and mergeGateDecision bypass case -> AC2) -->
 3. Claude Stop-hook enforcement treats the sentinel as a one-turn bypass without advancing the acknowledgement checkpoint; Pi native enforcement acknowledges only the current live protected PR HEAD after successful sentinel consumption. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::bypassAckHeadForStatus -->
 4. Pi task/subagent sessions must leave the sentinel untouched and must not acknowledge a bypass if sentinel consumption fails. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::consumeBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::canMainSessionConsumeReviewBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewBypassConsumeDecision -->
 5. A user-authored `skip review` or `skip verification` phrase after the candidate push line bypasses that push. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh -->
@@ -1616,6 +1617,7 @@ None.
 **Constraints:**
 
 - These bypass surfaces apply only to PR-boundary review gates; the in-turn nudge and trigger detection in [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions) are unaffected.
+- Passive status refresh, monitor delivery, lane completion, and idle reaping leave the bypass sentinel untouched.
 - The bypass sentinel location is overridable for hermetic test environments.
 
 **Priority:** P1
