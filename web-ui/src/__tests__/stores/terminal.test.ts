@@ -121,7 +121,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff u
         onmessage: ((event: MessageEvent) => void) | null = null;
         onerror: ((event: Event) => void) | null = null;
         onclose: ((event: CloseEvent) => void) | null = null;
-        readyState = WebSocket.CONNECTING;
+        readyState: number = WebSocket.CONNECTING;
         binaryType = 'arraybuffer';
         send = vi.fn();
         close = vi.fn(() => { this.readyState = WebSocket.CLOSED; });
