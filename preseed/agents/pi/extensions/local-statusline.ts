@@ -253,10 +253,10 @@ export default function (pi: ExtensionAPI) {
           const repo = findGitRoot(ctx.sessionManager.getCwd()) ?? findGitRoot(ctx.cwd)
             ?? recallReviewRepo() ?? recallActiveRepo() ?? sentinelRepoForDisplay(ctx);
           const reviewRow = repo ? liveReviewRow(repo, theme) : undefined;
-          if (reviewRow) statuses.push(reviewRow);
-          else if (!repo && reviewFallback) statuses.push(reviewFallback);
+          const reviewStatus = reviewRow ?? (!repo ? reviewFallback : undefined);
           const lines = [theme.fg("dim", truncateToWidth(cached.value, width))];
           if (statuses.length > 0) lines.push(truncateToWidth(statuses.join(" | "), width));
+          if (reviewStatus) lines.push(truncateToWidth(reviewStatus, width));
           return lines;
         },
       };

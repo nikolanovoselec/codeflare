@@ -517,12 +517,16 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
         { fg: (_name: string, text: string) => text },
         {
           onBranchChange: () => () => undefined,
-          getExtensionStatuses: () => new Map([['codeflare-review', 'Review \x1b[32mcode\x1b[0m | \x1b[33mspec\x1b[0m | docs']]),
+          getExtensionStatuses: () => new Map([
+            ['mcp-background', 'MCP background agents active'],
+            ['codeflare-review', 'Review \x1b[32mcode\x1b[0m | \x1b[33mspec\x1b[0m | docs'],
+          ]),
         },
       );
       const ansiLines = ansiComponent.render(20);
-      expect(ansiLines[1].replace(/\x1b\[[0-9;]*m/g, '')).toBe('Review code | spec…');
-      expect(ansiLines[1]).toContain('\x1b[32mcode\x1b[0m');
+      expect(ansiLines[1].replace(/\x1b\[[0-9;]*m/g, '')).toBe('MCP background agen…');
+      expect(ansiLines[2].replace(/\x1b\[[0-9;]*m/g, '')).toBe('Review code | spec…');
+      expect(ansiLines[2]).toContain('\x1b[32mcode\x1b[0m');
     } finally {
       globalThis.setInterval = originalSetInterval;
       globalThis.clearInterval = originalClearInterval;
