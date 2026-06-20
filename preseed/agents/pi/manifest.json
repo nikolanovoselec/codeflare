@@ -4,6 +4,12 @@
       "advanced"
     ]
   },
+  "rules/git-workflow.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "extensions/browser-run.ts": {
     "modes": [
       "advanced"
@@ -116,6 +122,11 @@
     ]
   },
   "skills/git-review-pipeline/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ci-monitoring/SKILL.md": {
     "modes": [
       "advanced"
     ]

@@ -165,10 +165,12 @@ unrelated user MCP servers in the same file.
 **Rules** (core environment rules in both modes; the rest advanced-only) ([REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode),
 [REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session)):
 core environment rules (`cloudflare-environment`, `no-local-builds`,
-`git-workflow`) ship in both modes. `git-workflow` delegates branched mechanics
-to `ci-monitoring`, `git-review-pipeline`, `pr-workflow`, and `deploy-credentials`.
+`git-workflow`) ship in both modes. Claude keeps the baseline `git-workflow` rule.
+Pi gets its own native `preseed/agents/pi/rules/git-workflow.md` from the Pi manifest,
+which delegates branched mechanics to `ci-monitoring`, `git-review-pipeline`,
+`pr-workflow`, and `deploy-credentials`.
 
-CI monitoring is background-agent owned: after any CI-producing push, agents start
+Pi CI monitoring is background-agent owned: after any CI-producing push, Pi agents start
 `ci-monitoring` unless the user explicitly skips it for that push. The backgrounded
 agent monitors the target HEAD and reports success, failure, or timeout to the main
 session; it does not fix, commit, or push ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
@@ -177,7 +179,7 @@ and waits for a stable workflow/run-id fingerprint before success ([REQ-AGENT-06
 AC2). When the background CI agent returns `CI_RESULT`, the main session must print
 that CI summary first, including the monitored head, run/log pointers when present,
 and planned next action, before inspecting logs or editing ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC5).
+AC5). Pi uses its own native `preseed/agents/pi/skills/ci-monitoring/SKILL.md` entry from the Pi manifest, so it is not generated from the Claude skill; that native skill queries exact commits and stops when no workflow rows appear for the pushed head ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy) AC6).
 
 Monitoring and any other long-running wait/poll are background-only: no agent may
 keep the main session busy with `tail -f`, `gh run watch`, blocking `ctx_execute`,

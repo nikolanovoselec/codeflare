@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { bypassAckHeadForStatus, canMainSessionConsumeReviewBypass, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, postCommandReconcileDecision, prCreateBoundaryBase, reusablePendingReview, reviewBypassConsumeDecision, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, isTaskSessionFile, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, registerReviewRefreshLifecycleHooks, REVIEW_REFRESH_LIFECYCLE_EVENTS, reviewMonitorCompletionRecordReady, reviewMonitorDecision, reviewMonitorSpawnDecision, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput, type ReviewRefreshLifecycleEvent } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, isTaskSessionFile, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, registerReviewRefreshLifecycleHooks, REVIEW_REFRESH_LIFECYCLE_EVENTS, reviewMonitorCompletionRecordReady, reviewMonitorContextDecision, reviewMonitorDecision, reviewMonitorSpawnDecision, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput, type ReviewRefreshLifecycleEvent } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_CAPTURE_PENDING_TTL_MS, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { LOCAL_BUILD_BYPASS, attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { reviewLaneBlockReason, reviewScopeBlockReason } from '../../../preseed/agents/pi/extensions/review-lane-guards';
@@ -153,58 +153,34 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('REQ-AGENT-068: propagates CI monitoring behavior from anchored source blocks into every agent instruction surface', () => {
-    const instructionKeys = [
-      '.codex/AGENTS.md',
-      '.gemini/GEMINI.md',
-      '.copilot/copilot-instructions.md',
-      '.config/opencode/AGENTS.md',
-      '.pi/agent/AGENTS.md',
-    ];
-    const gitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/git-workflow.md');
-    const ciSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/skills/ci-monitoring/SKILL.md');
-    const anchoredSection = (content: string, anchor: string) => {
-      const start = content.indexOf(`<!-- ${anchor} -->`);
-      expect(start, `${anchor} source anchor`).toBeGreaterThanOrEqual(0);
-      const rest = content.slice(start);
-      const nextHeading = rest.slice(1).search(/\n## /);
-      return nextHeading === -1 ? rest : rest.slice(0, nextHeading + 1);
-    };
-    const requiredLine = (block: string, tokens: string[]) => {
-      const line = block.split('\n').find((candidate) => tokens.every((token) => candidate.includes(token)));
-      expect(line, `source clause with ${tokens.join(' + ')}`).toBeTruthy();
-      return line!;
-    };
+  it('REQ-AGENT-068: keeps Claude git-workflow on the baseline while Pi gets native CI workflow files', () => {
+    const claudeGitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/git-workflow.md');
+    const piGitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/rules/git-workflow.md');
+    const piCiSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/skills/ci-monitoring/SKILL.md');
 
-    expect(gitWorkflow, 'git workflow source must be seeded').toBeTruthy();
-    expect(ciSkill, 'ci-monitoring skill source must be seeded').toBeTruthy();
-    for (const anchor of ['ci-no-main-session-monitor', 'ci-background-agent', 'ci-workflow-row-fingerprint']) {
-      expect(ciSkill!.content.match(new RegExp(anchor, 'g')) ?? [], `${anchor} source anchor`).toHaveLength(1);
-    }
+    expect(claudeGitWorkflow, 'Claude git-workflow source must be seeded').toBeTruthy();
+    expect(claudeGitWorkflow!.content).toContain('Do not auto-start CI monitoring after routine pushes.');
+    expect(claudeGitWorkflow!.content).not.toContain('After any push that can produce CI, invoke `ci-monitoring`');
 
-    const routeBlock = anchoredSection(gitWorkflow!.content, 'git-workflow-ci-route');
-    const hardObligationsBlock = anchoredSection(gitWorkflow!.content, 'git-workflow-hard-obligations');
-    const requiredClauses = [
-      requiredLine(routeBlock, ['Any push that can produce CI', 'ci-monitoring', 'backgrounded agent']),
-      requiredLine(hardObligationsBlock, ['After any push that can produce CI', 'invoke `ci-monitoring`', 'skip CI monitoring']),
-      requiredLine(hardObligationsBlock, ['CI monitoring must run', 'backgrounded agent/subagent']),
-      requiredLine(hardObligationsBlock, ['does not fix, commit, or push', 'CI_RESULT success']),
-      requiredLine(hardObligationsBlock, ['long-running wait/monitor/poll', 'detached/background']),
-    ];
+    expect(piGitWorkflow, 'Pi-native git-workflow rule must be seeded').toBeTruthy();
+    expect(piGitWorkflow!.content).toContain('After any push that can produce CI, invoke `ci-monitoring`');
+    expect(piGitWorkflow!.content).toContain('CI monitoring must run in a backgrounded agent/subagent');
 
-    for (const key of instructionKeys) {
-      const entries = AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key === key);
-      expect(entries, `${key} should have generated mode entries`).toHaveLength(2);
-      for (const entry of entries) {
-        for (const clause of requiredClauses) {
-          expect(entry.content, `${key} ${entry.modes.join(',')} preserves source CI policy clause`).toContain(clause);
-        }
-      }
-    }
+    expect(piCiSkill, 'Pi-native ci-monitoring skill must be seeded').toBeTruthy();
+    expect(piCiSkill!.content).toContain('Pi Background CI Monitoring');
+    expect(piCiSkill!.content).toContain('gh run list --commit "$head"');
   });
 
-  it('preseeds the running-review push gate into every agent instruction surface', () => {
-    const rule = 'Do not push while a review is running, unless explicitly authorized by the user.';
+  it('REQ-AGENT-068: Pi gets a native CI monitoring skill instead of the Claude-transformed skill', () => {
+    const piSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/skills/ci-monitoring/SKILL.md');
+    expect(piSkill, 'Pi-native ci-monitoring skill must be seeded').toBeTruthy();
+    expect(piSkill!.content).toContain('Pi Background CI Monitoring');
+    expect(piSkill!.content).toContain('gh run list --commit "$head"');
+    expect(piSkill!.content).toContain('CI_RESULT timeout no_workflows_for_head=$head');
+  });
+
+  it('preseeds the review push gate into every agent instruction surface', () => {
+    const rule = 'Do not push while a PR-boundary review is running';
     const instructionKeys = [
       '.codex/AGENTS.md',
       '.gemini/GEMINI.md',
@@ -213,7 +189,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/AGENTS.md',
     ];
 
-    const claudeRule = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/git-workflow.md');
+    const claudeRule = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/engineering-constitution.md');
     expect(claudeRule?.content).toContain(rule);
 
     for (const key of instructionKeys) {
@@ -1346,6 +1322,13 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(reviewMonitorSpawnDecision({ completed: false, startedAt: 800, now: 1000, ttlMs: 500 })).toBe('skip_running');
     expect(reviewMonitorSpawnDecision({ completed: false, startedAt: 400, now: 1000, ttlMs: 500 })).toBe('spawn');
     expect(reviewMonitorSpawnDecision({ completed: false, startedAt: undefined, now: 1000, ttlMs: 500 })).toBe('spawn');
+  });
+
+  it('REQ-AGENT-062: main-session monitor spawning does not require a transcript path', () => {
+    expect(reviewMonitorContextDecision({ hasContext: true, sessionFile: undefined })).toBe('allow');
+    expect(reviewMonitorContextDecision({ hasContext: true, sessionFile: '/home/user/.pi/agent/sessions/session.jsonl' })).toBe('allow');
+    expect(reviewMonitorContextDecision({ hasContext: true, sessionFile: '/home/user/.pi/agent/sessions/tasks/review-monitor.jsonl' })).toBe('wait_for_main_session');
+    expect(reviewMonitorContextDecision({ hasContext: false, sessionFile: undefined })).toBe('wait_for_main_session');
   });
 
   it('REQ-AGENT-062: monitor completion markers must match the delivered final summary', () => {

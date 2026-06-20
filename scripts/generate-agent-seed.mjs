@@ -82,6 +82,7 @@ const TOOL_MAP = {
 
 const CLAUDE_ONLY_CATEGORIES = new Set(['hook', 'command', 'plugin']);
 const CLAUDE_ONLY_FILES = new Set(['rules/memory.md']);
+const PI_EXCLUDED_CLAUDE_FILES = new Set(['rules/git-workflow.md']);
 // impeccable is Claude-only in the transform fan-out: it ships ~57 files incl. an
 // offline detector, so embedding it into codex/gemini/opencode would bloat the seed for
 // agents that won't use it. Pi gets a DEDICATED native copy (preseed/agents/pi/skills/
@@ -341,6 +342,7 @@ function validateModes(manifest, label) {
 function piNativeKey(withinPi) {
   if (withinPi.startsWith('extensions/')) return `.pi/agent/${withinPi}`;
   if (withinPi.startsWith('skills/')) return `.pi/agent/${withinPi}`;
+  if (withinPi.startsWith('rules/')) return `.pi/agent/${withinPi}`;
   if (withinPi.startsWith('scripts/')) return `.pi/agent/${withinPi}`;
   if (withinPi.startsWith('prompts/')) return `.pi/agent/${withinPi}`;
   if (withinPi.startsWith('agents/')) return `.pi/agent/${withinPi}`;
@@ -473,7 +475,8 @@ async function generate() {
         (f) =>
           f.category === 'rule' &&
           f.modes.includes(mode) &&
-          !isClaudeOnlyFile(f.withinClaude)
+          !isClaudeOnlyFile(f.withinClaude) &&
+          !(agentId === 'pi' && PI_EXCLUDED_CLAUDE_FILES.has(f.withinClaude))
       );
       if (rules.length > 0) {
         documents.push({

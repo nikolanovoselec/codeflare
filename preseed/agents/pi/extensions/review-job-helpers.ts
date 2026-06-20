@@ -241,6 +241,19 @@ export function reviewMonitorSpawnDecision(input: ReviewMonitorSpawnDecisionInpu
   return "spawn";
 }
 
+export type ReviewMonitorContextDecisionInput = {
+  hasContext: boolean;
+  sessionFile?: string;
+};
+
+export type ReviewMonitorContextDecision = "allow" | "wait_for_main_session";
+
+export function reviewMonitorContextDecision(input: ReviewMonitorContextDecisionInput): ReviewMonitorContextDecision {
+  if (!input.hasContext) return "wait_for_main_session";
+  if (isTaskSessionFile(input.sessionFile)) return "wait_for_main_session";
+  return "allow";
+}
+
 export type ReviewMonitorCompletionRecord = {
   repo?: unknown;
   head?: unknown;
