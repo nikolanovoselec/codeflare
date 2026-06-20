@@ -77,6 +77,8 @@ export {
   injectVaultEncryptionConfig,
   injectVaultBootScript,
   injectVaultIdbRecorder,
+  injectVaultPrewarmFocusGuard,
+  installVaultPrewarmNoFocus,
   injectVaultBootstrapHopHtml,
   hasVaultBootstrapCookie,
   filterVaultFsListing,
@@ -86,6 +88,7 @@ export {
   VAULT_BOOTSTRAP_COOKIE,
   VAULT_SW_ACTIVATION_TIMEOUT_MS,
   VAULT_IDB_RECORDER_MARKER,
+  VAULT_PREWARM_FOCUS_GUARD_MARKER,
 } from './vault-html';
 export {
   VAULT_NATIVE_SERVICE_WORKER_JS,

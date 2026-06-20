@@ -11,6 +11,7 @@ Technical reference for the mobile terminal implementation covering keyboard han
 - [MultiView Availability](#multiview-availability)
 - [Cursor Visibility](#cursor-visibility)
 - [Keyboard Management](#keyboard-management)
+  - [Background prewarm focus safety](#background-prewarm-focus-safety)
 - [Touch Input](#touch-input)
 - [Scroll Stability](#scroll-stability)
 - [WebSocket Recovery](#websocket-recovery)
@@ -43,6 +44,10 @@ The `overlaysContent` flag must be managed carefully throughout the terminal lif
 - **Enable** when the terminal textarea is focused (`enableVirtualKeyboardOverlay`)
 - **Disable** on terminal exit (`disableVirtualKeyboardOverlay`) so other inputs get normal browser resizing
 - `overlaysContent` must be enabled BEFORE focus to beat the keyboard/layout race
+
+### Background prewarm focus safety
+
+Vault browser prewarm runs in a hidden same-origin iframe while the user may already be typing in the terminal. It is intentionally not delayed by terminal focus or an open virtual keyboard. Instead, `injectVaultPrewarmFocusGuard()` makes only the valid-token prewarm shell focus-inert before SilverBullet app scripts run: script `focus()`, `select()`, and `window.focus()` calls are no-ops, focus-in events inside the hidden document are blurred, and `startVaultPrewarm()` restores the previously focused terminal/input element if the outer iframe captures parent focus. Normal user-opened Vault tabs do not carry prewarm parameters and keep regular editor focus behavior.
 
 ### Samsung Internet Quirks
 

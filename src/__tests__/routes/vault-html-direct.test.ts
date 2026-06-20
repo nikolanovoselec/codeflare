@@ -14,9 +14,12 @@ import {
   injectVaultEncryptionConfig,
   injectVaultBootScript,
   injectVaultPrewarmBridge,
+  injectVaultPrewarmFocusGuard,
+  installVaultPrewarmNoFocus,
   getVaultPrewarmRedirectSearch,
   VAULT_BOOTSTRAP_COOKIE,
   VAULT_PREWARM_BRIDGE_MARKER,
+  VAULT_PREWARM_FOCUS_GUARD_MARKER,
   VAULT_PREWARM_REQUIRED_FILES,
 } from '../../routes/vault-html';
 
@@ -141,6 +144,80 @@ describe('CF-045: vault-html direct unit tests', () => {
       return script;
     }
 
+    async function countPrewarmFocusGuardScripts(html: string): Promise<number> {
+      let count = 0;
+      await new HTMLRewriter()
+        .on(`script[${VAULT_PREWARM_FOCUS_GUARD_MARKER}]`, {
+          element() { count += 1; },
+        })
+        .transform(new Response(html))
+        .text();
+      return count;
+    }
+
+    function runPrewarmFocusGuard(search: string) {
+      let htmlFocusCount = 0;
+      let svgFocusCount = 0;
+      let inputSelectCount = 0;
+      let textareaSelectCount = 0;
+      let windowFocusCount = 0;
+      let blurCount = 0;
+      const listeners: Record<string, Array<(event: { target?: unknown }) => void>> = {};
+
+      class FakeHTMLElement {
+        focus() { htmlFocusCount += 1; }
+        blur() { blurCount += 1; }
+      }
+      class FakeSVGElement {
+        focus() { svgFocusCount += 1; }
+      }
+      class FakeInputElement extends FakeHTMLElement {
+        select() { inputSelectCount += 1; }
+      }
+      class FakeTextAreaElement extends FakeHTMLElement {
+        select() { textareaSelectCount += 1; }
+      }
+
+      const fakeWindow: any = {
+        location: { search },
+        URLSearchParams,
+        HTMLElement: FakeHTMLElement,
+        SVGElement: FakeSVGElement,
+        HTMLInputElement: FakeInputElement,
+        HTMLTextAreaElement: FakeTextAreaElement,
+        focus() { windowFocusCount += 1; },
+      };
+      const fakeDocument = {
+        addEventListener(type: string, listener: (event: { target?: unknown }) => void) {
+          listeners[type] = [...(listeners[type] ?? []), listener];
+        },
+      };
+
+      const installed = installVaultPrewarmNoFocus(fakeWindow, fakeDocument, null);
+
+      const htmlEl = new FakeHTMLElement();
+      const svgEl = new FakeSVGElement();
+      const input = new FakeInputElement();
+      const textarea = new FakeTextAreaElement();
+      htmlEl.focus();
+      svgEl.focus();
+      input.select();
+      textarea.select();
+      fakeWindow.focus();
+      for (const listener of listeners.focusin ?? []) listener({ target: htmlEl });
+
+      return {
+        installed,
+        guardActivated: fakeWindow.__codeflareVaultPrewarmNoFocus === true,
+        htmlFocusCount,
+        svgFocusCount,
+        inputSelectCount,
+        textareaSelectCount,
+        windowFocusCount,
+        blurCount,
+      };
+    }
+
     it('preserves only valid prewarm handshake parameters for bootstrap redirects', () => {
       const req = new Request('https://x/api/vault/aabbccdd/.codeflare-bootstrap?codeflarePrewarm=1&prewarmId=warm-1');
       const search = getVaultPrewarmRedirectSearch(req);
@@ -170,6 +247,38 @@ describe('CF-045: vault-html direct unit tests', () => {
       const rewritten = injectVaultPrewarmBridge(html);
 
       expect(await countPrewarmBridgeScripts(rewritten)).toBe(1);
+    });
+
+    it('keeps normal focus behavior when the generic shell is not opened for prewarm', async () => {
+      const html = '<html><head></head><body></body></html>';
+      const rewritten = injectVaultPrewarmFocusGuard(html);
+      const result = runPrewarmFocusGuard('');
+
+      expect(await countPrewarmFocusGuardScripts(rewritten)).toBe(1);
+      expect(result.installed).toBe(false);
+      expect(result.guardActivated).toBe(false);
+      expect(result.htmlFocusCount).toBe(1);
+      expect(result.svgFocusCount).toBe(1);
+      expect(result.inputSelectCount).toBe(1);
+      expect(result.textareaSelectCount).toBe(1);
+      expect(result.windowFocusCount).toBe(1);
+      expect(result.blurCount).toBe(0);
+    });
+
+    it('makes the prewarm shell unable to take script focus while SilverBullet boots', async () => {
+      const html = '<html><head></head><body></body></html>';
+      const rewritten = injectVaultPrewarmFocusGuard(html);
+      const result = runPrewarmFocusGuard('?codeflarePrewarm=1&prewarmId=warm-1');
+
+      expect(await countPrewarmFocusGuardScripts(rewritten)).toBe(1);
+      expect(result.installed).toBe(true);
+      expect(result.guardActivated).toBe(true);
+      expect(result.htmlFocusCount).toBe(0);
+      expect(result.svgFocusCount).toBe(0);
+      expect(result.inputSelectCount).toBe(0);
+      expect(result.textareaSelectCount).toBe(0);
+      expect(result.windowFocusCount).toBe(0);
+      expect(result.blurCount).toBe(1);
     });
 
     it('requires SilverBullet space sync and expected vault files before the bridge can report ready', async () => {

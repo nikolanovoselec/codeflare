@@ -297,6 +297,7 @@ export const VAULT_IDB_RECORDER_MARKER = '/*codeflare-vault-idb-recorder*/';
 const VAULT_PREWARM_QUERY = 'codeflarePrewarm';
 const VAULT_PREWARM_ID_QUERY = 'prewarmId';
 export const VAULT_PREWARM_BRIDGE_MARKER = 'data-codeflare-vault-prewarm-bridge';
+export const VAULT_PREWARM_FOCUS_GUARD_MARKER = 'data-codeflare-vault-prewarm-focus-guard';
 export const VAULT_PREWARM_REQUIRED_FILES = ['CONFIG.md', 'Index.md', 'STYLES.md'] as const;
 
 export function injectVaultIdbRecorder(html: string): string {
@@ -358,6 +359,69 @@ export function getVaultPrewarmRedirectSearch(request: Request): string {
     [VAULT_PREWARM_ID_QUERY]: prewarmId,
   });
   return `?${params.toString()}`;
+}
+
+export function installVaultPrewarmNoFocus(windowRef: any, documentRef: any, prewarmId: string | null): boolean {
+  try {
+    function valid(value: any) {
+      return typeof value === 'string' && value.length > 0 && value.length <= 128 && /^[A-Za-z0-9._~-]+$/.test(value);
+    }
+    let resolvedPrewarmId = prewarmId;
+    if (!valid(resolvedPrewarmId)) {
+      const SearchParams = windowRef.URLSearchParams || URLSearchParams;
+      const params = new SearchParams(windowRef.location ? windowRef.location.search : '');
+      if (params.get('codeflarePrewarm') === '1') resolvedPrewarmId = params.get('prewarmId');
+    }
+    if (!valid(resolvedPrewarmId)) return false;
+    windowRef.__codeflareVaultPrewarmNoFocus = true;
+    const noop = function () {};
+    function replace(proto: any, name: string) {
+      try {
+        if (proto && typeof proto[name] === 'function') {
+          Object.defineProperty(proto, name, { configurable: true, writable: true, value: noop });
+        }
+      } catch (_) {}
+    }
+    replace(windowRef.HTMLElement && windowRef.HTMLElement.prototype, 'focus');
+    replace(windowRef.SVGElement && windowRef.SVGElement.prototype, 'focus');
+    replace(windowRef.HTMLInputElement && windowRef.HTMLInputElement.prototype, 'select');
+    replace(windowRef.HTMLTextAreaElement && windowRef.HTMLTextAreaElement.prototype, 'select');
+    try { windowRef.focus = noop; } catch (_) {}
+    if (documentRef && typeof documentRef.addEventListener === 'function') {
+      documentRef.addEventListener('focusin', function (event: any) {
+        try {
+          const target = event.target;
+          if (target && typeof target.blur === 'function') target.blur();
+        } catch (_) {}
+      }, true);
+    }
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+export function injectVaultPrewarmFocusGuard(html: string, prewarmId?: string): string {
+  if (html.includes(VAULT_PREWARM_FOCUS_GUARD_MARKER)) return html;
+  const headMatch = /<head\b[^>]*>/i.exec(html);
+  if (!headMatch || headMatch.index === undefined) return html;
+  if (prewarmId !== undefined && (!prewarmId || prewarmId.length > 128 || !/^[A-Za-z0-9._~-]+$/.test(prewarmId))) {
+    throw new Error('injectVaultPrewarmFocusGuard: prewarmId must be a safe non-empty token');
+  }
+  const escapedId = prewarmId === undefined
+    ? 'null'
+    : JSON.stringify(prewarmId)
+      .replace(/<\//g, '<\\/')
+      .replace(/<!--/g, '<\\!--')
+      .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
+  const focusGuardSource = installVaultPrewarmNoFocus.toString()
+    .replace(/<\//g, '<\\/')
+    .replace(/<!--/g, '<\\!--')
+    .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
+  const script = '<script ' + VAULT_PREWARM_FOCUS_GUARD_MARKER + '="1">(function () {(' +
+    focusGuardSource + ')(window, document, ' + escapedId + ');})();</script>';
+  const insertAt = headMatch.index + headMatch[0].length;
+  return html.slice(0, insertAt) + script + html.slice(insertAt);
 }
 
 export function injectVaultPrewarmBridge(html: string, prewarmId?: string): string {
@@ -752,7 +816,9 @@ export async function rewriteVaultHtmlResponse(
     try {
       rewritten = injectVaultBootScript(rewritten, { sessionId });
       rewritten = injectVaultIdbRecorder(rewritten);
-      rewritten = injectVaultPrewarmBridge(rewritten, request ? readVaultPrewarmId(request) ?? undefined : undefined);
+      const prewarmId = request ? readVaultPrewarmId(request) ?? undefined : undefined;
+      rewritten = injectVaultPrewarmFocusGuard(rewritten, prewarmId);
+      rewritten = injectVaultPrewarmBridge(rewritten, prewarmId);
     } catch (err) {
       logger.warn('vault boot-script injection skipped', { error: toErrorMessage(err) });
     }

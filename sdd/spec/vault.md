@@ -322,6 +322,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 <!-- @impl: web-ui/src/lib/vault-readiness.ts::startVaultReadinessProbe -->
 <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm -->
+<!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmFocusGuard -->
 <!-- @impl: web-ui/src/lib/vault-local-readiness.ts::checkVaultLocalReadiness -->
 <!-- @impl: web-ui/src/lib/vault-local-readiness.ts::checkVaultKeyRecoverable -->
 <!-- @impl: web-ui/src/lib/browser-storage-persistence.ts::requestBrowserStoragePersistence -->
@@ -329,15 +330,15 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 <!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmBridge -->
 <!-- @impl: src/routes/vault.ts::handleVaultRequest -->
 <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Vault button behavior describe → guarded prewarm/timeout/error click feedback + ready click opens → AC1/AC3) -->
-<!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018) describe → server latch starts prewarm, timeout retries, mid-prewarm leave starts fresh on return, rechecks this browser cache before opening the Vault tab → AC1-AC4/AC7) -->
+<!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018) describe → server latch starts prewarm, terminal focus does not delay prewarm, timeout retries, mid-prewarm leave starts fresh on return, rechecks this browser cache before opening the Vault tab → AC1-AC4/AC7/AC9) -->
 <!-- @test: web-ui/src/__tests__/lib/vault-readiness.test.ts (startVaultReadinessProbe describe → retries forever past the 60-attempt cap / latches ready on first probe success / clears latch on steady-probe fail (SB crash recovery) / cancel() stops the chain / mid-probe cancel prevents latch → AC2) -->
-<!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (vault browser prewarm protocol describe → iframe URL/session scoping, origin + prewarmId + local+content-proof validation, ready/timeout/cancel cleanup → AC3/AC5) -->
+<!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (vault browser prewarm protocol describe → iframe URL/session scoping, focus-safe eager iframe behavior, origin + prewarmId + local+content-proof validation, ready/timeout/cancel cleanup → AC3/AC5/AC9) -->
 <!-- @test: web-ui/src/__tests__/lib/vault-local-readiness.test.ts (checkVaultLocalReadiness describe → recorded sb_data/sb_files + active service worker + optional databases API proof → AC6/AC7) -->
 <!-- @test: web-ui/src/__tests__/lib/vault-local-readiness.test.ts (checkVaultKeyRecoverable describe → GET /.vault-key with credentials, true on non-empty key, false on non-2xx/empty/throw → AC8) -->
 <!-- @test: web-ui/src/__tests__/components/VaultButton.test.tsx (VaultButton describe → armed openable + green class, preparing not-openable + accent class → AC8) -->
 <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Vault button gating describe → breathes preparing→armed when key becomes recoverable then opens on next click → AC8) -->
 <!-- @test: web-ui/src/__tests__/lib/browser-storage-persistence.test.ts (requestBrowserStoragePersistence describe → already persisted / grant / denial / unsupported / estimate failure → AC3) -->
-<!-- @test: src/__tests__/routes/vault-html-direct.test.ts (vault prewarm helpers describe → sanitized prewarm query propagation + generic shell bridge injection + space-sync/content canary guard → AC6) -->
+<!-- @test: src/__tests__/routes/vault-html-direct.test.ts (vault prewarm helpers describe → sanitized prewarm query propagation + generic shell bridge injection + prewarm-only focus guard + space-sync/content canary guard → AC6/AC9) -->
 
 **Intent:** The Vault control stays guarded until the current browser/device has completed the real SilverBullet startup path for the active session. A user should not land on an unreachable editor or a slow first-click indexing screen.
 
@@ -353,11 +354,13 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 6. The bridge is inert without valid prewarm parameters and emits ready only after the SilverBullet runtime is ready, the current browser has recorded `sb_data_*`, recorded `sb_files_*`, and an active per-session service worker, SilverBullet's service worker has completed a full space sync, the current object index version is complete with an empty index queue, and the local `/.fs/` listing contains the codeflare-authoritative vault files. <!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmBridge -->
 7. Clicking the ready control rechecks the current browser's local readiness before opening the editor; if the local cache is missing or evicted, the app restarts prewarm instead of opening a stale tab. <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 8. Because the service worker drops its in-memory encryption key shortly after the prewarm client disconnects, clicking the ready control also verifies the key is recoverable from the auth-gated `/.vault-key` endpoint before opening. When it is not yet recoverable the control enters a non-openable `preparing` state that breathes in the accent colour, and a background poll re-checks local readiness and key recoverability; once both hold the control becomes `armed`, breathing green. Clicking the armed control opens the vault tab synchronously within the click gesture so the new tab is never pop-up-blocked. Open intent clears when the tab opens or the session is no longer the active running session. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @impl: web-ui/src/lib/vault-local-readiness.ts::checkVaultKeyRecoverable --> <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton -->
+9. Browser prewarm remains eager even when the terminal input is focused or the mobile keyboard is open, but the hidden prewarm document cannot take script focus: the prewarm shell installs a valid-token-only focus/select/window-focus guard before SilverBullet app scripts run, and the parent hidden iframe restores the previously focused terminal/input element if the iframe itself captures parent focus. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmFocusGuard --> <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm -->
 
 **Constraints:**
 
 - Raw session captures and other folders remain visible during prewarm; priority indexing is out of scope.
-- The generic shell bridge stays inert unless the prewarm query and identifier are valid.
+- The generic shell bridge and focus guard stay inert unless the prewarm query and identifier are valid.
+- Prewarm must not be delayed solely because terminal focus or a mobile keyboard is active; the hidden prewarm document is made focus-inert instead.
 
 **Priority:** P0
 

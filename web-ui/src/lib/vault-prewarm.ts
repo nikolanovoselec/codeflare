@@ -52,6 +52,23 @@ function createPrewarmId(): string {
   return randomUUID ? randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function getRestorableFocus(documentRef: Document): HTMLElement | null {
+  const active = documentRef.activeElement;
+  if (!active || active === documentRef.body || active === documentRef.documentElement) return null;
+  if (typeof (active as HTMLElement).focus !== 'function') return null;
+  return active as HTMLElement;
+}
+
+function restoreFocusIfPrewarmCaptured(
+  documentRef: Document,
+  iframe: HTMLIFrameElement,
+  previousFocus: HTMLElement | null,
+): void {
+  if (!previousFocus || !previousFocus.isConnected) return;
+  if (documentRef.activeElement !== iframe) return;
+  previousFocus.focus({ preventScroll: true });
+}
+
 export function buildVaultPrewarmUrl(sessionId: string, prewarmId: string): string {
   const params = new URLSearchParams({
     [VAULT_PREWARM_QUERY]: '1',
@@ -98,14 +115,24 @@ export function startVaultPrewarm(opts: VaultPrewarmOptions): VaultPrewarmHandle
   const timeoutMs = opts.timeoutMs ?? DEFAULT_VAULT_PREWARM_TIMEOUT_MS;
   const prewarmId = opts.prewarmId ?? createPrewarmId();
   const iframe = documentRef.createElement('iframe');
+  const previousFocus = getRestorableFocus(documentRef);
+  const focusRestoreTimers: unknown[] = [];
   let finished = false;
   let timer: unknown = null;
 
+  const restoreFocus = () => restoreFocusIfPrewarmCaptured(documentRef, iframe, previousFocus);
+
   const cleanup = () => {
     windowRef.removeEventListener('message', onMessage);
+    iframe.removeEventListener('focus', restoreFocus);
+    iframe.removeEventListener('load', restoreFocus);
     if (timer !== null) {
       unschedule(timer);
       timer = null;
+    }
+    while (focusRestoreTimers.length > 0) {
+      const focusTimer = focusRestoreTimers.pop();
+      if (focusTimer !== undefined) unschedule(focusTimer);
     }
     iframe.remove();
   };
@@ -139,6 +166,7 @@ export function startVaultPrewarm(opts: VaultPrewarmOptions): VaultPrewarmHandle
   iframe.title = 'Vault prewarm';
   iframe.tabIndex = -1;
   iframe.setAttribute('aria-hidden', 'true');
+  iframe.setAttribute('inert', '');
   iframe.style.position = 'fixed';
   iframe.style.width = '0';
   iframe.style.height = '0';
@@ -147,7 +175,13 @@ export function startVaultPrewarm(opts: VaultPrewarmOptions): VaultPrewarmHandle
   iframe.style.pointerEvents = 'none';
 
   windowRef.addEventListener('message', onMessage);
+  iframe.addEventListener('focus', restoreFocus);
+  iframe.addEventListener('load', restoreFocus);
   documentRef.body.appendChild(iframe);
+  restoreFocus();
+  for (const delayMs of [0, 50, 250, 1000]) {
+    focusRestoreTimers.push(schedule(restoreFocus, delayMs));
+  }
   timer = schedule(() => finishError('timeout', 'Vault prewarm timed out'), timeoutMs);
 
   return {

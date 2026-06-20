@@ -57,10 +57,49 @@ describe('vault browser prewarm protocol', () => {
     expect(iframe).toBeInstanceOf(HTMLIFrameElement);
     expect(document.querySelectorAll('iframe[title="Vault prewarm"]')).toHaveLength(1);
     expect(iframe?.getAttribute('aria-hidden')).toBe('true');
+    expect(iframe?.hasAttribute('inert')).toBe(true);
     expect(iframe?.tabIndex).toBe(-1);
     const url = new URL(iframe?.src ?? '', window.location.origin);
     expect(url.pathname).toBe('/api/vault/sess1234/.codeflare-bootstrap');
     expect(url.searchParams.get(VAULT_PREWARM_ID_QUERY)).toBe('warm-1');
+  });
+
+  it('keeps prewarm eager while terminal input is focused', () => {
+    const onReady = vi.fn();
+    const onError = vi.fn();
+    const input = document.createElement('textarea');
+    input.className = 'xterm-helper-textarea';
+    document.body.append(input);
+    input.focus();
+
+    startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
+
+    expect(currentIframe()).toBeInstanceOf(HTMLIFrameElement);
+    expect(document.activeElement).toBe(input);
+    expect(onReady).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('restores prior focus if the hidden prewarm iframe captures parent focus', () => {
+    const onReady = vi.fn();
+    const onError = vi.fn();
+    const input = document.createElement('textarea');
+    input.className = 'xterm-helper-textarea';
+    document.body.append(input);
+    input.focus();
+
+    startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
+    const iframe = currentIframe();
+
+    iframe?.focus();
+    if (document.activeElement === iframe) {
+      iframe.dispatchEvent(new FocusEvent('focus'));
+    }
+
+    expect(document.activeElement).toBe(input);
+    expect(currentIframe()).toBe(iframe);
+    expect(onReady).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
   });
 
   it('ignores ready messages from a different origin', () => {

@@ -364,6 +364,23 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect((window as any).__headerProps.vaultStatus).toBe('ready');
     });
 
+    it('starts browser prewarm even when terminal input is focused', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      const input = document.createElement('textarea');
+      input.className = 'xterm-helper-textarea';
+      document.body.append(input);
+      input.focus();
+
+      render(() => <Layout />);
+      vaultProbeMock.latestOptions.setLatch();
+
+      await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
+      expect(document.activeElement).toBe(input);
+      expect((window as any).__headerProps.vaultStatus).toBe('prewarming');
+    });
+
     it('rechecks this browser cache before opening the Vault tab', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
