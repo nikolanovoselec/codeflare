@@ -46,6 +46,12 @@ CVE-2026-24842
 # CVE-2026-26960: node-tar — hardlink target escapes the extraction root via a symlink chain, enabling arbitrary file read/write.
 CVE-2026-26960
 
+# undici bundled in the Node/npm image/tooling tree: DoS from unbounded header parsing.
+# Trivy reports this from the final image's vendored package.json, not the app dependency tree.
+# Fixed upstream in undici 6.27.0+, but the Debian/Node image/tooling bundle has not rebuilt yet.
+# Container code does not expose undici as an inbound HTTP parser for attacker-controlled requests.
+CVE-2026-12151
+
 # glob/minimatch transitive deps in globally-installed npm CLIs.
 # glob 10.4.5 command injection requires malicious filenames — CLIs don't
 # process user-controlled filenames in glob context.
