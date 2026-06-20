@@ -107,6 +107,18 @@ interface MobileInputCallbacks {
 }
 
 /**
+ * Debounced terminal-input blur teardown. Releases the shared virtual-keyboard
+ * overlay unless focus has moved to a sibling terminal pane (a handoff — the
+ * keyboard stays open and that pane owns it now), then runs the per-pane
+ * cursor-blur side effect. Exported so the handoff guard can be tested directly
+ * (the blur listener lives inside an off-screen iframe that jsdom won't load).
+ */
+export function releaseKeyboardOnBlur(onCursorBlur?: () => void): void {
+  if (!isFocusOnTerminalInput()) disableVirtualKeyboardOverlay();
+  onCursorBlur?.();
+}
+
+/**
  * Sets up mobile input handling for the terminal using an off-screen iframe
  * with an input[type=password] to capture keyboard input.
  *
@@ -372,14 +384,12 @@ export function setupMobileInput(
         // Samsung geometrychange cascade that resets keyboard height signals.
         blurTimeoutId = setTimeout(() => {
           blurTimeoutId = null;
-          // Skip the global overlay teardown when focus moved to a sibling
-          // terminal pane (handoff): the keyboard stays open and that pane owns
-          // it now. Still blur this pane's cursor.
-          if (!isFocusOnTerminalInput()) disableVirtualKeyboardOverlay();
-          if (typeof coreRef._handleTextAreaBlur === 'function') {
-            coreRef._handleTextAreaBlur();
-          }
-          callbacks.refreshCursorLine();
+          releaseKeyboardOnBlur(() => {
+            if (typeof coreRef._handleTextAreaBlur === 'function') {
+              coreRef._handleTextAreaBlur();
+            }
+            callbacks.refreshCursorLine();
+          });
         }, 100);
       });
     } else {
@@ -387,8 +397,7 @@ export function setupMobileInput(
         if (blurTimeoutId !== null) { clearTimeout(blurTimeoutId); }
         blurTimeoutId = setTimeout(() => {
           blurTimeoutId = null;
-          // Handoff to a sibling terminal pane keeps the shared keyboard alive.
-          if (!isFocusOnTerminalInput()) disableVirtualKeyboardOverlay();
+          releaseKeyboardOnBlur();
         }, 100);
       });
     }

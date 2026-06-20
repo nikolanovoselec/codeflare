@@ -4,11 +4,22 @@
  * Tests the extracted resolveKeyAction() pure function and
  * the FUNCTIONAL_KEY_MAP constant.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('../../lib/mobile', () => ({
+  disableVirtualKeyboardOverlay: vi.fn(),
+  enableVirtualKeyboardOverlay: vi.fn(),
+  forceResetKeyboardState: vi.fn(),
+  isFocusOnTerminalInput: vi.fn(() => false),
+  isSamsungBrowser: false,
+}));
+
 import {
   resolveKeyAction,
   FUNCTIONAL_KEY_MAP,
+  releaseKeyboardOnBlur,
 } from '../../lib/terminal-mobile-input';
+import { disableVirtualKeyboardOverlay, isFocusOnTerminalInput } from '../../lib/mobile';
 
 describe('FUNCTIONAL_KEY_MAP', () => {
   it('maps Enter to carriage return', () => {
@@ -180,5 +191,31 @@ describe('resolveKeyAction', () => {
       const result = resolveKeyAction('Shift', false, false);
       expect(result).toEqual({ type: 'none' });
     });
+  });
+});
+
+describe('releaseKeyboardOnBlur / REQ-MOB-015 AC2 (blur teardown handoff guard)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('releases the shared keyboard overlay when focus has left the terminal', () => {
+    vi.mocked(isFocusOnTerminalInput).mockReturnValue(false);
+    releaseKeyboardOnBlur();
+    expect(disableVirtualKeyboardOverlay).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the shared keyboard overlay when focus moved to a sibling terminal pane', () => {
+    vi.mocked(isFocusOnTerminalInput).mockReturnValue(true);
+    releaseKeyboardOnBlur();
+    expect(disableVirtualKeyboardOverlay).not.toHaveBeenCalled();
+  });
+
+  it('runs the cursor-blur side effect regardless of handoff state', () => {
+    vi.mocked(isFocusOnTerminalInput).mockReturnValue(true);
+    const onCursorBlur = vi.fn();
+    releaseKeyboardOnBlur(onCursorBlur);
+    expect(onCursorBlur).toHaveBeenCalledTimes(1);
+    expect(disableVirtualKeyboardOverlay).not.toHaveBeenCalled();
   });
 });

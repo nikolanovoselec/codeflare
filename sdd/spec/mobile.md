@@ -128,6 +128,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (isFocusOnTerminalInput / REQ-MOB-015 describe -> AC1) -->
 <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-015: keyboard persists across terminal pane focus handoff describe -> AC2, AC4; Samsung focusout keyboard dismiss describe -> AC3) -->
+<!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (releaseKeyboardOnBlur / REQ-MOB-015 AC2 describe -> AC2) -->
 ### REQ-MOB-015: Virtual keyboard persists across terminal pane focus handoff
 
 <!-- @impl: web-ui/src/lib/mobile.ts::isFocusOnTerminalInput -->
@@ -141,7 +142,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 **Acceptance Criteria:**
 
 1. A live focus query reports whether browser focus currently rests on a terminal input surface; it is the single discriminator used by every per-pane keyboard-teardown site. <!-- @impl: web-ui/src/lib/mobile.ts::isFocusOnTerminalInput -->
-2. When a terminal pane loses focus to a sibling terminal pane, the per-pane focus-loss cleanup does not disable the keyboard overlay or zero the keyboard signals, so the newly focused pane stays in keyboard mode. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput -->
+2. When a terminal pane loses focus to a sibling terminal pane, the per-pane focus-loss cleanup does not disable the keyboard overlay or zero the keyboard signals, so the newly focused pane stays in keyboard mode. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::releaseKeyboardOnBlur -->
 3. A Samsung back-button keyboard dismiss still zeroes keyboard state, but a pane-to-pane focus handoff does not. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
 4. When focus leaves all terminal surfaces (a non-terminal element gains focus, or the terminal unmounts) the shared keyboard overlay and signals are released. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput -->
 

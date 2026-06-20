@@ -504,6 +504,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       // Fix 1: Samsung back-button keyboard dismiss detection via focusout.
       // Samsung doesn't fire geometrychange when back button dismisses keyboard.
       let focusoutHandler: (() => void) | undefined;
+      let focusoutDeferTimer: ReturnType<typeof setTimeout> | null = null;
       if (isSamsungBrowser) {
         const inputEl = term ? getIframeInput(term) || term.textarea : undefined;
         if (inputEl) {
@@ -511,7 +512,8 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
             // Defer one tick so the focus transition settles, then tell a real
             // back-button dismiss (focus left the terminal) from a pane-to-pane
             // handoff (focus moved to a sibling terminal input — keep keyboard).
-            setTimeout(() => {
+            focusoutDeferTimer = setTimeout(() => {
+              focusoutDeferTimer = null;
               if (isFocusOnTerminalInput()) return;
               if (isVirtualKeyboardOpen()) forceResetKeyboardState();
             }, 0);
@@ -525,6 +527,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
           const inputEl = term ? getIframeInput(term) || term.textarea : undefined;
           inputEl?.removeEventListener('focusout', focusoutHandler);
         }
+        if (focusoutDeferTimer !== null) { clearTimeout(focusoutDeferTimer); focusoutDeferTimer = null; }
         // Focus moving to a sibling terminal pane is a handoff, not an exit:
         // keep the shared virtual-keyboard state so the newly focused pane stays
         // in keyboard mode. Tear down only when focus has left the terminal

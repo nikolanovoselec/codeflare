@@ -50,7 +50,7 @@ The virtual-keyboard signals (`vkOpen`, `keyboardHeight`) and `overlaysContent` 
 
 `web-ui/src/lib/mobile.ts::isFocusOnTerminalInput` is the single discriminator: it reports whether `document.activeElement` is a terminal input iframe (class `terminal-input-iframe`). The three per-pane focus-loss teardown sites gate on it so a handoff does not tear the shared keyboard down:
 
-- `useTerminal.ts` keyboard-lifecycle `onCleanup` — skips `disableVirtualKeyboardOverlay()` / `forceResetKeyboardState()` when focus is still on a terminal input.
+- `useTerminal.ts` keyboard-lifecycle `onCleanup` — skips `iframeInput.blur()`, `disableVirtualKeyboardOverlay()`, and `forceResetKeyboardState()` when focus is still on a terminal input.
 - `terminal-mobile-input.ts` per-input blur debounce — skips `disableVirtualKeyboardOverlay()` on handoff.
 - `useTerminal.ts` Samsung `focusout` — defers one tick (so the focus transition settles), then skips `forceResetKeyboardState()` on handoff.
 
