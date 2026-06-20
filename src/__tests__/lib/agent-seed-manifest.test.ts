@@ -1335,14 +1335,14 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     })).toMatchObject({ status: 'ready', action: 'manual_review_required' });
   });
 
-  it('REQ-AGENT-062: monitor spawn is skipped only while a live request is fresh or completion is recorded', () => {
+  it('REQ-AGENT-062: monitor handoff is suppressed only while a live request is fresh or completion is recorded', () => {
     expect(reviewMonitorSpawnDecision({ completed: true, startedAt: undefined, now: 1000, ttlMs: 500 })).toBe('skip_completed');
     expect(reviewMonitorSpawnDecision({ completed: false, startedAt: 800, now: 1000, ttlMs: 500 })).toBe('skip_running');
     expect(reviewMonitorSpawnDecision({ completed: false, startedAt: 400, now: 1000, ttlMs: 500 })).toBe('spawn');
     expect(reviewMonitorSpawnDecision({ completed: false, startedAt: undefined, now: 1000, ttlMs: 500 })).toBe('spawn');
   });
 
-  it('REQ-AGENT-062: main-session monitor spawning does not require a transcript path', () => {
+  it('REQ-AGENT-062: main-session monitor handoff does not require a transcript path', () => {
     expect(reviewMonitorContextDecision({ hasContext: true, sessionFile: undefined })).toBe('allow');
     expect(reviewMonitorContextDecision({ hasContext: true, sessionFile: '/home/user/.pi/agent/sessions/session.jsonl' })).toBe('allow');
     expect(reviewMonitorContextDecision({ hasContext: true, sessionFile: '/home/user/.pi/agent/sessions/tasks/review-monitor.jsonl' })).toBe('wait_for_main_session');

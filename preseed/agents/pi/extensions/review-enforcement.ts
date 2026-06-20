@@ -988,8 +988,8 @@ function finalizeCompletedReviewFromDisk(state: PendingReview): void {
 }
 
 // Set by the extension's default export to pi-bound closures. The autonomous timer has no pi/ctx,
-// so it finalizes durable state through activeReviewFinalize and asks activeReviewStartMonitor to
-// launch the background review-monitor agent when a live ctx is available.
+// so it finalizes durable state through activeReviewFinalize and records when the main-session
+// review-monitor handoff is needed. review-monitor itself is an agent/subagent, not an extension.
 let activeReviewFinalize: ((state: PendingReview) => void) | undefined;
 let activeReviewStartMonitor: ((state: PendingReview, reason: string) => void) | undefined;
 
@@ -1030,9 +1030,9 @@ function reapOneReviewRepo(repo: string): void {
     const completed = completedDurableReviewLanes(pending.repo, pending.head, pending.lanes);
     if (completed.length === pending.lanes.length) {
       // Idle finalization with no ctx: the pi-bound closure (set by the default export) writes durable
-      // state and starts the background review-monitor when a live ctx is available. The monitor's
-      // completion result is the user-visible wakeup; /review-results is the manual fallback. Disk-only
-      // ack is the fallback before the closure is bound.
+      // state and requests main-session review-monitor delivery when a live ctx is available. The
+      // review-monitor agent's completion result is the user-visible wakeup; /review-results is the
+      // manual fallback. Disk-only ack is the fallback before the closure is bound.
       if (activeReviewFinalize) activeReviewFinalize(pending);
       else finalizeCompletedReviewFromDisk(pending);
       return;
@@ -1125,8 +1125,8 @@ export default function (pi: ExtensionAPI) {
     };
   };
   // Every ctx-bearing lifecycle hook passes through remember(). Keep the latest main-session ctx only
-  // so durable review completion can launch the background review-monitor agent. Durable state remains
-  // on disk and all lane reaping is disk-driven; stale/task contexts are ignored.
+  // so durable review completion can request the background review-monitor agent from the main session.
+  // Durable state remains on disk and all lane reaping is disk-driven; stale/task contexts are ignored.
   const remember = (ctx: any): void => {
     const mainSessionFile = currentSessionFile(ctx);
     if (reviewMonitorContextDecision({ hasContext: !!ctx, sessionFile: mainSessionFile }) !== "allow") return;
@@ -2376,7 +2376,7 @@ export default function (pi: ExtensionAPI) {
     if (remainingLanes.length === 0) {
       const summaryPath = join(reviewResultsDir(currentState.repo, currentState.head), "summary.md");
       const summaryState = existsSync(summaryPath) ? `Summary: ${summaryPath}.` : "Merged summary is not ready yet.";
-      ctx.ui.notify(`PR-boundary review lanes are complete for ${basename(currentState.repo)} at ${currentState.head.slice(0, 12)}, but review-monitor delivery has not acknowledged the head yet. ${summaryState} No reviewer lane will be retried; wait for REVIEW_RESULT or run /review-results to display current findings.`, "warning");
+      ctx.ui.notify(`PR-boundary review lanes are complete for ${basename(currentState.repo)} at ${currentState.head.slice(0, 12)}, but the review-monitor agent has not acknowledged the head yet. ${summaryState} No reviewer lane will be retried; the main-session assistant must start/await review-monitor for REVIEW_RESULT, or run /review-results to display current findings.`, "warning");
       return;
     }
 

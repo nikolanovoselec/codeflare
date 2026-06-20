@@ -248,7 +248,7 @@ test('REQ-AGENT-068 AC2: ci monitor times out when workflows never finish', () =
   assert.match(result.log, /CI_RESULT timeout/);
 });
 
-test('REQ-AGENT-068 AC8: ci monitor reports gh access failures instead of waiting', () => {
+test('REQ-AGENT-068 AC7: ci monitor reports gh access failures instead of waiting', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ci-monitor-gh-fail-'));
   const bin = join(dir, 'bin');
   const repo = join(dir, 'repo');
