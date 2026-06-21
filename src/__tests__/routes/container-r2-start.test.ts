@@ -64,7 +64,7 @@ vi.mock('../../middleware/rate-limit', () => ({
 
 import lifecycleRoutes from '../../routes/container/lifecycle';
 import { createBucketIfNotExists, getOrCreateScopedR2Token } from '../../lib/r2-admin';
-import { seedGettingStartedDocs } from '../../lib/r2-seed';
+import { seedGettingStartedDocs, reconcileAgentConfigs } from '../../lib/r2-seed';
 
 describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
   let mockKV: ReturnType<typeof createMockKV>;
@@ -198,6 +198,42 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
         method: 'POST',
       });
       expect(res.status).toBe(200);
+    });
+  });
+
+  // REQ-MEM-011 AC3: agent-config reconcile runs only on its explicit trigger.
+  // The new-bucket-creation trigger is exercised here; the "Recreate skills &
+  // rules" click trigger is covered in routes/preferences.test.ts. The gate is
+  // `if (bucketResult.created)` in lifecycle-init::ensureBucketAndSeed, so a
+  // start against an EXISTING bucket must NOT re-reconcile agent configs.
+  describe('REQ-MEM-011 AC3: reconcileAgentConfigs gated on the new-bucket trigger', () => {
+    beforeEach(() => {
+      vi.mocked(reconcileAgentConfigs).mockClear();
+    });
+
+    it('REQ-MEM-011 AC3: reconciles agent configs (overwrite:false, cleanup:false) when the bucket is newly created', async () => {
+      testState.createBucketResult = { success: true, created: true };
+      const fetch = createApp();
+      await fetch('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+      expect(reconcileAgentConfigs).toHaveBeenCalledTimes(1);
+      expect(reconcileAgentConfigs).toHaveBeenCalledWith(
+        expect.anything(),
+        'test-bucket',
+        'https://test.r2.cloudflarestorage.com',
+        expect.anything(),
+        expect.objectContaining({ overwrite: false, cleanup: false }),
+      );
+    });
+
+    it('REQ-MEM-011 AC3: does NOT reconcile agent configs when the bucket already exists (no trigger)', async () => {
+      testState.createBucketResult = { success: true, created: false };
+      const fetch = createApp();
+      await fetch('/container/start?sessionId=abcdef1234567890abcdef12', {
+        method: 'POST',
+      });
+      expect(reconcileAgentConfigs).not.toHaveBeenCalled();
     });
   });
 });
