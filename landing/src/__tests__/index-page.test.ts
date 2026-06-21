@@ -307,4 +307,11 @@ describe('REQ-LANDING-004: dark first paint (anti-flash contract)', () => {
     expect(rootPaint, 'an inline html{} rule sets the dark root background').toBeTruthy();
     expect(rootPaint).toContain('color-scheme:dark');
   });
+
+  it('AC1: also paints body dark inline so the page body never flashes white', () => {
+    const bodyPaint = [...doc.querySelectorAll('style')]
+      .map((s) => (s.textContent ?? '').replace(/\s+/g, ''))
+      .find((css) => /body\{[^}]*background-color:#[0-9a-f]{3,8}/i.test(css));
+    expect(bodyPaint, 'an inline body{} rule sets the dark body background').toBeTruthy();
+  });
 });
