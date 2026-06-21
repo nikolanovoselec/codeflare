@@ -84,25 +84,41 @@ describe('useScrollCorrection / REQ-TERM-014 terminal scroll anchoring', () => {
   // ==========================================================================
   // REQ-MOB-012 AC2: keyboard-open detector skip
   // ==========================================================================
-  it('REQ-MOB-012 AC2: skips all correction when the mobile keyboard is open', () => {
-    createRoot((dispose) => {
-      mobileMock.touch = true;
-      mobileMock.keyboardOpen = true;
+  it('REQ-MOB-012 AC2: suppresses the Strategy-2 reset-restore when touch + keyboard are open', async () => {
+    await createRoot(async (dispose) => {
+      vi.useFakeTimers();
+      try {
+        mobileMock.touch = true;
+        mobileMock.keyboardOpen = true;
 
-      const terminal = createFakeTerminal();
-      const container = document.createElement('div');
-      useScrollCorrection(terminal as any, container, { sessionId: 's1', terminalId: '1' });
+        const terminal = createFakeTerminal();
+        const container = document.createElement('div');
+        useScrollCorrection(terminal as any, container, { sessionId: 's1', terminalId: '1' });
 
-      // Establish a bottom-following baseline, then drop below base — which
-      // would normally trigger Strategy 1 re-anchor. With the keyboard open the
-      // detector must bail out *before* Strategy 1, leaving the viewport alone.
-      terminal.emitScroll(100, 100);
-      terminal.emitScroll(50, 100);
+        // Reproduce the exact focus-reset sequence that Strategy 2 restores in the
+        // REQ-MOB-004 AC4 test (sit at bottom, scroll up with intent, let the grace
+        // window lapse, then viewport snaps to 0). The keyboard-open gate runs after
+        // Strategy 1 and before Strategy 2, so the restore must NOT happen here.
+        terminal.emitScroll(200, 200);
+        container.dispatchEvent(new WheelEvent('wheel'));
+        terminal.emitScroll(120, 200);
+        vi.advanceTimersByTime(200);
 
-      expect(terminal.scrollToBottom).not.toHaveBeenCalled();
-      expect(terminal.scrollLines).not.toHaveBeenCalled();
-      expect(terminal.buffer.active.viewportY).toBe(50);
-      dispose();
+        terminal.scrollLines.mockClear();
+        terminal.scrollToBottom.mockClear();
+        terminal.emitScroll(0, 200);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        // Gut-check: remove the `isTouchDevice() && isVirtualKeyboardOpen()` gate and
+        // Strategy 2 fires scrollLines(120) (exactly as the AC4 test asserts) -> this fails.
+        expect(terminal.scrollLines).not.toHaveBeenCalled();
+        expect(terminal.scrollToBottom).not.toHaveBeenCalled();
+        expect(terminal.buffer.active.viewportY).toBe(0);
+      } finally {
+        vi.useRealTimers();
+        dispose();
+      }
     });
   });
 
