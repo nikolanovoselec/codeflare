@@ -66,8 +66,8 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Acceptance Criteria:**
 
-1. The Cloudflare token template adds the `Browser Rendering - Edit` scope. <!-- @impl: web-ui/src/lib/token-scopes.ts::getCloudflareTokenUrl --> <!-- coverage-gap: token-scopes.test.ts asserts catalog shape only (tier count, label/description); no test asserts the Browser Rendering - Edit scope value -->
-2. The addition is additive: every scope already present in the template remains unchanged. <!-- @impl: web-ui/src/lib/token-scopes.ts::getCloudflareTokenUrl --> <!-- coverage-gap: no test asserts the per-scope contents of the token template -->
+1. The Cloudflare token template adds the `Browser Rendering - Edit` scope. <!-- @impl: web-ui/src/lib/token-scopes.ts::CLOUDFLARE_TIERS --> <!-- coverage-gap: token-scopes.test.ts asserts catalog shape only (tier count, label/description); no test asserts the Browser Rendering - Edit scope value -->
+2. The addition is additive: every scope already present in the template remains unchanged. <!-- @impl: web-ui/src/lib/token-scopes.ts::CLOUDFLARE_TIERS --> <!-- coverage-gap: no test asserts the per-scope contents of the token template -->
 3. Tokens created before this scope was added continue to work for all existing functionality (the scope is required only for Browser Run). <!-- @impl: web-ui/src/lib/token-scopes.ts --> <!-- coverage-gap: backward-compatibility of pre-existing tokens is not exercised by any test -->
 
 **Notes:** AC1-AC3 lack automated coverage; `token-scopes.test.ts` asserts catalog shape (tier count, non-empty label/description), not the presence of the Browser Rendering scope. Built and shipped — a scope-presence assertion would return this REQ to Implemented.

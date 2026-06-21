@@ -401,7 +401,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 3. The control exits selection mode without launching when fewer than two sessions are selected. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (exit selection without launch when < 2 selected) -->
 4. The control launches MultiView when at least two sessions are selected. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (launch when >= 2 selected) --> <!-- @test: web-ui/src/__tests__/components/SessionSwitcher.test.tsx (selected ids create the workspace) -->
 5. Selecting beyond the viewport capacity is rejected without changing the existing selected set. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (capacity rejection without changing selected set) -->
-6. Selected session rows expose a selected state using the success visual variant. <!-- @impl: web-ui/src/components/SelectableSessionCard.tsx::SelectableSessionCard --> <!-- @test: web-ui/src/__tests__/components/SelectableSessionCard.test.tsx (selected rows show success variant) -->
+6. Selected session rows expose a selected state using the success visual variant. <!-- @impl: web-ui/src/components/SelectableSessionCard.tsx::SelectableSessionCard --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (selectable session rows expose data-selected state for the success variant) -->
 
 **Constraints:**
 
