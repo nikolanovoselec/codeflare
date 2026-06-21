@@ -37,7 +37,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. The deploy pipeline runs end-to-end: install dependencies, build, test, typecheck, build the container image, scan it, push it, deploy, and set secrets. <!-- @impl: .github/workflows/deploy.yml --> <!-- @test: host/__tests__/workflow-files.test.js (deploy trigger + pre-deploy job graph) -->
 4. Dependencies are cached between runs for faster pipeline execution. <!-- @impl: .github/workflows/deploy.yml::Cache root node_modules --> <!-- @test: host/__tests__/workflow-files.test.js (deploy trigger + pre-deploy job graph) -->
 5. Frontend is built, and both backend and frontend tests and typechecks run before any deployment steps. <!-- @impl: .github/workflows/deploy.yml::Build frontend --> <!-- @test: host/__tests__/workflow-files.test.js (deploy trigger + pre-deploy job graph) -->
-6. The KV namespace is resolved or created and applied to the deployment configuration. <!-- @impl: .github/workflows/deploy.yml::Resolve KV namespace -->
+6. The KV namespace is resolved or created and applied to the deployment configuration. <!-- @impl: .github/workflows/deploy.yml::Resolve KV namespace --> <!-- coverage-gap: CI deploy-workflow step (deploy.yml); verified at deploy time, not unit-testable -->
 
 **Constraints:**
 

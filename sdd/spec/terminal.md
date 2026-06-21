@@ -344,7 +344,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 2. Single-session view opens terminal WebSockets only for the visible session surface: one active tab in tabbed mode, or each visible tiled tab when tiling is enabled. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::setSingleSessionWorkspace --> <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (single-session one pane) --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (visible single pane) -->
 3. Running sessions outside the visible workspace have no connected terminal side effects. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (connect=false no WS) --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (MultiView panes only) -->
 4. Workspace switches dispose local UI terminal resources for panes that leave the visible set without stopping the underlying PTY. <!-- @impl: web-ui/src/hooks/useTerminal.ts::canConnect --> <!-- @impl: web-ui/src/stores/terminal.ts::disposeLocalTerminal --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (single-pane teardown without stopping PTY) --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (visible-key reconnect filter) -->
-5. Session indicators distinguish container-running state from visible-terminal-connected state. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::dotVariant -->
+5. Session indicators distinguish container-running state from visible-terminal-connected state. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::dotVariant --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (shows yellow warning dot when running but WS disconnected + shows green dot when running and WS connected) -->
 
 **Constraints:**
 
@@ -428,8 +428,8 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 1. A terminal following the bottom remains at the bottom while output exceeds the scrollback cap. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (bottom re-anchor) -->
 2. A terminal scrolled away from the bottom preserves its distance from the bottom while additional output arrives. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (user scroll distance preservation) -->
 3. Catastrophic scroll reset correction runs only for true reset events and does not loop on ordinary scrollback trimming. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (reset correction does not loop on trimming) -->
-4. Resizing a visible terminal preserves the user's scroll anchor. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
-5. Visible terminal resize frames carry the current fitted dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
+4. Resizing a visible terminal preserves the user's scroll anchor. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014 terminal scroll anchoring) -->
+5. Visible terminal resize frames carry the current fitted dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (resize handling) -->
 6. Hidden or disconnected terminals do not send resize frames. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::resize --> <!-- @test: host/__tests__/session-resize-authority.test.js (foreground owner only + detach promotion) -->
 7. A pane that loses focus before its terminal connection opens does not claim resize authority when that connection later opens. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::clearPendingResizeAuthority --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (stale queued focus clearing) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (queued focus clearing) -->
 
@@ -482,7 +482,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 1. Browser visibility return reconnects only panes or tiled tabs that are visible in the current workspace. <!-- @impl: web-ui/src/components/Layout.tsx::visibleTerminalKeys --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (queued focus before initial resize) -->
 2. A focused visible terminal claims resize authority before sending dimensions, including retry reconnects that remain focused. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::claimResizeAuthority --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (focused=false clears stale focus + focused pane claims resize authority) --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (focus ownership control frame) -->
-3. Cleanup from a stale connection owner cannot dispose the newer WebSocket or input handler for the same visible terminal. <!-- @impl: web-ui/src/stores/terminal.ts::connect -->
+3. Cleanup from a stale connection owner cannot dispose the newer WebSocket or input handler for the same visible terminal. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (stale cleanup from an older connection cannot close a newer connection for the same terminal) -->
 
 **Constraints:**
 

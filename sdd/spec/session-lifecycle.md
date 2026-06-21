@@ -65,7 +65,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 1. Each session maps to a deterministic, unique container address derived from the user's storage identity and the session ID. <!-- @impl: src/lib/container-helpers.ts::getContainerId --> <!-- @test: src/__tests__/lib/container-id-isolation.test.ts (getContainerId deterministic + distinct per session) -->
 2. The container address uniquely addresses a single isolated runtime; no two sessions share one. <!-- @impl: src/lib/container-helpers.ts::getContainerId --> <!-- @test: src/__tests__/lib/container-id-isolation.test.ts (distinct per session + SESSION_ID_PATTERN boundaries) -->
 3. Different sessions belonging to the same user run in separate containers with separate PTY processes. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/lib/container-id-isolation.test.ts (same-user distinct) -->
-4. A session's container cannot access files, processes, or network state of another session's container. <!-- @impl: src/container/index.ts::container -->
+4. A session's container cannot access files, processes, or network state of another session's container. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/lib/container-id-isolation.test.ts (REQ-SESSION-002: One container per session (isolation)) -->
 
 **Constraints:**
 

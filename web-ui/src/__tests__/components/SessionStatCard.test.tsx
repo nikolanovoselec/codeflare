@@ -72,6 +72,8 @@ describe('SessionStatCard', () => {
     });
   });
 
+  // REQ-TERM-011: the session status dot reflects WS connection health — green when
+  // running and connected, yellow when running but the WebSocket is disconnected.
   describe('Status indicators', () => {
     it('shows green pulsing dot for running sessions', () => {
       render(() => <SessionStatCard {...defaultProps} session={createSession({ status: 'running' })} />);

@@ -37,6 +37,8 @@ vi.mock('../../stores/terminal', () => ({
 
 import App from '../../App';
 
+// REQ-SETUP-003: three deployment modes — App routes to the setup wizard when the
+// deployment is not yet configured.
 describe('App setup routing', () => {
   beforeEach(() => {
     vi.clearAllMocks();

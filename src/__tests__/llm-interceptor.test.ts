@@ -181,6 +181,7 @@ describe('REQ-ENTERPRISE-004: placeholder-auth stripping', () => {
     expect(lastFetch?.headers.get('x-custom')).toBe('keepme');
   });
 
+  // REQ-ENTERPRISE-007: gateway route-pinning — the interceptor derives the gateway id Worker-side
   it('AC5: a client-supplied cf-aig-gateway-id is overwritten with the interceptor-derived gateway id', async () => {
     await makeInterceptor().fetch(
       new Request('https://api.openai.com/v1/chat/completions', {
@@ -579,6 +580,8 @@ describe('REQ-ENTERPRISE-004: compat fallback on REST 404 (dual transport — AD
   });
 });
 
+// REQ-ENTERPRISE-006 AC4: when enterprise is enabled the interceptor fails closed
+// (503) if AIG_GATEWAY_URL is missing or unparseable, rather than routing nowhere.
 describe('REQ-ENTERPRISE-004: fail-closed guards', () => {
   it('AC6: an unmapped host returns 400 and never fetches', async () => {
     const res = await makeInterceptor().fetch(new Request('https://evil.example.com/v1/chat/completions', { method: 'POST', body: '{}' }));

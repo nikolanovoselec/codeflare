@@ -96,7 +96,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 2. Onboarding mode uses CF Access authentication with a public waitlist landing page for unauthenticated visitors; authenticated users are routed into the application. <!-- @impl: src/lib/onboarding.ts::isOnboardingLandingPageActive --> <!-- @test: src/__tests__/lib/onboarding.test.ts (independence from ONBOARDING_LANDING_PAGE) -->
 3. SaaS mode replaces the CF Access interstitial with a branded login page; when GitHub OAuth is configured it uses session credentials for authentication, auto-provisions new users with a pending tier, and manages user state without CF Access groups or policies. <!-- @impl: src/lib/onboarding.ts::isSaasModeActive --> <!-- @test: src/__tests__/lib/onboarding.test.ts (SAAS_MODE=active case-insensitive) -->
 4. Deployment mode is determined at deploy time via Worker bindings (not at runtime from request data). <!-- @impl: src/lib/onboarding.ts::isSessionOidcMode --> <!-- @test: src/__tests__/lib/onboarding.test.ts (deployment mode helpers from bindings) -->
-5. The frontend detects the active mode on load and renders the appropriate initial view: branded login for SaaS, setup wizard if unconfigured, or workspace redirect for default mode. <!-- @impl: web-ui/src/App.tsx::checkSetupStatus -->
+5. The frontend detects the active mode on load and renders the appropriate initial view: branded login for SaaS, setup wizard if unconfigured, or workspace redirect for default mode. <!-- @impl: web-ui/src/App.tsx::checkSetupStatus --> <!-- @test: web-ui/src/__tests__/components/App.test.tsx (App setup routing) -->
 
 **Constraints:**
 

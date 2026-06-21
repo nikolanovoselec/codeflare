@@ -945,6 +945,7 @@ describe('enforce-review-spawn.sh — MCP shell tool input shapes (issue #319)',
   });
 });
 
+// REQ-AGENT-045 + REQ-AGENT-047: while triage items remain open the entire review pipeline is suspended
 describe('enforce-review-spawn.sh - SDD transition gate (REQ-AGENT-022)', () => {
   function withTransitionConfig(cwd, { transition = true } = {}) {
     writeFileSync(
@@ -1299,6 +1300,7 @@ function advanceWith(cwd, mutate) {
   }).stdout.trim();
 }
 
+// REQ-AGENT-037: each review agent self-limits fix rounds scoped to its own lane
 describe('enforce-review-spawn.sh — lane gating (task #58)', () => {
   it('docs-only push: requires ONLY doc-updater (no code, no spec)', () => {
     const { cwd, baseSha } = makeLaneFixture();
