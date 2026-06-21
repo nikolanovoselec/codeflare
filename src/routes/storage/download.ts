@@ -28,6 +28,35 @@ export function buildContentDisposition(rawFilename: string): string {
   return `attachment; filename="${safeFilename}"; filename*=UTF-8''${encodedFilename}`;
 }
 
+// Extension → Content-Type map for the inline (open-in-new-tab) view mode. Only
+// formats that are safe to render same-origin appear here.
+const INLINE_IMAGE_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  bmp: 'image/bmp',
+  ico: 'image/x-icon',
+};
+
+/**
+ * Content-Type for inline (in-browser-tab) viewing. User-controlled objects are
+ * served from the app's own origin, so HTML and SVG MUST NOT be rendered as
+ * markup (a malicious `.html`/`.svg` in the user's bucket would otherwise run
+ * scripts with the user's session cookie — stored XSS). Images and PDF get their
+ * real type (the browser renders them sandboxed); everything else is forced to
+ * `text/plain` so it shows as source, never executes. Always paired with
+ * `X-Content-Type-Options: nosniff` so the browser cannot sniff text into HTML.
+ */
+export function safeInlineContentType(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+  if (ext in INLINE_IMAGE_TYPES) return INLINE_IMAGE_TYPES[ext];
+  if (ext === 'pdf') return 'application/pdf';
+  return 'text/plain; charset=utf-8';
+}
+
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', storageDownloadRateLimiter);
 
@@ -58,13 +87,24 @@ app.get('/', async (c) => {
 
   const filename = sanitizedKey.split('/').pop() || 'download';
 
-  return new Response(r2Response.body, {
-    headers: {
-      'Content-Type': r2Response.headers.get('Content-Type') || 'application/octet-stream',
-      'Content-Disposition': buildContentDisposition(filename),
-      'Content-Length': r2Response.headers.get('Content-Length') || '',
-    },
-  });
+  // `?disposition=inline` opens the object in a new browser tab (view) instead of
+  // forcing a download. The Content-Type is derived from the extension via the
+  // XSS-safe allowlist (never trusting R2's stored type), and nosniff prevents the
+  // browser from upgrading text/plain into executable HTML.
+  const inline = c.req.query('disposition') === 'inline';
+  const headers: Record<string, string> = {
+    'Content-Length': r2Response.headers.get('Content-Length') || '',
+  };
+  if (inline) {
+    headers['Content-Type'] = safeInlineContentType(filename);
+    headers['Content-Disposition'] = `inline; filename="${filename.replace(/[\r\n"\\]/g, '_')}"`;
+    headers['X-Content-Type-Options'] = 'nosniff';
+  } else {
+    headers['Content-Type'] = r2Response.headers.get('Content-Type') || 'application/octet-stream';
+    headers['Content-Disposition'] = buildContentDisposition(filename);
+  }
+
+  return new Response(r2Response.body, { headers });
 });
 
 export default app;

@@ -153,6 +153,16 @@ export function getDownloadUrl(key: string): string {
   return `${BASE_URL}/storage/download?${params.toString()}`;
 }
 
+// View URL — opens a file inline in a new browser tab instead of downloading it.
+// The same /storage/download route serves it with disposition=inline, an
+// XSS-safe Content-Type, and nosniff (see src/routes/storage/download.ts).
+export function getViewUrl(key: string): string {
+  const params = new URLSearchParams();
+  params.set('key', key);
+  params.set('disposition', 'inline');
+  return `${BASE_URL}/storage/download?${params.toString()}`;
+}
+
 // Sync-now fan-out (REQ-STOR-015 AC1). Calls POST /api/sessions/sync
 // which enumerates the user's running sessions and triggers a bisync
 // on each. Returns per-session result; the UI uses these to show

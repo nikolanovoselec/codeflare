@@ -6,6 +6,7 @@ import { isTouchDevice } from '../../lib/mobile';
 import Icon from '../Icon';
 import { mdiTrainCarContainer } from '@mdi/js';
 import { SpecialFolder, getSpecialFolder } from '../../lib/special-folders';
+import { getViewUrl } from '../../api/storage';
 
 interface FileListProps {
   displayedItems: Accessor<{ objects: Array<{ key: string; size: number; lastModified: string }>; prefixes: string[] }>;
@@ -18,7 +19,6 @@ interface FileListProps {
   openSpecialTooltip: Accessor<string | null>;
   setOpenSpecialTooltip: (prefix: string | null) => void;
   applySelection: (targetId: string, shiftKey: boolean) => void;
-  triggerDownload: (key: string) => void;
   handleDragOver: (e: DragEvent) => void;
   handleDragLeave: (e: DragEvent) => void;
   handleDrop: (e: DragEvent) => void;
@@ -52,6 +52,9 @@ const getFolderName = (prefix: string): string => {
   const parts = prefix.split('/').filter(Boolean);
   return parts[parts.length - 1] || prefix;
 };
+
+// Display form of a special folder's in-container path: /home/user/Vault → ~/Vault.
+const shortContainerPath = (path: string): string => path.replace(/^\/home\/user\//, '~/');
 
 const FileList: Component<FileListProps> = (props) => {
   return (
@@ -95,6 +98,9 @@ const FileList: Component<FileListProps> = (props) => {
               <Show when={getSpecialFolder(prefix)} keyed>
                 {(special: SpecialFolder) => (
                   <>
+                    <span class="storage-item-folder-meta" data-testid={`special-folder-path-${special.id}`}>
+                      {shortContainerPath(special.containerPath)}
+                    </span>
                     <span
                       class="workspace-container-icon"
                       data-testid={`special-folder-icon-${special.id}`}
@@ -156,7 +162,10 @@ const FileList: Component<FileListProps> = (props) => {
                   if (props.selectionModeEnabled()) {
                     props.applySelection(`f:${obj.key}`, e.shiftKey);
                   } else {
-                    props.triggerDownload(obj.key);
+                    // Open the file inline in a new browser tab (view) instead of
+                    // forcing a download. The view URL serves it with an XSS-safe
+                    // Content-Type + nosniff (src/routes/storage/download.ts).
+                    window.open(getViewUrl(obj.key), '_blank', 'noopener,noreferrer');
                   }
                 }}
               >

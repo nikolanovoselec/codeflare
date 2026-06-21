@@ -134,22 +134,17 @@
 }
 
 /* ── Repo list ── */
-/* The viewport caps the visible rows and scrolls the rest (no visible
-   scrollbar). Desktop (>=1024px) caps at 7 rows; tablet and mobile cap at 5
-   actual repository rows. */
+/* The list flexes to fill its panel's measured allotment (the adaptive split in
+   Dashboard.tsx sets the panel max-height from the natural content) and scrolls
+   the overflow; there is no fixed row cap. */
 .github-repo-rows {
   --repo-row-h: 52px;
   display: flex;
   flex-direction: column;
-  max-height: calc(var(--repo-row-h) * 7);
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
-}
-
-@media (min-width: 600px) and (max-width: 1023px) {
-  .github-repo-rows {
-    max-height: calc(var(--repo-row-h) * 5);
-  }
 }
 
 .github-repo-rows::-webkit-scrollbar {
@@ -162,10 +157,9 @@
   gap: var(--space-3);
   padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--color-border-subtle);
-  /* Fixed, deterministic height so the list viewport always caps on a whole-row
-     boundary: max-height = repo-row-h * N shows exactly N rows. flex-shrink: 0
-     keeps each row full-height when the flex column scrolls past the cap. The
-     two text lines are pinned (line-height below) so content never exceeds it. */
+  /* Fixed, deterministic row height. flex-shrink: 0 keeps each row full-height
+     when the flex list scrolls past its measured allotment; the two text lines
+     are pinned (line-height below) so content never exceeds it. */
   box-sizing: border-box;
   height: var(--repo-row-h);
   flex-shrink: 0;
@@ -515,11 +509,6 @@
 
   .github-repo-updated {
     display: none;
-  }
-
-  /* Show five actual repository rows, then scroll inside the repo list. */
-  .github-repo-rows {
-    max-height: calc(var(--repo-row-h) * 5);
   }
 
   /* Show the GitHub↔storage flip control on mobile. */

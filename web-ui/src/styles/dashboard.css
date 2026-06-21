@@ -95,15 +95,49 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  /* Anchoring split: GitHub pinned to the top, Storage to the bottom; any slack
+     when both panels are short falls in the middle. */
+  justify-content: space-between;
   overflow: hidden;
   background: rgba(5, 5, 8, 0.9);
 }
 
-/* Panel flip (GitHub ↔ R2). Desktop: faces are transparent wrappers so both
-   panels stack exactly as before, and the flip-back control is hidden. Mobile
-   rules below show one face at a time with a flip-in animation. */
+/* Panel flip (GitHub ↔ R2).
+   SPLIT (desktop/tablet, default): both faces are flex items sharing the column —
+   `flex: 1 1 0` plus a JS-measured `max-height` (their natural content height) so a
+   short panel shrinks to its content and the taller one absorbs the freed space;
+   the column's `justify-content: space-between` drops remaining slack between them
+   (both-short → middle gap). FLIP (mobile width, or a too-short window via
+   `[data-layout="flip"]`): one face at a time with a flip control. */
 .panel-flip-face {
-  display: contents;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The real panels fill their face in split mode. */
+.panel-flip-face > .github-panel,
+.panel-flip-face > .storage-browser {
+  flex: 1;
+  min-height: 0;
+}
+
+/* JS-driven flip on a too-short (but wide) window: collapse to a single face. */
+.dashboard-panel-right[data-layout="flip"] .panel-flip-face {
+  display: none;
+}
+
+.dashboard-panel-right[data-layout="flip"] .panel-flip-face[data-active="true"] {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.dashboard-panel-right[data-layout="flip"] .panel-flip-back-btn,
+.dashboard-panel-right[data-layout="flip"] .github-flip-btn {
+  display: flex;
 }
 
 .panel-flip-back-btn {
