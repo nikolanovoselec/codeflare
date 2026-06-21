@@ -49,7 +49,9 @@ export interface LayoutModeInput {
 export function decidePanelLayoutMode(input: LayoutModeInput): PanelLayoutMode {
   const { width, height, minPanelHeight, narrowWidth = 600 } = input;
   if (width > 0 && width < narrowWidth) return 'flip';
-  if (height > 0 && height < minPanelHeight * 2) return 'flip';
+  // Too short to stack two usable panels — but only once we actually have a
+  // measured width AND height; a partial/zero measurement must not flash flip.
+  if (width > 0 && height > 0 && height < minPanelHeight * 2) return 'flip';
   return 'split';
 }
 
