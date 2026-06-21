@@ -36,7 +36,7 @@ vi.mock('../../lib/r2-config', () => ({
 }));
 
 // Import after mocks are set up
-import downloadRoutes from '../../routes/storage/download';
+import downloadRoutes, { safeInlineContentType } from '../../routes/storage/download';
 
 describe('Storage Download Routes', () => {
   let mockKV: ReturnType<typeof createMockKV>;
@@ -210,6 +210,57 @@ describe('Storage Download Routes', () => {
       const encodedPart = disposition.split("filename*=UTF-8''")[1];
       expect(encodedPart).not.toContain('%0D');
       expect(encodedPart).not.toContain('%0A');
+    });
+
+    it('REQ-STOR-007: serves an inline image with its real type, inline disposition, and nosniff', async () => {
+      const app = createTestApp();
+
+      const res = await app.request('/download?key=pics/cover.png&disposition=inline');
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Content-Type')).toBe('image/png');
+      expect(res.headers.get('Content-Disposition')).toContain('inline');
+      expect(res.headers.get('Content-Disposition')).not.toContain('attachment');
+      expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    });
+
+    it('serves an inline .html as text/plain (never text/html) to block same-origin XSS', async () => {
+      const app = createTestApp();
+
+      const res = await app.request('/download?key=pages/evil.html&disposition=inline');
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Content-Type')).toBe('text/plain; charset=utf-8');
+      expect(res.headers.get('Content-Type')).not.toContain('text/html');
+      expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    });
+
+    it('still forces attachment (no nosniff) when disposition is not inline', async () => {
+      const app = createTestApp();
+
+      const res = await app.request('/download?key=pages/evil.html');
+      expect(res.headers.get('Content-Disposition')).toContain('attachment');
+      expect(res.headers.get('X-Content-Type-Options')).toBeNull();
+    });
+  });
+
+  // REQ-STOR-007: inline (view-in-tab) Content-Type safety.
+  describe('safeInlineContentType', () => {
+    it('maps known image extensions to their image type (case-insensitive)', () => {
+      expect(safeInlineContentType('a.png')).toBe('image/png');
+      expect(safeInlineContentType('a.JPG')).toBe('image/jpeg');
+      expect(safeInlineContentType('a.jpeg')).toBe('image/jpeg');
+      expect(safeInlineContentType('a.webp')).toBe('image/webp');
+    });
+
+    it('maps pdf to application/pdf', () => {
+      expect(safeInlineContentType('doc.pdf')).toBe('application/pdf');
+    });
+
+    it('forces every markup/executable/unknown type to text/plain', () => {
+      expect(safeInlineContentType('x.html')).toBe('text/plain; charset=utf-8');
+      expect(safeInlineContentType('x.svg')).toBe('text/plain; charset=utf-8');
+      expect(safeInlineContentType('x.md')).toBe('text/plain; charset=utf-8');
+      expect(safeInlineContentType('x.json')).toBe('text/plain; charset=utf-8');
+      expect(safeInlineContentType('noext')).toBe('text/plain; charset=utf-8');
     });
   });
 });

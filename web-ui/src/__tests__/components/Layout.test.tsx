@@ -95,6 +95,7 @@ let mockVisiblePanes: Array<{ sessionId: string; terminalId: string }> = [];
 let mockTerminalsForSession: any = null;
 let mockTilingForSession: any = null;
 let mockTabOrder: string[] = [];
+let mockSaasMode = false;
 let mockActiveWorkspace: { kind: 'dashboard' } | { kind: 'session'; sessionId: string } | { kind: 'multiview'; id: 'multiview:1' } = { kind: 'dashboard' };
 let readSessionStoreVersion = () => 0;
 let bumpSessionStoreVersion = () => {};
@@ -103,6 +104,7 @@ vi.mock('../../stores/session', () => ({
   sessionStore: {
     get sessions() { readSessionStoreVersion(); return mockSessions; },
     get activeSessionId() { readSessionStoreVersion(); return mockActiveSessionId; },
+    get saasMode() { readSessionStoreVersion(); return mockSaasMode; },
     get error() { return null; },
     get loading() { return false; },
     loadSessions: vi.fn(),
@@ -189,6 +191,7 @@ vi.mock('../../lib/mobile', () => ({
 
 import { forceResetKeyboardState } from '../../lib/mobile';
 import { reconnectDisconnectedTerminals, reconnectOnVisibilityReturn } from '../../stores/terminal';
+import { getUsageWarningLevel, getDismissedQuotaLevel, setDismissedQuotaLevel } from '../../stores/session';
 import { terminalWorkspaceStore } from '../../stores/terminal-workspace';
 import Layout, { clearPrewarmingVaultStatus } from '../../components/Layout';
 
@@ -215,6 +218,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     mockTilingForSession = null;
     mockTabOrder = [];
     mockActiveWorkspace = { kind: 'dashboard' };
+    mockSaasMode = false;
     const [sessionStoreVersion, setSessionStoreVersion] = createSignal(0);
     readSessionStoreVersion = sessionStoreVersion;
     bumpSessionStoreVersion = () => setSessionStoreVersion((value) => value + 1);
@@ -1006,6 +1010,138 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
 
       // Should deactivate session immediately (dashboard bounce)
       expect(sessionStore.setActiveSession).toHaveBeenCalledWith(null);
+    });
+  });
+
+  // =========================================================================
+  // REQ-SUB-018 AC3 / AC6 — usage quota banner surfacing + dismissibility
+  //
+  // usageWarning() === getUsageWarningLevel(); the banners render only in SaaS
+  // mode. We drive getUsageWarningLevel per threshold and assert the matching
+  // data-testid banner is surfaced, and that the 100% banner is NOT dismissible.
+  // =========================================================================
+
+  describe('REQ-SUB-018 AC3/AC6 (usage quota banners)', () => {
+    it('AC3: surfaces the 80% banner when usage warning level is 80 (SaaS)', () => {
+      mockSaasMode = true;
+      vi.mocked(getUsageWarningLevel).mockReturnValue('80');
+      vi.mocked(getDismissedQuotaLevel).mockReturnValue(null);
+
+      render(() => <Layout />);
+
+      expect(screen.getByTestId('usage-warning-80')).toBeInTheDocument();
+      expect(screen.queryByTestId('usage-warning-95')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('usage-warning-100')).not.toBeInTheDocument();
+    });
+
+    it('AC3: surfaces the 95% banner when usage warning level is 95 (SaaS)', () => {
+      mockSaasMode = true;
+      vi.mocked(getUsageWarningLevel).mockReturnValue('95');
+      vi.mocked(getDismissedQuotaLevel).mockReturnValue(null);
+
+      render(() => <Layout />);
+
+      expect(screen.getByTestId('usage-warning-95')).toBeInTheDocument();
+      expect(screen.queryByTestId('usage-warning-80')).not.toBeInTheDocument();
+    });
+
+    it('AC3: surfaces the 100% banner when usage warning level is 100 (SaaS)', () => {
+      mockSaasMode = true;
+      vi.mocked(getUsageWarningLevel).mockReturnValue('100');
+      vi.mocked(getDismissedQuotaLevel).mockReturnValue(null);
+
+      render(() => <Layout />);
+
+      expect(screen.getByTestId('usage-warning-100')).toBeInTheDocument();
+    });
+
+    it('AC3: surfaces no usage banner outside SaaS mode even at 100% usage', () => {
+      mockSaasMode = false;
+      vi.mocked(getUsageWarningLevel).mockReturnValue('100');
+
+      render(() => <Layout />);
+
+      expect(screen.queryByTestId('usage-warning-80')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('usage-warning-95')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('usage-warning-100')).not.toBeInTheDocument();
+    });
+
+    it('AC6: the 80% and 95% banners carry a dismiss control; the 100% banner does not', () => {
+      mockSaasMode = true;
+      vi.mocked(getDismissedQuotaLevel).mockReturnValue(null);
+
+      vi.mocked(getUsageWarningLevel).mockReturnValue('80');
+      const { unmount: unmount80 } = render(() => <Layout />);
+      const banner80 = screen.getByTestId('usage-warning-80');
+      expect(banner80.querySelector('.layout-banner-dismiss')).toBeInTheDocument();
+      unmount80();
+
+      vi.mocked(getUsageWarningLevel).mockReturnValue('95');
+      const { unmount: unmount95 } = render(() => <Layout />);
+      const banner95 = screen.getByTestId('usage-warning-95');
+      expect(banner95.querySelector('.layout-banner-dismiss')).toBeInTheDocument();
+      unmount95();
+
+      vi.mocked(getUsageWarningLevel).mockReturnValue('100');
+      render(() => <Layout />);
+      const banner100 = screen.getByTestId('usage-warning-100');
+      // The exceeded banner cannot be dismissed — no dismiss button.
+      expect(banner100.querySelector('.layout-banner-dismiss')).not.toBeInTheDocument();
+    });
+
+    it('AC6: dismissing the 80% banner records the dismissed level', async () => {
+      mockSaasMode = true;
+      vi.mocked(getUsageWarningLevel).mockReturnValue('80');
+      vi.mocked(getDismissedQuotaLevel).mockReturnValue(null);
+
+      render(() => <Layout />);
+
+      const dismiss = screen
+        .getByTestId('usage-warning-80')
+        .querySelector('.layout-banner-dismiss') as HTMLButtonElement;
+      dismiss.click();
+
+      expect(setDismissedQuotaLevel).toHaveBeenCalledWith('80');
+    });
+  });
+
+  // =========================================================================
+  // REQ-VAULT-019 AC4 — vault open-intent is cleared when the target session
+  // is no longer the active running session.
+  //
+  // handleVaultOpen sets the per-session open intent to 'preparing' when the
+  // key is not recoverable; that intent overrides the button status (surfaced
+  // to Header via the vaultStatus prop). When the active running session goes
+  // away, the createEffect on activeRunningSid() clears the open intent, so the
+  // button status reverts off 'preparing'.
+  // =========================================================================
+
+  describe('REQ-VAULT-019 AC4 (vault open-intent clearing)', () => {
+    it('clears the open-intent (vaultStatus leaves "preparing") when the session is no longer active-running', async () => {
+      mockSessions = [createMockSession({ id: 'sess1', status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      mockActiveWorkspace = { kind: 'session', sessionId: 'sess1' };
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }];
+      // Local readiness holds but the encryption key is NOT recoverable, so the
+      // open path parks the session in 'preparing' instead of opening a tab.
+      vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a'], hasIndexedDbDatabasesApi: true });
+      vaultLocalReadinessMock.keyRecoverable.mockResolvedValue(false);
+
+      render(() => <Layout />);
+      await waitFor(() => expect((window as any).__headerProps?.onVaultOpen).toBeTypeOf('function'));
+
+      await (window as any).__headerProps.onVaultOpen();
+
+      // Intent took hold: the button reflects 'preparing'.
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('preparing'));
+
+      // Session is no longer the active *running* session (mode flips so the
+      // probe gate drops it) — the clearing effect should reset the intent.
+      mockPreferences = { sessionMode: 'standard' };
+      bumpSessionStoreVersion();
+
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).not.toBe('preparing'));
     });
   });
 

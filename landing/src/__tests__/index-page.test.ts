@@ -9,11 +9,11 @@
  * matching copy strings. They double as the migration oracle: identical
  * structure proves the inline-to-component refactor preserved the page.
  */
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { experimental_AstroContainer as AstroContainer } from 'astro/container';
 import IndexPage from '../pages/index.astro';
 import PrivacyPage from '../pages/privacy.astro';
-import { dom, decodeEntities } from './_helpers/dom';
+import { dom, decodeEntities, documentDom } from './_helpers/dom';
 import { APP_LINKS } from '../config';
 import {
   AGENTS,
@@ -63,6 +63,38 @@ describe('landing page composition (REQ-LANDING-001)', () => {
   it('server-renders the flare visual mode when the flare field exists', () => {
     expect(html).toMatch(/<html[^>]*class="flare-on"/);
     expect(html).toMatch(/<div class="flare-field"[^>]*data-flare-fluid/);
+  });
+
+  it('renders exactly one shared ambient glow layer and no legacy per-hero glow', () => {
+    // The glow is now a single fixed layer owned by BaseLayout (shared with /login),
+    // not the old absolutely-positioned .hero-glow element inside the hero.
+    expect(body.querySelectorAll('.page-ambient-glow')).toHaveLength(1);
+    expect(body.querySelector('.hero-glow')).toBeNull();
+  });
+
+  it('omits the Cloudflare Web Analytics beacon when no PUBLIC_CF_BEACON_TOKEN is configured', () => {
+    const doc = documentDom(html);
+    expect(
+      doc.querySelector('script[src="https://static.cloudflareinsights.com/beacon.min.js"]'),
+    ).toBeNull();
+  });
+
+  it('emits the Web Analytics beacon carrying the configured token when PUBLIC_CF_BEACON_TOKEN is set', async () => {
+    vi.stubEnv('PUBLIC_CF_BEACON_TOKEN', 'tok_test_123');
+    try {
+      const container = await AstroContainer.create();
+      const withToken = await container.renderToString(IndexPage);
+      const doc = documentDom(withToken);
+      const beacon = doc.querySelector(
+        'script[src="https://static.cloudflareinsights.com/beacon.min.js"]',
+      );
+      expect(beacon).not.toBeNull();
+      expect(beacon!.hasAttribute('defer')).toBe(true);
+      const cfg = JSON.parse(beacon!.getAttribute('data-cf-beacon')!) as { token: string };
+      expect(cfg.token).toBe('tok_test_123');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('renders every top-level section, in order, via <Section>', () => {
@@ -250,5 +282,36 @@ describe('content invariants', () => {
     const privacy = await container.renderToString(PrivacyPage);
     expect(privacy.length).toBeGreaterThan(0);
     expect(decodeEntities(privacy)).not.toMatch(/[–—]/);
+  });
+});
+
+describe('REQ-LANDING-004: dark first paint (anti-flash contract)', () => {
+  // BaseLayout declares the dark color scheme + paints the root dark inline so a
+  // full-page navigation (landing <-> /login) never flashes the browser's white
+  // default. Asserted as contract values on the head, not copy.
+  let doc: Document;
+  beforeAll(() => {
+    doc = documentDom(html);
+  });
+
+  it('AC1: declares color-scheme dark in the head', () => {
+    const meta = doc.querySelector('meta[name="color-scheme"]');
+    expect(meta).not.toBeNull();
+    expect(meta!.getAttribute('content')).toBe('dark');
+  });
+
+  it('AC1: paints the document root dark inline, before any external stylesheet', () => {
+    const rootPaint = [...doc.querySelectorAll('style')]
+      .map((s) => (s.textContent ?? '').replace(/\s+/g, ''))
+      .find((css) => /^html\{[^}]*background-color:#[0-9a-f]{3,8}/i.test(css));
+    expect(rootPaint, 'an inline html{} rule sets the dark root background').toBeTruthy();
+    expect(rootPaint).toContain('color-scheme:dark');
+  });
+
+  it('AC1: also paints body dark inline so the page body never flashes white', () => {
+    const bodyPaint = [...doc.querySelectorAll('style')]
+      .map((s) => (s.textContent ?? '').replace(/\s+/g, ''))
+      .find((css) => /body\{[^}]*background-color:#[0-9a-f]{3,8}/i.test(css));
+    expect(bodyPaint, 'an inline body{} rule sets the dark body background').toBeTruthy();
   });
 });

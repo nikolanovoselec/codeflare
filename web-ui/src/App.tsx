@@ -230,7 +230,7 @@ const RootPage: Component = () => {
  * /app/subscribe is reachable only when saasMode is active; every non-SaaS
  * deployment (enterprise, onboarding, default) redirects to /app/.
  */
-const SubscribeGuard: Component = () => {
+export const SubscribeGuard: Component = () => {
   const [decision, setDecision] = createSignal<'loading' | 'subscribe' | 'redirect'>('loading');
 
   onMount(async () => {

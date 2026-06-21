@@ -60,6 +60,7 @@ beforeEach(() => {
 
 // ─── GET /connect (NOT tier-gated — the decoupling invariant) ────────────────
 
+// REQ-AGENT-064: Connect to Cloudflare via OAuth
 describe('GET /api/cloudflare/connect', () => {
   it('redirects to the Cloudflare consent endpoint with a state param for a plain authed user', async () => {
     configureClient();

@@ -12,12 +12,14 @@ import { render, screen, waitFor, cleanup } from '@solidjs/testing-library';
 const getSetupStatusMock = vi.fn();
 const getUserMock = vi.fn();
 const getOnboardingConfigMock = vi.fn();
+const getAuthStatusMock = vi.fn();
 const { setEnterpriseModeSpy } = vi.hoisted(() => ({ setEnterpriseModeSpy: vi.fn() }));
 
 vi.mock('../../api/client', () => ({
   getSetupStatus: (...args: unknown[]) => getSetupStatusMock(...args),
   getUser: (...args: unknown[]) => getUserMock(...args),
   getOnboardingConfig: (...args: unknown[]) => getOnboardingConfigMock(...args),
+  getAuthStatus: (...args: unknown[]) => getAuthStatusMock(...args),
 }));
 
 vi.mock('../../components/Layout', () => ({
@@ -44,7 +46,7 @@ vi.mock('../../stores/terminal', () => ({
   terminalStore: { disposeAll: vi.fn() },
 }));
 
-import App from '../../App';
+import App, { SubscribeGuard } from '../../App';
 
 let originalLocation: Location;
 let assignedHref: string | null;
@@ -104,5 +106,18 @@ describe('REQ-ENTERPRISE-008 AC5: enterprise first-login routing', () => {
     render(() => <App />);
 
     await waitFor(() => expect(assignedHref).toBe('/app/onboarding'));
+  });
+});
+
+describe('REQ-ENTERPRISE-002 AC2: subscribe route guard', () => {
+  it('redirects /app/subscribe to /app/ in a non-SaaS (enterprise) deployment, never rendering the checkout flow', async () => {
+    // Enterprise deployments are not SaaS, so getAuthStatus reports saasMode:false;
+    // SubscribeGuard must redirect to /app/ and keep its decision in the loading/
+    // redirect state, so the SubscribePage tier-selection/checkout flow is never shown.
+    getAuthStatusMock.mockResolvedValue({ saasMode: false });
+
+    render(() => <SubscribeGuard />);
+
+    await waitFor(() => expect(assignedHref).toBe('/app/'));
   });
 });

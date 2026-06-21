@@ -156,6 +156,8 @@ HSTS is also applied to all redirect responses via `redirectWithHeaders()` helpe
 
 **Vault proxy exemption (CSP + same-origin framing only):** Proxied SilverBullet responses under `/api/vault/:sid/*` do not receive the default `Content-Security-Policy: default-src 'none'` because SilverBullet serves its own HTML with inline scripts/styles, web workers, and `eval`. Instead they receive `Content-Security-Policy: frame-ancestors 'self'` and `X-Frame-Options: SAMEORIGIN`: enough to block cross-site framing while allowing the dashboard's authenticated same-origin hidden prewarm iframe. The exemption covers the pre-Hono vault proxy path only: route-validation errors and the `/api/vault/:sid/status` JSON endpoint still receive the full default set including CSP and `X-Frame-Options: DENY`. Implemented via `withSecurityHeaders(response, { csp: false, frame: 'sameorigin' })` in `src/index.ts`; see [REQ-SEC-008](../../sdd/spec/security.md#req-sec-008-security-headers-on-every-response).
 
+**Cloudflare Web Analytics CSP allowance:** The default CSP permits the Web Analytics beacon with two narrow additions in `src/index.ts`: `static.cloudflareinsights.com` in `script-src` (the beacon loader `beacon.min.js`) and `cloudflareinsights.com` in `connect-src` (the beacon's telemetry POST endpoint). The beacon is injected as a manually-authored `<script src=...>` tag (gated on `PUBLIC_CF_BEACON_TOKEN`, see [configuration.md](./configuration.md#environment-variables)) specifically so the CSP does not have to be weakened with `'unsafe-inline'`: a script element with an allowlisted host is the strict-CSP-compatible alternative to Cloudflare's auto-injected inline snippet. Both allowances are unconditional — they remain in the header even when `PUBLIC_CF_BEACON_TOKEN` is unset and no beacon is emitted — so the CSP shape does not vary between builds.
+
 ## Session ID Validation
 
 `SESSION_ID_PATTERN` (`/^[a-z0-9]{8,24}$/`) is enforced on terminal WebSocket upgrade and container lifecycle endpoints (`terminal.ts`, `container/lifecycle.ts`). Invalid session IDs are rejected with 400 before any DO interaction, preventing malformed IDs from creating orphaned Durable Objects.
@@ -321,7 +323,7 @@ When `STRESS_TEST_MODE` is set to `"active"`, all HTTP and WebSocket rate limits
 
 ### Content-Disposition Hardening
 
-File download responses use `Content-Disposition: attachment` with sanitized filenames. Special characters are stripped and filenames are truncated to prevent header injection.
+File download responses set `Content-Disposition: attachment` with sanitized filenames by default — special characters are stripped before encoding and filenames truncated to prevent header injection ([REQ-SEC-013](../../sdd/spec/security.md#req-sec-013-content-disposition-hardening-on-downloads)). When the caller passes `?disposition=inline`, the endpoint serves the file for in-browser viewing. To prevent stored-XSS against the app's own origin, the inline `Content-Type` is derived from the file extension via a strict allowlist (`safeInlineContentType` in `src/routes/storage/download.ts`: images and PDF keep their real type, everything else is forced to `text/plain; charset=utf-8`) rather than from R2's stored metadata, and `X-Content-Type-Options: nosniff` is always set on inline responses so the browser cannot sniff `text/plain` into executable HTML or SVG.
 
 ### Input Validation (atob)
 

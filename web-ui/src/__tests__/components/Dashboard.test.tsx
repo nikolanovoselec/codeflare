@@ -180,6 +180,7 @@ const mockSessions: SessionWithStatus[] = [
   { id: 'sess2', name: 'Test Session 2', createdAt: '2024-01-14T10:00:00Z', lastAccessedAt: '2024-01-14T12:00:00Z', status: 'stopped' },
 ];
 
+// REQ-ENTERPRISE-015: Enterprise-mode admin and dropdown suppressions
 describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
   const defaultProps = {
     sessions: mockSessions,

@@ -31,7 +31,9 @@ const tiers: SubscriptionTierConfig[] = [
   { id: 'unlimited', sessionModes: ['default', 'advanced'] } as unknown as SubscriptionTierConfig,
 ];
 
-describe('REQ-ENTERPRISE-001 AC1: isEnterpriseMode', () => {
+// isEnterpriseMode is the deploy-time mode signal for REQ-ENTERPRISE-001 AC1 and also
+// proves REQ-ENTERPRISE-006 AC3 (off by default: false when the binding is absent/empty/non-'active').
+describe('REQ-ENTERPRISE-001 AC1 / REQ-ENTERPRISE-006 AC3: isEnterpriseMode', () => {
   it("is true only for ENTERPRISE_MODE === 'active'", () => {
     expect(isEnterpriseMode({ ENTERPRISE_MODE: 'active' })).toBe(true);
   });

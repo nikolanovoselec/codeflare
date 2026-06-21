@@ -124,3 +124,45 @@ describe('updateUserRecord / CF-039', () => {
     expect(parsed!.addedBy).toBe('admin');
   });
 });
+
+describe('updateUserRecord / REQ-AUTH-007 AC4 (post-subscription active-tier update)', () => {
+  it('REQ-AUTH-007 AC4: transitions a pending user record to an active tier after subscription', async () => {
+    const email = 'subscriber@example.com';
+    // Pre-subscription state: JIT-provisioned pending user (REQ-AUTH-007 AC1).
+    mockKV._set(`user:${email}`, {
+      addedBy: 'jit',
+      addedAt: '2024-01-01T00:00:00Z',
+      role: 'user',
+      subscriptionTier: 'pending',
+      accessTier: 'pending',
+    });
+
+    // Subscription completes -> the record is updated with an active tier.
+    await updateUserRecord(mockKV as unknown as KVNamespace, email, {
+      subscriptionTier: 'standard',
+      accessTier: 'standard',
+      billingStatus: 'active',
+    });
+
+    const user = readUser(email);
+    // The active tier is now persisted; the pending tier is gone.
+    expect(user.subscriptionTier).toBe('standard');
+    expect(user.accessTier).toBe('standard');
+    expect(user.billingStatus).toBe('active');
+  });
+
+  it('REQ-AUTH-007 AC4: the active-tier update is durable (a later patch overwrites an earlier tier)', async () => {
+    const email = 'upgrade@example.com';
+    mockKV._set(`user:${email}`, {
+      addedBy: 'jit',
+      addedAt: '2024-01-01T00:00:00Z',
+      role: 'user',
+      subscriptionTier: 'pending',
+    });
+
+    await updateUserRecord(mockKV as unknown as KVNamespace, email, { subscriptionTier: 'standard' });
+    await updateUserRecord(mockKV as unknown as KVNamespace, email, { subscriptionTier: 'max' });
+
+    expect(readUser(email).subscriptionTier).toBe('max');
+  });
+});

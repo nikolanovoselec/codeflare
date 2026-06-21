@@ -175,6 +175,49 @@ export class Session {
   }
 
   /**
+   * Poll the foreground process name and broadcast a `process-name` control
+   * message to attached clients — but only when the name has CHANGED since the
+   * last observation. This is the per-tick body of the process-name interval;
+   * extracting it lets the change-detection + broadcast behaviour be exercised
+   * directly. Returns true when a change was detected and emitted.
+   */
+  emitProcessNameIfChanged(): boolean {
+    const processName = this.resolveProcessName();
+    if (processName === this.lastProcessName) {
+      return false;
+    }
+    this.lastProcessName = processName;
+    const msg = JSON.stringify({ type: 'process-name', terminalId: this.id, processName });
+    for (const client of this.clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(msg);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Build the environment passed to the spawned PTY. A manual (user-created)
+   * tab exposes MANUAL_TAB=1 so the shell init can skip its agent-autostart
+   * block; non-manual tabs omit the variable entirely. Extracted from start()
+   * so the manual-flag → env exposure can be exercised without spawning a PTY.
+   */
+  buildPtyEnv(terminalId: string): Record<string, string> {
+    const ptyEnv: Record<string, string> = {
+      ...process.env as Record<string, string>,
+      TERM: 'xterm-256color',
+      COLORTERM: 'truecolor',
+      HOME: process.env.HOME ?? '/root',
+      TERMINAL_ID: terminalId,
+      CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL: '1',
+    };
+    if (this.manual) {
+      ptyEnv.MANUAL_TAB = '1';
+    }
+    return ptyEnv;
+  }
+
+  /**
    * Start the PTY process
    */
   start(cols = 80, rows = 24): void {
@@ -191,24 +234,12 @@ export class Session {
     const cwd = this._getWorkingDirectory();
     const terminalId = this.id.includes('-') ? this.id.split('-').pop() : '1';
 
-    const ptyEnv: Record<string, string> = {
-      ...process.env as Record<string, string>,
-      TERM: 'xterm-256color',
-      COLORTERM: 'truecolor',
-      HOME: process.env.HOME ?? '/root',
-      TERMINAL_ID: terminalId ?? '1',
-      CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL: '1',
-    };
-    if (this.manual) {
-      ptyEnv.MANUAL_TAB = '1';
-    }
-
     this.ptyProcess = pty.spawn(cmd, args, {
       name: 'xterm-256color',
       cols,
       rows,
       cwd,
-      env: ptyEnv,
+      env: this.buildPtyEnv(terminalId ?? '1'),
     });
 
     this.ptyProcess.onData((data: string) => {
@@ -244,16 +275,7 @@ export class Session {
         this.processNameInterval = null;
         return;
       }
-      const processName = this.resolveProcessName();
-      if (processName !== this.lastProcessName) {
-        this.lastProcessName = processName;
-        const msg = JSON.stringify({ type: 'process-name', terminalId: this.id, processName });
-        for (const client of this.clients) {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(msg);
-          }
-        }
-      }
+      this.emitProcessNameIfChanged();
     }, PROCESS_NAME_POLL_MS);
 
     this._log('info', 'PTY started', { session: this.id.substring(0, 8), pid: this.ptyProcess.pid });

@@ -89,6 +89,7 @@ const defaultSessionProps = {
   onCreateSession: () => {},
 };
 
+// REQ-ENTERPRISE-015: Enterprise-mode admin and dropdown suppressions
 describe('Header Component / REQ-VAULT-012 (vault button render and readiness gating) / REQ-AUTH-016 (header user dropdown)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -703,6 +704,9 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
 
   });
 
+  // REQ-ENTERPRISE-002 AC1: when ENTERPRISE_MODE is set, the subscription/billing
+  // surfaces are hidden in the frontend — here the whole user dropdown is inert, so
+  // the Subscription and Usage entries are unreachable.
   // REQ-ENTERPRISE-008 AC8: in enterprise the avatar/username stays visible (users
   // always see their identity) but every dropdown entry is gated away — admin-
   // configured via Setup (Guided Setup), ineffective under SSO (Logout), SaaS-only

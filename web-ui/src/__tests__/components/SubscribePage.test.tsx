@@ -53,7 +53,7 @@ async function openTierView() {
 }
 
 describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending users) / REQ-SUB-017 (tier selection UI)', () => {
-  let mockLocation: { href: string };
+  let mockLocation: { href: string; search: string; pathname: string };
   let originalLocation: Location;
   let mockActiveSubscription: (tier?: string) => void;
 
@@ -98,7 +98,7 @@ describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending use
     };
 
     originalLocation = window.location;
-    mockLocation = { href: '' };
+    mockLocation = { href: '', search: '', pathname: '' };
     Object.defineProperty(window, 'location', {
       value: mockLocation,
       writable: true,
@@ -632,6 +632,128 @@ describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending use
       });
 
       expect(screen.queryByText('Get Started')).not.toBeInTheDocument();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // REQ-SUB-004 AC4: post-checkout-redirect polling loop (deadline-less interval
+  // poll of auth-status until activation is observed, then redirect).
+  // @impl web-ui/src/components/SubscribePage.tsx (onMount checkout=success branch)
+  // -------------------------------------------------------------------------
+  describe('REQ-SUB-004 AC4: post-checkout activation polling', () => {
+    it('polls auth-status repeatedly until hasSubscribed, then redirects to /app/', async () => {
+      // Arrive on the post-checkout-return state. onMount reads window.location.search;
+      // the beforeEach replaced window.location with the mock object, so set the query here.
+      mockLocation.search = '?checkout=success';
+      mockLocation.pathname = '/app/subscribe';
+
+      // First two polls: not yet activated (webhook hasn't written KV). Third: activated.
+      // The component redirects on the activated poll, so the loop must run >1 time.
+      mockedGetAuthStatus
+        .mockResolvedValueOnce({ hasSubscribed: false } as any)
+        .mockResolvedValueOnce({ hasSubscribed: false } as any)
+        .mockResolvedValueOnce({ hasSubscribed: true, onboardingComplete: true } as any);
+
+      render(() => <SubscribePage />);
+
+      // Drive the deadline-less interval poll. POLL_INTERVAL is 3000ms; advance enough
+      // wall-clock to allow three iterations to resolve.
+      await vi.advanceTimersByTimeAsync(0);     // first getAuthStatus (no wait yet)
+      await vi.advanceTimersByTimeAsync(3000);  // second poll after one interval
+      await vi.advanceTimersByTimeAsync(3000);  // third poll -> activation observed
+
+      // Polled more than once (loop genuinely iterated; a single mount-fetch would be 1).
+      await waitFor(() => {
+        expect(mockedGetAuthStatus.mock.calls.length).toBeGreaterThan(1);
+      });
+
+      // On activation the loop returns after redirecting to the app.
+      await waitFor(() => {
+        expect(mockLocation.href).toBe('/app/');
+      });
+    });
+
+    it('redirects to onboarding when activation completes before onboarding', async () => {
+      mockLocation.search = '?checkout=success';
+      mockLocation.pathname = '/app/subscribe';
+
+      mockedGetAuthStatus
+        .mockResolvedValueOnce({ hasSubscribed: false } as any)
+        .mockResolvedValueOnce({ hasSubscribed: true, onboardingComplete: false } as any);
+
+      render(() => <SubscribePage />);
+
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(3000);
+
+      await waitFor(() => {
+        expect(mockedGetAuthStatus.mock.calls.length).toBeGreaterThan(1);
+        expect(mockLocation.href).toBe('/app/onboarding');
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // REQ-SUB-017 AC1 / AC3: Custom (unlimited) tier contact flow.
+  // @impl web-ui/src/components/SubscribePage.tsx::SubscribePage
+  // -------------------------------------------------------------------------
+  describe('REQ-SUB-017: Custom-tier contact CTA', () => {
+    let fetchMock: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      // The contact CTA fires window.fetch('/api/auth/contact-team'); setup.ts does not
+      // stub fetch, so install one. Other tiers go through the mocked api/client.
+      fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+      Object.defineProperty(globalThis, 'fetch', { value: fetchMock, writable: true, configurable: true });
+    });
+
+    it('AC1: selecting the Custom tier renders a contact CTA, not a checkout button', async () => {
+      await openTierView();
+      fireEvent.click(screen.getByTestId('lifeline-stop-unlimited'));
+
+      const panel = await screen.findByTestId('tier-detail-panel');
+      const cta = panel.querySelector('.subscribe-tier-btn--primary') as HTMLButtonElement;
+      expect(cta).toBeInTheDocument();
+
+      // The contract that distinguishes a contact CTA from a checkout CTA is its click
+      // behavior: contact tier fires the contact-team endpoint and never enters checkout.
+      const { createCheckoutSession, subscribe: subscribeFn } = vi.mocked(
+        await import('../../api/client'),
+      );
+      createCheckoutSession.mockClear();
+      subscribeFn.mockClear();
+
+      fireEvent.click(cta);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+      // It is a contact CTA in PLACE OF a checkout button: no checkout/subscribe call.
+      expect(fetchMock.mock.calls[0][0]).toBe('/api/auth/contact-team');
+      expect(createCheckoutSession).not.toHaveBeenCalled();
+      expect(subscribeFn).not.toHaveBeenCalled();
+    });
+
+    it('AC3: after activation the Custom-tier CTA switches to a disabled confirmation state', async () => {
+      await openTierView();
+      fireEvent.click(screen.getByTestId('lifeline-stop-unlimited'));
+
+      const panel = await screen.findByTestId('tier-detail-panel');
+      const cta = panel.querySelector('.subscribe-tier-btn--primary') as HTMLButtonElement;
+
+      // Before activation the contact CTA is actionable (not disabled).
+      expect(cta.disabled).toBe(false);
+
+      fireEvent.click(cta);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // After activation (contactSent) the control is disabled to block duplicate submits.
+      await waitFor(() => {
+        const after = screen.getByTestId('tier-detail-panel')
+          .querySelector('.subscribe-tier-btn--primary') as HTMLButtonElement;
+        expect(after.disabled).toBe(true);
+      });
     });
   });
 });

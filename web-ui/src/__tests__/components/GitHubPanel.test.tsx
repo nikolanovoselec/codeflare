@@ -1,11 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
-import { mdiConnection } from '@mdi/js';
+import { mdiConnection, mdiMagnify } from '@mdi/js';
 
 // API mocks (hoisted so the vi.mock factory can reference them).
 const mockGetGithubStatus = vi.hoisted(() => vi.fn());
 const mockGetGithubRepos = vi.hoisted(() => vi.fn());
 const mockDisconnectGithub = vi.hoisted(() => vi.fn());
+// Touch-device gate (REQ-GITHUB-011): defaults to desktop (false) so the existing
+// tests see the always-visible search bar; the mobile tests flip it to true.
+const mockIsTouchDevice = vi.hoisted(() => vi.fn(() => false));
 
 vi.mock('../../api/github', () => ({
   getGithubStatus: (...args: unknown[]) => mockGetGithubStatus(...args),
@@ -13,6 +16,11 @@ vi.mock('../../api/github', () => ({
   disconnectGithub: (...args: unknown[]) => mockDisconnectGithub(...args),
   githubConnectUrl: () => '/api/github/connect',
 }));
+
+vi.mock('../../lib/mobile', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/mobile')>();
+  return { ...actual, isTouchDevice: () => mockIsTouchDevice() };
+});
 
 import GitHubPanel from '../../components/github/GitHubPanel';
 import { _resetForTests } from '../../stores/github';
@@ -35,6 +43,8 @@ describe('GitHubPanel Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     _resetForTests();
+    // Default every test to desktop; REQ-GITHUB-011 mobile tests opt in explicitly.
+    mockIsTouchDevice.mockReturnValue(false);
     mockGetGithubRepos.mockResolvedValue({ repos: [], page: 1, hasMore: false });
     mockDisconnectGithub.mockResolvedValue({ success: true });
     // Default to non-enterprise so the scope picker is exercised; the enterprise
@@ -326,12 +336,79 @@ describe('GitHubPanel Component', () => {
     expect(onFlip).toHaveBeenCalledTimes(1);
   });
 
-  it('omits the flip control when onFlip is not provided', async () => {
+  it('REQ-GITHUB-010: omits the flip control when onFlip is not provided', async () => {
     mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: false });
 
     render(() => <GitHubPanel />);
 
     await waitFor(() => expect(screen.getByTestId('github-panel')).toBeInTheDocument());
     expect(screen.queryByTestId('github-flip-btn')).not.toBeInTheDocument();
+  });
+
+  // REQ-GITHUB-011: on touch devices the search bar is disclosed on demand behind a
+  // magnify toggle (so the repo list keeps its whole-row viewport), and revealing it
+  // focuses the input so the on-screen keyboard opens. Desktop keeps it always visible.
+  async function renderConnectedTouch(repos: Record<string, unknown>[] = [makeRepo()]) {
+    mockIsTouchDevice.mockReturnValue(true);
+    mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: true, login: 'octocat' });
+    mockGetGithubRepos.mockResolvedValueOnce({ repos, page: 1, hasMore: false });
+    render(() => <GitHubPanel />);
+    await waitFor(() => expect(screen.getByTestId('github-connected-header')).toBeInTheDocument());
+  }
+
+  it('REQ-GITHUB-011 AC1: on touch, hides the search input behind a magnify toggle placed left of refresh', async () => {
+    await renderConnectedTouch();
+
+    // The search input is not rendered until disclosed.
+    expect(screen.queryByTestId('github-search-input')).not.toBeInTheDocument();
+
+    const toggle = screen.getByTestId('github-search-toggle-btn');
+    expect(toggle.querySelector('path')?.getAttribute('d')).toBe(mdiMagnify);
+
+    // "Left of refresh": the toggle precedes the refresh control in document order.
+    const refresh = screen.getByTestId('github-refresh-btn');
+    expect(toggle.compareDocumentPosition(refresh) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('REQ-GITHUB-011 AC2: tapping the toggle reveals the search input, focuses it, and reflects the open state', async () => {
+    await renderConnectedTouch();
+
+    fireEvent.click(screen.getByTestId('github-search-toggle-btn'));
+
+    const input = await waitFor(() => screen.getByTestId('github-search-input') as HTMLInputElement);
+    // Focus is what opens the on-screen keyboard; assert it landed on the input.
+    expect(document.activeElement).toBe(input);
+    // The toggle reflects the open state (active → aria-pressed).
+    expect(screen.getByTestId('github-search-toggle-btn')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('REQ-GITHUB-011 AC3: tapping the toggle again hides the search and clears the active filter', async () => {
+    await renderConnectedTouch([
+      makeRepo({ full_name: 'octocat/alpha', name: 'alpha' }),
+      makeRepo({ full_name: 'octocat/beta', name: 'beta' }),
+    ]);
+    await waitFor(() => expect(screen.getAllByTestId('github-repo-row')).toHaveLength(2));
+
+    // Open + filter down to one row.
+    fireEvent.click(screen.getByTestId('github-search-toggle-btn'));
+    const input = await waitFor(() => screen.getByTestId('github-search-input'));
+    fireEvent.input(input, { target: { value: 'alpha' } });
+    await waitFor(() => expect(screen.getAllByTestId('github-repo-row')).toHaveLength(1));
+
+    // Close: the input disappears and the filter is cleared (all rows return).
+    fireEvent.click(screen.getByTestId('github-search-toggle-btn'));
+    await waitFor(() => expect(screen.queryByTestId('github-search-input')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByTestId('github-repo-row')).toHaveLength(2));
+  });
+
+  it('REQ-GITHUB-011 AC4: on desktop the search input is always visible and no magnify toggle renders', async () => {
+    // mockIsTouchDevice stays false (desktop) from beforeEach.
+    mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: true, login: 'octocat' });
+    mockGetGithubRepos.mockResolvedValueOnce({ repos: [makeRepo()], page: 1, hasMore: false });
+
+    render(() => <GitHubPanel />);
+
+    await waitFor(() => expect(screen.getByTestId('github-search-input')).toBeInTheDocument());
+    expect(screen.queryByTestId('github-search-toggle-btn')).not.toBeInTheDocument();
   });
 });

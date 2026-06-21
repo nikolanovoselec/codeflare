@@ -123,6 +123,7 @@ vi.mock('../../stores/session', () => ({
 
 vi.mock('../../api/storage', () => ({
   getDownloadUrl: (key: string) => `https://mock.test/storage/download?key=${encodeURIComponent(key)}`,
+  getViewUrl: (key: string) => `https://mock.test/storage/download?key=${encodeURIComponent(key)}&disposition=inline`,
 }));
 
 vi.mock('../../lib/file-icons', () => ({
@@ -523,8 +524,10 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
     });
   });
 
-  describe('File click triggers download', () => {
-    it('clicking a file name triggers a download instead of preview', async () => {
+  describe('File click opens the file in a new browser tab', () => {
+    it('clicking a file name opens the inline view URL in a new tab, not an in-app preview', () => {
+      const open = vi.fn();
+      vi.stubGlobal('open', open);
       mockObjects = [
         { key: 'workspace/readme.md', size: 1024, lastModified: '2024-01-15T10:00:00Z' },
       ];
@@ -533,19 +536,13 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       const fileName = screen.getByTestId('file-readme.md').querySelector('.storage-item-name');
       fireEvent.click(fileName!);
 
-      // Wait for the async triggerDownload chain (fetch → blob → anchor click)
-      // to complete before afterEach restores mocks
-      await vi.waitFor(() => {
-        expect(globalThis.URL.revokeObjectURL).toHaveBeenCalled();
-      });
-
-      // openPreview should NOT be called - download is triggered instead
+      expect(open).toHaveBeenCalledTimes(1);
+      expect(open.mock.calls[0][0]).toContain('disposition=inline');
+      expect(open.mock.calls[0][0]).toContain('readme.md');
+      expect(open.mock.calls[0][1]).toBe('_blank');
+      // The row click views the file; it does not open the in-app preview.
       expect(mockOpenPreview).not.toHaveBeenCalled();
-      // Verify the full download chain completed
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('readme.md'),
-        expect.objectContaining({ credentials: 'include' }),
-      );
+      vi.unstubAllGlobals();
     });
   });
 

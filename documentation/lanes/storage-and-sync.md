@@ -16,6 +16,7 @@ R2 persistent storage, rclone bisync synchronization, sync modes, storage quotas
 - [Manual Sync Triggers (REQ-STOR-015)](#manual-sync-triggers-req-stor-015)
 - [Session Transcript Cleanup](#session-transcript-cleanup)
 - [Conflict Resolution](#conflict-resolution)
+- [File Browser (REQ-STOR-016)](#file-browser-req-stor-016)
 
 ## Storage Quota (REQ-STOR-006, REQ-STOR-014)
 
@@ -154,6 +155,32 @@ The recovery filter file starts empty on every container start and is never sync
 - **Missing secrets**: Check `startup-status` response `details.syncError` for the missing variable.
 - **Session-delete spinner takes ~2 minutes**: The Container DO `destroy()` budget is 135 seconds (120s DO-side final-bisync drain budget + 15s clean-exit buffer) — the DO drains the bisync synchronously (`POST /internal/final-sync`) before signalling stop, so unsaved local changes propagate to R2 before SIGKILL. Routine on sessions with large pending writes. See [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync).
 - **Search button is missing from the storage panel**: Removed 2026-05-18 (sync-v2). The toolbar slot is now the Sync-now button. The underlying search-by-name filter (`storageStore.searchFiles`) is still in the codebase and can be restored by re-adding `<SearchInput />` in the toolbar - see comments in `web-ui/src/components/storage/StorageToolbar.tsx` and `web-ui/src/components/StorageBrowser.tsx`.
+
+---
+
+## File Browser (REQ-STOR-016)
+
+The storage browser reads directly from R2 via the Worker API (not the container
+filesystem) and renders as a side drawer on desktop, a bottom-sheet on mobile.
+
+**Folder paths.** Because rclone bisyncs the whole `/home/user` home directory to the
+bucket root, every folder maps to a real in-container directory. Each folder row shows
+that path in `~/<prefix>` form (`web-ui/src/components/storage/FileList.tsx::folderShortPath`) so operators can see
+where a prefix lands in the container — at any depth (`Documentation/guides/` →
+`~/Documentation/guides`) and for dotfolders (`.claude/` → `~/.claude`). Special folders
+(Vault, Uploads, Temporary, Workspace) instead show their canonical `containerPath`
+mapping, whose casing can differ from the R2 prefix (`workspace/` → `~/Workspace`).
+Within a row the path is pinned to the right edge for every folder so all paths align
+identically; the special-folder container icon (a tooltip toggle) sits immediately after
+the folder name rather than trailing the row (`web-ui/src/components/storage/FileList.tsx`, `web-ui/src/styles/storage-browser.css`).
+
+Clicking a file opens it inline in a new browser tab (served with an XSS-safe
+Content-Type + `nosniff`) rather than downloading it.
+
+**Traversal safety.** The browse endpoint (`src/routes/storage/validation.ts::validateKey`)
+validates every requested prefix and rejects parent-directory (`../`) references, so a
+probe cannot escape the user's bucket root — a rejected prefix causes the endpoint to
+return an error response (4xx) rather than any listing.
 
 ---
 

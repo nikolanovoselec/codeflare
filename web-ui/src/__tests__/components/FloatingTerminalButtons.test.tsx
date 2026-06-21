@@ -73,6 +73,7 @@ vi.mock('../../lib/speech-input', () => ({
   stopListening: vi.fn(),
 }));
 
+// REQ-TERM-017: MultiView Pane Focus and Input Routing
 describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
   beforeEach(() => {
     vi.useFakeTimers();

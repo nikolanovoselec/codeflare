@@ -1,6 +1,7 @@
 import { Component, Show, onMount, createSignal } from 'solid-js';
 import { mdiFlipVertical } from '@mdi/js';
 import { githubStore } from '../../stores/github';
+import { isTouchDevice, scrollFieldAboveKeyboard } from '../../lib/mobile';
 import ConnectCard from './ConnectCard';
 import ConnectedHeader from './ConnectedHeader';
 import RepoSearch from './RepoSearch';
@@ -28,6 +29,29 @@ const RETURN_ERRORS: Record<string, string> = {
 // connected header + search + repo list; otherwise the connect card.
 const GitHubPanel: Component<GitHubPanelProps> = (props) => {
   const [returnError, setReturnError] = createSignal<string | null>(null);
+
+  // REQ-GITHUB-011: on touch devices the search bar is hidden behind a magnify
+  // toggle so the repo list keeps its full whole-row viewport. Desktop keeps the
+  // bar always visible.
+  const touch = isTouchDevice();
+  const [searchOpen, setSearchOpen] = createSignal(false);
+  let searchInput: HTMLInputElement | undefined;
+  const toggleSearch = () => {
+    const next = !searchOpen();
+    setSearchOpen(next);
+    if (next) {
+      // The input mounts synchronously when searchOpen flips; focus it in the same
+      // tap handler so iOS Safari opens the on-screen keyboard (it only does so on a
+      // synchronous focus() within the user gesture).
+      searchInput?.focus();
+      // Then scroll it above the keyboard once it animates in — the panel sits low
+      // on mobile, so the keyboard would otherwise cover the field being typed into.
+      if (searchInput) scrollFieldAboveKeyboard(searchInput);
+    } else {
+      // Closing clears the filter so a hidden search box never silently narrows the list.
+      githubStore.setSearchQuery('');
+    }
+  };
 
   onMount(() => {
     // Handle the OAuth return: ?github=connected|denied|expired|error|unavailable.
@@ -69,8 +93,13 @@ const GitHubPanel: Component<GitHubPanelProps> = (props) => {
           when={githubStore.connected}
           fallback={<ConnectCard />}
         >
-          <ConnectedHeader />
-          <RepoSearch />
+          <ConnectedHeader
+            onToggleSearch={touch ? toggleSearch : undefined}
+            searchOpen={searchOpen()}
+          />
+          <Show when={!touch || searchOpen()}>
+            <RepoSearch inputRef={(el) => (searchInput = el)} />
+          </Show>
           <RepoList />
         </Show>
       </section>

@@ -9,6 +9,7 @@ import { drainFinalSync } from '../../container/container-metrics';
  * drain dies at the auth gate in ~100ms on every idle stop and the last edits
  * never reach R2. These tests pin the header to the stored containerAuthToken.
  */
+// REQ-SESSION-019: Final-sync drain endpoint authentication
 describe('drainFinalSync (idle/quota-stop path) container auth', () => {
   function makeCtx(token: string | undefined, fetchSpy: ReturnType<typeof vi.fn>) {
     return {

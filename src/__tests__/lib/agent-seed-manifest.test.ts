@@ -11,6 +11,7 @@ import { LOCAL_BUILD_BYPASS, attributionBlockReason, isLocalBuildCommand, localB
 import { reviewLaneBlockReason, reviewScopeBlockReason } from '../../../preseed/agents/pi/extensions/review-lane-guards';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
 import { restoreActiveRepoFromPersistedFiles, shouldHandleClonePrompt } from '../../../preseed/agents/pi/extensions/codeflare-pi';
+import { sddCommandDecision, type SddRepoState } from '../../../preseed/agents/pi/extensions/sdd-helpers';
 import localStatuslineExtension from '../../../preseed/agents/pi/extensions/local-statusline';
 
 /**
@@ -142,6 +143,8 @@ describe('agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin prese
   });
 });
 
+// REQ-AGENT-071: PR-Boundary Review Agent Dispatch
+// REQ-AGENT-073: Pi Review Monitor Delivery Reliability
 describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)', () => {
   it('each non-Claude agent has an instructions file', () => {
     const keys = new Set(AGENTS_SEEDED_CONFIGS.map((doc) => doc.key));
@@ -2302,6 +2305,91 @@ describe('Pi /debug, /deploy, /brainstorm commands / REQ-AGENT-051 (Claude-only 
     expect(out).toMatch(/Trade-off/i);
     expect(out).toMatch(/Recommendation/i);
   });
+
+  it('AC6: codeflare-commands.ts is delivered advanced-only through the seed pipeline (manifest mode-gate)', () => {
+    // The mode-gate is the contract value: the generated seed must carry the
+    // manifest's advanced-only gate for this extension, so Standard mode and
+    // token-less deploys never receive it. Asserting the resolved modes (not
+    // the manifest source text) proves the gate survived generation.
+    const entries = AGENTS_SEEDED_CONFIGS.filter(
+      (d) => d.key === '.pi/agent/extensions/codeflare-commands.ts',
+    );
+    expect(entries.length, 'codeflare-commands.ts must be seeded exactly once').toBe(1);
+    const modes = [...entries[0].modes].sort();
+    expect(modes).toEqual(['advanced']);
+    expect(modes).not.toContain('default');
+    // It must NOT leak into the default-mode key set (the gate's whole point).
+    const defaultKeys = new Set(
+      AGENTS_SEEDED_CONFIGS.filter((d) => d.modes.includes('default')).map((d) => d.key),
+    );
+    expect(defaultKeys.has('.pi/agent/extensions/codeflare-commands.ts')).toBe(false);
+  });
+});
+
+describe('native /sdd hard gates / REQ-AGENT-021 AC5 (the native /sdd command enforces command-file hard gates before workflow dispatch)', () => {
+  // sddCommandDecision is the pure gate logic codeflare-pi.ts dispatches on
+  // (sddRepoState -> sddCommandDecision). It takes no runtime, so it runs in
+  // the Workers pool. These assert the gate DECISIONS (kind + which path is
+  // refused), not prose. If any gate were removed the matching case flips to
+  // kind: "workflow" and the assertion fails.
+  const clean: SddRepoState = { dirty: false, hasSdd: true, hasOpenInitTriage: false };
+
+  it('bare /sdd returns help, never a workflow dispatch', () => {
+    const d = sddCommandDecision('', clean);
+    expect(d.kind).toBe('help');
+  });
+
+  it('an unknown subcommand returns help, not a workflow dispatch', () => {
+    const d = sddCommandDecision('frobnicate', clean);
+    expect(d.kind).toBe('help');
+  });
+
+  it('GATE: a dirty working tree is refused for every subcommand before dispatch', () => {
+    const dirty: SddRepoState = { dirty: true, hasSdd: true, hasOpenInitTriage: true };
+    for (const sub of ['init', 'edit', 'add', 'clean', 'mode']) {
+      const d = sddCommandDecision(sub, dirty);
+      expect(d.kind, `${sub} on a dirty tree must be refused`).toBe('error');
+    }
+  });
+
+  it('GATE: /sdd clean and /sdd mode are refused when no sdd/ folder exists', () => {
+    const noSdd: SddRepoState = { dirty: false, hasSdd: false, hasOpenInitTriage: false };
+    expect(sddCommandDecision('clean', noSdd).kind).toBe('error');
+    expect(sddCommandDecision('mode', noSdd).kind).toBe('error');
+  });
+
+  it('GATE: /sdd init is refused once sdd/ exists with no open init triage', () => {
+    const initialized: SddRepoState = { dirty: false, hasSdd: true, hasOpenInitTriage: false };
+    expect(sddCommandDecision('init', initialized).kind).toBe('error');
+  });
+
+  it('/sdd init is ALLOWED to resume when sdd/ exists but open init triage remains', () => {
+    const resuming: SddRepoState = { dirty: false, hasSdd: true, hasOpenInitTriage: true };
+    const d = sddCommandDecision('init', resuming);
+    expect(d.kind).toBe('workflow');
+    if (d.kind === 'workflow') {
+      expect(d.subcommand).toBe('init');
+      expect(d.skill).toBe('sdd-init');
+    }
+  });
+
+  it('passes a clean, initialized repo through to the right skill per subcommand', () => {
+    const cases: Array<[string, string, string]> = [
+      ['edit storage', 'edit', 'spec-driven-development'],
+      ['add billing', 'add', 'spec-driven-development'],
+      ['clean --scope=all', 'clean', 'sdd-clean'],
+      ['mode unleashed', 'mode', 'spec-driven-development'],
+    ];
+    for (const [args, sub, skill] of cases) {
+      const d = sddCommandDecision(args, clean);
+      expect(d.kind, `${args} should dispatch`).toBe('workflow');
+      if (d.kind === 'workflow') {
+        expect(d.subcommand).toBe(sub);
+        expect(d.skill).toBe(skill);
+        expect(d.normalizedCommand).toBe(`/sdd ${args}`);
+      }
+    }
+  });
 });
 
 describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreToolUse guards match the canonical Claude detection sets)', () => {
@@ -2360,6 +2448,7 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
   });
 });
 
+// REQ-AGENT-072: Pi Durable Review Lane Command and Scope Guards
 describe('Incremental review scope confinement / REQ-AGENT-040 AC8 (reviewer defs + enforce skills scope-agnostic) + REQ-AGENT-060 AC8 (lane guard enforces the incremental window)', () => {
   const scope = { base: 'abc1234', head: 'def5678', baseRef: 'main' };
 

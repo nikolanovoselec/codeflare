@@ -46,7 +46,8 @@ test_globs:
   - "host/__tests__/**/*.test.{js,mjs}"
   - "web-ui/src/__tests__/**/*.test.{ts,tsx,jsx}"
   - "web-ui/src/__tests__/**/*.spec.{ts,tsx,jsx}"
-  - "tests/e2e/**/*.spec.{ts,js}"
+  - "e2e/**/*.test.{ts,js}"
+  - "e2e/**/*.spec.{ts,js}"
 
 # Source discovery globs (optional override) — where spec-reviewer scans
 # for REQ-ID references in source code. Codeflare uses the standard

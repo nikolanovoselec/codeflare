@@ -12,6 +12,7 @@ import {
  * gut any of the three helpers and a case here fails.
  */
 
+// REQ-AGENT-073: Pi Review Monitor Delivery Reliability
 describe('resolveSpawnedAgentId (R1: untyped subagents-service spawn return)', () => {
   it('returns a non-empty string id verbatim', () => {
     expect(resolveSpawnedAgentId('agent-123')).toBe('agent-123');

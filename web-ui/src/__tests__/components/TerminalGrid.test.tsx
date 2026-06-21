@@ -3,6 +3,7 @@ import { createSignal, onCleanup, onMount } from 'solid-js';
 import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
 import TerminalGrid from '../../components/TerminalGrid';
 
+// REQ-TERM-017: MultiView Pane Focus and Input Routing
 describe('TerminalGrid reusable pane layout', () => {
   afterEach(() => cleanup());
 

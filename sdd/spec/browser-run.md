@@ -30,12 +30,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 ---
 
-<!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring describe -> advanced+token registers chrome-devtools for Claude / gating -> AC1..AC2) -->
 ### REQ-BROWSER-001: Browser Run as a WebFetch Fallback (Claude Code via chrome-devtools-mcp)
-
-<!-- @impl: entrypoint.sh -->
-<!-- @impl: preseed/agents/claude/skills/browser-run/SKILL.md -->
-<!-- @impl: preseed/agents/claude/manifest.json -->
 
 **Intent:** When plain WebFetch is blocked, Claude Code must be able to fall back to a real browser to load public web content.
 
@@ -43,10 +38,10 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Acceptance Criteria:**
 
-1. `chrome-devtools-mcp` is registered for Claude Code (in `~/.claude.json`) only in Pro (advanced) session mode AND only when a Cloudflare API token + account id are present; Standard mode and token-less deploys omit it (byte-identical to today).
-2. The registration points the MCP server at the Cloudflare Browser Run CDP `/devtools` endpoint, passing the API token as an `Authorization: Bearer` header via `--wsHeaders`, and pins the `chrome-devtools-mcp` version (not `@latest`).
-3. A `browser-run` skill is seeded (advanced mode) that positions the browser as a retry path for WebFetch failures caused by bot protection, login walls, redirect chains, or JS-only pages.
-4. The fallback loads public targets only; it does not perform end-to-end testing or execute code in the browser.
+1. `chrome-devtools-mcp` is registered for Claude Code (in `~/.claude.json`) only in Pro (advanced) session mode AND only when a Cloudflare API token + account id are present; Standard mode and token-less deploys omit it (byte-identical to today). <!-- @impl: entrypoint.sh --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring describe -> advanced+token registers chrome-devtools for Claude / gating) -->
+2. The registration points the MCP server at the Cloudflare Browser Run CDP `/devtools` endpoint, passing the API token as an `Authorization: Bearer` header via `--wsHeaders`, and pins the `chrome-devtools-mcp` version (not `@latest`). <!-- @impl: entrypoint.sh --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring describe -> advanced+token registers chrome-devtools for Claude / gating) -->
+3. A `browser-run` skill is seeded (advanced mode) that positions the browser as a retry path for WebFetch failures caused by bot protection, login walls, redirect chains, or JS-only pages. <!-- @impl: preseed/agents/claude/skills/browser-run/SKILL.md --> <!-- @impl: preseed/agents/claude/manifest.json --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring > advanced + token: keeps the browser-run/browser-e2e skills for both agents) -->
+4. The fallback loads public targets only; it does not perform end-to-end testing or execute code in the browser. <!-- @impl: preseed/agents/claude/skills/browser-run/SKILL.md --> <!-- coverage-gap: this is a scoping constraint of the browser-run SKILL.md prose; no behavioral test exercises the public-only / no-e2e / no-code-exec boundary (asserting it would require source-string matching of the skill doc, which this repo bans) -->
 
 **Constraints:**
 
@@ -63,42 +58,34 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 ---
 
-<!-- @test: web-ui/src/__tests__/lib/token-scopes.test.ts (Cloudflare scopes describe -> Browser Rendering - Edit scope present in token template + existing scopes unchanged -> AC1..AC3) -->
 ### REQ-BROWSER-002: Browser Rendering Scope in the Cloudflare Token Template
 
-<!-- @impl: web-ui/src/lib/token-scopes.ts -->
 **Intent:** Driving Browser Run requires a Cloudflare API-token permission, so the user-pasted token template must request the `Browser Rendering - Edit` scope.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The Cloudflare token template adds the `Browser Rendering - Edit` scope. <!-- @impl: web-ui/src/lib/token-scopes.ts::getCloudflareTokenUrl -->
-2. The addition is additive: every scope already present in the template remains unchanged. <!-- @impl: web-ui/src/lib/token-scopes.ts::getCloudflareTokenUrl -->
-3. Tokens created before this scope was added continue to work for all existing functionality (the scope is required only for Browser Run).
+1. The Cloudflare token template adds the `Browser Rendering - Edit` scope. <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (advanced tier grants browser-rendering.write; minimal does not) -->
+2. The addition is additive: every scope already present in the template remains unchanged. <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (additive: every core scope still present in advanced) -->
+3. Tokens created before this scope was added continue to work for all existing functionality (the scope is required only for Browser Run). <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (backward-compat: non-Browser-Rendering scope set unchanged) -->
 
 **Constraints:**
 
-- The scope is added to the existing token-scope tier definitions, following the established `{ key, type }` scope shape.
+- The scope is added to the existing Cloudflare OAuth scope catalog (the advanced tier), following the established scope-string shape.
 - No existing scope is removed or renamed.
 
 **Priority:** P2
 
 **Dependencies:** [REQ-AGENT-010](agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token)
 
-**Verification:** [Automated test](../../web-ui/src/__tests__/lib/token-scopes.test.ts)
+**Verification:** Automated test
 
 **Status:** Implemented
 
 ---
 
-<!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core: pi/browser-run-helpers describe -> truncate / runQuickAction / executeBrowserAction -> AC1,AC3) -->
 ### REQ-BROWSER-003: Pi Native Browser Run Wrapper
-
-<!-- @impl: preseed/agents/pi/extensions/browser-run.ts -->
-<!-- @impl: preseed/agents/pi/skills/browser-run/SKILL.md -->
-<!-- @impl: preseed/agents/pi/manifest.json -->
-<!-- @impl: scripts/generate-agent-seed.mjs -->
 
 **Intent:** Pi needs a cheap one-shot read surface for Browser Run — clean Markdown / HTML / scrape without opening an interactive CDP session — exposed as native Pi tools. (This is a cost/context choice, not a limitation: Pi also has the interactive `chrome-devtools` surface, see [REQ-BROWSER-006](#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter).)
 
@@ -106,10 +93,10 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Acceptance Criteria:**
 
-1. A Pi extension registers native `browser_markdown`, `browser_content`, and `browser_scrape` tools (via `pi.registerTool`) that call the Cloudflare Browser Run REST Quick Actions (`/markdown`, `/content`, `/scrape`). <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::executeBrowserAction -->
-2. The extension registers nothing unless `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are present, and is seeded only in Pro (advanced) session mode — so Standard mode and token-less deploys are byte-identical to today.
-3. The tools load public targets only, cap their output to protect the context window, and surface errors as tool errors rather than throwing. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::truncate -->
-4. A `browser-run` skill is seeded (advanced mode) positioning these tools in an explicit web-fetch decision tree (pi-web-access → `ctx_fetch_and_index` → `curl` → `browser_markdown`) as the cheap read step for JS-rendered or bot-blocked pages the agent only needs to READ — with the interactive `chrome-devtools` surface as the next step up for pages that must be driven ([REQ-BROWSER-006](#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter)); the native tool names are added to the Pi tool allowlist in the seed generator so subagents may use them.
+1. A Pi extension registers native `browser_markdown`, `browser_content`, and `browser_scrape` tools (via `pi.registerTool`) that call the Cloudflare Browser Run REST Quick Actions (`/markdown`, `/content`, `/scrape`). <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::executeBrowserAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core: pi/browser-run-helpers describe -> truncate / runQuickAction / executeBrowserAction) -->
+2. The extension registers nothing unless `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are present, and is seeded only in Pro (advanced) session mode — so Standard mode and token-less deploys are byte-identical to today. <!-- @impl: preseed/agents/pi/extensions/browser-run.ts --> <!-- coverage-gap: no test exercises the extension's conditional registration guard (no-token -> registers nothing); existing tests cover the action core (browser-run-core.test.ts) and seeded-key presence only, not the token-gated registration path -->
+3. The tools load public targets only, cap their output to protect the context window, and surface errors as tool errors rather than throwing. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::truncate --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core: pi/browser-run-helpers describe -> truncate / runQuickAction / executeBrowserAction) -->
+4. A `browser-run` skill is seeded (advanced mode) positioning these tools in an explicit web-fetch decision tree (pi-web-access → `ctx_fetch_and_index` → `curl` → `browser_markdown`) as the cheap read step for JS-rendered or bot-blocked pages the agent only needs to READ — with the interactive `chrome-devtools` surface as the next step up for pages that must be driven ([REQ-BROWSER-006](#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter)); the native tool names are added to the Pi tool allowlist in the seed generator so subagents may use them. <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @impl: preseed/agents/pi/skills/browser-run/SKILL.md --> <!-- @impl: preseed/agents/pi/manifest.json --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (the browser-run skill carries BOTH surfaces for each agent -> pi browser-run skill names browser_markdown + chrome-devtools + Decision order) -->
 
 **Constraints:**
 
@@ -126,13 +113,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 ---
 
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents describe -> REQ-BROWSER-004 it -> AC1..AC4) -->
 ### REQ-BROWSER-004: Agent Semantic e2e via Browser Run
-
-<!-- @impl: preseed/agents/claude/skills/browser-e2e/SKILL.md -->
-<!-- @impl: preseed/agents/pi/skills/browser-e2e/SKILL.md -->
-<!-- @impl: preseed/agents/claude/manifest.json -->
-<!-- @impl: preseed/agents/pi/manifest.json -->
 
 **Intent:** An agent should be able to verify the team's own deployed app by judgment — navigate it in a real browser, observe what actually rendered, and decide whether it meets the acceptance criteria — as a complement to scripted CI e2e that catches the "renders but wrong" class of defect (visual regressions, broken responsive layout, behavior that passes a fixed assertion but is wrong) which selector assertions miss.
 
@@ -140,10 +121,10 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Acceptance Criteria:**
 
-1. A `browser-e2e` skill is seeded (advanced mode) for Claude Code, positioning the interactive `chrome-devtools` surface (navigate / interact / observe / screenshot / measure) as a semantic verifier of the user's own deployed app, distinct from the `browser-run` fetch fallback, and requiring a pass/fail verdict per acceptance criterion backed by observed evidence.
-2. A dedicated Pi `browser-e2e` skill is seeded (advanced mode) that drives the interactive `chrome-devtools` surface through the `pi-mcp-adapter` `mcp` proxy (navigate / click / `take_screenshot` / `resize_page` for a mobile viewport) for full-flow verification — full parity with Claude — with the native `browser_markdown` / `browser_scrape` tools positioned as the cheap read-only path for content/state checks; it governs the "e2e test &lt;url&gt; from a mobile viewport" task.
-3. Both skills scope targets to public / deployed URLs (Browser Run is remote and cannot reach localhost or private hosts) and to the user's own app under test, and both state that deterministic invariants remain in the CI suite.
-4. The skills are seeded through the preseed manifest pipeline ([REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)) and rest on the symmetric Browser Run surfaces — both agents reach the interactive `chrome-devtools` surface (Claude [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), Pi [REQ-BROWSER-006](#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter)) and the cheap read surface (Pi [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper), Claude [REQ-BROWSER-005](#req-browser-005-claude-browser-run-mcp-server-read-surface-parity)).
+1. A `browser-e2e` skill is seeded (advanced mode) for Claude Code, positioning the interactive `chrome-devtools` surface (navigate / interact / observe / screenshot / measure) as a semantic verifier of the user's own deployed app, distinct from the `browser-run` fetch fallback, and requiring a pass/fail verdict per acceptance criterion backed by observed evidence. <!-- @impl: preseed/agents/claude/skills/browser-e2e/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents describe -> REQ-BROWSER-004 it) -->
+2. A dedicated Pi `browser-e2e` skill is seeded (advanced mode) that drives the interactive `chrome-devtools` surface through the `pi-mcp-adapter` `mcp` proxy (navigate / click / `take_screenshot` / `resize_page` for a mobile viewport) for full-flow verification — full parity with Claude — with the native `browser_markdown` / `browser_scrape` tools positioned as the cheap read-only path for content/state checks; it governs the "e2e test &lt;url&gt; from a mobile viewport" task. <!-- @impl: preseed/agents/pi/skills/browser-e2e/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents describe -> REQ-BROWSER-004 it) -->
+3. Both skills scope targets to public / deployed URLs (Browser Run is remote and cannot reach localhost or private hosts) and to the user's own app under test, and both state that deterministic invariants remain in the CI suite. <!-- @impl: preseed/agents/claude/skills/browser-e2e/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents describe -> REQ-BROWSER-004 it) -->
+4. The skills are seeded through the preseed manifest pipeline ([REQ-AGENT-006](agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)) and rest on the symmetric Browser Run surfaces — both agents reach the interactive `chrome-devtools` surface (Claude [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), Pi [REQ-BROWSER-006](#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter)) and the cheap read surface (Pi [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper), Claude [REQ-BROWSER-005](#req-browser-005-claude-browser-run-mcp-server-read-surface-parity)). <!-- @impl: scripts/generate-agent-seed.mjs --> <!-- @impl: preseed/agents/claude/manifest.json --> <!-- @impl: preseed/agents/pi/manifest.json --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents describe -> REQ-BROWSER-004 it) -->
 
 **Constraints:**
 
@@ -160,16 +141,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 ---
 
-<!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core: claude/browser-run-mcp/core describe + twins are equivalent describe -> AC1,AC3) -->
-<!-- @test: host/__tests__/dockerfile-browser-run-mcp.test.js (Dockerfile Claude browser-run MCP server describe -> AC1) -->
 ### REQ-BROWSER-005: Claude browser-run MCP server (read-surface parity)
-
-<!-- @impl: preseed/agents/claude/browser-run-mcp/index.mjs -->
-<!-- @impl: preseed/agents/claude/browser-run-mcp/core.d.mts -->
-<!-- @impl: preseed/agents/claude/browser-run-mcp/package.json -->
-<!-- @impl: Dockerfile -->
-<!-- @impl: entrypoint.sh -->
-<!-- @impl: preseed/agents/claude/skills/browser-run/SKILL.md -->
 
 **Intent:** Claude lacked a clean page→Markdown tool — `chrome-devtools` gives an accessibility snapshot and raw DOM, not the Readability-clean HTML→Markdown that Browser Run's REST `/markdown` produces. Give Claude the same cheap one-shot read surface Pi has natively, so the two agents are symmetric and Claude can do the landing's "open web, distilled to Markdown" trick itself.
 
@@ -177,10 +149,10 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Acceptance Criteria:**
 
-1. A Claude-side MCP server (`preseed/agents/claude/browser-run-mcp/`) exposes `browser_markdown` / `browser_content` / `browser_scrape` tools that call the Cloudflare Browser Run REST Quick Actions, mirroring the Pi native wrapper's behavior (same endpoints, ~120k output cap, empty-render hint, `wait_until`). <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::TOOLS -->
-2. It is built into the image (Dockerfile) and registered in `~/.claude.json` by `entrypoint.sh` only in Pro (advanced) mode AND when `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` are present (Standard / token-less sessions are byte-identical to today), with the token + account passed in the server's scoped env.
-3. The tools load public targets only and surface errors as tool errors rather than throwing. <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::executeBrowserAction -->
-4. The Claude `browser-run` skill positions this read surface (cheap, one-shot) ahead of the interactive `chrome-devtools` surface in its decision order.
+1. A Claude-side MCP server (`preseed/agents/claude/browser-run-mcp/`) exposes `browser_markdown` / `browser_content` / `browser_scrape` tools that call the Cloudflare Browser Run REST Quick Actions, mirroring the Pi native wrapper's behavior (same endpoints, ~120k output cap, empty-render hint, `wait_until`). <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::TOOLS --> <!-- @impl: preseed/agents/claude/browser-run-mcp/index.mjs --> <!-- @impl: preseed/agents/claude/browser-run-mcp/core.d.mts --> <!-- @impl: preseed/agents/claude/browser-run-mcp/package.json --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core: claude/browser-run-mcp/core describe + twins are equivalent describe) --> <!-- @test: host/__tests__/dockerfile-browser-run-mcp.test.js (Dockerfile Claude browser-run MCP server describe) -->
+2. It is built into the image (Dockerfile) and registered in `~/.claude.json` by `entrypoint.sh` only in Pro (advanced) mode AND when `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` are present (Standard / token-less sessions are byte-identical to today), with the token + account passed in the server's scoped env. <!-- @impl: entrypoint.sh --> <!-- @impl: Dockerfile --> <!-- @test: host/__tests__/dockerfile-browser-run-mcp.test.js (Dockerfile Claude browser-run MCP server describe) --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring > advanced + token: registers the Claude browser-run MCP server / no token: nothing registered) -->
+3. The tools load public targets only and surface errors as tool errors rather than throwing. <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::executeBrowserAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core: claude/browser-run-mcp/core describe + twins are equivalent describe) -->
+4. The Claude `browser-run` skill positions this read surface (cheap, one-shot) ahead of the interactive `chrome-devtools` surface in its decision order. <!-- @impl: preseed/agents/claude/skills/browser-run/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (the browser-run skill carries BOTH surfaces for each agent -> claude browser-run skill names browser_markdown + chrome-devtools + Decision order) -->
 
 **Constraints:**
 
@@ -197,14 +169,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 ---
 
-<!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring describe -> registers chrome-devtools for Pi in mcp.json with lifecycle lazy / gating -> AC1,AC4) -->
-<!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents describe -> REQ-BROWSER-005/006 it + pi-mcp-adapter skill present -> AC2,AC3) -->
 ### REQ-BROWSER-006: Pi interactive browser via chrome-devtools through the pi-mcp-adapter
-
-<!-- @impl: entrypoint.sh -->
-<!-- @impl: preseed/agents/pi/skills/browser-run/SKILL.md -->
-<!-- @impl: preseed/agents/pi/skills/browser-e2e/SKILL.md -->
-<!-- @impl: preseed/agents/pi/skills/pi-mcp-adapter/SKILL.md -->
 
 **Intent:** Pi must have the same interactive browser surface as Claude (navigate / click / screenshot / viewport), not only the one-shot read tools. Pi consumes MCP servers via the `pi-mcp-adapter`, so the same `chrome-devtools` server Claude uses is bridged into Pi — giving full parity.
 
@@ -212,10 +177,10 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Acceptance Criteria:**
 
-1. `entrypoint.sh` registers the `chrome-devtools` MCP server in `~/.pi/agent/mcp.json` (pointed at the same Browser Run CDP `/devtools` endpoint as Claude's, same token via `--wsHeaders`) only in Pro (advanced) mode AND when `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` are present; `lifecycle: lazy` so an idle session does not hold a remote browser open.
-2. Pi reaches the `chrome-devtools` tools through the `pi-mcp-adapter` `mcp` proxy; the `pi-mcp-adapter` skill is seeded so Pi knows how to drive a bridged server.
-3. The Pi `browser-run` and `browser-e2e` skills name the interactive `chrome-devtools` surface (navigate / click / screenshot / `resize_page`) alongside the native read tools, establishing parity with Claude.
-4. Standard mode and token-less deploys register nothing (byte-identical to today); Pi's native read tools ([REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper)) are unchanged and remain the cheap path.
+1. `entrypoint.sh` registers the `chrome-devtools` MCP server in `~/.pi/agent/mcp.json` (pointed at the same Browser Run CDP `/devtools` endpoint as Claude's, same token via `--wsHeaders`) only in Pro (advanced) mode AND when `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` are present; `lifecycle: lazy` so an idle session does not hold a remote browser open. <!-- @impl: entrypoint.sh --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring describe -> registers chrome-devtools for Pi in mcp.json with lifecycle lazy / gating) -->
+2. Pi reaches the `chrome-devtools` tools through the `pi-mcp-adapter` `mcp` proxy; the `pi-mcp-adapter` skill is seeded so Pi knows how to drive a bridged server. <!-- @impl: preseed/agents/pi/skills/pi-mcp-adapter/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents describe -> REQ-BROWSER-005/006 it + pi-mcp-adapter skill present) -->
+3. The Pi `browser-run` and `browser-e2e` skills name the interactive `chrome-devtools` surface (navigate / click / screenshot / `resize_page`) alongside the native read tools, establishing parity with Claude. <!-- @impl: preseed/agents/pi/skills/browser-run/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/browser-e2e/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents describe -> REQ-BROWSER-005/006 it + pi-mcp-adapter skill present) -->
+4. Standard mode and token-less deploys register nothing (byte-identical to today); Pi's native read tools ([REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper)) are unchanged and remain the cheap path. <!-- @impl: entrypoint.sh --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring describe -> registers chrome-devtools for Pi in mcp.json with lifecycle lazy / gating) -->
 
 **Constraints:**
 
@@ -232,20 +197,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 ---
 
-<!-- @test: web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx (REQ-BROWSER-007: Push & Deploy accordion gating -> AC2) -->
-<!-- @test: src/__tests__/routes/setup.test.ts (Feature A/C: enterprise groups chip list + dynamic routes > REQ-BROWSER-007: persists the Browser Rendering token + account id -> AC1) -->
-<!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-BROWSER-007: admin Browser Rendering token prefill (masked) -> AC1) -->
-<!-- @test: src/__tests__/lib/browser-render-token.test.ts (applyEnterpriseBrowserToken -> AC3) -->
-<!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (Browser Rendering token (enterprise admin-global) -> AC1) -->
-<!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring > advanced but no token: strips the browser-run/browser-e2e skills from both agents -> AC4) -->
 ### REQ-BROWSER-007: Enterprise admin-configured Browser Rendering token
-
-<!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx -->
-<!-- @impl: src/routes/setup/index.ts -->
-<!-- @impl: web-ui/src/components/SettingsPanel.tsx -->
-<!-- @impl: src/lib/browser-render-token.ts::applyEnterpriseBrowserToken -->
-<!-- @impl: src/routes/container/lifecycle.ts -->
-<!-- @impl: entrypoint.sh -->
 
 **Intent:** In enterprise mode individual users do not manage deploy credentials, so the Cloudflare Browser Rendering token that browser-run needs is configured once by an admin in the Setup wizard and applied to every session — rather than each user pasting their own token into the per-user "Push & Deploy" settings accordion (which is hidden in enterprise). When no token is configured, the entire browser-run surface is withheld from the agents.
 
@@ -253,10 +205,10 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Acceptance Criteria:**
 
-1. The Setup wizard exposes (enterprise only) an admin-global Cloudflare Browser Rendering token + account id. The token is stored encrypted at rest (the same kv-crypto path as deploy-keys) and is masked on prefill — the wizard learns only whether a token is set, never its value; a blank or masked value on save leaves the stored token in place. <!-- @impl: src/routes/setup/index.ts --> <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx -->
-2. In enterprise mode the per-user "Push & Deploy" deploy-keys settings accordion is not rendered: GitHub is connected via the GitHub panel ([REQ-GITHUB-001](github.md#req-github-001-github-token-capture-and-storage)) and the Cloudflare token is the admin-global Setup value, so no per-user deploy-credential entry is shown. <!-- @impl: web-ui/src/components/SettingsPanel.tsx -->
-3. At session start in enterprise mode the admin-global token + account id override the (now unused) per-user Cloudflare deploy-key fields and reach the container as `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` via the existing env path; the GitHub token and every other field pass through unchanged. The narrowly-scoped (`Browser Rendering - Edit`) token is permitted in the container env — it grants only Browser Rendering, nothing the agent cannot already do through its own browser tools — so unlike the GitHub token it is not egress-injected. Non-enterprise modes are unchanged (per-user token via the accordion). <!-- @impl: src/lib/browser-render-token.ts::applyEnterpriseBrowserToken --> <!-- @impl: src/routes/container/lifecycle.ts -->
-4. When no Browser Rendering token is configured (any mode, or a non-advanced session), none of the browser-run surface is seeded to the agents: the `chrome-devtools` + `browser-run` MCP servers are not registered and the Pi native extension registers no tools (already gated), AND the `browser-run` / `browser-e2e` skills are stripped from both agents' skill dirs so an agent is never left with a skill for a tool it lacks. <!-- @impl: entrypoint.sh -->
+1. The Setup wizard exposes (enterprise only) an admin-global Cloudflare Browser Rendering token + account id. The token is stored encrypted at rest (the same kv-crypto path as deploy-keys) and is masked on prefill — the wizard learns only whether a token is set, never its value; a blank or masked value on save leaves the stored token in place. <!-- @impl: src/routes/setup/index.ts --> <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx --> <!-- @test: src/__tests__/routes/setup.test.ts (Feature A/C: enterprise groups chip list + dynamic routes > REQ-BROWSER-007: persists the Browser Rendering token + account id) --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-BROWSER-007: admin Browser Rendering token prefill (masked)) --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (Browser Rendering token (enterprise admin-global)) -->
+2. In enterprise mode the per-user "Push & Deploy" deploy-keys settings accordion is not rendered: GitHub is connected via the GitHub panel ([REQ-GITHUB-001](github.md#req-github-001-github-token-capture-and-storage)) and the Cloudflare token is the admin-global Setup value, so no per-user deploy-credential entry is shown. <!-- @impl: web-ui/src/components/SettingsPanel.tsx --> <!-- @test: web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx (REQ-BROWSER-007: Push & Deploy accordion gating) -->
+3. At session start in enterprise mode the admin-global token + account id override the (now unused) per-user Cloudflare deploy-key fields and reach the container as `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` via the existing env path; the GitHub token and every other field pass through unchanged. The narrowly-scoped (`Browser Rendering - Edit`) token is permitted in the container env — it grants only Browser Rendering, nothing the agent cannot already do through its own browser tools — so unlike the GitHub token it is not egress-injected. Non-enterprise modes are unchanged (per-user token via the accordion). <!-- @impl: src/lib/browser-render-token.ts::applyEnterpriseBrowserToken --> <!-- @impl: src/routes/container/lifecycle.ts --> <!-- @test: src/__tests__/lib/browser-render-token.test.ts (applyEnterpriseBrowserToken) -->
+4. When no Browser Rendering token is configured (any mode, or a non-advanced session), none of the browser-run surface is seeded to the agents: the `chrome-devtools` + `browser-run` MCP servers are not registered and the Pi native extension registers no tools (already gated), AND the `browser-run` / `browser-e2e` skills are stripped from both agents' skill dirs so an agent is never left with a skill for a tool it lacks. <!-- @impl: entrypoint.sh --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (entrypoint Browser Run MCP wiring > advanced but no token: strips the browser-run/browser-e2e skills from both agents) -->
 
 **Constraints:**
 

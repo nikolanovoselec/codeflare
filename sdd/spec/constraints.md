@@ -42,6 +42,14 @@ All `/app`, `/api`, `/setup` surfaces protected by JWT verification (CF Access R
 Optional AES-256-GCM for KV credentials (per-value random IVs, AAD binding to key name); R2 SSE-C for workspace files.
 **Applies To:** System (storage layer)
 
+### CON-SEC-004: Rate limiting on all mutation endpoints
+KV-backed, per-user (bucketName or IP fallback). WebSocket: 30 connections per 60s window. Security-critical endpoints fail-closed on KV error. 64 KiB body limit on all `/api/*` routes (storage routes exempt for file uploads).
+**Applies To:** All endpoints
+
+### CON-SEC-005: Security headers on every response
+HSTS, CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy on every response.
+**Applies To:** All responses
+
 ### CON-GH-001: GitHub token encrypted at rest and never returned to the browser
 The per-user GitHub token is stored in the existing `deploy-keys:<bucket>` KV entry (`DeployKeys.githubToken`), encrypted with AES-256-GCM (AAD bound to the KV key) per CON-SEC-003, and is never serialized into any client response (status/list endpoints return only non-secret metadata such as the login handle).
 **Applies To:** System (GitHub integration)
@@ -53,14 +61,6 @@ In enterprise mode the container receives only a non-secret placeholder `GH_TOKE
 ### CON-GH-003: Egress injection is scoped by the per-session binding
 The GitHub interceptor resolves which user's token to inject solely from the per-session interceptor binding (`props.bucket`), never from the incoming request; the container placeholder is identical for all users, so a session can only ever inject its own user's token.
 **Applies To:** System (enterprise container egress)
-
-### CON-SEC-004: Rate limiting on all mutation endpoints
-KV-backed, per-user (bucketName or IP fallback). WebSocket: 30 connections per 60s window. Security-critical endpoints fail-closed on KV error. 64 KiB body limit on all `/api/*` routes (storage routes exempt for file uploads).
-**Applies To:** All endpoints
-
-### CON-SEC-005: Security headers on every response
-HSTS, CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy on every response.
-**Applies To:** All responses
 
 #### Additional Security Controls
 

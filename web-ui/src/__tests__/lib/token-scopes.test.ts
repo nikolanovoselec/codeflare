@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { GITHUB_TIERS, CLOUDFLARE_TIERS } from '../../lib/token-scopes';
 
+// REQ-AGENT-010: Deploy Credential Storage (GitHub PAT, CF API Token)
 describe('scope-tier catalogs', () => {
   for (const [name, tiers] of [
     ['GITHUB_TIERS', GITHUB_TIERS],

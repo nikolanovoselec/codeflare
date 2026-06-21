@@ -105,6 +105,7 @@ vi.mock('../../lib/mobile', () => ({
   disableVirtualKeyboardOverlay: vi.fn(),
   resetKeyboardStateIfStale: vi.fn(),
   forceResetKeyboardState: vi.fn(),
+  isFocusOnTerminalInput: vi.fn(() => false),
   isSamsungBrowser: false,
 }));
 
@@ -127,10 +128,11 @@ vi.mock('../../lib/settings', () => ({
 import { useTerminal, type UseTerminalOptions, DECTCEM_CURSOR_PARAM, KEYBOARD_REFIT_DEBOUNCE_MS } from '../../hooks/useTerminal';
 import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
-import { isTouchDevice, getKeyboardHeight, isVirtualKeyboardOpen, forceResetKeyboardState } from '../../lib/mobile';
+import { isTouchDevice, getKeyboardHeight, isVirtualKeyboardOpen, forceResetKeyboardState, disableVirtualKeyboardOverlay } from '../../lib/mobile';
 import * as mobileModule from '../../lib/mobile';
 import { loadSettings } from '../../lib/settings';
 
+// REQ-TERM-016: Terminal Pane Reconnect and Resize Authority
 describe('useTerminal hook', () => {
   const defaultProps: UseTerminalOptions = {
     sessionId: 'test-session-123',
@@ -772,6 +774,49 @@ describe('useTerminal hook', () => {
       vi.useRealTimers();
     });
 
+    it('REQ-MOB-001 AC6: skips the keyboard refit (no fit, no PTY resize) when the container has zero visible height', async () => {
+      vi.useFakeTimers();
+
+      // Inactive / hidden pane: container reports zero height. The layout
+      // recalculation must be skipped to avoid corrupting row math.
+      Object.defineProperty(containerEl, 'clientHeight', { value: 0, configurable: true });
+
+      const isTouchDeviceMock = vi.mocked(isTouchDevice);
+      const getKeyboardHeightMock = vi.mocked(getKeyboardHeight);
+      const isVirtualKeyboardOpenMock = vi.mocked(isVirtualKeyboardOpen);
+
+      isTouchDeviceMock.mockReturnValue(true);
+
+      const [kbHeight, setKbHeight] = createSignal(0);
+      const [kbOpen, setKbOpen] = createSignal(false);
+      getKeyboardHeightMock.mockImplementation(() => kbHeight());
+      isVirtualKeyboardOpenMock.mockImplementation(() => kbOpen());
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      mockFit.mockClear();
+      mockScrollToBottom.mockClear();
+      vi.mocked(terminalStore.resize).mockClear();
+
+      // Keyboard opens, but the container is zero-height.
+      setKbHeight(300);
+      setKbOpen(true);
+      await vi.advanceTimersByTimeAsync(200);
+
+      // Both the leading-edge microtask fit and the trailing-edge debounced fit
+      // are guarded by `clientHeight === 0` → no fit, no scroll, no PTY resize.
+      expect(mockFit).not.toHaveBeenCalled();
+      expect(mockScrollToBottom).not.toHaveBeenCalled();
+      expect(terminalStore.resize).not.toHaveBeenCalled();
+
+      dispose();
+      vi.useRealTimers();
+    });
+
     it('should skip fitAddon.fit() in active-state effect when kbDebouncePending is true', async () => {
       vi.useFakeTimers();
 
@@ -852,6 +897,41 @@ describe('useTerminal hook', () => {
       dispose();
     });
 
+    it('REQ-MOB-002 AC6: swaps a textarea created during terminal.open() for a password input and restores createElement afterward', () => {
+      vi.mocked(isTouchDevice).mockReturnValue(true);
+
+      const origCreateElement = document.createElement.bind(document);
+      let createdDuringOpen: HTMLElement | undefined;
+
+      // initializeTerminal installs the createElement monkey-patch, calls
+      // term.open(container), then restores createElement in a finally block.
+      // Drive a textarea creation *during* open() so the patch is exercised.
+      mockTerminalOpen.mockImplementationOnce(() => {
+        createdDuringOpen = document.createElement('textarea');
+      });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // The textarea request was intercepted and turned into a password input
+      // (so the mobile OS suppresses autocorrect), with focus neutralized.
+      expect(createdDuringOpen).toBeDefined();
+      expect(createdDuringOpen!.tagName).toBe('INPUT');
+      expect(createdDuringOpen!.getAttribute('type')).toBe('password');
+
+      // The patch is scoped to open(): afterward, creating a textarea yields a
+      // real textarea again (createElement was restored).
+      const afterOpen = document.createElement('textarea');
+      expect(afterOpen.tagName).toBe('TEXTAREA');
+
+      dispose();
+      // Restore in case the assertion above ran before restoration (defensive).
+      document.createElement = origCreateElement;
+    });
+
     it('setupMobileTerminal is called when touch device detected', async () => {
       const isTouchDeviceMock = vi.mocked(isTouchDevice);
       isTouchDeviceMock.mockReturnValue(true);
@@ -903,9 +983,11 @@ describe('useTerminal hook', () => {
       mockTerminalInstance.textarea = null;
     });
 
-    it('should call forceResetKeyboardState when focusout fires while keyboard is open on Samsung', () => {
+    it('should call forceResetKeyboardState when focusout fires while keyboard is open on Samsung', async () => {
       (mobileModule as any).isSamsungBrowser = true;
       vi.mocked(isVirtualKeyboardOpen).mockReturnValue(true);
+      // Genuine back-button dismiss: focus has left every terminal surface.
+      vi.mocked(mobileModule.isFocusOnTerminalInput).mockReturnValue(false);
 
       const mockTextarea = document.createElement('textarea');
       mockTerminalInstance.textarea = mockTextarea as any;
@@ -918,10 +1000,65 @@ describe('useTerminal hook', () => {
 
       // Simulate focusout event (Samsung back-button dismiss)
       mockTextarea.dispatchEvent(new Event('focusout'));
+      // Handler defers one tick before deciding dismiss-vs-handoff.
+      await new Promise((r) => setTimeout(r, 0));
 
       expect(forceResetKeyboardState).toHaveBeenCalled();
 
       dispose();
+      mockTerminalInstance.textarea = null;
+    });
+
+    it('does NOT forceReset on focusout when focus moved to a sibling terminal pane (handoff)', async () => {
+      (mobileModule as any).isSamsungBrowser = true;
+      vi.mocked(isVirtualKeyboardOpen).mockReturnValue(true);
+      // Pane-to-pane handoff: focus stays on a terminal input iframe.
+      vi.mocked(mobileModule.isFocusOnTerminalInput).mockReturnValue(true);
+
+      const mockTextarea = document.createElement('textarea');
+      mockTerminalInstance.textarea = mockTextarea as any;
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      vi.mocked(forceResetKeyboardState).mockClear();
+      mockTextarea.dispatchEvent(new Event('focusout'));
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(forceResetKeyboardState).not.toHaveBeenCalled();
+
+      dispose();
+      mockTerminalInstance.textarea = null;
+    });
+
+    it('clears the pending focusout defer on cleanup so it cannot fire after unmount', async () => {
+      (mobileModule as any).isSamsungBrowser = true;
+      vi.mocked(isVirtualKeyboardOpen).mockReturnValue(true);
+      vi.mocked(mobileModule.isFocusOnTerminalInput).mockReturnValue(false);
+
+      const mockTextarea = document.createElement('textarea');
+      mockTerminalInstance.textarea = mockTextarea as any;
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      vi.mocked(forceResetKeyboardState).mockClear();
+      // Schedule the deferred dismiss decision, then tear down before the tick fires.
+      mockTextarea.dispatchEvent(new Event('focusout'));
+      dispose();
+      // The unmount teardown itself may reset once; capture that baseline.
+      const afterCleanup = vi.mocked(forceResetKeyboardState).mock.calls.length;
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Timer was cleared on cleanup, so the deferred callback adds no further reset.
+      expect(vi.mocked(forceResetKeyboardState).mock.calls.length).toBe(afterCleanup);
+
       mockTerminalInstance.textarea = null;
     });
 
@@ -943,6 +1080,60 @@ describe('useTerminal hook', () => {
 
       dispose();
       mockTerminalInstance.textarea = null;
+    });
+  });
+
+  describe('REQ-MOB-015: keyboard persists across terminal pane focus handoff', () => {
+    beforeEach(() => {
+      vi.mocked(isTouchDevice).mockReturnValue(true);
+    });
+    afterEach(() => {
+      vi.mocked(isTouchDevice).mockReturnValue(false);
+    });
+
+    it('AC2: keeps shared keyboard state when a pane loses focus to a sibling terminal pane', () => {
+      // Handoff: focus stays on a terminal input iframe.
+      vi.mocked(mobileModule.isFocusOnTerminalInput).mockReturnValue(true);
+      const [focused, setFocused] = createSignal(true);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, get focused() { return focused(); } });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      vi.mocked(disableVirtualKeyboardOverlay).mockClear();
+      vi.mocked(forceResetKeyboardState).mockClear();
+
+      // Deselect this pane — focus is handed to a sibling pane.
+      setFocused(false);
+
+      expect(disableVirtualKeyboardOverlay).not.toHaveBeenCalled();
+      expect(forceResetKeyboardState).not.toHaveBeenCalled();
+
+      dispose();
+    });
+
+    it('AC4: tears down shared keyboard state when focus leaves the terminal entirely', () => {
+      // Exit: focus is no longer on any terminal input.
+      vi.mocked(mobileModule.isFocusOnTerminalInput).mockReturnValue(false);
+      const [focused, setFocused] = createSignal(true);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, get focused() { return focused(); } });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      vi.mocked(disableVirtualKeyboardOverlay).mockClear();
+      vi.mocked(forceResetKeyboardState).mockClear();
+
+      setFocused(false);
+
+      expect(disableVirtualKeyboardOverlay).toHaveBeenCalled();
+      expect(forceResetKeyboardState).toHaveBeenCalled();
+
+      dispose();
     });
   });
 

@@ -12,6 +12,7 @@ const base = {
   onClientSecretChange: () => {},
 };
 
+// REQ-AGENT-064: Connect to Cloudflare via OAuth
 describe('CloudflareProviderChooser', () => {
   it('renders the client id + secret pair', () => {
     render(() => <CloudflareProviderChooser {...base} />);

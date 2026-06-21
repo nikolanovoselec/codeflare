@@ -1,5 +1,5 @@
 import type { Terminal as XTerm } from '@xterm/xterm';
-import { disableVirtualKeyboardOverlay, enableVirtualKeyboardOverlay, forceResetKeyboardState, isSamsungBrowser } from './mobile';
+import { disableVirtualKeyboardOverlay, enableVirtualKeyboardOverlay, forceResetKeyboardState, isFocusOnTerminalInput, isSamsungBrowser } from './mobile';
 import { logger } from './logger';
 import { getXtermCore, setIframeInput, setRemoveFocusGuard } from './xterm-internals';
 
@@ -104,6 +104,18 @@ export function resolveKeyAction(
 interface MobileInputCallbacks {
   /** Called when cursor line needs a refresh */
   refreshCursorLine: () => void;
+}
+
+/**
+ * Debounced terminal-input blur teardown. Releases the shared virtual-keyboard
+ * overlay unless focus has moved to a sibling terminal pane (a handoff — the
+ * keyboard stays open and that pane owns it now), then runs the per-pane
+ * cursor-blur side effect. Exported so the handoff guard can be tested directly
+ * (the blur listener lives inside an off-screen iframe that jsdom won't load).
+ */
+export function releaseKeyboardOnBlur(onCursorBlur?: () => void): void {
+  if (!isFocusOnTerminalInput()) disableVirtualKeyboardOverlay();
+  onCursorBlur?.();
 }
 
 /**
@@ -372,11 +384,12 @@ export function setupMobileInput(
         // Samsung geometrychange cascade that resets keyboard height signals.
         blurTimeoutId = setTimeout(() => {
           blurTimeoutId = null;
-          disableVirtualKeyboardOverlay();
-          if (typeof coreRef._handleTextAreaBlur === 'function') {
-            coreRef._handleTextAreaBlur();
-          }
-          callbacks.refreshCursorLine();
+          releaseKeyboardOnBlur(() => {
+            if (typeof coreRef._handleTextAreaBlur === 'function') {
+              coreRef._handleTextAreaBlur();
+            }
+            callbacks.refreshCursorLine();
+          });
         }, 100);
       });
     } else {
@@ -384,7 +397,7 @@ export function setupMobileInput(
         if (blurTimeoutId !== null) { clearTimeout(blurTimeoutId); }
         blurTimeoutId = setTimeout(() => {
           blurTimeoutId = null;
-          disableVirtualKeyboardOverlay();
+          releaseKeyboardOnBlur();
         }, 100);
       });
     }

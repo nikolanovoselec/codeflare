@@ -98,6 +98,7 @@ vi.mock('../../components/Icon', () => ({
   ),
 }));
 
+// REQ-ENTERPRISE-015: Enterprise-mode admin and dropdown suppressions
 describe('ConfigureStep', () => {
   beforeEach(() => {
     vi.clearAllMocks();

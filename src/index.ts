@@ -461,6 +461,24 @@ export default {
     for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
       secureResponse.headers.set(key, value);
     }
+    // Content-hashed build assets (Astro emits CSS/JS/font/image files under
+    // /_astro/ with a content hash in the filename) are immutable for a given URL.
+    // Workers Assets otherwise serves them `max-age=0, must-revalidate`, so the
+    // landing stylesheet was revalidated on every full-page navigation — delaying
+    // first paint and causing the inter-page flash. Long-cache them immutably;
+    // HTML keeps its revalidating default so content stays fresh.
+    // Guard against caching the SPA fallback: with not_found_handling =
+    // "single-page-application", a request to a non-existent /_astro/ URL (a stale
+    // hashed reference after a deploy, or a crafted request) resolves to index.html
+    // (200, text/html). Stamping that immutable would cache the shell forever under
+    // an asset URL, so only a real, non-HTML 200 asset is long-cached.
+    if (
+      path.includes('/_astro/') &&
+      assetResponse.status === 200 &&
+      secureResponse.headers.get('Content-Type')?.startsWith('text/html') !== true
+    ) {
+      secureResponse.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+    }
     // CSP includes Turnstile origins (challenges.cloudflare.com) because the SPA
     // renders the onboarding landing page with Turnstile widget when onboarding is active.
     // style-src retains 'unsafe-inline' (CF-016): the React SPA renders many inline
@@ -468,8 +486,12 @@ export default {
     // (those apply to <style> elements, not the style= attribute). Removing it would break
     // rendering and require rewriting every call site. script-src is already nonce-free and
     // tight; this residual is style-injection-only (low blast radius).
+    // Cloudflare Web Analytics is injected manually by the landing layout (so the strict
+    // CSP can allow it explicitly instead of weakening to 'unsafe-inline'): its loader origin
+    // static.cloudflareinsights.com is added to script-src, and its beacon telemetry endpoint
+    // cloudflareinsights.com is added to connect-src.
     secureResponse.headers.set('Content-Security-Policy',
-      "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' wss:; img-src 'self' data: https://www.gravatar.com; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+      "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' wss: https://cloudflareinsights.com; img-src 'self' data: https://www.gravatar.com; script-src 'self' https://challenges.cloudflare.com https://static.cloudflareinsights.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     );
     return secureResponse;
   }

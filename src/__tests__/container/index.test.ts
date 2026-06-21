@@ -81,6 +81,7 @@ vi.mock('@cloudflare/containers', () => ({
 // Now import the container class after mocks are set up
 import { container as ContainerClass, validateBucketNameInput } from '../../container/index';
 
+// REQ-SESSION-019: Final-sync drain endpoint authentication
 describe('container DO class / REQ-SESSION-002 (one container per session)', () => {
   let mockStorage: {
     get: ReturnType<typeof vi.fn>;
@@ -827,6 +828,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(writtenSession.lastActiveAt).toBeDefined();
     });
 
+    // REQ-VAULT-006: shutdown bisync completes vault writes before SIGKILL (graceful SIGTERM drain)
     it('graceful shutdown: sends SIGTERM and exits the polling loop once the container reports !running', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'bucketName') return 'test-bucket';

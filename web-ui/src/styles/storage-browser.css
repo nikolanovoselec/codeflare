@@ -83,8 +83,9 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  min-height: 28px;
-  padding: 0 var(--space-3);
+  /* Match the GitHub repo-row rhythm (52px) so the two panels read as one browser. */
+  min-height: 52px;
+  padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background-color 0.1s ease;
@@ -226,8 +227,27 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   color: var(--color-text-primary);
+}
+
+/* Right-side info for a special folder row (e.g. ~/Vault) — mirrors the
+   github-repo-updated meta so folders and repos share one visual language. */
+.storage-item-folder-meta {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+  /* Pin the path to the right edge so every folder row — special or not —
+     aligns its path identically. The special-folder icon sits left of this,
+     right after the name; this auto margin eats the gap between them. */
+  margin-left: auto;
+}
+
+/* Folder names do not grow (files keep flex:1) so the special-folder icon
+   hugs the name on the left rather than being pushed to the right edge. */
+.storage-item--folder .storage-item-name {
+  flex: 0 1 auto;
 }
 
 .storage-item-size,
@@ -379,15 +399,11 @@
 .workspace-container-icon {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
   color: var(--color-text-secondary);
   opacity: 0.6;
   cursor: pointer;
   flex-shrink: 0;
   position: relative;
-  margin-left: auto;
-  width: 100px;
-  padding-right: var(--space-2);
 }
 
 .workspace-container-icon:hover {
@@ -435,11 +451,6 @@
 
   .storage-item-size {
     width: 70px;
-  }
-
-  .workspace-container-icon {
-    width: 70px;
-    padding-right: 0;
   }
 
   .storage-item {

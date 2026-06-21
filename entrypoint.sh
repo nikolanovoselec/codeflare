@@ -502,8 +502,10 @@ recover_vanished_files() {
             continue
         fi
 
-        # Check if already excluded
-        if grep -qF "- $file_path" "$RECOVERY_FILTER_FILE" 2>/dev/null; then
+        # Check if already excluded. The `--` terminator is required: the
+        # search pattern begins with "- ", which grep would otherwise parse as
+        # an option (exit 2, never matching) and append a duplicate every pass.
+        if grep -qxF -- "- $file_path" "$RECOVERY_FILTER_FILE" 2>/dev/null; then
             continue
         fi
 

@@ -25,6 +25,7 @@ vi.stubGlobal('fetch', mockGlobalFetch);
 
 import deployKeysRoutes from '../../routes/deploy-keys';
 
+// REQ-AGENT-010: Deploy Credential Storage (GitHub PAT, CF API Token)
 describe('Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 

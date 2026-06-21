@@ -26,6 +26,7 @@ import { getSyncStatus, getSystemMetrics } from './metrics.js';
 import { checkContainerAuth } from './auth-check.js';
 import { evaluateFinalSync } from './final-sync.js';
 import { resolveGitClone, resolveWorkspaceRoot, buildCloneArgs } from './git-clone.js';
+import { stripVaultPrefix } from './vault-proxy.js';
 import { Session } from './session.js';
 import { SessionManager, PREWARM_SESSION_ID } from './session-manager.js';
 import type { LogLevel, Logger, WsEventLogger, WsEvent, TabConfigEntry, ActivityTracker, SessionOptions } from './types.js';
@@ -518,7 +519,7 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
   // `/api/vault/:sid` prefix before forwarding. SilverBullet sees a
   // clean `/<remaining>` path.
   if (pathname && (pathname === '/vault' || pathname.startsWith('/vault/'))) {
-    let upstreamPath = pathname.slice('/vault'.length) || '/';
+    let upstreamPath = stripVaultPrefix(pathname);
     // SilverBullet 2.8.0 serves the service worker only at the root path
     // (/service_worker.js, with Content-Type text/javascript). Requests
     // routed under /.client/service_worker.js fall through to the
@@ -765,7 +766,7 @@ function handleVaultUpgrade(req: http.IncomingMessage, socket: import('node:stre
   const { pathname } = parseUrl(req.url ?? '');
   // Strip the `/vault` prefix; the worker already stripped its own
   // `/api/vault/:sid` prefix. SilverBullet sees its native WS path.
-  const upstreamPath = (pathname ?? '/vault').slice('/vault'.length) || '/';
+  const upstreamPath = stripVaultPrefix(pathname);
   const search = (req.url ?? '').includes('?')
     ? '?' + (req.url ?? '').split('?').slice(1).join('?')
     : '';

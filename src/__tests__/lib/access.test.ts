@@ -491,6 +491,65 @@ describe('access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JI
       );
     });
 
+    // REQ-AUTH-004 AC4: the service-token secret source varies by deployment
+    // mode but is unified under ONE runtime secret name (env.SERVICE_AUTH_SECRET).
+    // The same X-Service-Auth header value, checked against that one name,
+    // authenticates as admin regardless of whether the deployment is SaaS-mode
+    // or CF-Access-mode. If the impl read the secret from a different env name
+    // per mode (or stopped reading SERVICE_AUTH_SECRET), these would fail.
+    describe('REQ-AUTH-004 AC4: service-auth secret unified under one runtime name across modes', () => {
+      const SECRET = 'shared-service-auth-secret-value';
+
+      it('authenticates via env.SERVICE_AUTH_SECRET in non-SaaS (CF Access) mode', async () => {
+        const request = new Request('http://localhost/test', {
+          headers: { 'X-Service-Auth': SECRET },
+        });
+        const user = await getUserFromRequest(
+          request,
+          makeEnv({ SERVICE_AUTH_SECRET: SECRET } as Partial<Env>),
+        );
+        expect(user.authenticated).toBe(true);
+        expect(user.role).toBe('admin');
+      });
+
+      it('authenticates via the SAME env.SERVICE_AUTH_SECRET in SaaS mode', async () => {
+        const request = new Request('http://localhost/test', {
+          headers: { 'X-Service-Auth': SECRET },
+        });
+        const user = await getUserFromRequest(
+          request,
+          makeEnv({ SERVICE_AUTH_SECRET: SECRET, SAAS_MODE: 'active' } as Partial<Env>),
+        );
+        expect(user.authenticated).toBe(true);
+        expect(user.role).toBe('admin');
+      });
+
+      it('a value matching the one secret name authenticates in either mode, a wrong value does not', async () => {
+        const wrongReq = new Request('http://localhost/test', {
+          headers: { 'X-Service-Auth': 'not-the-secret' },
+        });
+        // Wrong value rejected even though SERVICE_AUTH_SECRET is configured (both modes).
+        const nonSaas = await getUserFromRequest(
+          wrongReq,
+          makeEnv({ SERVICE_AUTH_SECRET: SECRET } as Partial<Env>),
+        );
+        expect(nonSaas.authenticated).toBe(false);
+        const saas = await getUserFromRequest(
+          wrongReq,
+          makeEnv({ SERVICE_AUTH_SECRET: SECRET, SAAS_MODE: 'active' } as Partial<Env>),
+        );
+        expect(saas.authenticated).toBe(false);
+      });
+
+      it('without env.SERVICE_AUTH_SECRET the X-Service-Auth header never authenticates (single source of truth)', async () => {
+        const request = new Request('http://localhost/test', {
+          headers: { 'X-Service-Auth': SECRET },
+        });
+        const user = await getUserFromRequest(request, makeEnv());
+        expect(user.authenticated).toBe(false);
+      });
+    });
+
   });
 
   describe('resolveOrProvisionUser — welcome email dedup', () => {

@@ -64,6 +64,7 @@ function createSession(overrides: Partial<SessionWithStatus> = {}): SessionWithS
   };
 }
 
+// REQ-TERM-018: MultiView Reopen and Close
 describe('SessionDropdown', () => {
   const defaultProps = {
     isOpen: true,

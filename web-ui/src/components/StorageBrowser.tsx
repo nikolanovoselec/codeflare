@@ -392,7 +392,6 @@ const StorageBrowser: Component = () => {
           openSpecialTooltip={openSpecialTooltip}
           setOpenSpecialTooltip={setOpenSpecialTooltip}
           applySelection={applySelection}
-          triggerDownload={triggerDownload}
           handleDragOver={handleDragOver}
           handleDragLeave={handleDragLeave}
           handleDrop={handleDrop}

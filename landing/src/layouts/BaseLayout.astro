@@ -35,6 +35,12 @@ const {
   landingScripts = false,
 } = Astro.props;
 
+// Cloudflare Web Analytics, injected manually (not via the zone's automatic
+// injection, which conflicts with the strict no-'unsafe-inline' CSP). The public
+// site token is read from the build env so each deployment supplies its own; when
+// unset the beacon is simply omitted. The matching CSP allowances live in src/index.ts.
+const beaconToken = import.meta.env.PUBLIC_CF_BEACON_TOKEN;
+
 // REQ-LANDING-003: site-wide structured data (schema.org) so search engines and
 // LLMs resolve Codeflare to a named Organization + WebSite, with an optional
 // page-specific entity grafted on. JSON-LD is a data block (not executed), so it
@@ -70,6 +76,15 @@ const structuredData = {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {/* Dark first paint: declare the dark color scheme and paint BOTH html and
+        body dark inline, before any external stylesheet loads. Without this the
+        root is light-scheme with a body-only background, so full-page navigations
+        (home <-> /login) flash the browser's default light canvas. `dark only`
+        forces the dark UA canvas (some Chromium builds, e.g. Vivaldi, otherwise
+        expose a light navigation canvas between documents), and painting body
+        too closes the gap before global.css sets body's background. */}
+    <meta name="color-scheme" content="dark" />
+    <style is:inline>html{color-scheme:dark only;background-color:#0a0a0c}body{background-color:#0a0a0c}</style>
     <title>{title}</title>
     <meta name="description" content={description} />
     {robots && <meta name="robots" content={robots} />}
@@ -101,6 +116,10 @@ const structuredData = {
     <script type="application/ld+json" set:html={JSON.stringify(structuredData)} />
   </head>
   <body>
+    {/* One shared ambient accent glow on every page (landing hero + login),
+        rendered as a fixed layer here so it reads identically across every
+        breakpoint and whether or not the page runs the flare fluid. */}
+    <div class="page-ambient-glow" aria-hidden="true"></div>
     {flareFluid && (
       <div class="flare-field" data-flare-fluid aria-hidden="true"></div>
     )}
@@ -158,6 +177,14 @@ const structuredData = {
           import '../scripts/reveal';
         </script>
       </>
+    )}
+    {beaconToken && (
+      <script
+        is:inline
+        defer
+        src="https://static.cloudflareinsights.com/beacon.min.js"
+        data-cf-beacon={JSON.stringify({ token: beaconToken })}
+      ></script>
     )}
   </body>
 </html>

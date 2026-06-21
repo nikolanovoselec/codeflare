@@ -6,6 +6,7 @@ import { isTouchDevice } from '../../lib/mobile';
 import Icon from '../Icon';
 import { mdiTrainCarContainer } from '@mdi/js';
 import { SpecialFolder, getSpecialFolder } from '../../lib/special-folders';
+import { getViewUrl } from '../../api/storage';
 
 interface FileListProps {
   displayedItems: Accessor<{ objects: Array<{ key: string; size: number; lastModified: string }>; prefixes: string[] }>;
@@ -18,7 +19,6 @@ interface FileListProps {
   openSpecialTooltip: Accessor<string | null>;
   setOpenSpecialTooltip: (prefix: string | null) => void;
   applySelection: (targetId: string, shiftKey: boolean) => void;
-  triggerDownload: (key: string) => void;
   handleDragOver: (e: DragEvent) => void;
   handleDragLeave: (e: DragEvent) => void;
   handleDrop: (e: DragEvent) => void;
@@ -53,6 +53,16 @@ const getFolderName = (prefix: string): string => {
   return parts[parts.length - 1] || prefix;
 };
 
+// Display form of a special folder's in-container path: /home/user/Vault → ~/Vault.
+const shortContainerPath = (path: string): string => path.replace(/^\/home\/user\//, '~/');
+
+// Every folder maps to a real in-container directory: the R2 bucket bisyncs to the
+// home root, so a folder's container path is just ~/<prefix>. Works at any depth
+// (subfolders carry their full prefix) and for dotfolders (~/.claude/...). Special
+// folders keep their exact containerPath instead (its case can differ, e.g. the
+// R2 prefix workspace/ materialises at ~/Workspace).
+const folderShortPath = (prefix: string): string => `~/${prefix.replace(/\/+$/, '')}`;
+
 const FileList: Component<FileListProps> = (props) => {
   return (
     <div
@@ -66,6 +76,7 @@ const FileList: Component<FileListProps> = (props) => {
       <For each={props.displayedItems().prefixes}>
         {(prefix) => {
           const rawName = prefix.split('/').filter(Boolean).pop() || prefix;
+          const special = getSpecialFolder(prefix);
           return (
             <div
               class="storage-item storage-item--folder"
@@ -92,13 +103,13 @@ const FileList: Component<FileListProps> = (props) => {
               </Show>
               <span class="storage-item-icon-dot" />
               <span class="storage-item-name">{getFolderName(prefix)}</span>
-              <Show when={getSpecialFolder(prefix)} keyed>
-                {(special: SpecialFolder) => (
+              <Show when={special} keyed>
+                {(sf: SpecialFolder) => (
                   <>
                     <span
                       class="workspace-container-icon"
-                      data-testid={`special-folder-icon-${special.id}`}
-                      title={`About ${special.label}`}
+                      data-testid={`special-folder-icon-${sf.id}`}
+                      title={`About ${sf.label}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         props.setOpenSpecialTooltip(
@@ -111,17 +122,25 @@ const FileList: Component<FileListProps> = (props) => {
                     <Show when={props.openSpecialTooltip() === prefix}>
                       <span
                         class="workspace-sync-tooltip"
-                        data-testid={`special-folder-tooltip-${special.id}`}
+                        data-testid={`special-folder-tooltip-${sf.id}`}
                       >
-                        {special.description}
+                        {sf.description}
                         <span class="workspace-sync-tooltip-path">
-                          Container path: <code>{special.containerPath}</code>
+                          Container path: <code>{sf.containerPath}</code>
                         </span>
                       </span>
                     </Show>
                   </>
                 )}
               </Show>
+              <span
+                class="storage-item-folder-meta"
+                data-testid={
+                  special ? `special-folder-path-${special.id}` : `folder-path-${rawName}`
+                }
+              >
+                {special ? shortContainerPath(special.containerPath) : folderShortPath(prefix)}
+              </span>
             </div>
           );
         }}
@@ -156,7 +175,10 @@ const FileList: Component<FileListProps> = (props) => {
                   if (props.selectionModeEnabled()) {
                     props.applySelection(`f:${obj.key}`, e.shiftKey);
                   } else {
-                    props.triggerDownload(obj.key);
+                    // Open the file inline in a new browser tab (view) instead of
+                    // forcing a download. The view URL serves it with an XSS-safe
+                    // Content-Type + nosniff (src/routes/storage/download.ts).
+                    window.open(getViewUrl(obj.key), '_blank', 'noopener,noreferrer');
                   }
                 }}
               >

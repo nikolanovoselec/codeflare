@@ -286,6 +286,7 @@ describe('getCloudflareProvider', () => {
 
 // ─── authorizeUrl / exchangeCode / refresh / revoke ──────────────────────────
 
+// REQ-AGENT-064: Connect to Cloudflare via OAuth
 describe('CloudflareOAuthProvider', () => {
   it('builds an authorize URL to the Cloudflare consent endpoint with the standard params', async () => {
     configureClient();

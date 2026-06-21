@@ -1,4 +1,4 @@
-import { Component, Show, For, onMount, createSignal, createMemo, createEffect } from 'solid-js';
+import { Component, Show, For, onMount, onCleanup, createSignal, createMemo, createEffect } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { mdiXml, mdiCogOutline, mdiShieldAccount, mdiAccountOutline, mdiRocketLaunchOutline, mdiChartBar, mdiLogout, mdiFlipVertical } from '@mdi/js';
 import Icon from './Icon';
@@ -21,6 +21,7 @@ import DashboardCard from './TipsRotator';
 import { sessionStore, isAtUsageQuota } from '../stores/session';
 import { terminalWorkspaceStore } from '../stores/terminal-workspace';
 import { createTerminalViewportClass } from '../lib/mobile';
+import { decidePanelLayoutMode } from '../lib/panel-allocation';
 import { githubStore } from '../stores/github';
 import { getBrowserTimezone, syncBrowserTimezone } from '../lib/timezone-sync';
 import { MULTIVIEW_ICON } from '../lib/terminal-config';
@@ -77,6 +78,70 @@ const Dashboard: Component<DashboardProps> = (props) => {
     isOpen: false,
     position: { x: 0, y: 0 },
     session: null,
+  });
+
+  // ── Adaptive right-column split (bug #21) ──────────────────────────────
+  // GitHub (top) + Storage (bottom) share the column. The flex engine does the
+  // pixel allocation: both faces are `flex: 1 1 0` with a measured max-height of
+  // their natural content, and `justify-content: space-between` drops any slack in
+  // the middle. Here we only choose split-vs-flip and feed the measured heights.
+  let rightColRef: HTMLDivElement | undefined;
+  let githubFaceRef: HTMLDivElement | undefined;
+  let storageFaceRef: HTMLDivElement | undefined;
+  const [layoutMode, setLayoutMode] = createSignal<'split' | 'flip' | null>(null);
+  const [githubMaxH, setGithubMaxH] = createSignal<number | null>(null);
+  const [storageMaxH, setStorageMaxH] = createSignal<number | null>(null);
+
+  // One usable panel = chrome (~120px) + at least 4 rows (52px); below twice that
+  // the column flips to a single panel.
+  const MIN_PANEL_HEIGHT = 120 + 4 * 52;
+
+  const measureNatural = (face: HTMLElement | undefined, scrollSel: string): number | null => {
+    if (!face) return null;
+    const scroller = face.querySelector<HTMLElement>(scrollSel);
+    if (!scroller) return face.scrollHeight; // connect card / empty face: no inner scroll
+    // Chrome (header/search) is invariant under the applied max-height, so deriving
+    // it from the current boxes is stable; add the list's full scroll content.
+    const chrome = Math.max(0, face.getBoundingClientRect().height - scroller.getBoundingClientRect().height);
+    return Math.ceil(chrome + scroller.scrollHeight);
+  };
+
+  const measureLayout = () => {
+    const right = rightColRef;
+    if (!right) return;
+    const mode = decidePanelLayoutMode({
+      width: right.clientWidth,
+      height: right.clientHeight,
+      minPanelHeight: MIN_PANEL_HEIGHT,
+    });
+    setLayoutMode(mode);
+    if (mode === 'flip') {
+      setGithubMaxH(null);
+      setStorageMaxH(null);
+      return;
+    }
+    setGithubMaxH(measureNatural(githubFaceRef, '.github-repo-rows'));
+    setStorageMaxH(measureNatural(storageFaceRef, '.storage-drop-zone'));
+  };
+
+  onMount(() => {
+    let raf = 0;
+    const schedule = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(measureLayout); };
+    schedule();
+    // Re-measure on two triggers: the column's own box resizing (viewport /
+    // orientation), and its CONTENT changing (repos/files loaded, folder navigated,
+    // in-panel search filtered). A ResizeObserver only sees the column's own box, so
+    // it misses content changes — those alter the inner scrollHeight, not the column
+    // size. A MutationObserver on the subtree catches the row add/removes an in-panel
+    // search produces, which the child components filter via their own local signals
+    // this component cannot reach. Both degrade gracefully when absent (jsdom).
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null;
+    const mo = typeof MutationObserver !== 'undefined' ? new MutationObserver(schedule) : null;
+    if (rightColRef) {
+      ro?.observe(rightColRef);
+      mo?.observe(rightColRef, { childList: true, subtree: true });
+    }
+    onCleanup(() => { ro?.disconnect(); mo?.disconnect(); cancelAnimationFrame(raf); });
   });
 
   onMount(() => {
@@ -352,11 +417,27 @@ const Dashboard: Component<DashboardProps> = (props) => {
           </div>
 
           {/* Right Column — on mobile the two panels flip; on desktop they stack. */}
-          <div class="dashboard-panel-right" data-testid="dashboard-panel-right" data-face={effectiveFace()}>
-            <div class="panel-flip-face panel-flip-face--github" data-active={effectiveFace() === 'github'}>
+          <div
+            class="dashboard-panel-right"
+            data-testid="dashboard-panel-right"
+            data-face={effectiveFace()}
+            data-layout={layoutMode() === 'flip' ? 'flip' : undefined}
+            ref={rightColRef}
+          >
+            <div
+              class="panel-flip-face panel-flip-face--github"
+              data-active={effectiveFace() === 'github'}
+              ref={githubFaceRef}
+              style={layoutMode() !== 'flip' && githubMaxH() != null ? { 'max-height': `${githubMaxH()}px` } : undefined}
+            >
               <GitHubPanel onFlip={() => setPanelFace('storage')} />
             </div>
-            <div class="panel-flip-face panel-flip-face--storage" data-active={effectiveFace() === 'storage'}>
+            <div
+              class="panel-flip-face panel-flip-face--storage"
+              data-active={effectiveFace() === 'storage'}
+              ref={storageFaceRef}
+              style={layoutMode() !== 'flip' && storageMaxH() != null ? { 'max-height': `${storageMaxH()}px` } : undefined}
+            >
               <Show when={githubPanelAvailable()}>
                 <div class="files-panel-header" data-testid="files-panel-header">
                   <h2 class="files-panel-title" data-testid="files-panel-title">Storage Browser</h2>
