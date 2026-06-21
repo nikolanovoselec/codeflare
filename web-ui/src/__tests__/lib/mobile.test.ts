@@ -550,3 +550,72 @@ describe('mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ
   });
 
 });
+
+describe('scrollFieldAboveKeyboard / REQ-GITHUB-011 (reveal the touch search field above the on-screen keyboard)', () => {
+  function rect(bottom: number): DOMRect {
+    return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom, width: 0, height: 0, toJSON: () => ({}) };
+  }
+
+  function stubViewport(height: number, offsetTop = 0) {
+    let handler: (() => void) | null = null;
+    const vp = {
+      height,
+      offsetTop,
+      addEventListener: vi.fn((_type: string, h: () => void) => { handler = h; }),
+      removeEventListener: vi.fn(),
+    };
+    Object.defineProperty(window, 'visualViewport', { value: vp, configurable: true, writable: true });
+    return { vp, fireResize: () => handler?.() };
+  }
+
+  function fieldWithBottom(bottom: number): HTMLElement {
+    const el = document.createElement('input');
+    el.getBoundingClientRect = vi.fn(() => rect(bottom));
+    el.scrollIntoView = vi.fn();
+    return el;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    // @ts-expect-error remove the per-test viewport stub
+    delete window.visualViewport;
+  });
+
+  it('scrolls the field into view once the keyboard covers it (field bottom below the visible viewport)', async () => {
+    const { fireResize } = stubViewport(300); // keyboard shrank the visible viewport to 300px
+    const el = fieldWithBottom(500); // field bottom at 500px → hidden behind the keyboard
+    const { scrollFieldAboveKeyboard } = await import('../../lib/mobile');
+
+    scrollFieldAboveKeyboard(el);
+    expect(el.scrollIntoView).not.toHaveBeenCalled(); // deferred until the viewport settles
+    fireResize(); // keyboard animates in → visualViewport resize
+
+    expect(el.scrollIntoView).toHaveBeenCalledTimes(1);
+    expect((el.scrollIntoView as ReturnType<typeof vi.fn>).mock.calls[0][0]).toMatchObject({ block: 'center' });
+  });
+
+  it('does not scroll when the field is already visible above the keyboard', async () => {
+    const { fireResize } = stubViewport(600);
+    const el = fieldWithBottom(200); // well within the 600px visible viewport
+    const { scrollFieldAboveKeyboard } = await import('../../lib/mobile');
+
+    scrollFieldAboveKeyboard(el);
+    fireResize();
+
+    expect(el.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it('reveals at most once even when both the resize and the timeout fallback fire', async () => {
+    const { fireResize } = stubViewport(300);
+    const el = fieldWithBottom(500);
+    const { scrollFieldAboveKeyboard } = await import('../../lib/mobile');
+    vi.useFakeTimers();
+
+    scrollFieldAboveKeyboard(el);
+    fireResize();
+    vi.advanceTimersByTime(400); // the 350ms fallback would otherwise reveal again
+
+    expect(el.scrollIntoView).toHaveBeenCalledTimes(1);
+  });
+});

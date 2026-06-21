@@ -298,13 +298,17 @@
 
   .dashboard-panel-right {
     width: 100%;
-    min-height: 300px;
+    /* Size to content up to the cap so a short panel — the connect card or a few
+       repos — collapses instead of reserving the whole column; overflow scrolls
+       inside the list (.github-repo-rows / .storage-drop-zone). flex:0 0 auto stops
+       the column from stretching the panel to fill the viewport when it is short. */
+    flex: 0 0 auto;
+    min-height: 0;
     max-height: 50vh;
     overflow: hidden;
   }
 
   .dashboard-panel-right[data-face="github"] {
-    min-height: min(430px, 75vh);
     max-height: 75vh;
   }
 

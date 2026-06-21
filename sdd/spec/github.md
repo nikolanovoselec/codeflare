@@ -295,6 +295,7 @@ None.
 4. If GitHub is unavailable, R2 storage is the sole mobile right-column face. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: forces the storage face active when GitHub is disabled so the empty GitHub panel cannot cover R2) -->
 5. When GitHub is available, the storage face carries a matching header and flip-back control. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-GITHUB-010: defaults to the GitHub face and offers the storage back-button when GitHub is enabled) -->
 6. The column collapses to a single panel with a flip control when it is narrower than the mobile breakpoint or too short to show both panels usably. <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @test: web-ui/src/__tests__/lib/panel-allocation.test.ts (decidePanelLayoutMode) -->
+7. In single-panel (flip) mode the active face sizes to its content up to a viewport cap (overflow scrolls inside the list), so a short panel — the connect card or a few repos — collapses instead of reserving the column. <!-- @impl: web-ui/src/styles/dashboard.css::.dashboard-panel-right --> <!-- coverage-gap: mobile flip-mode panel height is a pure CSS media-query allocation (flex:0 0 auto + max-height cap), not unit-assertable in jsdom; same rationale as REQ-GITHUB-009 AC4 -->
 
 **Constraints:**
 
@@ -322,6 +323,7 @@ None.
 2. Tapping the magnify toggle reveals the search input and moves focus to it (opening the on-screen keyboard); the toggle reflects the open state. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @impl: web-ui/src/components/github/RepoSearch.tsx::RepoSearch --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (tap reveals + focuses the input, toggle reflects open state) -->
 3. Tapping the toggle again hides the search input and clears the active search filter, so a hidden search box never silently narrows the list. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (re-tap hides search and clears the filter) -->
 4. On a non-touch (desktop) device the search input is always visible and no magnify toggle is rendered. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (desktop always-visible, no toggle) -->
+5. On a touch device, revealing the search scrolls the input above the on-screen keyboard once it opens, so the field stays visible while typing. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @impl: web-ui/src/lib/mobile.ts::scrollFieldAboveKeyboard --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (scrollFieldAboveKeyboard reveals the field above the keyboard) -->
 
 **Constraints:**
 

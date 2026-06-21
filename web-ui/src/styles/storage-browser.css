@@ -238,6 +238,16 @@
   color: var(--color-text-secondary);
   white-space: nowrap;
   flex-shrink: 0;
+  /* Pin the path to the right edge so every folder row — special or not —
+     aligns its path identically. The special-folder icon sits left of this,
+     right after the name; this auto margin eats the gap between them. */
+  margin-left: auto;
+}
+
+/* Folder names do not grow (files keep flex:1) so the special-folder icon
+   hugs the name on the left rather than being pushed to the right edge. */
+.storage-item--folder .storage-item-name {
+  flex: 0 1 auto;
 }
 
 .storage-item-size,
@@ -389,15 +399,11 @@
 .workspace-container-icon {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
   color: var(--color-text-secondary);
   opacity: 0.6;
   cursor: pointer;
   flex-shrink: 0;
   position: relative;
-  margin-left: auto;
-  width: 100px;
-  padding-right: var(--space-2);
 }
 
 .workspace-container-icon:hover {
@@ -445,11 +451,6 @@
 
   .storage-item-size {
     width: 70px;
-  }
-
-  .workspace-container-icon {
-    width: 70px;
-    padding-right: 0;
   }
 
   .storage-item {

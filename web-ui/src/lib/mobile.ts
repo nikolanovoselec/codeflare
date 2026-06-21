@@ -122,6 +122,46 @@ export function isIOSDevice(): boolean {
     || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 
+/**
+ * After focusing an input on a touch device, scroll it into the area above the
+ * on-screen keyboard. The keyboard overlays the bottom of the screen, so a field
+ * low on the page (e.g. the GitHub search bar, which sits below the session card)
+ * stays hidden behind it until scrolled up.
+ *
+ * Detection uses `visualViewport`, whose height excludes the keyboard on BOTH
+ * iOS Safari (which shrinks the layout viewport) and Android Chrome (which keeps
+ * the layout viewport full-height, so a naive `scrollIntoView` thinks the field is
+ * already visible and does nothing). This input is a normal form field — the
+ * VirtualKeyboard `overlaysContent` mode is only enabled for the terminal — so the
+ * browser resizes the visual viewport when the keyboard opens. The field is only
+ * scrolled when it is actually covered, and `reveal` runs once.
+ */
+export function scrollFieldAboveKeyboard(el: HTMLElement): void {
+  if (typeof window === 'undefined') return;
+  let done = false;
+  const reveal = () => {
+    if (done) return;
+    done = true;
+    const vp = window.visualViewport;
+    const visibleBottom = vp ? vp.offsetTop + vp.height : window.innerHeight;
+    if (el.getBoundingClientRect().bottom > visibleBottom) {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  };
+  // The keyboard animates in after focus; wait for the viewport to settle before
+  // measuring. Prefer the visualViewport resize the keyboard triggers, with a
+  // timeout fallback for the already-open case (no resize fires) and browsers
+  // without visualViewport.
+  const vp = window.visualViewport;
+  if (vp) {
+    const onResize = () => { vp.removeEventListener('resize', onResize); reveal(); };
+    vp.addEventListener('resize', onResize);
+    window.setTimeout(() => { vp.removeEventListener('resize', onResize); reveal(); }, 350);
+  } else {
+    window.setTimeout(reveal, 350);
+  }
+}
+
 let baselineInnerHeight = typeof window !== 'undefined' ? window.innerHeight : 0;
 const [viewportGrowth, setViewportGrowth] = createSignal(0);
 

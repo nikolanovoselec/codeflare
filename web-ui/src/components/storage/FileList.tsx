@@ -76,6 +76,7 @@ const FileList: Component<FileListProps> = (props) => {
       <For each={props.displayedItems().prefixes}>
         {(prefix) => {
           const rawName = prefix.split('/').filter(Boolean).pop() || prefix;
+          const special = getSpecialFolder(prefix);
           return (
             <div
               class="storage-item storage-item--folder"
@@ -102,21 +103,13 @@ const FileList: Component<FileListProps> = (props) => {
               </Show>
               <span class="storage-item-icon-dot" />
               <span class="storage-item-name">{getFolderName(prefix)}</span>
-              <Show when={!getSpecialFolder(prefix)}>
-                <span class="storage-item-folder-meta" data-testid={`folder-path-${rawName}`}>
-                  {folderShortPath(prefix)}
-                </span>
-              </Show>
-              <Show when={getSpecialFolder(prefix)} keyed>
-                {(special: SpecialFolder) => (
+              <Show when={special} keyed>
+                {(sf: SpecialFolder) => (
                   <>
-                    <span class="storage-item-folder-meta" data-testid={`special-folder-path-${special.id}`}>
-                      {shortContainerPath(special.containerPath)}
-                    </span>
                     <span
                       class="workspace-container-icon"
-                      data-testid={`special-folder-icon-${special.id}`}
-                      title={`About ${special.label}`}
+                      data-testid={`special-folder-icon-${sf.id}`}
+                      title={`About ${sf.label}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         props.setOpenSpecialTooltip(
@@ -129,17 +122,25 @@ const FileList: Component<FileListProps> = (props) => {
                     <Show when={props.openSpecialTooltip() === prefix}>
                       <span
                         class="workspace-sync-tooltip"
-                        data-testid={`special-folder-tooltip-${special.id}`}
+                        data-testid={`special-folder-tooltip-${sf.id}`}
                       >
-                        {special.description}
+                        {sf.description}
                         <span class="workspace-sync-tooltip-path">
-                          Container path: <code>{special.containerPath}</code>
+                          Container path: <code>{sf.containerPath}</code>
                         </span>
                       </span>
                     </Show>
                   </>
                 )}
               </Show>
+              <span
+                class="storage-item-folder-meta"
+                data-testid={
+                  special ? `special-folder-path-${special.id}` : `folder-path-${rawName}`
+                }
+              >
+                {special ? shortContainerPath(special.containerPath) : folderShortPath(prefix)}
+              </span>
             </div>
           );
         }}

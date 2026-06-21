@@ -170,6 +170,9 @@ where a prefix lands in the container — at any depth (`Documentation/guides/` 
 `~/Documentation/guides`) and for dotfolders (`.claude/` → `~/.claude`). Special folders
 (Vault, Uploads, Temporary, Workspace) instead show their canonical `containerPath`
 mapping, whose casing can differ from the R2 prefix (`workspace/` → `~/Workspace`).
+Within a row the path is pinned to the right edge for every folder so all paths align
+identically; the special-folder container icon (a tooltip toggle) sits immediately after
+the folder name rather than trailing the row (`FileList.tsx`, `web-ui/src/styles/storage-browser.css`).
 
 Clicking a file opens it inline in a new browser tab (served with an XSS-safe
 Content-Type + `nosniff`) rather than downloading it.
