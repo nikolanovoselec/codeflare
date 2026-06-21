@@ -126,6 +126,42 @@ describe('session-tabs store', () => {
       expect(result).toBeNull();
     });
 
+    it('REQ-TERM-006 AC1: marks a user-created tab with the manual flag', () => {
+      state.terminalsPerSession['sess1'] = {
+        tabs: [{ id: '1', createdAt: '' }],
+        activeTabId: '1',
+        tabOrder: ['1'],
+        tiling: { enabled: false, layout: 'tabbed' },
+      };
+
+      const newId = addTerminalTab('sess1');
+
+      const tabs = state.terminalsPerSession['sess1'].tabs;
+      const addedTab = tabs.find((t: any) => t.id === newId);
+      expect(addedTab.manual).toBe(true);
+    });
+
+    it('REQ-TERM-006 AC1: does not retroactively mark the pre-existing default tab as manual', () => {
+      state.terminalsPerSession['sess1'] = {
+        tabs: [{ id: '1', createdAt: '' }],
+        activeTabId: '1',
+        tabOrder: ['1'],
+        tiling: { enabled: false, layout: 'tabbed' },
+      };
+
+      addTerminalTab('sess1');
+
+      const primaryTab = state.terminalsPerSession['sess1'].tabs.find((t: any) => t.id === '1');
+      expect(primaryTab.manual).toBeUndefined();
+    });
+
+    it('REQ-TERM-006 AC1: a tab created by initializeTerminalsForSession is not manual', () => {
+      initializeTerminalsForSession('sess2');
+
+      const primaryTab = state.terminalsPerSession['sess2'].tabs.find((t: any) => t.id === '1');
+      expect(primaryTab.manual).toBeUndefined();
+    });
+
     it('reverts to tabbed when new tab exceeds tiling layout slots', () => {
       state.terminalsPerSession['sess1'] = {
         tabs: [{ id: '1', createdAt: '' }, { id: '2', createdAt: '' }],

@@ -40,6 +40,44 @@ export function registerProcessNameCallback(
   onProcessName = cb;
 }
 
+// Discriminated result of inspecting a single WebSocket frame.
+// Server control messages always start with {"type": — raw PTY output never does.
+export type ControlMessage =
+  | { kind: 'restore'; state: string | undefined }
+  | { kind: 'process-name'; processName: string }
+  | { kind: 'raw' };
+
+/**
+ * Classify a raw WebSocket frame as a server control message or raw terminal data.
+ *
+ * Pure (no side effects) so it can be unit-tested without a live WebSocket.
+ * A frame is a control message only if it both starts with the `{"type":`
+ * discriminator AND parses as JSON with a recognized `type`. A recognized
+ * `restore` frame is always consumed (kind 'restore') even with no/empty
+ * state — matching the original handler, which returned early on `type ===
+ * 'restore'` and only conditionally rendered when `state` was present. A
+ * `process-name` frame requires a non-empty `processName`. Everything else —
+ * raw PTY bytes, malformed JSON, or unknown control types — is `raw`, which
+ * the caller writes verbatim to the terminal.
+ */
+export function parseControlMessage(messageData: string): ControlMessage {
+  if (!messageData.startsWith('{"type":')) {
+    return { kind: 'raw' };
+  }
+  try {
+    const msg = JSON.parse(messageData);
+    if (msg.type === 'restore') {
+      return { kind: 'restore', state: msg.state };
+    }
+    if (msg.type === 'process-name' && msg.processName) {
+      return { kind: 'process-name', processName: msg.processName };
+    }
+  } catch {
+    // Not JSON, fall through to raw
+  }
+  return { kind: 'raw' };
+}
+
 // Helper to create compound key from sessionId and terminalId
 function makeKey(sessionId: string, terminalId: string): string {
   return `${sessionId}:${terminalId}`;
@@ -375,47 +413,41 @@ function connect(
 
       recordFrame(key, messageData.length);
 
-      // Check for JSON control messages from server (restore, process-name)
-      // Server control messages always start with {"type": — raw PTY output never does
-      if (messageData.startsWith('{"type":')) {
-        try {
-          const msg = JSON.parse(messageData);
-          if (msg.type === 'restore') {
-            if (msg.state) {
-              // Diagnostic: capture restore frame size + a "duplication
-              // signature" — the count of "Claude Code v" substrings inside
-              // the saved state. Single-copy = 1; >1 means the server's
-              // saved state already contains duplicated content (server-
-              // side render bug). Single-copy here while client still
-              // shows duplication = client-side render bug
-              // (terminal.reset() not synchronously clearing).
-              const claudeSignatureCount = (msg.state.match(/Claude Code v/g) || []).length;
-              recordRestore(key, msg.state.length, claudeSignatureCount);
+      // Discriminate JSON control messages (restore, process-name) from raw
+      // PTY output by the leading {"type": field (REQ-TERM-009 AC2).
+      const control = parseControlMessage(messageData);
+      if (control.kind === 'restore') {
+        if (control.state) {
+          // Diagnostic: capture restore frame size + a "duplication
+          // signature" — the count of "Claude Code v" substrings inside
+          // the saved state. Single-copy = 1; >1 means the server's
+          // saved state already contains duplicated content (server-
+          // side render bug). Single-copy here while client still
+          // shows duplication = client-side render bug
+          // (terminal.reset() not synchronously clearing).
+          const claudeSignatureCount = (control.state.match(/Claude Code v/g) || []).length;
+          recordRestore(key, control.state.length, claudeSignatureCount);
 
-              // Belt-and-suspenders clear: xterm's terminal.reset() has
-              // had async-renderer quirks where the buffer wasn't
-              // synchronously zeroed before the next write landed. Issue
-              // ANSI clear-screen + clear-scrollback + cursor-home FIRST
-              // (synchronous PTY-level clear), then call .clear() (xterm
-              // viewport clear), then .reset() (full terminal state
-              // reset), and only then write the restored state.
-              terminal.write('\x1b[2J\x1b[3J\x1b[H');
-              terminal.clear();
-              terminal.reset();
-              terminal.write(msg.state);
-              terminal.scrollToBottom();
-              terminal.refresh(0, terminal.rows - 1);
-            }
-            return;
-          }
-          if (msg.type === 'process-name' && msg.processName) {
-            logger.debug(`[Terminal ${key}] Process name: ${msg.processName}`);
-            onProcessName?.(sessionId, terminalId, msg.processName);
-            return;
-          }
-        } catch {
-          // Not JSON, write as raw data
+          // Belt-and-suspenders clear: xterm's terminal.reset() has
+          // had async-renderer quirks where the buffer wasn't
+          // synchronously zeroed before the next write landed. Issue
+          // ANSI clear-screen + clear-scrollback + cursor-home FIRST
+          // (synchronous PTY-level clear), then call .clear() (xterm
+          // viewport clear), then .reset() (full terminal state
+          // reset), and only then write the restored state.
+          terminal.write('\x1b[2J\x1b[3J\x1b[H');
+          terminal.clear();
+          terminal.reset();
+          terminal.write(control.state);
+          terminal.scrollToBottom();
+          terminal.refresh(0, terminal.rows - 1);
         }
+        return;
+      }
+      if (control.kind === 'process-name') {
+        logger.debug(`[Terminal ${key}] Process name: ${control.processName}`);
+        onProcessName?.(sessionId, terminalId, control.processName);
+        return;
       }
 
       scheduleWrite(key, terminal, messageData);

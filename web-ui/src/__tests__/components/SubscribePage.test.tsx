@@ -53,7 +53,7 @@ async function openTierView() {
 }
 
 describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending users) / REQ-SUB-017 (tier selection UI)', () => {
-  let mockLocation: { href: string };
+  let mockLocation: { href: string; search: string; pathname: string };
   let originalLocation: Location;
   let mockActiveSubscription: (tier?: string) => void;
 
@@ -98,7 +98,7 @@ describe('SubscribePage / REQ-SETUP-009 (subscribe page redirect for pending use
     };
 
     originalLocation = window.location;
-    mockLocation = { href: '' };
+    mockLocation = { href: '', search: '', pathname: '' };
     Object.defineProperty(window, 'location', {
       value: mockLocation,
       writable: true,
