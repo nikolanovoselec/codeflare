@@ -16,6 +16,7 @@ R2 persistent storage, rclone bisync synchronization, sync modes, storage quotas
 - [Manual Sync Triggers (REQ-STOR-015)](#manual-sync-triggers-req-stor-015)
 - [Session Transcript Cleanup](#session-transcript-cleanup)
 - [Conflict Resolution](#conflict-resolution)
+- [File Browser (REQ-STOR-016)](#file-browser-req-stor-016)
 
 ## Storage Quota (REQ-STOR-006, REQ-STOR-014)
 
@@ -172,6 +173,11 @@ mapping, whose casing can differ from the R2 prefix (`workspace/` → `~/Workspa
 
 Clicking a file opens it inline in a new browser tab (served with an XSS-safe
 Content-Type + `nosniff`) rather than downloading it.
+
+**Traversal safety.** The browse endpoint (`src/routes/storage/validation.ts::validateKey`)
+validates every requested prefix and rejects parent-directory (`../`) references, so a
+probe cannot escape the user's bucket root — no partial listing is returned for a
+rejected prefix.
 
 ---
 
