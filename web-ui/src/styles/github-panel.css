@@ -134,6 +134,19 @@
 }
 
 /* ── Repo list ── */
+/* The list wrapper must be a bounded flex column so the inner rows region can own
+   the scroll: it fills the panel's remaining height (flex: 1 + min-height: 0) and
+   lets `.github-repo-rows` overflow-scroll inside it. Without this the wrapper is a
+   plain block that grows to its content, the rows never get a bounded height, and
+   the list overflows the panel instead of scrolling (leaving a clipped row + the
+   panel border reading as a doubled line at the bottom). */
+.github-repo-list {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 /* The list flexes to fill its panel's measured allotment (the adaptive split in
    Dashboard.tsx sets the panel max-height from the natural content) and scrolls
    the overflow; there is no fixed row cap. */
