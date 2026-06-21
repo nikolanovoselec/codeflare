@@ -478,6 +478,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-007](#req-stor-007-web-file-browser)
 
-**Verification:** [StorageBrowser test](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx) (AC1/AC2/AC3 — drawer/bottom-sheet rendering, R2 reads, traversal rejection); [FileList test](../../web-ui/src/__tests__/components/FileList.test.tsx) (AC4 file-click opens a new tab; AC5 every folder surfaces `~/<prefix>`; AC6 special folder surfaces canonical `containerPath`)
+**Verification:** [StorageBrowser test](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx) (AC1/AC2 — drawer/bottom-sheet rendering, R2 reads); [storage-browse test](../../src/__tests__/routes/storage-browse.test.ts) (AC3 — traversal rejection); [FileList test](../../web-ui/src/__tests__/components/FileList.test.tsx) (AC4 file-click opens a new tab; AC5 every folder surfaces `~/<prefix>`; AC6 special folder surfaces canonical `containerPath`)
 
 **Status:** Implemented

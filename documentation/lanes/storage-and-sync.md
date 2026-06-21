@@ -176,8 +176,8 @@ Content-Type + `nosniff`) rather than downloading it.
 
 **Traversal safety.** The browse endpoint (`src/routes/storage/validation.ts::validateKey`)
 validates every requested prefix and rejects parent-directory (`../`) references, so a
-probe cannot escape the user's bucket root — no partial listing is returned for a
-rejected prefix.
+probe cannot escape the user's bucket root — a rejected prefix causes the endpoint to
+return an error response (4xx) rather than any listing.
 
 ---
 
