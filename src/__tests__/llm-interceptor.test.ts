@@ -580,9 +580,9 @@ describe('REQ-ENTERPRISE-004: compat fallback on REST 404 (dual transport — AD
   });
 });
 
-// REQ-ENTERPRISE-006 AC4: when enterprise is enabled the interceptor fails closed
-// (503) if AIG_GATEWAY_URL is missing or unparseable, rather than routing nowhere.
-describe('REQ-ENTERPRISE-004: fail-closed guards', () => {
+// Fail-closed guards are shared by REQ-ENTERPRISE-004 (interception security core) and
+// REQ-ENTERPRISE-006 AC4 (interceptor returns 503 when AIG_GATEWAY_URL is missing/unparseable).
+describe('REQ-ENTERPRISE-004 / REQ-ENTERPRISE-006 AC4: fail-closed guards', () => {
   it('AC6: an unmapped host returns 400 and never fetches', async () => {
     const res = await makeInterceptor().fetch(new Request('https://evil.example.com/v1/chat/completions', { method: 'POST', body: '{}' }));
     expect(res.status).toBe(400);
