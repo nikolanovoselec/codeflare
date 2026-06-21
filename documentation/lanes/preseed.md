@@ -1045,6 +1045,9 @@ To inspect enforcement state without reading `.git/` by hand, Pi exposes a read-
 - [REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer) - Pi Local Statusline Footer
 - [REQ-AGENT-057](../../sdd/spec/agents.md#req-agent-057-pi-review-status-command) - Pi Review-Status Command
 - [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents) - Engineering Constitution Preseeded to All Agents
+- [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch) - PR-Boundary Review Agent Dispatch
+- [REQ-AGENT-072](../../sdd/spec/agents.md#req-agent-072-pi-durable-review-lane-command-and-scope-guards) - Pi Durable Review Lane Command and Scope Guards
+- [REQ-AGENT-073](../../sdd/spec/agents.md#req-agent-073-pi-review-monitor-delivery-reliability) - Pi Review Monitor Delivery Reliability
 - [REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) - Proactive memory injection on first prompt
 
 ---

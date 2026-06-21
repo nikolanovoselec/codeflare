@@ -650,3 +650,6 @@ Both endpoints return the same JSON body:
 - [REQ-TERM-001](../../sdd/spec/terminal.md#req-term-001-up-to-6-terminal-tabs-per-session) - Up to 6 terminal tabs per session
 - [REQ-TERM-002](../../sdd/spec/terminal.md#req-term-002-websocket-connection-to-container-pty) - WebSocket connection to container PTY
 - [REQ-TERM-004](../../sdd/spec/terminal.md#req-term-004-close-code-4503-is-authoritative-no-retry) - Close code 4503 is authoritative (no retry)
+- [REQ-TERM-016](../../sdd/spec/terminal.md#req-term-016-terminal-pane-reconnect-and-resize-authority) - Terminal Pane Reconnect and Resize Authority
+- [REQ-TERM-017](../../sdd/spec/terminal.md#req-term-017-multiview-pane-focus-and-input-routing) - MultiView Pane Focus and Input Routing
+- [REQ-TERM-018](../../sdd/spec/terminal.md#req-term-018-multiview-reopen-and-close) - MultiView Reopen and Close
