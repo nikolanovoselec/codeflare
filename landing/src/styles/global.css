@@ -32,6 +32,10 @@ html {
 
 body {
   background: var(--bg-base);
+  /* Scope the fixed negative-z ambient glow + WebGL field to the body stacking
+     context so they paint above the page background and below content on every
+     page (including login, whose main is not explicitly positioned). */
+  isolation: isolate;
   color: var(--text-secondary);
   font-family: var(--font-sans);
   font-size: var(--fs-body);
@@ -368,15 +372,6 @@ svg {
   padding-top: clamp(3.5rem, 4rem + 4vw, 6rem);
   padding-bottom: var(--section-y);
   overflow: hidden;
-}
-
-.hero-glow {
-  position: absolute;
-  inset: -20% -10% auto -10%;
-  height: 60vh;
-  background: radial-gradient(60% 60% at 30% 0%, rgb(var(--accent-rgb) / 0.16), transparent 70%);
-  pointer-events: none;
-  z-index: 0;
 }
 
 .hero .container {
@@ -1747,8 +1742,20 @@ svg {
 .flare-field {
   position: fixed;
   inset: 0;
-  z-index: 0;
+  z-index: -2;
   pointer-events: none;
+}
+
+/* Shared ambient accent glow: one fixed, top-centred halo on every page, painted
+   above the WebGL veil (z -2) but below content (body { isolation } scopes these
+   negative layers above the page background and below the slot), so it reads
+   identically whether or not the page runs the flare fluid. */
+.page-ambient-glow {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--page-glow);
 }
 
 .flare-fluid-canvas {
@@ -2017,9 +2024,6 @@ svg {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  background:
-    radial-gradient(70% 42% at 50% 8%, rgb(var(--accent-rgb) / 0.13), transparent 72%),
-    transparent;
 }
 
 /* The back arrow is an inline SVG, not the &larr; font glyph: a glyph's ink

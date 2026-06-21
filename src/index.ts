@@ -486,8 +486,12 @@ export default {
     // (those apply to <style> elements, not the style= attribute). Removing it would break
     // rendering and require rewriting every call site. script-src is already nonce-free and
     // tight; this residual is style-injection-only (low blast radius).
+    // Cloudflare Web Analytics is injected manually by the landing layout (so the strict
+    // CSP can allow it explicitly instead of weakening to 'unsafe-inline'): its loader origin
+    // static.cloudflareinsights.com is added to script-src, and its beacon telemetry endpoint
+    // cloudflareinsights.com is added to connect-src.
     secureResponse.headers.set('Content-Security-Policy',
-      "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' wss:; img-src 'self' data: https://www.gravatar.com; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+      "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' wss: https://cloudflareinsights.com; img-src 'self' data: https://www.gravatar.com; script-src 'self' https://challenges.cloudflare.com https://static.cloudflareinsights.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     );
     return secureResponse;
   }

@@ -9,7 +9,7 @@
  * matching copy strings. They double as the migration oracle: identical
  * structure proves the inline-to-component refactor preserved the page.
  */
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { experimental_AstroContainer as AstroContainer } from 'astro/container';
 import IndexPage from '../pages/index.astro';
 import PrivacyPage from '../pages/privacy.astro';
@@ -63,6 +63,38 @@ describe('landing page composition (REQ-LANDING-001)', () => {
   it('server-renders the flare visual mode when the flare field exists', () => {
     expect(html).toMatch(/<html[^>]*class="flare-on"/);
     expect(html).toMatch(/<div class="flare-field"[^>]*data-flare-fluid/);
+  });
+
+  it('renders exactly one shared ambient glow layer and no legacy per-hero glow', () => {
+    // The glow is now a single fixed layer owned by BaseLayout (shared with /login),
+    // not the old absolutely-positioned .hero-glow element inside the hero.
+    expect(body.querySelectorAll('.page-ambient-glow')).toHaveLength(1);
+    expect(body.querySelector('.hero-glow')).toBeNull();
+  });
+
+  it('omits the Cloudflare Web Analytics beacon when no PUBLIC_CF_BEACON_TOKEN is configured', () => {
+    const doc = documentDom(html);
+    expect(
+      doc.querySelector('script[src="https://static.cloudflareinsights.com/beacon.min.js"]'),
+    ).toBeNull();
+  });
+
+  it('emits the Web Analytics beacon carrying the configured token when PUBLIC_CF_BEACON_TOKEN is set', async () => {
+    vi.stubEnv('PUBLIC_CF_BEACON_TOKEN', 'tok_test_123');
+    try {
+      const container = await AstroContainer.create();
+      const withToken = await container.renderToString(IndexPage);
+      const doc = documentDom(withToken);
+      const beacon = doc.querySelector(
+        'script[src="https://static.cloudflareinsights.com/beacon.min.js"]',
+      );
+      expect(beacon).not.toBeNull();
+      expect(beacon!.hasAttribute('defer')).toBe(true);
+      const cfg = JSON.parse(beacon!.getAttribute('data-cf-beacon')!) as { token: string };
+      expect(cfg.token).toBe('tok_test_123');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('renders every top-level section, in order, via <Section>', () => {

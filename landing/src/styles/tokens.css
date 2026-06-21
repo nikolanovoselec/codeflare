@@ -57,6 +57,19 @@
   /* Brand flare gradient — used ONLY on the single hero accent word */
   --flare-gradient: linear-gradient(96deg, #ff8a3d 0%, #ff5c3c 52%, #ff3f7c 100%);
 
+  /* Page-wide ambient accent glow — ONE top-centred halo shared by every page
+     (landing hero + login), rendered as a fixed layer in BaseLayout so it reads
+     identically on mobile, tablet, and desktop. Centred at 50% so a narrow phone
+     never clips the bright core off into a corner; the width stays wider than the
+     viewport (max with vw) so it never edges in; svh height avoids the mobile
+     URL-bar resize jump that vh causes. Change the glow once, here. */
+  --page-glow: radial-gradient(
+    ellipse max(32rem, 120vw) clamp(16rem, 38svh, 30rem) at 50% -4rem,
+    rgb(var(--accent-rgb) / 0.14) 0%,
+    rgb(var(--accent-rgb) / 0.07) 34%,
+    transparent 72%
+  );
+
   /* Terminal output tones (mono demo only) */
   --term-green: #4ade80;
   --term-cyan: #67e8f9;

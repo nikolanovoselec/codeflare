@@ -81,6 +81,12 @@ describe('onboarding login page (REQ-AUTH-020 / REQ-AUTH-021)', () => {
     expect(body.querySelector('[data-proof]')).toBeNull();
   });
 
+  it('renders the same single shared ambient glow layer as the landing page', () => {
+    // The glow is one BaseLayout-owned layer shared across pages, so /login carries
+    // the identical treatment rather than its old bespoke .login-main background glow.
+    expect(body.querySelectorAll('.page-ambient-glow')).toHaveLength(1);
+  });
+
   it('is excluded from search indexing (auth URLs carry ?status / ?error)', () => {
     expect(html).toContain('name="robots" content="noindex, nofollow"');
   });
