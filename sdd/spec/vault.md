@@ -178,7 +178,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 2. The container entrypoint supervises the editor on a localhost-only port with a short-interval restart loop so an editor crash never requires a container restart. <!-- @impl: entrypoint.sh::start_silverbullet_supervisor --> <!-- @test: host/__audits__/entrypoint-vault.audit.js (defines start_silverbullet_supervisor with a restart loop) -->
 3. The vault-route handler applies the same auth chain as the terminal WebSocket upgrade: authentication, origin allowlist, effective-tier active-user check, session ownership, container health probe, then container fetch. <!-- @impl: src/routes/vault.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute boundary cases) -->
 4. WebSocket upgrades for live-edit sync are rate-limited under the same per-user budget as terminal WebSockets so a separate budget cannot be discovered. <!-- @impl: src/routes/vault.ts::handleVaultRequest --> <!-- @test: host/__audits__/entrypoint-vault.audit.js (handleVaultRequest uses the ws-connect:<email> key, same WS budget as terminal, guarded by isWebSocket) -->
-5. The in-container terminal server exposes an HTTP branch that strips the vault path prefix and forwards to the localhost editor, plus a WebSocket upgrade passthrough scoped to vault paths only. <!-- @impl: host/src/server.ts::handleVaultUpgrade --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute boundary cases) --> <!-- coverage-gap: the in-container HTTP /vault prefix-strip branch and the WS passthrough are exercised end-to-end via the live proxy; no dedicated host-server unit test -->
+5. The in-container terminal server exposes an HTTP branch that strips the vault path prefix and forwards to the localhost editor, plus a WebSocket upgrade passthrough scoped to vault paths only. <!-- @impl: host/src/server.ts::handleVaultUpgrade --> <!-- @test: src/__tests__/routes/vault.test.ts (validateVaultRoute boundary cases) --> <!-- @test: host/__tests__/vault-proxy.test.js (stripVaultPrefix maps /vault* to upstream paths incl. WS passthrough) -->
 
 **Constraints:**
 
@@ -238,7 +238,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 2. The container image stages the editor preseed assets under a build-time preseed root so the vault initializer can install editor config from there without baking it into every R2 sync. <!-- @impl: Dockerfile --> <!-- @test: host/__audits__/entrypoint-vault.audit.js (Dockerfile preseeds SilverBullet config under /opt/silverbullet-preseed/) -->
 3. A build-time generator (run as prebuild) embeds the manifest contents into the runtime agent-seed module, which is what the Worker ships to the container at boot. <!-- @impl: scripts/generate-agent-seed.mjs --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts) -->
 4. The Claude memory rule is updated to document the vault-only capture path. <!-- @impl: preseed/agents/claude/rules/memory.md --> <!-- coverage-gap: the memory rule documenting the vault-only capture path is preseed rule prose; no automated test asserts the rule wording -->
-5. On every boot, the vault initializer copies the editor plugs from the build-time preseed root into the codeflare-managed plug subdirectory of the vault's plug library so the editor opens with the baseline productivity plug set available immediately, with no per-session install step. The copy is idempotent (overwrite when content differs) so a codeflare-side plug pin bump propagates on next boot; user-installed plugs land under other plug-library subdirectories and are untouched. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- coverage-gap: per-boot Library/Codeflare plug copy is entrypoint init_user_vault behavior; no automated test asserts the idempotent overwrite-on-diff copy -->
+5. On every boot, the vault initializer copies the editor plugs from the build-time preseed root into the codeflare-managed plug subdirectory of the vault's plug library so the editor opens with the baseline productivity plug set available immediately, with no per-session install step. The copy is idempotent (overwrite when content differs) so a codeflare-side plug pin bump propagates on next boot; user-installed plugs land under other plug-library subdirectories and are untouched. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (init_user_vault copies Library/Codeflare plug; idempotent overwrite-on-diff) -->
 
 **Constraints:**
 
@@ -369,8 +369,6 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 3. When a sibling markdown note wikilinks the same PDF, a citation edge connects the document node to the wikilink concept so the global graph unifies them. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md --> <!-- coverage-gap: PDF ingestion is prompt-driven (REQ Verification = Manual check); E2E validated via documentation/lanes/vault.md PDF-ingestion plan, no Workers-vitest automated test (binary malformed-PDF fixtures impractical) -->
 4. Read failures on PDFs (corrupt, password-protected, unsupported encoding) emit the bare document node only; the high-water marker still advances so a single unreadable PDF does not block ingestion of other changed files. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md --> <!-- coverage-gap: PDF ingestion is prompt-driven (REQ Verification = Manual check); E2E validated via documentation/lanes/vault.md PDF-ingestion plan, no Workers-vitest automated test (binary malformed-PDF fixtures impractical) -->
 
-**Notes:** Built and manually verified against the PDF-ingestion E2E plan in `documentation/lanes/vault.md`; status is Partial because PDF ingestion is prompt-driven with no Workers-vitest automated test (shipping binary malformed-PDF fixtures is impractical). Promote to Implemented once an automated PDF-ingestion test exists.
-
 **Constraints:**
 
 - The page cap is a Read-tool limit; PDFs longer than the cap are partially ingested rather than rejected.
@@ -382,7 +380,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Verification:** Manual check
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -609,7 +607,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 1. Clicking the ready control verifies the auth-gated `/.vault-key` endpoint before opening. <!-- @impl: web-ui/src/lib/vault-local-readiness.ts::checkVaultKeyRecoverable --> <!-- @test: web-ui/src/__tests__/lib/vault-local-readiness.test.ts (checkVaultKeyRecoverable: GET /.vault-key with credentials, true on non-empty key, false on non-2xx/empty/throw) -->
 2. If the key is not recoverable, the control enters a non-openable preparing state. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/VaultButton.test.tsx (preparing status not openable + accent-breathing class) -->
 3. When local readiness and key recoverability both hold, the control becomes armed and opens synchronously inside the click gesture. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @test: web-ui/src/__tests__/components/VaultButton.test.tsx (armed status openable + green-breathing class + fires onOpen) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (breathes preparing->armed when key becomes recoverable then opens on next click) -->
-4. Open intent clears when the tab opens or the session stops being the active running session. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- coverage-gap: open-intent clearing on tab-open / session-no-longer-active is a Layout effect; covered indirectly by the Layout open-gate test, no dedicated assertion -->
+4. Open intent clears when the tab opens or the session stops being the active running session. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (handleVaultOpen open-intent cleared when target session no longer active) -->
 
 **Constraints:**
 

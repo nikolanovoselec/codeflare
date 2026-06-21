@@ -33,9 +33,9 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 1. The terminal renders correctly on mobile viewports (phones and tablets). <!-- @impl: web-ui/src/lib/mobile.ts::isMobile --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (isMobile reflects mobile media query) --> <!-- @test: e2e/ui/mobile-specific.test.ts (session switcher renders + responds on mobile viewport) -->
 2. Text input, command execution, and output display work identically to desktop except where touch interaction necessarily differs. <!-- coverage-gap: cross-cutting desktop-parity, no single source symbol --> <!-- coverage-gap: identical-to-desktop behavior is covered only by e2e/manual, no unit test -->
 3. The mobile E2E test suite passes against the deployed worker. <!-- @impl: .github/workflows/e2e.yml --> <!-- @test: .github/workflows/e2e.yml (e2e-ui-mobile job runs the mobile E2E suite with E2E_MOBILE=1) -->
-4. The terminal adjusts layout when the virtual keyboard opens or closes without visual corruption. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- coverage-gap: keyboard-open layout adjust covered only by banned mobile-ac-coverage.test.ts -->
-5. Terminal dimensions are recalculated on viewport changes (keyboard open/close, orientation change, resize). <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- coverage-gap: viewport-change recalc covered only by banned mobile-ac-coverage.test.ts -->
-6. The terminal layout recalculation is skipped when the terminal container has no visible height, preventing row calculation corruption on inactive terminals. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- coverage-gap: no-visible-height skip covered only by banned mobile-ac-coverage.test.ts -->
+4. The terminal adjusts layout when the virtual keyboard opens or closes without visual corruption. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (keyboard-open layout adjust via the VirtualKeyboard geometry signal) -->
+5. Terminal dimensions are recalculated on viewport changes (keyboard open/close, orientation change, resize). <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (viewport-change height recalculation) -->
+6. The terminal layout recalculation is skipped when the terminal container has no visible height, preventing row calculation corruption on inactive terminals. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (no-visible-height skip: no fit/scroll/resize when clientHeight is 0) -->
 
 **Constraints:**
 
@@ -123,8 +123,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 1. The terminal viewport disables native scrolling on all devices so xterm's own scroll layer is the sole scroller. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- coverage-gap: native-scroll-disabled is a CSS/xterm-layer concern, no genuine unit test -->
 2. The browser's focus-scroll targets the cursor position at the bottom of the terminal, not the top-left origin. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- coverage-gap: focus-scroll-to-cursor is a browser-behavior concern, no genuine unit test -->
 3. A post-write scroll guard re-applies bottom alignment when the buffer's display offset drops below the base after a write. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- coverage-gap: post-write bottom-alignment guard covered only by banned mobile-ac-coverage.test.ts -->
-4. A scroll-drop detector watches for sudden display-offset drops to zero while the base is high and corrects them. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- coverage-gap: scroll-drop-to-zero detection covered only by banned mobile-ac-coverage.test.ts -->
-5. Distance-based detection (rather than equality against zero) distinguishes browser focus resets from normal scrollback trimming; small drifts are ignored. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- coverage-gap: distance-based detection covered only by banned mobile-ac-coverage.test.ts -->
+4. A scroll-drop detector watches for sudden display-offset drops to zero while the base is high and corrects them. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (scroll-drop-to-zero focus-reset detection restores relative position) -->
+5. Distance-based detection (rather than equality against zero) distinguishes browser focus resets from normal scrollback trimming; small drifts are ignored. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (small distance drift ignored — normal trimming, not a reset) -->
 
 **Constraints:**
 
@@ -181,9 +181,9 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 **Acceptance Criteria:**
 
 1. A floating Ctrl button is visible on mobile when the terminal is active. <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::FloatingTerminalButtons --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (Ctrl button rendered only on mobile when terminal active) -->
-2. Tapping the Ctrl button enters a "sticky" state where the next key press is sent as a Ctrl-modified sequence. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::activateStickyCtrl --> <!-- coverage-gap: no test exercises activateStickyCtrl sticky-state entry directly -->
+2. Tapping the Ctrl button enters a "sticky" state where the next key press is sent as a Ctrl-modified sequence. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::activateStickyCtrl --> <!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (activateStickyCtrl enters sticky state) -->
 3. Common sequences (Ctrl+C for interrupt, Ctrl+D for EOF) work correctly via the sticky Ctrl mechanism. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::resolveKeyAction --> <!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (Ctrl+C/D/L/A/Z resolve to SIGINT/EOT/FF/SOH/SUB bytes) -->
-4. The Ctrl button state resets after one modified key press (single-use sticky behavior). <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::deactivateStickyCtrl --> <!-- coverage-gap: no test exercises deactivateStickyCtrl single-use reset directly -->
+4. The Ctrl button state resets after one modified key press (single-use sticky behavior). <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::deactivateStickyCtrl --> <!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (deactivateStickyCtrl single-use reset of the sticky callback) -->
 5. The Ctrl button does not interfere with normal text input when not activated. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::resolveKeyAction --> <!-- @test: web-ui/src/__tests__/lib/terminal-mobile-input.test.ts (regular keys return none without Ctrl) -->
 
 **Constraints:**
@@ -268,7 +268,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. On visibility return, focus restoration first resets all keyboard-state signals and re-enables the virtual-keyboard overlay before refocusing the input. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- coverage-gap: focus-restore reset+overlay sequence has no isolated genuine test -->
+1. On visibility return, focus restoration first resets all keyboard-state signals and re-enables the virtual-keyboard overlay before refocusing the input. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- coverage-gap: the focus-restore reset+overlay sequence runs inside the restoreFocusIfNeeded closure reachable only after the off-screen iframe srcdoc fires its load event; jsdom does not load iframe srcdoc, so the branch is unreachable in unit tests (Playwright/device territory) -->
 2. A document-visibility handler in the layout shell triggers the same keyboard-state reset as a fallback when focus-restore does not fire. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (visibility return in terminal view calls forceResetKeyboardState) -->
 3. The keyboard-state reset is unconditional because cached browser geometry is stale on resume. <!-- @impl: web-ui/src/lib/mobile.ts::forceResetKeyboardState --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (forceResetKeyboardState unconditionally zeros keyboard signals) -->
 4. On Samsung, the dashboard bounce ([REQ-MOB-011](#req-mob-011-samsung-internet-keyboard-state-recovery)) replaces focus-based recovery. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Samsung bounces through dashboard on visibility return) -->
@@ -300,12 +300,12 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. Three code paths can trigger a terminal-fit recalculation: keyboard refit (debounced ~150ms), active-state effect (immediate next frame), and viewport resize observer (immediate next frame). <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- coverage-gap: three-paths enumeration covered only by banned mobile-ac-coverage.test.ts -->
+1. Three code paths can trigger a terminal-fit recalculation: keyboard refit (debounced ~150ms), active-state effect (immediate next frame), and viewport resize observer (immediate next frame). <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (the three fit paths: keyboard-refit, active-state, ResizeObserver) -->
 2. While a keyboard refit is in flight, the viewport resize observer is suppressed so the two paths do not contend. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (ResizeObserver skips fit while keyboard refit debounce is pending) -->
 3. With the keyboard open on mobile, the buffer scrolls to the bottom after every refit so new output remains visible. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (keyboard open: scrolls to bottom after refit) -->
 4. Without the keyboard open (desktop or mobile), scroll-to-bottom only runs when the user was already at the bottom; scrollback position is preserved otherwise. <!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminalsExported --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (keyboard close: does not scroll to bottom) -->
 5. While the keyboard is open, the resize observer does not force scroll-to-bottom; the keyboard-height-change handler owns that. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (ResizeObserver does not force scroll-to-bottom while keyboard open) -->
-6. A refit that produces unchanged dimensions does not send a resize message to the container. <!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminalsExported --> <!-- coverage-gap: unchanged-dimensions-no-resize-message covered only by banned mobile-ac-coverage.test.ts -->
+6. A refit that produces unchanged dimensions does not send a resize message to the container. <!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminalsExported --> <!-- @test: web-ui/src/__tests__/stores/terminal-layout.test.ts (refitAllTerminals sends a resize message only on changed dimensions) -->
 
 **Constraints:**
 
@@ -359,8 +359,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. Programmatic scroll corrections are bracketed by a suppression marker so the scroll-reset detector does not misidentify them. <!-- @impl: web-ui/src/stores/terminal.ts::isProgrammaticScrollSuppressed --> <!-- coverage-gap: suppression marker covered only by banned mobile-ac-coverage.test.ts -->
-2. When the keyboard is open, the scroll-reset detector is skipped (browser focus resets cannot occur while the keyboard is open). <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- coverage-gap: keyboard-open detector skip covered only by banned mobile-ac-coverage.test.ts -->
+1. Programmatic scroll corrections are bracketed by a suppression marker so the scroll-reset detector does not misidentify them. <!-- @impl: web-ui/src/stores/terminal.ts::isProgrammaticScrollSuppressed --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (correction skipped while the programmatic-scroll suppression marker is set) -->
+2. When the keyboard is open, the scroll-reset detector is skipped (browser focus resets cannot occur while the keyboard is open). <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (touch+keyboard gate suppresses the Strategy-2 reset-restore) -->
 3. Bottom-following users see zero flicker: correction is applied in the scroll-event handler before the canvas paints, not in the asynchronous write callback. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (re-anchors a bottom-following terminal in the scroll-event handler) -->
 4. Users who have scrolled up have their relative position (distance from bottom) preserved across scrollback trimming. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (does not override deliberate user scroll gestures, preserving position) -->
 

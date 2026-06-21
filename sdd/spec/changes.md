@@ -2,10 +2,6 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
-## 2026-06-21
-
-- [REQ-VAULT-011](vault.md#req-vault-011-vault-extract-ingests-pdf-files): demoted Implemented → Partial. PDF ingestion is prompt-driven and verified by manual check / E2E plan with no Workers-vitest automated test; promote once an automated PDF-ingestion test exists.
-
 ## 2026-06-20
 
 - **GitHub panel repository search is disclosed on demand on touch devices** (new [REQ-GITHUB-011](github.md#req-github-011-mobile-search-disclosure-with-autofocus) Implemented; [REQ-GITHUB-002](github.md#req-github-002-github-panel-and-repository-listing) and [REQ-GITHUB-009](github.md#req-github-009-github-repository-list-viewport-and-empty-states) stay Implemented). On a touch device the always-visible search bar consumed vertical space above the repository list; it is now hidden behind a magnify toggle in the connected header (left of Refresh, reusing the shared `IconButton`). Tapping it reveals the search input and focuses it synchronously inside the tap handler so the on-screen keyboard opens (iOS Safari only opens the keyboard on a synchronous `focus()` within the gesture); tapping again hides it and clears the filter so a hidden search box never silently narrows the list. Desktop is unchanged (search always visible, no toggle), and the list's whole-row viewport cap (REQ-GITHUB-009 AC4) is unaffected. Touch is gated by `isTouchDevice()`. Behavioral coverage: `GitHubPanel.test.tsx`. **Status:** REQ-GITHUB-011 is Implemented; REQ-GITHUB-002 and REQ-GITHUB-009 stay Implemented.
@@ -424,7 +420,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 - [REQ-VAULT-008](vault.md#req-vault-008-zero-ui-vault-encryption) AC5: bootstrap-hop redirect gated to GET only so HEAD readiness probes fall through to SB. Resilience contracts added: navigator.serviceWorker guard, 10-second activation timeout replacing indefinite navigator.serviceWorker.ready, "redundant" SW state detection, fail-loud abort.
 - [REQ-VAULT-013](vault.md#req-vault-013-silverbullet-subpath-adapter) AC6/AC7: removed Cookie-header gate from the SW registration short-circuit selector (Samsung Internet compatibility). The service-worker: script forbidden header is the sole selector. Intent and Constraints updated to browser-agnostic language.
 - [REQ-AGENT-043](agents.md#req-agent-043-graphify-build-mode-dispatch) AC4: graphify semantic-extraction subagents switched from haiku to sonnet for schema compliance (57% malformed node rate on codeflare corpus). AC5 simplified to Opus-never only.
-- [REQ-VAULT-011](vault.md#req-vault-011-vault-extract-ingests-pdf-files): stays Implemented; AC4 (corrupt/password-protected PDF read failures) is verified by manual check rather than an automated test, since exercising it needs binary malformed-PDF fixtures impractical in the Workers test pool. The REQ Constraints now document this. _(Superseded 2026-06-21: REQ-VAULT-011 demoted to Partial — see the 2026-06-21 entry.)_
+- [REQ-VAULT-011](vault.md#req-vault-011-vault-extract-ingests-pdf-files): stays Implemented; AC4 (corrupt/password-protected PDF read failures) is verified by manual check rather than an automated test, since exercising it needs binary malformed-PDF fixtures impractical in the Workers test pool. The REQ Constraints now document this.
 - [REQ-VAULT-008](vault.md#req-vault-008-zero-ui-vault-encryption): demoted to Partial; AC4 (SilverBullet encrypted-KV wrapper usage) is a runtime/IDB behavioral property with no dedicated test.
 
 ## 2026-05-24

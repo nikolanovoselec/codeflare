@@ -66,24 +66,22 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Acceptance Criteria:**
 
-1. The Cloudflare token template adds the `Browser Rendering - Edit` scope. <!-- @impl: web-ui/src/lib/token-scopes.ts::CLOUDFLARE_TIERS --> <!-- coverage-gap: token-scopes.test.ts asserts catalog shape only (tier count, label/description); no test asserts the Browser Rendering - Edit scope value -->
-2. The addition is additive: every scope already present in the template remains unchanged. <!-- @impl: web-ui/src/lib/token-scopes.ts::CLOUDFLARE_TIERS --> <!-- coverage-gap: no test asserts the per-scope contents of the token template -->
-3. Tokens created before this scope was added continue to work for all existing functionality (the scope is required only for Browser Run). <!-- @impl: web-ui/src/lib/token-scopes.ts --> <!-- coverage-gap: backward-compatibility of pre-existing tokens is not exercised by any test -->
-
-**Notes:** AC1-AC3 lack automated coverage; `token-scopes.test.ts` asserts catalog shape (tier count, non-empty label/description), not the presence of the Browser Rendering scope. Built and shipped — a scope-presence assertion would return this REQ to Implemented.
+1. The Cloudflare token template adds the `Browser Rendering - Edit` scope. <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (advanced tier grants browser-rendering.write; minimal does not) -->
+2. The addition is additive: every scope already present in the template remains unchanged. <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (additive: every core scope still present in advanced) -->
+3. Tokens created before this scope was added continue to work for all existing functionality (the scope is required only for Browser Run). <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (backward-compat: non-Browser-Rendering scope set unchanged) -->
 
 **Constraints:**
 
-- The scope is added to the existing token-scope tier definitions, following the established `{ key, type }` scope shape.
+- The scope is added to the existing Cloudflare OAuth scope catalog (the advanced tier), following the established scope-string shape.
 - No existing scope is removed or renamed.
 
 **Priority:** P2
 
 **Dependencies:** [REQ-AGENT-010](agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token)
 
-**Verification:** Built; AC-level automated coverage pending (see Notes). `token-scopes.test.ts` covers catalog shape only.
+**Verification:** Automated test
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
