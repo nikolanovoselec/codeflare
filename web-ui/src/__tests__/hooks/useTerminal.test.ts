@@ -132,6 +132,7 @@ import { isTouchDevice, getKeyboardHeight, isVirtualKeyboardOpen, forceResetKeyb
 import * as mobileModule from '../../lib/mobile';
 import { loadSettings } from '../../lib/settings';
 
+// REQ-TERM-016: Terminal Pane Reconnect and Resize Authority
 describe('useTerminal hook', () => {
   const defaultProps: UseTerminalOptions = {
     sessionId: 'test-session-123',

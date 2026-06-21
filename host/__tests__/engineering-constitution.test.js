@@ -13,6 +13,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '../..');
 const claudeDir = resolve(repoRoot, 'preseed/agents/claude');
 
+// REQ-AGENT-065: Engineering Constitution Preseeded to All Agents
 describe('engineering constitution preseed', () => {
   it('seeds the Claude constitution rule, gated to advanced mode', () => {
     assert.ok(

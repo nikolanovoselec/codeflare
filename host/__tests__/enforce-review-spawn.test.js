@@ -444,6 +444,7 @@ describe('enforce-review-spawn.sh — v4 → v5 migration', () => {
   });
 });
 
+// REQ-AGENT-071: PR-Boundary Review Agent Dispatch
 describe('enforce-review-spawn.sh — agent-spawn enforcement', () => {
   it('blocks with both agent names when nothing is spawned post-push', () => {
     const cwd = makeFixture();

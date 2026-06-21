@@ -142,6 +142,8 @@ describe('agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin prese
   });
 });
 
+// REQ-AGENT-071: PR-Boundary Review Agent Dispatch
+// REQ-AGENT-073: Pi Review Monitor Delivery Reliability
 describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)', () => {
   it('each non-Claude agent has an instructions file', () => {
     const keys = new Set(AGENTS_SEEDED_CONFIGS.map((doc) => doc.key));
@@ -2360,6 +2362,7 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
   });
 });
 
+// REQ-AGENT-072: Pi Durable Review Lane Command and Scope Guards
 describe('Incremental review scope confinement / REQ-AGENT-040 AC8 (reviewer defs + enforce skills scope-agnostic) + REQ-AGENT-060 AC8 (lane guard enforces the incremental window)', () => {
   const scope = { base: 'abc1234', head: 'def5678', baseRef: 'main' };
 

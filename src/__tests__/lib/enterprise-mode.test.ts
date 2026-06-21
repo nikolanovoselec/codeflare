@@ -31,6 +31,7 @@ const tiers: SubscriptionTierConfig[] = [
   { id: 'unlimited', sessionModes: ['default', 'advanced'] } as unknown as SubscriptionTierConfig,
 ];
 
+// REQ-ENTERPRISE-006: Deploy-Time AIG Secrets and ENTERPRISE_MODE Var
 describe('REQ-ENTERPRISE-001 AC1: isEnterpriseMode', () => {
   it("is true only for ENTERPRISE_MODE === 'active'", () => {
     expect(isEnterpriseMode({ ENTERPRISE_MODE: 'active' })).toBe(true);
