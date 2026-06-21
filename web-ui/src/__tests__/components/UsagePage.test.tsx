@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup, waitFor } from '@solidjs/testing-library';
+import { render, cleanup, waitFor } from '@solidjs/testing-library';
 
 // Controllable usage payload returned by the mocked getUsage() API call.
 // formatDuration() turns these second-counts into the contract strings the
