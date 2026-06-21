@@ -54,8 +54,3 @@ export function decidePanelLayoutMode(input: LayoutModeInput): PanelLayoutMode {
   if (width > 0 && height > 0 && height < minPanelHeight * 2) return 'flip';
   return 'split';
 }
-
-/** Natural (unconstrained) height a panel wants: fixed chrome + all its rows. */
-export function naturalPanelHeight(chrome: number, rowCount: number, rowHeight: number): number {
-  return chrome + Math.max(0, rowCount) * rowHeight;
-}

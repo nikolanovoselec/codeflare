@@ -223,7 +223,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 3. The download endpoint returns file contents as an attachment with a sanitized filename. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @test: src/__tests__/routes/storage-download.test.ts (download endpoint) -->
 4. The delete endpoint removes objects by key and/or prefix in a single server-side bulk operation. <!-- @impl: src/routes/storage/delete.ts --> <!-- @test: src/__tests__/routes/storage-delete.test.ts (delete endpoint) -->
 5. The preview endpoint returns text content inline for text files and metadata-only for other types. <!-- @impl: src/routes/storage/preview.ts --> <!-- @test: src/__tests__/routes/storage-preview.test.ts (preview endpoint) -->
-6. On request, the download endpoint serves a file inline for in-browser viewing rather than as an attachment; user-supplied HTML or SVG is served as inert text so it cannot execute in the user's session. <!-- @impl: src/routes/storage/download.ts::safeInlineContentType --> <!-- @test: src/__tests__/routes/storage-download.test.ts (safeInlineContentType) -->
+6. On request, the download endpoint serves a file inline for in-browser viewing rather than as an attachment when the caller passes `?disposition=inline`. <!-- @impl: src/routes/storage/download.ts --> <!-- @test: src/__tests__/routes/storage-download.test.ts (serves an inline image with its real type, inline disposition, and nosniff) -->
+7. The inline view path enforces an XSS-safe content-type: known image types and PDF keep their real MIME type while all other types, including HTML and SVG, are served as inert text so user-supplied markup cannot execute in the user's session. <!-- @impl: src/routes/storage/download.ts::safeInlineContentType --> <!-- @test: src/__tests__/routes/storage-download.test.ts (safeInlineContentType) -->
 
 **Constraints:**
 
@@ -235,7 +236,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket)
 
-**Verification:** [Automated test](../../src/__tests__/routes/storage-browse.test.ts)
+**Verification:** [Automated test](../../src/__tests__/routes/storage-browse.test.ts), [inline-view test](../../src/__tests__/routes/storage-download.test.ts)
 
 **Status:** Implemented
 

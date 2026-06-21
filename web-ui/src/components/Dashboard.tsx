@@ -125,27 +125,23 @@ const Dashboard: Component<DashboardProps> = (props) => {
   };
 
   onMount(() => {
-    requestAnimationFrame(measureLayout);
-    // ResizeObserver is absent in jsdom (tests) and very old browsers — degrade to
-    // the one-shot measure above plus the content effect below.
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => requestAnimationFrame(measureLayout));
-    if (rightColRef) ro.observe(rightColRef);
-    onCleanup(() => ro.disconnect());
-  });
-
-  // Re-measure when panel CONTENT changes (repos/files loaded, folder navigated).
-  createEffect(() => {
-    // Track content sources so the split re-measures when they change. Optional
-    // chaining keeps this safe against partial store stubs in tests.
-    void githubStore.repos?.length;
-    void githubStore.loading;
-    void githubStore.connected;
-    void githubStore.enabled;
-    void storageStore.objects?.length;
-    void storageStore.prefixes?.length;
-    void storageStore.loading;
-    requestAnimationFrame(measureLayout);
+    let raf = 0;
+    const schedule = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(measureLayout); };
+    schedule();
+    // Re-measure on two triggers: the column's own box resizing (viewport /
+    // orientation), and its CONTENT changing (repos/files loaded, folder navigated,
+    // in-panel search filtered). A ResizeObserver only sees the column's own box, so
+    // it misses content changes — those alter the inner scrollHeight, not the column
+    // size. A MutationObserver on the subtree catches the row add/removes an in-panel
+    // search produces, which the child components filter via their own local signals
+    // this component cannot reach. Both degrade gracefully when absent (jsdom).
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null;
+    const mo = typeof MutationObserver !== 'undefined' ? new MutationObserver(schedule) : null;
+    if (rightColRef) {
+      ro?.observe(rightColRef);
+      mo?.observe(rightColRef, { childList: true, subtree: true });
+    }
+    onCleanup(() => { ro?.disconnect(); mo?.disconnect(); cancelAnimationFrame(raf); });
   });
 
   onMount(() => {

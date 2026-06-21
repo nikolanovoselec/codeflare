@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { decidePanelLayoutMode, naturalPanelHeight } from '../../lib/panel-allocation';
+import { decidePanelLayoutMode } from '../../lib/panel-allocation';
 
 // Adaptive GitHub/Storage panel split — REQ-GITHUB-009 (repo list adaptive
 // viewport) and REQ-GITHUB-010 (split <-> single-panel flip).
@@ -31,19 +31,5 @@ describe('decidePanelLayoutMode', () => {
   it('defaults to split before measurement (zero dimensions never flash flip)', () => {
     expect(decidePanelLayoutMode({ width: 0, height: 0, minPanelHeight: minPanel })).toBe('split');
     expect(decidePanelLayoutMode({ width: 0, height: 100, minPanelHeight: minPanel })).toBe('split');
-  });
-});
-
-describe('naturalPanelHeight', () => {
-  it('is chrome plus rows times row height', () => {
-    expect(naturalPanelHeight(120, 5, 52)).toBe(380);
-  });
-
-  it('clamps negative row counts to zero rows', () => {
-    expect(naturalPanelHeight(120, -3, 52)).toBe(120);
-  });
-
-  it('is just the chrome when there are no rows', () => {
-    expect(naturalPanelHeight(96, 0, 52)).toBe(96);
   });
 });

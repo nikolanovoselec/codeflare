@@ -323,7 +323,7 @@ When `STRESS_TEST_MODE` is set to `"active"`, all HTTP and WebSocket rate limits
 
 ### Content-Disposition Hardening
 
-File download responses use `Content-Disposition: attachment` with sanitized filenames. Special characters are stripped and filenames are truncated to prevent header injection.
+File download responses set `Content-Disposition: attachment` with sanitized filenames by default — special characters are stripped before encoding and filenames truncated to prevent header injection ([REQ-SEC-013](../../sdd/spec/security.md#req-sec-013-content-disposition-hardening-on-downloads)). When the caller passes `?disposition=inline`, the endpoint serves the file for in-browser viewing. To prevent stored-XSS against the app's own origin, the inline `Content-Type` is derived from the file extension via a strict allowlist (`safeInlineContentType` in `src/routes/storage/download.ts`: images and PDF keep their real type, everything else is forced to `text/plain; charset=utf-8`) rather than from R2's stored metadata, and `X-Content-Type-Options: nosniff` is always set on inline responses so the browser cannot sniff `text/plain` into executable HTML or SVG.
 
 ### Input Validation (atob)
 
