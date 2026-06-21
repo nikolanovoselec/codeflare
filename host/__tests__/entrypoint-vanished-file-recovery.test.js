@@ -172,7 +172,7 @@ describe('entrypoint.sh recover_vanished_files behavior (real) / REQ-STOR-004 AC
     assert.equal(
       occurrences,
       1,
-      'the same vanished path must appear exactly once even across repeated recovery passes (grep -qF dedupe guard)',
+      'the same vanished path must appear exactly once even across repeated recovery passes (grep -qxF -- dedupe guard)',
     );
   });
 });
