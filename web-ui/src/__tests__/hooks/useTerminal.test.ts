@@ -774,6 +774,49 @@ describe('useTerminal hook', () => {
       vi.useRealTimers();
     });
 
+    it('REQ-MOB-001 AC6: skips the keyboard refit (no fit, no PTY resize) when the container has zero visible height', async () => {
+      vi.useFakeTimers();
+
+      // Inactive / hidden pane: container reports zero height. The layout
+      // recalculation must be skipped to avoid corrupting row math.
+      Object.defineProperty(containerEl, 'clientHeight', { value: 0, configurable: true });
+
+      const isTouchDeviceMock = vi.mocked(isTouchDevice);
+      const getKeyboardHeightMock = vi.mocked(getKeyboardHeight);
+      const isVirtualKeyboardOpenMock = vi.mocked(isVirtualKeyboardOpen);
+
+      isTouchDeviceMock.mockReturnValue(true);
+
+      const [kbHeight, setKbHeight] = createSignal(0);
+      const [kbOpen, setKbOpen] = createSignal(false);
+      getKeyboardHeightMock.mockImplementation(() => kbHeight());
+      isVirtualKeyboardOpenMock.mockImplementation(() => kbOpen());
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      mockFit.mockClear();
+      mockScrollToBottom.mockClear();
+      vi.mocked(terminalStore.resize).mockClear();
+
+      // Keyboard opens, but the container is zero-height.
+      setKbHeight(300);
+      setKbOpen(true);
+      await vi.advanceTimersByTimeAsync(200);
+
+      // Both the leading-edge microtask fit and the trailing-edge debounced fit
+      // are guarded by `clientHeight === 0` → no fit, no scroll, no PTY resize.
+      expect(mockFit).not.toHaveBeenCalled();
+      expect(mockScrollToBottom).not.toHaveBeenCalled();
+      expect(terminalStore.resize).not.toHaveBeenCalled();
+
+      dispose();
+      vi.useRealTimers();
+    });
+
     it('should skip fitAddon.fit() in active-state effect when kbDebouncePending is true', async () => {
       vi.useFakeTimers();
 
@@ -852,6 +895,41 @@ describe('useTerminal hook', () => {
       );
 
       dispose();
+    });
+
+    it('REQ-MOB-002 AC6: swaps a textarea created during terminal.open() for a password input and restores createElement afterward', () => {
+      vi.mocked(isTouchDevice).mockReturnValue(true);
+
+      const origCreateElement = document.createElement.bind(document);
+      let createdDuringOpen: HTMLElement | undefined;
+
+      // initializeTerminal installs the createElement monkey-patch, calls
+      // term.open(container), then restores createElement in a finally block.
+      // Drive a textarea creation *during* open() so the patch is exercised.
+      mockTerminalOpen.mockImplementationOnce(() => {
+        createdDuringOpen = document.createElement('textarea');
+      });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // The textarea request was intercepted and turned into a password input
+      // (so the mobile OS suppresses autocorrect), with focus neutralized.
+      expect(createdDuringOpen).toBeDefined();
+      expect(createdDuringOpen!.tagName).toBe('INPUT');
+      expect(createdDuringOpen!.getAttribute('type')).toBe('password');
+
+      // The patch is scoped to open(): afterward, creating a textarea yields a
+      // real textarea again (createElement was restored).
+      const afterOpen = document.createElement('textarea');
+      expect(afterOpen.tagName).toBe('TEXTAREA');
+
+      dispose();
+      // Restore in case the assertion above ran before restoration (defensive).
+      document.createElement = origCreateElement;
     });
 
     it('setupMobileTerminal is called when touch device detected', async () => {

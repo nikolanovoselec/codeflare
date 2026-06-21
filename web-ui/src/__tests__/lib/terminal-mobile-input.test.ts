@@ -18,6 +18,9 @@ import {
   resolveKeyAction,
   FUNCTIONAL_KEY_MAP,
   releaseKeyboardOnBlur,
+  activateStickyCtrl,
+  deactivateStickyCtrl,
+  isStickyCtrlActive,
 } from '../../lib/terminal-mobile-input';
 import { disableVirtualKeyboardOverlay, isFocusOnTerminalInput } from '../../lib/mobile';
 
@@ -191,6 +194,59 @@ describe('resolveKeyAction', () => {
       const result = resolveKeyAction('Shift', false, false);
       expect(result).toEqual({ type: 'none' });
     });
+  });
+});
+
+describe('sticky Ctrl / REQ-MOB-006 (sticky Ctrl button state machine)', () => {
+  beforeEach(() => {
+    // Module state is shared across tests — clear any leftover sticky state.
+    deactivateStickyCtrl();
+  });
+
+  it('REQ-MOB-006 AC2: activateStickyCtrl enters the sticky state so the next key is Ctrl-modified', () => {
+    expect(isStickyCtrlActive()).toBe(false);
+    activateStickyCtrl();
+    expect(isStickyCtrlActive()).toBe(true);
+  });
+
+  it('REQ-MOB-006 AC4: deactivateStickyCtrl resets the state (single-use sticky behavior)', () => {
+    activateStickyCtrl();
+    expect(isStickyCtrlActive()).toBe(true);
+
+    deactivateStickyCtrl();
+    expect(isStickyCtrlActive()).toBe(false);
+  });
+
+  it('REQ-MOB-006 AC4: deactivateStickyCtrl invokes the onDeactivate callback so the button visual resets', () => {
+    const onDeactivate = vi.fn();
+    activateStickyCtrl(onDeactivate);
+
+    expect(onDeactivate).not.toHaveBeenCalled();
+    deactivateStickyCtrl();
+    expect(onDeactivate).toHaveBeenCalledTimes(1);
+  });
+
+  it('REQ-MOB-006 AC4: the deactivation callback fires at most once (single-use, not re-fired on a second deactivate)', () => {
+    const onDeactivate = vi.fn();
+    activateStickyCtrl(onDeactivate);
+
+    deactivateStickyCtrl();
+    deactivateStickyCtrl();
+
+    expect(onDeactivate).toHaveBeenCalledTimes(1);
+    expect(isStickyCtrlActive()).toBe(false);
+  });
+
+  it('REQ-MOB-006 AC2: a fresh activation without a callback does not re-run a previous callback on deactivate', () => {
+    const firstCallback = vi.fn();
+    activateStickyCtrl(firstCallback);
+    deactivateStickyCtrl();
+    expect(firstCallback).toHaveBeenCalledTimes(1);
+
+    // Re-activate WITHOUT a callback; deactivating must not re-invoke the stale one.
+    activateStickyCtrl();
+    deactivateStickyCtrl();
+    expect(firstCallback).toHaveBeenCalledTimes(1);
   });
 });
 
