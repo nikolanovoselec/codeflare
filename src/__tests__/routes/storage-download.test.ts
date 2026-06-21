@@ -212,7 +212,7 @@ describe('Storage Download Routes', () => {
       expect(encodedPart).not.toContain('%0A');
     });
 
-    it('serves an inline image with its real type, inline disposition, and nosniff', async () => {
+    it('REQ-STOR-007: serves an inline image with its real type, inline disposition, and nosniff', async () => {
       const app = createTestApp();
 
       const res = await app.request('/download?key=pics/cover.png&disposition=inline');

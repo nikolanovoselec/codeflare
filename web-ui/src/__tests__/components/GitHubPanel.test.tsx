@@ -336,7 +336,7 @@ describe('GitHubPanel Component', () => {
     expect(onFlip).toHaveBeenCalledTimes(1);
   });
 
-  it('omits the flip control when onFlip is not provided', async () => {
+  it('REQ-GITHUB-010: omits the flip control when onFlip is not provided', async () => {
     mockGetGithubStatus.mockResolvedValueOnce({ enabled: true, connected: false });
 
     render(() => <GitHubPanel />);
