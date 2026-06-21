@@ -336,6 +336,6 @@ None.
 
 **Dependencies:** [REQ-GITHUB-002](#req-github-002-github-panel-and-repository-listing), [REQ-GITHUB-009](#req-github-009-github-repository-list-viewport-and-empty-states)
 
-**Verification:** [Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx)
+**Verification:** [Panel test](../../web-ui/src/__tests__/components/GitHubPanel.test.tsx), [Mobile test](../../web-ui/src/__tests__/lib/mobile.test.ts)
 
 **Status:** Implemented
