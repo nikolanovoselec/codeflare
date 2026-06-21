@@ -65,3 +65,40 @@ describe('FileList — special folder surfaces its container path on the row', (
     expect(meta.textContent?.trim()).toBe('~/Vault');
   });
 });
+
+describe('FileList — every folder surfaces its ~/ container path (REQ-STOR-016)', () => {
+  it('renders ~/<prefix> for a regular root folder', () => {
+    const { container } = render(() => (
+      <FileList {...makeProps({ objects: [], prefixes: ['Documentation/'] })} />
+    ));
+    const meta = container.querySelector('[data-testid="folder-path-Documentation"]') as HTMLElement;
+    expect(meta).toBeTruthy();
+    expect(meta.textContent?.trim()).toBe('~/Documentation');
+  });
+
+  it('renders the full path for a nested subfolder (carries its whole prefix)', () => {
+    const { container } = render(() => (
+      <FileList {...makeProps({ objects: [], prefixes: ['Documentation/guides/'] })} />
+    ));
+    const meta = container.querySelector('[data-testid="folder-path-guides"]') as HTMLElement;
+    expect(meta).toBeTruthy();
+    expect(meta.textContent?.trim()).toBe('~/Documentation/guides');
+  });
+
+  it('renders the path for a dotfolder', () => {
+    const { container } = render(() => (
+      <FileList {...makeProps({ objects: [], prefixes: ['.claude/'] })} />
+    ));
+    const meta = container.querySelector('[data-testid="folder-path-.claude"]') as HTMLElement;
+    expect(meta).toBeTruthy();
+    expect(meta.textContent?.trim()).toBe('~/.claude');
+  });
+
+  it('does not render the generic path meta for a special folder (keeps its exact containerPath only)', () => {
+    const { container } = render(() => (
+      <FileList {...makeProps({ objects: [], prefixes: ['Vault/'] })} />
+    ));
+    expect(container.querySelector('[data-testid="folder-path-Vault"]')).toBeNull();
+    expect(container.querySelector('[data-testid="special-folder-path-vault"]')).toBeTruthy();
+  });
+});

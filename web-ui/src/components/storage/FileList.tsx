@@ -56,6 +56,13 @@ const getFolderName = (prefix: string): string => {
 // Display form of a special folder's in-container path: /home/user/Vault → ~/Vault.
 const shortContainerPath = (path: string): string => path.replace(/^\/home\/user\//, '~/');
 
+// Every folder maps to a real in-container directory: the R2 bucket bisyncs to the
+// home root, so a folder's container path is just ~/<prefix>. Works at any depth
+// (subfolders carry their full prefix) and for dotfolders (~/.claude/...). Special
+// folders keep their exact containerPath instead (its case can differ, e.g. the
+// R2 prefix workspace/ materialises at ~/Workspace).
+const folderShortPath = (prefix: string): string => `~/${prefix.replace(/\/+$/, '')}`;
+
 const FileList: Component<FileListProps> = (props) => {
   return (
     <div
@@ -95,6 +102,11 @@ const FileList: Component<FileListProps> = (props) => {
               </Show>
               <span class="storage-item-icon-dot" />
               <span class="storage-item-name">{getFolderName(prefix)}</span>
+              <Show when={!getSpecialFolder(prefix)}>
+                <span class="storage-item-folder-meta" data-testid={`folder-path-${rawName}`}>
+                  {folderShortPath(prefix)}
+                </span>
+              </Show>
               <Show when={getSpecialFolder(prefix)} keyed>
                 {(special: SpecialFolder) => (
                   <>
