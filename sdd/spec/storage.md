@@ -223,6 +223,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 3. The download endpoint returns file contents as an attachment with a sanitized filename. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @test: src/__tests__/routes/storage-download.test.ts (download endpoint) -->
 4. The delete endpoint removes objects by key and/or prefix in a single server-side bulk operation. <!-- @impl: src/routes/storage/delete.ts --> <!-- @test: src/__tests__/routes/storage-delete.test.ts (delete endpoint) -->
 5. The preview endpoint returns text content inline for text files and metadata-only for other types. <!-- @impl: src/routes/storage/preview.ts --> <!-- @test: src/__tests__/routes/storage-preview.test.ts (preview endpoint) -->
+6. On request, the download endpoint serves a file inline for in-browser viewing rather than as an attachment; user-supplied HTML or SVG is served as inert text so it cannot execute in the user's session. <!-- @impl: src/routes/storage/download.ts::safeInlineContentType --> <!-- @test: src/__tests__/routes/storage-download.test.ts (safeInlineContentType) -->
 
 **Constraints:**
 
@@ -464,6 +465,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. The file browser renders as a slide-in side drawer on desktop and a bottom-sheet on mobile. <!-- @impl: web-ui/src/components/StorageBrowser.tsx::StorageBrowser --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (StorageBrowser describe) -->
 2. The file browser reads directly from R2 via the Worker API (not from the container filesystem). <!-- @impl: web-ui/src/components/StorageBrowser.tsx::StorageBrowser --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (StorageBrowser describe) -->
 3. The browse endpoint validates the requested prefix against directory-traversal probes and rejects parent-directory references. <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/routes/storage-browse.test.ts (Storage Browse Routes describe) -->
+4. Clicking a file in the browser opens it inline in a new browser tab (view) rather than downloading it. <!-- @impl: web-ui/src/components/storage/FileList.tsx --> <!-- @test: web-ui/src/__tests__/components/FileList.test.tsx (clicking a file opens it in a new tab) -->
+5. A special folder row surfaces its in-container path so the user can see where the folder maps. <!-- @impl: web-ui/src/components/storage/FileList.tsx::shortContainerPath --> <!-- @test: web-ui/src/__tests__/components/FileList.test.tsx (special folder surfaces its container path) -->
 
 **Constraints:**
 

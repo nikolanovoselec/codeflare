@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { decidePanelLayoutMode, naturalPanelHeight } from '../../lib/panel-allocation';
 
+// Adaptive GitHub/Storage panel split — REQ-GITHUB-009 (repo list adaptive
+// viewport) and REQ-GITHUB-010 (split <-> single-panel flip).
+
 describe('decidePanelLayoutMode', () => {
   const minPanel = 300; // chrome + minRows worth of height for one panel
 

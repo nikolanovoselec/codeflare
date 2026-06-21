@@ -242,6 +242,7 @@ describe('Storage Download Routes', () => {
     });
   });
 
+  // REQ-STOR-007: inline (view-in-tab) Content-Type safety.
   describe('safeInlineContentType', () => {
     it('maps known image extensions to their image type (case-insensitive)', () => {
       expect(safeInlineContentType('a.png')).toBe('image/png');

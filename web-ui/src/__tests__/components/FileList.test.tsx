@@ -4,6 +4,9 @@ import type { ComponentProps } from 'solid-js';
 import FileList from '../../components/storage/FileList';
 import { getViewUrl } from '../../api/storage';
 
+// REQ-STOR-016: file browser presentation — file-click opens a view tab; special
+// folders surface their container path.
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();

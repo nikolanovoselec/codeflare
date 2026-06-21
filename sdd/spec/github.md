@@ -265,11 +265,11 @@ None.
 1. A connected account with zero repositories shows the repository-panel empty state. <!-- @impl: web-ui/src/components/github/RepoList.tsx::RepoList --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (no-repositories empty state shown only when account has no repos) -->
 2. Search with no matching repositories shows the search-empty state. <!-- @impl: web-ui/src/components/github/RepoList.tsx::RepoList --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (search-empty kept distinct from no-repositories via data-empty-state) -->
 3. The repo list renders every fetched repository inside a scroll container. <!-- @impl: web-ui/src/components/github/RepoList.tsx::RepoList --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (renders every repo inside the scroll container, cap is a CSS viewport not truncation) -->
-4. The visible viewport caps rows by breakpoint: seven desktop rows and five tablet/mobile rows before scrolling. <!-- @impl: web-ui/src/styles/github-panel.css::.github-repo-rows --> <!-- coverage-gap: row caps are CSS px viewports, not unit-asserted in jsdom (per Constraints) -->
+4. The repo list flexes to the height its panel is allotted by the adaptive GitHub/Storage split and scrolls the overflow, rather than capping at a fixed per-breakpoint row count. <!-- @impl: web-ui/src/styles/github-panel.css::.github-repo-rows --> <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @test: web-ui/src/__tests__/lib/panel-allocation.test.ts (decidePanelLayoutMode) -->
 
 **Constraints:**
 
-- The row caps are CSS viewports, not data limits; px caps are not unit-asserted in jsdom.
+- The list never truncates fetched repos; its height is an adaptive viewport set by the split allocation, not a data limit. The pixel allocation is flex/CSS, not unit-asserted in jsdom.
 
 **Priority:** P1
 
@@ -290,9 +290,10 @@ None.
 **Acceptance Criteria:**
 
 1. On mobile, the header flip control swaps GitHub and R2 storage in place when GitHub is available. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (mobile flip control appears only when onFlip provided, and fires it) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (mobile right-column flips GitHub<->storage when enabled) -->
-2. On desktop, both panels stack and the flip control is hidden. <!-- @impl: web-ui/src/styles/dashboard.css::.panel-flip-face --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (omits the flip control when onFlip is not provided) -->
+2. On desktop and tablet both panels stack as an adaptive split; the single-panel flip control is hidden there and appears only when the column collapses to one panel. <!-- @impl: web-ui/src/styles/dashboard.css::.panel-flip-face --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (omits the flip control when onFlip is not provided) -->
 3. If GitHub is unavailable, R2 storage is the sole mobile right-column face. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (storage face forced active when GitHub disabled) -->
 4. When GitHub is available, the storage face carries a matching header and flip-back control. <!-- @impl: web-ui/src/components/Dashboard.tsx::effectiveFace --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (defaults to GitHub face and offers the storage back-button when enabled) -->
+5. The column collapses to a single panel with a flip control when it is narrower than the mobile breakpoint or too short to show both panels usably. <!-- @impl: web-ui/src/lib/panel-allocation.ts::decidePanelLayoutMode --> <!-- @impl: web-ui/src/components/Dashboard.tsx::measureLayout --> <!-- @test: web-ui/src/__tests__/lib/panel-allocation.test.ts (decidePanelLayoutMode) -->
 
 **Constraints:**
 
