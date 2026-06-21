@@ -167,13 +167,19 @@ describe('REQ-TERM-002 AC4: raw PTY output reaches clients without JSON wrapping
 // ── REQ-TERM-002 AC5: host control messages are JSON with a `type` field ────
 
 describe('REQ-TERM-002 AC5: host-originated control frames are typed JSON', () => {
-  it('attach() sends a restore frame as JSON carrying type="restore" once buffer has state', () => {
+  it('attach() sends a restore frame as JSON carrying type="restore" once buffer has state', async () => {
     const session = new Session('sess-7', 'Terminal');
     const first = createWs();
     session.attach(first); // spawns PTY, real headless terminal now buffers output
 
     // Feed real PTY output so the headless serialize addon has state to restore.
     lastSpawn.pty.emitData('echo seeded-output\r\n');
+
+    // @xterm/headless parses writes on its own async write queue, so serialize()
+    // only reflects the fed data after that queue drains. Yield a macrotask so
+    // the buffer is parsed before the next attach serializes it (also lets the
+    // headless write timer settle so the test file exits instead of timing out).
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     const second = createWs();
     session.attach(second);
