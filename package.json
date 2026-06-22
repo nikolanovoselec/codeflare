@@ -48,11 +48,11 @@
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "4.1.8",
     "fast-check": "^4.8.0",
-    "knip": "^6.16.1",
-    "oxlint": "^1.69.0",
+    "knip": "^6.17.1",
+    "oxlint": "^1.70.0",
     "puppeteer": "^25.1.0",
     "typescript": "^6.0.3",
     "vitest": "4.1.8",
-    "wrangler": "4.99.0"
+    "wrangler": "4.101.0"
   }
 }

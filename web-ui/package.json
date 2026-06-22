@@ -26,10 +26,10 @@
   "devDependencies": {
     "@solidjs/testing-library": "^0.8.10",
     "@testing-library/jest-dom": "^6.9.1",
-    "@types/node": "^25.9.2",
+    "@types/node": "^25.9.3",
     "fast-check": "^4.8.0",
     "jsdom": "^29.1.1",
-    "knip": "^6.16.1",
+    "knip": "^6.17.1",
     "oxlint": "^1.70.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.16",
