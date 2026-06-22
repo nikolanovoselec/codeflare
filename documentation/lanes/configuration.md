@@ -106,7 +106,7 @@ These env vars tune the graphify knowledge-graph build/update tooling. All are o
 
 ### GitHub Integration
 
-The GitHub panel lets a connected user browse and clone their repositories and lets the in-session agent act with the user's GitHub permissions. The repo panel is available in every mode; outside enterprise it is gated to the `advanced` session (enforced in the dashboard, `sessionMode === 'advanced'`, matching the Vault). **Connect/disconnect are decoupled from that gate** — they are `authMiddleware`-only, reachable by any authenticated user from Guided Setup + the Settings accordion even when the panel is hidden ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)).
+The GitHub panel lets a connected user browse and clone their repositories and lets the in-session agent act with the user's GitHub permissions. The repo panel is available in every mode and renders whenever GitHub is enabled — there is no session-tier gate; it is the default right-column face on every session (the Connect card included until connected). **Connect/disconnect are decoupled from GitHub being enabled** — they are `authMiddleware`-only, reachable by any authenticated user from Guided Setup + the Settings accordion even when the panel is not shown ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)).
 
 Connect uses one of two providers, selected by precedence ([REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage)): a configured **GitHub App** takes precedence over the **OAuth App**. With neither configured the integration is unavailable and `/api/github/connect` returns `503 GITHUB_NOT_CONFIGURED`.
 

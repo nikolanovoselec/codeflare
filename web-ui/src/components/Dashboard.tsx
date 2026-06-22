@@ -46,21 +46,15 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [collapseReady, setCollapseReady] = createSignal(false);
   const viewport = createTerminalViewportClass();
   const multiViewWorkspace = createMemo(() => terminalWorkspaceStore.reconcileMultiView(props.sessions, viewport()));
-  // Mobile-only: which right-column face is shown (GitHub vs R2 storage). The
-  // flip control in each panel header toggles it; desktop shows both stacked.
+  // Mobile-only: which single right-column face is visible (GitHub vs R2 storage).
+  // GitHub leads — whenever it is enabled it is the DEFAULT face (the Connect card
+  // until connected, the repo browser once connected), with a flip control to reach
+  // the storage browser; only when GitHub is disabled is storage the sole face. Keyed
+  // off `githubStore.enabled` alone — there is no session-tier gate. On tablet/desktop
+  // both faces stack as a split (more vertical room) and the flip controls are hidden
+  // by CSS, so there is nothing to flip. (REQ-GITHUB-007/010)
   const [panelFace, setPanelFace] = createSignal<'github' | 'storage'>('github');
-  // On mobile only one right-column face is visible at a time. The GitHub face is
-  // only a valid target when GitHub is enabled; when it is not (non-enterprise /
-  // onboarding) force the storage (R2) face so the empty GitHub panel can never
-  // become the active face and cover the file browser. (REQ-GITHUB-002)
-  // The GitHub repo panel is an advanced-session feature in non-enterprise modes
-  // (matches the Vault button gate, sessionMode === 'advanced'); enterprise shows it
-  // whenever the backend enables it. Connect itself is not gated here — it lives in
-  // Guided Setup + the Settings accordion and works for every user.
-  const githubPanelAvailable = () =>
-    githubStore.enabled &&
-    (sessionStore.enterpriseMode || sessionStore.preferences?.sessionMode === 'advanced');
-  const effectiveFace = () => (githubPanelAvailable() ? panelFace() : 'storage');
+  const effectiveFace = () => (githubStore.enabled ? panelFace() : 'storage');
   const [showCreateDialog, setShowCreateDialog] = createSignal(false);
   const [showLimitPopup, setShowLimitPopup] = createSignal(false);
   const [showUserMenu, setShowUserMenu] = createSignal(false);
@@ -133,10 +127,10 @@ const Dashboard: Component<DashboardProps> = (props) => {
     const mode = decidePanelLayoutMode({ width: window.innerWidth, height: right.clientHeight });
     setLayoutMode(mode);
     // Measured caps only make sense for the TWO-panel split. In flip mode, or when
-    // GitHub is unavailable (Storage is the sole face), there is no second panel to
-    // balance — clear the caps so the single face just fills the column instead of
-    // capping to its content and leaving empty space.
-    if (mode === 'flip' || !githubPanelAvailable()) {
+    // GitHub is disabled (Storage is the sole face — the GitHub face is not rendered),
+    // there is no second panel to balance — clear the caps so the single face just
+    // fills the column instead of capping to its content and leaving empty space.
+    if (mode === 'flip' || !githubStore.enabled) {
       setGithubMaxH(null);
       setStorageMaxH(null);
       return;
@@ -177,6 +171,14 @@ const Dashboard: Component<DashboardProps> = (props) => {
   onMount(() => {
     sessionStore.startR2Polling();
     storageStore.fetchStats();
+
+    // Load GitHub status here, OUTSIDE the GitHub panel. The right-column GitHub
+    // face only renders when `githubStore.enabled`, and `enabled` is set by
+    // loadStatus() — if that call lived only in GitHubPanel.onMount it would never
+    // run while the panel is unmounted, so an enabled instance would never reveal
+    // its panel (the connect card included). Kicking it off from the always-mounted
+    // Dashboard breaks that deadlock. Best-effort; never blocks. (REQ-GITHUB-007)
+    void githubStore.loadStatus?.();
 
     // REQ-MEM-001 AC4: capture the browser's IANA timezone and sync it
     // to the user's preferences so the next session start propagates
@@ -454,7 +456,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
             data-layout={layoutMode() === 'flip' ? 'flip' : undefined}
             ref={rightColRef}
           >
-            <Show when={githubPanelAvailable()}>
+            <Show when={githubStore.enabled}>
               <div
                 class="panel-flip-face panel-flip-face--github"
                 data-active={effectiveFace() === 'github'}
@@ -468,9 +470,9 @@ const Dashboard: Component<DashboardProps> = (props) => {
               class="panel-flip-face panel-flip-face--storage"
               data-active={effectiveFace() === 'storage'}
               ref={storageFaceRef}
-              style={layoutMode() !== 'flip' && githubPanelAvailable() && storageMaxH() != null ? { 'max-height': `${storageMaxH()}px` } : undefined}
+              style={layoutMode() !== 'flip' && githubStore.enabled && storageMaxH() != null ? { 'max-height': `${storageMaxH()}px` } : undefined}
             >
-              <Show when={githubPanelAvailable()}>
+              <Show when={githubStore.enabled}>
                 <div class="files-panel-header" data-testid="files-panel-header">
                   <h2 class="files-panel-title" data-testid="files-panel-title">Storage Browser</h2>
                   <IconButton

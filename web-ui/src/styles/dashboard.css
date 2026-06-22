@@ -54,6 +54,28 @@
   border: none;
 }
 
+/* Dashboard (non-expanded) panel: a centered card, not a full-bleed sheet.
+   `flex: 0 0 auto` stops the column-flex wrapper from stretching the panel to the
+   full viewport height (the "brown panel extending down" bug); `margin: auto 0`
+   then centres the content-sized card vertically in the stretched wrapper. The card
+   hugs its content up to the viewport (`max-height: 100%`), past which the inner
+   regions scroll (session list / repo & file lists). The `--expanded` session view
+   is excluded so it keeps `flex: 1` + full height for the launch animation. On
+   tablet/desktop a fixed 80vh gives the GitHub/Storage split a definite height to
+   divide and keeps the dashboard off the screen edges; mobile stays content-sized.
+   (REQ-GITHUB-010) */
+.dashboard-panel:not(.dashboard-panel--expanded) {
+  flex: 0 0 auto;
+  max-height: 100%;
+  margin: auto 0;
+}
+
+@media (min-width: 600px) {
+  .dashboard-panel:not(.dashboard-panel--expanded) {
+    height: 80vh;
+  }
+}
+
 /* Integrated Panel Header */
 .dashboard-panel-header {
   display: flex;
@@ -305,15 +327,15 @@
     /* Size to content up to the cap so a short panel — the connect card or a few
        repos — collapses instead of reserving the whole column; overflow scrolls
        inside the list (.github-repo-rows / .storage-drop-zone). flex:0 0 auto stops
-       the column from stretching the panel to fill the viewport when it is short. */
+       the column from stretching the panel to fill the viewport when it is short.
+       ONE shared cap for both faces: mobile is a flip (only one face is visible at a
+       time), so GitHub and Storage must cap identically — otherwise flipping would
+       resize the panel. The face stays content-sized below the cap and scrolls its
+       inner list above it. */
     flex: 0 0 auto;
     min-height: 0;
-    max-height: 50vh;
-    overflow: hidden;
-  }
-
-  .dashboard-panel-right[data-face="github"] {
     max-height: 75vh;
+    overflow: hidden;
   }
 
   /* Mobile: one face at a time; flipping swaps GitHub ↔ R2 with an up→down flip. */

@@ -52,13 +52,19 @@ vi.mock('../../components/github/GitHubPanel', () => ({
   )
 }));
 
-// Controllable GitHub enablement for the right-column face logic.
-vi.mock('../../stores/github', () => {
-  let _enabled = false;
+// Controllable GitHub enablement for the right-column face logic. `enabled` is a real
+// reactive signal so a test can flip it DURING mount (e.g. from inside loadStatus) and
+// watch the GitHub face appear — proving the deadlock fix end-to-end, not just the call.
+vi.mock('../../stores/github', async () => {
+  const { createSignal } = await vi.importActual<typeof import('solid-js')>('solid-js');
+  const [enabled, setEnabled] = createSignal(false);
   return {
     githubStore: {
-      get enabled() { return _enabled; },
-      _setEnabled: (v: boolean) => { _enabled = v; },
+      get enabled() { return enabled(); },
+      _setEnabled: (v: boolean) => setEnabled(v),
+      // Dashboard kicks this off on mount to break the enabled-gates-the-panel
+      // deadlock (status is loaded outside the gated GitHub panel).
+      loadStatus: vi.fn(),
     },
   };
 });
@@ -286,6 +292,28 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(sessionStore.startR2Polling).toHaveBeenCalledTimes(1);
   });
 
+  it('REQ-GITHUB-007: loads GitHub status from the Dashboard on mount so the enabled-gated GitHub panel is not deadlocked', () => {
+    render(() => <Dashboard {...defaultProps} />);
+
+    // Status load is kicked off OUTSIDE the gated GitHub panel — otherwise an enabled
+    // instance would never set `enabled`, so its panel (and connect card) never appears.
+    expect(githubStore.loadStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('REQ-GITHUB-007: the Dashboard-triggered status load that enables GitHub reveals the GitHub face (deadlock fix, end-to-end)', () => {
+    // Start disabled (the deadlock state: if status only loaded inside the gated panel
+    // the face would never appear). The mocked loadStatus stands in for the real one —
+    // when the Dashboard calls it on mount it flips enabled false→true, exactly as the
+    // real store does after GET /status — and the GitHub face must then appear as default.
+    (githubStore as any)._setEnabled(false);
+    (githubStore.loadStatus as any).mockImplementationOnce(() => { (githubStore as any)._setEnabled(true); });
+    render(() => <Dashboard {...defaultProps} />);
+
+    const right = screen.getByTestId('dashboard-panel-right');
+    expect(right.querySelector('.panel-flip-face--github')).not.toBeNull();
+    expect(right.getAttribute('data-face')).toBe('github');
+  });
+
   it('does not sweep Vault IndexedDB caches from the non-authoritative dashboard session props', () => {
     render(() => <Dashboard {...defaultProps} sessions={[]} />);
 
@@ -418,14 +446,17 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(screen.getByTestId('files-panel-header')).toBeInTheDocument();
   });
 
-  it('REQ-GITHUB-007: hides the GitHub face for a non-advanced non-enterprise session even when enabled (advanced gate)', () => {
+  it('REQ-GITHUB-007: renders the GitHub face as the default for a standard (non-advanced, non-enterprise) session whenever GitHub is enabled — no session-tier gate', () => {
     (githubStore as any)._setEnabled(true);
-    (sessionStore as any)._setSessionMode('standard'); // not advanced
+    (sessionStore as any)._setSessionMode('standard'); // not advanced, not enterprise
     render(() => <Dashboard {...defaultProps} />);
 
     const right = screen.getByTestId('dashboard-panel-right');
-    expect(right.getAttribute('data-face')).toBe('storage');
-    expect(screen.queryByTestId('storage-flip-btn')).not.toBeInTheDocument();
+    // The GitHub face is rendered and leads — the advanced/enterprise gate is gone,
+    // so a plain enabled session still gets the GitHub browser (connect card included).
+    expect(right.querySelector('.panel-flip-face--github')).not.toBeNull();
+    expect(right.getAttribute('data-face')).toBe('github');
+    expect(screen.getByTestId('storage-flip-btn')).toBeInTheDocument();
   });
 
   it('REQ-GITHUB-007: shows the GitHub face for an enterprise session regardless of session mode', () => {
@@ -435,6 +466,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     render(() => <Dashboard {...defaultProps} />);
 
     const right = screen.getByTestId('dashboard-panel-right');
+    expect(right.querySelector('.panel-flip-face--github')).not.toBeNull();
     expect(right.getAttribute('data-face')).toBe('github');
   });
 

@@ -75,7 +75,7 @@ User clicks "Sign in with GitHub" on /login
 
 ### Connect GitHub (link mode)
 
-"Connect GitHub" is an explicit, additive action - a button in the GitHub panel, separate from login. It is **never** the Codeflare login. Login stays Cloudflare Access (enterprise) or the existing mode; Connect only authorizes Codeflare to act as the user on GitHub. The repo panel is available in every mode; outside enterprise it is gated to the `advanced` session in the dashboard frontend. Connect/disconnect are `authMiddleware`-only (any authenticated user), so they work from Guided Setup and the Settings accordion even when the panel is hidden ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)).
+"Connect GitHub" is an explicit, additive action - a button in the GitHub panel, separate from login. It is **never** the Codeflare login. Login stays Cloudflare Access (enterprise) or the existing mode; Connect only authorizes Codeflare to act as the user on GitHub. The repo panel is available in every mode and renders whenever GitHub is enabled — there is no session-tier gate in the dashboard frontend. Connect/disconnect are `authMiddleware`-only (any authenticated user), so they work from Guided Setup and the Settings accordion even when the panel is not shown ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)).
 
 **Flow** ([REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage)):
 

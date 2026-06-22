@@ -64,7 +64,13 @@ const GitHubPanel: Component<GitHubPanelProps> = (props) => {
         setReturnError(RETURN_ERRORS[github]);
       }
     }
-    void githubStore.loadStatus();
+    // Only load status if it has not already been loaded. The Dashboard now kicks
+    // off loadStatus() on its own mount (to break the enabled-gates-the-panel
+    // deadlock), so by the time this panel mounts status is already loaded; loading
+    // it again would fire a second /status (+ /repos for a connected user) whose
+    // failure could clobber the first success and hide the loaded rows behind an
+    // error. Standalone use (no prior load) still loads here. (REQ-GITHUB-007)
+    if (!githubStore.statusLoaded) void githubStore.loadStatus();
   });
 
   return (
