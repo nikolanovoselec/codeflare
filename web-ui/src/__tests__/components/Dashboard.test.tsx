@@ -202,6 +202,10 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // clearAllMocks clears call history but NOT a queued mockImplementationOnce, so
+    // reset loadStatus fully — otherwise an unconsumed once-impl from one test could
+    // leak into the next. (The end-to-end deadlock test queues one such impl.)
+    vi.mocked(githubStore.loadStatus).mockReset();
     viewportMock.setViewport?.('desktop');
   });
 

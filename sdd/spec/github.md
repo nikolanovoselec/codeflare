@@ -57,7 +57,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 
 ### REQ-GITHUB-002: GitHub panel and repository listing
 
-**Intent:** A panel beside the R2 storage panel lets a user connect GitHub and browse the repositories they can access, gated by deployment mode and tier.
+**Intent:** A panel beside the R2 storage panel lets a user connect GitHub and browse the repositories they can access; it is the default right-column face on every session whenever GitHub is enabled, with no session-tier gate ([REQ-GITHUB-007](#req-github-007-broaden-the-panel-gate-beyond-enterprise)).
 
 **Applies To:** User
 
