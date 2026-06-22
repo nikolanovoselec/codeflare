@@ -92,56 +92,65 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [githubMaxH, setGithubMaxH] = createSignal<number | null>(null);
   const [storageMaxH, setStorageMaxH] = createSignal<number | null>(null);
 
-  // One usable panel = chrome (~120px) + at least 4 rows (52px); below twice that
-  // the column flips to a single panel.
-  const MIN_PANEL_HEIGHT = 120 + 4 * 52;
-
   const measureNatural = (face: HTMLElement | undefined, scrollSel: string): number | null => {
     if (!face) return null;
     const scroller = face.querySelector<HTMLElement>(scrollSel);
     if (!scroller) return face.scrollHeight; // connect card / empty face: no inner scroll
-    // Chrome (header/search) is invariant under the applied max-height, so deriving
-    // it from the current boxes is stable; add the list's full scroll content.
+    // Measure the TRUE natural height with any max-height we previously set removed,
+    // so the measured value never depends on our own output. This fixed-point read
+    // is what makes a re-measure idempotent — and therefore the split loop-free.
+    const prev = face.style.maxHeight;
+    face.style.maxHeight = 'none';
     const chrome = Math.max(0, face.getBoundingClientRect().height - scroller.getBoundingClientRect().height);
-    return Math.ceil(chrome + scroller.scrollHeight);
+    const natural = Math.ceil(chrome + scroller.scrollHeight);
+    face.style.maxHeight = prev;
+    return natural;
   };
 
   const measureLayout = () => {
     const right = rightColRef;
     if (!right) return;
-    const mode = decidePanelLayoutMode({
-      width: right.clientWidth,
-      height: right.clientHeight,
-      minPanelHeight: MIN_PANEL_HEIGHT,
-    });
+    // width = VIEWPORT (mobile breakpoint, matches the CSS flip); height = the
+    // column's own box (too-short check). Never the column's measured WIDTH — the
+    // layout caps that small, so it would wrongly flip every tablet/laptop.
+    const mode = decidePanelLayoutMode({ width: window.innerWidth, height: right.clientHeight });
     setLayoutMode(mode);
     if (mode === 'flip') {
       setGithubMaxH(null);
       setStorageMaxH(null);
       return;
     }
-    setGithubMaxH(measureNatural(githubFaceRef, '.github-repo-rows'));
-    setStorageMaxH(measureNatural(storageFaceRef, '.storage-drop-zone'));
+    const gh = measureNatural(githubFaceRef, '.github-repo-rows');
+    const st = measureNatural(storageFaceRef, '.storage-drop-zone');
+    // Idempotent write: a redundant trigger that re-measures the same value is a no-op.
+    setGithubMaxH((p) => (p === gh ? p : gh));
+    setStorageMaxH((p) => (p === st ? p : st));
   };
 
   onMount(() => {
+    const right = rightColRef;
+    if (!right) return;
     let raf = 0;
     const schedule = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(measureLayout); };
-    schedule();
-    // Re-measure on two triggers: the column's own box resizing (viewport /
-    // orientation), and its CONTENT changing (repos/files loaded, folder navigated,
-    // in-panel search filtered). A ResizeObserver only sees the column's own box, so
-    // it misses content changes — those alter the inner scrollHeight, not the column
-    // size. A MutationObserver on the subtree catches the row add/removes an in-panel
-    // search produces, which the child components filter via their own local signals
-    // this component cannot reach. Both degrade gracefully when absent (jsdom).
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null;
-    const mo = typeof MutationObserver !== 'undefined' ? new MutationObserver(schedule) : null;
-    if (rightColRef) {
-      ro?.observe(rightColRef);
-      mo?.observe(rightColRef, { childList: true, subtree: true });
-    }
-    onCleanup(() => { ro?.disconnect(); mo?.disconnect(); cancelAnimationFrame(raf); });
+    // Re-measure on the two things that change the split. This is loop-free because
+    // measureLayout's measurement is a FIXED POINT (measureNatural reads the natural
+    // height with our own max-height removed), so a redundant re-measure returns the
+    // same value and the idempotent setters make it a no-op. (The #568 flicker came
+    // from measuring the face height WHILE our max-height was applied, so each measure
+    // perturbed the next — not from which element was observed.) The observers are also
+    // chosen so they cannot even see our writes:
+    //  - the column BOX resizing (viewport / orientation / header / banner reflow). The
+    //    column is `flex: 1; overflow: hidden`, sized by the OUTER layout, so the
+    //    max-height we set on its face CHILDREN can never change the column's own box.
+    //  - rows ADDED/REMOVED inside either panel (GitHub connect↔list↔load-more state,
+    //    storage show-hidden toggle, folder navigation, R2 readiness). childList only:
+    //    the max-height we set is a style ATTRIBUTE, which a childList observer ignores.
+    const ro = new ResizeObserver(schedule);
+    ro.observe(right);
+    const mo = new MutationObserver(schedule);
+    mo.observe(right, { childList: true, subtree: true });
+    schedule(); // initial measure
+    onCleanup(() => { ro.disconnect(); mo.disconnect(); cancelAnimationFrame(raf); });
   });
 
   onMount(() => {

@@ -451,6 +451,48 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(right.getAttribute('data-face')).toBe('github');
   });
 
+  it('REQ-GITHUB-010: wires the re-measure observers on the column box + row mutations, never watching the max-height (style) it writes (loop-free observer config)', () => {
+    const roTargets: Element[] = [];
+    const moCalls: Array<{ target: Element; options?: MutationObserverInit }> = [];
+    const RealRO = (globalThis as any).ResizeObserver;
+    const RealMO = (globalThis as any).MutationObserver;
+    class SpyRO { observe(el: Element) { roTargets.push(el); } unobserve() {} disconnect() {} }
+    class SpyMO {
+      observe(el: Element, options?: MutationObserverInit) { moCalls.push({ target: el, options }); }
+      disconnect() {} takeRecords() { return [] as MutationRecord[]; }
+    }
+    (globalThis as any).ResizeObserver = SpyRO;
+    (globalThis as any).MutationObserver = SpyMO;
+    try {
+      (githubStore as any)._setEnabled(true);
+      render(() => <Dashboard {...defaultProps} />);
+      const right = screen.getByTestId('dashboard-panel-right');
+      const githubFace = right.querySelector('.panel-flip-face--github')!;
+      const storageFace = right.querySelector('.panel-flip-face--storage')!;
+
+      // The re-measure IS wired — gutting the observers entirely must fail this test.
+      expect(roTargets).toContain(right);
+      const columnMO = moCalls.filter((c) => c.target === right);
+      expect(columnMO.length).toBeGreaterThan(0);
+
+      // ...but never resize-observe the faces whose max-height we set: a ResizeObserver
+      // on a face we resize WOULD fire on our own writes (a loop edge we must not add).
+      expect(roTargets).not.toContain(githubFace);
+      expect(roTargets).not.toContain(storageFace);
+
+      // The column MutationObserver watches row add/remove only, NEVER attributes —
+      // the max-height we write is a style attribute, so attribute observation would
+      // feed our own writes back as re-measures.
+      for (const c of columnMO) {
+        expect(c.options?.childList).toBe(true);
+        expect(c.options?.attributes).not.toBe(true);
+      }
+    } finally {
+      (globalThis as any).ResizeObserver = RealRO;
+      (globalThis as any).MutationObserver = RealMO;
+    }
+  });
+
   // === Expansion Tests ===
 
   it('adds dashboard-floating-panel--expanded class when viewState is expanding', () => {

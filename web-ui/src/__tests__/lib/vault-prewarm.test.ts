@@ -92,13 +92,53 @@ describe('REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol', () => {
     const iframe = currentIframe();
     if (!iframe) throw new Error('prewarm iframe missing');
 
-    iframe.focus();
-    if (document.activeElement === iframe) {
-      iframe.dispatchEvent(new FocusEvent('focus'));
-    }
+    // Drive the "iframe captured parent focus" precondition explicitly — jsdom does
+    // not move activeElement into a child browsing context via .focus(), so without
+    // it the restore path never runs and the assertion would pass on a no-op.
+    const inputFocus = vi.spyOn(input, 'focus');
+    const activeGet = vi.spyOn(document, 'activeElement', 'get').mockReturnValue(iframe);
+    iframe.dispatchEvent(new FocusEvent('focus'));
+    activeGet.mockRestore();
 
-    expect(document.activeElement).toBe(input);
+    expect(inputFocus).toHaveBeenCalled();
     expect(currentIframe()).toBe(iframe);
+    expect(onReady).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('restores focus to the terminal even when it gains focus AFTER prewarm starts (live tracking, not a start-time snapshot)', () => {
+    const onReady = vi.fn();
+    const onError = vi.fn();
+    // Prewarm begins (vault went ready in the background) while a non-terminal
+    // element holds focus — the state a start-time snapshot would lock onto.
+    const earlier = document.createElement('button');
+    document.body.append(earlier);
+    earlier.focus();
+    const earlierFocus = vi.spyOn(earlier, 'focus');
+
+    startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
+
+    // The user THEN enters the terminal view and the xterm textarea takes focus.
+    const terminal = document.createElement('textarea');
+    terminal.className = 'xterm-helper-textarea';
+    document.body.append(terminal);
+    terminal.focus();
+    expect(document.activeElement).toBe(terminal);
+    const terminalFocus = vi.spyOn(terminal, 'focus');
+
+    // SilverBullet inside the prewarm iframe captures parent focus late. Drive that
+    // precondition explicitly (jsdom will not focus a child browsing context), so the
+    // restore path is genuinely exercised instead of passing on a no-op.
+    const iframe = currentIframe();
+    if (!iframe) throw new Error('prewarm iframe missing');
+    const activeGet = vi.spyOn(document, 'activeElement', 'get').mockReturnValue(iframe);
+    iframe.dispatchEvent(new FocusEvent('focus'));
+    activeGet.mockRestore();
+
+    // Restore targets the LIVE terminal, never the stale element focused when prewarm
+    // started — the old start-time-snapshot implementation would call earlier.focus().
+    expect(terminalFocus).toHaveBeenCalled();
+    expect(earlierFocus).not.toHaveBeenCalled();
     expect(onReady).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
   });

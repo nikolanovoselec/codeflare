@@ -1,35 +1,43 @@
 import { describe, it, expect } from 'vitest';
 import { decidePanelLayoutMode } from '../../lib/panel-allocation';
 
-// Adaptive GitHub/Storage panel split — REQ-GITHUB-009 (repo list adaptive
-// viewport) and REQ-GITHUB-010 (split <-> single-panel flip).
-
+// Adaptive GitHub/Storage panel split — split vs single-panel flip.
+// `width` is the VIEWPORT width (mobile breakpoint, matches the CSS flip);
+// `height` is the right column's own height (too-short check). The decision must
+// NOT use the right column's measured width — capped small by the layout, it
+// wrongly flipped every tablet/laptop (the regression these cases pin).
 describe('decidePanelLayoutMode', () => {
-  const minPanel = 300; // chrome + minRows worth of height for one panel
-
-  it('flips when the column is narrower than the breakpoint', () => {
-    expect(decidePanelLayoutMode({ width: 500, height: 1000, minPanelHeight: minPanel })).toBe('flip');
+  it('flips when the viewport is narrower than the mobile breakpoint', () => {
+    expect(decidePanelLayoutMode({ width: 599, height: 1000 })).toBe('flip');
+    expect(decidePanelLayoutMode({ width: 375, height: 800 })).toBe('flip');
   });
 
-  it('splits at and above the narrow breakpoint when tall enough', () => {
-    expect(decidePanelLayoutMode({ width: 600, height: 1000, minPanelHeight: minPanel })).toBe('split');
-    expect(decidePanelLayoutMode({ width: 1280, height: 1000, minPanelHeight: minPanel })).toBe('split');
+  it('splits on tablet/laptop viewports tall enough for two panels (regression: these used to flip)', () => {
+    expect(decidePanelLayoutMode({ width: 600, height: 1000 })).toBe('split');
+    expect(decidePanelLayoutMode({ width: 768, height: 600 })).toBe('split');   // portrait tablet
+    expect(decidePanelLayoutMode({ width: 1024, height: 550 })).toBe('split');  // short laptop
+    expect(decidePanelLayoutMode({ width: 1920, height: 1080 })).toBe('split');
   });
 
-  it('flips on a wide but too-short column that cannot fit two usable panels', () => {
-    expect(decidePanelLayoutMode({ width: 1280, height: minPanel * 2 - 1, minPanelHeight: minPanel })).toBe('flip');
+  it('flips a wide viewport only when the column is genuinely too short', () => {
+    expect(decidePanelLayoutMode({ width: 1280, height: 419 })).toBe('flip');
   });
 
-  it('splits when exactly two minimum panels fit', () => {
-    expect(decidePanelLayoutMode({ width: 1280, height: minPanel * 2, minPanelHeight: minPanel })).toBe('split');
+  it('splits at the exact too-short boundary (420)', () => {
+    expect(decidePanelLayoutMode({ width: 1280, height: 420 })).toBe('split');
   });
 
-  it('honors a custom narrowWidth (tablet treated as narrow)', () => {
-    expect(decidePanelLayoutMode({ width: 700, height: 1000, minPanelHeight: minPanel, narrowWidth: 768 })).toBe('flip');
+  it('honors a custom minSplitHeight', () => {
+    expect(decidePanelLayoutMode({ width: 1280, height: 500, minSplitHeight: 600 })).toBe('flip');
+  });
+
+  it('honors a custom narrowWidth', () => {
+    expect(decidePanelLayoutMode({ width: 700, height: 1000, narrowWidth: 768 })).toBe('flip');
   });
 
   it('defaults to split before measurement (zero dimensions never flash flip)', () => {
-    expect(decidePanelLayoutMode({ width: 0, height: 0, minPanelHeight: minPanel })).toBe('split');
-    expect(decidePanelLayoutMode({ width: 0, height: 100, minPanelHeight: minPanel })).toBe('split');
+    expect(decidePanelLayoutMode({ width: 0, height: 0 })).toBe('split');
+    expect(decidePanelLayoutMode({ width: 0, height: 100 })).toBe('split');
+    expect(decidePanelLayoutMode({ width: 800, height: 0 })).toBe('split');
   });
 });

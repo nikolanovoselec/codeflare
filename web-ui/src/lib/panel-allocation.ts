@@ -24,33 +24,37 @@
 export type PanelLayoutMode = 'split' | 'flip';
 
 export interface LayoutModeInput {
-  /** Available width of the right column (px). */
-  width: number;
-  /** Available height of the right column (px). */
-  height: number;
   /**
-   * Minimum height a single panel needs to stay usable in a split: its fixed
-   * chrome (header/search) plus the minimum number of rows. A split needs room
-   * for TWO of these stacked.
+   * VIEWPORT width (px) — the mobile-breakpoint check, matching the CSS
+   * `@media (max-width: 599px)` flip. NOT the right column's own width: the layout
+   * caps that small (≈680px max), so comparing it to the breakpoint wrongly
+   * flipped every tablet and non-maximized laptop.
    */
-  minPanelHeight: number;
-  /** Below this width the column always flips (mobile). Default 600. */
+  width: number;
+  /** Right-column height (px) — the too-short-to-stack-two-panels check. */
+  height: number;
+  /** Below this viewport width the column always flips (mobile). Default 600. */
   narrowWidth?: number;
+  /**
+   * Below this right-column height a wide column still flips: it is too short to
+   * stack two usable panels. Default 420.
+   */
+  minSplitHeight?: number;
 }
 
 /**
  * Decide whether the two panels stack as an adaptive SPLIT or collapse to a
- * single FLIP face. FLIP when the column is narrow (mobile) OR too short to give
- * both panels their minimum usable height; SPLIT otherwise.
+ * single FLIP face. FLIP when the viewport is mobile-narrow OR the column is
+ * genuinely too short for two panels; SPLIT otherwise.
  *
  * Unmeasured dimensions (`0`) never force a flip — the pre-measurement default is
  * SPLIT so the desktop layout does not flash the single-face mode on first paint.
  */
 export function decidePanelLayoutMode(input: LayoutModeInput): PanelLayoutMode {
-  const { width, height, minPanelHeight, narrowWidth = 600 } = input;
+  const { width, height, narrowWidth = 600, minSplitHeight = 420 } = input;
   if (width > 0 && width < narrowWidth) return 'flip';
   // Too short to stack two usable panels — but only once we actually have a
   // measured width AND height; a partial/zero measurement must not flash flip.
-  if (width > 0 && height > 0 && height < minPanelHeight * 2) return 'flip';
+  if (width > 0 && height > 0 && height < minSplitHeight) return 'flip';
   return 'split';
 }
