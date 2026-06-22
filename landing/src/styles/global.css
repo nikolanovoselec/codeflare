@@ -9,6 +9,28 @@
 @import './tokens.css';
 
 /* --------------------------------------------------------------------------
+   Cross-document view transitions (REQ-LANDING-004)
+   -------------------------------------------------------------------------- */
+/* Opt every same-origin full-page navigation (landing <-> /login, and back)
+   into a cross-document view transition. The browser captures the current page,
+   HOLDS it while the next document loads, then transitions — so Chromium forks
+   (Vivaldi/Arc/Brave) never expose their gray navigation canvas during the
+   document swap, in light or dark appearance. Pure CSS, no JS; browsers without
+   cross-document view-transition support simply fall back to a normal navigation
+   (no regression). Reduced-motion visitors keep the flash-free hold but skip the
+   cross-fade. */
+@view-transition {
+  navigation: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
    Reset & base
    -------------------------------------------------------------------------- */
 *,
