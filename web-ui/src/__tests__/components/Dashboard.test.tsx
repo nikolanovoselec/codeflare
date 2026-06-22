@@ -493,6 +493,71 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     }
   });
 
+  it('REQ-GITHUB-010: applies the measured natural height as a face max-height, holds steady on a redundant observer callback, and updates only when content height changes (behavioral fixed point — proves no thrash)', () => {
+    let natural = 300;
+    let roCb: (() => void) | null = null;
+    const RealRO = (globalThis as any).ResizeObserver;
+    const RealRAF = globalThis.requestAnimationFrame;
+    const RealCAF = globalThis.cancelAnimationFrame;
+    const origGBCR = HTMLElement.prototype.getBoundingClientRect;
+    class CapRO { constructor(cb: () => void) { roCb = cb; } observe() {} unobserve() {} disconnect() {} }
+    (globalThis as any).ResizeObserver = CapRO;
+    // Run the rAF-debounced measure synchronously so we can drive it deterministically.
+    (globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) => { cb(0); return 0; };
+    (globalThis as any).cancelAnimationFrame = () => {};
+    // measureNatural reads getBoundingClientRect().height with the face flex-neutralized;
+    // stub it as the face's content height (the fixed point, independent of our writes).
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      return { height: natural, width: 0, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON() {} } as DOMRect;
+    };
+    try {
+      (githubStore as any)._setEnabled(true);
+      render(() => <Dashboard {...defaultProps} />);
+      const right = screen.getByTestId('dashboard-panel-right');
+      const githubFace = right.querySelector('.panel-flip-face--github') as HTMLElement;
+
+      // Initial measure applied the natural content height.
+      expect(githubFace.style.maxHeight).toBe('300px');
+      // Redundant observer callback, unchanged content: stays put (idempotent / no thrash).
+      natural = 300;
+      roCb?.();
+      expect(githubFace.style.maxHeight).toBe('300px');
+      // Content grew: the next callback re-measures and updates.
+      natural = 400;
+      roCb?.();
+      expect(githubFace.style.maxHeight).toBe('400px');
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = origGBCR;
+      (globalThis as any).ResizeObserver = RealRO;
+      (globalThis as any).requestAnimationFrame = RealRAF;
+      (globalThis as any).cancelAnimationFrame = RealCAF;
+    }
+  });
+
+  it('REQ-GITHUB-010: the split/flip decision uses the VIEWPORT width, not the right-column width (a narrow column on a wide viewport must not flip)', () => {
+    let roCb: (() => void) | null = null;
+    const RealRO = (globalThis as any).ResizeObserver;
+    const RealRAF = globalThis.requestAnimationFrame;
+    class CapRO { constructor(cb: () => void) { roCb = cb; } observe() {} unobserve() {} disconnect() {} }
+    (globalThis as any).ResizeObserver = CapRO;
+    (globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) => { cb(0); return 0; };
+    try {
+      (githubStore as any)._setEnabled(true);
+      render(() => <Dashboard {...defaultProps} />);
+      const right = screen.getByTestId('dashboard-panel-right') as HTMLElement;
+      // jsdom viewport is 1024px wide. Give the column a NARROW own-width but enough
+      // height to split. If the decision (wrongly) used the column width (400 < 600)
+      // it would flip; using window.innerWidth (1024) it must stay split.
+      Object.defineProperty(right, 'clientWidth', { configurable: true, value: 400 });
+      Object.defineProperty(right, 'clientHeight', { configurable: true, value: 800 });
+      roCb?.();
+      expect(right.getAttribute('data-layout')).not.toBe('flip');
+    } finally {
+      (globalThis as any).ResizeObserver = RealRO;
+      (globalThis as any).requestAnimationFrame = RealRAF;
+    }
+  });
+
   // === Expansion Tests ===
 
   it('adds dashboard-floating-panel--expanded class when viewState is expanding', () => {

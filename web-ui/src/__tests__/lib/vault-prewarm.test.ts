@@ -245,4 +245,49 @@ describe('REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol', () => {
     expect(onError).not.toHaveBeenCalled();
     expect(currentIframe()).toBeNull();
   });
+
+  it('restores focus on a parent-window blur caused by the iframe capturing focus (cross-frame fallback)', () => {
+    const onReady = vi.fn();
+    const onError = vi.fn();
+    const input = document.createElement('textarea');
+    input.className = 'xterm-helper-textarea';
+    document.body.append(input);
+    input.focus();
+
+    startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
+    const iframe = currentIframe();
+    if (!iframe) throw new Error('prewarm iframe missing');
+
+    // The window blurs because focus entered the iframe (activeElement === iframe).
+    const inputFocus = vi.spyOn(input, 'focus');
+    const activeGet = vi.spyOn(document, 'activeElement', 'get').mockReturnValue(iframe);
+    window.dispatchEvent(new Event('blur'));
+    activeGet.mockRestore();
+
+    expect(inputFocus).toHaveBeenCalled();
+  });
+
+  it('removes all focus-guard listeners on cleanup (a later blur/focusin does not restore)', () => {
+    const onReady = vi.fn();
+    const onError = vi.fn();
+    const input = document.createElement('textarea');
+    input.className = 'xterm-helper-textarea';
+    document.body.append(input);
+    input.focus();
+
+    const handle = startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
+    const iframe = currentIframe();
+    if (!iframe) throw new Error('prewarm iframe missing');
+    handle?.cancel();
+
+    // With the prewarm torn down, the window-blur / focusin guards must be gone:
+    // even if we fake the iframe being active, no restore should fire.
+    const inputFocus = vi.spyOn(input, 'focus');
+    const activeGet = vi.spyOn(document, 'activeElement', 'get').mockReturnValue(iframe);
+    window.dispatchEvent(new Event('blur'));
+    document.dispatchEvent(new Event('focusin'));
+    activeGet.mockRestore();
+
+    expect(inputFocus).not.toHaveBeenCalled();
+  });
 });

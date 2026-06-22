@@ -36,8 +36,12 @@ export interface LayoutModeInput {
   /** Below this viewport width the column always flips (mobile). Default 600. */
   narrowWidth?: number;
   /**
-   * Below this right-column height a wide column still flips: it is too short to
-   * stack two usable panels. Default 420.
+   * Below this right-column height a wide column still flips to a single panel.
+   * Default 420 — the product "very short" floor: two stacked panels split ~420px
+   * into roughly two 190px content areas after each panel's header/search chrome,
+   * which is the smallest split where both panels stay usable; below it one
+   * scrollable panel beats two cramped ones. (Deliberate "split unless very short"
+   * choice, not a derived constant.)
    */
   minSplitHeight?: number;
 }

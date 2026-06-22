@@ -92,18 +92,26 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [githubMaxH, setGithubMaxH] = createSignal<number | null>(null);
   const [storageMaxH, setStorageMaxH] = createSignal<number | null>(null);
 
-  const measureNatural = (face: HTMLElement | undefined, scrollSel: string): number | null => {
+  // Measure a face's TRUE natural height — the height it wants when nothing
+  // constrains it. We temporarily drop BOTH our own max-height AND the flex sizing
+  // (`flex: 0 0 auto` makes the face hug its content instead of taking its allocated
+  // share of the column), read the box, then restore. The result depends only on
+  // content — never on the column height, the sibling face, or any max-height we
+  // previously wrote — so a re-measure always returns the same value and the
+  // idempotent setters below make a redundant trigger a no-op. That is what makes the
+  // split provably loop-free, and it must hold for EVERY panel state including the
+  // no-scroller GitHub connect/loading/error/empty states (so there is deliberately
+  // no scroller special-case — the old `scrollHeight`-while-constrained path was not
+  // a fixed point for those states and could thrash).
+  const measureNatural = (face: HTMLElement | undefined): number | null => {
     if (!face) return null;
-    const scroller = face.querySelector<HTMLElement>(scrollSel);
-    if (!scroller) return face.scrollHeight; // connect card / empty face: no inner scroll
-    // Measure the TRUE natural height with any max-height we previously set removed,
-    // so the measured value never depends on our own output. This fixed-point read
-    // is what makes a re-measure idempotent — and therefore the split loop-free.
-    const prev = face.style.maxHeight;
+    const prevMaxH = face.style.maxHeight;
+    const prevFlex = face.style.flex;
     face.style.maxHeight = 'none';
-    const chrome = Math.max(0, face.getBoundingClientRect().height - scroller.getBoundingClientRect().height);
-    const natural = Math.ceil(chrome + scroller.scrollHeight);
-    face.style.maxHeight = prev;
+    face.style.flex = '0 0 auto';
+    const natural = Math.ceil(face.getBoundingClientRect().height);
+    face.style.flex = prevFlex;
+    face.style.maxHeight = prevMaxH;
     return natural;
   };
 
@@ -120,8 +128,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
       setStorageMaxH(null);
       return;
     }
-    const gh = measureNatural(githubFaceRef, '.github-repo-rows');
-    const st = measureNatural(storageFaceRef, '.storage-drop-zone');
+    const gh = measureNatural(githubFaceRef);
+    const st = measureNatural(storageFaceRef);
     // Idempotent write: a redundant trigger that re-measures the same value is a no-op.
     setGithubMaxH((p) => (p === gh ? p : gh));
     setStorageMaxH((p) => (p === st ? p : st));
@@ -145,12 +153,12 @@ const Dashboard: Component<DashboardProps> = (props) => {
     //  - rows ADDED/REMOVED inside either panel (GitHub connect↔list↔load-more state,
     //    storage show-hidden toggle, folder navigation, R2 readiness). childList only:
     //    the max-height we set is a style ATTRIBUTE, which a childList observer ignores.
-    const ro = new ResizeObserver(schedule);
-    ro.observe(right);
-    const mo = new MutationObserver(schedule);
-    mo.observe(right, { childList: true, subtree: true });
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null;
+    ro?.observe(right);
+    const mo = typeof MutationObserver !== 'undefined' ? new MutationObserver(schedule) : null;
+    mo?.observe(right, { childList: true, subtree: true });
     schedule(); // initial measure
-    onCleanup(() => { ro.disconnect(); mo.disconnect(); cancelAnimationFrame(raf); });
+    onCleanup(() => { ro?.disconnect(); mo?.disconnect(); cancelAnimationFrame(raf); });
   });
 
   onMount(() => {

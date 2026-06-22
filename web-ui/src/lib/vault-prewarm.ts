@@ -141,6 +141,7 @@ export function startVaultPrewarm(opts: VaultPrewarmOptions): VaultPrewarmHandle
 
   const cleanup = () => {
     windowRef.removeEventListener('message', onMessage);
+    windowRef.removeEventListener('blur', restoreFocus);
     documentRef.removeEventListener('focusin', onFocusIn);
     iframe.removeEventListener('focus', restoreFocus);
     iframe.removeEventListener('load', restoreFocus);
@@ -193,6 +194,11 @@ export function startVaultPrewarm(opts: VaultPrewarmOptions): VaultPrewarmHandle
   iframe.style.pointerEvents = 'none';
 
   windowRef.addEventListener('message', onMessage);
+  // The parent WINDOW reliably fires `blur` when focus moves into a child iframe,
+  // even in browsers where the parent does not get a `focusin` for intra-iframe
+  // focus. restoreFocus only acts when activeElement === iframe, so a legitimate
+  // tab/app switch (where the iframe is not the active element) is a no-op.
+  windowRef.addEventListener('blur', restoreFocus);
   documentRef.addEventListener('focusin', onFocusIn);
   iframe.addEventListener('focus', restoreFocus);
   iframe.addEventListener('load', restoreFocus);
