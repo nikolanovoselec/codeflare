@@ -13,21 +13,25 @@
    -------------------------------------------------------------------------- */
 /* Opt every same-origin full-page navigation (landing <-> /login, and back)
    into a cross-document view transition. The browser captures the current page,
-   HOLDS it while the next document loads, then transitions — so Chromium forks
+   HOLDS it while the next document loads, then swaps instantly — so Chromium forks
    (Vivaldi/Arc/Brave) never expose their gray navigation canvas during the
    document swap, in light or dark appearance. Pure CSS, no JS; browsers without
    cross-document view-transition support simply fall back to a normal navigation
-   (no regression). Reduced-motion visitors keep the flash-free hold but skip the
-   cross-fade. */
+   (no regression). */
 @view-transition {
   navigation: auto;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  ::view-transition-old(root),
-  ::view-transition-new(root) {
-    animation: none;
-  }
+/* Use an INSTANT (un-animated) root swap for EVERYONE, not only reduced-motion. The
+   cross-document HOLD still eliminates the gray inter-document canvas (the original
+   bug), but the default root cross-fade is dropped: on these dark pages the cross-fade
+   has a timing-dependent window where the two ~50%-opacity root snapshots composite
+   over the browser's light base canvas, which surfaced as the INTERMITTENT light-gray
+   flash on repeat landing<->login navigations. An instant swap has no such window —
+   the held dark page is replaced by the dark next page in a single frame. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
 }
 
 /* --------------------------------------------------------------------------
