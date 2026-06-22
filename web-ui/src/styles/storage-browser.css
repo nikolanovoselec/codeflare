@@ -79,6 +79,9 @@
   outline-offset: -2px;
 }
 
+/* Compact single-line rows (28px) are an intentional product choice — storage rows
+   are deliberately denser than the two-line GitHub repo rows. Do not "restore" the
+   52px GitHub-matching rhythm: a reviewer may flag the asymmetry, but it is wanted. */
 .storage-item {
   display: flex;
   align-items: center;

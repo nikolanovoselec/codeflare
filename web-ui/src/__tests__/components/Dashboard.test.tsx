@@ -495,7 +495,8 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
   it('REQ-GITHUB-010: applies the measured natural height as a face max-height, holds steady on a redundant observer callback, and updates only when content height changes (behavioral fixed point — proves no thrash)', () => {
     let natural = 300;
-    let roCb: (() => void) | null = null;
+    let roCb: () => void = () => {};
+    let measuredWith: { maxHeight: string; flex: string; flexGrow: string } | null = null;
     const RealRO = (globalThis as any).ResizeObserver;
     const RealRAF = globalThis.requestAnimationFrame;
     const RealCAF = globalThis.cancelAnimationFrame;
@@ -505,9 +506,15 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     // Run the rAF-debounced measure synchronously so we can drive it deterministically.
     (globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) => { cb(0); return 0; };
     (globalThis as any).cancelAnimationFrame = () => {};
-    // measureNatural reads getBoundingClientRect().height with the face flex-neutralized;
-    // stub it as the face's content height (the fixed point, independent of our writes).
-    HTMLElement.prototype.getBoundingClientRect = function () {
+    // Stub the face's content height, AND capture its style at the moment it is
+    // measured — so we can prove measureNatural actually neutralized the face
+    // (dropped max-height + flex) before reading the box. Asserting only the height
+    // would still pass if the neutralization were removed; capturing the style makes
+    // the test fail when the fix is reverted.
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      if (this.classList?.contains('panel-flip-face--github')) {
+        measuredWith = { maxHeight: this.style.maxHeight, flex: this.style.flex, flexGrow: this.style.flexGrow };
+      }
       return { height: natural, width: 0, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON() {} } as DOMRect;
     };
     try {
@@ -516,15 +523,19 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       const right = screen.getByTestId('dashboard-panel-right');
       const githubFace = right.querySelector('.panel-flip-face--github') as HTMLElement;
 
-      // Initial measure applied the natural content height.
+      // Initial measure applied the natural content height...
       expect(githubFace.style.maxHeight).toBe('300px');
+      // ...and it measured UNCONSTRAINED — proving the production fixed point rather
+      // than assuming it (fails if measureNatural stops neutralizing the face).
+      expect(measuredWith?.maxHeight).toBe('none');
+      expect(measuredWith?.flex === '0 0 auto' || measuredWith?.flexGrow === '0').toBe(true);
       // Redundant observer callback, unchanged content: stays put (idempotent / no thrash).
       natural = 300;
-      roCb?.();
+      roCb();
       expect(githubFace.style.maxHeight).toBe('300px');
       // Content grew: the next callback re-measures and updates.
       natural = 400;
-      roCb?.();
+      roCb();
       expect(githubFace.style.maxHeight).toBe('400px');
     } finally {
       HTMLElement.prototype.getBoundingClientRect = origGBCR;
@@ -535,26 +546,29 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
   });
 
   it('REQ-GITHUB-010: the split/flip decision uses the VIEWPORT width, not the right-column width (a narrow column on a wide viewport must not flip)', () => {
-    let roCb: (() => void) | null = null;
+    let roCb: () => void = () => {};
     const RealRO = (globalThis as any).ResizeObserver;
     const RealRAF = globalThis.requestAnimationFrame;
+    const realInnerWidth = window.innerWidth;
     class CapRO { constructor(cb: () => void) { roCb = cb; } observe() {} unobserve() {} disconnect() {} }
     (globalThis as any).ResizeObserver = CapRO;
     (globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) => { cb(0); return 0; };
+    (window as any).innerWidth = 1024; // pin a wide viewport, do not rely on the jsdom default
     try {
       (githubStore as any)._setEnabled(true);
       render(() => <Dashboard {...defaultProps} />);
       const right = screen.getByTestId('dashboard-panel-right') as HTMLElement;
-      // jsdom viewport is 1024px wide. Give the column a NARROW own-width but enough
-      // height to split. If the decision (wrongly) used the column width (400 < 600)
-      // it would flip; using window.innerWidth (1024) it must stay split.
+      // Wide viewport (1024) but a NARROW own column-width and enough height to split.
+      // If the decision (wrongly) used the column width (400 < 600) it would flip;
+      // using window.innerWidth (1024) it must stay split.
       Object.defineProperty(right, 'clientWidth', { configurable: true, value: 400 });
       Object.defineProperty(right, 'clientHeight', { configurable: true, value: 800 });
-      roCb?.();
+      roCb();
       expect(right.getAttribute('data-layout')).not.toBe('flip');
     } finally {
       (globalThis as any).ResizeObserver = RealRO;
       (globalThis as any).requestAnimationFrame = RealRAF;
+      (window as any).innerWidth = realInnerWidth;
     }
   });
 
