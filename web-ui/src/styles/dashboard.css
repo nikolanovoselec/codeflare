@@ -1,6 +1,9 @@
 .dashboard-container {
   display: flex;
-  align-items: center;
+  /* stretch (not center) so the panel fills the viewport height — the right-column
+     GitHub/Storage split then has the full column to divide, instead of collapsing to
+     the min-height floor and sitting centered with empty space above and below it. */
+  align-items: stretch;
   justify-content: center;
   padding: var(--dashboard-panel-margin);
   width: 100%;
@@ -103,12 +106,13 @@
 }
 
 /* Panel flip (GitHub ↔ R2).
-   SPLIT (desktop/tablet, default): both faces are flex items sharing the column —
-   `flex: 1 1 0` plus a JS-measured `max-height` (their natural content height) so a
-   short panel shrinks to its content and the taller one absorbs the freed space;
-   the column's `justify-content: space-between` drops remaining slack between them
-   (both-short → middle gap). FLIP (mobile width, or a too-short window via
-   `[data-layout="flip"]`): one face at a time with a flip control. */
+   SPLIT (desktop/tablet, default): both faces are flex items sharing the full-height
+   column — `flex: 1 1 0` plus a JS-measured `max-height` (their natural content
+   height) so a short panel shrinks to its content and the taller one absorbs the
+   freed space; both-full → 50/50; the column's `justify-content: space-between` drops
+   remaining slack between them when both are short (GitHub anchored top, Storage
+   bottom). FLIP (mobile width, or a too-short window via `[data-layout="flip"]`):
+   one face at a time with a flip control. */
 .panel-flip-face {
   display: flex;
   flex-direction: column;

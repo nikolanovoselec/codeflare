@@ -92,27 +92,33 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [githubMaxH, setGithubMaxH] = createSignal<number | null>(null);
   const [storageMaxH, setStorageMaxH] = createSignal<number | null>(null);
 
-  // Measure a face's TRUE natural height — the height it wants when nothing
-  // constrains it. We temporarily drop BOTH our own max-height AND the flex sizing
-  // (`flex: 0 0 auto` makes the face hug its content instead of taking its allocated
-  // share of the column), read the box, then restore. The result depends only on
-  // content — never on the column height, the sibling face, or any max-height we
-  // previously wrote — so a re-measure always returns the same value and the
-  // idempotent setters below make a redundant trigger a no-op. That is what makes the
-  // split provably loop-free, and it must hold for EVERY panel state including the
-  // no-scroller GitHub connect/loading/error/empty states (so there is deliberately
-  // no scroller special-case — the old `scrollHeight`-while-constrained path was not
-  // a fixed point for those states and could thrash).
-  const measureNatural = (face: HTMLElement | undefined): number | null => {
+  // Measure a face's TRUE natural height — what it wants with all its content shown
+  // and nothing constraining it — as a fixed point that never depends on the column
+  // height, the sibling face, or any max-height we previously wrote (so re-measures
+  // are idempotent and the split is loop-free). First neutralize our own sizing: drop
+  // max-height AND flex so the face hugs its content. Then:
+  //  - WITH an inner scroller (the repo / file list): under `flex: 0 0 auto` the
+  //    overflow:auto scroller lays out collapsed (~0px), so its laid-out box is NOT
+  //    its content — we must add the list's FULL content via `scrollHeight` (which is
+  //    the content height regardless of the scroller's box, hence invariant under our
+  //    writes) to the surrounding chrome (header/search = face box minus scroller box).
+  //    Measuring only the collapsed box is exactly what made a 20-repo panel report a
+  //    ~2-repo height and clip the rest.
+  //  - NO scroller (connect / loading / error / empty face): the content-hugging face
+  //    box IS the natural height.
+  const measureNatural = (face: HTMLElement | undefined, scrollSel: string): number | null => {
     if (!face) return null;
     const prevMaxH = face.style.maxHeight;
     const prevFlex = face.style.flex;
     face.style.maxHeight = 'none';
     face.style.flex = '0 0 auto';
-    const natural = Math.ceil(face.getBoundingClientRect().height);
+    const scroller = face.querySelector<HTMLElement>(scrollSel);
+    const natural = scroller
+      ? Math.max(0, face.getBoundingClientRect().height - scroller.getBoundingClientRect().height) + scroller.scrollHeight
+      : face.getBoundingClientRect().height;
     face.style.flex = prevFlex;
     face.style.maxHeight = prevMaxH;
-    return natural;
+    return Math.ceil(natural);
   };
 
   const measureLayout = () => {
@@ -123,13 +129,17 @@ const Dashboard: Component<DashboardProps> = (props) => {
     // layout caps that small, so it would wrongly flip every tablet/laptop.
     const mode = decidePanelLayoutMode({ width: window.innerWidth, height: right.clientHeight });
     setLayoutMode(mode);
-    if (mode === 'flip') {
+    // Measured caps only make sense for the TWO-panel split. In flip mode, or when
+    // GitHub is unavailable (Storage is the sole face), there is no second panel to
+    // balance — clear the caps so the single face just fills the column instead of
+    // capping to its content and leaving empty space.
+    if (mode === 'flip' || !githubPanelAvailable()) {
       setGithubMaxH(null);
       setStorageMaxH(null);
       return;
     }
-    const gh = measureNatural(githubFaceRef);
-    const st = measureNatural(storageFaceRef);
+    const gh = measureNatural(githubFaceRef, '.github-repo-rows');
+    const st = measureNatural(storageFaceRef, '.storage-drop-zone');
     // Idempotent write: a redundant trigger that re-measures the same value is a no-op.
     setGithubMaxH((p) => (p === gh ? p : gh));
     setStorageMaxH((p) => (p === st ? p : st));
@@ -441,19 +451,21 @@ const Dashboard: Component<DashboardProps> = (props) => {
             data-layout={layoutMode() === 'flip' ? 'flip' : undefined}
             ref={rightColRef}
           >
-            <div
-              class="panel-flip-face panel-flip-face--github"
-              data-active={effectiveFace() === 'github'}
-              ref={githubFaceRef}
-              style={layoutMode() !== 'flip' && githubMaxH() != null ? { 'max-height': `${githubMaxH()}px` } : undefined}
-            >
-              <GitHubPanel onFlip={() => setPanelFace('storage')} />
-            </div>
+            <Show when={githubPanelAvailable()}>
+              <div
+                class="panel-flip-face panel-flip-face--github"
+                data-active={effectiveFace() === 'github'}
+                ref={githubFaceRef}
+                style={layoutMode() !== 'flip' && githubMaxH() != null ? { 'max-height': `${githubMaxH()}px` } : undefined}
+              >
+                <GitHubPanel onFlip={() => setPanelFace('storage')} />
+              </div>
+            </Show>
             <div
               class="panel-flip-face panel-flip-face--storage"
               data-active={effectiveFace() === 'storage'}
               ref={storageFaceRef}
-              style={layoutMode() !== 'flip' && storageMaxH() != null ? { 'max-height': `${storageMaxH()}px` } : undefined}
+              style={layoutMode() !== 'flip' && githubPanelAvailable() && storageMaxH() != null ? { 'max-height': `${storageMaxH()}px` } : undefined}
             >
               <Show when={githubPanelAvailable()}>
                 <div class="files-panel-header" data-testid="files-panel-header">

@@ -390,9 +390,9 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     render(() => <Dashboard {...defaultProps} />);
 
     const right = screen.getByTestId('dashboard-panel-right');
-    const githubFace = right.querySelector('.panel-flip-face--github')!;
+    // GitHub unavailable: its face is not rendered at all, so it cannot cover R2.
+    expect(right.querySelector('.panel-flip-face--github')).toBeNull();
     const storageFace = right.querySelector('.panel-flip-face--storage')!;
-    expect(githubFace.getAttribute('data-active')).toBe('false');
     expect(storageFace.getAttribute('data-active')).toBe('true');
     expect(right.getAttribute('data-face')).toBe('storage');
     // Nothing to flip to, so no "Show GitHub" back control is offered.
@@ -541,6 +541,120 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       expect(githubFace.style.maxHeight).toBe('400px');
     } finally {
       HTMLElement.prototype.getBoundingClientRect = origGBCR;
+      (globalThis as any).ResizeObserver = RealRO;
+      (globalThis as any).requestAnimationFrame = RealRAF;
+      (globalThis as any).cancelAnimationFrame = RealCAF;
+    }
+  });
+
+  it('REQ-GITHUB-010: sizes the GitHub face to its FULL list content (chrome + scroller.scrollHeight), not the collapsed scroller box — a long repo list is never undercounted', () => {
+    let roCb: () => void = () => {};
+    const CHROME = 120;    // header + search: the face box minus the (collapsed) scroller box
+    const CONTENT = 1200;  // full scroll content of a long repo list (e.g. 20 rows)
+    const RealRO = (globalThis as any).ResizeObserver;
+    const RealRAF = globalThis.requestAnimationFrame;
+    const RealCAF = globalThis.cancelAnimationFrame;
+    const origGBCR = HTMLElement.prototype.getBoundingClientRect;
+    class CapRO { constructor(cb: () => void) { roCb = cb; } observe() {} unobserve() {} disconnect() {} }
+    (globalThis as any).ResizeObserver = CapRO;
+    (globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) => { cb(0); return 0; };
+    (globalThis as any).cancelAnimationFrame = () => {};
+    // Under the neutralized (flex:0 0 auto) measure the overflow:auto list lays out
+    // COLLAPSED: the face box reports only its chrome and the scroller box reports ~0,
+    // while the list's true height lives in scrollHeight. measureNatural must add
+    // scrollHeight — reading the collapsed box is the undercount that showed 2 of 20 repos.
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const height = this.classList?.contains('github-repo-rows')
+        ? 0
+        : this.classList?.contains('panel-flip-face--github')
+          ? CHROME
+          : 0;
+      return { height, width: 0, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON() {} } as DOMRect;
+    };
+    try {
+      (githubStore as any)._setEnabled(true);
+      render(() => <Dashboard {...defaultProps} />);
+      const right = screen.getByTestId('dashboard-panel-right');
+      const githubFace = right.querySelector('.panel-flip-face--github') as HTMLElement;
+      // The real GitHubPanel renders `.github-repo-rows`; the stub omits it, so inject
+      // the scroller with a large scroll content but a collapsed laid-out box.
+      const scroller = document.createElement('div');
+      scroller.className = 'github-repo-rows';
+      Object.defineProperty(scroller, 'scrollHeight', { value: CONTENT, configurable: true });
+      githubFace.appendChild(scroller);
+      // Re-measure now that the list content exists.
+      roCb();
+      // chrome (120) + full content (1200) = 1320 — NOT the collapsed 120-only box.
+      expect(githubFace.style.maxHeight).toBe(`${CHROME + CONTENT}px`);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = origGBCR;
+      (globalThis as any).ResizeObserver = RealRO;
+      (globalThis as any).requestAnimationFrame = RealRAF;
+      (globalThis as any).cancelAnimationFrame = RealCAF;
+    }
+  });
+
+  it('REQ-GITHUB-010: sizes the Storage face to its full list content (chrome + scroller.scrollHeight) via the .storage-drop-zone selector', () => {
+    let roCb: () => void = () => {};
+    const CHROME = 90;
+    const CONTENT = 1500;
+    const RealRO = (globalThis as any).ResizeObserver;
+    const RealRAF = globalThis.requestAnimationFrame;
+    const RealCAF = globalThis.cancelAnimationFrame;
+    const origGBCR = HTMLElement.prototype.getBoundingClientRect;
+    class CapRO { constructor(cb: () => void) { roCb = cb; } observe() {} unobserve() {} disconnect() {} }
+    (globalThis as any).ResizeObserver = CapRO;
+    (globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) => { cb(0); return 0; };
+    (globalThis as any).cancelAnimationFrame = () => {};
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const height = this.classList?.contains('storage-drop-zone')
+        ? 0
+        : this.classList?.contains('panel-flip-face--storage')
+          ? CHROME
+          : 0;
+      return { height, width: 0, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON() {} } as DOMRect;
+    };
+    try {
+      (githubStore as any)._setEnabled(true);
+      render(() => <Dashboard {...defaultProps} />);
+      const right = screen.getByTestId('dashboard-panel-right');
+      const storageFace = right.querySelector('.panel-flip-face--storage') as HTMLElement;
+      const scroller = document.createElement('div');
+      scroller.className = 'storage-drop-zone';
+      Object.defineProperty(scroller, 'scrollHeight', { value: CONTENT, configurable: true });
+      storageFace.appendChild(scroller);
+      roCb();
+      expect(storageFace.style.maxHeight).toBe(`${CHROME + CONTENT}px`);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = origGBCR;
+      (globalThis as any).ResizeObserver = RealRO;
+      (globalThis as any).requestAnimationFrame = RealRAF;
+      (globalThis as any).cancelAnimationFrame = RealCAF;
+    }
+  });
+
+  it('REQ-GITHUB-010: GitHub unavailable → GitHub face is not rendered and Storage is the sole face with no max-height cap (single-panel fills the full-height column)', () => {
+    let roCb: () => void = () => {};
+    const RealRO = (globalThis as any).ResizeObserver;
+    const RealRAF = globalThis.requestAnimationFrame;
+    const RealCAF = globalThis.cancelAnimationFrame;
+    class CapRO { constructor(cb: () => void) { roCb = cb; } observe() {} unobserve() {} disconnect() {} }
+    (globalThis as any).ResizeObserver = CapRO;
+    (globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) => { cb(0); return 0; };
+    (globalThis as any).cancelAnimationFrame = () => {};
+    try {
+      (githubStore as any)._setEnabled(false);
+      render(() => <Dashboard {...defaultProps} />);
+      const right = screen.getByTestId('dashboard-panel-right');
+      // No empty GitHub face left in the column to push Storage down...
+      expect(right.querySelector('.panel-flip-face--github')).toBeNull();
+      // ...and Storage carries no measured cap, so it fills the full-height column
+      // instead of capping to its content and pinning to the bottom with a gap above.
+      const storageFace = right.querySelector('.panel-flip-face--storage') as HTMLElement;
+      expect(storageFace).not.toBeNull();
+      roCb();
+      expect(storageFace.style.maxHeight).toBe('');
+    } finally {
       (globalThis as any).ResizeObserver = RealRO;
       (globalThis as any).requestAnimationFrame = RealRAF;
       (globalThis as any).cancelAnimationFrame = RealCAF;
