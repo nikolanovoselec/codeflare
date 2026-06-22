@@ -21,6 +21,11 @@
   --color-border-subtle: #27272a;  /* Subtle borders */
   --color-border-default: #3f3f46; /* Default borders */
   --color-border-strong: #52525b;  /* Strong borders, focus rings */
+  /* Unqualified default-border alias. Several components (input, button, terminal,
+     header, the auth-loading spinner ring) reference the bare `--color-border`; it was
+     undefined, so those borders silently fell back to `currentColor` (the text colour)
+     instead of a neutral border. Aliasing it to the default border restores intent. */
+  --color-border: var(--color-border-default);
 
   /* ==========================================================================
      Colors - Text
