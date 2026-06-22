@@ -127,7 +127,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 ### REQ-LANDING-004: First-paint stability and immutable asset caching
 
-**Intent:** Full-page navigations between the marketing landing and the SPA (Sign in → `/login`, and "Back to codeflare.ch") never flash the browser's default white canvas, and the landing's content-hashed build assets are cached immutably so its stylesheet is not revalidated on every navigation — eliminating both the inter-page white flash and the delayed background/haze paint.
+**Intent:** Full-page navigations between the marketing landing and the SPA (Sign in → `/login`, and "Back to codeflare.ch") never flash the browser's default white canvas — nor the gray navigation canvas that Chromium forks (Vivaldi/Arc/Brave) expose while the next document has not yet painted — and the landing's content-hashed build assets are cached immutably so its stylesheet is not revalidated on every navigation. This eliminates the inter-page flash (the white default and the fork gray canvas, in both light and dark appearance) and the delayed background/haze paint.
 
 **Applies To:** User
 
@@ -135,6 +135,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 1. The landing layout declares the dark color scheme — a `<meta name="color-scheme" content="dark">` and an inline `html { color-scheme: dark; background-color: … }` rule emitted before any external stylesheet — so a cross-document navigation holds a dark canvas instead of flashing the browser's white default. <!-- @impl: landing/src/layouts/BaseLayout.astro --> <!-- @test: landing/src/__tests__/index-page.test.ts (color-scheme dark meta + inline html{} dark root paint) -->
 2. The Worker serves content-hashed `/_astro/` build assets with `Cache-Control: public, max-age=31536000, immutable`, while non-hashed asset responses keep their revalidating default so HTML stays fresh. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (/_astro/ immutable cache, SPA-fallback not cached, non-hashed revalidates) -->
+3. The landing build inlines its bundled CSS into each document (`build.inlineStylesheets: 'always'`) instead of emitting a render-blocking external `<link rel="stylesheet">`. A render-blocking stylesheet blocks the entire first paint — including the AC1 inline dark-canvas `<style>` — so during the inter-document gap a Chromium fork shows its gray navigation canvas for the stylesheet's whole download; inlining makes first paint happen on HTML parse and collapses that gap. The inlined `<style>` is authorized by the hash-based meta CSP ([REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response) AC8), not a blanket `style-src 'unsafe-inline'`. <!-- @impl: landing/astro.config.mjs (build.inlineStylesheets) --> <!-- @test: landing/src/__tests__/csp-config.test.ts (inlineStylesheets 'always' + assetsInlineLimit 0 contract) -->
 
 **Constraints:**
 
@@ -147,6 +148,6 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 **Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
 
-**Verification:** [Landing first-paint render test](../../landing/src/__tests__/index-page.test.ts), [Worker asset-cache serving test](../../src/__tests__/index.test.ts)
+**Verification:** [Landing first-paint render test](../../landing/src/__tests__/index-page.test.ts), [Stylesheet-inlining / CSP config contract](../../landing/src/__tests__/csp-config.test.ts), [Worker asset-cache serving test](../../src/__tests__/index.test.ts)
 
 **Status:** Implemented
