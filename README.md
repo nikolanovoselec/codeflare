@@ -67,8 +67,8 @@ Cloudflare Containers run as root, and both Claude Code and Antigravity launch w
 
 **The IDE.**
 
-- Browser-native terminal with 6 tabs per session and tiling mode (2–4 terminals side by side).
-- **MultiView** — view several running sessions side by side in one workspace, each pane its own agent and container. It's a virtual view over sessions you already have, so no new container is started.
+- Browser-native terminal with 6 tabs per session and tiling mode (2–4 terminals side by side within one session).
+- **MultiView** — view several running sessions side by side in one workspace. It's a virtual view over sessions you already have: no new session is created, and no existing session's lifecycle is affected.
 - One isolated container per session — agents can't escape their sandbox.
 - Persistent R2 storage with bisync every 15 minutes, a manual Sync-now button, and a final sync on stop. Sync conflicts are reconciled automatically on the next cycle.
 - Pre-warmed terminals — the agent is loaded before you open the tab.
