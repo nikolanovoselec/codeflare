@@ -252,3 +252,50 @@ describe('sweepOrphanVaultCaches (REQ-VAULT-015 AC4)', () => {
     expect(databases).not.toHaveBeenCalled();
   });
 });
+
+// REQ-VAULT-018 AC8: the durable full-prewarm marker lets a reload skip remounting
+// the bootstrap iframe. It lives under the same `vault-session-*` namespace the
+// cache sweep manages, so the sweep MUST treat `<sid>-prewarmed` as belonging to
+// `<sid>` (preserve it for active sessions, drop it for orphans/deletes) instead
+// of mistaking it for a bogus orphan session and erasing it on every Layout mount.
+describe('REQ-VAULT-018 AC8: full-prewarm marker (vault-session-<sid>-prewarmed) lifecycle', () => {
+  beforeEach(() => { vi.restoreAllMocks(); });
+  afterEach(() => { clearGlobals(); });
+
+  it('preserves the prewarmed marker for an ACTIVE session during an orphan sweep', async () => {
+    const { fake, store } = installFakeLocalStorage();
+    store.set('vault-session-active01-prewarmed', '1');
+    store.set('vault-session-active01-idbs', JSON.stringify(['sb_data_a', 'sb_files_b']));
+    installFakeServiceWorker();
+    installFakeIndexedDB();
+
+    await sweepOrphanVaultCaches(['active01']);
+
+    expect(fake.removeItem).not.toHaveBeenCalledWith('vault-session-active01-prewarmed');
+    expect(store.has('vault-session-active01-prewarmed')).toBe(true);
+  });
+
+  it('removes the prewarmed marker for an ORPHAN session during a sweep', async () => {
+    const { fake, store } = installFakeLocalStorage();
+    store.set('vault-session-orphan9-prewarmed', '1');
+    installFakeServiceWorker();
+    installFakeIndexedDB();
+
+    await sweepOrphanVaultCaches([]);
+
+    expect(fake.removeItem).toHaveBeenCalledWith('vault-session-orphan9-prewarmed');
+    expect(store.has('vault-session-orphan9-prewarmed')).toBe(false);
+  });
+
+  it('removes the prewarmed marker on session DELETE', async () => {
+    const { fake, store } = installFakeLocalStorage();
+    store.set('vault-session-deadbeef-prewarmed', '1');
+    installFakeServiceWorker();
+    installFakeIndexedDB();
+
+    await cleanupSessionVaultCache('deadbeef');
+
+    expect(fake.removeItem).toHaveBeenCalledWith('vault-session-deadbeef-prewarmed');
+    expect(store.has('vault-session-deadbeef-prewarmed')).toBe(false);
+  });
+});

@@ -27,6 +27,7 @@ export interface VaultLocalReadinessOptions {
 
 const VAULT_MARKER_PREFIX = 'vault-session-';
 const VAULT_IDBS_SUFFIX = '-idbs';
+const VAULT_PREWARMED_SUFFIX = '-prewarmed';
 
 function getLocalStorage(): Storage | null {
   try {
@@ -67,6 +68,34 @@ export function getVaultRecordedIdbNames(sessionId: string, storage: Storage | n
 
 function hasRecordedDb(recordedDbs: string[], prefix: string): boolean {
   return recordedDbs.some((name) => name.startsWith(prefix));
+}
+
+/**
+ * Durable per-session, per-browser marker that THIS browser once completed a
+ * FULL prewarm proof for the session — SilverBullet runtime ready, space sync
+ * complete, object index complete, and the authoritative file listing present
+ * (REQ-VAULT-018 AC6) — not merely that the IndexedDB stores and service worker
+ * exist. A reload may skip remounting the bootstrap iframe only when this marker
+ * is set AND live local readiness (`checkVaultLocalReadiness`) still holds: the
+ * recorded stores + active SW alone can be present mid-first-init before the
+ * index finishes, and opening then would land on a slow indexing screen.
+ */
+export function markVaultFullyPrewarmed(sessionId: string, storage: Storage | null = getLocalStorage()): void {
+  if (!storage) return;
+  try {
+    storage.setItem(`${VAULT_MARKER_PREFIX}${sessionId}${VAULT_PREWARMED_SUFFIX}`, '1');
+  } catch {
+    // Storage unavailable/full — the reload simply re-prewarms, which is safe.
+  }
+}
+
+export function hasVaultFullyPrewarmed(sessionId: string, storage: Storage | null = getLocalStorage()): boolean {
+  if (!storage) return false;
+  try {
+    return storage.getItem(`${VAULT_MARKER_PREFIX}${sessionId}${VAULT_PREWARMED_SUFFIX}`) === '1';
+  } catch {
+    return false;
+  }
 }
 
 async function findVaultServiceWorker(

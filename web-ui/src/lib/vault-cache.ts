@@ -36,6 +36,7 @@
 
 const VAULT_MARKER_PREFIX = 'vault-session-';
 const VAULT_IDBS_SUFFIX = '-idbs';
+const VAULT_PREWARMED_SUFFIX = '-prewarmed';
 
 function getLS(): Storage | null {
   try {
@@ -91,12 +92,17 @@ function listSessionMarkers(ls: Storage): string[] {
     const key = ls.key(i);
     if (!key) continue;
     if (!key.startsWith(VAULT_MARKER_PREFIX)) continue;
-    // Strip the prefix, then strip a trailing `-idbs` if present so
-    // `vault-session-<sid>` and `vault-session-<sid>-idbs` both
-    // contribute the same sid.
+    // Strip the prefix, then strip a trailing `-idbs` or `-prewarmed` suffix if
+    // present so `vault-session-<sid>`, `vault-session-<sid>-idbs`, and
+    // `vault-session-<sid>-prewarmed` all contribute the same sid. Without the
+    // `-prewarmed` arm the full-prewarm marker is read as a bogus sid
+    // (`<sid>-prewarmed`), which never matches an active session and is swept as
+    // an orphan - silently erasing the reload-skip marker (REQ-VAULT-018 AC8).
     let sid = key.slice(VAULT_MARKER_PREFIX.length);
     if (sid.endsWith(VAULT_IDBS_SUFFIX)) {
       sid = sid.slice(0, -VAULT_IDBS_SUFFIX.length);
+    } else if (sid.endsWith(VAULT_PREWARMED_SUFFIX)) {
+      sid = sid.slice(0, -VAULT_PREWARMED_SUFFIX.length);
     }
     if (sid) sids.add(sid);
   }
@@ -143,8 +149,8 @@ function deleteRecordedIdbs(idb: IDBFactory, names: string[]): void {
 /**
  * REQ-VAULT-015 AC3: remove all per-session vault artefacts on session
  * DELETE. Deletes the recorded IDBs, the `vault-session-<sid>-idbs`
- * mapping, the `vault-session-<sid>` marker, and the per-session SW
- * registration.
+ * mapping, the `vault-session-<sid>` marker, the `vault-session-<sid>-prewarmed`
+ * full-prewarm marker, and the per-session SW registration.
  */
 export async function cleanupSessionVaultCache(sid: string): Promise<void> {
   // Fail-closed input validation: an empty `sid` would compute
@@ -170,6 +176,11 @@ export async function cleanupSessionVaultCache(sid: string): Promise<void> {
     }
     try {
       ls.removeItem(`${VAULT_MARKER_PREFIX}${sid}`);
+    } catch {
+      // Quota / disabled storage; ignore.
+    }
+    try {
+      ls.removeItem(`${VAULT_MARKER_PREFIX}${sid}${VAULT_PREWARMED_SUFFIX}`);
     } catch {
       // Quota / disabled storage; ignore.
     }
@@ -210,6 +221,11 @@ export async function sweepOrphanVaultCaches(activeSessionIds: string[]): Promis
     }
     try {
       ls.removeItem(`${VAULT_MARKER_PREFIX}${sid}`);
+    } catch {
+      // Ignore.
+    }
+    try {
+      ls.removeItem(`${VAULT_MARKER_PREFIX}${sid}${VAULT_PREWARMED_SUFFIX}`);
     } catch {
       // Ignore.
     }

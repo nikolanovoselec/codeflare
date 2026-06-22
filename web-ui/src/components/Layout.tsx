@@ -16,7 +16,7 @@ import type { TileLayout, AgentType, TabConfig } from '../types';
 import { VIEW_TRANSITION_DURATION_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS } from '../lib/constants';
 import { startVaultReadinessProbe } from '../lib/vault-readiness';
 import { DEFAULT_VAULT_PREWARM_TIMEOUT_MS, startVaultPrewarm, type VaultPrewarmStatus } from '../lib/vault-prewarm';
-import { checkVaultLocalReadiness, checkVaultKeyRecoverable } from '../lib/vault-local-readiness';
+import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed } from '../lib/vault-local-readiness';
 import type { VaultButtonStatus } from './VaultButton';
 import { requestBrowserStoragePersistence } from '../lib/browser-storage-persistence';
 
@@ -87,6 +87,7 @@ const Layout: Component<LayoutProps> = (props) => {
   const STEADY_INTERVAL_MS = 60000; // post-ready slow re-probe cadence
   const VAULT_PREWARM_RETRY_INTERVAL_MS = 10000;
   const VAULT_KEY_POLL_INTERVAL_MS = 2000; // cadence for re-checking key recoverability while preparing
+  const VAULT_LOCAL_READINESS_PROBE_TIMEOUT_MS = 2000; // bound the reload skip-eligibility probe before falling back to the iframe
   const [vaultReadyBySession, setVaultReadyBySession] = createSignal<Record<string, boolean>>({});
   const [vaultPrewarmBySession, setVaultPrewarmBySession] = createSignal<Record<string, VaultPrewarmStatus>>({});
   const [vaultPrewarmRetryBySession, setVaultPrewarmRetryBySession] = createSignal<Record<string, number>>({});
@@ -210,19 +211,62 @@ const Layout: Component<LayoutProps> = (props) => {
         error: err instanceof Error ? err.message : String(err),
       }));
     }
-    const handle = startVaultPrewarm({
-      sessionId: sid,
-      timeoutMs: DEFAULT_VAULT_PREWARM_TIMEOUT_MS,
-      onReady: (proof) => {
-        if (!proof.ready) {
-          setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'error' }));
-          return;
-        }
+    let handle: ReturnType<typeof startVaultPrewarm> = null;
+    let cancelled = false;
+    const mountPrewarm = () => {
+      handle = startVaultPrewarm({
+        sessionId: sid,
+        timeoutMs: DEFAULT_VAULT_PREWARM_TIMEOUT_MS,
+        onReady: (proof) => {
+          if (!proof.ready) {
+            setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'error' }));
+            return;
+          }
+          // Record that THIS browser completed the full prewarm proof (runtime +
+          // space sync + index + file listing), so a later reload may safely skip
+          // remounting the bootstrap iframe.
+          markVaultFullyPrewarmed(sid);
+          setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' }));
+        },
+        onError: (status) => setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: status })),
+      });
+    };
+    // Skip the bootstrap iframe only when this browser BOTH already completed a
+    // full prewarm proof for this session AND still has the recorded stores +
+    // active service worker (not evicted). The recorded-stores/SW check alone is
+    // too weak — an interrupted first-init can leave them present before space
+    // sync/index finished, and opening then lands on a slow indexing screen. The
+    // liveness probe is raced against a short timeout so a hung local query falls
+    // back to the iframe (which carries its own timeout + retry). Skipping avoids
+    // re-running SW registration / space sync / indexing and the focus contention
+    // with the terminal on every reload; the click path (handleVaultOpen) still
+    // re-verifies local readiness + key recoverability before opening.
+    const eligibleToSkip = async (): Promise<boolean> => {
+      if (!hasVaultFullyPrewarmed(sid)) return false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          checkVaultLocalReadiness(sid).then((proof) => proof.ready === true),
+          new Promise<boolean>((resolve) => {
+            timer = setTimeout(() => resolve(false), VAULT_LOCAL_READINESS_PROBE_TIMEOUT_MS);
+          }),
+        ]);
+      } catch {
+        return false;
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+    };
+    void eligibleToSkip().then((skip) => {
+      if (cancelled) return;
+      if (skip) {
         setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' }));
-      },
-      onError: (status) => setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: status })),
+        return;
+      }
+      mountPrewarm();
     });
     onCleanup(() => {
+      cancelled = true;
       handle?.cancel();
       setVaultPrewarmBySession((prev) => clearPrewarmingVaultStatus(prev, sid));
     });

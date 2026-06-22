@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { checkVaultLocalReadiness, checkVaultKeyRecoverable } from '../../lib/vault-local-readiness';
+import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed } from '../../lib/vault-local-readiness';
 
 function createStorage(entries: Record<string, string> = {}): Storage {
   const store = new Map(Object.entries(entries));
@@ -175,5 +175,25 @@ describe('REQ-VAULT-019: checkVaultKeyRecoverable', () => {
 
   it('returns false when no fetch implementation is available', async () => {
     expect(await checkVaultKeyRecoverable('session-1', { fetchRef: null })).toBe(false);
+  });
+});
+
+describe('REQ-VAULT-018 AC8: full-prewarm marker', () => {
+  it('records and reports the per-session full-prewarm marker', () => {
+    const storage = createStorage();
+    expect(hasVaultFullyPrewarmed('session-1', storage)).toBe(false);
+    markVaultFullyPrewarmed('session-1', storage);
+    expect(hasVaultFullyPrewarmed('session-1', storage)).toBe(true);
+  });
+
+  it('scopes the marker per session so another session is not falsely reported warm', () => {
+    const storage = createStorage();
+    markVaultFullyPrewarmed('session-1', storage);
+    expect(hasVaultFullyPrewarmed('session-2', storage)).toBe(false);
+  });
+
+  it('reports not-prewarmed and swallows write errors when storage is unavailable', () => {
+    expect(hasVaultFullyPrewarmed('session-1', null)).toBe(false);
+    expect(() => markVaultFullyPrewarmed('session-1', null)).not.toThrow();
   });
 });

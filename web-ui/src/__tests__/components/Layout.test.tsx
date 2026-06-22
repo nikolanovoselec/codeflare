@@ -68,11 +68,15 @@ vi.mock('../../lib/vault-prewarm', () => ({
 const vaultLocalReadinessMock = vi.hoisted(() => ({
   check: vi.fn(async (_sessionId?: string) => ({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true } as any)),
   keyRecoverable: vi.fn(async (_sessionId?: string) => true),
+  hasFullyPrewarmed: vi.fn((_sessionId?: string) => false),
+  markFullyPrewarmed: vi.fn((_sessionId?: string) => {}),
 }));
 
 vi.mock('../../lib/vault-local-readiness', () => ({
   checkVaultLocalReadiness: (sessionId: string) => vaultLocalReadinessMock.check(sessionId),
   checkVaultKeyRecoverable: (sessionId: string) => vaultLocalReadinessMock.keyRecoverable(sessionId),
+  hasVaultFullyPrewarmed: (sessionId: string) => vaultLocalReadinessMock.hasFullyPrewarmed(sessionId),
+  markVaultFullyPrewarmed: (sessionId: string) => vaultLocalReadinessMock.markFullyPrewarmed(sessionId),
 }));
 
 const vaultPrewarmProof = {
@@ -230,9 +234,17 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     vaultPrewarmMock.cancel.mockClear();
     vaultPrewarmMock.latestOptions = null;
     vaultLocalReadinessMock.check.mockClear();
-    vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
+    // Default to a device that is NOT yet warm on this browser, so the prewarm
+    // effect's local-readiness gate mounts the bootstrap iframe (the first-init
+    // path most of these tests exercise). Reload / open-path tests override this.
+    vaultLocalReadinessMock.check.mockResolvedValue({ ready: false, reason: 'missing-service-worker', recordedDbs: [], hasIndexedDbDatabasesApi: true });
     vaultLocalReadinessMock.keyRecoverable.mockClear();
     vaultLocalReadinessMock.keyRecoverable.mockResolvedValue(true);
+    // Default: this browser has NOT recorded a full prewarm proof, so the reload
+    // skip is ineligible and the prewarm effect mounts the bootstrap iframe.
+    vaultLocalReadinessMock.hasFullyPrewarmed.mockClear();
+    vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(false);
+    vaultLocalReadinessMock.markFullyPrewarmed.mockClear();
     delete (window as any).__terminalAreaProps;
     delete (window as any).__headerProps;
   });
@@ -371,6 +383,68 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
       await waitFor(() => expect((window as any).__headerProps.vaultReady).toBe(true));
       expect((window as any).__headerProps.vaultStatus).toBe('ready');
+      // A full prewarm proof records the durable per-browser marker that lets a
+      // later reload skip remounting the bootstrap iframe.
+      expect(vaultLocalReadinessMock.markFullyPrewarmed).toHaveBeenCalledWith('sess1');
+    });
+
+    it('REQ-VAULT-018: skips the bootstrap prewarm when the vault is already warm on this device (reload)', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      // Reload of a device that already completed a full prewarm proof: the durable
+      // marker is set AND recorded IDB stores + an active service worker are still
+      // present, so the re-init iframe (SW re-register / space sync / index + focus
+      // contention with the terminal) must NOT be mounted; the control is ready.
+      vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(true);
+      vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
+
+      render(() => <Layout />);
+      vaultProbeMock.latestOptions.setLatch();
+
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('ready'));
+      expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
+      expect((window as any).__headerProps.vaultReady).toBe(true);
+    });
+
+    it('REQ-VAULT-018: still mounts prewarm on reload when local DBs/SW exist but a full prewarm never completed', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      // Interrupted first-init: the IndexedDB stores + service worker are present
+      // (checkVaultLocalReadiness "ready"), but this browser never recorded a full
+      // prewarm proof — space sync / index never finished. Skipping would open onto
+      // an unbuilt index, so prewarm MUST still mount despite local readiness.
+      vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(false);
+      vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
+
+      render(() => <Layout />);
+      vaultProbeMock.latestOptions.setLatch();
+
+      await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
+    });
+
+    it('REQ-VAULT-018: mounts prewarm when the reload readiness probe does not settle within the timeout', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(true);
+      // The local readiness probe never settles (e.g. a wedged indexedDB.databases()).
+      vaultLocalReadinessMock.check.mockReturnValue(new Promise(() => {}) as any);
+
+      render(() => <Layout />);
+      vi.useFakeTimers();
+      try {
+        vaultProbeMock.latestOptions.setLatch();
+        await Promise.resolve();
+        // While the probe hangs, the skip decision is pending and nothing mounts.
+        expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
+        // Once the probe timeout elapses, the skip falls back to mounting the iframe.
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(vaultPrewarmMock.start).toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('REQ-VAULT-020: starts browser prewarm even when terminal input is focused', async () => {
@@ -403,6 +477,8 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
         await waitFor(() => expect((window as any).__headerProps.vaultReady).toBe(true));
 
+        // After prewarm warms the device, the open-path readiness recheck finds it ready.
+        vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
         await (window as any).__headerProps.onVaultOpen();
 
         expect(vaultLocalReadinessMock.check).toHaveBeenCalledWith('sess1');
@@ -460,6 +536,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
         vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
         await waitFor(() => expect((window as any).__headerProps.vaultReady).toBe(true));
+
+        // Device is warm after prewarm; only the encryption key gates the open here.
+        vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
 
         // First click: key not recoverable -> preparing (breathe accent), no open.
         await (window as any).__headerProps.onVaultOpen();
