@@ -103,7 +103,10 @@ const Dashboard: Component<DashboardProps> = (props) => {
   //    the content height regardless of the scroller's box, hence invariant under our
   //    writes) to the surrounding chrome (header/search = face box minus scroller box).
   //    Measuring only the collapsed box is exactly what made a 20-repo panel report a
-  //    ~2-repo height and clip the rest.
+  //    ~2-repo height and clip the rest. This relies on the list rows being
+  //    intrinsically sized (the fixed-height repo / file rows): a descendant sized as a
+  //    vertical percentage / `flex-grow` / `cqh` would collapse with the scroller and
+  //    undercount again.
   //  - NO scroller (connect / loading / error / empty face): the content-hugging face
   //    box IS the natural height.
   const measureNatural = (face: HTMLElement | undefined, scrollSel: string): number | null => {
