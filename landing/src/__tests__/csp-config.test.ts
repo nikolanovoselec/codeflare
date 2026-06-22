@@ -8,8 +8,11 @@
  * stylesheet, and `security.csp` makes Astro inject a per-page
  * `<meta http-equiv="content-security-policy">` that authorizes inline
  * <style>/<script> ELEMENTS by SHA-256 hash (no blanket style-src
- * 'unsafe-inline') while keeping a scoped `style-src-attr 'unsafe-inline'`
- * for the dynamic `style="--i:N"` animation-stagger ATTRIBUTES.
+ * 'unsafe-inline'). The dynamic `style="--i:N"` animation-stagger ATTRIBUTES
+ * are build-static (SSG) and hashed too; `'unsafe-hashes'` in styleDirective is
+ * what lets those hashed style ATTRIBUTES apply. (Astro's schema forbids a
+ * style-src* directive in the raw `directives` array, so the carve-out lives in
+ * styleDirective.)
  *
  * Those two settings are emitted only by a full `astro build`, which the
  * Container API used by the other landing tests does NOT run, and which
@@ -54,13 +57,20 @@ describe('REQ-SEC-008 AC8: landing hash-based meta CSP', () => {
     expect(csp.algorithm).toBe('SHA-256');
   });
 
-  it('authorizes inline style ELEMENTS by an exact source set — no blanket unsafe-inline', () => {
-    // Astro appends the per-element style hashes to this set at build. Exact
-    // match (not arrayContaining) so a weakening ADDITION — a stray
+  it('authorizes inline style ELEMENTS + hashed dynamic ATTRIBUTES — exact set, no blanket unsafe-inline', () => {
+    // Astro appends the per-element AND per-attribute style hashes to this set at
+    // build; 'unsafe-hashes' is what lets the hashed inline style="--i:N" ATTRIBUTES
+    // apply (CSP3 requires it for style attributes even when their hash is present).
+    // Exact match (not arrayContaining) so a weakening ADDITION — a stray
     // 'unsafe-inline', a wildcard, a rogue origin — fails the test, not just a
-    // removal. The only standing sources are 'self' and the Google Fonts
-    // stylesheet origin; everything else is a build-generated hash.
-    expect(csp.styleDirective.resources).toEqual(["'self'", 'https://fonts.googleapis.com']);
+    // removal. NOTE: 'unsafe-hashes' is NOT 'unsafe-inline' — elements/attributes
+    // stay restricted to their specific hashes.
+    expect(csp.styleDirective.resources).toEqual([
+      "'self'",
+      'https://fonts.googleapis.com',
+      "'unsafe-hashes'",
+    ]);
+    expect(csp.styleDirective.resources).not.toContain("'unsafe-inline'");
   });
 
   it('authorizes scripts by an exact external source set — no unsafe-inline / unsafe-eval', () => {
@@ -73,13 +83,17 @@ describe('REQ-SEC-008 AC8: landing hash-based meta CSP', () => {
     ]);
   });
 
-  it('keeps the unsafe-inline carve-out scoped to style ATTRIBUTES (dynamic --i:N stagger)', () => {
+  it('places no style-src* / script-src directive in the raw directives array (Astro schema rejects them)', () => {
+    // Astro's security.csp schema FORBIDS style-src, style-src-attr, style-src-elem,
+    // script-src (etc.) inside `directives` — they must be configured via
+    // styleDirective/scriptDirective so Astro can inject hashes. A style-src* entry
+    // here throws a ZodError at config load and fails every landing test at startup;
+    // this guards that regression.
     const dirs = directiveMap(csp.directives);
-    // style-src-attr governs ATTRIBUTES only; the dynamic per-item style="--i:N"
-    // values cannot be hashed, so they need this scoped allowance. It must NOT
-    // leak into style-src (elements stay hash-only).
-    expect(dirs['style-src-attr']).toContain("'unsafe-inline'");
     expect(dirs['style-src']).toBeUndefined();
+    expect(dirs['style-src-attr']).toBeUndefined();
+    expect(dirs['style-src-elem']).toBeUndefined();
+    expect(dirs['script-src']).toBeUndefined();
   });
 
   it('mirrors the Worker header sources so the AND-enforced meta blocks nothing legitimate', () => {

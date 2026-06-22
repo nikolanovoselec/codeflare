@@ -29,14 +29,17 @@ export default defineConfig({
   // than a blanket style-src 'unsafe-inline'. The Worker still sends its own CSP
   // header (src/index.ts); browsers enforce BOTH, so the meta's hashes block any
   // injected inline <style> even though the header keeps a now-redundant
-  // 'unsafe-inline'. The animated components use DYNAMIC inline style="--i:N"
-  // attributes whose values vary per item and cannot be hashed, so style-src-attr
-  // keeps 'unsafe-inline' for ATTRIBUTES only (low blast radius - attribute styles
-  // cannot load resources). All scripts are external ('self' + Turnstile + CF
-  // insights); the application/json + ld+json blocks are non-executable. Directives
-  // mirror the Worker header so the meta is no stricter except the intended
-  // style-element tightening. frame-ancestors cannot live in a meta CSP, so
-  // clickjacking stays covered by the Worker's X-Frame-Options: DENY.
+  // 'unsafe-inline'. The animated components use inline style="--i:N" ATTRIBUTES;
+  // because the landing is statically built, those values are resolved at build time
+  // (style="--i:0", "--i:1", ...) and Astro hashes each one too. 'unsafe-hashes' in
+  // styleDirective is what makes hashed inline-style ATTRIBUTES apply (CSP3 requires
+  // it for style attributes even when their hash is present) without opening a blanket
+  // 'unsafe-inline'. Astro forbids a style-src* directive inside `directives`, so this
+  // carve-out lives in styleDirective, not a style-src-attr line. All scripts are
+  // external ('self' + Turnstile + CF insights); the application/json + ld+json blocks
+  // are non-executable. Directives mirror the Worker header so the meta is no stricter
+  // except the intended style-element tightening. frame-ancestors cannot live in a meta
+  // CSP, so clickjacking stays covered by the Worker's X-Frame-Options: DENY.
   security: {
     csp: {
       algorithm: 'SHA-256',
@@ -46,7 +49,6 @@ export default defineConfig({
         "connect-src 'self' wss: https://cloudflareinsights.com",
         "img-src 'self' data: https://www.gravatar.com",
         "frame-src https://challenges.cloudflare.com",
-        "style-src-attr 'unsafe-inline'",
         "base-uri 'self'",
         "form-action 'self'",
       ],
@@ -54,7 +56,7 @@ export default defineConfig({
         resources: ["'self'", "https://challenges.cloudflare.com", "https://static.cloudflareinsights.com"],
       },
       styleDirective: {
-        resources: ["'self'", "https://fonts.googleapis.com"],
+        resources: ["'self'", "https://fonts.googleapis.com", "'unsafe-hashes'"],
       },
     },
   },
