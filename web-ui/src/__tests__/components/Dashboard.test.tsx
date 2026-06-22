@@ -496,7 +496,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
   it('REQ-GITHUB-010: applies the measured natural height as a face max-height, holds steady on a redundant observer callback, and updates only when content height changes (behavioral fixed point — proves no thrash)', () => {
     let natural = 300;
     let roCb: () => void = () => {};
-    let measuredWith: { maxHeight: string; flex: string; flexGrow: string } | null = null;
+    const measuredWith = { maxHeight: '', flex: '', flexGrow: '' };
     const RealRO = (globalThis as any).ResizeObserver;
     const RealRAF = globalThis.requestAnimationFrame;
     const RealCAF = globalThis.cancelAnimationFrame;
@@ -513,7 +513,9 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     // the test fail when the fix is reverted.
     HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
       if (this.classList?.contains('panel-flip-face--github')) {
-        measuredWith = { maxHeight: this.style.maxHeight, flex: this.style.flex, flexGrow: this.style.flexGrow };
+        measuredWith.maxHeight = this.style.maxHeight;
+        measuredWith.flex = this.style.flex;
+        measuredWith.flexGrow = this.style.flexGrow;
       }
       return { height: natural, width: 0, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON() {} } as DOMRect;
     };
@@ -527,8 +529,8 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       expect(githubFace.style.maxHeight).toBe('300px');
       // ...and it measured UNCONSTRAINED — proving the production fixed point rather
       // than assuming it (fails if measureNatural stops neutralizing the face).
-      expect(measuredWith?.maxHeight).toBe('none');
-      expect(measuredWith?.flex === '0 0 auto' || measuredWith?.flexGrow === '0').toBe(true);
+      expect(measuredWith.maxHeight).toBe('none');
+      expect(measuredWith.flex === '0 0 auto' || measuredWith.flexGrow === '0').toBe(true);
       // Redundant observer callback, unchanged content: stays put (idempotent / no thrash).
       natural = 300;
       roCb();
