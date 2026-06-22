@@ -3,12 +3,12 @@
   "private": true,
   "//pi-coding-agent-override": "Build-time placeholder only. The Dockerfile prewarm layer overwrites overrides['@earendil-works/pi-coding-agent'] with the exact version the global @latest agent install resolved, so the prewarm SDK always matches the runtime agent. This committed value is the baseline and is NOT what ships.",
   "dependencies": {
-    "@gotgenes/pi-subagents": "16.2.1",
-    "@juicesharp/rpiv-advisor": "1.19.1",
-    "@juicesharp/rpiv-ask-user-question": "1.19.1",
-    "@juicesharp/rpiv-todo": "1.19.1",
-    "context-mode": "1.0.162",
-    "pi-mcp-adapter": "2.9.0",
+    "@gotgenes/pi-subagents": "17.2.0",
+    "@juicesharp/rpiv-advisor": "1.20.0",
+    "@juicesharp/rpiv-ask-user-question": "1.20.0",
+    "@juicesharp/rpiv-todo": "1.20.0",
+    "context-mode": "1.0.163",
+    "pi-mcp-adapter": "2.10.0",
     "pi-web-access": "0.10.7"
   },
   "overrides": {

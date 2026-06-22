@@ -56,13 +56,13 @@ function runAdvisorGuidanceMerge(initialConfig) {
 
 const sourceOf = (entry) => (typeof entry === 'string' ? entry : entry && entry.source);
 const REQUIRED = [
-  'npm:@gotgenes/pi-subagents@16.2.1',
-  'npm:context-mode@1.0.162',
-  'npm:@juicesharp/rpiv-advisor@1.19.1',
-  'npm:@juicesharp/rpiv-ask-user-question@1.19.1',
-  'npm:@juicesharp/rpiv-todo@1.19.1',
+  'npm:@gotgenes/pi-subagents@17.2.0',
+  'npm:context-mode@1.0.163',
+  'npm:@juicesharp/rpiv-advisor@1.20.0',
+  'npm:@juicesharp/rpiv-ask-user-question@1.20.0',
+  'npm:@juicesharp/rpiv-todo@1.20.0',
   'npm:pi-web-access@0.10.7',
-  'npm:pi-mcp-adapter@2.9.0',
+  'npm:pi-mcp-adapter@2.10.0',
 ];
 
 describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
@@ -76,21 +76,21 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
 
   it('context-mode is ENABLED (bare-string form), not a disabled object entry', () => {
     const settings = runAssembly('{}');
-    const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@1.0.162');
+    const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@1.0.163');
     assert.equal(typeof cm, 'string', 'context-mode must be enabled by default — a bare string, not a {source,extensions,skills} disabled entry');
   });
 
   it('coexistence: a prior settings that DISABLED context-mode is upgraded to enabled, with the 5 extensions present and unrelated packages preserved', () => {
     const initial = JSON.stringify({
       packages: [
-        { source: 'npm:context-mode@1.0.162', extensions: [], skills: [] }, // previously disabled
+        { source: 'npm:context-mode@1.0.163', extensions: [], skills: [] }, // previously disabled
         'npm:some-user-package@1.0.0', // an unrelated package the user added
       ],
     });
     const settings = runAssembly(initial);
     const sources = settings.packages.map(sourceOf);
     // context-mode is now enabled (string), not the disabled object.
-    const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@1.0.162');
+    const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@1.0.163');
     assert.equal(typeof cm, 'string', 'a previously-disabled context-mode must be re-enabled on assembly');
     // The five tool extensions are present regardless of context-mode's prior state.
     for (const spec of REQUIRED) assert.ok(sources.includes(spec), `must include ${spec}`);
