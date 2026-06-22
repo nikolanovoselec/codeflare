@@ -27,9 +27,11 @@ export default defineConfig({
   // SHA-256 hash for every <style>/<script> ELEMENT it emits, so the inlined
   // stylesheet and the dark first-paint <style> are authorized by hash rather
   // than a blanket style-src 'unsafe-inline'. The Worker still sends its own CSP
-  // header (src/index.ts); browsers enforce BOTH, so the meta's hashes block any
-  // injected inline <style> even though the header keeps a now-redundant
-  // 'unsafe-inline'. The animated components use inline style="--i:N" ATTRIBUTES;
+  // header (src/index.ts); browsers enforce BOTH, so the meta's hashes block an
+  // injected inline <style> on the landing even though the shared header still
+  // permits inline styles (its style-src 'unsafe-inline' is required by the React
+  // SPA - CF-016 - and stays in the shared header).
+  // The animated components use inline style="--i:N" ATTRIBUTES;
   // because the landing is statically built, those values are resolved at build time
   // (style="--i:0", "--i:1", ...) and Astro hashes each one too. 'unsafe-hashes' in
   // styleDirective is what makes hashed inline-style ATTRIBUTES apply (CSP3 requires
