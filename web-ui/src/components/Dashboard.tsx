@@ -245,8 +245,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
   return (
     <div class="dashboard-container" data-testid="dashboard">
       <div class="dashboard-panel-wrapper">
-        <KittScanner />
         <div class={`dashboard-panel ${panelExpanded() ? 'dashboard-panel--expanded' : ''}`} data-testid="dashboard-floating-panel">
+          <KittScanner />
 
         {/* Integrated Header */}
         <div class="dashboard-panel-header">

@@ -5,9 +5,9 @@ import IconButton from '../ui/IconButton';
 import { githubStore } from '../../stores/github';
 
 interface ConnectedHeaderProps {
-  /** Mobile only (REQ-GITHUB-011): when provided, a magnify control renders to the
-      left of Refresh and toggles the search bar's visibility. Absent on desktop,
-      where the search bar is always shown. */
+  /** REQ-GITHUB-011: when provided, a magnify control renders to the left of Refresh
+      and toggles the search bar's visibility. Provided on every breakpoint now — the
+      search bar is disclosed on demand on desktop too, not always shown. */
   onToggleSearch?: () => void;
   /** Reflects the search bar's open state on the magnify toggle. */
   searchOpen?: boolean;

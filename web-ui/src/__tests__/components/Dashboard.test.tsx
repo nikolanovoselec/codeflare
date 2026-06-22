@@ -792,12 +792,15 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(onSettingsClick).toHaveBeenCalledTimes(1);
   });
 
-  it('renders KittScanner component in dashboard', () => {
+  it('renders KittScanner inside the dashboard panel so it sits on the header, not above the centered panel', () => {
     render(() => <Dashboard {...defaultProps} />);
 
-    const dashboard = screen.getByTestId('dashboard');
-    const kittScanner = dashboard.querySelector('.kitt-scanner');
+    const panel = screen.getByTestId('dashboard-floating-panel');
+    const kittScanner = panel.querySelector('.kitt-scanner');
     expect(kittScanner).toBeInTheDocument();
+    // Anchored to the panel (its parent), not the full-height wrapper — otherwise the
+    // absolute scanner floats in the empty space above the now content-sized panel.
+    expect(kittScanner?.parentElement).toBe(panel);
   });
 
   it('should use mdiXml icon path for the header logo (not mdiBrain)', () => {

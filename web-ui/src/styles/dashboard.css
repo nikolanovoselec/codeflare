@@ -34,6 +34,11 @@
 
 .dashboard-panel {
   width: 100%;
+  /* Positioning context for the KittScanner, which sits absolutely at the panel's
+     top edge (on the header). It used to live in the full-height wrapper, but once
+     the panel became a centered card the wrapper-anchored scanner floated in the
+     empty space ABOVE the panel — anchoring it to the panel keeps it on the header. */
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;

@@ -14,17 +14,17 @@ describe('decidePanelLayoutMode', () => {
 
   it('splits on tablet/laptop viewports tall enough for two panels (regression: these used to flip)', () => {
     expect(decidePanelLayoutMode({ width: 600, height: 1000 })).toBe('split');
-    expect(decidePanelLayoutMode({ width: 768, height: 600 })).toBe('split');   // portrait tablet
-    expect(decidePanelLayoutMode({ width: 1024, height: 550 })).toBe('split');  // short laptop
+    expect(decidePanelLayoutMode({ width: 768, height: 700 })).toBe('split');   // portrait tablet
+    expect(decidePanelLayoutMode({ width: 1024, height: 800 })).toBe('split');  // laptop
     expect(decidePanelLayoutMode({ width: 1920, height: 1080 })).toBe('split');
   });
 
-  it('flips a wide viewport only when the column is genuinely too short', () => {
-    expect(decidePanelLayoutMode({ width: 1280, height: 419 })).toBe('flip');
+  it('flips a wide viewport when the column is shorter than the split floor', () => {
+    expect(decidePanelLayoutMode({ width: 1280, height: 599 })).toBe('flip');
   });
 
-  it('splits at the exact too-short boundary (420)', () => {
-    expect(decidePanelLayoutMode({ width: 1280, height: 420 })).toBe('split');
+  it('splits at the exact too-short boundary (600)', () => {
+    expect(decidePanelLayoutMode({ width: 1280, height: 600 })).toBe('split');
   });
 
   it('honors a custom minSplitHeight', () => {

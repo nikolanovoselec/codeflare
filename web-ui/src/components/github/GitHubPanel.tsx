@@ -30,9 +30,10 @@ const RETURN_ERRORS: Record<string, string> = {
 const GitHubPanel: Component<GitHubPanelProps> = (props) => {
   const [returnError, setReturnError] = createSignal<string | null>(null);
 
-  // REQ-GITHUB-011: on touch devices the search bar is hidden behind a magnify
-  // toggle so the repo list keeps its full whole-row viewport. Desktop keeps the
-  // bar always visible.
+  // REQ-GITHUB-011: the repository search is disclosed on demand on EVERY breakpoint
+  // — hidden behind a magnify toggle so the list keeps its full whole-row viewport,
+  // revealed (and focused) on tap/click, hidden again on a second tap. Only the
+  // on-screen-keyboard scroll-into-view is touch-specific.
   const touch = isTouchDevice();
   const [searchOpen, setSearchOpen] = createSignal(false);
   let searchInput: HTMLInputElement | undefined;
@@ -44,9 +45,9 @@ const GitHubPanel: Component<GitHubPanelProps> = (props) => {
       // tap handler so iOS Safari opens the on-screen keyboard (it only does so on a
       // synchronous focus() within the user gesture).
       searchInput?.focus();
-      // Then scroll it above the keyboard once it animates in — the panel sits low
-      // on mobile, so the keyboard would otherwise cover the field being typed into.
-      if (searchInput) scrollFieldAboveKeyboard(searchInput);
+      // On touch only, scroll it above the on-screen keyboard once it animates in —
+      // the panel sits low on mobile, so the keyboard would otherwise cover the field.
+      if (touch && searchInput) scrollFieldAboveKeyboard(searchInput);
     } else {
       // Closing clears the filter so a hidden search box never silently narrows the list.
       githubStore.setSearchQuery('');
@@ -100,10 +101,10 @@ const GitHubPanel: Component<GitHubPanelProps> = (props) => {
           fallback={<ConnectCard />}
         >
           <ConnectedHeader
-            onToggleSearch={touch ? toggleSearch : undefined}
+            onToggleSearch={toggleSearch}
             searchOpen={searchOpen()}
           />
-          <Show when={!touch || searchOpen()}>
+          <Show when={searchOpen()}>
             <RepoSearch inputRef={(el) => (searchInput = el)} />
           </Show>
           <RepoList />

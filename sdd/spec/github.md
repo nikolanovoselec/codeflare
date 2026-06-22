@@ -318,16 +318,19 @@ None.
 
 ### REQ-GITHUB-011: Mobile search disclosure with autofocus
 
-**Intent:** On touch devices the GitHub panel's repository search is disclosed on demand — hidden behind a magnify toggle so the repository list keeps its full whole-row viewport — and revealing it focuses the input so the on-screen keyboard opens immediately. On desktop the search bar stays always visible.
+<!-- Title retains "Mobile ..." for anchor stability; the disclosure now applies on
+     EVERY breakpoint (desktop included), not only touch. -->
+
+**Intent:** The GitHub panel's repository search is disclosed on demand on every breakpoint — hidden behind a magnify toggle so the repository list keeps its full whole-row viewport, revealed (and focused) on tap/click and hidden again on a second tap. The only touch-specific behaviour is scrolling the field above the on-screen keyboard once it opens.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. On a touch device, the connected panel hides the search input by default and renders a magnify toggle to the left of the refresh control in the connected header. <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx::ConnectedHeader --> <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (touch hides search behind magnify toggle left of refresh) -->
+1. On every breakpoint, the connected panel hides the search input by default and renders a magnify toggle to the left of the refresh control in the connected header. <!-- @impl: web-ui/src/components/github/ConnectedHeader.tsx::ConnectedHeader --> <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (hides search behind a magnify toggle left of refresh) -->
 2. Tapping the magnify toggle reveals the search input and moves focus to it (opening the on-screen keyboard); the toggle reflects the open state. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @impl: web-ui/src/components/github/RepoSearch.tsx::RepoSearch --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (tap reveals + focuses the input, toggle reflects open state) -->
 3. Tapping the toggle again hides the search input and clears the active search filter, so a hidden search box never silently narrows the list. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (re-tap hides search and clears the filter) -->
-4. On a non-touch (desktop) device the search input is always visible and no magnify toggle is rendered. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (desktop always-visible, no toggle) -->
+4. Desktop discloses the search the same way as touch — the magnify toggle renders and the search input stays hidden until the toggle is clicked (there is no always-on desktop search bar). <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @test: web-ui/src/__tests__/components/GitHubPanel.test.tsx (desktop also discloses search behind the magnify toggle) -->
 5. On a touch device, revealing the search scrolls the input above the on-screen keyboard once it opens, so the field stays visible while typing. <!-- @impl: web-ui/src/components/github/GitHubPanel.tsx::GitHubPanel --> <!-- @impl: web-ui/src/lib/mobile.ts::scrollFieldAboveKeyboard --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (scrollFieldAboveKeyboard reveals the field above the keyboard) -->
 
 **Constraints:**

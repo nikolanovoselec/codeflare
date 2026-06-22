@@ -37,10 +37,8 @@ export interface LayoutModeInput {
   narrowWidth?: number;
   /**
    * Below this right-column height a wide column still flips to a single panel.
-   * Default 420 — the product "very short" floor: two stacked panels split ~420px
-   * into roughly two 190px content areas after each panel's header/search chrome,
-   * which is the smallest split where both panels stay usable; below it one
-   * scrollable panel beats two cramped ones. (Deliberate "split unless very short"
+   * Default 600 — below this the two stacked panels get too cramped to use side by
+   * side, so a single scrollable flip face beats a split. (Deliberate product
    * choice, not a derived constant.)
    */
   minSplitHeight?: number;
@@ -55,7 +53,7 @@ export interface LayoutModeInput {
  * SPLIT so the desktop layout does not flash the single-face mode on first paint.
  */
 export function decidePanelLayoutMode(input: LayoutModeInput): PanelLayoutMode {
-  const { width, height, narrowWidth = 600, minSplitHeight = 420 } = input;
+  const { width, height, narrowWidth = 600, minSplitHeight = 600 } = input;
   if (width > 0 && width < narrowWidth) return 'flip';
   // Too short to stack two usable panels — but only once we actually have a
   // measured width AND height; a partial/zero measurement must not flash flip.
