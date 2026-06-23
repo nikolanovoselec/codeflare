@@ -569,7 +569,7 @@ All preseed content is deployed via the manifest pipeline:
   still running never trigger failure.
   Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC4/AC5; source: `preseed/agents/pi/agents/review-monitor.md`,
+  AC4/AC5/AC6; source: `preseed/agents/pi/agents/review-monitor.md`,
   `review-enforcement.ts::reviewMonitorPrompt`,
   `review-enforcement.ts::reviewMonitorCompletionReady`, and
   `review-job-helpers.ts::reviewMonitorCompletionRecordReady`.
@@ -595,7 +595,7 @@ All preseed content is deployed via the manifest pipeline:
   `summary.md` without mutating delivery state or claiming the head was
   acknowledged. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC6; source: `review-enforcement.ts::review-results`,
+  AC7; source: `review-enforcement.ts::review-results`,
   `review-job-helpers.ts::reviewResultsSummaryMessage`, and
   `review-enforcement.ts::remember`.
 
