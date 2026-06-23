@@ -47,14 +47,17 @@ describe('REQ-OPS-011: Container base image is Debian bookworm-slim', () => {
     );
   });
 
-  it('REQ-OPS-011 AC3: system packages include essential tools: git, ripgrep, neovim, tmux, fzf', () => {
-    // These packages are installed via apt-get in the base layer
+  it('REQ-OPS-011 AC3: system packages include essential tools: git, ripgrep, neovim, tmux, fzf, jq, python', () => {
+    // These packages are installed via apt-get in the base layer.
     const requiredPackages = [
       { pkg: 'git', desc: 'git (version control)' },
       { pkg: 'ripgrep', desc: 'ripgrep (fast grep)' },
       { pkg: 'neovim', desc: 'neovim (editor)' },
       { pkg: 'tmux', desc: 'tmux (terminal multiplexer)' },
       { pkg: 'fzf', desc: 'fzf (fuzzy finder)' },
+      { pkg: 'jq', desc: 'jq (JSON processing)' },
+      { pkg: 'python3', desc: 'python3 interpreter' },
+      { pkg: 'python-is-python3', desc: 'python command alias for python3' },
     ];
 
     for (const { pkg, desc } of requiredPackages) {

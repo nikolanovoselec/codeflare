@@ -23,6 +23,18 @@ describe('GitHub Actions workflow files / REQ-OPS-004 (E2E test workflow setup a
     assert.match(body, /playwright|e2e/i, 'e2e.yml must reference Playwright/E2E tooling');
   });
 
+  test('E2E and stress workflows install the Dependabot-managed root Wrangler pin', () => {
+    for (const name of ['e2e.yml', 'stress-test.yml']) {
+      const body = readWorkflow(name);
+      assert.match(
+        body,
+        /npm install -g "wrangler@\$\(node -p \\"require\('\.\/package\.json'\)\.devDependencies\.wrangler\\"\)"/,
+        `${name} must install the root package.json Wrangler pin so Dependabot owns the version`,
+      );
+      assert.doesNotMatch(body, /npm install -g wrangler@[0-9]/, `${name} must not carry a second hard-coded Wrangler pin`);
+    }
+  });
+
   test('e2e.yml configures artifact handling for failed suites', () => {
     const path = join(repoRoot, '.github/workflows/e2e.yml');
     const body = readFileSync(path, 'utf-8');
@@ -198,6 +210,22 @@ describe('shadow-pin bump workflow / REQ-OPS-020 (shadow-pin version bump automa
     assert.match(body, /^\s+browser-run-mcp:/m, 'bump-shadow-pins.yml must declare a `browser-run-mcp:` job');
     assert.match(body, /npm view @modelcontextprotocol\/sdk version/, 'browser-run-mcp job must check the npm registry');
     assert.match(body, /preseed\/agents\/claude\/browser-run-mcp\/package\.json/, 'browser-run-mcp job must read+write the pin from the server package.json');
+  });
+
+  test('AC2: Bun Dockerfile npm-global pin is watched', () => {
+    const body = readWorkflow('bump-shadow-pins.yml');
+    assert.match(body, /^\s+bun:/m, 'bump-shadow-pins.yml must declare a `bun:` job');
+    assert.match(body, /npm view bun version/, 'bun job must check the npm registry');
+    assert.match(body, /npm install -g bun@\\K/, 'bun job must read the Dockerfile install literal');
+  });
+
+  test('AC2: Impeccable vendored skill is watched for Claude Code and Pi', () => {
+    const body = readWorkflow('bump-shadow-pins.yml');
+    assert.match(body, /^\s+impeccable:/m, 'bump-shadow-pins.yml must declare an `impeccable:` job');
+    assert.match(body, /https:\/\/impeccable\.style\/api\/version/, 'impeccable job must check the canonical skill version endpoint');
+    assert.match(body, /scripts\/update-impeccable-skill\.mjs/, 'impeccable job must run the bundle updater');
+    assert.match(body, /preseed\/agents\/claude\/skills\/impeccable/, 'impeccable job must update the Claude Code skill');
+    assert.match(body, /preseed\/agents\/pi\/skills\/impeccable/, 'impeccable job must update the Pi skill');
   });
 
   test('AC3: SHA256 is invalidated on Dockerfile bumps', () => {

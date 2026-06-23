@@ -137,14 +137,14 @@ The SDD enforcement family is advanced-only: `spec-enforce` +
 
 The design family (UI/frontend work) is `emil-design-eng` and
 `design-taste-frontend` (prose-only, adapted to every agent), plus `impeccable`.
-`impeccable` keeps its 23-sub-command design skill and ~57-file offline detector,
-but localhost `live` browser server scripts are not active in codeflare.
-`reference/live.md` and the `live` sub-command listing remain as inert references.
-
-`impeccable` is scoped to Claude + Pi only. Claude gets the trimmed tree in
+`impeccable` keeps its multi-command design skill and bundled offline/live detector
+scripts. It is scoped to Claude + Pi only: Claude gets the vendored tree in
 `~/.claude/skills/impeccable/`; Pi gets a dedicated copy under
 `~/.pi/agent/skills/impeccable/` with paths re-pointed and `.mjs` scripts emitted
 verbatim, so detector scripts are never mangled by Claude-to-Pi text adaptation.
+The vendored Impeccable bundle is shadow-pinned by `bump-shadow-pins.yml`, which
+checks `impeccable.style`, refreshes both agent copies, updates both manifests,
+and regenerates the seed.
 
 Skills are preseeded to `~/.claude/skills/<name>/SKILL.md` and adapted equivalents
 for agents that support skills. `consult-llm` is scoped to Claude + Pi only. On

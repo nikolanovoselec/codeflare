@@ -341,6 +341,11 @@
       "advanced"
     ]
   },
+  "skills/impeccable/reference/hooks.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/reference/init.md": {
     "modes": [
       "advanced"
@@ -441,6 +446,11 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/detector/design-system.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/detector/detect-antipatterns-browser.js": {
     "modes": [
       "advanced"
@@ -511,12 +521,42 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/detector/shared/inline-ignores.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/detector/shared/page.mjs": {
     "modes": [
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/hook-admin.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/hook-before-edit.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/hook-lib.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/hook.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/lib/design-parser.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/impeccable-config.mjs": {
     "modes": [
       "advanced"
     ]
@@ -527,6 +567,161 @@
     ]
   },
   "skills/impeccable/scripts/lib/is-generated.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/target-args.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live-accept.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live-browser-dom.js": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live-browser-session.js": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live-browser.js": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live-commit-manual-edits.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live-complete.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live-copy-edit-agent.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live-discard-manual-edits.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live-inject.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live-insert.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live-manual-edit-evidence.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live-poll.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live-resume.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live-server.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live-status.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live-target.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live-wrap.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/browser-script-parts.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/completion.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/event-validation.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/insert-ui.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/manual-apply.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/manual-edit-routes.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/manual-edits-buffer.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/session-store.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/svelte-component.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/sveltekit-adapter.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/ui-core.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live/vocabulary.mjs": {
     "modes": [
       "advanced"
     ]
