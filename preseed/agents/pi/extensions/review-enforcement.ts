@@ -1561,7 +1561,7 @@ export default function (pi: ExtensionAPI) {
       "- Final output must start with one of these exact contract lines: REVIEW_RESULT clean, REVIEW_RESULT findings, or REVIEW_RESULT failed.",
       "- For findings, include a detailed user-facing overview in your final result: severity counts, lane status, ranked finding titles, the summary.md path, your monitor transcript path if available, and the planned next action.",
       "- The main session's first response after receiving your result must start by printing a detailed review summary: exact REVIEW_RESULT line, severity counts, lane status, ranked findings, summary path, monitor transcript path if available, and next action. It must do this before analysis, tool calls, todo updates, or fixes.",
-      "- Then tell the main session to read summary.md, verify every MEDIUM/HIGH/CRITICAL finding, fix only legitimate findings by default, and stop for approval only if the latest user instruction says not to autofix / wait for approval / do not push.",
+      "- Then tell the main session to immediately read summary.md, verify every MEDIUM/HIGH/CRITICAL finding, fix legitimate findings, commit, push, start CI monitoring, verify/restart review-monitor, and iterate until the exact head returns REVIEW_RESULT clean. Stop before commit/push only if the latest user instruction says not to autofix / wait for approval / do not push.",
     ].join("\n");
   }
 

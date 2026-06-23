@@ -56,8 +56,11 @@ When a background `review-monitor` completes with `REVIEW_RESULT`, the very next
 assistant response MUST start by printing a detailed user-facing review summary before
 analysis, excuses, tool calls, todo updates, or fixes. Include the exact result line,
 severity counts, lane status, ranked findings, summary path, monitor transcript path if
-available, and the planned next action. Only after that summary may you read files,
-triage findings, or edit code.
+available, and the planned next action. If the result is `findings`, then immediately read
+`summary.md`, verify every MEDIUM/HIGH/CRITICAL finding, fix legitimate findings, commit,
+push, start CI monitoring, verify/restart `review-monitor`, and iterate until the exact
+head returns `REVIEW_RESULT clean`. Stop before commit/push only if the latest user
+instruction says not to autofix, wait for approval, or do not push.
 
 ## CI-result handoff gate
 

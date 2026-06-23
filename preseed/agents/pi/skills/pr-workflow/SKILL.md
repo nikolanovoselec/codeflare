@@ -1,6 +1,6 @@
 ---
 name: pr-workflow
-description: "Pull request creation workflow for Pi. Use when the user asks to open/create a PR. Covers commit/diff review, title/body drafting, REQ backlinks, and push/upstream handling. Critical: opening a PR is not permission to spawn review agents or start CI monitoring; hooks/enforcement own reviews, and CI monitoring requires an explicit user request or merge/deploy gate."
+description: "Pull request creation workflow for Pi. Use when the user asks to open/create a PR. Covers commit/diff review, title/body drafting, REQ backlinks, push/upstream handling, CI monitoring, and PR-boundary review-monitor verification. Critical: opening a PR is not permission to spawn reviewer agents; hooks/enforcement own reviewer lanes, while CI monitoring and review-monitor handoff still belong to the main session."
 version: 2.0.0
 ---
 
@@ -17,9 +17,9 @@ After `gh pr create`, do **not** call `Agent` for `code-reviewer`, `spec-reviewe
 1. the user explicitly asks for review agents, or
 2. an actual hook/enforcement message in the current turn explicitly instructs the assistant to launch specific agents.
 
-If SDD review enforcement is required, the hook/enforcement system owns that. The normal PR workflow is: create the PR, report the URL, and stop.
+If SDD review enforcement is required, the hook/enforcement system owns reviewer lane spawning. Do not confuse that with the background **review-monitor**: once a review job exists, the main session must verify or start the monitor for the exact head.
 
-Also do **not** start CI monitoring after PR creation unless the user explicitly asks, or a merge/deploy action requires a fresh CI result.
+After creating any PR that can produce CI, start CI monitoring unless the user explicitly says to skip it. For SDD PRs targeting `main`/`master`, also inspect `.git/codeflare-review-jobs/<head>/` after the PR command returns; if a review job exists, verify `monitor.json` is live or start `review-monitor` immediately. If a review-monitor task stops or completes without `REVIEW_RESULT`, restart it from the existing job prompt instead of waiting for the full TTL.
 
 ## Steps
 
@@ -45,7 +45,9 @@ Also do **not** start CI monitoring after PR creation unless the user explicitly
    ```
 
 7. Create the PR.
-8. Report the PR URL. Stop unless the user asked for more.
+8. Report the PR URL.
+9. If the PR can produce CI, start one background CI monitor for the exact head unless the user explicitly skipped CI monitoring.
+10. If this is an SDD `main`/`master` PR and `.git/codeflare-review-jobs/<head>/job.json` exists, verify or start `review-monitor` for the exact head. Do not stop while `monitor.json` is missing, stale, or tied to a stopped/no-output monitor.
 
 ## Body template
 
@@ -66,15 +68,16 @@ EOF
 
 ## After the PR is open
 
-Allowed without asking:
+Allowed and required without asking:
 
 - print the PR URL
 - print the branch/base
 - summarize what changed
+- start background CI monitoring for CI-producing PRs unless explicitly skipped
+- verify/start `review-monitor` when a PR-boundary review job exists for the exact head
 
 Not allowed unless explicitly requested:
 
-- spawning review agents
-- monitoring CI
+- spawning reviewer lane agents (`code-reviewer`, `spec-reviewer`, `doc-updater`, security reviewers)
 - merging the PR
 - changing branch protection

@@ -285,7 +285,10 @@ export default function (pi: ExtensionAPI) {
             sentinelRepoForDisplay(ctx),
           ].filter((repo, index, repos): repo is string => Boolean(repo) && repos.indexOf(repo) === index);
           const reviewRow = candidateRepos.map((repo) => liveReviewRow(repo, theme)).find(Boolean);
-          const reviewStatus = reviewRow ?? reviewFallback;
+          // When we can resolve a repo, durable disk state is authoritative. A stale
+          // extension status may outlive monitor completion/ack by a render tick; do not
+          // resurrect it after liveReviewRow intentionally hides an acked review.
+          const reviewStatus = reviewRow ?? (candidateRepos.length === 0 ? reviewFallback : undefined);
           const lines = [theme.fg("dim", truncateToWidth(cached.value, width))];
           if (statuses.length > 0) lines.push(truncateToWidth(statuses.join(" | "), width));
           if (reviewStatus) lines.push(truncateToWidth(reviewStatus, width));

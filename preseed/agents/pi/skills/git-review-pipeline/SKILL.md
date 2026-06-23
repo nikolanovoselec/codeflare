@@ -22,7 +22,7 @@ Reviewer spawning is owned by PR-boundary enforcement hooks. The assistant must 
 1. The user explicitly says to run/spawn review agents.
 2. A hook/enforcement message in the current turn explicitly instructs the assistant to launch specific review agents.
 
-If neither is true: create/push/open the PR, report the URL, and stop.
+If neither is true: create/push/open the PR, report the URL, start any required CI monitor, and verify the review-monitor when a durable review job exists. Do not spawn reviewer lane agents.
 
 ## PR-boundary policy
 
@@ -53,12 +53,15 @@ This order is reference material only. It is not permission to launch agents pro
 3. Start CI monitoring when the push can produce CI, unless the user explicitly skips it.
 4. Do not start reviewer agents unless the user explicitly asks or a hook explicitly instructs it.
 5. If a review job/window exists for the exact HEAD, the **main session must start or verify `review-monitor` immediately**. This is not reviewer spawning. Required invariant: `.git/codeflare-review-jobs/<head>/monitor.json` exists for the same HEAD before the assistant claims review is running or stops for handoff.
+6. `monitor.json` alone is not enough when the background task stops or completes without a `REVIEW_RESULT`. If that happens, restart `review-monitor` from the existing job prompt/result paths immediately; do not wait for the full monitor TTL.
 
 ## Fixing review findings
 
 Never edit, commit, or push review-finding fixes from partial lane results. Wait until the PR-boundary review job for the exact head is complete and every required lane has a result file. If any required lane is running, pending, missing, stale, or unknown, do not fix yet; report that review is still in progress and wait for the final merged summary.
 
 A hidden autofix/follow-up request is valid only when it explicitly says to use the final merged review summary and the persisted review job is complete for the same head. If the visible statusline or durable job disagrees, trust the durable job files and do not edit until completion is clear.
+
+When a background `review-monitor` returns `REVIEW_RESULT findings`, the main session must print the review summary first, then immediately read `summary.md`, triage every MEDIUM/HIGH/CRITICAL finding, fix legitimate findings, commit, push, start CI monitoring, verify/restart `review-monitor`, and repeat until the exact head returns `REVIEW_RESULT clean`. Stop before commit/push only when the latest user instruction explicitly says not to autofix, wait for approval, or do not push.
 
 **A finding's age is never a reason to skip it.** Once the review is complete, fix every legitimate finding — whether it was introduced by this change or pre-existing, whether it sits in the diff or in adjacent code. Legitimacy is the ONLY criterion. Never exclude, defer, or ask the user about a legitimate finding because it pre-dates the change or is "out of scope." The only non-fix outcomes are: the finding is a false positive (say why), or the fix is destructive/irreversible (confirm first).
 
