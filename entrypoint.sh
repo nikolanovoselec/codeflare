@@ -108,6 +108,13 @@ else
     echo "[entrypoint] Timezone defaulting to UTC (USER_TIMEZONE='${USER_TIMEZONE:-unset}')"
 fi
 
+# Configure context-mode runtime defaults for every Pi session.
+# Context-mode bridge children emit a noisy idle-release notice after 180s by
+# default. Codeflare runs inside a memory-constrained container, but the parent
+# process/session cleanup already reaps these helpers, so disable the idle path
+# and keep the footer/input area quiet.
+export CONTEXT_MODE_BRIDGE_IDLE_MS=0
+
 # Force HTML visualization generation regardless of graph size.
 # Default graphify limit is 5000 nodes; codeflare repos routinely exceed this.
 # Codeflare policy: graph.html is never skipped (user directive).

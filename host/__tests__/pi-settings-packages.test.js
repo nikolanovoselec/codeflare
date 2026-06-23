@@ -106,6 +106,14 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     assert.equal(twice.packages.length, new Set(twice.packages.map(sourceOf)).size, 'no duplicate package identities');
   });
 
+  it('does not inject context-mode runtime defaults through settings.extensions', () => {
+    const once = runAssembly(JSON.stringify({ extensions: ['user-ext.ts'] }));
+    const twice = runAssembly(JSON.stringify(once));
+
+    assert.deepEqual(once.extensions, ['user-ext.ts']);
+    assert.deepEqual(twice.extensions, ['user-ext.ts']);
+  });
+
   it('REQ-AGENT-005: overrides advisor guidance as user-invoked only without clearing the selected model', () => {
     const config = runAdvisorGuidanceMerge(JSON.stringify({ modelKey: 'provider/model', effort: 'medium' }));
     assert.equal(config.modelKey, 'provider/model');

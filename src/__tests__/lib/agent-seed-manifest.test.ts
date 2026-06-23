@@ -13,6 +13,7 @@ import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructio
 import { restoreActiveRepoFromPersistedFiles, shouldHandleClonePrompt } from '../../../preseed/agents/pi/extensions/codeflare-pi';
 import { sddCommandDecision, type SddRepoState } from '../../../preseed/agents/pi/extensions/sdd-helpers';
 import localStatuslineExtension from '../../../preseed/agents/pi/extensions/local-statusline';
+import { contextModeBridgeEnv } from '../../../preseed/agents/pi/extensions/context-mode-runtime';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -432,6 +433,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(advisorSkill?.content).not.toContain('when stuck, before substantive work, or before declaring done');
     expect(extensions.map((d) => d.key)).toContain('.pi/agent/extensions/codeflare-commands.ts');
     expect(extensions.map((d) => d.key)).toContain('.pi/agent/extensions/local-statusline.ts');
+    expect(extensions.map((d) => d.key)).toContain('.pi/agent/extensions/context-mode-runtime.ts');
     const codeReviewer = agents.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
     expect(codeReviewer?.content).toContain('tools: read, grep, find, bash, write');
     // context-mode helper tools are kept (Pi-native names), inert when context-mode is off
@@ -601,6 +603,14 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       expect(doc.content, `${doc.key} must not assume ExtensionCommandContext has sendUserMessage`).not.toContain('ctx.sendUserMessage(');
       expect(doc.content, `${doc.key} must fall back to ExtensionAPI.sendUserMessage`).toContain('pi.sendUserMessage');
     }
+  });
+
+  it('Pi context-mode runtime extension disables bridge-child idle reaping without mutating the input env', () => {
+    const input = { PATH: '/bin', CONTEXT_MODE_BRIDGE_IDLE_MS: '180000' };
+    const configured = contextModeBridgeEnv(input);
+
+    expect(configured).toEqual({ PATH: '/bin', CONTEXT_MODE_BRIDGE_IDLE_MS: '0' });
+    expect(input).toEqual({ PATH: '/bin', CONTEXT_MODE_BRIDGE_IDLE_MS: '180000' });
   });
 
   it('Pi agents use Pi-native tool names and keep declared context-mode tools (not stripped, never mcp-prefixed)', () => {
