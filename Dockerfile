@@ -171,7 +171,7 @@ RUN npm install -g @openai/codex@latest opencode-ai@latest @github/copilot@lates
     cd /usr/local/lib/node_modules/opencode-ai/node_modules && \
     find . -maxdepth 1 -name 'opencode-*' ! -name 'opencode-linux-x64' -type d -exec rm -rf {} + && \
     cd /usr/local/lib/node_modules/@github/copilot && \
-    find prebuilds/ -maxdepth 1 -type d ! -name 'prebuilds' ! -name 'linux-x64' -exec rm -rf {} + && \
+    if [ -d prebuilds ]; then find prebuilds/ -maxdepth 1 -type d ! -name 'prebuilds' ! -name 'linux-x64' -exec rm -rf {} +; fi && \
     rm -rf mxc-bin/arm64 ripgrep/ clipboard/node_modules pvrecorder/node_modules sharp/node_modules && \
     npm cache clean --force && \
     rm -rf /tmp/* /root/.npm
