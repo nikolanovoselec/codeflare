@@ -1375,6 +1375,25 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     });
     expect(waiting).toEqual({ status: 'waiting', action: 'wait', missing: ['doc-updater', 'summary'], failed: [] });
 
+    const missingWhileNoLaneFailed = reviewMonitorDecision({
+      lanes: ['spec-reviewer'],
+      resultExists: () => false,
+      summaryExists: false,
+      failedLanes: [],
+      counts: { critical: 0, high: 0, medium: 0, low: 0 },
+      approvalRequired: false,
+    });
+    expect(missingWhileNoLaneFailed).toEqual({ status: 'waiting', action: 'wait', missing: ['spec-reviewer', 'summary'], failed: [] });
+
+    expect(reviewMonitorDecision({
+      lanes: ['spec-reviewer'],
+      resultExists: () => false,
+      summaryExists: false,
+      failedLanes: ['spec-reviewer'],
+      counts: { critical: 0, high: 0, medium: 0, low: 0 },
+      approvalRequired: false,
+    })).toEqual({ status: 'failed', action: 'failed', missing: [], failed: ['spec-reviewer'] });
+
     const ready = reviewMonitorDecision({
       lanes: ['code-reviewer', 'spec-reviewer'],
       resultExists: () => true,
@@ -1410,10 +1429,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(reviewMonitorSpawnDecision({ completed: true, startedAt: undefined, now: 1000, ttlMs: 500 })).toBe('skip_completed');
     expect(reviewMonitorSpawnDecision({ completed: false, startedAt: 800, now: 1000, ttlMs: 500 })).toBe('skip_running');
     expect(reviewMonitorSpawnDecision({ completed: false, startedAt: 400, now: 1000, ttlMs: 500 })).toBe('spawn');
-    expect(reviewMonitorSpawnDecision({ completed: false, startedAt: undefined, now: 1000, ttlMs: 500 })).toBe('spawn');
-  });
-
-  it('REQ-AGENT-062: monitor handoff is not gated on main-session ctx', () => {
     expect(reviewMonitorSpawnDecision({ completed: false, startedAt: undefined, now: 1000, ttlMs: 500 })).toBe('spawn');
   });
 

@@ -25,7 +25,7 @@ The prompt gives you:
 - completion marker path
 - monitor request marker path
 
-Wait in the background for up to 35 minutes until every required lane result exists and `summary.md` exists. Use one shell polling loop or another low-turn strategy; do not spend one subagent turn per poll. If a lane failure appears before that complete set exists, do not write the completion marker; remove the monitor request marker and return `REVIEW_RESULT failed`. If all lane result files exist but `summary.md` is missing, write a concise merged summary from the lane reports with:
+Wait in the background for up to 35 minutes until every required lane result exists and `summary.md` exists. Use one shell polling loop or another low-turn strategy; do not spend one subagent turn per poll. Missing result files are expected while any required lane marker is still `running`; keep waiting in that state. Return `REVIEW_RESULT failed` only when a required lane marker explicitly has `status: "failed"` before the complete result set exists. If a lane failure appears before that complete set exists, do not write the completion marker; remove the monitor request marker and return `REVIEW_RESULT failed`. If all lane result files exist but `summary.md` is missing, write a concise merged summary from the lane reports with:
 
 - verdict
 - severity table

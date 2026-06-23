@@ -177,20 +177,21 @@ CI-monitor request in its visible main-session handoff so the monitor appears in
 the same background-agent UI as `review-monitor`. The backgrounded CI monitor
 reports success/failure/timeout and never fixes, commits, or pushes
 ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC1/AC4/AC8).
+AC1/AC4/AC6).
 
 The monitor waits for every workflow row returned for the monitored HEAD to complete
 and for the workflow/run-id fingerprint to stabilize before success. Before each poll
-and before terminal success/failure, it also compares the local branch ref to the
-monitored HEAD; if a later push advanced the branch, the monitor exits with
-`CI_RESULT timeout superseded ...` instead of reporting stale success/failure for the
-old head ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC2/AC3). After `CI_RESULT`, the main session prints the CI summary first, including
-monitored head, run/log pointers when present, and planned next action ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC6). If a CI monitor task stops, errors, or completes without a `CI_RESULT`,
-the main session starts a replacement monitor for the same exact head unless the
-head was superseded or the user explicitly skipped CI ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC8).
+and before terminal success/failure, it compares the local branch ref to the monitored
+HEAD; if a later push advanced the branch, it exits with `CI_RESULT timeout superseded ...`
+instead of reporting stale success/failure for the old head ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
+AC2/AC3).
+
+After `CI_RESULT`, the main session prints the CI summary first, including monitored
+head, run/log pointers when present, and planned next action. If a CI monitor task
+stops, errors, or completes without a `CI_RESULT`, the main session starts a replacement
+monitor for the same exact head unless the head was superseded or the user explicitly
+skipped CI ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
+AC6).
 
 Pi receives its native `preseed/agents/pi/skills/ci-monitoring/SKILL.md` entry from
 the Pi manifest instead of a Claude-transformed skill ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
@@ -465,29 +466,31 @@ All preseed content is deployed via the manifest pipeline:
   `.git/codeflare-review-jobs/<head>/` and public findings under
   `.git/sdd-review-results/<head>/`. Each result file uses a common
   `## Findings` section followed by a severity-count Review Summary table.
+
   While internal durable lanes run, Pi displays a compact footer status
   (`Review code | spec | docs`, rendering only required lanes and turning a lane
   label green when that lane finishes). Colored review status rows truncate by
   visible width, preserve ANSI color sequences, and reset styling before the
-  ellipsis. Operators can diagnose background review progress without visible
-  generic Agent tasks. Once durable review state says the exact head is acked, the
-  footer suppresses stale `codeflare-review` fallback strings from older extension
-  status caches ([REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer)
-  AC8). Duplicate lane-result notices are suppressed for the same repo/head/lane
+  ellipsis. Once durable review state says the exact head is acked, the footer
+  suppresses stale `codeflare-review` fallback strings from older extension status
+  caches ([REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer)
+  AC5). Duplicate lane-result notices are suppressed for the same repo/head/lane
   result.
 
   Review summaries have a second monitor delivery phase. `review-monitor` is a
-  background agent/subagent, not an extension. When a real PR-boundary trigger
-  creates an active review window, the Pi extension records durable lane state and
-  sends the main session a visible monitor handoff for the same exact head. That
-  handoff asks the main session to spawn both `review-monitor` and a CI monitor so
-  their agent IDs/results appear in the normal background-agent UI. If the
-  follow-up cannot be sent, Pi falls back to direct service-spawning of
+  background agent/subagent, not an extension. When a PR-boundary trigger creates
+  an active review window, the Pi extension records durable lane state and sends
+  the main session a visible monitor handoff for the exact head. That handoff asks
+  the main session to spawn both `review-monitor` and a CI monitor so their
+  agent IDs/results appear in the normal background-agent UI.
+
+  If the follow-up cannot be sent, Pi falls back to direct service-spawning of
   `review-monitor`. The monitor waits for lane results and `summary.md`, writes
   `monitor.completed` only after that complete set exists, then returns
-  `REVIEW_RESULT clean|findings` to the main session. An early lane failure returns
-  `REVIEW_RESULT failed` without a completion marker so a later retry can deliver
-  the final summary.
+  `REVIEW_RESULT clean|findings` to the main session. Missing result files while a
+  required lane marker is still `running` are waiting state, not failure. Only an
+  explicit required-lane `status: "failed"` produces `REVIEW_RESULT failed` without
+  a completion marker, so a later retry can deliver the final summary.
 
   Pi keeps the pending review window unacked until a valid `monitor.completed`
   exists, and it does not resurrect old acked jobs after pending state is cleared.
@@ -554,7 +557,7 @@ All preseed content is deployed via the manifest pipeline:
   exist but `summary.md` is missing, it writes a concise merged summary from those
   lane reports. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC1/AC2/AC6/AC7/AC8; source: `review-enforcement.ts::startReviewMonitor`,
+  AC1/AC2/AC6/AC7; source: `review-enforcement.ts::startReviewMonitor`,
   `review-enforcement.ts::claimReviewMonitorStart`,
   `review-enforcement.ts::reviewMonitorCompletionReady`,
   `review-enforcement.ts::sendVisibleMonitorHandoff`,
@@ -568,7 +571,9 @@ All preseed content is deployed via the manifest pipeline:
   results and `summary.md`, it writes
   `.git/codeflare-review-jobs/<head>/monitor.completed` as JSON containing `repo`,
   `head`, `summaryPath`, `completedAt`, and result `clean` or `findings`; if a lane
-  fails before that complete set exists, it returns `REVIEW_RESULT failed` without that marker.
+  explicitly reports failed before that complete set exists, it returns
+  `REVIEW_RESULT failed` without that marker; missing result files while a lane is
+  still running never trigger failure.
   Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
   AC3/AC4; source: `preseed/agents/pi/agents/review-monitor.md`,
@@ -597,7 +602,7 @@ All preseed content is deployed via the manifest pipeline:
   `summary.md` without mutating delivery state or claiming the head was
   acknowledged. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC5/AC6/AC8; source: `review-enforcement.ts::review-results`,
+  AC5/AC6/AC7; source: `review-enforcement.ts::review-results`,
   `review-job-helpers.ts::reviewResultsSummaryMessage`,
   `review-job-helpers.ts::visibleMonitorHandoffRequest`,
   `review-enforcement.ts::startReviewMonitor`, and
