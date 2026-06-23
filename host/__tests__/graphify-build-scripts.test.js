@@ -229,7 +229,7 @@ describe('Graphify build preseed', () => {
     assert.equal(calls.length, 1);
     assert.equal(calls[0].kind, 'ast');
     assert.equal(calls[0].root, cwd);
-    assert.equal(calls[0].manifest_path, join(cwd, 'graphify-out', 'manifest.json'));
+    assert.equal(calls[0].manifest_path, 'graphify-out/manifest.json');
   });
 
   it('Pi architecture build writes a portable manifest rooted at the scanned repo', () => {
@@ -237,6 +237,6 @@ describe('Graphify build preseed', () => {
     assert.equal(calls.length, 1);
     assert.equal(calls[0].kind, 'ast');
     assert.equal(calls[0].root, cwd);
-    assert.equal(calls[0].manifest_path, join(cwd, 'graphify-out', 'manifest.json'));
+    assert.equal(calls[0].manifest_path, 'graphify-out/manifest.json');
   });
 });
