@@ -391,6 +391,7 @@ export function visibleMonitorHandoffRequest(input: { repo: string; head: string
     "Query GitHub Actions by exact commit, not only by branch.",
     `Before any terminal result, verify ${branchRef} still equals ${input.head}; if it advanced, final output must start CI_RESULT timeout superseded head=${input.head} current_head=<current> branch=${branch}.`,
     "If no workflow rows appear for this head within five minutes, output CI_RESULT timeout no_workflows_for_head with the head.",
+    "Poll for up to 30 minutes total; if no terminal success or failure is reached within 30 minutes, output CI_RESULT timeout with the monitored head and stop.",
     "If any workflow concludes failure/cancelled/timed_out, output CI_RESULT failure plus monitored head, workflow/run id, URL, log path if available, and failed-log command.",
     "If every workflow row for this head is complete and successful with a stable workflow/run-id set, output CI_RESULT success plus monitored head, workflow names, run ids, and URLs.",
   ].join("\n");

@@ -1767,7 +1767,7 @@ None.
 **Constraints:**
 
 - The monitor receives all needed state in its explicit prompt and must not inherit parent context.
-- The monitor polls with a low-turn strategy for up to 35 minutes.
+- The monitor polls with a low-turn strategy for up to 30 minutes.
 
 **Priority:** P1
 

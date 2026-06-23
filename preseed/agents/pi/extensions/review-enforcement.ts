@@ -70,7 +70,7 @@ const REVIEW_BYPASS = "/tmp/review-bypass";
 const MAX_REVIEW_ATTEMPTS = 5;
 const MAX_REVIEW_AGE_MS = 20 * 60 * 1000;
 const REVIEW_REQUEST_RETRY_MS = 60 * 1000;
-const REVIEW_MONITOR_TTL_MS = 35 * 60 * 1000;
+const REVIEW_MONITOR_TTL_MS = 30 * 60 * 1000;
 const REVIEW_MONITOR_CLAIM_WRITE_GRACE_MS = 5 * 1000;
 // Background subagent spawn flags for the untyped pi-subagents service. `foreground: false`
 // is the contract honored across the codebase (see memory-vault); `runInBackground` is silently
@@ -1554,7 +1554,7 @@ export default function (pi: ExtensionAPI) {
       "Rules:",
       "- Background monitor only. Do not edit source, documentation, or spec files.",
       "- Do not run tests, builds, typechecks, linters, dev servers, CI watches, or deploy commands.",
-      "- Poll the listed lane result files and summary.md for up to 35 minutes, stopping sooner only when they all exist or a required lane marker explicitly has status=failed in .git/codeflare-review-jobs/<head>/lanes/.",
+      "- Poll the listed lane result files and summary.md for up to 30 minutes, stopping sooner only when they all exist or a required lane marker explicitly has status=failed in .git/codeflare-review-jobs/<head>/lanes/.",
       "- Use one shell polling loop or another low-turn strategy; do not burn one subagent turn per poll.",
       "- Missing result files are expected while any required lane marker is still running; keep waiting in that state.",
       "- If a required lane marker explicitly has status=failed before every lane result and summary.md exist: do not write the completion marker, remove the monitor request marker, and return REVIEW_RESULT failed.",
