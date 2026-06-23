@@ -8,7 +8,7 @@
 
 | Event | Skill |
 |---|---|
-| Any push that can produce CI, unless the user explicitly says to skip CI monitoring | `ci-monitoring` (one backgrounded agent monitors CI and reports back to the main session; never tail-follow in the main session) |
+| Any push or PR creation that can produce CI, unless the user explicitly says to skip CI monitoring | `ci-monitoring` (one backgrounded agent monitors CI and reports back to the main session; never tail-follow in the main session) |
 | PR-boundary event with `sdd/` present | `git-review-pipeline` (spec/doc/code review pipeline) |
 | User asks to open a PR | `pr-workflow` (body template + REQ backlinks + test plan) |
 | Need gh/wrangler access, creds unclear | `deploy-credentials` (env-var table + check-then-fallback) |

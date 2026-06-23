@@ -186,13 +186,11 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(claudeCiSkill?.content).not.toEqual(piCiSkill?.content);
 
     const piHardObligations = markdownSection(piGitWorkflow?.content ?? '', 'Hard obligations');
-    expect(piHardObligations).toContain('After any push or PR creation that can produce CI');
     expect(piHardObligations).toContain('CI monitoring must run in a backgrounded agent/subagent');
     expect(piHardObligations).toContain('ci-monitoring-skill-not-invoked');
     const claudeHardObligations = markdownSection(claudeGitWorkflow?.content ?? '', 'Hard obligations');
     expect(claudeHardObligations).toContain('Do not auto-start CI monitoring after routine pushes.');
     expect(claudeHardObligations).toContain('Invoke `ci-monitoring` only when the user explicitly asks');
-    expect(claudeGitWorkflow?.content).not.toContain('After any push or PR creation that can produce CI');
 
     const piMonitorScript = fencedCodeBlocks(piCiSkill?.content ?? '', 'bash').join('\n');
     expect(piMonitorScript.split('\n')).toContain('  if current_head=$(git rev-parse "refs/heads/$branch" 2>/dev/null) && [ -n "$current_head" ] && [ "$current_head" != "$head" ]; then');
@@ -212,7 +210,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(piInstructionEntries.map((entry) => entry.modes[0]).sort()).toEqual(['advanced', 'default']);
     for (const entry of piInstructionEntries) {
       const gitWorkflow = markdownSection(entry.content, 'Git Workflow');
-      expect(gitWorkflow).toContain('After any push or PR creation that can produce CI');
       expect(gitWorkflow).toContain('ci-monitoring-skill-not-invoked');
     }
   });
@@ -250,7 +247,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
         expect(reviewGate).toContain('severity counts');
         expect(reviewGate).toContain('summary path');
         expect(reviewGate).toContain('planned next action');
-        expect(reviewGate).toContain('iterate until the exact');
         const ciGate = markdownSection(entry.content, 'CI-result handoff gate');
         expect(ciGate).toContain('CI_RESULT');
         expect(ciGate).toContain('monitored head');

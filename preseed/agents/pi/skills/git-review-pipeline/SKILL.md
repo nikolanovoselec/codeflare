@@ -50,7 +50,7 @@ This order is reference material only. It is not permission to launch agents pro
 
 1. Print the PR URL or pushed HEAD.
 2. Mention that PR-boundary enforcement may run separately if required.
-3. Start CI monitoring when the push can produce CI, unless the user explicitly skips it.
+3. Start CI monitoring when the push or PR creation can produce CI, unless the user explicitly skips it.
 4. Do not start reviewer agents unless the user explicitly asks or a hook explicitly instructs it.
 5. If a review job/window exists for the exact HEAD, the **main session must start or verify `review-monitor` immediately**. This is not reviewer spawning. Required invariant: `.git/codeflare-review-jobs/<head>/monitor.json` exists for the same HEAD before the assistant claims review is running or stops for handoff.
 6. `monitor.json` alone is not enough when the background task stops or completes without a `REVIEW_RESULT`. If that happens, restart `review-monitor` from the existing job prompt/result paths immediately; do not wait for the full monitor TTL.
