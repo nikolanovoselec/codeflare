@@ -480,11 +480,10 @@ All preseed content is deployed via the manifest pipeline:
   Review summaries have a second monitor delivery phase. `review-monitor` is a
   background agent/subagent, not an extension. When a PR-boundary trigger creates
   an active review window, the Pi extension records durable lane state and sends
-  the main session a visible monitor handoff for the exact head. That handoff asks
-  the main session to spawn both `review-monitor` and a CI monitor so their
-  agent IDs/results appear in the normal background-agent UI.
+  the main session a visible monitor handoff for the exact head. That visible
+  handoff is specified by [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-visible-review-and-ci-monitor-handoff).
 
-  If the follow-up cannot be sent, Pi falls back to direct service-spawning of
+  If the visible follow-up cannot be sent, Pi falls back to direct service-spawning of
   `review-monitor`. The monitor waits for lane results and `summary.md`, writes
   `monitor.completed` only after that complete set exists, then returns
   `REVIEW_RESULT clean|findings` to the main session. Missing result files while a
@@ -539,33 +538,27 @@ All preseed content is deployed via the manifest pipeline:
   [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-and-result-formatting).
 
   Delivering that summary back into the live session is a separate monitor phase.
-  For each `(repo, head)`, the Pi extension records one durable monitor claim and
-  first asks the main session to spawn visible CI/review monitors using an explicit
-  exact-head handoff (`visibleMonitorHandoffRequest`). Valid `monitor.completed`
-  files and fresh monitor claims suppress duplicate requests; reload/status refresh
-  also consumes valid exact-head completion markers when the transient pending file
-  is already gone.
+  For each `(repo, head)`, the Pi extension records one durable monitor claim.
+  Valid `monitor.completed` files and fresh monitor claims suppress duplicate
+  monitor requests; reload/status refresh also consumes valid exact-head completion
+  markers when the transient pending file is already gone.
 
   The Pi extension owns the durable claim/completion files; the monitor agent owns
   waiting and returning `REVIEW_RESULT`. Malformed or stale monitor claim files are
-  reclaimed, so a partial `monitor.json` cannot block delivery forever. If the
-  visible follow-up cannot be sent, Pi falls back to `subagentsService().spawn` with
-  `{ inheritContext:false, foreground:false }` and sends the old startup-failure
-  fallback message only if that fallback path also fails.
+  reclaimed, so a partial `monitor.json` cannot block delivery forever. Visible
+  main-session monitor spawning and restart behavior live in [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-visible-review-and-ci-monitor-handoff).
 
   The monitor waits for every lane result file and `summary.md`; if lane files
   exist but `summary.md` is missing, it writes a concise merged summary from those
   lane reports. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC1/AC2/AC6; source: `review-enforcement.ts::startReviewMonitor`,
+  AC1/AC2/AC3; source: `review-enforcement.ts::startReviewMonitor`,
   `review-enforcement.ts::claimReviewMonitorStart`,
   `review-enforcement.ts::reviewMonitorCompletionReady`,
-  `review-enforcement.ts::sendVisibleMonitorHandoff`,
   `review-enforcement.ts::reviewMonitorPrompt`,
-  `review-job-helpers.ts::visibleMonitorHandoffRequest`,
   `review-job-helpers.ts::reviewMonitorDecision`,
   `review-job-helpers.ts::reviewMonitorSpawnDecision`, and
-  `review-job-helpers.ts::reviewMonitorStartupFailureMessage`.
+  `review-job-helpers.ts::formatMergedReviewSummary`.
 
   The monitor is the delivery wakeup. Before successful exit after complete lane
   results and `summary.md`, it writes
@@ -576,7 +569,7 @@ All preseed content is deployed via the manifest pipeline:
   still running never trigger failure.
   Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC3/AC4; source: `preseed/agents/pi/agents/review-monitor.md`,
+  AC4/AC5; source: `preseed/agents/pi/agents/review-monitor.md`,
   `review-enforcement.ts::reviewMonitorPrompt`,
   `review-enforcement.ts::reviewMonitorCompletionReady`, and
   `review-job-helpers.ts::reviewMonitorCompletionRecordReady`.
@@ -602,16 +595,13 @@ All preseed content is deployed via the manifest pipeline:
   `summary.md` without mutating delivery state or claiming the head was
   acknowledged. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC5/AC6; source: `review-enforcement.ts::review-results`,
-  `review-job-helpers.ts::reviewResultsSummaryMessage`,
-  `review-job-helpers.ts::visibleMonitorHandoffRequest`,
-  `review-enforcement.ts::startReviewMonitor`, and
+  AC6; source: `review-enforcement.ts::review-results`,
+  `review-job-helpers.ts::reviewResultsSummaryMessage`, and
   `review-enforcement.ts::remember`.
 
-  The main-session restart rule is documented in `pr-workflow`,
+  The main-session visible handoff and restart rule is documented in `pr-workflow`,
   `git-review-pipeline`, and `git-workflow`; that workflow implements
-  [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC7.
+  [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-visible-review-and-ci-monitor-handoff).
 
   Timed-out or failed durable lanes are recorded as failed and do not produce
   the required result file. The PR head remains unacked until a later review run

@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-06-23
 
-- **PR-boundary monitor wording now separates waiting, summary creation, and CI restart traces** ([REQ-AGENT-062](agents.md#req-agent-062-pi-pr-boundary-review-result-delivery), [REQ-AGENT-068](agents.md#req-agent-068-ci-monitoring-background-agent-policy)). Running review lanes remain wait state, completed lane reports may generate a missing summary, and stopped/no-result CI monitor restarts trace to the monitor-active rule.
+- **PR-boundary review monitors now keep waiting for incomplete lane results** ([REQ-AGENT-062](agents.md#req-agent-062-pi-pr-boundary-review-result-delivery), [REQ-AGENT-074](agents.md#req-agent-074-pi-visible-review-and-ci-monitor-handoff)). After all lane reports finish, the monitor creates a missing summary; no-result CI/review monitors restart for the exact head unless skipped or superseded.
 
 - **PR-boundary handoff now uses visible CI/review monitors** ([REQ-AGENT-056](agents.md#req-agent-056-pi-local-statusline-footer), [REQ-AGENT-059](agents.md#req-agent-059-pi-durable-review-fix-loop), [REQ-AGENT-062](agents.md#req-agent-062-pi-pr-boundary-review-result-delivery), [REQ-AGENT-068](agents.md#req-agent-068-ci-monitoring-background-agent-policy)). Pi asks the main session to spawn exact-head monitor agents, restarts no-result monitors, treats running lanes as monitor wait state, and suppresses stale acked review footer rows.
 

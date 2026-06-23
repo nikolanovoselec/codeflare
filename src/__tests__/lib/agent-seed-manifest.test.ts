@@ -1432,7 +1432,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(reviewMonitorSpawnDecision({ completed: false, startedAt: undefined, now: 1000, ttlMs: 500 })).toBe('spawn');
   });
 
-  it('REQ-AGENT-062: visible monitor handoff requests review and CI monitors for the exact head', () => {
+  it('REQ-AGENT-074: visible monitor handoff requests review and CI monitors for the exact head', () => {
     const request = visibleMonitorHandoffRequest({
       repo: '/repo/codeflare',
       head: 'abcdef1234567890',
