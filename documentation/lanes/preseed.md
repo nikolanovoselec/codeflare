@@ -684,8 +684,10 @@ runtime behaviors that cannot be represented as transformed prose:
 `/sdd`, `/graphify`, `/vault`, `/note`, `/debug`, `/deploy`, `/brainstorm`, graphify
 active-repo/global-graph maintenance and clone triage, automatic memory capture,
 Vault graph extraction/global-graph merge, local-build blocking,
-and AI-attribution blocking. Pi receives a dedicated native graphify skill
-that uses local AST extraction plus Pi `Agent` subagents instead of the
+and AI-attribution blocking. Graphify build/update runbooks for both Claude and
+Pi pass the scanned repo root to Graphify's manifest writer, keeping
+`graphify-out/manifest.json` portable after a repo move. Pi receives a dedicated
+native graphify skill that uses local AST extraction plus Pi `Agent` subagents instead of the
 Claude/MCP-specific transformed skill. The Pi runtime also registers first-party native
 `graphify_query` / `graphify_path` / `graphify_explain` tools through
 `graphify-native.ts`. Each query shells the upstream Graphify CLI and resolves

@@ -175,8 +175,9 @@ from datetime import datetime, timezone
 from graphify.detect import save_manifest
 
 # Save manifest for --update
+root = Path('.').resolve()
 detect = json.loads(Path('.graphify_detect.json').read_text())
-save_manifest(detect['files'])
+save_manifest(detect.get('files', {}), manifest_path='graphify-out/manifest.json', kind='both', root=root)
 
 # Update cumulative cost tracker
 extract = json.loads(Path('.graphify_extract.json').read_text())

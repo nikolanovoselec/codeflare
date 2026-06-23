@@ -179,8 +179,52 @@ function runBuildScript(scriptName) {
   return { cwd, calls: JSON.parse(readFileSync(recordPath, 'utf-8')) };
 }
 
-describe('Pi Graphify build scripts', () => {
-  it('AST-only build writes a portable manifest rooted at the scanned repo', () => {
+function extractClaudeGraphifyManifestScript() {
+  const skillPath = resolve(repoRoot, 'preseed/agents/claude/skills/graphify/references/build.md');
+  const skill = readFileSync(skillPath, 'utf-8');
+  const start = skill.indexOf('## Step 7 - Save manifest, update cost tracker, clean up, and report');
+  assert.notEqual(start, -1, 'Claude graphify manifest step is missing');
+  const fenceStart = skill.indexOf('```bash', start);
+  assert.notEqual(fenceStart, -1, 'Claude graphify manifest bash block is missing');
+  const bodyStart = skill.indexOf('\n', fenceStart) + 1;
+  const fenceEnd = skill.indexOf('\n```', bodyStart);
+  assert.notEqual(fenceEnd, -1, 'Claude graphify manifest bash block terminator is missing');
+  return skill.slice(bodyStart, fenceEnd).replace('/root/.local/share/uv/tools/graphifyy/bin/python', 'python3');
+}
+
+function runClaudeGraphifyManifestStep() {
+  const cwd = mkdtempSync(join(tmpdir(), 'graphify-claude-skill-'));
+  const fakeRoot = writeFakeGraphify(cwd);
+  const recordPath = join(cwd, 'manifest-calls.json');
+  writeFileSync(join(cwd, '.graphify_detect.json'), JSON.stringify({
+    files: { code: [join(cwd, 'src.py')], document: [], paper: [], image: [], video: [] },
+    total_files: 1,
+  }));
+  writeFileSync(join(cwd, '.graphify_extract.json'), JSON.stringify({ input_tokens: 3, output_tokens: 5 }));
+  writeFileSync(join(cwd, 'src.py'), 'print("hi")\n');
+  const result = spawnSync('bash', ['-lc', extractClaudeGraphifyManifestScript()], {
+    cwd,
+    encoding: 'utf-8',
+    env: {
+      ...process.env,
+      PYTHONPATH: fakeRoot,
+      GRAPHIFY_SAVE_MANIFEST_RECORD: recordPath,
+    },
+  });
+  assert.equal(result.status, 0, `Claude graphify skill manifest step failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+  return { cwd, calls: JSON.parse(readFileSync(recordPath, 'utf-8')) };
+}
+
+describe('Graphify build preseed', () => {
+  it('Claude skill manifest step writes a portable manifest rooted at the scanned repo', () => {
+    const { cwd, calls } = runClaudeGraphifyManifestStep();
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].kind, 'both');
+    assert.equal(calls[0].root, cwd);
+    assert.equal(calls[0].manifest_path, 'graphify-out/manifest.json');
+  });
+
+  it('Pi AST-only build writes a portable manifest rooted at the scanned repo', () => {
     const { cwd, calls } = runBuildScript('build-graphify-ast.sh');
     assert.equal(calls.length, 1);
     assert.equal(calls[0].kind, 'ast');
@@ -188,7 +232,7 @@ describe('Pi Graphify build scripts', () => {
     assert.equal(calls[0].manifest_path, join(cwd, 'graphify-out', 'manifest.json'));
   });
 
-  it('architecture build writes a portable manifest rooted at the scanned repo', () => {
+  it('Pi architecture build writes a portable manifest rooted at the scanned repo', () => {
     const { cwd, calls } = runBuildScript('build-graphify-architecture.sh');
     assert.equal(calls.length, 1);
     assert.equal(calls[0].kind, 'ast');
