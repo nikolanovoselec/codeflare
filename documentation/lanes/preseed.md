@@ -707,9 +707,10 @@ to `.pi/agent/extensions/`, `.pi/agent/scripts/`,
 capture-contract prompts to `.pi/agent/prompts/`, native Pi skill overrides under
 `~/.pi/agent/skills/`, and native Pi agent overrides under `~/.pi/agent/agents/`,
 and adapts Claude agent definitions into `.pi/agent/agents/*.md` for
-`@gotgenes/pi-subagents`. Pi's generated agent frontmatter deliberately drops
-context-mode tools so those `@gotgenes/pi-subagents` subagents run against the
-native Pi tool surface. This applies to subagent frontmatter only. Durable
+`@gotgenes/pi-subagents`. Pi's generated agent frontmatter and body text use
+Pi-native tool names: Graphify MCP references become `graphify_query` /
+`graphify_path` / `graphify_explain`, and context-mode MCP references become
+`ctx_*` tool names so subagents never try unavailable Claude MCP tools. Durable
 PR-boundary review lanes are not `@gotgenes/pi-subagents` and not in-process
 `createAgentSession` calls: `spawnDurableLane` launches detached headless `pi`
 child processes with a bounded inspection tool allowlist, `--no-extensions`,

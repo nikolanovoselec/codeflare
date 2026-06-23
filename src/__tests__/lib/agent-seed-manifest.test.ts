@@ -607,8 +607,11 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     const agents = AGENTS_SEEDED_CONFIGS.filter((d) => d.key.startsWith('.pi/agent/agents/') && !d.key.endsWith('AGENTS.md'));
     const toolsLine = (content: string) => content.match(/^tools:.*$/m)?.[0] ?? '';
     for (const agent of agents) {
-      // the Claude->Pi remap is complete: the tools line carries Pi-native names, no mcp__ prefixes
+      // the Claude->Pi remap is complete: Pi agent frontmatter and body carry Pi-native names,
+      // so subagents never try unavailable Claude MCP tool names at runtime.
       expect(toolsLine(agent.content)).not.toContain('mcp__');
+      expect(agent.content).not.toContain('mcp__graphify__');
+      expect(agent.content).not.toContain('mcp__context-mode__');
     }
     // an agent that declares context-mode tools upstream keeps them under Pi-native names,
     // so context-mode (when /ctx enables it) is usable instead of a dead-end redirect
