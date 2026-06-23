@@ -177,7 +177,7 @@ CI-monitor request in its visible main-session handoff so the monitor appears in
 the same background-agent UI as `review-monitor`. The backgrounded CI monitor
 reports success/failure/timeout and never fixes, commits, or pushes
 ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC1/AC4/AC6).
+AC1/AC4).
 
 The monitor waits for every workflow row returned for the monitored HEAD to complete
 and for the workflow/run-id fingerprint to stabilize before success. Before each poll
@@ -557,7 +557,7 @@ All preseed content is deployed via the manifest pipeline:
   exist but `summary.md` is missing, it writes a concise merged summary from those
   lane reports. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC1/AC2/AC6/AC7; source: `review-enforcement.ts::startReviewMonitor`,
+  AC1/AC2/AC6; source: `review-enforcement.ts::startReviewMonitor`,
   `review-enforcement.ts::claimReviewMonitorStart`,
   `review-enforcement.ts::reviewMonitorCompletionReady`,
   `review-enforcement.ts::sendVisibleMonitorHandoff`,
@@ -602,11 +602,16 @@ All preseed content is deployed via the manifest pipeline:
   `summary.md` without mutating delivery state or claiming the head was
   acknowledged. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC5/AC6/AC7; source: `review-enforcement.ts::review-results`,
+  AC5/AC6; source: `review-enforcement.ts::review-results`,
   `review-job-helpers.ts::reviewResultsSummaryMessage`,
   `review-job-helpers.ts::visibleMonitorHandoffRequest`,
   `review-enforcement.ts::startReviewMonitor`, and
   `review-enforcement.ts::remember`.
+
+  The main-session restart rule is documented in `pr-workflow`,
+  `git-review-pipeline`, and `git-workflow`; that workflow implements
+  [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
+  AC7.
 
   Timed-out or failed durable lanes are recorded as failed and do not produce
   the required result file. The PR head remains unacked until a later review run
