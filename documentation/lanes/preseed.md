@@ -566,12 +566,15 @@ All preseed content is deployed via the manifest pipeline:
   `head`, `summaryPath`, `completedAt`, and result `clean` or `findings`; if a lane
   explicitly reports failed before that complete set exists, it returns
   `REVIEW_RESULT failed` without that marker; missing result files while a lane is
-  still running never trigger failure.
+  still running never trigger failure. Before a completion marker latches, Pi
+  rejects and deletes records whose repo/head/summaryPath/result/completedAt no
+  longer match the lane inputs, so the monitor can retry with a valid marker.
   Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
   AC4/AC5/AC6; source: `preseed/agents/pi/agents/review-monitor.md`,
   `review-enforcement.ts::reviewMonitorPrompt`,
-  `review-enforcement.ts::reviewMonitorCompletionReady`, and
+  `review-enforcement.ts::reviewMonitorCompletionReady`,
+  `review-job-helpers.ts::reviewMonitorCompletionRejectReason`, and
   `review-job-helpers.ts::reviewMonitorCompletionRecordReady`.
 
   Partial lane results, failed required lanes, or a missing `summary.md` cannot
