@@ -187,11 +187,11 @@ instead of reporting stale success/failure for the old head ([REQ-AGENT-068](../
 AC2/AC3).
 
 After `CI_RESULT`, the main session prints the CI summary first, including monitored
-head, run/log pointers when present, and planned next action. If a CI monitor task
-stops, errors, or completes without a `CI_RESULT`, the main session starts a replacement
-monitor for the same exact head unless the head was superseded or the user explicitly
-skipped CI ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC6).
+head, run/log pointers when present, and planned next action ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
+AC6). If a CI monitor task stops, errors, or completes without a `CI_RESULT`, the
+main session starts a replacement monitor for the same exact head unless the head
+was superseded or the user explicitly skipped CI ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
+AC1).
 
 Pi receives its native `preseed/agents/pi/skills/ci-monitoring/SKILL.md` entry from
 the Pi manifest instead of a Claude-transformed skill ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
