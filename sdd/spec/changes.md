@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-06-24
+
+- **CI and review monitor polling budgets reduced from 35 to 30 minutes** ([REQ-AGENT-062](agents.md#req-agent-062-pi-pr-boundary-review-result-delivery), [REQ-AGENT-068](agents.md#req-agent-068-ci-monitoring-background-agent-policy); both stay Implemented). The review-monitor TTL (`REVIEW_MONITOR_TTL_MS`) drops to `30 * 60 * 1000`, and the review-monitor and CI-monitor handoff prompts now instruct a 30-minute polling budget; the REQ-AGENT-062 constraint and the troubleshooting TTL note move to 30 minutes in step. **Status:** listed REQs stay Implemented.
+
 ## 2026-06-23
 
 - **PR-boundary review monitors now keep waiting for incomplete lane results** ([REQ-AGENT-062](agents.md#req-agent-062-pi-pr-boundary-review-result-delivery), [REQ-AGENT-074](agents.md#req-agent-074-pi-visible-review-and-ci-monitor-handoff)). After all lane reports finish, the monitor creates a missing summary; no-result CI/review monitors restart for the exact head unless skipped or superseded.

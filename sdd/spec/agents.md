@@ -1593,7 +1593,7 @@ None.
 **Constraints:**
 
 - The statusline is cosmetic and must not block agent execution if repository or context metadata cannot be read.
-- Idle sessions render no empty extra footer lines; active review progress remains visually below non-review extension status.
+- Idle sessions render no empty extra footer lines; active review progress remains visually below non-review extension status. <!-- coverage-gap: verified by the fake-footer render test (agent-seed-manifest.test.ts REQ-AGENT-056 block) rather than a dedicated idle-session render test -->
 
 **Priority:** P2
 
@@ -2099,7 +2099,7 @@ None.
 
 1. Review startup sends a main-session follow-up containing exact-head `review-monitor` and CI monitor requests. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendVisibleMonitorHandoff --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::visibleMonitorHandoffRequest --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (visible monitor handoff requests review and CI monitors for the exact head) -->
 2. If the visible handoff cannot be sent, Pi may start one hidden fallback monitor without creating duplicate durable claims. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::BACKGROUND_SUBAGENT_SPAWN --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorSpawnDecision --> <!-- coverage-gap: fallback ordering depends on Pi extension runtime availability of sendUserMessage vs the optional subagents service; verified by live smoke review. -->
-3. After a main/master SDD PR opens or syncs, the main session obeys the handoff by spawning missing exact-head monitors. <!-- @impl: preseed/agents/pi/skills/pr-workflow/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/git-review-pipeline/SKILL.md --> <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations -->
+3. After a main/master SDD PR opens or syncs, the main session obeys the handoff by spawning missing exact-head monitors. <!-- @impl: preseed/agents/pi/skills/pr-workflow/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/git-review-pipeline/SKILL.md --> <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- coverage-gap: AC3 is a main-session skill-prompt workflow; no automated behavioral test -->
 4. The main session reports visible monitor agent IDs for the exact head after spawning them. <!-- @impl: preseed/agents/pi/skills/pr-workflow/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/git-review-pipeline/SKILL.md --> <!-- coverage-gap: AC4 is a main-session response to Pi background-task UI notifications; verified by live PR-boundary smoke review. -->
 5. The main session restarts any CI/review monitor task that stops or completes without `CI_RESULT`/`REVIEW_RESULT`. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- coverage-gap: AC5 is a main-session workflow over Pi background-task UI notifications; verified by live PR-boundary smoke review. -->
 

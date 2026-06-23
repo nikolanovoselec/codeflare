@@ -60,7 +60,7 @@ function syncManifest(agent, skillRoot) {
   const manifestPath = join(repoRoot, `preseed/agents/${agent}/manifest.json`);
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   const files = [...walkFiles(skillRoot)]
-    .map((file) => file.slice(join(repoRoot, `preseed/agents/${agent}/`).length).replaceAll('\\\\', '/'))
+    .map((file) => file.slice(join(repoRoot, `preseed/agents/${agent}/`).length).replaceAll('\\', '/'))
     .sort();
   const next = {};
   let inserted = false;
