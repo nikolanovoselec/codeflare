@@ -248,7 +248,7 @@ for deferred in (OUT / 'graph.html', OUT / 'callflow.html'):
         deferred.unlink()
 print('build-graphify-architecture: graph.html/callflow.html deferred until local labels are applied')
 
-save_manifest(architecture_detection.get('files', {}), manifest_path=str(OUT / 'manifest.json'), kind='ast')
+save_manifest(architecture_detection.get('files', {}), manifest_path=str(OUT / 'manifest.json'), kind='ast', root=ROOT)
 print(
     'build-graphify-architecture: module architecture graph built '
     f'{len(code_files)} code files (from {full_detection.get("total_files", 0)} detected full-corpus files) -> '

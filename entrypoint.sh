@@ -1676,10 +1676,10 @@ warm_pi_npm_dependencies() {
 const fs = require('fs');
 const path = process.argv[2];
 const required = [
-  'npm:@gotgenes/pi-subagents@17.2.0',
+  'npm:@gotgenes/pi-subagents@17.4.0',
   // context-mode is now enabled by default for Pi (was disabled): its ctx_* tools
   // and the bash-curl-redirect hook are active without an explicit `/ctx on`.
-  'npm:context-mode@1.0.163',
+  'npm:context-mode@1.0.166',
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx off never disables them.
   'npm:@juicesharp/rpiv-advisor@1.20.0',
@@ -2204,14 +2204,14 @@ fi
 # A future contributor who adds a SessionStart-style ctx_* nudge for
 # commercial users would push us over the ELv2 line. Don't do that
 # without revisiting AD49 first.
-CONTEXT_MODE_VERSION="1.0.162"
+CONTEXT_MODE_VERSION="1.0.166"
 CONTEXT_MODE_MANIFEST="$USER_HOME/.claude/plugins/context-mode/.claude-plugin/plugin.json"
 if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
     # Surface the manifest version in the entrypoint log so a mismatch
     # against the build-time-installed binary (= /usr/local/bin/context-mode
     # --version output) is visible. Bumping plugin.json without a Docker
     # rebuild is a deploy ordering issue caught by this log line.
-    CONTEXT_MODE_VERSION=$(jq -r '.version // "1.0.162"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "1.0.162")
+    CONTEXT_MODE_VERSION=$(jq -r '.version // "1.0.166"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "1.0.166")
 fi
 # MCP server registration: always register the context-mode MCP server in
 # ~/.claude.json (mirrors how codeflare-memory's `memory` MCP server is wired).
@@ -2345,7 +2345,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
     # server version (not @latest) so a session is reproducible and a bad upstream
     # release cannot silently change behaviour mid-deploy.
     BROWSER_MCP_CLAUDE=$(jq -n --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
-        '{mcpServers:{"chrome-devtools":{command:"npx",args:["-y","chrome-devtools-mcp@1.1.1",("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)]}}}')
+        '{mcpServers:{"chrome-devtools":{command:"npx",args:["-y","chrome-devtools-mcp@1.4.0",("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)]}}}')
     if [ -f "$USER_CLAUDE_JSON" ]; then
         TMP_JSON=$(mktemp)
         if jq --argjson mcp "$BROWSER_MCP_CLAUDE" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
@@ -2366,7 +2366,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
     # not hold a remote browser open. Pi keeps its native browser_* tools too (the
     # cheap one-shot REST read path); chrome-devtools adds the interactive flow.
     BROWSER_MCP_PI=$(jq -n --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
-        '{mcpServers:{"chrome-devtools":{command:"npx",args:["-y","chrome-devtools-mcp@1.1.1",("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)],lifecycle:"lazy"}}}')
+        '{mcpServers:{"chrome-devtools":{command:"npx",args:["-y","chrome-devtools-mcp@1.4.0",("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)],lifecycle:"lazy"}}}')
     PI_MCP_JSON="$USER_HOME/.pi/agent/mcp.json"
     mkdir -p "$USER_HOME/.pi/agent"
     if [ -f "$PI_MCP_JSON" ]; then

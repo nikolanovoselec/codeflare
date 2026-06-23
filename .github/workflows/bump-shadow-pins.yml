@@ -9,6 +9,7 @@ name: Bump Shadow Pins
 #   so no Dockerfile literal to bump)
 # - zoxide, yazi, lazygit, silverbullet (GitHub release binaries pinned in Dockerfile)
 # - consult-llm-mcp npm package (pinned `npm install -g` literal in Dockerfile)
+# - chrome-devtools-mcp npm package (pinned `npx` literal in entrypoint.sh)
 # - browser-run-mcp: @modelcontextprotocol/sdk pin in
 #   preseed/agents/claude/browser-run-mcp/package.json (baked into the image; no
 #   Dockerfile literal — the job reads/bumps the package.json pin via jq)
@@ -904,6 +905,106 @@ jobs:
             --base develop \
             --head "${{ steps.branch.outputs.branch }}" \
             --title "chore(deps): bump consult-llm-mcp $CUR -> $LAT" \
+            --body "$BODY"
+
+  chrome-devtools-mcp:
+    # chrome-devtools-mcp is the interactive Browser Run MCP server Claude Code
+    # and Pi use (Pi through pi-mcp-adapter). It is pinned as `npx -y
+    # chrome-devtools-mcp@X` literals in entrypoint.sh for both agents; those
+    # literals are invisible to Dependabot, so this job bumps them weekly.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: develop
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+
+      - name: Diff entrypoint pin against npm latest
+        id: ver
+        run: |
+          set -euo pipefail
+          CURRENT=$(grep -oP 'chrome-devtools-mcp@\K[0-9][0-9.]*' entrypoint.sh | head -n1)
+          LATEST=$(npm view chrome-devtools-mcp version)
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          if [ "$CURRENT" = "$LATEST" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Already on $LATEST, nothing to do."
+          else
+            echo "Bumping $CURRENT -> $LATEST"
+          fi
+
+      - name: Skip if a branch for this version already exists
+        if: steps.ver.outputs.skip != 'true'
+        id: branch
+        run: |
+          BRANCH="bump/chrome-devtools-mcp-${{ steps.ver.outputs.latest }}"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Branch $BRANCH already exists, skipping (existing PR likely open)."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply bump
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git checkout -B "${{ steps.branch.outputs.branch }}"
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const cur = process.env.CUR;
+          const lat = process.env.LAT;
+          const file = 'entrypoint.sh';
+          const before = fs.readFileSync(file, 'utf-8');
+          const after = before.replaceAll(`chrome-devtools-mcp@${cur}`, `chrome-devtools-mcp@${lat}`);
+          if (before !== after) { fs.writeFileSync(file, after); console.log(`updated ${file}`); }
+          NODE
+
+          git add entrypoint.sh
+          if git diff --cached --quiet; then
+            echo "Nothing changed (replacement found nothing) - aborting."
+            exit 1
+          fi
+          git commit -m "chore(deps): bump chrome-devtools-mcp $CUR -> $LAT"
+          git push -u origin "${{ steps.branch.outputs.branch }}"
+        env:
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+
+      - name: Open PR
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+        run: |
+          set -euo pipefail
+          BODY=$(cat <<EOF
+          Auto-generated bump of \`chrome-devtools-mcp\` from \`$CUR\` to \`$LAT\`.
+
+          The version is pinned as \`npx -y chrome-devtools-mcp@X\` literals in \`entrypoint.sh\` for Claude Code and Pi's bridged interactive Browser Run surface, so Dependabot can't see it - \`bump-shadow-pins.yml\` opens this PR weekly.
+
+          Files updated:
+          - \`entrypoint.sh\` (\`chrome-devtools-mcp@$CUR\` -> \`@$LAT\`)
+
+          ## Test plan
+          - [ ] CI green
+          - [ ] Smoke test on integration: \`chrome-devtools\` responds through Claude Code and Pi's MCP adapter
+          EOF
+          )
+          gh pr create \
+            --base develop \
+            --head "${{ steps.branch.outputs.branch }}" \
+            --title "chore(deps): bump chrome-devtools-mcp $CUR -> $LAT" \
             --body "$BODY"
 
   browser-run-mcp:
