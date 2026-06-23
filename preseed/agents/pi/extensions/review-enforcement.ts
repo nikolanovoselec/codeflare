@@ -58,7 +58,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, boundaryFallbackHead, boundaryTriggerCommandEntries, bypassAckHeadForStatus, canMainSessionConsumeReviewBypass, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, commandTextsFromEvent, completeTranscriptDelta, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, gitPushCommandTarget, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prCreateCommandTarget, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, prUrlFromText, reusablePendingReview, reviewBypassConsumeDecision, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewBoundaryStartDecision, reviewMonitorCompletionRejectReason, resolveSpawnedAgentId, reviewDeliveryGiveUp, reviewMonitorStartupFailureMessage, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, reviewWindowStartDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, type DurableReviewSummaryRecord } from "./review-job-helpers";
+import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewBoundaryStartDecision, reviewMonitorCompletionRejectReason, resolveSpawnedAgentId, reviewDeliveryGiveUp, reviewMonitorStartupFailureMessage, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, reviewWindowStartDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, visibleMonitorHandoffRequest, type DurableReviewSummaryRecord } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -1555,6 +1555,7 @@ export default function (pi: ExtensionAPI) {
       "- Background monitor only. Do not edit source, documentation, or spec files.",
       "- Do not run tests, builds, typechecks, linters, dev servers, CI watches, or deploy commands.",
       "- Poll the listed lane result files and summary.md for up to 35 minutes, stopping sooner only when they all exist or a lane failure is visible in .git/codeflare-review-jobs/<head>/lanes/.",
+      "- Use one shell polling loop or another low-turn strategy; do not burn one subagent turn per poll.",
       "- If a lane failure is visible before every lane result and summary.md exist: do not write the completion marker, remove the monitor request marker, and return REVIEW_RESULT failed.",
       "- If every lane result exists but summary.md is missing, write summary.md by combining the lane reports with a severity table and ranked findings. Do not write the review ack; the extension owns exact-head gate state.",
       "- Before exiting successfully after every lane result and summary.md exists, write the completion marker as JSON with repo, head, summaryPath, completedAt, and result. The result field must be exactly \"clean\" or \"findings\" (not the REVIEW_RESULT-prefixed line).",
@@ -1596,6 +1597,21 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  function sendVisibleMonitorHandoff(state: PendingReview, prompt: string, reason: string): boolean {
+    const sendUserMessage = (pi as ExtensionAPI & { sendUserMessage?: (message: string, options?: { deliverAs?: string }) => void }).sendUserMessage;
+    if (typeof sendUserMessage !== "function") return false;
+    const request = visibleMonitorHandoffRequest({ repo: state.repo, head: state.head, branch: state.headBranch, prNumber: state.prNumber, reason, reviewPrompt: prompt });
+    try {
+      sendUserMessage.call(pi, request.message, { deliverAs: "followUp" });
+      writeReviewMonitorStarted(state, "main-session-visible-handoff", reason);
+      appendReviewEvent(state.repo, { event: "visible_monitor_handoff_sent", head: state.head, reason, ci: request.ciMonitor.description, review: request.reviewMonitor.description });
+      return true;
+    } catch (error) {
+      appendReviewEvent(state.repo, { event: "visible_monitor_handoff_failed", head: state.head, reason, error: String(error) });
+      return false;
+    }
+  }
+
   function startReviewMonitor(state: PendingReview, _ctx: any, reason: string): boolean {
     reclaimStaleReviewMonitorClaim(state);
     const decision = reviewMonitorSpawnDecision({
@@ -1611,6 +1627,8 @@ export default function (pi: ExtensionAPI) {
     }
 
     const prompt = reviewMonitorPrompt(state);
+    if (sendVisibleMonitorHandoff(state, prompt, reason)) return true;
+
     const description = `Monitor review ${state.head.slice(0, 12)}`;
     let agentId: string | undefined;
     const service = subagentsService();

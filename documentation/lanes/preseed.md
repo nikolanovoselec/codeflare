@@ -170,11 +170,14 @@ Pi gets its own native `preseed/agents/pi/rules/git-workflow.md` from the Pi man
 which delegates branched mechanics to `ci-monitoring`, `git-review-pipeline`,
 `pr-workflow`, and `deploy-credentials`.
 
-Pi CI monitoring is background-agent owned. After any CI-producing push, Pi agents start
-`ci-monitoring` unless the user explicitly skips that push; the backgrounded agent
-monitors the target HEAD, reports success/failure/timeout, and never fixes, commits,
-or pushes ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC1/AC4).
+Pi CI monitoring is background-agent owned. After any CI-producing push or PR
+creation, Pi agents start CI monitoring unless the user explicitly skips that
+push/PR. For PR-boundary review heads, the review extension can include the exact
+CI-monitor request in its visible main-session handoff so the monitor appears in
+the same background-agent UI as `review-monitor`. The backgrounded CI monitor
+reports success/failure/timeout and never fixes, commits, or pushes
+([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
+AC1/AC4/AC8).
 
 The monitor waits for every workflow row returned for the monitored HEAD to complete
 and for the workflow/run-id fingerprint to stabilize before success. Before each poll
@@ -184,7 +187,10 @@ monitored HEAD; if a later push advanced the branch, the monitor exits with
 old head ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
 AC2/AC3). After `CI_RESULT`, the main session prints the CI summary first, including
 monitored head, run/log pointers when present, and planned next action ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC6).
+AC6). If a CI monitor task stops, errors, or completes without a `CI_RESULT`,
+the main session starts a replacement monitor for the same exact head unless the
+head was superseded or the user explicitly skipped CI ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
+AC8).
 
 Pi receives its native `preseed/agents/pi/skills/ci-monitoring/SKILL.md` entry from
 the Pi manifest instead of a Claude-transformed skill ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
@@ -464,18 +470,24 @@ All preseed content is deployed via the manifest pipeline:
   label green when that lane finishes). Colored review status rows truncate by
   visible width, preserve ANSI color sequences, and reset styling before the
   ellipsis. Operators can diagnose background review progress without visible
-  generic Agent tasks. Duplicate lane-result notices are suppressed for the same
-  repo/head/lane result.
+  generic Agent tasks. Once durable review state says the exact head is acked, the
+  footer suppresses stale `codeflare-review` fallback strings from older extension
+  status caches ([REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer)
+  AC8). Duplicate lane-result notices are suppressed for the same repo/head/lane
+  result.
 
   Review summaries have a second monitor delivery phase. `review-monitor` is a
   background agent/subagent, not an extension. When a real PR-boundary trigger
   creates an active review window, the Pi extension records durable lane state and
-  starts the background `review-monitor` for the same exact head. If startup fails,
-  Pi sends the main session a fallback message containing the monitor prompt. The
-  monitor waits for lane results and `summary.md`, writes `monitor.completed` only
-  after that complete set exists, then returns `REVIEW_RESULT clean|findings` to the
-  main session. An early lane failure returns `REVIEW_RESULT failed` without a
-  completion marker so a later retry can deliver the final summary.
+  sends the main session a visible monitor handoff for the same exact head. That
+  handoff asks the main session to spawn both `review-monitor` and a CI monitor so
+  their agent IDs/results appear in the normal background-agent UI. If the
+  follow-up cannot be sent, Pi falls back to direct service-spawning of
+  `review-monitor`. The monitor waits for lane results and `summary.md`, writes
+  `monitor.completed` only after that complete set exists, then returns
+  `REVIEW_RESULT clean|findings` to the main session. An early lane failure returns
+  `REVIEW_RESULT failed` without a completion marker so a later retry can deliver
+  the final summary.
 
   Pi keeps the pending review window unacked until a valid `monitor.completed`
   exists, and it does not resurrect old acked jobs after pending state is cleared.
@@ -524,29 +536,30 @@ All preseed content is deployed via the manifest pipeline:
   [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-and-result-formatting).
 
   Delivering that summary back into the live session is a separate monitor phase.
-  For each `(repo, head)`, the Pi extension may start one background
-  `review-monitor` agent from durable review state with an explicit prompt and
-  `inheritContext:false`; startup is not gated on a live main-session ctx. Valid
-  `monitor.completed` files and fresh monitor claims suppress duplicate starts;
-  reload/status refresh also consumes valid exact-head completion markers when the
-  transient pending file is already gone.
+  For each `(repo, head)`, the Pi extension records one durable monitor claim and
+  first asks the main session to spawn visible CI/review monitors using an explicit
+  exact-head handoff (`visibleMonitorHandoffRequest`). Valid `monitor.completed`
+  files and fresh monitor claims suppress duplicate requests; reload/status refresh
+  also consumes valid exact-head completion markers when the transient pending file
+  is already gone.
 
   The Pi extension owns the durable claim/completion files; the monitor agent owns
   waiting and returning `REVIEW_RESULT`. Malformed or stale monitor claim files are
-  reclaimed, so a partial `monitor.json` cannot block delivery forever. If monitor
-  startup throws or returns no agent id, Pi keeps the durable monitor claim and
-  sends the main session a one-shot fallback message containing the exact monitor
-  prompt; the claim suppresses duplicate extension starts across reload.
+  reclaimed, so a partial `monitor.json` cannot block delivery forever. If the
+  visible follow-up cannot be sent, Pi falls back to `subagentsService().spawn` with
+  `{ inheritContext:false, foreground:false }` and sends the old startup-failure
+  fallback message only if that fallback path also fails.
 
   The monitor waits for every lane result file and `summary.md`; if lane files
   exist but `summary.md` is missing, it writes a concise merged summary from those
   lane reports. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC1/AC2/AC7; source: `review-enforcement.ts::startReviewMonitor`,
+  AC1/AC2/AC6/AC7/AC8; source: `review-enforcement.ts::startReviewMonitor`,
   `review-enforcement.ts::claimReviewMonitorStart`,
   `review-enforcement.ts::reviewMonitorCompletionReady`,
-  `review-enforcement.ts::sendReviewMonitorFallbackMessage`,
+  `review-enforcement.ts::sendVisibleMonitorHandoff`,
   `review-enforcement.ts::reviewMonitorPrompt`,
+  `review-job-helpers.ts::visibleMonitorHandoffRequest`,
   `review-job-helpers.ts::reviewMonitorDecision`,
   `review-job-helpers.ts::reviewMonitorSpawnDecision`, and
   `review-job-helpers.ts::reviewMonitorStartupFailureMessage`.
@@ -576,16 +589,17 @@ All preseed content is deployed via the manifest pipeline:
   [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-durable-review-fix-loop).
 
   Task/subagent contexts may reap lane children and write durable state, but they
-  do not own review-monitor delivery. Only the current or last remembered live
-  main-session context lets the extension start `review-monitor`; old acked jobs are not resurrected after
-  pending state is cleared. Delivery does not depend on a custom transcript nonce,
-  a summary announcement record, or a follow-up message bus. The `/review-results`
-  command remains the manual fallback: it displays the persisted
-  exact-head `summary.md` without mutating delivery state or claiming the head was
+  do not own review-monitor delivery. The live main session owns visible monitor
+  spawning and restart decisions after the extension's handoff; old acked jobs are
+  not resurrected after pending state is cleared. Delivery does not depend on a
+  custom transcript nonce or a summary announcement record. The `/review-results`
+  command remains the manual fallback: it displays the persisted exact-head
+  `summary.md` without mutating delivery state or claiming the head was
   acknowledged. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC5/AC6; source: `review-enforcement.ts::review-results`,
+  AC5/AC6/AC8; source: `review-enforcement.ts::review-results`,
   `review-job-helpers.ts::reviewResultsSummaryMessage`,
+  `review-job-helpers.ts::visibleMonitorHandoffRequest`,
   `review-enforcement.ts::startReviewMonitor`, and
   `review-enforcement.ts::remember`.
 

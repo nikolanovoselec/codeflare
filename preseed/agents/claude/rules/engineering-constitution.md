@@ -60,7 +60,9 @@ available, and the planned next action. If the result is `findings`, then immedi
 `summary.md`, verify every MEDIUM/HIGH/CRITICAL finding, fix legitimate findings, commit,
 push, start CI monitoring, verify/restart `review-monitor`, and iterate until the exact
 head returns `REVIEW_RESULT clean`. Stop before commit/push only if the latest user
-instruction says not to autofix, wait for approval, or do not push.
+instruction says not to autofix, wait for approval, or do not push. If a review-monitor
+task stops, errors, or completes without `REVIEW_RESULT` for the active head, restart it
+from the durable job prompt/result paths instead of treating the review as delivered.
 
 ## CI-result handoff gate
 
@@ -68,7 +70,10 @@ When a background CI monitor completes with `CI_RESULT`, the very next assistant
 MUST start by printing a user-facing CI summary before analysis, tool calls, todo updates,
 review-status checks, fixes, deploys, or pushes. Include the exact result line, monitored
 head, workflow/run id and URL when present, log path, failed-log command when present, and
-planned next action. Only after that summary may you inspect logs or edit code.
+planned next action. Only after that summary may you inspect logs or edit code. If a
+CI monitor task stops, errors, or completes without `CI_RESULT` for the active head,
+restart an exact-head CI monitor unless the head was superseded or the user explicitly
+skipped CI monitoring.
 
 ## Hard gates
 

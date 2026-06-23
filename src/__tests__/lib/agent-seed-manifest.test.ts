@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
 import { bypassAckHeadForStatus, canMainSessionConsumeReviewBypass, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, extractBackgroundAgentId, isFailedToolExecution, isPrBoundaryCommand, postCommandReconcileDecision, prCreateBoundaryBase, reusablePendingReview, reviewBypassConsumeDecision, selectReviewBase } from '../../../preseed/agents/pi/extensions/review-helpers';
-import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, isTaskSessionFile, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, registerReviewRefreshLifecycleHooks, REVIEW_REFRESH_LIFECYCLE_EVENTS, reviewMonitorCompletionRecordReady, reviewMonitorDecision, reviewMonitorSpawnDecision, reviewMonitorStartupFailureMessage, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput, type ReviewRefreshLifecycleEvent } from '../../../preseed/agents/pi/extensions/review-job-helpers';
+import { actionableReviewCount, allDurableReviewLanesComplete, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewJobDir, durableReviewMessageKey, durableReviewRecommendation, durableReviewResultModel, durableReviewStatusSegments, durableReviewSummaryModel, extractReviewFindings, formatMergedReviewSummary, isTaskSessionFile, laneExtensionSources, mergedReviewSummaryModel, reapLaneDecision, recoverDurableReviewLaneState, registerReviewRefreshLifecycleHooks, REVIEW_REFRESH_LIFECYCLE_EVENTS, reviewMonitorCompletionRecordReady, reviewMonitorDecision, reviewMonitorSpawnDecision, reviewMonitorStartupFailureMessage, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, visibleMonitorHandoffRequest, shouldReconcileOpenPr, summarizeLaneTranscript, type OpenPrReconcileInput, type ReviewRefreshLifecycleEvent } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_CAPTURE_PENDING_TTL_MS, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { LOCAL_BUILD_BYPASS, attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { reviewLaneBlockReason, reviewScopeBlockReason } from '../../../preseed/agents/pi/extensions/review-lane-guards';
@@ -1414,12 +1414,26 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
   });
 
   it('REQ-AGENT-062: monitor handoff is not gated on main-session ctx', () => {
-    const reviewEnforcement = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/review-enforcement.ts')?.content ?? '';
     expect(reviewMonitorSpawnDecision({ completed: false, startedAt: undefined, now: 1000, ttlMs: 500 })).toBe('spawn');
-    expect(reviewEnforcement).toContain('service.spawn("review-monitor"');
-    expect(reviewEnforcement).toContain('runInBackground: true');
-    expect(reviewEnforcement).not.toContain('review_monitor_waiting_for_main_session');
-    expect(reviewEnforcement).not.toContain('reviewMonitorContextSource');
+  });
+
+  it('REQ-AGENT-062: visible monitor handoff requests review and CI monitors for the exact head', () => {
+    const request = visibleMonitorHandoffRequest({
+      repo: '/repo/codeflare',
+      head: 'abcdef1234567890',
+      branch: 'develop',
+      prNumber: 571,
+      reason: 'review window started: test',
+      reviewPrompt: 'Run the Codeflare PR-boundary review-monitor contract.\nHead: abcdef1234567890',
+    });
+    expect(request.customType).toBe('codeflare-visible-monitor-handoff-v1');
+    expect(request.details).toEqual({ repo: '/repo/codeflare', head: 'abcdef1234567890', reason: 'review window started: test', branch: 'develop', prNumber: 571 });
+    expect(request.reviewMonitor).toMatchObject({ subagentType: 'review-monitor', description: 'Monitor review abcdef123456', runInBackground: true, maxTurns: 40 });
+    expect(request.reviewMonitor.prompt).toBe('Run the Codeflare PR-boundary review-monitor contract.\nHead: abcdef1234567890');
+    expect(request.ciMonitor).toMatchObject({ subagentType: 'general-purpose', description: 'Monitor CI abcdef123456', runInBackground: true });
+    expect(request.ciMonitor.prompt).toContain('Exact monitored head: abcdef1234567890');
+    expect(request.ciMonitor.prompt).toContain('CI_RESULT timeout superseded head=abcdef1234567890');
+    expect(request.ciMonitor.prompt).toContain('CI_RESULT success');
   });
 
   it('REQ-AGENT-062: reload refresh can ack a completed durable review even when pending.json is gone', () => {

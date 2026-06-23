@@ -359,6 +359,96 @@ export function reviewMonitorStartupFailureMessage(input: { repo: string; head: 
   };
 }
 
+export type VisibleMonitorToolRequest = {
+  subagentType: "review-monitor" | "general-purpose";
+  description: string;
+  runInBackground: true;
+  maxTurns?: number;
+  prompt: string;
+};
+
+export type VisibleMonitorHandoffRequest = {
+  customType: "codeflare-visible-monitor-handoff-v1";
+  message: string;
+  reviewMonitor: VisibleMonitorToolRequest & { subagentType: "review-monitor"; maxTurns: 40 };
+  ciMonitor: VisibleMonitorToolRequest & { subagentType: "general-purpose" };
+  details: { repo: string; head: string; reason: string; branch?: string; prNumber?: number };
+};
+
+export function visibleMonitorHandoffRequest(input: { repo: string; head: string; reason: string; reviewPrompt: string; branch?: string; prNumber?: number }): VisibleMonitorHandoffRequest {
+  const shortHead = input.head.slice(0, 12);
+  const branch = input.branch || "current";
+  const branchRef = input.branch ? `refs/heads/${input.branch}` : "the current local branch";
+  const prLabel = input.prNumber !== undefined ? `PR #${input.prNumber}` : "the current PR";
+  const ciPrompt = [
+    "You are ONLY a CI monitor.",
+    `Repo: ${input.repo}`,
+    `Branch: ${branch}`,
+    `Exact monitored head: ${input.head}`,
+    `PR: ${prLabel}`,
+    "",
+    "Do not edit files. Do not commit. Do not push. Do not run tests/builds locally.",
+    "Query GitHub Actions by exact commit, not only by branch.",
+    `Before any terminal result, verify ${branchRef} still equals ${input.head}; if it advanced, final output must start CI_RESULT timeout superseded head=${input.head} current_head=<current> branch=${branch}.`,
+    "If no workflow rows appear for this head within five minutes, output CI_RESULT timeout no_workflows_for_head with the head.",
+    "If any workflow concludes failure/cancelled/timed_out, output CI_RESULT failure plus monitored head, workflow/run id, URL, log path if available, and failed-log command.",
+    "If every workflow row for this head is complete and successful with a stable workflow/run-id set, output CI_RESULT success plus monitored head, workflow names, run ids, and URLs.",
+  ].join("\n");
+  const reviewMonitor = {
+    subagentType: "review-monitor" as const,
+    description: `Monitor review ${shortHead}`,
+    runInBackground: true as const,
+    maxTurns: 40 as const,
+    prompt: input.reviewPrompt,
+  };
+  const ciMonitor = {
+    subagentType: "general-purpose" as const,
+    description: `Monitor CI ${shortHead}`,
+    runInBackground: true as const,
+    prompt: ciPrompt,
+  };
+  const message = [
+    "[codeflare-visible-monitor-handoff]",
+    `PR-boundary review started for ${input.repo} at ${shortHead} (${input.reason}).`,
+    "Main-session action required: spawn visible background monitors for this exact head now.",
+    "Spawn missing monitors; if a visible monitor for this exact head already returned its contract result, do not duplicate it. If a monitor stops/errors without REVIEW_RESULT or CI_RESULT, restart it from this message.",
+    "",
+    "Call the subagent tool for review-monitor with:",
+    `subagent_type: ${reviewMonitor.subagentType}`,
+    `description: ${reviewMonitor.description}`,
+    "run_in_background: true",
+    `max_turns: ${reviewMonitor.maxTurns}`,
+    "prompt:",
+    "```text",
+    reviewMonitor.prompt,
+    "```",
+    "",
+    "Call the subagent tool for CI monitoring with:",
+    `subagent_type: ${ciMonitor.subagentType}`,
+    `description: ${ciMonitor.description}`,
+    "run_in_background: true",
+    "prompt:",
+    "```text",
+    ciMonitor.prompt,
+    "```",
+    "",
+    "After spawning, report the visible agent IDs. Do not start source/doc/spec edits until both visible monitors are running or already completed for this head.",
+  ].join("\n");
+  return {
+    customType: "codeflare-visible-monitor-handoff-v1",
+    message,
+    reviewMonitor,
+    ciMonitor,
+    details: {
+      repo: input.repo,
+      head: input.head,
+      reason: input.reason,
+      ...(input.branch ? { branch: input.branch } : {}),
+      ...(input.prNumber !== undefined ? { prNumber: input.prNumber } : {}),
+    },
+  };
+}
+
 export type ReviewSummaryMessage = {
   customType: "codeflare-review-summary-v4";
   content: string;
