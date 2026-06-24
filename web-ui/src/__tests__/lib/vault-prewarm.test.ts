@@ -296,6 +296,47 @@ describe('REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol', () => {
     expect(currentIframe()).toBeNull();
   });
 
+  it('releases focus from the prewarm iframe BEFORE detaching it on ready, so removing a focused iframe never orphans the document (REQ-VAULT-020 AC4)', () => {
+    const onReady = vi.fn();
+    const onError = vi.fn();
+    const input = document.createElement('textarea');
+    input.className = 'xterm-helper-textarea';
+    document.body.append(input);
+    input.focus();
+
+    startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
+    const iframe = currentIframe();
+    if (!iframe) throw new Error('prewarm iframe missing');
+
+    // At the instant prewarm completes, SilverBullet inside the same-origin iframe
+    // holds the document's focus (activeElement === iframe). jsdom will not move
+    // activeElement into a child browsing context, so drive that precondition
+    // explicitly. Record the order of focus-release vs. iframe detach: the restore
+    // target must be focused while the iframe still holds focus and BEFORE remove(),
+    // otherwise detaching the focused frame orphans window focus
+    // (document.hasFocus() -> false) and the terminal goes dead until a reload.
+    const order: string[] = [];
+    const inputFocus = vi.spyOn(input, 'focus').mockImplementation(() => order.push('release-focus'));
+    const realRemove = iframe.remove.bind(iframe);
+    const iframeRemove = vi.spyOn(iframe, 'remove').mockImplementation(() => {
+      order.push('detach-iframe');
+      realRemove();
+    });
+    const activeGet = vi.spyOn(document, 'activeElement', 'get').mockReturnValue(iframe);
+
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: window.location.origin,
+      data: { source: VAULT_PREWARM_SOURCE, prewarmId: 'warm-1', status: 'ready', proof: readyProof },
+    }));
+    activeGet.mockRestore();
+
+    expect(inputFocus).toHaveBeenCalled();
+    expect(iframeRemove).toHaveBeenCalled();
+    expect(order).toEqual(['release-focus', 'detach-iframe']);
+    expect(onReady).toHaveBeenCalledWith(readyProof);
+    expect(currentIframe()).toBeNull();
+  });
+
   it('keeps the vault unavailable when prewarm times out', () => {
     const onReady = vi.fn();
     const onError = vi.fn();

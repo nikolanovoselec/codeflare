@@ -168,6 +168,22 @@ export function startVaultPrewarm(opts: VaultPrewarmOptions): VaultPrewarmHandle
     focusPollHandle = schedule(pollFocusReclaim, FOCUS_RECLAIM_POLL_MS);
   };
 
+  // Move focus OUT of the prewarm iframe BEFORE it is detached. Removing an
+  // iframe while it still holds the document's focus orphans the top-level
+  // browsing context: document.hasFocus() goes false and keyboard input dies
+  // until a full page reload, because the browser hands focus to no in-page
+  // element and a click cannot restore it (xterm preventDefaults its mousedown).
+  // Confirmed in production — the stuck terminal showed
+  // activeElement === xterm textarea yet document.hasFocus() === false with the
+  // prewarm iframe already gone. Re-pointing focus at a connected element while
+  // the iframe still holds it keeps window focus inside the top document, so the
+  // iframe.remove() below detaches an unfocused frame and never orphans.
+  const releaseFocusBeforeRemoval = () => {
+    if (documentRef.activeElement !== iframe) return;
+    const target = lastGoodFocus && lastGoodFocus.isConnected ? lastGoodFocus : documentRef.body;
+    target?.focus?.({ preventScroll: true });
+  };
+
   const cleanup = () => {
     windowRef.removeEventListener('message', onMessage);
     windowRef.removeEventListener('blur', restoreFocus);
@@ -187,6 +203,7 @@ export function startVaultPrewarm(opts: VaultPrewarmOptions): VaultPrewarmHandle
       const focusTimer = focusRestoreTimers.pop();
       if (focusTimer !== undefined) unschedule(focusTimer);
     }
+    releaseFocusBeforeRemoval();
     iframe.remove();
   };
 
