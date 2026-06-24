@@ -31,8 +31,8 @@ For authentication modes and user identity flow, see [Authentication](authentica
 ## Authentication Gate
 
 All authenticated surfaces (`/app`, `/api`, `/setup`) are protected by one of two auth mechanisms depending on deployment mode:
-- **Default/onboarding mode:** Cloudflare Access JWT verification (see [Authentication](authentication.md#authentication-modes) for Access application destination strategy)
-- **SaaS mode (GitHub OIDC):** Worker-managed session cookies (`codeflare_session`, HMAC-SHA256). CF Access is bypassed at runtime when `OAUTH_CLIENT_ID` is configured.
+- **Default mode (and any session-OIDC mode without `OAUTH_CLIENT_ID`):** Cloudflare Access JWT verification (see [Authentication](authentication.md#authentication-modes) for Access application destination strategy)
+- **Session-OIDC mode with GitHub OIDC (SaaS OR onboarding + `OAUTH_CLIENT_ID`):** Worker-managed session cookies (`codeflare_session`, HMAC-SHA256). CF Access is bypassed at runtime, and the setup wizard skips CF Access provisioning entirely (mirroring the `isSessionOidcMode` guard) so an onboarding deployment does not get a stray Access app.
 
 In SaaS mode the Cloudflare service token (`CF-Access-Client-Id`/`CF-Access-Client-Secret`) is accepted only for unattended admin automation and is never treated as a user identity (see [AD68](../decisions/README.md#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted) and [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-e2e-testing), [REQ-AUTH-011](../../sdd/spec/authentication.md#req-auth-011-auth-resolution-order)); user-facing surfaces still require a session cookie.
 

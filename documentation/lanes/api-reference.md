@@ -279,7 +279,7 @@ Runs only when reconfiguring and the new `allowedUsers` list has removed previou
 
 **Source:** `src/routes/setup/access.ts`
 
-**When GitHub OIDC is NOT configured** (default, onboarding, SaaS without `OAUTH_CLIENT_ID`):
+**When GitHub OIDC is NOT configured** (default, or a session-OIDC mode -- SaaS or onboarding -- without `OAUTH_CLIENT_ID`):
 1. Upserts two Cloudflare Access groups scoped to the worker name:
    - `{workerName}-admins` -- contains admin emails.
    - `{workerName}-users` -- contains non-admin allowed emails (created only when there are non-admin users).
@@ -288,8 +288,8 @@ Runs only when reconfiguring and the new `allowedUsers` list has removed previou
 4. Upserts an "Allow users" policy referencing both groups.
 5. Stores Access configuration in KV (audience tag, group IDs, auth domain).
 
-**When GitHub OIDC IS configured** (`SAAS_MODE=active` + `OAUTH_CLIENT_ID`):
-CF Access groups and policies are not created - the Worker handles authentication directly via GitHub OAuth session cookies. Admin users created via allowedUsers are assigned the Custom tier automatically.
+**When GitHub OIDC IS configured** (session-OIDC mode -- `SAAS_MODE=active` OR `ONBOARDING_LANDING_PAGE=active` -- plus `OAUTH_CLIENT_ID`):
+CF Access groups and policies are not created - the Worker handles authentication directly via GitHub OAuth session cookies. The skip mirrors the `isSessionOidcMode` runtime guard, so an onboarding-mode deployment does not get a stray Access app whose edge 302 would break the credential-less vault service-worker registration. Admin users created via allowedUsers are assigned the Custom tier automatically.
 
 **Step 6 -- `configure_turnstile` (conditional)**
 
