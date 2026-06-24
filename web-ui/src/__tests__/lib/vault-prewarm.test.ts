@@ -296,7 +296,7 @@ describe('REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol', () => {
     expect(currentIframe()).toBeNull();
   });
 
-  it('releases focus from the prewarm iframe BEFORE detaching it on ready, so removing a focused iframe never orphans the document (REQ-VAULT-020 AC4)', () => {
+  it('releases focus from the prewarm iframe BEFORE detaching it on ready, so removing a focused iframe never orphans the document (REQ-VAULT-020 AC5)', () => {
     const onReady = vi.fn();
     const onError = vi.fn();
     const input = document.createElement('textarea');
@@ -334,6 +334,37 @@ describe('REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol', () => {
     expect(iframeRemove).toHaveBeenCalled();
     expect(order).toEqual(['release-focus', 'detach-iframe']);
     expect(onReady).toHaveBeenCalledWith(readyProof);
+    expect(currentIframe()).toBeNull();
+  });
+
+  it('blurs the prewarm iframe before detaching when there is no live restore target, keeping window focus in the top document (REQ-VAULT-020 AC5)', () => {
+    const onReady = vi.fn();
+    const onError = vi.fn();
+    // No terminal/input was focused during prewarm, so there is no connected
+    // restore target. The fallback must still move focus OFF the iframe before
+    // detaching it — body.focus() is a no-op here (body not in tab order), so the
+    // iframe itself is blurred. Order matters: blur must precede detach.
+    startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
+    const iframe = currentIframe();
+    if (!iframe) throw new Error('prewarm iframe missing');
+
+    const order: string[] = [];
+    const iframeBlur = vi.spyOn(iframe, 'blur').mockImplementation(() => order.push('blur-iframe'));
+    const realRemove = iframe.remove.bind(iframe);
+    vi.spyOn(iframe, 'remove').mockImplementation(() => {
+      order.push('detach-iframe');
+      realRemove();
+    });
+    const activeGet = vi.spyOn(document, 'activeElement', 'get').mockReturnValue(iframe);
+
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: window.location.origin,
+      data: { source: VAULT_PREWARM_SOURCE, prewarmId: 'warm-1', status: 'ready', proof: readyProof },
+    }));
+    activeGet.mockRestore();
+
+    expect(iframeBlur).toHaveBeenCalled();
+    expect(order).toEqual(['blur-iframe', 'detach-iframe']);
     expect(currentIframe()).toBeNull();
   });
 

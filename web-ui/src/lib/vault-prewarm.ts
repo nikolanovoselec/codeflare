@@ -180,8 +180,15 @@ export function startVaultPrewarm(opts: VaultPrewarmOptions): VaultPrewarmHandle
   // iframe.remove() below detaches an unfocused frame and never orphans.
   const releaseFocusBeforeRemoval = () => {
     if (documentRef.activeElement !== iframe) return;
-    const target = lastGoodFocus && lastGoodFocus.isConnected ? lastGoodFocus : documentRef.body;
-    target?.focus?.({ preventScroll: true });
+    if (lastGoodFocus && lastGoodFocus.isConnected) {
+      lastGoodFocus.focus({ preventScroll: true });
+      return;
+    }
+    // No live restore target (no terminal/input was focused during prewarm).
+    // Blur the iframe so focus returns to the top document and window focus is
+    // retained — `document.body.focus()` is a no-op when body is not in the tab
+    // order, so it cannot be relied on to move focus off the iframe.
+    iframe.blur();
   };
 
   const cleanup = () => {

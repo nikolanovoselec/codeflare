@@ -634,12 +634,14 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 1. Browser prewarm remains eager when terminal input is focused or the mobile keyboard is open. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (terminal focus does not delay prewarm) --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (keeps prewarm eager while terminal input is focused) -->
 2. The prewarm shell installs a valid-token-only focus/select/window-focus guard before SilverBullet app scripts run. <!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmFocusGuard --> <!-- @test: src/__tests__/routes/vault-html-direct.test.ts (valid prewarm shell disables script focus/select/window.focus while generic shell focus remains normal) -->
-3. The parent hidden iframe returns focus to the previously focused terminal/input whenever the iframe holds parent focus — including a same-origin steal that produces no window `blur` or document `focusin` event — and stops reclaiming once prewarm tears down. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (returns terminal focus on focusout and via the lifetime poll when a same-origin iframe steals it; stops after teardown) -->
-4. When the prewarm iframe holds parent focus at teardown, focus is moved to a connected element before the iframe is detached, so removing the iframe never leaves the top-level document unfocused (`document.hasFocus()` false) and terminal input keeps working without a reload. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (releases focus from the prewarm iframe BEFORE detaching it on ready) -->
+3. The parent hidden iframe returns focus to the previously focused terminal/input whenever the iframe holds parent focus, including a same-origin steal that produces no window `blur` or document `focusin` event. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (reclaims focus on focusout) --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (reclaims focus via the lifetime poll) -->
+4. The focus reclaim stops once prewarm tears down. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (stops focusout + poll focus reclaim after teardown) -->
+5. When the prewarm iframe holds parent focus at teardown, focus is moved to a connected element before the iframe is detached. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (releases focus from the prewarm iframe BEFORE detaching it on ready) -->
 
 **Constraints:**
 
 - The focus guard stays inert unless the prewarm query and identifier are valid.
+- Removing a focused prewarm iframe must never leave `document.hasFocus()` false (which kills terminal input until reload); when no live restore target exists the iframe is blurred so focus stays in the top document.
 
 **Priority:** P0
 
