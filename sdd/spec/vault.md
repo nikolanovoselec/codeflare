@@ -634,7 +634,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 1. Browser prewarm remains eager when terminal input is focused or the mobile keyboard is open. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (terminal focus does not delay prewarm) --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (eager hidden prewarm keeps prior terminal focus and restores it if the iframe captures focus) -->
 2. The prewarm shell installs a valid-token-only focus/select/window-focus guard before SilverBullet app scripts run. <!-- @impl: src/routes/vault-html.ts::injectVaultPrewarmFocusGuard --> <!-- @test: src/__tests__/routes/vault-html-direct.test.ts (valid prewarm shell disables script focus/select/window.focus while generic shell focus remains normal) -->
-3. The parent hidden iframe restores the previously focused terminal/input element if the iframe captures parent focus. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (parent hidden iframe restores previously focused terminal/input if iframe captures focus) -->
+3. The parent hidden iframe returns focus to the previously focused terminal/input whenever the iframe holds parent focus — including a same-origin steal that produces no window `blur` or document `focusin` event — and stops reclaiming once prewarm tears down. <!-- @impl: web-ui/src/lib/vault-prewarm.ts::startVaultPrewarm --> <!-- @test: web-ui/src/__tests__/lib/vault-prewarm.test.ts (returns terminal focus on focusout and via the lifetime poll when a same-origin iframe steals it; stops after teardown) -->
 
 **Constraints:**
 

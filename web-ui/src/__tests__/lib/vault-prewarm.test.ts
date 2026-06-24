@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildVaultPrewarmUrl,
+  FOCUS_RECLAIM_POLL_MS,
   startVaultPrewarm,
   VAULT_PREWARM_ID_QUERY,
   VAULT_PREWARM_QUERY,
@@ -141,6 +142,83 @@ describe('REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol', () => {
     expect(earlierFocus).not.toHaveBeenCalled();
     expect(onReady).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('reclaims focus on focusout — the signal that actually fires when a same-origin iframe steals focus (REQ-VAULT-020 AC3)', () => {
+    const onReady = vi.fn();
+    const onError = vi.fn();
+    const input = document.createElement('textarea');
+    input.className = 'xterm-helper-textarea';
+    document.body.append(input);
+    input.focus();
+
+    startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
+    const iframe = currentIframe();
+    if (!iframe) throw new Error('prewarm iframe missing');
+
+    // When SilverBullet calls element.focus() inside the same-origin prewarm iframe,
+    // the browser fires `focusout` on the blurring terminal input (bubbling to the
+    // document) but does NOT fire window 'blur' or document 'focusin'. Drive exactly
+    // that — only focusout, with activeElement resolving to the iframe — so the
+    // reliable reclaim path is exercised instead of an event that never fires for real.
+    const inputFocus = vi.spyOn(input, 'focus');
+    const activeGet = vi.spyOn(document, 'activeElement', 'get').mockReturnValue(iframe);
+    input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    activeGet.mockRestore();
+
+    expect(inputFocus).toHaveBeenCalled();
+    expect(onReady).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('reclaims focus via the lifetime poll for a steal after the one-shot timers are exhausted (REQ-VAULT-020 AC3)', () => {
+    const onReady = vi.fn();
+    const onError = vi.fn();
+    const input = document.createElement('textarea');
+    input.className = 'xterm-helper-textarea';
+    document.body.append(input);
+    input.focus();
+
+    startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
+    const iframe = currentIframe();
+    if (!iframe) throw new Error('prewarm iframe missing');
+
+    // Let all one-shot restore timers ([0,50,250,1000]ms) elapse as no-ops while focus
+    // is fine. SilverBullet's space sync / index build re-grabs focus seconds later —
+    // long after those timers are gone — which is the window the old code never covered
+    // (and which surfaces no parent 'blur'/'focusin'). Only the lifetime poll catches it.
+    vi.advanceTimersByTime(1100);
+    const inputFocus = vi.spyOn(input, 'focus');
+    const activeGet = vi.spyOn(document, 'activeElement', 'get').mockReturnValue(iframe);
+    vi.advanceTimersByTime(FOCUS_RECLAIM_POLL_MS);
+    activeGet.mockRestore();
+
+    expect(inputFocus).toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('stops focusout + poll focus reclaim after teardown', () => {
+    const onReady = vi.fn();
+    const onError = vi.fn();
+    const input = document.createElement('textarea');
+    input.className = 'xterm-helper-textarea';
+    document.body.append(input);
+    input.focus();
+
+    const handle = startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
+    const iframe = currentIframe();
+    if (!iframe) throw new Error('prewarm iframe missing');
+    handle?.cancel();
+
+    // With prewarm torn down, neither the reliable focusout path nor the lifetime poll
+    // may resurrect a restore — even if we fake the (now-removed) iframe being active.
+    const inputFocus = vi.spyOn(input, 'focus');
+    const activeGet = vi.spyOn(document, 'activeElement', 'get').mockReturnValue(iframe);
+    document.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    vi.advanceTimersByTime(FOCUS_RECLAIM_POLL_MS * 4);
+    activeGet.mockRestore();
+
+    expect(inputFocus).not.toHaveBeenCalled();
   });
 
   it('ignores ready messages from a different origin', () => {
