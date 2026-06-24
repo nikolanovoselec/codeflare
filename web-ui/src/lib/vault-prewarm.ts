@@ -168,27 +168,24 @@ export function startVaultPrewarm(opts: VaultPrewarmOptions): VaultPrewarmHandle
     focusPollHandle = schedule(pollFocusReclaim, FOCUS_RECLAIM_POLL_MS);
   };
 
-  // Move focus OUT of the prewarm iframe BEFORE it is detached. Removing an
-  // iframe while it still holds the document's focus orphans the top-level
-  // browsing context: document.hasFocus() goes false and keyboard input dies
-  // until a full page reload, because the browser hands focus to no in-page
-  // element and a click cannot restore it (xterm preventDefaults its mousedown).
-  // Confirmed in production — the stuck terminal showed
-  // activeElement === xterm textarea yet document.hasFocus() === false with the
-  // prewarm iframe already gone. Re-pointing focus at a connected element while
-  // the iframe still holds it keeps window focus inside the top document, so the
-  // iframe.remove() below detaches an unfocused frame and never orphans.
-  const releaseFocusBeforeRemoval = () => {
-    if (documentRef.activeElement !== iframe) return;
-    if (lastGoodFocus && lastGoodFocus.isConnected) {
-      lastGoodFocus.focus({ preventScroll: true });
-      return;
-    }
-    // No live restore target (no terminal/input was focused during prewarm).
-    // Blur the iframe so focus returns to the top document and window focus is
-    // retained — `document.body.focus()` is a no-op when body is not in the tab
-    // order, so it cannot be relied on to move focus off the iframe.
-    iframe.blur();
+  // Removing the prewarm iframe orphans the top-level document's focus:
+  // document.hasFocus() goes false and the terminal silently drops every
+  // keystroke until a full reload / re-navigation — even though the terminal
+  // textarea is still the active element, and even though focus was never moved
+  // into the iframe. (Proven in production via a focus trace: the freeze began
+  // exactly at the iframe removal with activeElement === xterm textarea and
+  // hasFocus false, and a manual window.focus() + textarea.focus() restored
+  // typing.) After detaching the iframe we re-assert window focus and re-focus
+  // the live terminal target — but only when the window actually lost focus, so a
+  // still-focused terminal is never disturbed. The orphan can settle
+  // synchronously or on a later task, so this is retried across a few frames.
+  const reassertTerminalFocusIfOrphaned = () => {
+    if (documentRef.hasFocus()) return;
+    windowRef.focus?.();
+    const target = lastGoodFocus && lastGoodFocus.isConnected
+      ? lastGoodFocus
+      : documentRef.querySelector<HTMLElement>('.xterm-helper-textarea');
+    target?.focus?.({ preventScroll: true });
   };
 
   const cleanup = () => {
@@ -210,8 +207,12 @@ export function startVaultPrewarm(opts: VaultPrewarmOptions): VaultPrewarmHandle
       const focusTimer = focusRestoreTimers.pop();
       if (focusTimer !== undefined) unschedule(focusTimer);
     }
-    releaseFocusBeforeRemoval();
     iframe.remove();
+    // Restore window focus AFTER detaching: the orphan is caused by the removal
+    // itself, so it cannot be prevented beforehand — only repaired. Each attempt
+    // is a no-op unless the window genuinely lost focus.
+    reassertTerminalFocusIfOrphaned();
+    for (const delayMs of [0, 50, 200]) schedule(reassertTerminalFocusIfOrphaned, delayMs);
   };
 
   const finishReady = (proof: VaultPrewarmProof) => {

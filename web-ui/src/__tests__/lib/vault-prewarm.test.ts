@@ -296,7 +296,7 @@ describe('REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol', () => {
     expect(currentIframe()).toBeNull();
   });
 
-  it('releases focus from the prewarm iframe BEFORE detaching it on ready, so removing a focused iframe never orphans the document (REQ-VAULT-020 AC5)', () => {
+  it('re-asserts window focus and re-focuses the terminal AFTER detaching when removal orphaned the document (REQ-VAULT-020 AC5)', () => {
     const onReady = vi.fn();
     const onError = vi.fn();
     const input = document.createElement('textarea');
@@ -308,63 +308,63 @@ describe('REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol', () => {
     const iframe = currentIframe();
     if (!iframe) throw new Error('prewarm iframe missing');
 
-    // At the instant prewarm completes, SilverBullet inside the same-origin iframe
-    // holds the document's focus (activeElement === iframe). jsdom will not move
-    // activeElement into a child browsing context, so drive that precondition
-    // explicitly. Record the order of focus-release vs. iframe detach: the restore
-    // target must be focused while the iframe still holds focus and BEFORE remove(),
-    // otherwise detaching the focused frame orphans window focus
-    // (document.hasFocus() -> false) and the terminal goes dead until a reload.
+    // Detaching the prewarm iframe orphans the top-level document: hasFocus() goes
+    // false while the terminal textarea is still the active element. jsdom does not
+    // model that orphan, so drive the precondition (hasFocus reports false). The fix
+    // re-asserts window focus and re-focuses the live terminal target AFTER
+    // iframe.remove() — the orphan is caused by the removal, so it can only be
+    // repaired, not prevented. Order proves the repair runs post-detach.
     const order: string[] = [];
-    const inputFocus = vi.spyOn(input, 'focus').mockImplementation(() => order.push('release-focus'));
-    const realRemove = iframe.remove.bind(iframe);
-    const iframeRemove = vi.spyOn(iframe, 'remove').mockImplementation(() => {
-      order.push('detach-iframe');
-      realRemove();
-    });
-    const activeGet = vi.spyOn(document, 'activeElement', 'get').mockReturnValue(iframe);
-
-    window.dispatchEvent(new MessageEvent('message', {
-      origin: window.location.origin,
-      data: { source: VAULT_PREWARM_SOURCE, prewarmId: 'warm-1', status: 'ready', proof: readyProof },
-    }));
-    activeGet.mockRestore();
-
-    expect(inputFocus).toHaveBeenCalled();
-    expect(iframeRemove).toHaveBeenCalled();
-    expect(order).toEqual(['release-focus', 'detach-iframe']);
-    expect(onReady).toHaveBeenCalledWith(readyProof);
-    expect(currentIframe()).toBeNull();
-  });
-
-  it('blurs the prewarm iframe before detaching when there is no live restore target, keeping window focus in the top document (REQ-VAULT-020 AC5)', () => {
-    const onReady = vi.fn();
-    const onError = vi.fn();
-    // No terminal/input was focused during prewarm, so there is no connected
-    // restore target. The fallback must still move focus OFF the iframe before
-    // detaching it — body.focus() is a no-op here (body not in tab order), so the
-    // iframe itself is blurred. Order matters: blur must precede detach.
-    startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
-    const iframe = currentIframe();
-    if (!iframe) throw new Error('prewarm iframe missing');
-
-    const order: string[] = [];
-    const iframeBlur = vi.spyOn(iframe, 'blur').mockImplementation(() => order.push('blur-iframe'));
+    const windowFocus = vi.spyOn(window, 'focus').mockImplementation(() => order.push('window-focus'));
+    const inputFocus = vi.spyOn(input, 'focus').mockImplementation(() => order.push('refocus-terminal'));
     const realRemove = iframe.remove.bind(iframe);
     vi.spyOn(iframe, 'remove').mockImplementation(() => {
       order.push('detach-iframe');
       realRemove();
     });
-    const activeGet = vi.spyOn(document, 'activeElement', 'get').mockReturnValue(iframe);
+    const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(false);
 
     window.dispatchEvent(new MessageEvent('message', {
       origin: window.location.origin,
       data: { source: VAULT_PREWARM_SOURCE, prewarmId: 'warm-1', status: 'ready', proof: readyProof },
     }));
-    activeGet.mockRestore();
+    hasFocus.mockRestore();
 
-    expect(iframeBlur).toHaveBeenCalled();
-    expect(order).toEqual(['blur-iframe', 'detach-iframe']);
+    expect(windowFocus).toHaveBeenCalled();
+    expect(inputFocus).toHaveBeenCalled();
+    expect(order).toEqual(['detach-iframe', 'window-focus', 'refocus-terminal']);
+    expect(onReady).toHaveBeenCalledWith(readyProof);
+    expect(currentIframe()).toBeNull();
+  });
+
+  it('does NOT steal focus after detaching when the window kept focus (REQ-VAULT-020 AC5)', () => {
+    const onReady = vi.fn();
+    const onError = vi.fn();
+    const input = document.createElement('textarea');
+    input.className = 'xterm-helper-textarea';
+    document.body.append(input);
+    input.focus();
+
+    startVaultPrewarm({ sessionId: 'sess1234', prewarmId: 'warm-1', onReady, onError });
+    const iframe = currentIframe();
+    if (!iframe) throw new Error('prewarm iframe missing');
+
+    // Removal did not orphan the document (hasFocus stays true). The reassert must be
+    // inert across all of its retries so a focused terminal — or whatever the user is
+    // using — is never yanked back.
+    const windowFocus = vi.spyOn(window, 'focus');
+    const inputFocus = vi.spyOn(input, 'focus');
+    const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: window.location.origin,
+      data: { source: VAULT_PREWARM_SOURCE, prewarmId: 'warm-1', status: 'ready', proof: readyProof },
+    }));
+    vi.advanceTimersByTime(250);
+    hasFocus.mockRestore();
+
+    expect(windowFocus).not.toHaveBeenCalled();
+    expect(inputFocus).not.toHaveBeenCalled();
     expect(currentIframe()).toBeNull();
   });
 
