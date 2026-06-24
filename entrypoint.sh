@@ -2606,6 +2606,27 @@ else
     echo "$SETTINGS_CONFIG" | jq '.' > "$SETTINGS_FILE"
 fi
 
+# Grant context-mode unrestricted file reads. context-mode confines
+# ctx_execute_file / ctx_index / ctx_fetch_and_index to the project root unless a
+# host `Read(...)` allow rule covers the target path (its sandbox-bypass guard,
+# issue #852). Without a broad rule, processing user-provided files outside the
+# workspace (e.g. ~/Uploads, /tmp) is blocked. Seed a `Read(/**)` allow so every
+# session can read any path the user hands it. Runs after the settings merge so it
+# applies in both default and advanced mode; idempotent via unique.
+if [ -f "$SETTINGS_FILE" ]; then
+    TMP_PERM=$(mktemp)
+    if jq '
+      .permissions = (.permissions // {}) |
+      .permissions.allow = (((.permissions.allow // []) + ["Read(/**)"]) | unique)
+    ' "$SETTINGS_FILE" > "$TMP_PERM" 2>/dev/null; then
+        mv "$TMP_PERM" "$SETTINGS_FILE"
+        echo "[entrypoint] Seeded Read(/**) permission so context-mode can read files outside the workspace"
+    else
+        echo "[entrypoint] WARNING: could not seed Read(/**) permission (malformed settings.json?)"
+        rm -f "$TMP_PERM"
+    fi
+fi
+
 # Ensure any .mjs hook files in ~/.claude/hooks/ are executable. The CLI
 # self-installs context-mode-cache-heal.mjs as a SessionStart hook with mode
 # 0644, then calls it via shebang (#!/usr/bin/env node). /bin/sh refuses to
