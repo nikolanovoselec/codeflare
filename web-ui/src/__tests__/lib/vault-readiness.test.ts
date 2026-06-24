@@ -6,7 +6,7 @@
 // so a future refactor cannot reintroduce the regression.
 
 import { describe, it, expect, vi } from 'vitest';
-import { startVaultReadinessProbe } from '../../lib/vault-readiness';
+import { startVaultReadinessProbe, probeVaultReady } from '../../lib/vault-readiness';
 
 /**
  * Deterministic synchronous scheduler. Captures every scheduled callback
@@ -38,6 +38,39 @@ function createTestScheduler() {
   };
   return { schedule, unschedule, tick, queue, intervals };
 }
+
+// The readiness probe targets `GET /api/vault/:sid/status` (200 + {vaultReady})
+// rather than HEAD-ing the SB proxy root (which 502s while SB warms up and spams
+// the console). These pin the mapping: ready only when the endpoint says so, and
+// any failure/non-2xx/malformed body is treated as "not ready" (keep warming).
+describe('probeVaultReady', () => {
+  const jsonResponse = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+
+  it('hits the per-session status endpoint with no-store and reports ready only when vaultReady is true', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ vaultReady: true }));
+    await expect(probeVaultReady('sess-1', fetchMock as unknown as typeof fetch)).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/vault/sess-1/status',
+      expect.objectContaining({ cache: 'no-store' }),
+    );
+  });
+
+  it('reports not-ready when SilverBullet is still warming (vaultReady false, clean 200)', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ vaultReady: false }));
+    await expect(probeVaultReady('sess-1', fetchMock as unknown as typeof fetch)).resolves.toBe(false);
+  });
+
+  it('reports not-ready on a non-2xx response', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({}, 500));
+    await expect(probeVaultReady('sess-1', fetchMock as unknown as typeof fetch)).resolves.toBe(false);
+  });
+
+  it('reports not-ready (never throws) when the request fails', async () => {
+    const fetchMock = vi.fn(async () => { throw new Error('network down'); });
+    await expect(probeVaultReady('sess-1', fetchMock as unknown as typeof fetch)).resolves.toBe(false);
+  });
+});
 
 describe('startVaultReadinessProbe', () => {
   it('retries forever past the old 60-attempt cap when probes keep failing (REQ-VAULT-012 AC5)', async () => {

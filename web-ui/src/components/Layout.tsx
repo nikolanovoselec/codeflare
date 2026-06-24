@@ -14,7 +14,7 @@ import { logger } from '../lib/logger';
 import { loadSettings, applyAccentColor } from '../lib/settings';
 import type { TileLayout, AgentType, TabConfig } from '../types';
 import { VIEW_TRANSITION_DURATION_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS } from '../lib/constants';
-import { startVaultReadinessProbe } from '../lib/vault-readiness';
+import { startVaultReadinessProbe, probeVaultReady } from '../lib/vault-readiness';
 import { DEFAULT_VAULT_PREWARM_TIMEOUT_MS, startVaultPrewarm, type VaultPrewarmStatus } from '../lib/vault-prewarm';
 import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed } from '../lib/vault-local-readiness';
 import type { VaultButtonStatus } from './VaultButton';
@@ -69,14 +69,14 @@ const Layout: Component<LayoutProps> = (props) => {
   };
   onCleanup(clearViewTransitionTimer);
 
-  // Vault readiness: ground-truth probe against the proxy. We can't trust
-  // session status flags here. The SilverBullet supervisor starts late in
+  // Vault readiness: ground-truth probe via the server. We can't trust
+  // session status flags here — the SilverBullet supervisor starts late in
   // entrypoint.sh (well after ptyActive flips), so a session-level "ready"
-  // signal would lie. Probing `HEAD /api/vault/:sid/` returns 200 only when
-  // SB has bound 3030 and is serving the SPA shell (cheap, ~1.5KB Content-
-  // Length, no body transferred with HEAD); any other response (502, 503,
-  // network error) means "not yet". The `.fs/*` API path returns 405 on
-  // HEAD so we probe root instead. Keyed per session so a switch resets it.
+  // signal would lie. probeVaultReady() polls `GET /api/vault/:sid/status`,
+  // which runs the SB-reachability check server-side and returns 200 +
+  // { vaultReady }; it reports ready only when SB is actually serving, with
+  // none of the 502 / timeout-abort console noise the old HEAD-the-proxy
+  // probe produced while SB warmed up. Keyed per session so a switch resets it.
   //
   // Lifecycle: warm-up probes every WARMUP_INTERVAL_MS forever until the
   // first success (REQ-VAULT-012 AC5). After first success we switch to a
@@ -130,18 +130,7 @@ const Layout: Component<LayoutProps> = (props) => {
     // writes (steady() clears the latch on crash; tracking would spawn a
     // parallel warmup chain via effect re-run).
     const cancel = startVaultReadinessProbe({
-      probe: async () => {
-        try {
-          const res = await fetch(`/api/vault/${sid}/`, {
-            method: 'HEAD',
-            cache: 'no-store',
-            signal: AbortSignal.timeout(5000),
-          });
-          return res.ok;
-        } catch {
-          return false;
-        }
-      },
+      probe: () => probeVaultReady(sid),
       setLatch: () => setVaultReadyBySession((prev) => {
         if (prev[sid] === true) return prev;
         return { ...prev, [sid]: true };

@@ -217,6 +217,92 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff u
     });
   });
 
+  // REQ-TERM-003 AC7: quiet teardown — tearing down an in-flight (CONNECTING)
+  // connection during rapid enter/exit must not force-close the socket (which
+  // makes the browser log "WebSocket is closed before the connection is
+  // established") nor surface a spurious onerror. An open socket is still closed.
+  describe('REQ-TERM-003 AC7: quiet teardown of in-flight connections', () => {
+    function stubControllableWebSocket(sockets: Array<{ readyState: number; close: ReturnType<typeof vi.fn>; onopen: (() => void) | null; onerror: ((e: Event) => void) | null; onclose: ((e: CloseEvent) => void) | null }>, autoOpen: boolean) {
+      vi.stubGlobal('WebSocket', class {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+        readyState = 0;
+        binaryType = 'arraybuffer';
+        onopen: (() => void) | null = null;
+        onmessage: ((e: MessageEvent) => void) | null = null;
+        onerror: ((e: Event) => void) | null = null;
+        onclose: ((e: CloseEvent) => void) | null = null;
+        send = vi.fn();
+        close = vi.fn(() => { this.readyState = 3; });
+        constructor(_url: string) {
+          sockets.push(this as never);
+          if (autoOpen) {
+            setTimeout(() => { this.readyState = 1; this.onopen?.(); }, 0);
+          }
+        }
+      } as unknown as typeof WebSocket);
+    }
+
+    it('does NOT force-close a still-CONNECTING socket (avoids "closed before established"), but still releases the connection', () => {
+      const OriginalWebSocket = globalThis.WebSocket;
+      const sockets: Array<{ readyState: number; close: ReturnType<typeof vi.fn>; onopen: (() => void) | null; onerror: ((e: Event) => void) | null; onclose: ((e: CloseEvent) => void) | null }> = [];
+      stubControllableWebSocket(sockets, false); // never opens — stays CONNECTING
+      try {
+        terminalStore.connect(sessionId, terminalId, createMockTerminal());
+        expect(sockets[0].readyState).toBe(0); // CONNECTING
+
+        terminalStore.disconnect(sessionId, terminalId);
+
+        // The mid-handshake socket is NOT force-closed (that is what logs the warning)...
+        expect(sockets[0].close).not.toHaveBeenCalled();
+        // ...but the connection is still fully released.
+        expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('disconnected');
+        expect(terminalStore.isConnected(sessionId, terminalId)).toBe(false);
+      } finally {
+        vi.stubGlobal('WebSocket', OriginalWebSocket);
+      }
+    });
+
+    it('still force-closes a socket that has actually OPENED', async () => {
+      const OriginalWebSocket = globalThis.WebSocket;
+      const sockets: Array<{ readyState: number; close: ReturnType<typeof vi.fn>; onopen: (() => void) | null; onerror: ((e: Event) => void) | null; onclose: ((e: CloseEvent) => void) | null }> = [];
+      stubControllableWebSocket(sockets, true); // opens on next tick
+      try {
+        terminalStore.connect(sessionId, terminalId, createMockTerminal());
+        await vi.advanceTimersByTimeAsync(0);
+        expect(sockets[0].readyState).toBe(1); // OPEN
+
+        terminalStore.disconnect(sessionId, terminalId);
+
+        expect(sockets[0].close).toHaveBeenCalled();
+      } finally {
+        vi.stubGlobal('WebSocket', OriginalWebSocket);
+      }
+    });
+
+    it('does NOT log an error when an aborted in-flight socket later errors', () => {
+      const OriginalWebSocket = globalThis.WebSocket;
+      const sockets: Array<{ readyState: number; close: ReturnType<typeof vi.fn>; onopen: (() => void) | null; onerror: ((e: Event) => void) | null; onclose: ((e: CloseEvent) => void) | null }> = [];
+      stubControllableWebSocket(sockets, false);
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        terminalStore.connect(sessionId, terminalId, createMockTerminal());
+        terminalStore.disconnect(sessionId, terminalId);
+        errorSpy.mockClear();
+
+        // The orphaned handshake now fails — browser fires onerror on the aborted socket.
+        sockets[0].onerror?.(new Event('error'));
+
+        expect(errorSpy).not.toHaveBeenCalled();
+      } finally {
+        errorSpy.mockRestore();
+        vi.stubGlobal('WebSocket', OriginalWebSocket);
+      }
+    });
+  });
+
   describe('isConnected', () => {
     it('should return false when not connected', () => {
       expect(terminalStore.isConnected(sessionId, terminalId)).toBe(false);
