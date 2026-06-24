@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-06-24
 
+- **CodeQL excludes the vendored Impeccable copy-edit scripts from analysis** ([REQ-OPS-019](operations.md#req-ops-019-security-posture-scanning-workflows); stays Implemented). `.github/workflows/codeql.yml` now passes `config-file: ./.github/codeql/codeql-config.yml`, whose `paths-ignore` drops `preseed/agents/*/skills/impeccable/scripts/**` — the third-party Impeccable bundle downloaded wholesale from impeccable.style by `scripts/update-impeccable-skill.mjs` and refreshed on every shadow-pin bump, which never runs in the production Worker request path. This is the CodeQL analog of the vendored-binary CVE acceptances in `.trivyignore`; analysis still covers `src/` and the rest of `preseed/`, and the workflow's push/PR/weekly triggers are unchanged. Behavioral coverage: `workflow-files.test.js` asserts the config-file wiring and that the config excludes the vendored Impeccable scripts path. **Status:** REQ-OPS-019 stays Implemented.
+
 - **CI and review monitor polling budgets reduced from 35 to 30 minutes** ([REQ-AGENT-062](agents.md#req-agent-062-pi-pr-boundary-review-result-delivery), [REQ-AGENT-068](agents.md#req-agent-068-ci-monitoring-background-agent-policy); both stay Implemented). The review-monitor TTL (`REVIEW_MONITOR_TTL_MS`) drops to `30 * 60 * 1000`, and the review-monitor and CI-monitor handoff prompts now instruct a 30-minute polling budget; the REQ-AGENT-062 constraint and the troubleshooting TTL note move to 30 minutes in step. **Status:** listed REQs stay Implemented.
 
 ## 2026-06-23

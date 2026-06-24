@@ -133,6 +133,27 @@ describe('PR Checks workflow / REQ-OPS-003 (test workflow runs on every PR + pus
     assert.match(body, /push:/, 'scorecard must have a push trigger');
     assert.match(body, /^\s+scorecard:/m, 'scorecard.yml must declare a `scorecard:` job');
   });
+
+  test('codeql.yml runs on schedule + PRs and excludes the vendored Impeccable scripts from analysis (REQ-OPS-019 AC1)', () => {
+    const body = readWorkflow('codeql.yml');
+    assert.match(body, /schedule:/, 'codeql must have a schedule trigger');
+    assert.match(body, /pull_request:/, 'codeql must run on PRs to main');
+    assert.match(body, /^\s+analyze:/m, 'codeql.yml must declare an `analyze:` job');
+    assert.match(
+      body,
+      /config-file:\s*\.\/\.github\/codeql\/codeql-config\.yml/,
+      'codeql.yml must pass the CodeQL config-file that scopes analysis',
+    );
+    const configPath = join(repoRoot, '.github/codeql/codeql-config.yml');
+    assert.ok(existsSync(configPath), 'CodeQL config file must exist');
+    const config = readFileSync(configPath, 'utf-8');
+    assert.match(config, /^paths-ignore:/m, 'CodeQL config must declare paths-ignore');
+    assert.match(
+      config,
+      /preseed\/agents\/\*\/skills\/impeccable\/scripts/,
+      'CodeQL config must exclude the vendored Impeccable scripts from analysis',
+    );
+  });
 });
 
 describe('pentest workflow / REQ-OPS-005 (scheduled pentest runs against deployed worker) / REQ-SEC-001 (auth-gate pentest job) / REQ-SEC-002 (info-disclosure pentest job) / REQ-SEC-008 (security-headers pentest job verifies all headers) / REQ-SEC-009 (injection pentest job) / REQ-SEC-010 (storage-key injection pentest job) / REQ-SEC-013 (Content-Disposition pentest under injection job) / REQ-SEC-014 (SaaS auth-gate pentest job) / REQ-SEC-021 (security-headers pentest exercises redirect paths)', () => {
