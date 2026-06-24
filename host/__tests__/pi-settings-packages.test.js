@@ -56,8 +56,8 @@ function runAdvisorGuidanceMerge(initialConfig) {
 
 const sourceOf = (entry) => (typeof entry === 'string' ? entry : entry && entry.source);
 const REQUIRED = [
-  'npm:@gotgenes/pi-subagents@17.2.0',
-  'npm:context-mode@1.0.163',
+  'npm:@gotgenes/pi-subagents@17.4.0',
+  'npm:context-mode@1.0.166',
   'npm:@juicesharp/rpiv-advisor@1.20.0',
   'npm:@juicesharp/rpiv-ask-user-question@1.20.0',
   'npm:@juicesharp/rpiv-todo@1.20.0',
@@ -76,21 +76,21 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
 
   it('context-mode is ENABLED (bare-string form), not a disabled object entry', () => {
     const settings = runAssembly('{}');
-    const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@1.0.163');
+    const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@1.0.166');
     assert.equal(typeof cm, 'string', 'context-mode must be enabled by default — a bare string, not a {source,extensions,skills} disabled entry');
   });
 
   it('coexistence: a prior settings that DISABLED context-mode is upgraded to enabled, with the 5 extensions present and unrelated packages preserved', () => {
     const initial = JSON.stringify({
       packages: [
-        { source: 'npm:context-mode@1.0.163', extensions: [], skills: [] }, // previously disabled
+        { source: 'npm:context-mode@1.0.166', extensions: [], skills: [] }, // previously disabled
         'npm:some-user-package@1.0.0', // an unrelated package the user added
       ],
     });
     const settings = runAssembly(initial);
     const sources = settings.packages.map(sourceOf);
     // context-mode is now enabled (string), not the disabled object.
-    const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@1.0.163');
+    const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@1.0.166');
     assert.equal(typeof cm, 'string', 'a previously-disabled context-mode must be re-enabled on assembly');
     // The five tool extensions are present regardless of context-mode's prior state.
     for (const spec of REQUIRED) assert.ok(sources.includes(spec), `must include ${spec}`);
@@ -104,6 +104,14 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     const dedupe = (s) => [...new Set(s.packages.map(sourceOf))].sort();
     assert.deepEqual(dedupe(twice), dedupe(once));
     assert.equal(twice.packages.length, new Set(twice.packages.map(sourceOf)).size, 'no duplicate package identities');
+  });
+
+  it('does not inject context-mode runtime defaults through settings.extensions', () => {
+    const once = runAssembly(JSON.stringify({ extensions: ['user-ext.ts'] }));
+    const twice = runAssembly(JSON.stringify(once));
+
+    assert.deepEqual(once.extensions, ['user-ext.ts']);
+    assert.deepEqual(twice.extensions, ['user-ext.ts']);
   });
 
   it('REQ-AGENT-005: overrides advisor guidance as user-invoked only without clearing the selected model', () => {

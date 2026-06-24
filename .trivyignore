@@ -603,3 +603,14 @@ CVE-2026-42504
 # base-image-dependency, no-untrusted-input exposure profile as the entries
 # above. No fixed version available in Debian bookworm.
 CVE-2026-48959
+
+# Go stdlib crypto/x509 in lazygit v0.60.0 (Go 1.25.10) and silverbullet (Go 1.25.1):
+# (*x509.Certificate).VerifyHostname mishandles hostname verification for certificates
+# whose name fields were previously rejected, weakening the match decision. Impact: NONE -
+# both are local CLI/UI tools in the sandboxed container that make outbound TLS only to
+# trusted endpoints (lazygit: git-over-HTTPS to user remotes; silverbullet: serves the
+# vault UI behind Cloudflare Access) and never make a trust decision on an
+# attacker-controlled server certificate. Same Go 1.25.11 / 1.26.4 security batch as
+# CVE-2026-42504 above; lazygit and silverbullet upstream have not rebuilt with the
+# patched Go.
+CVE-2026-27145

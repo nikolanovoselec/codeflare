@@ -51,7 +51,7 @@ deployed on Recreate or new bucket creation.
 | Pi tool extensions (`@juicesharp/rpiv-advisor`, `@juicesharp/rpiv-ask-user-question`, `@juicesharp/rpiv-todo`, `pi-web-access`, `pi-mcp-adapter`) | Yes (always-on `required`) | Yes (always-on `required`) | Yes (always-on `required`) |
 | context-mode plugin folder (Claude Code auto-routing hooks for context-window reduction) | No | No | Yes |
 
-The Custom-tier column reflects the extra Claude Code delivery surface for users on the `unlimited` subscription tier in Advanced mode. Pi starts with context-mode **enabled** by default (its `ctx_*` tools and the bash-curl-redirect hook are active without `/ctx on`); the Codeflare Pi extension provides `/ctx status`, `/ctx on`, and `/ctx off` for per-session control. The next Codeflare container start resets Pi back to enabled.
+The Custom-tier column reflects the extra Claude Code delivery surface for users on the `unlimited` subscription tier in Advanced mode. Pi starts with context-mode **enabled** by default (its `ctx_*` tools and the bash-curl-redirect hook are active without `/ctx on`); the Codeflare Pi extension provides `/ctx status`, `/ctx on`, and `/ctx off` for per-session control. The next Codeflare container start resets Pi back to enabled. `entrypoint.sh` and the Pi-native `context-mode-runtime.ts` extension set `CONTEXT_MODE_BRIDGE_IDLE_MS=0` at session start so context-mode helper processes do not emit idle-release notices into the TUI.
 
 The five Pi tool extensions are installed in the settings `required` set, so they load in every Pi session independently of the context-mode toggle. `@juicesharp/rpiv-advisor` adds the user-invoked `advisor` tool and user-only `/advisor` configuration command; Codeflare overrides the package's prompt guidance at startup so assistants must not call `advisor`, run `/advisor`, or suggest `/advisor` unless the user's current message explicitly asks for advisor. `pi-web-access` adds `web_search`/`fetch_content`; both authenticate through Pi's own model registry / zero-config Exa MCP, so neither needs a per-user API key. Implements [REQ-AGENT-005](../../sdd/spec/agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) AC5/AC7; source: `entrypoint.sh::warm_pi_npm_dependencies`, `preseed/agents/pi/skills/advisor/SKILL.md`, and `preseed/agents/pi/package.json`.
 
@@ -137,14 +137,14 @@ The SDD enforcement family is advanced-only: `spec-enforce` +
 
 The design family (UI/frontend work) is `emil-design-eng` and
 `design-taste-frontend` (prose-only, adapted to every agent), plus `impeccable`.
-`impeccable` keeps its 23-sub-command design skill and ~57-file offline detector,
-but localhost `live` browser server scripts are not active in codeflare.
-`reference/live.md` and the `live` sub-command listing remain as inert references.
-
-`impeccable` is scoped to Claude + Pi only. Claude gets the trimmed tree in
+`impeccable` keeps its multi-command design skill and bundled offline/live detector
+scripts. It is scoped to Claude + Pi only: Claude gets the vendored tree in
 `~/.claude/skills/impeccable/`; Pi gets a dedicated copy under
 `~/.pi/agent/skills/impeccable/` with paths re-pointed and `.mjs` scripts emitted
 verbatim, so detector scripts are never mangled by Claude-to-Pi text adaptation.
+The vendored Impeccable bundle is shadow-pinned by `bump-shadow-pins.yml`, which
+checks `impeccable.style`, refreshes both agent copies, updates both manifests,
+and regenerates the seed.
 
 Skills are preseeded to `~/.claude/skills/<name>/SKILL.md` and adapted equivalents
 for agents that support skills. `consult-llm` is scoped to Claude + Pi only. On
@@ -170,21 +170,28 @@ Pi gets its own native `preseed/agents/pi/rules/git-workflow.md` from the Pi man
 which delegates branched mechanics to `ci-monitoring`, `git-review-pipeline`,
 `pr-workflow`, and `deploy-credentials`.
 
-Pi CI monitoring is background-agent owned. After any CI-producing push, Pi agents start
-`ci-monitoring` unless the user explicitly skips that push; the backgrounded agent
-monitors the target HEAD, reports success/failure/timeout, and never fixes, commits,
-or pushes ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
+Pi CI monitoring is background-agent owned. After any CI-producing push or PR
+creation, Pi agents start CI monitoring unless the user explicitly skips that
+push/PR. For PR-boundary review heads, the review extension can include the exact
+CI-monitor request in its visible main-session handoff so the monitor appears in
+the same background-agent UI as `review-monitor`. The backgrounded CI monitor
+reports success/failure/timeout and never fixes, commits, or pushes
+([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
 AC1/AC4).
 
 The monitor waits for every workflow row returned for the monitored HEAD to complete
 and for the workflow/run-id fingerprint to stabilize before success. Before each poll
-and before terminal success/failure, it also compares the local branch ref to the
-monitored HEAD; if a later push advanced the branch, the monitor exits with
-`CI_RESULT timeout superseded ...` instead of reporting stale success/failure for the
-old head ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC2/AC3). After `CI_RESULT`, the main session prints the CI summary first, including
-monitored head, run/log pointers when present, and planned next action ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC6).
+and before terminal success/failure, it compares the local branch ref to the monitored
+HEAD; if a later push advanced the branch, it exits with `CI_RESULT timeout superseded ...`
+instead of reporting stale success/failure for the old head ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
+AC2/AC3).
+
+After `CI_RESULT`, the main session prints the CI summary first, including monitored
+head, run/log pointers when present, and planned next action ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
+AC6). If a CI monitor task stops, errors, or completes without a `CI_RESULT`, the
+main session starts a replacement monitor for the same exact head unless the head
+was superseded or the user explicitly skipped CI ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
+AC1).
 
 Pi receives its native `preseed/agents/pi/skills/ci-monitoring/SKILL.md` entry from
 the Pi manifest instead of a Claude-transformed skill ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
@@ -459,23 +466,30 @@ All preseed content is deployed via the manifest pipeline:
   `.git/codeflare-review-jobs/<head>/` and public findings under
   `.git/sdd-review-results/<head>/`. Each result file uses a common
   `## Findings` section followed by a severity-count Review Summary table.
+
   While internal durable lanes run, Pi displays a compact footer status
   (`Review code | spec | docs`, rendering only required lanes and turning a lane
   label green when that lane finishes). Colored review status rows truncate by
   visible width, preserve ANSI color sequences, and reset styling before the
-  ellipsis. Operators can diagnose background review progress without visible
-  generic Agent tasks. Duplicate lane-result notices are suppressed for the same
-  repo/head/lane result.
+  ellipsis. Once durable review state says the exact head is acked, the footer
+  suppresses stale `codeflare-review` fallback strings from older extension status
+  caches ([REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer)
+  AC5). Duplicate lane-result notices are suppressed for the same repo/head/lane
+  result.
 
   Review summaries have a second monitor delivery phase. `review-monitor` is a
-  background agent/subagent, not an extension. When a real PR-boundary trigger
-  creates an active review window, the Pi extension records durable lane state and
-  starts the background `review-monitor` for the same exact head. If startup fails,
-  Pi sends the main session a fallback message containing the monitor prompt. The
-  monitor waits for lane results and `summary.md`, writes `monitor.completed` only
-  after that complete set exists, then returns `REVIEW_RESULT clean|findings` to the
-  main session. An early lane failure returns `REVIEW_RESULT failed` without a
-  completion marker so a later retry can deliver the final summary.
+  background agent/subagent, not an extension. When a PR-boundary trigger creates
+  an active review window, the Pi extension records durable lane state and sends
+  the main session a visible monitor handoff for the exact head. That visible
+  handoff is specified by [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-visible-review-and-ci-monitor-handoff).
+
+  If the visible follow-up cannot be sent, Pi falls back to direct service-spawning of
+  `review-monitor`. The monitor waits for lane results and `summary.md`, writes
+  `monitor.completed` only after that complete set exists, then returns
+  `REVIEW_RESULT clean|findings` to the main session. Missing result files while a
+  required lane marker is still `running` are waiting state, not failure. Only an
+  explicit required-lane `status: "failed"` produces `REVIEW_RESULT failed` without
+  a completion marker, so a later retry can deliver the final summary.
 
   Pi keeps the pending review window unacked until a valid `monitor.completed`
   exists, and it does not resurrect old acked jobs after pending state is cleared.
@@ -524,43 +538,43 @@ All preseed content is deployed via the manifest pipeline:
   [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-and-result-formatting).
 
   Delivering that summary back into the live session is a separate monitor phase.
-  For each `(repo, head)`, the Pi extension may start one background
-  `review-monitor` agent from durable review state with an explicit prompt and
-  `inheritContext:false`; startup is not gated on a live main-session ctx. Valid
-  `monitor.completed` files and fresh monitor claims suppress duplicate starts;
-  reload/status refresh also consumes valid exact-head completion markers when the
-  transient pending file is already gone.
+  For each `(repo, head)`, the Pi extension records one durable monitor claim.
+  Valid `monitor.completed` files and fresh monitor claims suppress duplicate
+  monitor requests; reload/status refresh also consumes valid exact-head completion
+  markers when the transient pending file is already gone.
 
   The Pi extension owns the durable claim/completion files; the monitor agent owns
   waiting and returning `REVIEW_RESULT`. Malformed or stale monitor claim files are
-  reclaimed, so a partial `monitor.json` cannot block delivery forever. If monitor
-  startup throws or returns no agent id, Pi keeps the durable monitor claim and
-  sends the main session a one-shot fallback message containing the exact monitor
-  prompt; the claim suppresses duplicate extension starts across reload.
+  reclaimed, so a partial `monitor.json` cannot block delivery forever. Visible
+  main-session monitor spawning and restart behavior live in [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-visible-review-and-ci-monitor-handoff).
 
   The monitor waits for every lane result file and `summary.md`; if lane files
   exist but `summary.md` is missing, it writes a concise merged summary from those
   lane reports. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC1/AC2/AC7; source: `review-enforcement.ts::startReviewMonitor`,
+  AC1/AC2/AC3; source: `review-enforcement.ts::startReviewMonitor`,
   `review-enforcement.ts::claimReviewMonitorStart`,
   `review-enforcement.ts::reviewMonitorCompletionReady`,
-  `review-enforcement.ts::sendReviewMonitorFallbackMessage`,
   `review-enforcement.ts::reviewMonitorPrompt`,
   `review-job-helpers.ts::reviewMonitorDecision`,
   `review-job-helpers.ts::reviewMonitorSpawnDecision`, and
-  `review-job-helpers.ts::reviewMonitorStartupFailureMessage`.
+  `review-job-helpers.ts::formatMergedReviewSummary`.
 
   The monitor is the delivery wakeup. Before successful exit after complete lane
   results and `summary.md`, it writes
   `.git/codeflare-review-jobs/<head>/monitor.completed` as JSON containing `repo`,
   `head`, `summaryPath`, `completedAt`, and result `clean` or `findings`; if a lane
-  fails before that complete set exists, it returns `REVIEW_RESULT failed` without that marker.
+  explicitly reports failed before that complete set exists, it returns
+  `REVIEW_RESULT failed` without that marker; missing result files while a lane is
+  still running never trigger failure. Before a completion marker latches, Pi
+  rejects and deletes records whose repo/head/summaryPath/result/completedAt no
+  longer match the lane inputs, so the monitor can retry with a valid marker.
   Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC3/AC4; source: `preseed/agents/pi/agents/review-monitor.md`,
+  AC4/AC5/AC6; source: `preseed/agents/pi/agents/review-monitor.md`,
   `review-enforcement.ts::reviewMonitorPrompt`,
-  `review-enforcement.ts::reviewMonitorCompletionReady`, and
+  `review-enforcement.ts::reviewMonitorCompletionReady`,
+  `review-job-helpers.ts::reviewMonitorCompletionRejectReason`, and
   `review-job-helpers.ts::reviewMonitorCompletionRecordReady`.
 
   Partial lane results, failed required lanes, or a missing `summary.md` cannot
@@ -576,18 +590,21 @@ All preseed content is deployed via the manifest pipeline:
   [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-durable-review-fix-loop).
 
   Task/subagent contexts may reap lane children and write durable state, but they
-  do not own review-monitor delivery. Only the current or last remembered live
-  main-session context lets the extension start `review-monitor`; old acked jobs are not resurrected after
-  pending state is cleared. Delivery does not depend on a custom transcript nonce,
-  a summary announcement record, or a follow-up message bus. The `/review-results`
-  command remains the manual fallback: it displays the persisted
-  exact-head `summary.md` without mutating delivery state or claiming the head was
+  do not own review-monitor delivery. The live main session owns visible monitor
+  spawning and restart decisions after the extension's handoff; old acked jobs are
+  not resurrected after pending state is cleared. Delivery does not depend on a
+  custom transcript nonce or a summary announcement record. The `/review-results`
+  command remains the manual fallback: it displays the persisted exact-head
+  `summary.md` without mutating delivery state or claiming the head was
   acknowledged. Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC5/AC6; source: `review-enforcement.ts::review-results`,
-  `review-job-helpers.ts::reviewResultsSummaryMessage`,
-  `review-enforcement.ts::startReviewMonitor`, and
+  AC7; source: `review-enforcement.ts::review-results`,
+  `review-job-helpers.ts::reviewResultsSummaryMessage`, and
   `review-enforcement.ts::remember`.
+
+  The main-session visible handoff and restart rule is documented in `pr-workflow`,
+  `git-review-pipeline`, and `git-workflow`; that workflow implements
+  [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-visible-review-and-ci-monitor-handoff).
 
   Timed-out or failed durable lanes are recorded as failed and do not produce
   the required result file. The PR head remains unacked until a later review run
@@ -684,8 +701,10 @@ runtime behaviors that cannot be represented as transformed prose:
 `/sdd`, `/graphify`, `/vault`, `/note`, `/debug`, `/deploy`, `/brainstorm`, graphify
 active-repo/global-graph maintenance and clone triage, automatic memory capture,
 Vault graph extraction/global-graph merge, local-build blocking,
-and AI-attribution blocking. Pi receives a dedicated native graphify skill
-that uses local AST extraction plus Pi `Agent` subagents instead of the
+and AI-attribution blocking. Graphify build/update runbooks for both Claude and
+Pi pass the scanned repo root to Graphify's manifest writer, keeping
+`graphify-out/manifest.json` portable after a repo move. Pi receives a dedicated
+native graphify skill that uses local AST extraction plus Pi `Agent` subagents instead of the
 Claude/MCP-specific transformed skill. The Pi runtime also registers first-party native
 `graphify_query` / `graphify_path` / `graphify_explain` tools through
 `graphify-native.ts`. Each query shells the upstream Graphify CLI and resolves
@@ -707,9 +726,10 @@ to `.pi/agent/extensions/`, `.pi/agent/scripts/`,
 capture-contract prompts to `.pi/agent/prompts/`, native Pi skill overrides under
 `~/.pi/agent/skills/`, and native Pi agent overrides under `~/.pi/agent/agents/`,
 and adapts Claude agent definitions into `.pi/agent/agents/*.md` for
-`@gotgenes/pi-subagents`. Pi's generated agent frontmatter deliberately drops
-context-mode tools so those `@gotgenes/pi-subagents` subagents run against the
-native Pi tool surface. This applies to subagent frontmatter only. Durable
+`@gotgenes/pi-subagents`. Pi's generated agent frontmatter and body text use
+Pi-native tool names: Graphify MCP references become `graphify_query` /
+`graphify_path` / `graphify_explain`, and context-mode MCP references become
+`ctx_*` tool names so subagents never try unavailable Claude MCP tools. Durable
 PR-boundary review lanes are not `@gotgenes/pi-subagents` and not in-process
 `createAgentSession` calls: `spawnDurableLane` launches detached headless `pi`
 child processes with a bounded inspection tool allowlist, `--no-extensions`,
@@ -882,7 +902,7 @@ and clone triage; it no longer acts as the primary query retry shim.
 
 ### Build model choice ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch))
 
-The Claude `/graphify` skill and the dedicated Pi graphify skill both dispatch semantic-extraction subagents for non-code files (docs, papers, images) when the user chooses Full mode. The Pi skill deliberately avoids headless semantic extraction for uncached docs/images: subagents read chunks and write Graphify-schema JSON, Graphify's cache helpers persist those chunks, and local Graphify module flows merge/build/cluster/report output. Community names are written by the active agent session to `.graphify_labels.json`; Pi applies them by regenerating the final user-facing report/html from the graph's existing community assignments, never `graphify label` or provider backends. Pi's graph refresh menu offers Architecture graph, Full repo AST-only, Full repo semantic, and an explicit no-graph option. Architecture graph uses the local module-graph script to filter tests/docs/generated/config noise and project Graphify's symbol graph into file/module dependencies; full AST initial build uses the local first-build script built from Graphify's own modules; AST-only refresh uses the bounded upstream-update wrapper. Full semantic merge starts from a freshly recreated AST-only baseline and adds cached/new semantic chunks without passing those source files as `prune_sources`, because Graphify prunes after adding. Final `graphify-out/graph.html` and `graphify-out/callflow.html` are generated after labels are applied, and durable graph commits include both.
+The Claude `/graphify` skill and the dedicated Pi graphify skill both dispatch semantic-extraction subagents for non-code files (docs, papers, images) when the user chooses Full mode. The Pi skill deliberately avoids headless semantic extraction for uncached docs/images: subagents read chunks and write Graphify-schema JSON, Graphify's cache helpers persist those chunks, and local Graphify module flows merge/build/cluster/report output. Community names are written by the active agent session to `.graphify_labels.json`; Pi applies them by regenerating the final user-facing report/html from the graph's existing community assignments, never `graphify label` or provider backends. Pi's graph refresh menu offers Architecture graph, Full repo AST-only, Full repo semantic, and an explicit no-graph option. Architecture graph uses the local module-graph script to filter tests/docs/generated/config noise and project Graphify's symbol graph into file/module dependencies; full AST initial build uses the local first-build script built from Graphify's own modules; AST-only refresh uses the bounded upstream-update wrapper. Full semantic merge starts from a freshly recreated AST-only baseline and adds cached/new semantic chunks without passing those source files as `prune_sources`, because Graphify prunes after adding. Pi's local build/merge wrappers pass the scanned repo root into Graphify's manifest writer, so `graphify-out/manifest.json` stays portable if a repo is moved or recloned. Final `graphify-out/graph.html` and `graphify-out/callflow.html` are generated after labels are applied, and durable graph commits include both.
 
 Model selection is runtime-specific. Claude Code's graphify skill pins its own reliable extraction model and never escalates to Opus from this workflow. Pi does not name or pin provider-specific models: Pi `Agent` semantic subagents omit a `model` override and inherit whatever model the main Pi session is using unless the user explicitly asks for a different model.
 

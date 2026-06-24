@@ -23,7 +23,7 @@ Architectural and technology decisions that apply across all domains.
 | Container Base | Node.js 24 (bookworm-slim) | Multi-stage Docker build; builder compiles native addons, runtime has no build tools |
 | Linter | oxlint | Fast Rust-based linter for CI |
 | Testing | Vitest | Unit/integration tests; Puppeteer for E2E; fast-check for fuzzing |
-| Container Tools | git, gh, rclone, neovim, ripgrep, fd, fzf, yazi, lazygit, zoxide, tmux, htop, jq, bat | Pre-installed developer toolchain in every container |
+| Container Tools | git, gh, rclone, neovim, ripgrep, fd, fzf, yazi, lazygit, zoxide, tmux, htop, jq, python/python3, bat | Pre-installed developer toolchain in every container |
 | AI Agents | @anthropic-ai/claude-code, @openai/codex, opencode-ai, @github/copilot (npm); antigravity (`agy`, Go-native, curl-installed) | Global npm packages; Claude Code runs as root via `IS_SANDBOX=1` + `--dangerously-skip-permissions` |
 
 ## Non-Functional Requirements

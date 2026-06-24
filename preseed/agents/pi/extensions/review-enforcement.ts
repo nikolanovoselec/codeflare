@@ -58,7 +58,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, boundaryFallbackHead, boundaryTriggerCommandEntries, bypassAckHeadForStatus, canMainSessionConsumeReviewBypass, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, commandTextsFromEvent, completeTranscriptDelta, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, gitPushCommandTarget, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prCreateCommandTarget, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, prUrlFromText, reusablePendingReview, reviewBypassConsumeDecision, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewBoundaryStartDecision, reviewMonitorCompletionRejectReason, resolveSpawnedAgentId, reviewDeliveryGiveUp, reviewMonitorStartupFailureMessage, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, reviewWindowStartDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, type DurableReviewSummaryRecord } from "./review-job-helpers";
+import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewBoundaryStartDecision, reviewMonitorCompletionRejectReason, resolveSpawnedAgentId, reviewDeliveryGiveUp, reviewMonitorStartupFailureMessage, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, reviewWindowStartDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, visibleMonitorHandoffRequest, type DurableReviewSummaryRecord } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -70,7 +70,7 @@ const REVIEW_BYPASS = "/tmp/review-bypass";
 const MAX_REVIEW_ATTEMPTS = 5;
 const MAX_REVIEW_AGE_MS = 20 * 60 * 1000;
 const REVIEW_REQUEST_RETRY_MS = 60 * 1000;
-const REVIEW_MONITOR_TTL_MS = 35 * 60 * 1000;
+const REVIEW_MONITOR_TTL_MS = 30 * 60 * 1000;
 const REVIEW_MONITOR_CLAIM_WRITE_GRACE_MS = 5 * 1000;
 // Background subagent spawn flags for the untyped pi-subagents service. `foreground: false`
 // is the contract honored across the codebase (see memory-vault); `runInBackground` is silently
@@ -1554,14 +1554,16 @@ export default function (pi: ExtensionAPI) {
       "Rules:",
       "- Background monitor only. Do not edit source, documentation, or spec files.",
       "- Do not run tests, builds, typechecks, linters, dev servers, CI watches, or deploy commands.",
-      "- Poll the listed lane result files and summary.md for up to 35 minutes, stopping sooner only when they all exist or a lane failure is visible in .git/codeflare-review-jobs/<head>/lanes/.",
-      "- If a lane failure is visible before every lane result and summary.md exist: do not write the completion marker, remove the monitor request marker, and return REVIEW_RESULT failed.",
+      "- Poll the listed lane result files and summary.md for up to 30 minutes, stopping sooner only when they all exist or a required lane marker explicitly has status=failed in .git/codeflare-review-jobs/<head>/lanes/.",
+      "- Use one shell polling loop or another low-turn strategy; do not burn one subagent turn per poll.",
+      "- Missing result files are expected while any required lane marker is still running; keep waiting in that state.",
+      "- If a required lane marker explicitly has status=failed before every lane result and summary.md exist: do not write the completion marker, remove the monitor request marker, and return REVIEW_RESULT failed.",
       "- If every lane result exists but summary.md is missing, write summary.md by combining the lane reports with a severity table and ranked findings. Do not write the review ack; the extension owns exact-head gate state.",
       "- Before exiting successfully after every lane result and summary.md exists, write the completion marker as JSON with repo, head, summaryPath, completedAt, and result. The result field must be exactly \"clean\" or \"findings\" (not the REVIEW_RESULT-prefixed line).",
       "- Final output must start with one of these exact contract lines: REVIEW_RESULT clean, REVIEW_RESULT findings, or REVIEW_RESULT failed.",
       "- For findings, include a detailed user-facing overview in your final result: severity counts, lane status, ranked finding titles, the summary.md path, your monitor transcript path if available, and the planned next action.",
       "- The main session's first response after receiving your result must start by printing a detailed review summary: exact REVIEW_RESULT line, severity counts, lane status, ranked findings, summary path, monitor transcript path if available, and next action. It must do this before analysis, tool calls, todo updates, or fixes.",
-      "- Then tell the main session to read summary.md, verify every MEDIUM/HIGH/CRITICAL finding, fix only legitimate findings by default, and stop for approval only if the latest user instruction says not to autofix / wait for approval / do not push.",
+      "- Then tell the main session to immediately read summary.md, verify every MEDIUM/HIGH/CRITICAL finding, fix legitimate findings, commit, push, start CI monitoring, verify/restart review-monitor, and iterate until the exact head returns REVIEW_RESULT clean. Stop before commit/push only if the latest user instruction says not to autofix / wait for approval / do not push.",
     ].join("\n");
   }
 
@@ -1596,6 +1598,21 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  function sendVisibleMonitorHandoff(state: PendingReview, prompt: string, reason: string): boolean {
+    const sendUserMessage = (pi as ExtensionAPI & { sendUserMessage?: (message: string, options?: { deliverAs?: string }) => void }).sendUserMessage;
+    if (typeof sendUserMessage !== "function") return false;
+    const request = visibleMonitorHandoffRequest({ repo: state.repo, head: state.head, branch: state.headBranch, prNumber: state.prNumber, reason, reviewPrompt: prompt });
+    try {
+      sendUserMessage.call(pi, request.message, { deliverAs: "followUp" });
+      writeReviewMonitorStarted(state, "main-session-visible-handoff", reason);
+      appendReviewEvent(state.repo, { event: "visible_monitor_handoff_sent", head: state.head, reason, ci: request.ciMonitor.description, review: request.reviewMonitor.description });
+      return true;
+    } catch (error) {
+      appendReviewEvent(state.repo, { event: "visible_monitor_handoff_failed", head: state.head, reason, error: String(error) });
+      return false;
+    }
+  }
+
   function startReviewMonitor(state: PendingReview, _ctx: any, reason: string): boolean {
     reclaimStaleReviewMonitorClaim(state);
     const decision = reviewMonitorSpawnDecision({
@@ -1611,6 +1628,8 @@ export default function (pi: ExtensionAPI) {
     }
 
     const prompt = reviewMonitorPrompt(state);
+    if (sendVisibleMonitorHandoff(state, prompt, reason)) return true;
+
     const description = `Monitor review ${state.head.slice(0, 12)}`;
     let agentId: string | undefined;
     const service = subagentsService();

@@ -83,8 +83,8 @@ const TOOL_MAP = {
 const CLAUDE_ONLY_CATEGORIES = new Set(['hook', 'command', 'plugin']);
 const CLAUDE_ONLY_FILES = new Set(['rules/memory.md']);
 const PI_EXCLUDED_CLAUDE_FILES = new Set(['rules/git-workflow.md']);
-// impeccable is Claude-only in the transform fan-out: it ships ~57 files incl. an
-// offline detector, so embedding it into codex/gemini/opencode would bloat the seed for
+// impeccable is Claude-only in the transform fan-out: it ships a large offline/live
+// detector bundle, so embedding it into codex/gemini/opencode would bloat the seed for
 // agents that won't use it. Pi gets a DEDICATED native copy (preseed/agents/pi/skills/
 // impeccable, paths re-pointed at ~/.pi/agent) emitted verbatim — no prose mangling of its
 // .mjs scripts. So impeccable reaches exactly Claude (this tree) + Pi (native), nothing else.
@@ -167,6 +167,37 @@ function remapTools(toolsArray, agentId) {
   return [...new Set(mapped)];
 }
 
+const PI_RUNTIME_REPLACEMENTS = [
+  ['mcp__graphify__god_nodes(top_n=50)', 'graphify_query("top 50 most-connected nodes / god nodes")'],
+  ['mcp__graphify__god_nodes(top_n=20)', 'graphify_query("top 20 most-connected nodes / god nodes")'],
+  ['mcp__graphify__god_nodes(top_k=20)', 'graphify_query("top 20 most-connected nodes / god nodes")'],
+  ['mcp__graphify__get_neighbors(<concept-or-symbol>)', 'graphify_explain(<concept-or-symbol>)'],
+  ['mcp__graphify__get_node(<symbol>)', 'graphify_explain(<symbol>)'],
+  ['mcp__graphify__shortest_path', 'graphify_path'],
+  ['mcp__graphify__query_graph', 'graphify_query'],
+  ['mcp__graphify__get_neighbors', 'graphify_explain'],
+  ['mcp__graphify__get_node', 'graphify_explain'],
+  ['mcp__graphify__get_community', 'graphify_explain'],
+  ['mcp__graphify__god_nodes', 'graphify_query'],
+  ['mcp__graphify__graph_stats', 'graphify_query'],
+  ['mcp__graphify__*', 'Pi graphify tools'],
+  ['mcp__context-mode__ctx_batch_execute', 'ctx_batch_execute'],
+  ['mcp__context-mode__ctx_execute_file', 'ctx_execute_file'],
+  ['mcp__context-mode__ctx_execute', 'ctx_execute'],
+  ['mcp__context-mode__ctx_search', 'ctx_search'],
+  ['mcp__context-mode__ctx_fetch_and_index', 'ctx_fetch_and_index'],
+  ['Claude Code: `EnterPlanMode`', 'Pi: use the `Plan` agent'],
+  ['`EnterPlanMode`', 'the Pi `Plan` agent'],
+  ['Task tool', 'Agent tool'],
+  ['Claude Code', 'Pi'],
+];
+
+function adaptPiRuntimeNames(content) {
+  let next = content;
+  for (const [from, to] of PI_RUNTIME_REPLACEMENTS) next = next.replaceAll(from, to);
+  return next;
+}
+
 /**
  * Adapt an agent definition's frontmatter: remap tools and remove Claude-specific
  * model pins so transformed agents default to the active runtime model.
@@ -236,6 +267,7 @@ function adaptAgentFrontmatter(content, agentId) {
   }
 
   let adaptedBody = adaptPaths(body, agentId);
+  if (agentId === 'pi') adaptedBody = adaptPiRuntimeNames(adaptedBody);
   if (agentId === 'pi' && /^name:\s*memory-capture\s*$/m.test(frontmatter)) {
     adaptedBody = adaptedBody
       .replace('The contract\'s first step is to delete the `.vars` file (dedup gate).', 'On Pi, the contract keeps the `.vars` file as the pending-capture lock until the note is written and the counter is advanced.')
@@ -261,29 +293,7 @@ const PI_SDD_SKILLS = new Set([
 const PI_SDD_COMPATIBILITY_NOTE = `\n## Pi runtime compatibility\n\nThis transformed Pi skill uses Pi-native tool names and workflows:\n\n- Use Bash/Read/Grep/Find/Edit/Write directly; do not assume context-mode \`ctx_*\` tools exist.\n- Use \`graphify_query\`, \`graphify_path\`, and \`graphify_explain\` directly. If a native graphify tool resolves the workspace root instead of the active repo, use the CLI fallback with \`--graph <repo>/graphify-out/graph.json\`.\n- Use Pi's \`Agent\` tool for subagents. For Plan Mode, invoke the \`Plan\` agent or produce an explicit plan and wait for user approval before source edits.\n`;
 
 function adaptPiSkillContent(content, withinClaude) {
-  let next = adaptPaths(content, 'pi');
-  const replacements = [
-    ['mcp__graphify__god_nodes(top_n=50)', 'graphify_query("top 50 most-connected nodes / god nodes")'],
-    ['mcp__graphify__god_nodes(top_n=20)', 'graphify_query("top 20 most-connected nodes / god nodes")'],
-    ['mcp__graphify__get_neighbors(<concept-or-symbol>)', 'graphify_explain(<concept-or-symbol>)'],
-    ['mcp__graphify__get_node(<symbol>)', 'graphify_explain(<symbol>)'],
-    ['mcp__graphify__shortest_path', 'graphify_path'],
-    ['mcp__graphify__query_graph', 'graphify_query'],
-    ['mcp__graphify__get_neighbors', 'graphify_explain'],
-    ['mcp__graphify__get_node', 'graphify_explain'],
-    ['mcp__graphify__god_nodes', 'graphify_query'],
-    ['mcp__graphify__*', 'Pi graphify tools'],
-    ['mcp__context-mode__ctx_batch_execute', 'ctx_batch_execute'],
-    ['mcp__context-mode__ctx_execute_file', 'ctx_execute_file'],
-    ['mcp__context-mode__ctx_execute', 'ctx_execute'],
-    ['mcp__context-mode__ctx_search', 'ctx_search'],
-    ['mcp__context-mode__ctx_fetch_and_index', 'ctx_fetch_and_index'],
-    ['Claude Code: `EnterPlanMode`', 'Pi: use the `Plan` agent'],
-    ['`EnterPlanMode`', 'the Pi `Plan` agent'],
-    ['Task tool', 'Agent tool'],
-    ['Claude Code', 'Pi'],
-  ];
-  for (const [from, to] of replacements) next = next.replaceAll(from, to);
+  let next = adaptPiRuntimeNames(adaptPaths(content, 'pi'));
 
   const skillName = withinClaude.match(/^skills\/([^/]+)\//)?.[1];
   if (PI_SDD_SKILLS.has(skillName)) {

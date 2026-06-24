@@ -43,7 +43,7 @@ jobs:
           node-version: '22'
 
       - name: Install wrangler
-        run: npm install -g wrangler@4.68.1
+        run: npm install -g "wrangler@$(node -p \"require('./package.json').devDependencies.wrangler\")"
 
       - name: Resolve target
         id: target

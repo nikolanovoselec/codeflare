@@ -25,7 +25,7 @@ The prompt gives you:
 - completion marker path
 - monitor request marker path
 
-Wait in the background for up to 35 minutes until every required lane result exists and `summary.md` exists. If a lane failure appears before that complete set exists, do not write the completion marker; remove the monitor request marker and return `REVIEW_RESULT failed`. If all lane result files exist but `summary.md` is missing, write a concise merged summary from the lane reports with:
+Wait in the background for up to 30 minutes until every required lane result exists and `summary.md` exists. Use one shell polling loop or another low-turn strategy; do not spend one subagent turn per poll. Missing result files are expected while any required lane marker is still `running`; keep waiting in that state. Return `REVIEW_RESULT failed` only when a required lane marker explicitly has `status: "failed"` before the complete result set exists. If a lane failure appears before that complete set exists, do not write the completion marker; remove the monitor request marker and return `REVIEW_RESULT failed`. If all lane result files exist but `summary.md` is missing, write a concise merged summary from the lane reports with:
 
 - verdict
 - severity table
@@ -43,7 +43,7 @@ Your final response must start with exactly one of:
 - `REVIEW_RESULT findings`
 - `REVIEW_RESULT failed`
 
-For `findings`, include a detailed user-facing overview in your final result: severity counts, lane status, ranked finding titles, the `summary.md` path, and your own monitor transcript path if available. Then tell the main session that its first response after receiving your result must start by printing that detailed review summary before analysis, tool calls, todo updates, or fixes. After that, the main session should read `summary.md`, verify every MEDIUM/HIGH/CRITICAL finding, fix only legitimate findings by default, and stop for approval only if the latest user instruction says not to autofix / wait for approval / do not push.
+For `findings`, include a detailed user-facing overview in your final result: severity counts, lane status, ranked finding titles, the `summary.md` path, and your own monitor transcript path if available. Then tell the main session that its first response after receiving your result must start by printing that detailed review summary before analysis, tool calls, todo updates, or fixes. After that summary, the main session must immediately read `summary.md`, verify every MEDIUM/HIGH/CRITICAL finding, fix legitimate findings, commit, push, start CI monitoring, verify/restart `review-monitor`, and iterate until the exact head returns `REVIEW_RESULT clean`. It stops before commit/push only if the latest user instruction says not to autofix / wait for approval / do not push.
 
 ## Prohibited
 

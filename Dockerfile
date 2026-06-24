@@ -34,8 +34,9 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     # System essentials
     ca-certificates \
     bash \
-    # ECC continuous learning v2.1 observe hooks
+    # ECC continuous learning v2.1 observe hooks and common `python` CLI alias
     python3 \
+    python-is-python3 \
     # graphify (uv tool install) needs venv module for isolated tool envs
     python3-venv \
     # Version control
@@ -170,7 +171,7 @@ RUN npm install -g @openai/codex@latest opencode-ai@latest @github/copilot@lates
     cd /usr/local/lib/node_modules/opencode-ai/node_modules && \
     find . -maxdepth 1 -name 'opencode-*' ! -name 'opencode-linux-x64' -type d -exec rm -rf {} + && \
     cd /usr/local/lib/node_modules/@github/copilot && \
-    find prebuilds/ -maxdepth 1 -type d ! -name 'prebuilds' ! -name 'linux-x64' -exec rm -rf {} + && \
+    if [ -d prebuilds ]; then find prebuilds/ -maxdepth 1 -type d ! -name 'prebuilds' ! -name 'linux-x64' -exec rm -rf {} +; fi && \
     rm -rf mxc-bin/arm64 ripgrep/ clipboard/node_modules pvrecorder/node_modules sharp/node_modules && \
     npm cache clean --force && \
     rm -rf /tmp/* /root/.npm
@@ -244,9 +245,10 @@ RUN cd /opt/codeflare/pi-agent/npm && \
 # reproduces under both Node and Bun ESM loaders. The shim patch in the
 # context-mode block below is the durable fix; Bun is purely a perf win.
 # Pinned (unlike the @latest tools above): context-mode autodetects Bun at
-# runtime and substitutes it for Node in the JS/TS subprocess path, so a
-# breaking Bun release silently regresses ctx_execute for every user. Bump
-# this version deliberately after smoke-testing a new release.
+# runtime and substitutes it for Node in the JS/TS subprocess path. The
+# bump-shadow-pins workflow watches this Dockerfile literal and opens a PR;
+# smoke-test ctx_execute before merging if a future Bun release changes startup
+# behavior.
 RUN npm install -g bun@1.3.14 && \
     bun --version && \
     # Strip 258MB of non-linux platform binaries shipped in bun's npm package.

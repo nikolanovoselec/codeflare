@@ -136,7 +136,7 @@ for deferred in (out / 'graph.html', out / 'callflow.html'):
     if deferred.exists():
         deferred.unlink()
 print('HTML outputs deferred until local labels are applied')
-save_manifest(detect_result.get('files', {}), manifest_path=str(out / 'manifest.json'), kind='both')
+save_manifest(detect_result.get('files', {}), manifest_path=str(out / 'manifest.json'), kind='both', root=root)
 print(f"Graph refreshed locally: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges, {len(communities)} communities")
 PY
 ```

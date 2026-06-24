@@ -5,6 +5,7 @@ updates:
     target-branch: develop
     schedule:
       interval: weekly
+    # Owns the Wrangler pin used by package.json and GitHub workflow installs.
 
   - package-ecosystem: npm
     directory: /web-ui

@@ -118,7 +118,7 @@ if callflow.exists():
     callflow.unlink()
 print('build-graphify-ast: graph.html/callflow.html deferred until local labels are applied')
 
-save_manifest(detection.get('files', {}), manifest_path=str(OUT / 'manifest.json'), kind='ast')
+save_manifest(detection.get('files', {}), manifest_path=str(OUT / 'manifest.json'), kind='ast', root=ROOT)
 print(
     f'build-graphify-ast: graphify AST built {len(code_files)} code files -> '
     f'{G.number_of_nodes()} nodes, {G.number_of_edges()} edges, {len(communities)} communities'

@@ -23,6 +23,18 @@ describe('GitHub Actions workflow files / REQ-OPS-004 (E2E test workflow setup a
     assert.match(body, /playwright|e2e/i, 'e2e.yml must reference Playwright/E2E tooling');
   });
 
+  test('E2E and stress workflows install the Dependabot-managed root Wrangler pin', () => {
+    for (const name of ['e2e.yml', 'stress-test.yml']) {
+      const body = readWorkflow(name);
+      assert.match(
+        body,
+        /npm install -g "wrangler@\$\(node -p \\"require\('\.\/package\.json'\)\.devDependencies\.wrangler\\"\)"/,
+        `${name} must install the root package.json Wrangler pin so Dependabot owns the version`,
+      );
+      assert.doesNotMatch(body, /npm install -g wrangler@[0-9]/, `${name} must not carry a second hard-coded Wrangler pin`);
+    }
+  });
+
   test('e2e.yml configures artifact handling for failed suites', () => {
     const path = join(repoRoot, '.github/workflows/e2e.yml');
     const body = readFileSync(path, 'utf-8');
@@ -121,6 +133,27 @@ describe('PR Checks workflow / REQ-OPS-003 (test workflow runs on every PR + pus
     assert.match(body, /push:/, 'scorecard must have a push trigger');
     assert.match(body, /^\s+scorecard:/m, 'scorecard.yml must declare a `scorecard:` job');
   });
+
+  test('codeql.yml runs on schedule + PRs and excludes the vendored Impeccable scripts from analysis (REQ-OPS-019 AC1)', () => {
+    const body = readWorkflow('codeql.yml');
+    assert.match(body, /schedule:/, 'codeql must have a schedule trigger');
+    assert.match(body, /pull_request:/, 'codeql must run on PRs to main');
+    assert.match(body, /^\s+analyze:/m, 'codeql.yml must declare an `analyze:` job');
+    assert.match(
+      body,
+      /config-file:\s*\.\/\.github\/codeql\/codeql-config\.yml/,
+      'codeql.yml must pass the CodeQL config-file that scopes analysis',
+    );
+    const configPath = join(repoRoot, '.github/codeql/codeql-config.yml');
+    assert.ok(existsSync(configPath), 'CodeQL config file must exist');
+    const config = readFileSync(configPath, 'utf-8');
+    assert.match(config, /^paths-ignore:/m, 'CodeQL config must declare paths-ignore');
+    assert.match(
+      config,
+      /preseed\/agents\/\*\/skills\/impeccable\/scripts/,
+      'CodeQL config must exclude the vendored Impeccable scripts from analysis',
+    );
+  });
 });
 
 describe('pentest workflow / REQ-OPS-005 (scheduled pentest runs against deployed worker) / REQ-SEC-001 (auth-gate pentest job) / REQ-SEC-002 (info-disclosure pentest job) / REQ-SEC-008 (security-headers pentest job verifies all headers) / REQ-SEC-009 (injection pentest job) / REQ-SEC-010 (storage-key injection pentest job) / REQ-SEC-013 (Content-Disposition pentest under injection job) / REQ-SEC-014 (SaaS auth-gate pentest job) / REQ-SEC-021 (security-headers pentest exercises redirect paths)', () => {
@@ -186,11 +219,34 @@ describe('shadow-pin bump workflow / REQ-OPS-020 (shadow-pin version bump automa
     assert.match(body, /npm view consult-llm-mcp version/, 'consult-llm-mcp job must check the npm registry');
   });
 
+  test('AC2: chrome-devtools-mcp npm package (entrypoint npx pin) is watched', () => {
+    const body = readWorkflow('bump-shadow-pins.yml');
+    assert.match(body, /^\s+chrome-devtools-mcp:/m, 'bump-shadow-pins.yml must declare a `chrome-devtools-mcp:` job');
+    assert.match(body, /npm view chrome-devtools-mcp version/, 'chrome-devtools-mcp job must check the npm registry');
+    assert.match(body, /chrome-devtools-mcp@\$\{cur\}/, 'chrome-devtools-mcp job must rewrite the entrypoint pin');
+  });
+
   test('AC2: @modelcontextprotocol/sdk (browser-run-mcp package.json) is watched', () => {
     const body = readWorkflow('bump-shadow-pins.yml');
     assert.match(body, /^\s+browser-run-mcp:/m, 'bump-shadow-pins.yml must declare a `browser-run-mcp:` job');
     assert.match(body, /npm view @modelcontextprotocol\/sdk version/, 'browser-run-mcp job must check the npm registry');
     assert.match(body, /preseed\/agents\/claude\/browser-run-mcp\/package\.json/, 'browser-run-mcp job must read+write the pin from the server package.json');
+  });
+
+  test('AC2: Bun Dockerfile npm-global pin is watched', () => {
+    const body = readWorkflow('bump-shadow-pins.yml');
+    assert.match(body, /^\s+bun:/m, 'bump-shadow-pins.yml must declare a `bun:` job');
+    assert.match(body, /npm view bun version/, 'bun job must check the npm registry');
+    assert.match(body, /npm install -g bun@\\K/, 'bun job must read the Dockerfile install literal');
+  });
+
+  test('AC2: Impeccable vendored skill is watched for Claude Code and Pi', () => {
+    const body = readWorkflow('bump-shadow-pins.yml');
+    assert.match(body, /^\s+impeccable:/m, 'bump-shadow-pins.yml must declare an `impeccable:` job');
+    assert.match(body, /https:\/\/impeccable\.style\/api\/version/, 'impeccable job must check the canonical skill version endpoint');
+    assert.match(body, /scripts\/update-impeccable-skill\.mjs/, 'impeccable job must run the bundle updater');
+    assert.match(body, /preseed\/agents\/claude\/skills\/impeccable/, 'impeccable job must update the Claude Code skill');
+    assert.match(body, /preseed\/agents\/pi\/skills\/impeccable/, 'impeccable job must update the Pi skill');
   });
 
   test('AC3: SHA256 is invalidated on Dockerfile bumps', () => {

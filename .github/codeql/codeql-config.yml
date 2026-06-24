@@ -1,0 +1,17 @@
+name: "Codeflare CodeQL config"
+
+# Vendored third-party tooling excluded from analysis.
+#
+# preseed/agents/*/skills/impeccable/scripts/** is the Impeccable copy-edit
+# tool, downloaded wholesale from https://impeccable.style and copied into the
+# preseed tree by scripts/update-impeccable-skill.mjs on every version bump.
+# It is not authored or maintained in this repo, it is refreshed (and any local
+# edit overwritten) on the next shadow-pin bump, and it never runs in the
+# production Worker request path — it backs the local live preview/copy-edit
+# browser. CodeQL surfaces upstream patterns there (incomplete HTML
+# sanitization, regexp construction, http script include, etc.) that we cannot
+# fix in-place. This is the CodeQL analog of the vendored-binary CVE
+# acceptances in .trivyignore: accept/exclude findings in third-party code we
+# do not own. Our own source under src/ and the rest of preseed/ stays scanned.
+paths-ignore:
+  - 'preseed/agents/*/skills/impeccable/scripts/**'
