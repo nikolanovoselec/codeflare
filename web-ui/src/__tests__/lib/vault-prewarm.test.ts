@@ -37,6 +37,10 @@ describe('REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    // Restore every vi.spyOn so a spy installed in one test (e.g. the AC5
+    // window.focus spy) cannot leak its call record into the next test, which
+    // re-spies the same global method and would otherwise inherit those calls.
+    vi.restoreAllMocks();
     document.body.innerHTML = '';
   });
 

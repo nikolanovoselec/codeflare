@@ -150,7 +150,7 @@ Applied to every response in `src/index.ts`:
 - `X-Content-Type-Options: nosniff`
 - `X-Frame-Options: DENY`
 - `Referrer-Policy: strict-origin-when-cross-origin`
-- `Permissions-Policy`
+- `Permissions-Policy: camera=(), microphone=(), geolocation=()` — the obsolete `interest-cohort=()` FLoC opt-out was removed: Chrome no longer recognizes the token and warned on it on every page, and dropping it is a no-op for the policy (FLoC is gone).
 
 HSTS is also applied to all redirect responses via `redirectWithHeaders()` helper in `src/index.ts`, including root redirect and setup redirect, ensuring browsers upgrade to HTTPS even on redirect hops. Preflight (OPTIONS) responses receive HSTS directly in the CORS middleware.
 

@@ -66,6 +66,15 @@ describe('probeVaultReady', () => {
     await expect(probeVaultReady('sess-1', fetchMock as unknown as typeof fetch)).resolves.toBe(false);
   });
 
+  it('reports not-ready when a 200 response body is not valid JSON', async () => {
+    // The endpoint contract is 200 + {vaultReady}; a 200 carrying non-JSON
+    // (e.g. an HTML error page slipped through a proxy) must be treated as
+    // "keep warming", not throw. Drives the documented malformed-body branch.
+    const fetchMock = vi.fn(async () =>
+      new Response('<!doctype html> not json', { status: 200, headers: { 'Content-Type': 'text/html' } }));
+    await expect(probeVaultReady('sess-1', fetchMock as unknown as typeof fetch)).resolves.toBe(false);
+  });
+
   it('reports not-ready (never throws) when the request fails', async () => {
     const fetchMock = vi.fn(async () => { throw new Error('network down'); });
     await expect(probeVaultReady('sess-1', fetchMock as unknown as typeof fetch)).resolves.toBe(false);
