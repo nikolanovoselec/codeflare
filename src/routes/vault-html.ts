@@ -589,8 +589,11 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     // REQ-VAULT-018: require the full readiness proof to hold across this many
     // consecutive polls before arming, so a momentary index-queue-empty (mid-sync)
     // cannot arm the control while SilverBullet is still settling. Each poll also
-    // awaits async readiness work, so this spans ~1s+ of continuously-proven ready.
-    'var requiredReadyStreak = 3;' +
+    // awaits async readiness work, so even 2 spans several hundred ms of
+    // continuously-proven ready — enough to reject a single transient without the
+    // ~1s+ tax (and churn-induced streak resets) that 3 added to the "slow to
+    // clickable" complaint now that the 2nd-start conflict churn is fixed at source.
+    'var requiredReadyStreak = 2;' +
     'var timer = window.setInterval(async function () {' +
     'if (inFlight) return;' +
     'inFlight = true;' +

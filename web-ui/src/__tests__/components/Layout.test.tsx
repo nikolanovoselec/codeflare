@@ -70,6 +70,8 @@ const vaultLocalReadinessMock = vi.hoisted(() => ({
   keyRecoverable: vi.fn(async (_sessionId?: string) => true),
   hasFullyPrewarmed: vi.fn((_sessionId?: string) => false),
   markFullyPrewarmed: vi.fn((_sessionId?: string) => {}),
+  hasOpened: vi.fn((_sessionId?: string) => false),
+  markOpened: vi.fn((_sessionId?: string) => {}),
 }));
 
 vi.mock('../../lib/vault-local-readiness', () => ({
@@ -77,6 +79,8 @@ vi.mock('../../lib/vault-local-readiness', () => ({
   checkVaultKeyRecoverable: (sessionId: string) => vaultLocalReadinessMock.keyRecoverable(sessionId),
   hasVaultFullyPrewarmed: (sessionId: string) => vaultLocalReadinessMock.hasFullyPrewarmed(sessionId),
   markVaultFullyPrewarmed: (sessionId: string) => vaultLocalReadinessMock.markFullyPrewarmed(sessionId),
+  hasVaultOpened: (sessionId: string) => vaultLocalReadinessMock.hasOpened(sessionId),
+  markVaultOpened: (sessionId: string) => vaultLocalReadinessMock.markOpened(sessionId),
 }));
 
 const vaultPrewarmProof = {
@@ -245,6 +249,11 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     vaultLocalReadinessMock.hasFullyPrewarmed.mockClear();
     vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(false);
     vaultLocalReadinessMock.markFullyPrewarmed.mockClear();
+    // Default: this browser has not opened the vault yet, so the green "armed"
+    // breathe invites the first open (settle only happens after an open).
+    vaultLocalReadinessMock.hasOpened.mockClear();
+    vaultLocalReadinessMock.hasOpened.mockReturnValue(false);
+    vaultLocalReadinessMock.markOpened.mockClear();
     delete (window as any).__terminalAreaProps;
     delete (window as any).__headerProps;
   });
@@ -417,7 +426,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         // Click 2 (intent === 'armed'): opens synchronously without a second prewarm.
         const prewarmCallsBeforeOpen = vaultPrewarmMock.start.mock.calls.length;
         await (window as any).__headerProps.onVaultOpen();
-        expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/', '_blank', 'noopener');
+        expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/.codeflare-bootstrap', '_blank', 'noopener');
         expect(vaultPrewarmMock.start.mock.calls.length).toBe(prewarmCallsBeforeOpen);
       } finally {
         openSpy.mockRestore();
@@ -444,14 +453,14 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
 
         // Click 2 opens AND settles the button out of the green-breathing state.
         await (window as any).__headerProps.onVaultOpen();
-        expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/', '_blank', 'noopener');
+        expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/.codeflare-bootstrap', '_blank', 'noopener');
         await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('ready'));
         expect((window as any).__headerProps.vaultStatus).not.toBe('armed');
 
         // The settled neutral button still opens on a further click.
         openSpy.mockClear();
         await (window as any).__headerProps.onVaultOpen();
-        await waitFor(() => expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/', '_blank', 'noopener'));
+        await waitFor(() => expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/.codeflare-bootstrap', '_blank', 'noopener'));
       } finally {
         openSpy.mockRestore();
       }
@@ -474,6 +483,29 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
       expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
       expect((window as any).__headerProps.vaultReady).toBe(true);
+    });
+
+    it('REQ-VAULT-018: settles to neutral via the PERSISTED opened latch after a remount that wiped the in-memory signal (mobile PWA reload)', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      // Mobile: the standalone PWA reloads/remounts the dashboard on return from the
+      // vault tab, so the in-memory vaultOpenedBySession signal is gone — but the
+      // durable prewarm marker AND the durable opened marker both survive. The
+      // reload-skip arms pw='ready'; the persisted opened latch must settle it to a
+      // neutral 'ready' icon instead of breathing green forever (the #2 mobile bug).
+      // Gut-check: read only the in-memory signal (the bug) and a fresh mount has it
+      // empty -> 'armed' (green breathe) -> this fails.
+      vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(true);
+      vaultLocalReadinessMock.hasOpened.mockReturnValue(true);
+      vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
+
+      render(() => <Layout />);
+      vaultProbeMock.latestOptions.setLatch();
+
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('ready'));
+      expect((window as any).__headerProps.vaultStatus).not.toBe('armed');
+      expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
     });
 
     it('REQ-VAULT-018: a reload with local DBs/SW but no full prewarm proof stays available until click', async () => {
@@ -563,7 +595,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         expect(vaultLocalReadinessMock.check.mock.calls.length).toBeGreaterThan(checksBeforeClick);
         expect(vaultLocalReadinessMock.check).toHaveBeenLastCalledWith('sess1');
         expect(vaultLocalReadinessMock.keyRecoverable).toHaveBeenCalledWith('sess1');
-        expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/', '_blank', 'noopener');
+        expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/.codeflare-bootstrap', '_blank', 'noopener');
         // No iframe was ever mounted on the reload-skip path.
         expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
       } finally {

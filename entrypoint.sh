@@ -1452,13 +1452,18 @@ init_user_vault() {
         echo "[entrypoint] Seeded Raw/Graphs/Vault Graph.md"
     fi
 
-    # Create-if-missing landing pages so the dashboard's [[Notes]] / [[References]]
-    # links resolve to real pages instead of 404ing as broken/aspiring pages (which
-    # spams the index and the browser console). Static (no live query blocks); never
-    # overwritten, so user edits/deletes stick. NOT in PRESEED_PAGES -- once created
-    # they sync normally with a stable mtime and do not need the deterministic stamp.
+    # Create-if-missing pages: the dashboard Index.md and its [[Notes]] /
+    # [[References]] landing pages. Seeded only when absent, then left alone so
+    # user edits/deletes stick. Index.md is deliberately NOT force-overwritten
+    # from preseed (it is NOT in PRESEED_PAGES below): SilverBullet's editor
+    # normalizes (re-serializes) Index.md on first open and autosaves it, so a
+    # boot-time `cp` revert to preseed bytes fought that client save and produced
+    # a perpetual "changed on both ends" sync conflict (Index.conflicted:*.md),
+    # which kept the prewarm index queue hot so the Vault button never turned
+    # green on a 2nd start. Seeding-if-missing lets the client's normalized copy
+    # persist via R2 and reach a stable fixed point with no conflict.
     local LANDING
-    for LANDING in Notes.md References.md; do
+    for LANDING in Index.md Notes.md References.md; do
         if [ -f "$PRESEED_DIR/$LANDING" ] && [ ! -f "$VAULT/$LANDING" ]; then
             cp "$PRESEED_DIR/$LANDING" "$VAULT/$LANDING"
             echo "[entrypoint] Seeded $LANDING landing page"
@@ -1475,12 +1480,14 @@ init_user_vault() {
         echo "[entrypoint] Removed legacy Raw/Graphs/Global Graph.md (viz dropped)"
     fi
 
-    # Preseed-managed pages. Always overwritten from preseed on every boot
-    # so SilverBullet cannot be permanently broken by file deletion or by
-    # stale content surviving across preseed updates. These four files are
-    # codeflare-authoritative, not user-editable. User content lives in
-    # Notes/, Inbox/, Journal/, Raw/Pasted/ (never touched by this block).
-    local PRESEED_PAGES=(Index.md CONFIG.md README.md STYLES.md)
+    # Preseed-managed config pages. Always overwritten from preseed on every boot
+    # so SilverBullet's config/styling cannot be permanently broken by file
+    # deletion or by stale content surviving across preseed updates. These three
+    # files are codeflare-authoritative, not user-editable, and -- unlike Index.md
+    # -- are never opened in the editor, so they never generate a client-side save
+    # and so never produce a sync conflict. User content lives in Notes/, Inbox/,
+    # Journal/, Raw/Pasted/ (never touched by this block).
+    local PRESEED_PAGES=(CONFIG.md README.md STYLES.md)
     local PAGE
     local PRESEED_PAGE_WRITTEN=0
     for PAGE in "${PRESEED_PAGES[@]}"; do
@@ -1494,15 +1501,15 @@ init_user_vault() {
         # mtime on EVERY boot -- even when cmp-skip left the file untouched. The
         # image's preseed mtime is constant for a release, so the in-container
         # SilverBullet server reports an identical lastModified for these pages across
-        # every session. Without this, bisync/cp give Index.md a fresh mtime each
-        # boot; on a 2nd session that diverges from the REQ-VAULT-021 persisted client
-        # sync snapshot, so SilverBullet's sync engine sees Index.md "changed on
-        # secondary" on every ~3s editor watch-poll, re-enqueues an index op each
-        # cycle, and the prewarm readiness gate (indexQueue empty for 3 consecutive
-        # polls) never settles -- the Vault button breathes 'preparing' forever. A
+        # every session. Without this, a force-overwrite cp (or bisync) gives a
+        # byte-identical page a fresh boot mtime; on a 2nd session that diverges from
+        # the REQ-VAULT-021 persisted client sync snapshot, so SilverBullet's sync
+        # engine sees the page "changed on secondary" on every ~3s editor watch-poll,
+        # re-enqueues an index op each cycle, and delays the prewarm readiness gate. A
         # deterministic mtime keeps the persisted snapshot in agreement so the spurious
         # "changed on secondary" never fires (cold start is unaffected: its snapshot
-        # is built fresh in-session).
+        # is built fresh in-session). Index.md is exempt -- it is seeded-if-missing
+        # above, not force-overwritten, because the editor saves it (see that block).
         if [ -f "$VAULT/$PAGE" ] && [ -f "$PRESEED_DIR/$PAGE" ]; then
             touch -r "$PRESEED_DIR/$PAGE" "$VAULT/$PAGE" 2>/dev/null || true
         fi

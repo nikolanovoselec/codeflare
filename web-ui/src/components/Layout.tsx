@@ -16,7 +16,7 @@ import type { TileLayout, AgentType, TabConfig } from '../types';
 import { VIEW_TRANSITION_DURATION_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS } from '../lib/constants';
 import { startVaultReadinessProbe, probeVaultReady } from '../lib/vault-readiness';
 import { DEFAULT_VAULT_PREWARM_TIMEOUT_MS, startVaultPrewarm, type VaultPrewarmStatus } from '../lib/vault-prewarm';
-import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed } from '../lib/vault-local-readiness';
+import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed, markVaultOpened, hasVaultOpened } from '../lib/vault-local-readiness';
 import type { VaultButtonStatus } from './VaultButton';
 import { requestBrowserStoragePersistence } from '../lib/browser-storage-persistence';
 
@@ -339,9 +339,12 @@ const Layout: Component<LayoutProps> = (props) => {
     }
     // No open-intent yet:
     if (pw === 'ready') {
-      // Breathe green to invite the open click; once opened this visit, settle to the
-      // plain neutral icon (still openable) instead of breathing green forever.
-      return vaultOpenedBySession()[sid] ? 'ready' : 'armed';
+      // Breathe green to invite the open click; once opened, settle to the plain
+      // neutral icon (still openable) instead of breathing green forever. Read the
+      // persisted latch too: on mobile the standalone PWA reloads/remounts on return
+      // from the vault tab, wiping the in-memory signal, so without the persisted
+      // marker the button would breathe green forever (the #2 mobile bug).
+      return vaultOpenedBySession()[sid] || hasVaultOpened(sid) ? 'ready' : 'armed';
     }
     return 'available';
   });
@@ -364,8 +367,15 @@ const Layout: Component<LayoutProps> = (props) => {
   const openVaultTab = (sid: string) => {
     clearVaultOpenIntent(sid);
     // Settle the control out of the green-breathing state now that it has opened.
+    // Persist the latch too so it survives the mobile PWA reload-on-return (#2).
     setVaultOpenedBySession((prev) => (prev[sid] ? prev : { ...prev, [sid]: true }));
-    window.open(`/api/vault/${sid}/`, '_blank', 'noopener');
+    markVaultOpened(sid);
+    // Open via the bootstrap-hop, NOT the bare shell: the hop posts the AES key to
+    // the SW and waits for activation before redirecting to the editor, so the
+    // first open never races the SW's single-shot __cfRecover. The bare-shell open
+    // carried the bootstrap cookie, skipped the hop, and (when the key had been
+    // flushed after prewarm) lost that race -> auth-error -> top-level /.auth 403 (#3).
+    window.open(`/api/vault/${sid}/.codeflare-bootstrap`, '_blank', 'noopener');
   };
 
   const handleVaultOpen = async () => {
@@ -374,7 +384,8 @@ const Layout: Component<LayoutProps> = (props) => {
     const intent = untrack(vaultOpenIntentBySession)[sid];
     // Click 2 (armed/green, cold path): the poll already verified the prewarm proof
     // and key recoverability. Open synchronously inside the click gesture so the new
-    // tab is never pop-up-blocked. The new tab's own __cfRecover re-fetches the key.
+    // tab is never pop-up-blocked. The bootstrap-hop arms the SW key before the
+    // editor boots (see openVaultTab).
     if (intent === 'armed') {
       openVaultTab(sid);
       return;

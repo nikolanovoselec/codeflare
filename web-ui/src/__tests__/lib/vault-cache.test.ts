@@ -188,3 +188,45 @@ describe('REQ-VAULT-018 AC8: full-prewarm marker (vault-session-<sid>-prewarmed)
     expect(store.has('vault-session-deadbeef-prewarmed')).toBe(false);
   });
 });
+
+// REQ-VAULT-018 AC11: the persisted "opened" latch settles the Vault button out
+// of green-breathing after the first open and survives the mobile PWA reload. It
+// shares the `vault-session-*` namespace, so the sweep MUST treat `<sid>-opened`
+// as belonging to `<sid>` (preserve for active, drop for orphan/delete) — without
+// the suffix arm the active session's latch is read as a bogus orphan sid and
+// erased on the next authoritative sweep, re-breaking the mobile settle.
+describe('REQ-VAULT-018 AC11: opened settle latch (vault-session-<sid>-opened) lifecycle', () => {
+  beforeEach(() => { vi.restoreAllMocks(); });
+  afterEach(() => { clearGlobals(); });
+
+  it('preserves the opened marker for an ACTIVE session during an orphan sweep', async () => {
+    const { fake, store } = installFakeLocalStorage();
+    store.set('vault-session-active01-opened', '1');
+    store.set('vault-session-active01-idbs', JSON.stringify(['sb_data_a', 'sb_files_b']));
+
+    await sweepOrphanVaultCaches(['active01']);
+
+    expect(fake.removeItem).not.toHaveBeenCalledWith('vault-session-active01-opened');
+    expect(store.has('vault-session-active01-opened')).toBe(true);
+  });
+
+  it('removes the opened marker for an ORPHAN session during a sweep', async () => {
+    const { fake, store } = installFakeLocalStorage();
+    store.set('vault-session-orphan9-opened', '1');
+
+    await sweepOrphanVaultCaches([]);
+
+    expect(fake.removeItem).toHaveBeenCalledWith('vault-session-orphan9-opened');
+    expect(store.has('vault-session-orphan9-opened')).toBe(false);
+  });
+
+  it('removes the opened marker on session DELETE', async () => {
+    const { fake, store } = installFakeLocalStorage();
+    store.set('vault-session-deadbeef-opened', '1');
+
+    await cleanupSessionVaultCache('deadbeef');
+
+    expect(fake.removeItem).toHaveBeenCalledWith('vault-session-deadbeef-opened');
+    expect(store.has('vault-session-deadbeef-opened')).toBe(false);
+  });
+});

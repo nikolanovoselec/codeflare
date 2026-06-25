@@ -28,6 +28,7 @@ export interface VaultLocalReadinessOptions {
 const VAULT_MARKER_PREFIX = 'vault-session-';
 const VAULT_IDBS_SUFFIX = '-idbs';
 const VAULT_PREWARMED_SUFFIX = '-prewarmed';
+const VAULT_OPENED_SUFFIX = '-opened';
 
 function getLocalStorage(): Storage | null {
   try {
@@ -93,6 +94,36 @@ export function hasVaultFullyPrewarmed(sessionId: string, storage: Storage | nul
   if (!storage) return false;
   try {
     return storage.getItem(`${VAULT_MARKER_PREFIX}${sessionId}${VAULT_PREWARMED_SUFFIX}`) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Record that this browser has opened the vault for this session, so the button
+ * can settle out of the green-breathing "armed" state to a neutral "ready" icon.
+ *
+ * Persisted to localStorage (not just an in-memory signal) because on mobile the
+ * standalone PWA reloads/remounts the dashboard when the user returns from the
+ * vault tab — that wipes any in-memory latch while `hasVaultFullyPrewarmed`
+ * survives, so the status would otherwise recompute back to breathing-green
+ * forever. Same lifetime as the prewarmed marker (cleared when the origin's
+ * storage is cleared, e.g. all incognito windows closed).
+ */
+export function markVaultOpened(sessionId: string, storage: Storage | null = getLocalStorage()): void {
+  if (!storage) return;
+  try {
+    storage.setItem(`${VAULT_MARKER_PREFIX}${sessionId}${VAULT_OPENED_SUFFIX}`, '1');
+  } catch {
+    // Storage unavailable/full — the button simply keeps breathing green, which
+    // is still openable; no functional loss.
+  }
+}
+
+export function hasVaultOpened(sessionId: string, storage: Storage | null = getLocalStorage()): boolean {
+  if (!storage) return false;
+  try {
+    return storage.getItem(`${VAULT_MARKER_PREFIX}${sessionId}${VAULT_OPENED_SUFFIX}`) === '1';
   } catch {
     return false;
   }
