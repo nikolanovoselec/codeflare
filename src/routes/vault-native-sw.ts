@@ -78,11 +78,19 @@ const ANCHOR_SYNC_SPACE_ERROR = "console.error(\"Sync space error\",t.message)";
 // body (transient 5xx, an auth hiccup, or an HTML body from a stray CF Access 302),
 // `e.json()` yields a non-array and both consumers throw `forEach/map is not a
 // function`; the sync `run()` loop never sets `stopping` on this path, so the throw
-// repeats forever (console spam + stuck sync). Reassign `o` to `[]` right after the
-// fetch so a non-array becomes a safe no-op cycle (zero candidates, no deletion,
-// snapshot preserved) and the loop proceeds to the next cycle. ANCHOR_REMOTE_LIST_COERCE.
-const ANCHOR_REMOTE_LIST_COERCE =
-  "o=await this.secondary.fetchFileList(),r=this.getNonSyncCandidates(o)";
+// repeats forever (console spam + stuck sync). Coerce a non-array to `[]` so the
+// cycle is a safe no-op (zero candidates, no deletion, snapshot preserved).
+//
+// CRITICAL — `o` is one binding in a single `let s=...,o=...,r=...,l=...` declarator
+// list (the minified sync-cycle declaration). The coercion MUST wrap the `o=`
+// INITIALIZER, not add a second `o=` declarator: `let ...,o=X,o=Y,...` is a duplicate
+// lexical binding (`SyntaxError: Identifier 'o' has already been declared`), which
+// makes the ENTIRE service worker fail to parse — the browser rejects the SW, the
+// vault never registers, and the readiness button never goes ready. So the anchor is
+// just the `o=` initializer and the graft replaces it with an IIFE that coerces in
+// place, keeping `o` a single declarator that still feeds every later consumer.
+// ANCHOR_REMOTE_LIST_COERCE.
+const ANCHOR_REMOTE_LIST_COERCE = "o=await this.secondary.fetchFileList()";
 
 /**
  * Apply the codeflare key-recovery graft to the verbatim SilverBullet worker:
@@ -123,7 +131,7 @@ export function graftVaultKeyRecovery(verbatim: string): string {
     .replace(ANCHOR_SYNC_SPACE_ERROR, "console.warn(\"Sync space error\",t.message)")
     .replace(
       ANCHOR_REMOTE_LIST_COERCE,
-      "o=await this.secondary.fetchFileList(),o=Array.isArray(o)?o:[],r=this.getNonSyncCandidates(o)",
+      "o=(a=>Array.isArray(a)?a:[])(await this.secondary.fetchFileList())",
     );
 }
 

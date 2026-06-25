@@ -106,10 +106,33 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
   it('the coercion is load-bearing: the verbatim (pre-graft) chain throws on a non-array remote list', async () => {
     // Negative control — proves the served no-op above comes from the graft, not
     // from upstream behavior. The pristine verbatim has no `Array.isArray` guard.
-    expect(VAULT_NATIVE_SW_VERBATIM).not.toContain('o=Array.isArray(o)?o:[]');
+    expect(VAULT_NATIVE_SW_VERBATIM).not.toContain('Array.isArray(a)?a:[]');
     const runVerbatim = makeSyncCycleRunner(VAULT_NATIVE_SW_VERBATIM);
     await expect(runVerbatim({ error: 'transient 5xx' })).rejects.toThrow(/forEach is not a function|is not a function/);
-    expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('o=Array.isArray(o)?o:[]');
+    expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain(
+      'o=(a=>Array.isArray(a)?a:[])(await this.secondary.fetchFileList())',
+    );
+  });
+
+  // REQ-VAULT-017 AC6: the coercion must keep the served worker syntactically
+  // valid. `o` is one binding in a single `let s=...,o=...,r=...` declarator list,
+  // so coercing by ADDING a second `o=` declarator is a duplicate lexical binding
+  // (`Identifier 'o' has already been declared`) that makes the WHOLE worker fail
+  // to parse — the browser then refuses to register the SW and the vault never
+  // becomes ready. Constructing a Function parses the worker body without executing
+  // it; this guards against that whole class of graft-induced parse error. (The
+  // pristine verbatim blob is a self-contained IIFE bundle that parses cleanly as a
+  // Function body, so any throw here comes from the graft, not the upstream bytes.)
+  it('the served worker is syntactically valid JavaScript (graft introduces no parse error)', () => {
+    // eslint-disable-next-line no-new-func
+    expect(() => new Function(VAULT_NATIVE_SERVICE_WORKER_JS)).not.toThrow();
+    // Negative control: the duplicate-`let` form the graft must NOT produce.
+    const duplicateLetForm = VAULT_NATIVE_SW_VERBATIM.replace(
+      'o=await this.secondary.fetchFileList(),r=this.getNonSyncCandidates(o)',
+      'o=await this.secondary.fetchFileList(),o=Array.isArray(o)?o:[],r=this.getNonSyncCandidates(o)',
+    );
+    // eslint-disable-next-line no-new-func
+    expect(() => new Function(duplicateLetForm)).toThrow(/already been declared|declare a let variable twice/i);
   });
 
   it('the graft preserves the SHA-256 version guard (verbatim bytes unchanged, no anchor-throw)', async () => {
