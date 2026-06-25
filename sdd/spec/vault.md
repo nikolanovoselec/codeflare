@@ -651,3 +651,31 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Verification:** [Layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx), [prewarm protocol test](../../web-ui/src/__tests__/lib/vault-prewarm.test.ts), [vault shell helper test](../../src/__tests__/routes/vault-html-direct.test.ts)
 
 **Status:** Implemented
+
+### REQ-VAULT-021: Bucket-stable vault URL and bucket-derived key
+
+**Intent:** The vault IndexedDB persists across sessions (no full re-index on every open) by serving SilverBullet under a bucket-stable URL and encrypting the local cache with a bucket-derived key, so both the client `sb_data_*` (index) and SW `sb_files_*` DB names are identical across sessions for one user.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The SilverBullet app is served under a bucket-stable URL `/api/vault/<token>/`, where the token is a deterministic, opaque hash of the user's R2 bucket name (no session id, no PII), so the served `location.href` — and thus the SB IndexedDB names — are identical across sessions. <!-- @impl: src/lib/vault-bucket-token.ts::getVaultBucketToken --> <!-- @test: src/__tests__/lib/vault-bucket-token.test.ts (deterministic per bucket, differs across buckets, 32-hex opaque no PII) -->
+2. The session-keyed path `/api/vault/<sid>/` is an entry that sets the `cf_vault_sid` cookie and 302-redirects to the bucket-stable URL; the session id for bucket-stable requests is read from that cookie, never the URL. <!-- @impl: src/routes/vault.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (the session-keyed entry path sets cf_vault_sid and 302s to the bucket-stable URL) -->
+3. Route dispatch distinguishes the 32-hex bucket token from an 8-24-char session id unambiguously (length-disjoint patterns). <!-- @impl: src/routes/vault-validation.ts::validateVaultRoute --> <!-- @test: src/__tests__/routes/vault-bucket-routing.test.ts (parses a 32-hex first segment as the bucket token serving path, parses a session id first segment as the session-keyed path) -->
+4. A bucket-stable request whose token is not the authenticated user's bucket is rejected (403 VAULT_BUCKET_MISMATCH); one with no `cf_vault_sid` routing cookie is rejected (409 VAULT_NO_SESSION). <!-- @impl: src/routes/vault.ts::handleVaultRequest --> <!-- @test: src/__tests__/routes/vault-auth-chain.test.ts (rejects a bucket-stable request whose token is not the authed bucket, rejects a bucket-stable request with no cf_vault_sid routing cookie) -->
+5. The vault encryption key is derived deterministically per bucket via HKDF-SHA256 over the server master secret (`ENCRYPTION_KEY`) and the bucket name, so it recurs across sessions and the persisted encrypted local cache decrypts. <!-- @impl: src/routes/vault-crypto.ts::getVaultEncryptionKey --> <!-- @test: src/__tests__/routes/vault-crypto.test.ts (deterministic per bucket, differs across buckets, differs when the master secret rotates, throws without ENCRYPTION_KEY) -->
+
+**Constraints:**
+
+- The bucket-derived key protects only the browser-LOCAL IndexedDB cache (the SilverBullet "primary" space). The "secondary" store (container FS → R2) is NOT encrypted with it — a new session reads the secondary and rebuilds the local cache — so a bucket-stable key does not affect data at rest in R2.
+- The key being bucket-stable relaxes the per-session forward secrecy of the LOCAL cache (a later session of the same vault can decrypt a prior session's leftover local cache). Accepted tradeoff; this REQ supersedes the [AD83](../../documentation/decisions/README.md#ad83-vault-indexeddb-cannot-be-persisted-across-sessions-by-keying-the-encryption-key-to-the-r2-bucket) deferral.
+- The bucket token must carry no PII: it is a hash of the bucket name, never the bucket name or email itself.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption), [REQ-VAULT-017](#req-vault-017-silverbullet-native-service-worker)
+
+**Verification:** [bucket token test](../../src/__tests__/lib/vault-bucket-token.test.ts), [bucket-derived key test](../../src/__tests__/routes/vault-crypto.test.ts), [route dispatch test](../../src/__tests__/routes/vault-bucket-routing.test.ts), [auth-chain serving test](../../src/__tests__/routes/vault-auth-chain.test.ts)
+
+**Status:** Implemented

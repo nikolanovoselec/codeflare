@@ -20,8 +20,36 @@
  * SESSION_ID_PATTERN constant), which is what makes the extraction safe.
  */
 import { SESSION_ID_PATTERN } from '../lib/constants';
+import { VAULT_BUCKET_TOKEN_PATTERN } from '../lib/vault-bucket-token';
 import { toErrorMessage } from '../lib/error-types';
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from '../lib/access';
+
+/** REQ-VAULT-021: the cookie that carries the real session id for bucket-stable
+ * vault URLs (`/api/vault/<token>/...`). Set by the session-keyed open entry. */
+export const VAULT_SID_COOKIE_NAME = 'cf_vault_sid';
+
+/**
+ * The vault URL's first path segment is either a session id (the open/prewarm entry)
+ * or a bucket-stable token (the SB-serving path, REQ-VAULT-021). Both are valid inputs
+ * to the SB URL builders below, which only ever embed the segment into `/api/vault/<x>/`.
+ */
+function isValidVaultUrlSegment(segment: string): boolean {
+  return SESSION_ID_PATTERN.test(segment) || VAULT_BUCKET_TOKEN_PATTERN.test(segment);
+}
+
+/** Read the REQ-VAULT-021 `cf_vault_sid` routing cookie value, or null. */
+export function readVaultSidCookie(request: Request): string | null {
+  const cookieHeader = request.headers.get('Cookie');
+  if (!cookieHeader) return null;
+  for (const part of cookieHeader.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    if (part.slice(0, idx).trim() === VAULT_SID_COOKIE_NAME) {
+      return part.slice(idx + 1).trim();
+    }
+  }
+  return null;
+}
 
 /**
  * Synthesise `X-Requested-With: XMLHttpRequest` on a request clone when
@@ -100,7 +128,7 @@ export function maybeSynthesizeCsrfHeader(request: Request, originValidated: boo
  */
 export function maybeIssueCsrfCookie(request: Request, headers: Headers, sessionId: string): void {
   if (readCsrfCookie(request)) return;
-  if (!SESSION_ID_PATTERN.test(sessionId)) return;
+  if (!isValidVaultUrlSegment(sessionId)) return;
   const token = crypto.randomUUID();
   headers.append(
     'Set-Cookie',
@@ -241,7 +269,7 @@ export function injectVaultBootScript(html: string, config: VaultBootConfig): st
   if (!config.sessionId) {
     throw new Error('injectVaultBootScript: sessionId must be non-empty');
   }
-  if (!SESSION_ID_PATTERN.test(config.sessionId)) {
+  if (!isValidVaultUrlSegment(config.sessionId)) {
     throw new Error('injectVaultBootScript: sessionId must match SESSION_ID_PATTERN');
   }
   if (html.includes(VAULT_BOOT_MARKER)) {
@@ -613,8 +641,8 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
   if (!vaultEncryptionKey) {
     throw new Error('injectVaultBootstrapHopHtml: vaultEncryptionKey must be non-empty');
   }
-  if (!SESSION_ID_PATTERN.test(sessionId)) {
-    throw new Error('injectVaultBootstrapHopHtml: sessionId must match SESSION_ID_PATTERN');
+  if (!isValidVaultUrlSegment(sessionId)) {
+    throw new Error('injectVaultBootstrapHopHtml: sessionId must be a valid vault URL segment');
   }
   if (redirectSearch && !/^\?codeflarePrewarm=1&prewarmId=[A-Za-z0-9._%~-]+$/.test(redirectSearch)) {
     throw new Error('injectVaultBootstrapHopHtml: redirectSearch must be a sanitized prewarm query');
