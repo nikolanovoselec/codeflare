@@ -2540,6 +2540,12 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
 
       it('REQ-SETUP-004: a re-run in onboarding mode never creates an Access app (idempotent skip)', async () => {
         const app = createTestApp({ ONBOARDING_LANDING_PAGE: 'active', OAUTH_CLIENT_ID: 'x' } as Partial<Env>);
+        // Both runs must execute the configure flow in bootstrap mode. The
+        // idempotent case in REQ-SETUP-004 AC2 is retry-after-partial, where
+        // setup:complete is unset on each retry. Without this, the first run's
+        // setup:complete='true' write (backed by the mock KV) flips the second
+        // run onto the auth-gated path (403) before it can re-run the flow.
+        mockKV.get.mockResolvedValue(null);
         globalThis.fetch = createUrlMockFetch({
           ...baseFlowMocks(),
           ...customDomainFlowMocks(),
