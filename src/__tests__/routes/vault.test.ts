@@ -939,15 +939,19 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
     // dashboard reads. The two identifiers are passed separately.
     it('REQ-VAULT-021: base-href uses the bucket token while the boot recorder uses the real session id', async () => {
       const TOKEN = '0123456789abcdef0123456789abcdef';
+      // The real session id must satisfy SESSION_ID_PATTERN (8-24 lowercase alnum) —
+      // it is the cookie-validated cf_vault_sid value on the serving path, distinct
+      // from the block-level 6-char SID used only for the base-href no-op tests.
+      const REAL_SID = 'abcdef123456';
       const html = '<html><head><base href="/" /></head><body>hi</body></html>';
       const upstream = new Response(html, { status: 200, headers: { 'content-type': 'text/html' } });
       const logger = { warn: vi.fn() };
       const result = await rewriteVaultHtmlResponse(
-        upstream, TOKEN, '/', '/vault/', 'text/html', logger, undefined, SID,
+        upstream, TOKEN, '/', '/vault/', 'text/html', logger, undefined, REAL_SID,
       );
       const body = await result.text();
       expect(body).toContain(`<base href="/api/vault/${TOKEN}/" />`);
-      expect(body).toContain(`window.__codeflareVaultBoot = {"sessionId":"${SID}"}`);
+      expect(body).toContain(`window.__codeflareVaultBoot = {"sessionId":"${REAL_SID}"}`);
       expect(body).not.toContain(`"sessionId":"${TOKEN}"`);
     });
   });
