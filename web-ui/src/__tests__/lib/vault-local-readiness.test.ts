@@ -127,6 +127,30 @@ describe('checkVaultLocalReadiness', () => {
     expect(result.hasIndexedDbDatabasesApi).toBe(false);
   });
 
+  // REQ-VAULT-021: the SW now registers under the bucket-stable `/api/vault/<token>/`
+  // scope, which differs from the session id the dashboard checks readiness for.
+  // The lookup must match any vault-scoped registration, not one named by sid.
+  it('finds the vault service worker even when its scope segment is the bucket token, not the session id', async () => {
+    const storage = createStorage({
+      'vault-session-session-1-idbs': JSON.stringify(['sb_data_abc', 'sb_files_def']),
+    });
+    const tokenScopedSw = {
+      getRegistration: vi.fn(async () => undefined),
+      getRegistrations: vi.fn(async () => [
+        { scope: 'https://codeflare.example/api/vault/0123456789abcdef0123456789abcdef/', active: { state: 'activated' as ServiceWorkerState } },
+      ]),
+    } as unknown as ServiceWorkerContainer;
+
+    const result = await checkVaultLocalReadiness('session-1', {
+      localStorageRef: storage,
+      indexedDbRef: createIndexedDb(['sb_data_abc', 'sb_files_def']),
+      serviceWorkerRef: tokenScopedSw,
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.serviceWorkerState).toBe('activated');
+  });
+
   it('does not report ready without an active per-session service worker', async () => {
     const storage = createStorage({
       'vault-session-session-1-idbs': JSON.stringify(['sb_data_abc', 'sb_files_def']),

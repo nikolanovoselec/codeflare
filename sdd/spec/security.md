@@ -546,7 +546,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-020: WS-upgrade rate-limit short-circuits
 
-**Intent:** WebSocket reconnect storms during container hibernation or warm-up must not exhaust the user's 30/60s WS budget. Two pre-rate-limit gates short-circuit the upgrade with explicit close codes so the client can back off without losing its budget.
+**Intent:** WebSocket reconnect storms during container hibernation or warm-up must not exhaust the user's 30/60s WS budget. Two pre-rate-limit gates short-circuit the upgrade with explicit close codes so the client can back off without losing its budget, and the container forward itself is time-bounded so a hung or unreachable container fails fast with the same retryable close instead of leaving the client connecting for tens of seconds.
 
 **Applies To:** User
 
@@ -554,10 +554,11 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 1. WebSocket upgrade requests for stopped sessions are rejected before the WS rate-limit check runs, so a reconnect storm against a hibernated container does not consume the user's 30/60s WS budget. The close code conveys "container stopped" to the client. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (CF-015 Stopped session returns 4503 describe) -->
 2. WebSocket upgrade requests are rejected before the rate-limit check when the container's terminal service is not yet ready; the close code conveys "container warming up". The readiness probe is best-effort: probe errors fall through to the normal rate-limit + forward path. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (container-warming-up gate describe) -->
+3. The container WebSocket forward is bounded by `CONTAINER_WS_FORWARD_TIMEOUT_MS`: a healthy container answers the upgrade in under a second, but a hung or unreachable container that passes the health gate yet never answers the forward is failed fast with the same retryable 1013 close (reason `container-unreachable`) the warming-up gate uses, so the client's reconnect backoff recovers instead of the browser silently dropping a socket left connecting for tens of seconds. This bound runs at the forward step, after the rate-limit check, not as a pre-rate-limit short-circuit. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @impl: src/lib/constants.ts::CONTAINER_WS_FORWARD_TIMEOUT_MS --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (fast-fails with a 101 close when the container WS forward never answers) -->
 
 **Constraints:**
 
-- The order is load-bearing: the short-circuits run BEFORE the rate limiter so the user budget is preserved across hibernation/warm-up.
+- The order is load-bearing: the two pre-rate-limit short-circuits run BEFORE the rate limiter so the user budget is preserved across hibernation/warm-up; the forward timeout (AC3) runs after the rate-limit check at the forward step.
 
 **Priority:** P0
 

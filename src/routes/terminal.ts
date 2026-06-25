@@ -19,7 +19,7 @@ import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
 import type { Env, Session } from '../types';
 import { getSessionKey, putSessionWithMetadata } from '../lib/kv-keys';
-import { SESSION_ID_PATTERN, REQUEST_ID_LENGTH, REQUEST_ID_PATTERN, WS_RATE_LIMIT_WINDOW_MS, WS_RATE_LIMIT_MAX_CONNECTIONS, WS_RATE_LIMIT_TTL_SECONDS } from '../lib/constants';
+import { SESSION_ID_PATTERN, REQUEST_ID_LENGTH, REQUEST_ID_PATTERN, WS_RATE_LIMIT_WINDOW_MS, WS_RATE_LIMIT_MAX_CONNECTIONS, WS_RATE_LIMIT_TTL_SECONDS, CONTAINER_WS_FORWARD_TIMEOUT_MS } from '../lib/constants';
 import { checkRateLimit } from '../lib/rate-limit-core';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { getContainerId, safeCheckContainerHealth } from '../lib/container-helpers';
@@ -284,9 +284,37 @@ export async function handleWebSocketUpgrade(
 
     logger.info('Forwarding WebSocket to container', { pathname: terminalUrl.pathname, search: terminalUrl.search });
 
-    // Forward WebSocket request directly to container
-    // Using the original request preserves WebSocket upgrade headers
-    const response = await container.fetch(new Request(terminalUrl.toString(), request));
+    // Forward WebSocket request directly to container, bounded by a timeout.
+    // Using the original request preserves WebSocket upgrade headers. A healthy
+    // container answers the upgrade in <1s (warming-up containers are already
+    // short-circuited above with a 1013 close), but a hung/unreachable container
+    // leaves this await pending for tens of seconds (~34s observed in prod) while
+    // the browser silently drops the connection ("WebSocket is closed before the
+    // connection is established"). Race a timeout so the client fails fast with the
+    // same retryable 1013 the warming-up path uses, letting its reconnect backoff
+    // recover once the container is reachable again instead of freezing.
+    const TIMED_OUT = Symbol('container-ws-forward-timeout');
+    let forwardTimer: ReturnType<typeof setTimeout> | undefined;
+    const response = await Promise.race([
+      container.fetch(new Request(terminalUrl.toString(), request)),
+      new Promise<typeof TIMED_OUT>((resolve) => {
+        forwardTimer = setTimeout(() => resolve(TIMED_OUT), CONTAINER_WS_FORWARD_TIMEOUT_MS);
+      }),
+    ]);
+    if (forwardTimer !== undefined) clearTimeout(forwardTimer);
+
+    if (response === TIMED_OUT) {
+      logger.warn('Container WS forward timed out — returning retryable close', {
+        fullSessionId,
+        terminalId,
+        containerId,
+        timeoutMs: CONTAINER_WS_FORWARD_TIMEOUT_MS,
+      });
+      const pair = new WebSocketPair();
+      pair[1].accept();
+      pair[1].close(1013, 'container-unreachable');
+      return new Response(null, { status: 101, webSocket: pair[0] });
+    }
 
     logger.info('Container WebSocket response', {
       status: response.status,

@@ -234,14 +234,14 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     vaultPrewarmMock.cancel.mockClear();
     vaultPrewarmMock.latestOptions = null;
     vaultLocalReadinessMock.check.mockClear();
-    // Default to a device that is NOT yet warm on this browser, so the prewarm
-    // effect's local-readiness gate mounts the bootstrap iframe (the first-init
-    // path most of these tests exercise). Reload / open-path tests override this.
+    // Default to a device that is NOT yet warm on this browser. With on-demand
+    // prewarm nothing mounts until the user clicks; reload / open-path tests
+    // override this to exercise the already-warm (reload-skip) branch.
     vaultLocalReadinessMock.check.mockResolvedValue({ ready: false, reason: 'missing-service-worker', recordedDbs: [], hasIndexedDbDatabasesApi: true });
     vaultLocalReadinessMock.keyRecoverable.mockClear();
     vaultLocalReadinessMock.keyRecoverable.mockResolvedValue(true);
     // Default: this browser has NOT recorded a full prewarm proof, so the reload
-    // skip is ineligible and the prewarm effect mounts the bootstrap iframe.
+    // skip is ineligible and the button stays 'available' until the user clicks.
     vaultLocalReadinessMock.hasFullyPrewarmed.mockClear();
     vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(false);
     vaultLocalReadinessMock.markFullyPrewarmed.mockClear();
@@ -365,66 +365,168 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(typeof (window as any).__headerProps.onVaultOpen).toBe('function');
     });
 
-    it('keeps Header vaultReady false until browser prewarm reports ready', async () => {
+    it('REQ-VAULT-018: stays available (no auto-prewarm) until click 1, then breathes preparing -> armed', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
 
       render(() => <Layout />);
 
+      // Server not ready yet: idle, no prewarm.
       expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
       expect((window as any).__headerProps.vaultReady).toBe(false);
       vaultProbeMock.latestOptions.setLatch();
 
-      await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
-      expect((window as any).__headerProps.vaultStatus).toBe('prewarming');
+      // Server ready -> clickable 'available', but we do NOT prewarm automatically.
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+      expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
       expect((window as any).__headerProps.vaultReady).toBe(false);
 
+      // Click 1 starts the on-demand prewarm; the button breathes accent.
+      await (window as any).__headerProps.onVaultOpen();
+      await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
+      expect((window as any).__headerProps.vaultStatus).toBe('preparing');
+      expect((window as any).__headerProps.vaultReady).toBe(false);
+
+      // Indexing completes -> the poll arms the button green (key recoverable by default).
       vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
-      await waitFor(() => expect((window as any).__headerProps.vaultReady).toBe(true));
-      expect((window as any).__headerProps.vaultStatus).toBe('ready');
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
+      expect((window as any).__headerProps.vaultReady).toBe(true);
       // A full prewarm proof records the durable per-browser marker that lets a
       // later reload skip remounting the bootstrap iframe.
       expect(vaultLocalReadinessMock.markFullyPrewarmed).toHaveBeenCalledWith('sess1');
     });
 
-    it('REQ-VAULT-018: skips the bootstrap prewarm when the vault is already warm on this device (reload)', async () => {
+    it('REQ-VAULT-019: a cold-path armed click opens the vault tab synchronously', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      try {
+        render(() => <Layout />);
+        vaultProbeMock.latestOptions.setLatch();
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+
+        // Click 1 -> on-demand prewarm; completion arms the button green (cold path).
+        await (window as any).__headerProps.onVaultOpen();
+        await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
+        vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
+
+        // Click 2 (intent === 'armed'): opens synchronously without a second prewarm.
+        const prewarmCallsBeforeOpen = vaultPrewarmMock.start.mock.calls.length;
+        await (window as any).__headerProps.onVaultOpen();
+        expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/.codeflare-bootstrap', '_blank', 'noopener');
+        expect(vaultPrewarmMock.start.mock.calls.length).toBe(prewarmCallsBeforeOpen);
+      } finally {
+        openSpy.mockRestore();
+      }
+    });
+
+    it('REQ-VAULT-008 AC8: the open click navigates the new tab to the bootstrap-hop URL, not the bare shell', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      try {
+        render(() => <Layout />);
+        vaultProbeMock.latestOptions.setLatch();
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+
+        await (window as any).__headerProps.onVaultOpen(); // click 1 -> prewarm
+        await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
+        vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
+
+        // Click 2 opens through the key-arming bootstrap-hop (arms the SW encryption
+        // key before the editor boots, so the first open never races __cfRecover into
+        // a /.auth 403), NOT the bare shell.
+        await (window as any).__headerProps.onVaultOpen();
+        expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/.codeflare-bootstrap', '_blank', 'noopener');
+        expect(openSpy).not.toHaveBeenCalledWith('/api/vault/sess1/', '_blank', 'noopener');
+      } finally {
+        openSpy.mockRestore();
+      }
+    });
+
+    it('REQ-VAULT-018: stays green (armed) after the open click and on subsequent opens — ready means green, always', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      try {
+        render(() => <Layout />);
+        vaultProbeMock.latestOptions.setLatch();
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+
+        await (window as any).__headerProps.onVaultOpen(); // click 1 -> prewarm
+        await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
+        vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
+
+        // Click 2 opens; the button STAYS green (no settle to neutral) because the
+        // vault is ready (pw === 'ready'). Green is permanent once ready — identical
+        // on mobile/tablet/desktop, with no reload-dependent settle state.
+        await (window as any).__headerProps.onVaultOpen();
+        expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/.codeflare-bootstrap', '_blank', 'noopener');
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
+
+        // A further click still opens, and the button is still green.
+        openSpy.mockClear();
+        await (window as any).__headerProps.onVaultOpen();
+        await waitFor(() => expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/.codeflare-bootstrap', '_blank', 'noopener'));
+        expect((window as any).__headerProps.vaultStatus).toBe('armed');
+      } finally {
+        openSpy.mockRestore();
+      }
+    });
+
+    it('REQ-VAULT-018 AC8: shows armed without a click (no iframe) when the vault is already warm on this device (reload)', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
       // Reload of a device that already completed a full prewarm proof: the durable
       // marker is set AND recorded IDB stores + an active service worker are still
       // present, so the re-init iframe (SW re-register / space sync / index + focus
-      // contention with the terminal) must NOT be mounted; the control is ready.
+      // contention with the terminal) must NOT be mounted; the control is green.
       vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(true);
       vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
 
       render(() => <Layout />);
       vaultProbeMock.latestOptions.setLatch();
 
-      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('ready'));
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
       expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
       expect((window as any).__headerProps.vaultReady).toBe(true);
     });
 
-    it('REQ-VAULT-018: still mounts prewarm on reload when local DBs/SW exist but a full prewarm never completed', async () => {
+    it('REQ-VAULT-018: a reload with local DBs/SW but no full prewarm proof stays available until click', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
       // Interrupted first-init: the IndexedDB stores + service worker are present
       // (checkVaultLocalReadiness "ready"), but this browser never recorded a full
-      // prewarm proof — space sync / index never finished. Skipping would open onto
-      // an unbuilt index, so prewarm MUST still mount despite local readiness.
+      // prewarm proof. The reload-skip is ineligible, so the button is 'available'
+      // and does NOT auto-mount — the user clicks to (re)build the index on demand.
       vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(false);
       vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
 
       render(() => <Layout />);
       vaultProbeMock.latestOptions.setLatch();
 
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+      expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
+
+      await (window as any).__headerProps.onVaultOpen();
       await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
+      expect((window as any).__headerProps.vaultStatus).toBe('preparing');
     });
 
-    it('REQ-VAULT-018: mounts prewarm when the reload readiness probe does not settle within the timeout', async () => {
+    it('REQ-VAULT-018 AC8: a reload-skip probe that never settles leaves the button available (no auto-mount)', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
@@ -437,17 +539,17 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       try {
         vaultProbeMock.latestOptions.setLatch();
         await Promise.resolve();
-        // While the probe hangs, the skip decision is pending and nothing mounts.
         expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
-        // Once the probe timeout elapses, the skip falls back to mounting the iframe.
+        // Once the skip probe times out it is simply ineligible — on-demand means we
+        // never auto-mount; the button waits at 'available' for the user's click.
         await vi.advanceTimersByTimeAsync(2000);
-        expect(vaultPrewarmMock.start).toHaveBeenCalled();
+        expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
       } finally {
         vi.useRealTimers();
       }
     });
 
-    it('REQ-VAULT-020: starts browser prewarm even when terminal input is focused', async () => {
+    it('REQ-VAULT-020: click 1 starts the prewarm even when terminal input is focused', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
@@ -458,112 +560,82 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
 
       render(() => <Layout />);
       vaultProbeMock.latestOptions.setLatch();
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
 
+      await (window as any).__headerProps.onVaultOpen();
       await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
       expect(document.activeElement).toBe(input);
-      expect((window as any).__headerProps.vaultStatus).toBe('prewarming');
+      expect((window as any).__headerProps.vaultStatus).toBe('preparing');
     });
 
-    it('REQ-VAULT-019: rechecks this browser cache before opening the Vault tab', async () => {
+    it('REQ-VAULT-019: a reload-armed click rechecks this browser cache + key before opening', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
+      // Already warm on this device -> reload-skip presents the button green.
+      vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(true);
+      vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
       const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
 
       try {
         render(() => <Layout />);
         vaultProbeMock.latestOptions.setLatch();
-        await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
-        vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
-        await waitFor(() => expect((window as any).__headerProps.vaultReady).toBe(true));
-
-        // After prewarm warms the device, the open-path readiness recheck finds it ready.
-        vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
-        await (window as any).__headerProps.onVaultOpen();
-
-        expect(vaultLocalReadinessMock.check).toHaveBeenCalledWith('sess1');
-        // Key recoverability is verified before opening (the open-time guard).
-        expect(vaultLocalReadinessMock.keyRecoverable).toHaveBeenCalledWith('sess1');
-        expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/', '_blank', 'noopener');
-      } finally {
-        openSpy.mockRestore();
-      }
-    });
-
-    it('enters preparing + restarts prewarm instead of opening when local Vault DB proof disappeared', async () => {
-      mockSessions = [createMockSession({ status: 'running' })];
-      mockActiveSessionId = 'sess1';
-      mockPreferences = { sessionMode: 'advanced' };
-      vaultLocalReadinessMock.check.mockResolvedValue({
-        ready: false,
-        reason: 'missing-idb-database',
-        recordedDbs: ['sb_data_a', 'sb_files_b'],
-        hasIndexedDbDatabasesApi: true,
-      });
-      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
-
-      try {
-        render(() => <Layout />);
-        vaultProbeMock.latestOptions.setLatch();
-        await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(1));
-        vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
-        await waitFor(() => expect((window as any).__headerProps.vaultReady).toBe(true));
-
-        await (window as any).__headerProps.onVaultOpen();
-
-        expect(openSpy).not.toHaveBeenCalled();
-        await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(2));
-        expect((window as any).__headerProps.vaultReady).toBe(false);
-        // The button breathes accent ('preparing') instead of opening into .auth.
-        expect((window as any).__headerProps.vaultStatus).toBe('preparing');
-      } finally {
-        openSpy.mockRestore();
-      }
-    });
-
-    it('breathes preparing -> armed when the key becomes recoverable, then opens on the next click', async () => {
-      mockSessions = [createMockSession({ status: 'running' })];
-      mockActiveSessionId = 'sess1';
-      mockPreferences = { sessionMode: 'advanced' };
-      // Local DBs are present; only the encryption key is not recoverable yet on
-      // the first click, then becomes recoverable (the post-prewarm key flush).
-      vaultLocalReadinessMock.keyRecoverable.mockResolvedValueOnce(false).mockResolvedValue(true);
-      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
-
-      try {
-        render(() => <Layout />);
-        vaultProbeMock.latestOptions.setLatch();
-        await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
-        vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
-        await waitFor(() => expect((window as any).__headerProps.vaultReady).toBe(true));
-
-        // Device is warm after prewarm; only the encryption key gates the open here.
-        vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
-
-        // First click: key not recoverable -> preparing (breathe accent), no open.
-        await (window as any).__headerProps.onVaultOpen();
-        expect(openSpy).not.toHaveBeenCalled();
-        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('preparing'));
-
-        // The poll re-checks and arms once the key is recoverable (breathe green).
         await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
 
-        // Click on the armed (green) button opens the vault tab synchronously.
+        // No fresh prewarm verified this open, so the click re-verifies the cache + key.
+        // Capture the pre-click count: the reload-skip probe already ran a check, so the
+        // assertion must prove the CLICK itself rechecks (count increments), not just that
+        // some earlier check happened.
+        const checksBeforeClick = vaultLocalReadinessMock.check.mock.calls.length;
         await (window as any).__headerProps.onVaultOpen();
-        expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/', '_blank', 'noopener');
+        expect(vaultLocalReadinessMock.check.mock.calls.length).toBeGreaterThan(checksBeforeClick);
+        expect(vaultLocalReadinessMock.check).toHaveBeenLastCalledWith('sess1');
+        expect(vaultLocalReadinessMock.keyRecoverable).toHaveBeenCalledWith('sess1');
+        expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/.codeflare-bootstrap', '_blank', 'noopener');
+        // No iframe was ever mounted on the reload-skip path.
+        expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
       } finally {
         openSpy.mockRestore();
       }
     });
 
-    it('keeps Header vaultReady false when browser prewarm times out', async () => {
+    it('REQ-VAULT-019: a reload-armed click re-prepares (not opens) when the local cache evaporated', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(true);
+      // Ready for the reload-skip probe, then evaporates for the open-time recheck.
+      vaultLocalReadinessMock.check
+        .mockResolvedValueOnce({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true })
+        .mockResolvedValue({ ready: false, reason: 'missing-idb-database', recordedDbs: ['sb_data_a'], hasIndexedDbDatabasesApi: true });
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      try {
+        render(() => <Layout />);
+        vaultProbeMock.latestOptions.setLatch();
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
+
+        await (window as any).__headerProps.onVaultOpen();
+        expect(openSpy).not.toHaveBeenCalled();
+        // Falls back into a fresh on-demand prepare (breathes accent) + remounts.
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('preparing'));
+        await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
+        expect((window as any).__headerProps.vaultReady).toBe(false);
+      } finally {
+        openSpy.mockRestore();
+      }
+    });
+
+    it('keeps Header vaultReady false when the on-demand prewarm times out', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
 
       render(() => <Layout />);
       vaultProbeMock.latestOptions.setLatch();
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
 
+      await (window as any).__headerProps.onVaultOpen();
       await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
       vaultPrewarmMock.latestOptions.onError('timeout', 'slow index');
 
@@ -571,14 +643,16 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect((window as any).__headerProps.vaultReady).toBe(false);
     });
 
-    it('retries browser prewarm after a timeout without enabling Vault early', async () => {
+    it('retries the on-demand prewarm after a timeout without arming Vault early', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
 
       render(() => <Layout />);
       vaultProbeMock.latestOptions.setLatch();
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
 
+      await (window as any).__headerProps.onVaultOpen();
       await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(1));
 
       vi.useFakeTimers();
@@ -595,7 +669,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         await Promise.resolve();
         expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(2);
         expect((window as any).__headerProps.vaultReady).toBe(false);
-        expect((window as any).__headerProps.vaultStatus).toBe('prewarming');
+        expect((window as any).__headerProps.vaultStatus).toBe('preparing');
       } finally {
         vi.useRealTimers();
       }
@@ -608,6 +682,8 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
 
       const { unmount } = render(() => <Layout />);
       vaultProbeMock.latestOptions.setLatch();
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+      await (window as any).__headerProps.onVaultOpen();
       await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
 
       unmount();
@@ -624,24 +700,32 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(clearPrewarmingVaultStatus(before, 'sess2')).toBe(before);
     });
 
-    it('starts a fresh prewarm when the user returns after leaving mid-prewarm', async () => {
+    it('clears the open-intent and re-requires a click when the user returns after leaving mid-prewarm', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
 
       render(() => <Layout />);
       vaultProbeMock.latestOptions.setLatch();
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+      await (window as any).__headerProps.onVaultOpen();
       await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(1));
 
       mockActiveSessionId = null;
       bumpSessionStoreVersion();
       await waitFor(() => expect(vaultPrewarmMock.cancel).toHaveBeenCalled());
 
+      // Return: the open-intent was cleared, so the button is 'available' again and
+      // does NOT auto-resume prewarm — the user must click to restart it.
       mockActiveSessionId = 'sess1';
       bumpSessionStoreVersion();
+      vaultProbeMock.latestOptions.setLatch();
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+      expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(1);
+
+      await (window as any).__headerProps.onVaultOpen();
       await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(2));
-      expect((window as any).__headerProps.vaultReady).toBe(false);
-      expect((window as any).__headerProps.vaultStatus).toBe('prewarming');
+      expect((window as any).__headerProps.vaultStatus).toBe('preparing');
     });
 
     it('does NOT pass onVaultOpen in advanced mode when there is no active session', () => {
@@ -1203,16 +1287,18 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       mockActiveWorkspace = { kind: 'session', sessionId: 'sess1' };
       mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }];
       // Local readiness holds but the encryption key is NOT recoverable, so the
-      // open path parks the session in 'preparing' instead of opening a tab.
+      // on-demand prepare never arms and the button parks at 'preparing'.
       vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a'], hasIndexedDbDatabasesApi: true });
       vaultLocalReadinessMock.keyRecoverable.mockResolvedValue(false);
 
       render(() => <Layout />);
       await waitFor(() => expect((window as any).__headerProps?.onVaultOpen).toBeTypeOf('function'));
+      vaultProbeMock.latestOptions.setLatch();
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
 
+      // Click 1 starts the on-demand prepare; with the key unrecoverable the poll
+      // never arms, so the button reflects 'preparing'.
       await (window as any).__headerProps.onVaultOpen();
-
-      // Intent took hold: the button reflects 'preparing'.
       await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('preparing'));
 
       // Session is no longer the active *running* session (mode flips so the

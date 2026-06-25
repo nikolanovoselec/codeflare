@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { handleVaultRequest, validateVaultRoute, VAULT_NATIVE_SERVICE_WORKER_JS } from '../../routes/vault';
+import { getVaultBucketToken } from '../../lib/vault-bucket-token';
+import { getVaultEncryptionKey } from '../../routes/vault-crypto';
 import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 
@@ -80,11 +82,15 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
   let mockEnv: Env;
   let mockCtx: ExecutionContext;
+  // REQ-VAULT-021: the bucket-stable URL token for 'test-bucket', computed from the
+  // real helper so the token-path requests below route through the serving branch.
+  let TOKEN: string;
 
   const SID = 'abcdef1234567890';
   const SESSION_KEY = `session:test-bucket:${SID}`;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    TOKEN = await getVaultBucketToken('test-bucket');
     vi.clearAllMocks();
     mockKV = createMockKV();
     mockAuthResult.result = {
@@ -101,6 +107,7 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
     mockEnv = {
       KV: mockKV as unknown as KVNamespace,
       CONTAINER: {} as DurableObjectNamespace,
+      ENCRYPTION_KEY: 'test-encryption-key-master',
     } as unknown as Env;
 
     mockCtx = {
@@ -128,15 +135,64 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
     });
   }
 
+  // REQ-VAULT-021: a request on the bucket-stable SERVING path, carrying the
+  // cf_vault_sid routing cookie so handleVaultRequest resolves the container. The
+  // session-keyed `vaultRequest` path is now the entry that 302s here.
+  function tokenRequest(suffix = '/notes/foo.md', headers: Record<string, string> = {}): Request {
+    const extraCookie = headers.Cookie ? `${headers.Cookie}; ` : '';
+    return new Request(`https://codeflare.ch/api/vault/${TOKEN}${suffix}`, {
+      headers: new Headers({
+        Origin: 'https://codeflare.ch',
+        ...headers,
+        Cookie: `${extraCookie}cf_vault_sid=${SID}`,
+      }),
+    });
+  }
+
   function route(request: Request) {
     return validateVaultRoute(request);
   }
 
-  it('forwards to the container when the full auth chain passes', async () => {
-    const request = vaultRequest();
+  it('forwards to the container on the bucket-stable path when the full auth chain passes', async () => {
+    const request = tokenRequest();
     const response = await handleVaultRequest(request, mockEnv, mockCtx, route(request));
     expect(response.status).toBe(200);
     expect(mockContainerFetch).toHaveBeenCalledTimes(1);
+  });
+
+  // REQ-VAULT-021: the session-keyed path is the entry — it sets the cf_vault_sid
+  // routing cookie and 302s to the bucket-stable URL (no session id in the URL, so
+  // SilverBullet's IndexedDB names stay stable across sessions). It must NOT proxy.
+  it('the session-keyed entry path sets cf_vault_sid and 302s to the bucket-stable URL', async () => {
+    const request = vaultRequest(`/api/vault/${SID}/notes/foo.md`);
+    const response = await handleVaultRequest(request, mockEnv, mockCtx, route(request));
+    expect(response.status).toBe(302);
+    expect(response.headers.get('Location')).toBe(`/api/vault/${TOKEN}/notes/foo.md`);
+    const setCookie = response.headers.get('Set-Cookie') ?? '';
+    expect(setCookie).toContain(`cf_vault_sid=${SID}`);
+    expect(setCookie).toContain(`Path=/api/vault/${TOKEN}/`);
+    expect(mockContainerFetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a bucket-stable request whose token is not the authed bucket (403)', async () => {
+    const wrongToken = 'f'.repeat(32);
+    const request = new Request(`https://codeflare.ch/api/vault/${wrongToken}/notes/foo.md`, {
+      headers: new Headers({ Origin: 'https://codeflare.ch', Cookie: `cf_vault_sid=${SID}` }),
+    });
+    const response = await handleVaultRequest(request, mockEnv, mockCtx, route(request));
+    expect(response.status).toBe(403);
+    expect((await response.json() as { code: string }).code).toBe('VAULT_BUCKET_MISMATCH');
+    expect(mockContainerFetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a bucket-stable request with no cf_vault_sid routing cookie (409)', async () => {
+    const request = new Request(`https://codeflare.ch/api/vault/${TOKEN}/notes/foo.md`, {
+      headers: new Headers({ Origin: 'https://codeflare.ch' }),
+    });
+    const response = await handleVaultRequest(request, mockEnv, mockCtx, route(request));
+    expect(response.status).toBe(409);
+    expect((await response.json() as { code: string }).code).toBe('VAULT_NO_SESSION');
+    expect(mockContainerFetch).not.toHaveBeenCalled();
   });
 
   it('returns 401 when authenticateRequest throws AuthError', async () => {
@@ -214,7 +270,7 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
         bucketName: 'test-bucket',
       };
 
-      const request = vaultRequest();
+      const request = tokenRequest();
       const response = await handleVaultRequest(request, mockEnv, mockCtx, route(request));
       expect(response.status).toBe(200);
     });
@@ -224,7 +280,7 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
     it('returns 404 SESSION_NOT_FOUND when getSessionKey misses for the authenticated bucket', async () => {
       mockKV._clear();
 
-      const request = vaultRequest();
+      const request = tokenRequest();
       const response = await handleVaultRequest(request, mockEnv, mockCtx, route(request));
       expect(response.status).toBe(404);
       const body = await response.json() as { code: string };
@@ -242,7 +298,7 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
         createdAt: '2026-01-01T00:00:00.000Z', lastAccessedAt: '2026-01-01T00:00:00.000Z',
       });
 
-      const request = vaultRequest();
+      const request = tokenRequest();
       const response = await handleVaultRequest(request, mockEnv, mockCtx, route(request));
       expect(response.status).toBe(404);
       const body = await response.json() as { code: string };
@@ -257,7 +313,7 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
         status: 'stopped',
       });
 
-      const request = vaultRequest();
+      const request = tokenRequest();
       const response = await handleVaultRequest(request, mockEnv, mockCtx, route(request));
       expect(response.status).toBe(503);
       const body = await response.json() as { code: string };
@@ -269,7 +325,7 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
   it('returns 503 CONTAINER_NOT_READY when the health probe is unhealthy', async () => {
     mockHealth.healthy = false;
 
-    const request = vaultRequest();
+    const request = tokenRequest();
     const response = await handleVaultRequest(request, mockEnv, mockCtx, route(request));
     expect(response.status).toBe(503);
     const body = await response.json() as { code: string };
@@ -291,23 +347,23 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
     it('T5: shell `/` navigation redirects to the hop, but the SW precache fetch passes through', async () => {
       // A top-level navigation with no bootstrap cookie must 302 to the hop so
       // the encryption key is wired before SB boots; the container is untouched.
-      const nav = vaultRequest(`/api/vault/${SID}/`, { 'Sec-Fetch-Mode': 'navigate' });
+      const nav = tokenRequest('/', { 'Sec-Fetch-Mode': 'navigate' });
       const navRes = await handleVaultRequest(nav, mockEnv, mockCtx, route(nav));
       expect(navRes.status).toBe(302);
-      expect(navRes.headers.get('Location')).toBe(`/api/vault/${SID}/.codeflare-bootstrap`);
+      expect(navRes.headers.get('Location')).toBe(`/api/vault/${TOKEN}/.codeflare-bootstrap`);
       expect(mockContainerFetch).not.toHaveBeenCalled();
 
       // The native SW's cache.addAll precache of `/` is SW-context
       // (Sec-Fetch-Mode != navigate). It must NOT 302 - otherwise the SW
       // install rejects atomically and hangs - so it reaches the container.
-      const precache = vaultRequest(`/api/vault/${SID}/`, { 'Sec-Fetch-Mode': 'no-cors' });
+      const precache = tokenRequest('/', { 'Sec-Fetch-Mode': 'no-cors' });
       const preRes = await handleVaultRequest(precache, mockEnv, mockCtx, route(precache));
       expect(preRes.status).toBe(200);
       expect(mockContainerFetch).toHaveBeenCalledTimes(1);
 
       // No Sec-Fetch-Mode at all => fail-safe back to the 302 (a navigation we
       // cannot positively identify must still get the hop, never the raw shell).
-      const headerless = vaultRequest(`/api/vault/${SID}/`);
+      const headerless = tokenRequest('/');
       const hlRes = await handleVaultRequest(headerless, mockEnv, mockCtx, route(headerless));
       expect(hlRes.status).toBe(302);
     });
@@ -319,12 +375,14 @@ describe('handleVaultRequest auth chain (CF-002)', () => {
       mockContainerFetch.mockResolvedValueOnce(
         new Response('{"spaceFolderPath":"/"}', { status: 200, headers: { 'content-type': 'application/json' } }),
       );
-      const request = vaultRequest(`/api/vault/${SID}/.config`, { Cookie: 'codeflare_vault_bootstrap=1' });
+      const request = tokenRequest('/.config', { Cookie: 'codeflare_vault_bootstrap=1' });
       const response = await handleVaultRequest(request, mockEnv, mockCtx, route(request));
       expect(response.status).toBe(200);
       const body = await response.json() as { vaultEncryptionKey?: string; enableClientEncryption?: boolean };
       expect(body.enableClientEncryption).toBe(true);
-      expect(body.vaultEncryptionKey).toBe('AAAA-base64-key-AAAA');
+      // REQ-VAULT-021: the key is now bucket-derived (HKDF over ENCRYPTION_KEY + bucket),
+      // not the old per-session DO key. It must match the deterministic derivation.
+      expect(body.vaultEncryptionKey).toBe(await getVaultEncryptionKey(mockEnv, 'test-bucket'));
     });
   });
 });
