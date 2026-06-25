@@ -344,7 +344,7 @@ Implements [REQ-SEC-020](../../sdd/spec/security.md#req-sec-020-ws-upgrade-rate-
 
 ### Vault Editor Rate Limit (REQ-VAULT-005 + REQ-SEC-007)
 
-The vault editor proxy at `/api/vault/:sid/*` runs through `validateVaultRoute` -> `handleVaultRequest` in `src/routes/vault.ts`. WebSocket upgrades for SilverBullet's live-edit sync are rate-limited via the same `ws-connect:<email>` bucket as terminal WebSockets (30 connections per 60s window), sharing budget across both surfaces so a runaway editor reconnect cannot starve terminal use. Plain HTTP requests to the editor share the per-user HTTP rate-limit defaults.
+The vault editor proxy at `/api/vault/<token>/*` (the bucket-stable serving path) runs through `validateVaultRoute` -> `handleVaultRequest` in `src/routes/vault.ts`; the session-keyed entry path `/api/vault/<sid>/` only issues a 302 redirect (setting `cf_vault_sid`) and never reaches the proxy. WebSocket upgrades for SilverBullet's live-edit sync are rate-limited via the same `ws-connect:<email>` bucket as terminal WebSockets (30 connections per 60s window), sharing budget across both surfaces so a runaway editor reconnect cannot starve terminal use. Plain HTTP requests to the editor share the per-user HTTP rate-limit defaults.
 
 Surface: [REQ-VAULT-005](../../sdd/spec/vault.md#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (proxy exists). Rate-limit infrastructure: [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) (shared bucket and 30/60s window).
 

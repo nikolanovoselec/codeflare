@@ -26,7 +26,7 @@ import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from '../lib/access';
 
 /** REQ-VAULT-021: the cookie that carries the real session id for bucket-stable
  * vault URLs (`/api/vault/<token>/...`). Set by the session-keyed open entry. */
-export const VAULT_SID_COOKIE_NAME = 'cf_vault_sid';
+const VAULT_SID_COOKIE_NAME = 'cf_vault_sid';
 
 /**
  * The vault URL's first path segment is either a session id (the open/prewarm entry)

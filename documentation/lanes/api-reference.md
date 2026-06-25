@@ -9,6 +9,7 @@ Complete API endpoint reference for the Codeflare Worker.
 - [Session Management](#session-management)
 - [Container Lifecycle](#container-lifecycle)
 - [Terminal](#terminal)
+- [Vault](#vault)
 - [User Management](#user-management)
 - [Auth (SaaS Mode)](#auth-saas-mode)
 - [Usage](#usage)
@@ -78,6 +79,19 @@ Note: `SETUP_ERROR` uses a different response shape: `{ success: false, steps, e
 | GET | `/api/terminal/:sessionId/status` | Session cookie | [REQ-TERM-004](../../sdd/spec/terminal.md#req-term-004-close-code-4503-is-authoritative-no-retry) | Connection status |
 
 **Terminal frame contract:** Client→server sends raw PTY input or JSON control frames `{type:"focus"}`, `{type:"resize", cols, rows}`, or `{type:"kill"}`. Server→client sends raw PTY output or JSON frames `{type:"restore", state}` and `{type:"process-name", terminalId, processName}`. <!-- @impl: host/src/server.ts::wss --> <!-- @impl: host/src/session.ts::attach --> <!-- @impl: host/src/session.ts::start --> <!-- @impl: web-ui/src/stores/terminal.ts::claimResizeAuthority --> <!-- @impl: web-ui/src/stores/terminal.ts::dispose -->
+
+### Vault
+
+The in-container SilverBullet editor is reached through the Worker proxy. Under [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) the SilverBullet app is served under a **bucket-stable** path `/api/vault/<token>/` (token = opaque 32-hex `SHA-256(salt+bucketName)`, no PII), so the IndexedDB names persist across sessions; the session-keyed `/api/vault/:sid/` path is an entry that sets `cf_vault_sid` and 302-redirects to the token path.
+
+| Method | Endpoint | Auth | Implements | Description |
+|--------|----------|------|------------|-------------|
+| GET | `/api/vault/:sid/` | Session cookie | [REQ-VAULT-005](../../sdd/spec/vault.md#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) | Entry: validates auth + tier, sets HttpOnly `cf_vault_sid` cookie, 302s to `/api/vault/<token>/`. Retains default security headers. |
+| GET | `/api/vault/:sid/status` | Session cookie | [REQ-VAULT-018](../../sdd/spec/vault.md#req-vault-018-vault-browser-prewarm-readiness-gating) AC1 | JSON readiness probe `{ vaultReady }`. Retains full default security headers (CSP + `X-Frame-Options: DENY`). |
+| GET / WS | `/api/vault/<token>/*` | `cf_vault_sid` cookie | [REQ-VAULT-005](../../sdd/spec/vault.md#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) | Bucket-stable SilverBullet proxy. Rewrites `<base href>` to `/api/vault/<token>/`. Security headers: `frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`, no CSP. WS upgrades rate-limited (30/60s, shared with terminal). |
+| GET | `/api/vault/<token>/service_worker.js` | None (browser-only `service-worker` header) | [REQ-VAULT-017](../../sdd/spec/vault.md#req-vault-017-silverbullet-native-service-worker) | Auth-short-circuited native SilverBullet SW (credential-less registration fetch). |
+| GET | `/api/vault/<token>/.codeflare-bootstrap` | Session cookie | [REQ-VAULT-008](../../sdd/spec/vault.md#req-vault-008-zero-ui-vault-encryption) AC5, [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) | Bootstrap hop: registers native SW, posts bucket-derived key via `set-encryption-key`, sets `codeflare_vault_bootstrap` cookie, redirects to token URL. |
+| GET | `/api/vault/<token>/.vault-key` | Session cookie | [REQ-VAULT-008](../../sdd/spec/vault.md#req-vault-008-zero-ui-vault-encryption) AC7 | Returns `{ key }` JSON (bucket-derived HKDF key) for in-memory key recovery by the grafted SW. `Cache-Control: no-store`. |
 
 ### User Management
 
