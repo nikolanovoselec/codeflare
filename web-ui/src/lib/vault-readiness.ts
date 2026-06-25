@@ -18,6 +18,36 @@
  * indefinite retry is what REQ-VAULT-012 AC5 actually requires.
  */
 
+/**
+ * Ground-truth readiness probe for a session's vault: resolves true only when
+ * SilverBullet is actually serving inside the container.
+ *
+ * Polls `GET /api/vault/:sid/status`, which performs the SB-reachability check
+ * server-side and always responds 200 with `{ vaultReady }`. We deliberately do
+ * NOT probe the SB proxy root (`HEAD /api/vault/:sid/`): that path returns 502
+ * while SilverBullet warms up, and the browser logs every 502 — and every
+ * fetch-timeout abort when the proxy hangs — to the console, noisy on each
+ * session open. The status endpoint reflects the same SB-serving condition with
+ * no console churn. Any non-2xx, malformed body, or network error resolves to
+ * false (not ready), so the caller treats it as "keep warming".
+ */
+export async function probeVaultReady(
+  sessionId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<boolean> {
+  try {
+    const res = await fetchImpl(`/api/vault/${encodeURIComponent(sessionId)}/status`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return false;
+    const data = (await res.json()) as { vaultReady?: boolean };
+    return data.vaultReady === true;
+  } catch {
+    return false;
+  }
+}
+
 export interface VaultReadinessOptions {
   /** Returns true if SB is reachable, false otherwise (already swallows errors). */
   probe: () => Promise<boolean>;

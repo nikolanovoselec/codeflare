@@ -99,21 +99,14 @@ export function hasVaultFullyPrewarmed(sessionId: string, storage: Storage | nul
 }
 
 async function findVaultServiceWorker(
-  sessionId: string,
   serviceWorker: ServiceWorkerContainer,
 ): Promise<ServiceWorkerRegistration | null> {
-  const scopePath = `/api/vault/${encodeURIComponent(sessionId)}/`;
-  try {
-    const registration = await serviceWorker.getRegistration(scopePath);
-    if (registration) return registration;
-  } catch {
-    // Fall through to getRegistrations; some browsers are stricter about
-    // getRegistration's clientURL argument than others.
-  }
-
+  // REQ-VAULT-021: SilverBullet registers its SW under the bucket-stable
+  // `/api/vault/<token>/` scope (one per user), which the dashboard cannot name
+  // by session id. Match any vault-scoped registration — there is exactly one.
   try {
     const registrations = await serviceWorker.getRegistrations();
-    return registrations.find((registration) => registration.scope.includes(scopePath)) ?? null;
+    return registrations.find((registration) => registration.scope.includes('/api/vault/')) ?? null;
   } catch {
     return null;
   }
@@ -142,7 +135,7 @@ export async function checkVaultLocalReadiness(
   if (!hasRecordedDb(recordedDbs, 'sb_files_')) return { ...base(), reason: 'missing-sb-files' };
 
   if (!serviceWorkerRef) return { ...base(), reason: 'missing-service-worker' };
-  const registration = await findVaultServiceWorker(sessionId, serviceWorkerRef);
+  const registration = await findVaultServiceWorker(serviceWorkerRef);
   const active = registration?.active ?? null;
   if (!active) return { ...base(), reason: 'missing-service-worker' };
 

@@ -4,6 +4,13 @@ export const VAULT_PREWARM_QUERY = 'codeflarePrewarm';
 export const VAULT_PREWARM_ID_QUERY = 'prewarmId';
 export const VAULT_PREWARM_SOURCE = 'codeflare-vault-prewarm';
 export const DEFAULT_VAULT_PREWARM_TIMEOUT_MS = 300_000;
+// Cadence for the parent-side focus-reclaim poll. This is the reliable backstop:
+// when focus moves into a SAME-ORIGIN child iframe the document never fires
+// `focusin`, and window `blur` is unreliable (it fires in some Chromium builds /
+// headless but not on desktop Chrome, where the tab keeps focus), so the event
+// listeners alone can miss a steal. Polling guarantees focus can never stay
+// trapped in the iframe.
+export const FOCUS_RECLAIM_POLL_MS = 250;
 
 export type VaultPrewarmStatus = 'idle' | 'prewarming' | 'ready' | 'timeout' | 'error';
 
@@ -125,6 +132,7 @@ export function startVaultPrewarm(opts: VaultPrewarmOptions): VaultPrewarmHandle
   const focusRestoreTimers: unknown[] = [];
   let finished = false;
   let timer: unknown = null;
+  let focusPollHandle: unknown = null;
 
   const restoreFocus = () => restoreFocusIfPrewarmCaptured(documentRef, iframe, lastGoodFocus);
 
@@ -139,21 +147,72 @@ export function startVaultPrewarm(opts: VaultPrewarmOptions): VaultPrewarmHandle
     if (restorable && restorable !== iframe) lastGoodFocus = restorable;
   };
 
+  // The RELIABLE steal signal. When SilverBullet calls element.focus() inside the
+  // same-origin prewarm iframe, focus leaves the terminal input and the browser
+  // fires `focusout` on it (bubbling to the document) — the one event guaranteed to
+  // fire. Document `focusin` never fires (no parent element gains focus) and window
+  // `blur` is unreliable across browsers, so `focusout` is what actually catches the
+  // steal, the instant it happens. (Verified in Chrome: focus into a same-origin
+  // iframe yields activeElement === iframe and a focusout on the prior element.)
+  const onFocusOut = () => {
+    if (documentRef.activeElement === iframe) restoreFocus();
+  };
+
+  // Lifetime backstop for steals that surface no parent-observable event at all
+  // (focus already inside the frame before listeners attached, late re-grabs after
+  // the one-shot timers below have elapsed). The check is a no-op whenever the
+  // iframe is not the active element, so it never fights a focused terminal.
+  const pollFocusReclaim = () => {
+    if (finished) return;
+    restoreFocus();
+    focusPollHandle = schedule(pollFocusReclaim, FOCUS_RECLAIM_POLL_MS);
+  };
+
+  // Removing the prewarm iframe orphans the top-level document's focus:
+  // document.hasFocus() goes false and the terminal silently drops every
+  // keystroke until a full reload / re-navigation — even though the terminal
+  // textarea is still the active element, and even though focus was never moved
+  // into the iframe. (Proven in production via a focus trace: the freeze began
+  // exactly at the iframe removal with activeElement === xterm textarea and
+  // hasFocus false, and a manual window.focus() + textarea.focus() restored
+  // typing.) After detaching the iframe we re-assert window focus and re-focus
+  // the live terminal target — but only when the window actually lost focus, so a
+  // still-focused terminal is never disturbed. The orphan can settle
+  // synchronously or on a later task, so this is retried across a few frames.
+  const reassertTerminalFocusIfOrphaned = () => {
+    if (documentRef.hasFocus()) return;
+    windowRef.focus?.();
+    const target = lastGoodFocus && lastGoodFocus.isConnected
+      ? lastGoodFocus
+      : documentRef.querySelector<HTMLElement>('.xterm-helper-textarea');
+    target?.focus?.({ preventScroll: true });
+  };
+
   const cleanup = () => {
     windowRef.removeEventListener('message', onMessage);
     windowRef.removeEventListener('blur', restoreFocus);
     documentRef.removeEventListener('focusin', onFocusIn);
+    documentRef.removeEventListener('focusout', onFocusOut);
     iframe.removeEventListener('focus', restoreFocus);
     iframe.removeEventListener('load', restoreFocus);
     if (timer !== null) {
       unschedule(timer);
       timer = null;
     }
+    if (focusPollHandle !== null) {
+      unschedule(focusPollHandle);
+      focusPollHandle = null;
+    }
     while (focusRestoreTimers.length > 0) {
       const focusTimer = focusRestoreTimers.pop();
       if (focusTimer !== undefined) unschedule(focusTimer);
     }
     iframe.remove();
+    // Restore window focus AFTER detaching: the orphan is caused by the removal
+    // itself, so it cannot be prevented beforehand — only repaired. Each attempt
+    // is a no-op unless the window genuinely lost focus.
+    reassertTerminalFocusIfOrphaned();
+    for (const delayMs of [0, 50, 200]) schedule(reassertTerminalFocusIfOrphaned, delayMs);
   };
 
   const finishReady = (proof: VaultPrewarmProof) => {
@@ -194,12 +253,16 @@ export function startVaultPrewarm(opts: VaultPrewarmOptions): VaultPrewarmHandle
   iframe.style.pointerEvents = 'none';
 
   windowRef.addEventListener('message', onMessage);
-  // The parent WINDOW reliably fires `blur` when focus moves into a child iframe,
-  // even in browsers where the parent does not get a `focusin` for intra-iframe
-  // focus. restoreFocus only acts when activeElement === iframe, so a legitimate
-  // tab/app switch (where the iframe is not the active element) is a no-op.
+  // Secondary signal only. Window `blur` on a focus move into a SAME-ORIGIN child
+  // iframe is unreliable — it fires in some Chromium builds / headless but not on
+  // desktop Chrome (the tab keeps system focus; document.hasFocus() stays true) —
+  // which is why the eager prewarm could trap terminal focus despite this listener.
+  // The reliable catches are `focusout` and the lifetime poll below; we keep this
+  // for the cases where it does fire, and restoreFocus only acts when
+  // activeElement === iframe, so it is otherwise inert.
   windowRef.addEventListener('blur', restoreFocus);
   documentRef.addEventListener('focusin', onFocusIn);
+  documentRef.addEventListener('focusout', onFocusOut);
   iframe.addEventListener('focus', restoreFocus);
   iframe.addEventListener('load', restoreFocus);
   documentRef.body.appendChild(iframe);
@@ -207,6 +270,7 @@ export function startVaultPrewarm(opts: VaultPrewarmOptions): VaultPrewarmHandle
   for (const delayMs of [0, 50, 250, 1000]) {
     focusRestoreTimers.push(schedule(restoreFocus, delayMs));
   }
+  focusPollHandle = schedule(pollFocusReclaim, FOCUS_RECLAIM_POLL_MS);
   timer = schedule(() => finishError('timeout', 'Vault prewarm timed out'), timeoutMs);
 
   return {

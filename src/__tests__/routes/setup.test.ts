@@ -2389,6 +2389,194 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:enterprise_admin_access_group', expect.anything());
       });
     });
+
+    // REQ-SETUP-003: session-OIDC mode (SaaS OR onboarding) + OAUTH_CLIENT_ID skips
+    // CF Access provisioning; the Worker handles auth via its own GitHub-OIDC session
+    // cookie. A stray Access app on a session-OIDC domain 302s the credential-less
+    // vault service-worker registration (REQ-VAULT-017). Gate: isSessionOidcMode.
+    describe('REQ-SETUP-003: CF Access provisioning gated by isSessionOidcMode + OAUTH_CLIENT_ID', () => {
+      // A configure mock fetch whose Access handlers RECORD every call but never
+      // perform real provisioning — so the assertions read the recorded calls.
+      // accessAppFlowMocks() are included so the flow *could* provision if the gate
+      // were gutted (the test then fails), making this gut-checkable.
+      function isAccessProvisionCall(call: unknown[]): boolean {
+        const url = typeof call[0] === 'string' ? call[0] : '';
+        const method = (call[1] as RequestInit | undefined)?.method;
+        const isWrite = method === 'POST' || method === 'PUT';
+        return isWrite && (url.includes('/access/apps') || url.includes('/access/groups') || url.includes('/policies'));
+      }
+
+      it('SKIPS Access provisioning in onboarding mode with OAUTH_CLIENT_ID (THE BUG)', async () => {
+        const app = createTestApp({ ONBOARDING_LANDING_PAGE: 'active', OAUTH_CLIENT_ID: 'x' } as Partial<Env>);
+        // Onboarding needs Turnstile; provide the widget mock so the flow completes.
+        globalThis.fetch = createUrlMockFetch({
+          ...baseFlowMocks(),
+          ...customDomainFlowMocks(),
+          ...accessAppFlowMocks(),
+          '~/challenges/widgets': () => new Response(
+            JSON.stringify({ success: true, result: { sitekey: '0x4AAAAA-test', secret: 'turnstile-secret' } }),
+            { status: 200, headers: jsonHeaders }
+          ),
+        });
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(standardBody),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        // No-op runStep keeps the wizard advancing: the step still reports success.
+        expect(lines).toContainEqual(
+          expect.objectContaining({ step: 'create_access_app', status: 'success' })
+        );
+        // But NO CF Access resources were created/updated.
+        const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
+        expect(mockFetch.mock.calls.filter(isAccessProvisionCall)).toHaveLength(0);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:access_app_id', expect.anything());
+      });
+
+      it('SKIPS Access provisioning in SaaS mode with OAUTH_CLIENT_ID (regression guard)', async () => {
+        const app = createTestApp({ SAAS_MODE: 'active', OAUTH_CLIENT_ID: 'x' } as Partial<Env>);
+        // SaaS also needs Turnstile; provide the widget mock so the flow completes.
+        globalThis.fetch = createUrlMockFetch({
+          ...baseFlowMocks(),
+          ...customDomainFlowMocks(),
+          ...accessAppFlowMocks(),
+          '~/challenges/widgets': () => new Response(
+            JSON.stringify({ success: true, result: { sitekey: '0x4AAAAA-test', secret: 'turnstile-secret' } }),
+            { status: 200, headers: jsonHeaders }
+          ),
+        });
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(standardBody),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(lines).toContainEqual(
+          expect.objectContaining({ step: 'create_access_app', status: 'success' })
+        );
+        const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
+        expect(mockFetch.mock.calls.filter(isAccessProvisionCall)).toHaveLength(0);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:access_app_id', expect.anything());
+      });
+
+      it('enterprise mode still PROVISIONS the host-wide Access app + the vault SW-bypass app', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...standardBody, dynamicRoutes: ['development'] }),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(lines).toContainEqual(
+          expect.objectContaining({ step: 'create_access_app', status: 'success' })
+        );
+
+        const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
+        // Host-wide enterprise Access app is created (POST to /access/apps).
+        const hostAppCreate = mockFetch.mock.calls.find(
+          (call) => typeof call[0] === 'string'
+            && call[0].includes('/access/apps')
+            && (call[1] as RequestInit | undefined)?.method === 'POST'
+            && JSON.parse(((call[1] as RequestInit).body as string) || '{}').domain === 'claude.example.com'
+        );
+        expect(hostAppCreate).toBeDefined();
+
+        // SW-bypass app is created scoped to the vault service-worker script.
+        const swBypassCreate = mockFetch.mock.calls.find(
+          (call) => typeof call[0] === 'string'
+            && call[0].includes('/access/apps')
+            && (call[1] as RequestInit | undefined)?.method === 'POST'
+            && JSON.parse(((call[1] as RequestInit).body as string) || '{}').domain === 'claude.example.com/api/vault/*/service_worker.js'
+        );
+        expect(swBypassCreate).toBeDefined();
+        // The SW-bypass app id is persisted to KV under the dedicated key.
+        expect(mockKV.put).toHaveBeenCalledWith('setup:access_sw_bypass_app_id', expect.any(String));
+      });
+
+      it('default mode (no OAUTH_CLIENT_ID, no SaaS/onboarding) still PROVISIONS Access groups + app + policy', async () => {
+        const app = createTestApp();
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(standardBody),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+
+        const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
+        const groupCreate = mockFetch.mock.calls.find(
+          (call) => typeof call[0] === 'string'
+            && call[0].includes('/access/groups')
+            && (call[1] as RequestInit | undefined)?.method === 'POST'
+        );
+        const appCreate = mockFetch.mock.calls.find(
+          (call) => typeof call[0] === 'string'
+            && call[0].includes('/access/apps')
+            && (call[1] as RequestInit | undefined)?.method === 'POST'
+        );
+        const policyCreate = mockFetch.mock.calls.find(
+          (call) => typeof call[0] === 'string'
+            && call[0].includes('/policies')
+            && (call[1] as RequestInit | undefined)?.method === 'POST'
+        );
+        expect(groupCreate).toBeDefined();
+        expect(appCreate).toBeDefined();
+        expect(policyCreate).toBeDefined();
+      });
+
+      it('REQ-SETUP-004: a re-run in onboarding mode never creates an Access app (idempotent skip)', async () => {
+        const app = createTestApp({ ONBOARDING_LANDING_PAGE: 'active', OAUTH_CLIENT_ID: 'x' } as Partial<Env>);
+        // Both runs must execute the configure flow in bootstrap mode. The
+        // idempotent case in REQ-SETUP-004 AC2 is retry-after-partial, where
+        // setup:complete is unset on each retry. Without this, the first run's
+        // setup:complete='true' write (backed by the mock KV) flips the second
+        // run onto the auth-gated path (403) before it can re-run the flow.
+        mockKV.get.mockResolvedValue(null);
+        globalThis.fetch = createUrlMockFetch({
+          ...baseFlowMocks(),
+          ...customDomainFlowMocks(),
+          ...accessAppFlowMocks(),
+          '~/challenges/widgets': () => new Response(
+            JSON.stringify({ success: true, result: { sitekey: '0x4AAAAA-test', secret: 'turnstile-secret' } }),
+            { status: 200, headers: jsonHeaders }
+          ),
+        });
+
+        for (let run = 0; run < 2; run++) {
+          const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(standardBody),
+          });
+          expect(res.status).toBe(200);
+          await readNdjson(res);
+        }
+
+        const mockFetch = globalThis.fetch as ReturnType<typeof createUrlMockFetch>;
+        // Across BOTH runs: zero Access-app creation/update calls.
+        const accessAppWrites = mockFetch.mock.calls.filter(
+          (call) => typeof call[0] === 'string'
+            && call[0].includes('/access/apps')
+            && ((call[1] as RequestInit | undefined)?.method === 'POST'
+              || (call[1] as RequestInit | undefined)?.method === 'PUT')
+        );
+        expect(accessAppWrites).toHaveLength(0);
+      });
+    });
   });
 
 });

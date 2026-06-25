@@ -45,12 +45,14 @@ import {
   injectVaultEncryptionConfig,
   injectVaultBootstrapHopHtml,
   hasVaultBootstrapCookie,
+  readVaultSidCookie,
   filterVaultFsListing,
   getVaultPrewarmRedirectSearch,
   rewriteVaultHtmlResponse,
 } from './vault-html';
 import { VAULT_NATIVE_SERVICE_WORKER_JS } from './vault-native-sw';
 import { getVaultEncryptionKey } from './vault-crypto';
+import { getVaultBucketToken } from '../lib/vault-bucket-token';
 import { validateVaultRoute, VaultRouteResult } from './vault-validation';
 import {
   checkVaultOrigin,
@@ -117,13 +119,13 @@ export async function handleVaultRequest(
     ? clientRequestId
     : crypto.randomUUID().slice(0, REQUEST_ID_LENGTH);
 
-  const { sessionId, remainingPath, isWebSocket } = routeResult;
+  const { sessionId: pathSessionId, bucketToken, remainingPath, isWebSocket } = routeResult;
   const jsonHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-Request-ID': requestId,
   };
 
-  if (!sessionId || !remainingPath) {
+  if (!remainingPath || (!pathSessionId && !bucketToken)) {
     return new Response(
       JSON.stringify({ error: 'Invalid routing result', code: 'INVALID_ROUTING' }),
       { status: 500, headers: jsonHeaders },
@@ -195,9 +197,49 @@ export async function handleVaultRequest(
     const tierRejection = assertActiveTier(user, env, jsonHeaders);
     if (tierRejection) return tierRejection;
 
-    const containerId = getContainerId(bucketName, sessionId);
+    // REQ-VAULT-021: resolve the URL segment used for all SB URL-building (base-href,
+    // SW scope, bootstrap hop, CSRF cookie) and the effective session id used only for
+    // container routing. Two path shapes reach here:
+    //   * Session-keyed ENTRY (`/api/vault/<sid>/...`) — the open/prewarm entry. We set
+    //     the `cf_vault_sid` routing cookie and 302 to the bucket-stable path so the SB
+    //     app loads from a URL with no session id (stable IndexedDB names across sessions).
+    //   * Bucket-stable SERVING path (`/api/vault/<token>/...`) — the session id comes
+    //     from the cookie, never the URL, so `location.href` stays bucket-stable. The
+    //     token is what every SB URL builder sees (so it builds `/api/vault/<token>/`),
+    //     while container routing uses the cookie session id.
+    let effectiveSessionId: string;
+    let vaultUrlSegment: string;
+    if (bucketToken) {
+      const expectedToken = await getVaultBucketToken(bucketName);
+      if (bucketToken !== expectedToken) {
+        return new Response(
+          JSON.stringify({ error: 'Vault bucket mismatch', code: 'VAULT_BUCKET_MISMATCH' }),
+          { status: 403, headers: jsonHeaders },
+        );
+      }
+      const cookieSid = readVaultSidCookie(request);
+      if (!cookieSid || !SESSION_ID_PATTERN.test(cookieSid)) {
+        return new Response(
+          JSON.stringify({ error: 'Vault session not selected', code: 'VAULT_NO_SESSION' }),
+          { status: 409, headers: jsonHeaders },
+        );
+      }
+      effectiveSessionId = cookieSid;
+      vaultUrlSegment = bucketToken;
+    } else {
+      const token = await getVaultBucketToken(bucketName);
+      const entryHeaders = new Headers({
+        Location: `/api/vault/${token}${remainingPath}${new URL(request.url).search}`,
+        'Set-Cookie': `cf_vault_sid=${pathSessionId}; Path=/api/vault/${token}/; HttpOnly; Secure; SameSite=Lax`,
+        'Cache-Control': 'no-store',
+        'X-Request-ID': requestId,
+      });
+      return new Response(null, { status: 302, headers: entryHeaders });
+    }
 
-    const ownershipResult = await assertSessionOwnership(env, bucketName, sessionId, jsonHeaders);
+    const containerId = getContainerId(bucketName, effectiveSessionId);
+
+    const ownershipResult = await assertSessionOwnership(env, bucketName, effectiveSessionId, jsonHeaders);
     if ('errorResponse' in ownershipResult) return ownershipResult.errorResponse;
     const { sessionKey } = ownershipResult;
 
@@ -252,9 +294,9 @@ export async function handleVaultRequest(
     // /api/vault/<sid>/ so SB can boot with encryption already wired.
     if (remainingPath === '/.codeflare-bootstrap' && !isWebSocket) {
       try {
-        const vaultEncryptionKey = await getVaultEncryptionKey(container);
+        const vaultEncryptionKey = await getVaultEncryptionKey(env, bucketName);
         const html = injectVaultBootstrapHopHtml(
-          sessionId,
+          vaultUrlSegment,
           vaultEncryptionKey,
           getVaultPrewarmRedirectSearch(request),
         );
@@ -265,7 +307,7 @@ export async function handleVaultRequest(
         });
         // CF-019: this GET navigation is the SPA entry point - seed the
         // double-submit CSRF cookie here so the token exists before any write.
-        maybeIssueCsrfCookie(request, hopHeaders, sessionId);
+        maybeIssueCsrfCookie(request, hopHeaders, vaultUrlSegment);
         return new Response(html, { status: 200, headers: hopHeaders });
       } catch (err) {
         logger.error('vault bootstrap-hop render failed', toError(err));
@@ -278,7 +320,7 @@ export async function handleVaultRequest(
 
     if (remainingPath === '/.vault-key' && !isWebSocket && request.method === 'GET') {
       try {
-        const vaultEncryptionKey = await getVaultEncryptionKey(container);
+        const vaultEncryptionKey = await getVaultEncryptionKey(env, bucketName);
         return new Response(JSON.stringify({ key: vaultEncryptionKey }), {
           status: 200,
           headers: {
@@ -317,7 +359,7 @@ export async function handleVaultRequest(
       return new Response(null, {
         status: 302,
         headers: {
-          Location: `/api/vault/${sessionId}/.codeflare-bootstrap${getVaultPrewarmRedirectSearch(request)}`,
+          Location: `/api/vault/${vaultUrlSegment}/.codeflare-bootstrap${getVaultPrewarmRedirectSearch(request)}`,
           'Cache-Control': 'no-store',
           'X-Request-ID': requestId,
         },
@@ -400,7 +442,7 @@ export async function handleVaultRequest(
     // injectVaultEncryptionConfig fails loud if the body is not JSON.
     if (remainingPath === '/.config' && response.ok) {
       try {
-        const vaultEncryptionKey = await getVaultEncryptionKey(container);
+        const vaultEncryptionKey = await getVaultEncryptionKey(env, bucketName);
         const body = await response.text();
         const rewritten = injectVaultEncryptionConfig(body, vaultEncryptionKey);
         const headers = new Headers(response.headers);
@@ -450,7 +492,9 @@ export async function handleVaultRequest(
     }
 
     if (contentType.includes('text/html')) {
-      return rewriteVaultHtmlResponse(response, sessionId, remainingPath, vaultUrl.pathname, contentType, logger, request);
+      // REQ-VAULT-021: base-href + CSRF cookie use the bucket token (vaultUrlSegment);
+      // the boot recorder/prewarm bridge key their markers by the real session id.
+      return rewriteVaultHtmlResponse(response, vaultUrlSegment, remainingPath, vaultUrl.pathname, contentType, logger, request, effectiveSessionId);
     }
     return response;
   } catch (err) {

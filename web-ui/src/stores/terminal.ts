@@ -498,6 +498,12 @@ function connect(
     ws.onmessage = handleWebSocketMessage;
 
     ws.onerror = (event) => {
+      // A teardown that closes a still-CONNECTING socket (rapid enter/exit, or a
+      // superseding connect) surfaces here as an error event. The disconnect has
+      // already aborted the signal and released ownership, so this is expected
+      // churn, not a real failure — stay silent (mirrors the onclose guard) so it
+      // does not spam the console with "[Terminal …] WS ERROR" (REQ-TERM-003 AC7).
+      if (signal.aborted || !ownsConnection()) return;
       logger.error(`[Terminal ${key}] WS ERROR`, event);
     };
 
@@ -568,7 +574,15 @@ function disconnect(sessionId: string, terminalId: string): void {
 
   const ws = connections.get(key);
   if (ws) {
-    ws.close();
+    // Closing a still-CONNECTING socket makes the browser log "WebSocket is
+    // closed before the connection is established" and fires a spurious onerror —
+    // the console noise seen on rapid enter/exit. The signal was aborted and
+    // ownership released above, so the connect() handlers close the socket
+    // cleanly once the handshake resolves (onopen) and stay silent on failure.
+    // Force-close only a socket that has actually opened (REQ-TERM-003 AC7).
+    if (ws.readyState !== WebSocket.CONNECTING) {
+      ws.close();
+    }
     connections.delete(key);
   }
   pendingFocusClaims.delete(key);

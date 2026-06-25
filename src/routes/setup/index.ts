@@ -18,7 +18,7 @@ import { handleConfigureCustomDomain } from './custom-domain';
 import { handleCreateAccessApp } from './access';
 import { handleConfigureTurnstile } from './turnstile';
 import handlers from './handlers';
-import { isOnboardingLandingPageActive, isSaasModeActive } from '../../lib/onboarding';
+import { isOnboardingLandingPageActive, isSaasModeActive, isSessionOidcMode } from '../../lib/onboarding';
 import { isEnterpriseMode } from '../../lib/subscription';
 
 // Feature A/C: a Cloudflare Access group name or a gateway route name. Trimmed,
@@ -330,11 +330,15 @@ app.post('/configure', async (c) => {
         handleConfigureCustomDomain(token, accountId, customDomain, c.req.url, steps, workerName)
       );
       // Issue #140: Skip CF Access provisioning when GitHub OIDC is configured.
-      // In SaaS + OIDC mode, the Worker handles authentication directly via the
-      // github-auth routes and the requireIdentity middleware. Creating a CF Access
-      // application on the same domain causes CF Access to intercept all requests
-      // before the Worker runs, breaking the OIDC login flow.
-      const useGithubOidc = isSaasModeActive(c.env.SAAS_MODE) && c.env.OAUTH_CLIENT_ID;
+      // In any session-OIDC mode (SaaS OR onboarding) the Worker handles auth
+      // directly via the github-auth routes + requireIdentity middleware. Creating a
+      // CF Access application on the same domain makes CF Access intercept every
+      // request before the Worker runs — breaking the OIDC login flow AND 302-ing the
+      // credential-less vault service-worker registration (REQ-VAULT-017), which fails
+      // SilverBullet SW registration with "script resource is behind a redirect".
+      // Mirror the runtime guard isSessionOidcMode (SaaS or onboarding) — NOT just
+      // SaaS — so onboarding-mode GitHub-login deployments don't get a stray Access app.
+      const useGithubOidc = isSessionOidcMode(c.env) && c.env.OAUTH_CLIENT_ID;
       if (useGithubOidc) {
         // No-op runStep keeps SSE progress events flowing (running → success)
         // so the wizard UI advances naturally. No CF Access resources are created.

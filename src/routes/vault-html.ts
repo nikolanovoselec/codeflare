@@ -20,8 +20,36 @@
  * SESSION_ID_PATTERN constant), which is what makes the extraction safe.
  */
 import { SESSION_ID_PATTERN } from '../lib/constants';
+import { VAULT_BUCKET_TOKEN_PATTERN } from '../lib/vault-bucket-token';
 import { toErrorMessage } from '../lib/error-types';
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from '../lib/access';
+
+/** REQ-VAULT-021: the cookie that carries the real session id for bucket-stable
+ * vault URLs (`/api/vault/<token>/...`). Set by the session-keyed open entry. */
+const VAULT_SID_COOKIE_NAME = 'cf_vault_sid';
+
+/**
+ * The vault URL's first path segment is either a session id (the open/prewarm entry)
+ * or a bucket-stable token (the SB-serving path, REQ-VAULT-021). Both are valid inputs
+ * to the SB URL builders below, which only ever embed the segment into `/api/vault/<x>/`.
+ */
+function isValidVaultUrlSegment(segment: string): boolean {
+  return SESSION_ID_PATTERN.test(segment) || VAULT_BUCKET_TOKEN_PATTERN.test(segment);
+}
+
+/** Read the REQ-VAULT-021 `cf_vault_sid` routing cookie value, or null. */
+export function readVaultSidCookie(request: Request): string | null {
+  const cookieHeader = request.headers.get('Cookie');
+  if (!cookieHeader) return null;
+  for (const part of cookieHeader.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    if (part.slice(0, idx).trim() === VAULT_SID_COOKIE_NAME) {
+      return part.slice(idx + 1).trim();
+    }
+  }
+  return null;
+}
 
 /**
  * Synthesise `X-Requested-With: XMLHttpRequest` on a request clone when
@@ -100,7 +128,7 @@ export function maybeSynthesizeCsrfHeader(request: Request, originValidated: boo
  */
 export function maybeIssueCsrfCookie(request: Request, headers: Headers, sessionId: string): void {
   if (readCsrfCookie(request)) return;
-  if (!SESSION_ID_PATTERN.test(sessionId)) return;
+  if (!isValidVaultUrlSegment(sessionId)) return;
   const token = crypto.randomUUID();
   headers.append(
     'Set-Cookie',
@@ -241,7 +269,7 @@ export function injectVaultBootScript(html: string, config: VaultBootConfig): st
   if (!config.sessionId) {
     throw new Error('injectVaultBootScript: sessionId must be non-empty');
   }
-  if (!SESSION_ID_PATTERN.test(config.sessionId)) {
+  if (!isValidVaultUrlSegment(config.sessionId)) {
     throw new Error('injectVaultBootScript: sessionId must match SESSION_ID_PATTERN');
   }
   if (html.includes(VAULT_BOOT_MARKER)) {
@@ -277,11 +305,16 @@ export function injectVaultBootScript(html: string, config: VaultBootConfig): st
  * `codeflare-vault-idb-open` messages from the native service worker to
  * capture every database name SilverBullet opens that starts with `sb_`.
  * It persists the names into `localStorage["vault-session-<sid>-idbs"]`
- * as a JSON array. The
- * dashboard's `cleanupSessionVaultCache` / `sweepOrphanVaultCaches`
- * functions read that array and call `indexedDB.deleteDatabase(name)`
- * on session DELETE / dashboard mount - the real fix for the
- * previously-leaking SB IDBs (REQ-VAULT-015 AC3 + AC4).
+ * as a JSON array (keyed by the REAL session id, which the Worker injects
+ * into the boot config as `sessionId` even though the served URL carries the
+ * bucket token - REQ-VAULT-021). The dashboard's `checkVaultLocalReadiness`
+ * reads that array to confirm the SB stores exist before opening.
+ *
+ * NOTE (REQ-VAULT-021): the recorded names are NO LONGER used to delete IDBs.
+ * The SB stores are now bucket-stable (one set per user, shared across
+ * sessions), so `cleanupSessionVaultCache` / `sweepOrphanVaultCaches` remove
+ * only the localStorage markers and never call `indexedDB.deleteDatabase` -
+ * deleting the shared store would defeat cross-session persistence.
  *
  * Idempotent via `VAULT_IDB_RECORDER_MARKER`. Returns the input
  * unchanged when `</head>` is missing or the script is already present.
@@ -298,6 +331,7 @@ const VAULT_PREWARM_QUERY = 'codeflarePrewarm';
 const VAULT_PREWARM_ID_QUERY = 'prewarmId';
 export const VAULT_PREWARM_BRIDGE_MARKER = 'data-codeflare-vault-prewarm-bridge';
 export const VAULT_PREWARM_FOCUS_GUARD_MARKER = 'data-codeflare-vault-prewarm-focus-guard';
+export const VAULT_CONTROLLED_RELOAD_MARKER = 'data-codeflare-vault-controlled-reload';
 export const VAULT_PREWARM_REQUIRED_FILES = ['CONFIG.md', 'Index.md', 'STYLES.md'] as const;
 
 export function injectVaultIdbRecorder(html: string): string {
@@ -512,13 +546,14 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'function hasPrefix(recordedDbs, prefix) {' +
     'return recordedDbs.some(function (name) { return name.indexOf(prefix) === 0; });' +
     '}' +
-    'async function findRegistration(sid) {' +
+    'async function findRegistration() {' +
     'if (!navigator.serviceWorker) return null;' +
-    'var scopePath = "/api/vault/" + encodeURIComponent(sid) + "/";' +
-    'try { var direct = await navigator.serviceWorker.getRegistration(scopePath); if (direct) return direct; } catch (_) {}' +
+    // REQ-VAULT-021: SilverBullet registers its SW under the bucket-stable
+    // `/api/vault/<token>/` scope (one per user), which this iframe cannot name
+    // by session id. Match any vault-scoped registration.
     'try {' +
     'var regs = await navigator.serviceWorker.getRegistrations();' +
-    'for (var i = 0; i < regs.length; i++) { if (regs[i].scope.indexOf(scopePath) !== -1) return regs[i]; }' +
+    'for (var i = 0; i < regs.length; i++) { if (regs[i].scope.indexOf("/api/vault/") !== -1) return regs[i]; }' +
     '} catch (_) {}' +
     'return null;' +
     '}' +
@@ -534,7 +569,7 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'if (recordedDbs.length === 0) return proof(recordedDbs, hasDbApi, "no-recorder");' +
     'if (!hasPrefix(recordedDbs, "sb_data_")) return proof(recordedDbs, hasDbApi, "missing-sb-data");' +
     'if (!hasPrefix(recordedDbs, "sb_files_")) return proof(recordedDbs, hasDbApi, "missing-sb-files");' +
-    'var reg = await findRegistration(sid);' +
+    'var reg = await findRegistration();' +
     'var active = reg && reg.active ? reg.active : null;' +
     'if (!active) return proof(recordedDbs, hasDbApi, "missing-service-worker");' +
     'if (hasDbApi) {' +
@@ -550,6 +585,15 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'return proof(recordedDbs, hasDbApi, null, active.state);' +
     '}' +
     'var inFlight = false;' +
+    'var readyStreak = 0;' +
+    // REQ-VAULT-018: require the full readiness proof to hold across this many
+    // consecutive polls before arming, so a momentary index-queue-empty (mid-sync)
+    // cannot arm the control while SilverBullet is still settling. Each poll also
+    // awaits async readiness work, so even 2 spans several hundred ms of
+    // continuously-proven ready — enough to reject a single transient without the
+    // ~1s+ tax (and churn-induced streak resets) that 3 added to the "slow to
+    // clickable" complaint now that the 2nd-start conflict churn is fixed at source.
+    'var requiredReadyStreak = 2;' +
     'var timer = window.setInterval(async function () {' +
     'if (inFlight) return;' +
     'inFlight = true;' +
@@ -558,6 +602,8 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'var localProof = await checkLocalReadiness(sid);' +
     'var contentProof = localProof.ready === true ? await checkContentReadiness() : null;' +
     'if (localProof.ready === true && contentProof) {' +
+    'readyStreak++;' +
+    'if (readyStreak >= requiredReadyStreak) {' +
     'localProof.contentReady = contentProof.contentReady;' +
     'localProof.spaceSyncCompleted = contentProof.spaceSyncCompleted;' +
     'localProof.indexReady = contentProof.indexReady;' +
@@ -566,13 +612,64 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'window.clearInterval(timer);' +
     'post("ready", null, localProof);' +
     '}' +
-    '}' +
+    '} else { readyStreak = 0; }' +
+    '} else { readyStreak = 0; }' +
     '} catch (e) {' +
     'window.clearInterval(timer);' +
     'post("error", e && e.message ? e.message : String(e));' +
     '} finally { inFlight = false; }' +
     '}, 250);' +
     '})();</script>';
+  return html.replace('</head>', `${script}</head>`);
+}
+
+/**
+ * REQ-VAULT-018 (open-path safety net): a one-time controlled reload for the real,
+ * top-level vault tab. When an already-warmed vault is opened, the browser can load
+ * this navigation BEFORE the vault-scoped service worker controls the client
+ * (`navigator.serviceWorker.controller` is null on first paint), so SilverBullet
+ * boots without the SW-backed local space and renders an empty / partial editor
+ * until a manual reload. This reloads the page exactly once -- gated by a
+ * `sessionStorage` one-shot so it can NEVER loop -- when a vault SW is active but
+ * not yet controlling this client. Inert in the headless prewarm iframe
+ * (`window.parent !== window`), on a genuine first boot (no vault SW yet), and when
+ * the SW already controls the page (the one-shot is cleared then so a later in-tab
+ * navigation can self-heal again). Exported + `.toString()`-injected so it has a
+ * single source of truth and is unit-tested directly.
+ */
+export function installVaultControlledReload(windowRef: any, navigatorRef: any, storageRef: any): void {
+  try {
+    if (windowRef.parent !== windowRef) return;
+    const sw = navigatorRef && navigatorRef.serviceWorker;
+    if (!sw) return;
+    const KEY = 'cf-vault-sw-controlled-reload';
+    if (sw.controller) {
+      try { if (storageRef) storageRef.removeItem(KEY); } catch (_) {}
+      return;
+    }
+    sw.getRegistrations().then(function (regs: any) {
+      if (sw.controller) return;
+      let active = false;
+      for (let i = 0; i < regs.length; i++) {
+        if (regs[i] && regs[i].active && regs[i].scope.indexOf('/api/vault/') !== -1) { active = true; break; }
+      }
+      if (!active) return;
+      let already = false;
+      try { already = !!(storageRef && storageRef.getItem(KEY) === '1'); } catch (_) {}
+      if (already) return;
+      try { if (storageRef) storageRef.setItem(KEY, '1'); } catch (_) {}
+      windowRef.location.reload();
+    }).catch(function () {});
+  } catch (_) {}
+}
+
+export function injectVaultControlledReload(html: string): string {
+  const source = installVaultControlledReload.toString()
+    .replace(/<\//g, '<\\/')
+    .replace(/<!--/g, '<\\!--')
+    .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
+  const script = '<script ' + VAULT_CONTROLLED_RELOAD_MARKER + '="1">(function () {(' +
+    source + ')(window, navigator, window.sessionStorage);})();</script>';
   return html.replace('</head>', `${script}</head>`);
 }
 
@@ -613,8 +710,8 @@ export function injectVaultBootstrapHopHtml(sessionId: string, vaultEncryptionKe
   if (!vaultEncryptionKey) {
     throw new Error('injectVaultBootstrapHopHtml: vaultEncryptionKey must be non-empty');
   }
-  if (!SESSION_ID_PATTERN.test(sessionId)) {
-    throw new Error('injectVaultBootstrapHopHtml: sessionId must match SESSION_ID_PATTERN');
+  if (!isValidVaultUrlSegment(sessionId)) {
+    throw new Error('injectVaultBootstrapHopHtml: sessionId must be a valid vault URL segment');
   }
   if (redirectSearch && !/^\?codeflarePrewarm=1&prewarmId=[A-Za-z0-9._%~-]+$/.test(redirectSearch)) {
     throw new Error('injectVaultBootstrapHopHtml: redirectSearch must be a sanitized prewarm query');
@@ -800,25 +897,37 @@ export function rewriteVaultBaseHref(html: string, sessionId: string): RewriteRe
 
 export async function rewriteVaultHtmlResponse(
   response: Response,
-  sessionId: string,
+  urlSegment: string,
   remainingPath: string,
   pathname: string,
   contentType: string,
   logger: { warn: (msg: string, meta?: Record<string, unknown>) => void },
   request?: Request,
+  // REQ-VAULT-021: on the bucket-stable serving path `urlSegment` is the bucket
+  // token (what every SB URL builder + the CSRF cookie path must use) while the
+  // recorder/prewarm bridge must key their localStorage markers by the REAL
+  // session id (what the dashboard reads). They differ only on the token path;
+  // when omitted (session-keyed callers, unit tests) the boot sid defaults to
+  // the segment so behaviour is unchanged.
+  bootSessionId: string = urlSegment,
 ): Promise<Response> {
   const body = await response.text();
-  const { rewritten: baseRewritten, wasNoOp } = rewriteVaultBaseHref(body, sessionId);
+  const { rewritten: baseRewritten, wasNoOp } = rewriteVaultBaseHref(body, urlSegment);
   let rewritten = baseRewritten;
 
   const isShellPath = remainingPath === '/' || remainingPath === '/index.html';
   if (response.status === 200 && isShellPath) {
     try {
-      rewritten = injectVaultBootScript(rewritten, { sessionId });
+      rewritten = injectVaultBootScript(rewritten, { sessionId: bootSessionId });
       rewritten = injectVaultIdbRecorder(rewritten);
       const prewarmId = request ? readVaultPrewarmId(request) ?? undefined : undefined;
       rewritten = injectVaultPrewarmFocusGuard(rewritten, prewarmId);
       rewritten = injectVaultPrewarmBridge(rewritten, prewarmId);
+      // Only the real top-level open gets the controlled-reload safety net; the
+      // headless prewarm iframe must never reload itself (it self-excludes anyway).
+      if (prewarmId === undefined) {
+        rewritten = injectVaultControlledReload(rewritten);
+      }
     } catch (err) {
       logger.warn('vault boot-script injection skipped', { error: toErrorMessage(err) });
     }
@@ -834,7 +943,7 @@ export async function rewriteVaultHtmlResponse(
   // is optional only for the existing unit tests that call this helper
   // without it; the production call site (handleVaultRequest) always passes it.
   if (request && request.method === 'GET') {
-    maybeIssueCsrfCookie(request, headers, sessionId);
+    maybeIssueCsrfCookie(request, headers, urlSegment);
   }
   return new Response(rewritten, {
     status: response.status,

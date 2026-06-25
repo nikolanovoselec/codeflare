@@ -54,7 +54,7 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 **Container DO extraction:** `src/container/index.ts` split into focused modules:
 - `container-env.ts`: env var construction, bucket name application, credential injection, prefs-on-restart
 - `container-metrics.ts`: collectMetrics, idle detection, Timekeeper ping, KV status updates (immutable spread, not mutation)
-- `container-config.ts`: setBucketName, getBucketName, updateEnvVars, ensureVaultKey - container state/config mutations
+- `container-config.ts`: setBucketName, getBucketName, updateEnvVars, ensureVaultKey (superseded for vault encryption by `getVaultEncryptionKey` - see REQ-VAULT-021) - container state/config mutations
 - `container-router.ts`: typed `/_internal/*` dispatch (the `INTERNAL_ROUTES` discriminated-union table + `dispatchInternalRoute`), replacing the prior stringly-typed `${method}:${pathname}` Map
 - `container-lifecycle.ts`: onStart/onStop/alarm lifecycle hooks extracted from the DO class
 - `index.ts`: thin facade owning the DO class shell (constructor, fetch) and delegating config, internal routing, lifecycle hooks, and metrics to the modules above. Sub-modules receive state via explicit interface parameters, not class inheritance.
