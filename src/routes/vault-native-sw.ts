@@ -71,24 +71,43 @@ const ANCHOR_CONFIG_GATE = "if(t.enableClientEncryption&&!y){console.error(\"Sup
 const ANCHOR_NO_CLIENTS_INFO = "t.length===0&&console.info(\"No clients are listening for messages, dropping message\",a)";
 const ANCHOR_SERVICE_PROXY_ERROR = "console.error(\"[service proxy error]\",c,p),c===N.message&&u.reset(),g({type:\"auth-error\",message:c,actionOrRedirectHeader:p})";
 const ANCHOR_SYNC_SPACE_ERROR = "console.error(\"Sync space error\",t.message)";
-// Defensive coercion of the REMOTE file list. A full sync cycle binds
-// `o=await this.secondary.fetchFileList()` (the remote list over HTTP via
-// `e.json()`) and immediately feeds `o` to `this.getNonSyncCandidates(o)` (which
-// runs `o.forEach(...)`) and to `o.map(...)`. When the proxy returns a non-array
-// body (transient 5xx, an auth hiccup, or an HTML body from a stray CF Access 302),
-// `e.json()` yields a non-array and both consumers throw `forEach/map is not a
-// function`; the sync `run()` loop never sets `stopping` on this path, so the throw
-// repeats forever (console spam + stuck sync). Coerce a non-array to `[]` so the
-// cycle is a safe no-op (zero candidates, no deletion, snapshot preserved).
+// Not-ready guard on the REMOTE file list. A full sync cycle binds
+// `s=await this.primary.fetchFileList()` (the persistent browser-local store) then
+// `o=await this.secondary.fetchFileList()` (the in-container SilverBullet server over
+// HTTP). The per-file reconciler treats the remote (`secondary`) as authoritative for
+// DELETIONS: a file present in the local store AND in the sync snapshot but ABSENT
+// from `o` is deleted from primary ("File deleted on secondary, deleting from primary").
+//
+// The in-container SB server takes ~1-2 min to become ready after a fresh session
+// starts. During that window `fetchFileList()` does NOT return the real list — it
+// returns a non-array body (a transient 5xx, an auth hiccup, or an HTML body from a
+// stray CF Access 302; `e.json()` then yields a non-array) or an empty `[]`. With the
+// bucket-stable PERSISTENT local store (REQ-VAULT-021), a populated primary + snapshot
+// reconciled against that empty/garbage remote makes EVERY local file look "deleted on
+// secondary" — the whole vault is wiped on 2nd-session start. (Coercing the non-array
+// to `[]` and proceeding — the prior graft's behavior — is exactly this catastrophe; an
+// empty array is NOT a safe no-op once the store persists.)
+//
+// So the graft GUARDS instead of blindly coercing: normalize a non-array to `[]`, then
+// if the remote list is EMPTY while the local primary OR the snapshot is non-empty,
+// THROW to abort the cycle BEFORE any deletion. `syncSpace` re-emits and rethrows, so
+// `run()` logs a (downgraded) warn and retries ~`_t`s (20s) later; once the server is
+// actually serving the real list the cycle proceeds and reconciles normally. A
+// genuinely empty vault (empty primary AND empty snapshot) stays a safe no-op. This is
+// "no blind deletion just because the server is momentarily unreachable" — the SW only
+// deletes once it has reached SB and SB has confirmed the file list. (REQ-VAULT-017 AC6,
+// REQ-VAULT-021 AC8.)
 //
 // CRITICAL — `o` is one binding in a single `let s=...,o=...,r=...,l=...` declarator
-// list (the minified sync-cycle declaration). The coercion MUST wrap the `o=`
+// list (the minified sync-cycle declaration). The guard MUST wrap the `o=`
 // INITIALIZER, not add a second `o=` declarator: `let ...,o=X,o=Y,...` is a duplicate
 // lexical binding (`SyntaxError: Identifier 'o' has already been declared`), which
 // makes the ENTIRE service worker fail to parse — the browser rejects the SW, the
 // vault never registers, and the readiness button never goes ready. So the anchor is
-// just the `o=` initializer and the graft replaces it with an IIFE that coerces in
-// place, keeping `o` a single declarator that still feeds every later consumer.
+// just the `o=` initializer and the graft replaces it with an IIFE that guards in
+// place, keeping `o` a single declarator that still feeds every later consumer. The
+// IIFE reads `s` (the already-bound primary list) and `t` (the snapshot param of the
+// enclosing `syncFiles(t)`, whose `.files` Map the cycle dereferences anyway).
 // ANCHOR_REMOTE_LIST_COERCE.
 const ANCHOR_REMOTE_LIST_COERCE = "o=await this.secondary.fetchFileList()";
 
@@ -131,7 +150,7 @@ export function graftVaultKeyRecovery(verbatim: string): string {
     .replace(ANCHOR_SYNC_SPACE_ERROR, "console.warn(\"Sync space error\",t.message)")
     .replace(
       ANCHOR_REMOTE_LIST_COERCE,
-      "o=(a=>Array.isArray(a)?a:[])(await this.secondary.fetchFileList())",
+      "o=(a=>{a=Array.isArray(a)?a:[];if(a.length===0&&(s.length>0||t.files.size>0))throw new Error(\"[codeflare] vault secondary file list empty/unreadable while local store has files (SilverBullet server not ready); skipping sync cycle to avoid blind deletion\");return a})(await this.secondary.fetchFileList())",
     );
 }
 

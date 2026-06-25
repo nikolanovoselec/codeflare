@@ -45,14 +45,19 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(VAULT_NATIVE_SERVICE_WORKER_JS).not.toBe(VAULT_NATIVE_SW_VERBATIM);
   });
 
-  // REQ-VAULT-017 AC6: the graft coerces a non-array remote `fetchFileList()`
-  // result to [] before the sync-cycle consumers (`getNonSyncCandidates` ->
-  // `o.forEach`, and `o.map`), so a transient proxy error or a stray CF Access
-  // 302 HTML body becomes a safe no-op cycle instead of crashing the loop.
+  // REQ-VAULT-017 AC6 / REQ-VAULT-021 AC8: the graft GUARDS the remote
+  // `fetchFileList()` result. It normalizes a non-array (transient proxy error or a
+  // stray CF Access 302 HTML body) to [], then ABORTS the sync cycle (throws) when the
+  // remote list is empty while the persistent local store or snapshot is non-empty —
+  // i.e. the in-container SilverBullet server is not yet serving. That stops the
+  // reconciler from treating "server not ready" as "every file deleted on secondary"
+  // and wiping the bucket-stable local store on a 2nd-session start. A genuinely empty
+  // vault (empty primary AND empty snapshot) stays a safe no-op.
 
   // Build a runnable approximation of the worker's full-sync-cycle remote-list
-  // consumer chain straight out of the SERVED worker string, so the test fails
-  // if the coercion `.replace()` is removed (the chain then throws on non-array).
+  // consumer chain straight out of the SERVED worker string, so the tests exercise the
+  // ACTUAL grafted bytes. The guard reads `s` (already-bound primary list) and `t` (the
+  // snapshot param of the enclosing `syncFiles(t)`); `t` is threaded in as a closure arg.
   function makeSyncCycleRunner(sw: string) {
     const start = sw.indexOf('s=await this.primary.fetchFileList()');
     const endMarker = 'c=new Map(o.map(f=>[f.name,f]))';
@@ -62,28 +67,34 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     }
     const chain = sw.slice(start, endIdx + endMarker.length);
     // eslint-disable-next-line no-new-func
-    const fn = new Function(`return (async function(){
+    const fn = new Function('t', `return (async function(){
       let s,o,r,l,c;
       ${chain};
       return { candidateCount: r.size, remoteMapCount: c.size };
-    });`)() as (this: unknown) => Promise<{ candidateCount: number; remoteMapCount: number }>;
-    return (remoteList: unknown) => {
-      // Stub the space-sync instance the chain runs against: primary = local
-      // (empty), secondary = remote (the value under test). getNonSyncCandidates
-      // mirrors the worker's own `t.forEach`-based implementation.
+    });`) as unknown as (
+      t: unknown,
+    ) => (this: unknown) => Promise<{ candidateCount: number; remoteMapCount: number }>;
+    return (
+      remoteList: unknown,
+      opts: { primaryList?: Array<{ name: string }>; snapshot?: Map<string, unknown> } = {},
+    ) => {
+      // Stub the space-sync instance the chain runs against: primary = the persistent
+      // browser-local store, secondary = remote (the value under test), `t` = the sync
+      // snapshot. getNonSyncCandidates mirrors the worker's own forEach-based impl.
+      const { primaryList = [], snapshot = new Map<string, unknown>() } = opts;
       const ctx = {
-        primary: { fetchFileList: async () => [] as Array<{ name: string }> },
+        primary: { fetchFileList: async () => primaryList, deleteFile: async () => {} },
         secondary: { fetchFileList: async () => remoteList },
         options: { isSyncCandidate: () => false },
-        getNonSyncCandidates(t: Array<{ name: string }>) {
+        getNonSyncCandidates(list: Array<{ name: string }>) {
           const i = new Map<string, { name: string }>();
-          t.forEach((n) => {
+          list.forEach((n) => {
             if (!this.options.isSyncCandidate()) i.set(n.name, n);
           });
           return i;
         },
       };
-      return fn.call(ctx);
+      return fn({ files: snapshot }).call(ctx);
     };
   }
 
@@ -94,7 +105,7 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(result.remoteMapCount).toBe(2);
   });
 
-  it('the served sync cycle no-ops (no throw, zero candidates) on a non-array remote list', async () => {
+  it('the served sync cycle no-ops (no throw, zero candidates) on a non-array remote list when the local store is empty', async () => {
     const run = makeSyncCycleRunner(VAULT_NATIVE_SERVICE_WORKER_JS);
     for (const nonArray of [{ error: 'transient 5xx' }, '<!doctype html>', null, 502]) {
       const result = await run(nonArray);
@@ -103,15 +114,71 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     }
   });
 
-  it('the coercion is load-bearing: the verbatim (pre-graft) chain throws on a non-array remote list', async () => {
+  it('the guard is load-bearing: the verbatim (pre-graft) chain throws on a non-array remote list', async () => {
     // Negative control — proves the served no-op above comes from the graft, not
     // from upstream behavior. The pristine verbatim has no `Array.isArray` guard.
     expect(VAULT_NATIVE_SW_VERBATIM).not.toContain('Array.isArray(a)?a:[]');
     const runVerbatim = makeSyncCycleRunner(VAULT_NATIVE_SW_VERBATIM);
     await expect(runVerbatim({ error: 'transient 5xx' })).rejects.toThrow(/forEach is not a function|is not a function/);
-    expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain(
-      'o=(a=>Array.isArray(a)?a:[])(await this.secondary.fetchFileList())',
-    );
+    // The served worker carries the structural not-ready guard (array-normalize plus the
+    // empty-while-populated abort condition). Assert the functional contract tokens, not
+    // the human-readable error message.
+    expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('Array.isArray(a)');
+    expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('a.length===0&&(s.length>0||t.files.size>0)');
+  });
+
+  // REQ-VAULT-021 AC8: a 2nd-session start has a POPULATED persistent local store, but
+  // the in-container SilverBullet server is still warming up (~1-2 min) and its
+  // `fetchFileList()` returns empty/garbage. The reconciler must NOT treat that as
+  // "every file deleted on secondary" and wipe the store — the cycle aborts before any
+  // deletion. These run the ACTUAL served bytes, so reverting the graft to a blind
+  // coerce (or removing it) makes them fail.
+  it('aborts the sync cycle (no deletion) when the remote list is empty while the local store is populated', async () => {
+    const run = makeSyncCycleRunner(VAULT_NATIVE_SERVICE_WORKER_JS);
+    await expect(
+      run([], { primaryList: [{ name: 'Index.md' }, { name: 'CONFIG.md' }] }),
+    ).rejects.toThrow(/not ready|skipping sync cycle|blind deletion/i);
+  });
+
+  it('aborts the sync cycle (no deletion) when the remote list is empty while the snapshot is populated', async () => {
+    const run = makeSyncCycleRunner(VAULT_NATIVE_SERVICE_WORKER_JS);
+    await expect(
+      run([], { snapshot: new Map([['Index.md', [1, 1]]]) }),
+    ).rejects.toThrow(/not ready|skipping sync cycle|blind deletion/i);
+  });
+
+  it('also aborts when the server returns a non-array body while the local store is populated', async () => {
+    const run = makeSyncCycleRunner(VAULT_NATIVE_SERVICE_WORKER_JS);
+    for (const notReady of [{ error: 'transient 5xx' }, '<!doctype html>', null, 502]) {
+      await expect(
+        run(notReady, { primaryList: [{ name: 'Index.md' }] }),
+      ).rejects.toThrow(/not ready|skipping sync cycle|blind deletion/i);
+    }
+  });
+
+  it('a genuinely empty vault (no local files, no snapshot) is a safe no-op, not an abort', async () => {
+    const run = makeSyncCycleRunner(VAULT_NATIVE_SERVICE_WORKER_JS);
+    const result = await run([], { primaryList: [], snapshot: new Map() });
+    expect(result.candidateCount).toBe(0);
+    expect(result.remoteMapCount).toBe(0);
+  });
+
+  it('reconciles normally (no abort) when the server returns a real non-empty list, even with a populated store', async () => {
+    const run = makeSyncCycleRunner(VAULT_NATIVE_SERVICE_WORKER_JS);
+    const result = await run([{ name: 'Index.md' }, { name: 'CONFIG.md' }], {
+      primaryList: [{ name: 'Index.md' }],
+      snapshot: new Map([['Index.md', [1, 1]]]),
+    });
+    expect(result.remoteMapCount).toBe(2);
+  });
+
+  it('the guard is absent from the verbatim: a populated store + empty remote does NOT abort pre-graft (it would proceed to delete)', async () => {
+    // Proves the abort comes from the graft. Verbatim binds `o=[]` (a valid array), the
+    // chain completes without throwing, and the downstream per-file reconciler would
+    // then delete every populated-store file. The graft is what stops that.
+    const runVerbatim = makeSyncCycleRunner(VAULT_NATIVE_SW_VERBATIM);
+    const result = await runVerbatim([], { primaryList: [{ name: 'Index.md' }] });
+    expect(result.remoteMapCount).toBe(0);
   });
 
   // REQ-VAULT-017 AC6: the coercion must keep the served worker syntactically
