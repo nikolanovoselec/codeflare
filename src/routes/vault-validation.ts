@@ -15,7 +15,7 @@ export interface VaultRouteResult {
   /** Set for the legacy/session-keyed path `/api/vault/<sid>/...` (entry + /status). */
   sessionId?: string;
   /**
-   * Set for the bucket-stable SB-serving path `/api/vault/b/<token>/...` (REQ-VAULT-021).
+   * Set for the bucket-stable SB-serving path `/api/vault/<token>/...` (REQ-VAULT-021).
    * The session id for these requests is carried in the `cf_vault_sid` cookie, never the
    * URL, so `location.href` (and thus the SilverBullet IndexedDB names) stays bucket-stable.
    */

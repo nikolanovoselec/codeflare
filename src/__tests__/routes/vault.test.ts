@@ -931,6 +931,25 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       await rewriteVaultHtmlResponse(upstream, SID, '/some/plugin/page', '/vault/some/plugin/page', 'text/html', logger);
       expect(logger.warn).not.toHaveBeenCalled();
     });
+
+    // REQ-VAULT-021: on the bucket-stable serving path the base-href uses the
+    // bucket token (so SB's relative assets + IndexedDB names stay stable across
+    // sessions), but the injected boot recorder must carry the REAL session id so
+    // its localStorage marker (`vault-session-<sid>-idbs`) matches what the
+    // dashboard reads. The two identifiers are passed separately.
+    it('REQ-VAULT-021: base-href uses the bucket token while the boot recorder uses the real session id', async () => {
+      const TOKEN = '0123456789abcdef0123456789abcdef';
+      const html = '<html><head><base href="/" /></head><body>hi</body></html>';
+      const upstream = new Response(html, { status: 200, headers: { 'content-type': 'text/html' } });
+      const logger = { warn: vi.fn() };
+      const result = await rewriteVaultHtmlResponse(
+        upstream, TOKEN, '/', '/vault/', 'text/html', logger, undefined, SID,
+      );
+      const body = await result.text();
+      expect(body).toContain(`<base href="/api/vault/${TOKEN}/" />`);
+      expect(body).toContain(`window.__codeflareVaultBoot = {"sessionId":"${SID}"}`);
+      expect(body).not.toContain(`"sessionId":"${TOKEN}"`);
+    });
   });
 
   // REQ-VAULT-005 Constraint (/api/vault/:sid/status runs through Hono middleware chain; only catch-all proxy is intercepted before Hono)

@@ -492,7 +492,9 @@ export async function handleVaultRequest(
     }
 
     if (contentType.includes('text/html')) {
-      return rewriteVaultHtmlResponse(response, vaultUrlSegment, remainingPath, vaultUrl.pathname, contentType, logger, request);
+      // REQ-VAULT-021: base-href + CSRF cookie use the bucket token (vaultUrlSegment);
+      // the boot recorder/prewarm bridge key their markers by the real session id.
+      return rewriteVaultHtmlResponse(response, vaultUrlSegment, remainingPath, vaultUrl.pathname, contentType, logger, request, effectiveSessionId);
     }
     return response;
   } catch (err) {

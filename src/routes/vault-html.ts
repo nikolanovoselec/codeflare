@@ -305,11 +305,16 @@ export function injectVaultBootScript(html: string, config: VaultBootConfig): st
  * `codeflare-vault-idb-open` messages from the native service worker to
  * capture every database name SilverBullet opens that starts with `sb_`.
  * It persists the names into `localStorage["vault-session-<sid>-idbs"]`
- * as a JSON array. The
- * dashboard's `cleanupSessionVaultCache` / `sweepOrphanVaultCaches`
- * functions read that array and call `indexedDB.deleteDatabase(name)`
- * on session DELETE / dashboard mount - the real fix for the
- * previously-leaking SB IDBs (REQ-VAULT-015 AC3 + AC4).
+ * as a JSON array (keyed by the REAL session id, which the Worker injects
+ * into the boot config as `sessionId` even though the served URL carries the
+ * bucket token - REQ-VAULT-021). The dashboard's `checkVaultLocalReadiness`
+ * reads that array to confirm the SB stores exist before opening.
+ *
+ * NOTE (REQ-VAULT-021): the recorded names are NO LONGER used to delete IDBs.
+ * The SB stores are now bucket-stable (one set per user, shared across
+ * sessions), so `cleanupSessionVaultCache` / `sweepOrphanVaultCaches` remove
+ * only the localStorage markers and never call `indexedDB.deleteDatabase` -
+ * deleting the shared store would defeat cross-session persistence.
  *
  * Idempotent via `VAULT_IDB_RECORDER_MARKER`. Returns the input
  * unchanged when `</head>` is missing or the script is already present.
@@ -540,13 +545,14 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'function hasPrefix(recordedDbs, prefix) {' +
     'return recordedDbs.some(function (name) { return name.indexOf(prefix) === 0; });' +
     '}' +
-    'async function findRegistration(sid) {' +
+    'async function findRegistration() {' +
     'if (!navigator.serviceWorker) return null;' +
-    'var scopePath = "/api/vault/" + encodeURIComponent(sid) + "/";' +
-    'try { var direct = await navigator.serviceWorker.getRegistration(scopePath); if (direct) return direct; } catch (_) {}' +
+    // REQ-VAULT-021: SilverBullet registers its SW under the bucket-stable
+    // `/api/vault/<token>/` scope (one per user), which this iframe cannot name
+    // by session id. Match any vault-scoped registration.
     'try {' +
     'var regs = await navigator.serviceWorker.getRegistrations();' +
-    'for (var i = 0; i < regs.length; i++) { if (regs[i].scope.indexOf(scopePath) !== -1) return regs[i]; }' +
+    'for (var i = 0; i < regs.length; i++) { if (regs[i].scope.indexOf("/api/vault/") !== -1) return regs[i]; }' +
     '} catch (_) {}' +
     'return null;' +
     '}' +
@@ -562,7 +568,7 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'if (recordedDbs.length === 0) return proof(recordedDbs, hasDbApi, "no-recorder");' +
     'if (!hasPrefix(recordedDbs, "sb_data_")) return proof(recordedDbs, hasDbApi, "missing-sb-data");' +
     'if (!hasPrefix(recordedDbs, "sb_files_")) return proof(recordedDbs, hasDbApi, "missing-sb-files");' +
-    'var reg = await findRegistration(sid);' +
+    'var reg = await findRegistration();' +
     'var active = reg && reg.active ? reg.active : null;' +
     'if (!active) return proof(recordedDbs, hasDbApi, "missing-service-worker");' +
     'if (hasDbApi) {' +
@@ -828,21 +834,28 @@ export function rewriteVaultBaseHref(html: string, sessionId: string): RewriteRe
 
 export async function rewriteVaultHtmlResponse(
   response: Response,
-  sessionId: string,
+  urlSegment: string,
   remainingPath: string,
   pathname: string,
   contentType: string,
   logger: { warn: (msg: string, meta?: Record<string, unknown>) => void },
   request?: Request,
+  // REQ-VAULT-021: on the bucket-stable serving path `urlSegment` is the bucket
+  // token (what every SB URL builder + the CSRF cookie path must use) while the
+  // recorder/prewarm bridge must key their localStorage markers by the REAL
+  // session id (what the dashboard reads). They differ only on the token path;
+  // when omitted (session-keyed callers, unit tests) the boot sid defaults to
+  // the segment so behaviour is unchanged.
+  bootSessionId: string = urlSegment,
 ): Promise<Response> {
   const body = await response.text();
-  const { rewritten: baseRewritten, wasNoOp } = rewriteVaultBaseHref(body, sessionId);
+  const { rewritten: baseRewritten, wasNoOp } = rewriteVaultBaseHref(body, urlSegment);
   let rewritten = baseRewritten;
 
   const isShellPath = remainingPath === '/' || remainingPath === '/index.html';
   if (response.status === 200 && isShellPath) {
     try {
-      rewritten = injectVaultBootScript(rewritten, { sessionId });
+      rewritten = injectVaultBootScript(rewritten, { sessionId: bootSessionId });
       rewritten = injectVaultIdbRecorder(rewritten);
       const prewarmId = request ? readVaultPrewarmId(request) ?? undefined : undefined;
       rewritten = injectVaultPrewarmFocusGuard(rewritten, prewarmId);
@@ -862,7 +875,7 @@ export async function rewriteVaultHtmlResponse(
   // is optional only for the existing unit tests that call this helper
   // without it; the production call site (handleVaultRequest) always passes it.
   if (request && request.method === 'GET') {
-    maybeIssueCsrfCookie(request, headers, sessionId);
+    maybeIssueCsrfCookie(request, headers, urlSegment);
   }
   return new Response(rewritten, {
     status: response.status,

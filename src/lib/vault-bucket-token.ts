@@ -6,8 +6,9 @@
  * key. Serving the SB app under a per-SESSION URL (`/api/vault/<sid>/`) therefore
  * produced a brand-new IndexedDB every session and forced a full re-index on every
  * open. We instead serve the SB app under a bucket-stable URL
- * (`/api/vault/b/<token>/`) so the DB names are identical across sessions for the
- * same user and the persisted index/cache survives.
+ * (`/api/vault/<token>/`) so the DB names are identical across sessions for the
+ * same user and the persisted index/cache survives. The token is the first path
+ * segment (length/charset-disjoint from a session id), not a `/b/`-prefixed path.
  *
  * The token is a truncated SHA-256 of the R2 bucket name. The bucket name embeds the
  * sanitized email (see `getBucketName`), so we hash it rather than expose it: the URL
