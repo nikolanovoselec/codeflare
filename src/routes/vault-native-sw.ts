@@ -71,6 +71,18 @@ const ANCHOR_CONFIG_GATE = "if(t.enableClientEncryption&&!y){console.error(\"Sup
 const ANCHOR_NO_CLIENTS_INFO = "t.length===0&&console.info(\"No clients are listening for messages, dropping message\",a)";
 const ANCHOR_SERVICE_PROXY_ERROR = "console.error(\"[service proxy error]\",c,p),c===N.message&&u.reset(),g({type:\"auth-error\",message:c,actionOrRedirectHeader:p})";
 const ANCHOR_SYNC_SPACE_ERROR = "console.error(\"Sync space error\",t.message)";
+// Defensive coercion of the REMOTE file list. A full sync cycle binds
+// `o=await this.secondary.fetchFileList()` (the remote list over HTTP via
+// `e.json()`) and immediately feeds `o` to `this.getNonSyncCandidates(o)` (which
+// runs `o.forEach(...)`) and to `o.map(...)`. When the proxy returns a non-array
+// body (transient 5xx, an auth hiccup, or an HTML body from a stray CF Access 302),
+// `e.json()` yields a non-array and both consumers throw `forEach/map is not a
+// function`; the sync `run()` loop never sets `stopping` on this path, so the throw
+// repeats forever (console spam + stuck sync). Reassign `o` to `[]` right after the
+// fetch so a non-array becomes a safe no-op cycle (zero candidates, no deletion,
+// snapshot preserved) and the loop proceeds to the next cycle. ANCHOR_REMOTE_LIST_COERCE.
+const ANCHOR_REMOTE_LIST_COERCE =
+  "o=await this.secondary.fetchFileList(),r=this.getNonSyncCandidates(o)";
 
 /**
  * Apply the codeflare key-recovery graft to the verbatim SilverBullet worker:
@@ -87,6 +99,7 @@ export function graftVaultKeyRecovery(verbatim: string): string {
     ["NO_CLIENTS_INFO", ANCHOR_NO_CLIENTS_INFO],
     ["SERVICE_PROXY_ERROR", ANCHOR_SERVICE_PROXY_ERROR],
     ["SYNC_SPACE_ERROR", ANCHOR_SYNC_SPACE_ERROR],
+    ["REMOTE_LIST_COERCE", ANCHOR_REMOTE_LIST_COERCE],
   ] as const) {
     if (!verbatim.includes(anchor)) {
       throw new Error(
@@ -107,7 +120,11 @@ export function graftVaultKeyRecovery(verbatim: string): string {
       ANCHOR_SERVICE_PROXY_ERROR,
       "c===N.message?console.info(\"[service proxy auth]\",c):console.error(\"[service proxy error]\",c,p),c===N.message&&u.reset(),g({type:\"auth-error\",message:c,actionOrRedirectHeader:p})",
     )
-    .replace(ANCHOR_SYNC_SPACE_ERROR, "console.warn(\"Sync space error\",t.message)");
+    .replace(ANCHOR_SYNC_SPACE_ERROR, "console.warn(\"Sync space error\",t.message)")
+    .replace(
+      ANCHOR_REMOTE_LIST_COERCE,
+      "o=await this.secondary.fetchFileList(),o=Array.isArray(o)?o:[],r=this.getNonSyncCandidates(o)",
+    );
 }
 
 /**
