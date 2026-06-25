@@ -335,8 +335,10 @@ describe('entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync 
   it('every bare page wikilink in the real preseed Index.md resolves to a seeded preseed page (no broken links)', () => {
     const preseedRoot = resolve(__dirname, '../../preseed/silverbullet');
     const index = readFileSync(join(preseedRoot, 'Index.md'), 'utf8');
-    // Bare page links only: [[Name]] without a folder slash, anchor, or alias.
-    const links = [...index.matchAll(/\[\[([^\]|#/]+)\]\]/g)].map((m) => m[1].trim());
+    // Bare inline page links only: [[Name]] on a single line, without a folder
+    // slash, anchor, or alias. Excluding newlines skips Space Lua `query[[ ... ]]`
+    // long-bracket strings (multi-line Lua, not page links).
+    const links = [...index.matchAll(/\[\[([^\]|#/\n]+)\]\]/g)].map((m) => m[1].trim());
     assert.ok(links.length > 0, 'Index.md must contain at least one wikilink to validate');
     for (const page of links) {
       assert.ok(
