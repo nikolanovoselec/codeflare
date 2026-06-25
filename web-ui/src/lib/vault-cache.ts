@@ -31,7 +31,6 @@
 const VAULT_MARKER_PREFIX = 'vault-session-';
 const VAULT_IDBS_SUFFIX = '-idbs';
 const VAULT_PREWARMED_SUFFIX = '-prewarmed';
-const VAULT_OPENED_SUFFIX = '-opened';
 
 function getLS(): Storage | null {
   try {
@@ -53,20 +52,17 @@ function listSessionMarkers(ls: Storage): string[] {
     const key = ls.key(i);
     if (!key) continue;
     if (!key.startsWith(VAULT_MARKER_PREFIX)) continue;
-    // Strip the prefix, then strip a trailing `-idbs`, `-prewarmed`, or `-opened`
-    // suffix if present so `vault-session-<sid>` and each of its suffixed markers
-    // all contribute the same sid. Without the matching arm a suffixed marker is
-    // read as a bogus sid (e.g. `<sid>-opened`), which never matches an active
-    // session and is swept as an orphan - silently erasing the marker (the
-    // reload-skip marker REQ-VAULT-018 AC8 for `-prewarmed`, the mobile settle
-    // latch REQ-VAULT-018 AC11 for `-opened`).
+    // Strip the prefix, then strip a trailing `-idbs` or `-prewarmed` suffix if
+    // present so `vault-session-<sid>`, `vault-session-<sid>-idbs`, and
+    // `vault-session-<sid>-prewarmed` all contribute the same sid. Without the
+    // `-prewarmed` arm the full-prewarm marker is read as a bogus sid
+    // (`<sid>-prewarmed`), which never matches an active session and is swept as
+    // an orphan - silently erasing the reload-skip marker (REQ-VAULT-018 AC8).
     let sid = key.slice(VAULT_MARKER_PREFIX.length);
     if (sid.endsWith(VAULT_IDBS_SUFFIX)) {
       sid = sid.slice(0, -VAULT_IDBS_SUFFIX.length);
     } else if (sid.endsWith(VAULT_PREWARMED_SUFFIX)) {
       sid = sid.slice(0, -VAULT_PREWARMED_SUFFIX.length);
-    } else if (sid.endsWith(VAULT_OPENED_SUFFIX)) {
-      sid = sid.slice(0, -VAULT_OPENED_SUFFIX.length);
     }
     if (sid) sids.add(sid);
   }
@@ -78,7 +74,6 @@ function removeSessionMarkers(ls: Storage, sid: string): void {
     `${VAULT_MARKER_PREFIX}${sid}${VAULT_IDBS_SUFFIX}`,
     `${VAULT_MARKER_PREFIX}${sid}`,
     `${VAULT_MARKER_PREFIX}${sid}${VAULT_PREWARMED_SUFFIX}`,
-    `${VAULT_MARKER_PREFIX}${sid}${VAULT_OPENED_SUFFIX}`,
   ]) {
     try {
       ls.removeItem(key);

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed, markVaultOpened, hasVaultOpened } from '../../lib/vault-local-readiness';
+import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed } from '../../lib/vault-local-readiness';
 
 function createStorage(entries: Record<string, string> = {}): Storage {
   const store = new Map(Object.entries(entries));
@@ -219,32 +219,5 @@ describe('REQ-VAULT-018 AC8: full-prewarm marker', () => {
   it('reports not-prewarmed and swallows write errors when storage is unavailable', () => {
     expect(hasVaultFullyPrewarmed('session-1', null)).toBe(false);
     expect(() => markVaultFullyPrewarmed('session-1', null)).not.toThrow();
-  });
-});
-
-describe('REQ-VAULT-018: opened latch (mobile settle persistence)', () => {
-  it('records and reports the per-session opened marker so settle survives a PWA reload', () => {
-    const storage = createStorage();
-    expect(hasVaultOpened('session-1', storage)).toBe(false);
-    markVaultOpened('session-1', storage);
-    expect(hasVaultOpened('session-1', storage)).toBe(true);
-  });
-
-  it('scopes the opened marker per session so another session is not falsely settled', () => {
-    const storage = createStorage();
-    markVaultOpened('session-1', storage);
-    expect(hasVaultOpened('session-2', storage)).toBe(false);
-  });
-
-  it('uses a distinct key from the prewarm marker (prewarmed != opened)', () => {
-    const storage = createStorage();
-    markVaultFullyPrewarmed('session-1', storage);
-    // Prewarmed but not yet opened -> the button still breathes green to invite the open.
-    expect(hasVaultOpened('session-1', storage)).toBe(false);
-  });
-
-  it('reports not-opened and swallows write errors when storage is unavailable', () => {
-    expect(hasVaultOpened('session-1', null)).toBe(false);
-    expect(() => markVaultOpened('session-1', null)).not.toThrow();
   });
 });

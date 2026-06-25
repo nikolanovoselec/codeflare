@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { createSignal } from 'solid-js';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
-import VaultButton from '../../components/VaultButton';
+import VaultButton, { type VaultButtonStatus } from '../../components/VaultButton';
 
 describe('VaultButton', () => {
   afterEach(() => cleanup());
@@ -62,10 +63,13 @@ describe('VaultButton', () => {
     expect(btn().getAttribute('aria-describedby')).toBe('header-vault-button-status');
   });
 
-  it('armed auto-surfaces the ready region, then auto-hides it after 5s while the breathing class stays', () => {
+  it('armed auto-surfaces the ready region on the genuine preparing->armed transition, then auto-hides after 5s while the breathing class stays', () => {
     vi.useFakeTimers();
     try {
-      render(() => <VaultButton status="armed" onOpen={vi.fn()} />);
+      const [status, setStatus] = createSignal<VaultButtonStatus>('preparing');
+      render(() => <VaultButton status={status()} onOpen={vi.fn()} />);
+      // Transition preparing -> armed: the ready confirmation surfaces.
+      setStatus('armed');
       expect(screen.getByTestId('header-vault-status')).toBeInTheDocument();
       vi.advanceTimersByTime(5000);
       expect(screen.queryByTestId('header-vault-status')).not.toBeInTheDocument();
@@ -74,5 +78,16 @@ describe('VaultButton', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('a fresh already-armed mount (warm reload / return from the vault tab) does NOT re-pop the ready tooltip', () => {
+    // No preparing->armed transition happened in this mount, so the confirmation
+    // stays hidden — this is what stops the tooltip re-popping on every mobile PWA
+    // reload while the button is permanently green once ready.
+    render(() => <VaultButton status="armed" onOpen={vi.fn()} />);
+    expect(screen.queryByTestId('header-vault-status')).not.toBeInTheDocument();
+    // Still green and openable on a single click.
+    expect(btn().classList.contains('header-vault-button--armed')).toBe(true);
+    expect(btn().getAttribute('aria-disabled')).toBe('false');
   });
 });

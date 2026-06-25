@@ -70,8 +70,6 @@ const vaultLocalReadinessMock = vi.hoisted(() => ({
   keyRecoverable: vi.fn(async (_sessionId?: string) => true),
   hasFullyPrewarmed: vi.fn((_sessionId?: string) => false),
   markFullyPrewarmed: vi.fn((_sessionId?: string) => {}),
-  hasOpened: vi.fn((_sessionId?: string) => false),
-  markOpened: vi.fn((_sessionId?: string) => {}),
 }));
 
 vi.mock('../../lib/vault-local-readiness', () => ({
@@ -79,8 +77,6 @@ vi.mock('../../lib/vault-local-readiness', () => ({
   checkVaultKeyRecoverable: (sessionId: string) => vaultLocalReadinessMock.keyRecoverable(sessionId),
   hasVaultFullyPrewarmed: (sessionId: string) => vaultLocalReadinessMock.hasFullyPrewarmed(sessionId),
   markVaultFullyPrewarmed: (sessionId: string) => vaultLocalReadinessMock.markFullyPrewarmed(sessionId),
-  hasVaultOpened: (sessionId: string) => vaultLocalReadinessMock.hasOpened(sessionId),
-  markVaultOpened: (sessionId: string) => vaultLocalReadinessMock.markOpened(sessionId),
 }));
 
 const vaultPrewarmProof = {
@@ -249,11 +245,6 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     vaultLocalReadinessMock.hasFullyPrewarmed.mockClear();
     vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(false);
     vaultLocalReadinessMock.markFullyPrewarmed.mockClear();
-    // Default: this browser has not opened the vault yet, so the green "armed"
-    // breathe invites the first open (settle only happens after an open).
-    vaultLocalReadinessMock.hasOpened.mockClear();
-    vaultLocalReadinessMock.hasOpened.mockReturnValue(false);
-    vaultLocalReadinessMock.markOpened.mockClear();
     delete (window as any).__terminalAreaProps;
     delete (window as any).__headerProps;
   });
@@ -433,7 +424,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
     });
 
-    it('REQ-VAULT-008 AC8: the open click navigates the new tab to the bootstrap-hop URL, not the bare shell, and records the opened latch', async () => {
+    it('REQ-VAULT-008 AC8: the open click navigates the new tab to the bootstrap-hop URL, not the bare shell', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
@@ -451,22 +442,19 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
 
         // Click 2 opens through the key-arming bootstrap-hop (arms the SW encryption
         // key before the editor boots, so the first open never races __cfRecover into
-        // a /.auth 403), NOT the bare shell; and it persists the opened latch so a
-        // mobile PWA reload settles the button to neutral instead of breathing green.
+        // a /.auth 403), NOT the bare shell.
         await (window as any).__headerProps.onVaultOpen();
         expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/.codeflare-bootstrap', '_blank', 'noopener');
         expect(openSpy).not.toHaveBeenCalledWith('/api/vault/sess1/', '_blank', 'noopener');
-        expect(vaultLocalReadinessMock.markOpened).toHaveBeenCalledWith('sess1');
       } finally {
         openSpy.mockRestore();
       }
     });
 
-    it('REQ-VAULT-018: settles to a neutral (non-breathing) status after the open click, and a further click still opens', async () => {
+    it('REQ-VAULT-018: stays green (armed) after the open click and on subsequent opens — ready means green, always', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
-      // Warm local cache so the post-settle click re-verifies + opens (reload path).
       vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
       const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
 
@@ -480,16 +468,18 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
         await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
 
-        // Click 2 opens AND settles the button out of the green-breathing state.
+        // Click 2 opens; the button STAYS green (no settle to neutral) because the
+        // vault is ready (pw === 'ready'). Green is permanent once ready — identical
+        // on mobile/tablet/desktop, with no reload-dependent settle state.
         await (window as any).__headerProps.onVaultOpen();
         expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/.codeflare-bootstrap', '_blank', 'noopener');
-        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('ready'));
-        expect((window as any).__headerProps.vaultStatus).not.toBe('armed');
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
 
-        // The settled neutral button still opens on a further click.
+        // A further click still opens, and the button is still green.
         openSpy.mockClear();
         await (window as any).__headerProps.onVaultOpen();
         await waitFor(() => expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/.codeflare-bootstrap', '_blank', 'noopener'));
+        expect((window as any).__headerProps.vaultStatus).toBe('armed');
       } finally {
         openSpy.mockRestore();
       }
@@ -512,29 +502,6 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
       expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
       expect((window as any).__headerProps.vaultReady).toBe(true);
-    });
-
-    it('REQ-VAULT-018: settles to neutral via the PERSISTED opened latch after a remount that wiped the in-memory signal (mobile PWA reload)', async () => {
-      mockSessions = [createMockSession({ status: 'running' })];
-      mockActiveSessionId = 'sess1';
-      mockPreferences = { sessionMode: 'advanced' };
-      // Mobile: the standalone PWA reloads/remounts the dashboard on return from the
-      // vault tab, so the in-memory vaultOpenedBySession signal is gone — but the
-      // durable prewarm marker AND the durable opened marker both survive. The
-      // reload-skip arms pw='ready'; the persisted opened latch must settle it to a
-      // neutral 'ready' icon instead of breathing green forever (the #2 mobile bug).
-      // Gut-check: read only the in-memory signal (the bug) and a fresh mount has it
-      // empty -> 'armed' (green breathe) -> this fails.
-      vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(true);
-      vaultLocalReadinessMock.hasOpened.mockReturnValue(true);
-      vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
-
-      render(() => <Layout />);
-      vaultProbeMock.latestOptions.setLatch();
-
-      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('ready'));
-      expect((window as any).__headerProps.vaultStatus).not.toBe('armed');
-      expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
     });
 
     it('REQ-VAULT-018: a reload with local DBs/SW but no full prewarm proof stays available until click', async () => {

@@ -16,7 +16,7 @@ import type { TileLayout, AgentType, TabConfig } from '../types';
 import { VIEW_TRANSITION_DURATION_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS } from '../lib/constants';
 import { startVaultReadinessProbe, probeVaultReady } from '../lib/vault-readiness';
 import { DEFAULT_VAULT_PREWARM_TIMEOUT_MS, startVaultPrewarm, type VaultPrewarmStatus } from '../lib/vault-prewarm';
-import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed, markVaultOpened, hasVaultOpened } from '../lib/vault-local-readiness';
+import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed } from '../lib/vault-local-readiness';
 import type { VaultButtonStatus } from './VaultButton';
 import { requestBrowserStoragePersistence } from '../lib/browser-storage-persistence';
 
@@ -95,11 +95,6 @@ const Layout: Component<LayoutProps> = (props) => {
   // recoverable (button breathes accent), 'armed' = key recoverable (button
   // breathes green, next click opens). Absent = no pending open.
   const [vaultOpenIntentBySession, setVaultOpenIntentBySession] = createSignal<Record<string, 'preparing' | 'armed'>>({});
-  // Settle latch (REQ-VAULT-018): the button breathes green only UNTIL the open
-  // click. Once a session's vault tab has been opened, the warm control settles to
-  // the plain neutral icon (still clickable to reopen) instead of breathing green.
-  // Reset on session departure / page reload so a fresh visit re-arms green.
-  const [vaultOpenedBySession, setVaultOpenedBySession] = createSignal<Record<string, boolean>>({});
   const [vaultPersistenceRequestedBySession, setVaultPersistenceRequestedBySession] = createSignal<Record<string, boolean>>({});
   // Memoize the running-flag so the effect only re-runs when running-ness
   // actually flips, not on every metrics/ptyActive churn from session
@@ -133,12 +128,6 @@ const Layout: Component<LayoutProps> = (props) => {
       }
       if (prevSid) {
         clearVaultOpenIntent(prevSid);
-        setVaultOpenedBySession((prev) => {
-          if (prev[prevSid] === undefined) return prev;
-          const next = { ...prev };
-          delete next[prevSid];
-          return next;
-        });
       }
       return;
     }
@@ -323,9 +312,15 @@ const Layout: Component<LayoutProps> = (props) => {
     onCleanup(() => clearTimeout(retryTimer));
   });
 
-  // Button lifecycle: idle (SB server not ready) -> available (server ready, click
-  // to prepare) -> preparing (accent breathe, indexing on demand) -> armed (green
-  // breathe, click opens instantly). Errors/timeouts surface only while preparing.
+  // Button lifecycle: idle (SB server not ready) -> available (neutral; server
+  // ready, click 1 to prepare) -> preparing (accent breathe, indexing on demand)
+  // -> armed (GREEN). Once the vault is ready the button is green and STAYS green
+  // for the rest of the session; a warm/returning session shows green immediately
+  // and opens on a single click. Green is deliberately NOT gated on any open/settle
+  // latch: the mobile standalone PWA reloads on return from the vault tab, so any
+  // settle-on-return state diverged per-platform and caused the green-forever
+  // (mobile) vs never-green (desktop) bugs. "Ready = green, always" has no
+  // reload-dependent state, so mobile / tablet / desktop behave identically.
   const vaultButtonStatus = createMemo<VaultButtonStatus>(() => {
     const sid = sessionStore.activeSessionId;
     if (!sid || vaultReadyBySession()[sid] !== true) return 'idle';
@@ -337,15 +332,9 @@ const Layout: Component<LayoutProps> = (props) => {
       if (pw === 'timeout') return 'timeout';
       return 'preparing';
     }
-    // No open-intent yet:
-    if (pw === 'ready') {
-      // Breathe green to invite the open click; once opened, settle to the plain
-      // neutral icon (still openable) instead of breathing green forever. Read the
-      // persisted latch too: on mobile the standalone PWA reloads/remounts on return
-      // from the vault tab, wiping the in-memory signal, so without the persisted
-      // marker the button would breathe green forever (the #2 mobile bug).
-      return vaultOpenedBySession()[sid] || hasVaultOpened(sid) ? 'ready' : 'armed';
-    }
+    // No open-intent: green (and openable on a single click) once the vault is
+    // ready — warm/reload-skip or returned-from-the-vault-tab — and it stays green.
+    if (pw === 'ready') return 'armed';
     return 'available';
   });
 
@@ -365,11 +354,9 @@ const Layout: Component<LayoutProps> = (props) => {
     });
 
   const openVaultTab = (sid: string) => {
+    // Clear the open-intent so the button falls back to the steady green "ready"
+    // state (pw === 'ready') after opening, rather than any transient armed-intent.
     clearVaultOpenIntent(sid);
-    // Settle the control out of the green-breathing state now that it has opened.
-    // Persist the latch too so it survives the mobile PWA reload-on-return (#2).
-    setVaultOpenedBySession((prev) => (prev[sid] ? prev : { ...prev, [sid]: true }));
-    markVaultOpened(sid);
     // Open via the bootstrap-hop, NOT the bare shell: the hop posts the AES key to
     // the SW and waits for activation before redirecting to the editor, so the
     // first open never races the SW's single-shot __cfRecover. The bare-shell open

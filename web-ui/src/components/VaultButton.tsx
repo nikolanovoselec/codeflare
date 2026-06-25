@@ -87,19 +87,27 @@ const VaultButton: Component<VaultButtonProps> = (props) => {
   });
 
   // On-demand model: surface the status tooltip automatically. 'preparing' shows the
-  // focus-loss warning the moment the button starts breathing; 'armed' shows the ready
-  // confirmation, then auto-hides after 5s (the green breathing stays as the persistent
-  // ready signal). Other statuses fall back to the click-to-reveal behavior above.
+  // focus-loss warning the moment the button starts breathing; the 'armed' ready
+  // confirmation auto-shows ONLY on the genuine preparing -> armed transition (the
+  // moment the vault just became ready), then auto-hides after 5s (the green stays as
+  // the persistent ready signal). It must NOT re-pop on a fresh mount that is already
+  // armed — a warm reload / returning from the vault tab, which on the mobile
+  // standalone PWA remounts the component — so we gate it on the previous status.
+  let prevStatus: VaultButtonStatus | undefined;
   createEffect(() => {
     const status = props.status;
+    const justBecameReady = prevStatus === 'preparing' && status === 'armed';
+    prevStatus = status;
     if (status === 'preparing') {
       setShowMessage(true);
       return;
     }
     if (status === 'armed') {
-      setShowMessage(true);
-      const timer = setTimeout(() => setShowMessage(false), VAULT_READY_MESSAGE_AUTO_HIDE_MS);
-      onCleanup(() => clearTimeout(timer));
+      if (justBecameReady) {
+        setShowMessage(true);
+        const timer = setTimeout(() => setShowMessage(false), VAULT_READY_MESSAGE_AUTO_HIDE_MS);
+        onCleanup(() => clearTimeout(timer));
+      }
       return;
     }
     setShowMessage(false);
