@@ -488,7 +488,7 @@ describe('handleWebSocketUpgrade', () => {
         expect(response.status).toBe(101);
         // The forward was actually attempted against the container's /terminal path.
         const forwardedTerminal = mockContainerFetch.mock.calls.some(
-          ([req]: [Request]) => new URL(req.url).pathname === '/terminal'
+          (call) => new URL((call[0] as Request).url).pathname === '/terminal'
         );
         expect(forwardedTerminal).toBe(true);
       } finally {
