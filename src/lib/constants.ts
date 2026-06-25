@@ -56,6 +56,14 @@ export const WS_RATE_LIMIT_MAX_CONNECTIONS = 30;
 export const WS_RATE_LIMIT_TTL_SECONDS = 120;
 
 /**
+ * Max time to wait for a container to answer a terminal WebSocket upgrade before
+ * failing fast with a retryable close. A healthy container answers in <1s and
+ * warming-up containers are short-circuited earlier; this only bounds a hung /
+ * unreachable container so the client is not left "connecting" for tens of seconds.
+ */
+export const CONTAINER_WS_FORWARD_TIMEOUT_MS = 10_000;
+
+/**
  * Protected paths — blocks browse/upload/download/delete/move via the storage API.
  * Validated in storage/validation.ts validateKey().
  *

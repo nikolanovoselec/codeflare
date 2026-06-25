@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { handleWebSocketUpgrade, validateWebSocketRoute } from '../../routes/terminal';
+import { CONTAINER_WS_FORWARD_TIMEOUT_MS } from '../../lib/constants';
 import type { Env, Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 
@@ -451,6 +452,48 @@ describe('handleWebSocketUpgrade', () => {
       );
       // rate-limit IS incremented on the success path
       expect(wsConnectPutCalls.length).toBeGreaterThan(0);
+    });
+
+    it('fast-fails with a 101 close (not an indefinite hang) when the container WS forward never answers', async () => {
+      // A dead/unreachable container passes the /health gate (or fails it open) but
+      // then never answers the actual WS upgrade. Without the forward timeout the
+      // worker awaited container.fetch for ~34s in prod and the browser dropped the
+      // socket ("closed before the connection is established"). The forward must now
+      // race CONTAINER_WS_FORWARD_TIMEOUT_MS and return a retryable close.
+      // Oracle: gut the timeout and this test hangs forever on the never-resolving
+      // forward instead of resolving to the 101 close.
+      vi.useFakeTimers();
+      try {
+        mockContainerFetch.mockImplementation(async (req: Request) => {
+          const url = new URL(req.url);
+          if (url.pathname === '/health') {
+            return new Response(JSON.stringify({ terminalServiceReady: true, prewarmReady: true }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          // /terminal WS forward hangs (container is up per CF but unreachable).
+          return new Promise<Response>(() => {});
+        });
+
+        const request = createRequest();
+        const routeResult = validateWebSocketRoute(request);
+        const pending = handleWebSocketUpgrade(request, mockEnv, mockCtx, routeResult);
+
+        await vi.advanceTimersByTimeAsync(CONTAINER_WS_FORWARD_TIMEOUT_MS + 50);
+        const response = await pending;
+
+        // The synthetic fast-fail close is a 101 upgrade, distinct from the mock's
+        // normal 200 forward — i.e. the timeout path produced the response.
+        expect(response.status).toBe(101);
+        // The forward was actually attempted against the container's /terminal path.
+        const forwardedTerminal = mockContainerFetch.mock.calls.some(
+          ([req]: [Request]) => new URL(req.url).pathname === '/terminal'
+        );
+        expect(forwardedTerminal).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('falls through to normal flow when /health probe fails (fail-open) AND rate-limit IS burned', async () => {

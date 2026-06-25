@@ -424,6 +424,39 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
     });
 
+    it('REQ-VAULT-018: settles to a neutral (non-breathing) status after the open click, and a further click still opens', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      // Warm local cache so the post-settle click re-verifies + opens (reload path).
+      vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      try {
+        render(() => <Layout />);
+        vaultProbeMock.latestOptions.setLatch();
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+
+        await (window as any).__headerProps.onVaultOpen(); // click 1 -> prewarm
+        await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
+        vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
+
+        // Click 2 opens AND settles the button out of the green-breathing state.
+        await (window as any).__headerProps.onVaultOpen();
+        expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/', '_blank', 'noopener');
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('ready'));
+        expect((window as any).__headerProps.vaultStatus).not.toBe('armed');
+
+        // The settled neutral button still opens on a further click.
+        openSpy.mockClear();
+        await (window as any).__headerProps.onVaultOpen();
+        await waitFor(() => expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/', '_blank', 'noopener'));
+      } finally {
+        openSpy.mockRestore();
+      }
+    });
+
     it('REQ-VAULT-018 AC8: shows armed without a click (no iframe) when the vault is already warm on this device (reload)', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';

@@ -95,6 +95,11 @@ const Layout: Component<LayoutProps> = (props) => {
   // recoverable (button breathes accent), 'armed' = key recoverable (button
   // breathes green, next click opens). Absent = no pending open.
   const [vaultOpenIntentBySession, setVaultOpenIntentBySession] = createSignal<Record<string, 'preparing' | 'armed'>>({});
+  // Settle latch (REQ-VAULT-018): the button breathes green only UNTIL the open
+  // click. Once a session's vault tab has been opened, the warm control settles to
+  // the plain neutral icon (still clickable to reopen) instead of breathing green.
+  // Reset on session departure / page reload so a fresh visit re-arms green.
+  const [vaultOpenedBySession, setVaultOpenedBySession] = createSignal<Record<string, boolean>>({});
   const [vaultPersistenceRequestedBySession, setVaultPersistenceRequestedBySession] = createSignal<Record<string, boolean>>({});
   // Memoize the running-flag so the effect only re-runs when running-ness
   // actually flips, not on every metrics/ptyActive churn from session
@@ -126,7 +131,15 @@ const Layout: Component<LayoutProps> = (props) => {
           return next;
         });
       }
-      if (prevSid) clearVaultOpenIntent(prevSid);
+      if (prevSid) {
+        clearVaultOpenIntent(prevSid);
+        setVaultOpenedBySession((prev) => {
+          if (prev[prevSid] === undefined) return prev;
+          const next = { ...prev };
+          delete next[prevSid];
+          return next;
+        });
+      }
       return;
     }
     lastVaultSid = sid;
@@ -325,7 +338,11 @@ const Layout: Component<LayoutProps> = (props) => {
       return 'preparing';
     }
     // No open-intent yet:
-    if (pw === 'ready') return 'armed'; // reload-skip: already warm -> green, opens on click
+    if (pw === 'ready') {
+      // Breathe green to invite the open click; once opened this visit, settle to the
+      // plain neutral icon (still openable) instead of breathing green forever.
+      return vaultOpenedBySession()[sid] ? 'ready' : 'armed';
+    }
     return 'available';
   });
 
@@ -346,6 +363,8 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const openVaultTab = (sid: string) => {
     clearVaultOpenIntent(sid);
+    // Settle the control out of the green-breathing state now that it has opened.
+    setVaultOpenedBySession((prev) => (prev[sid] ? prev : { ...prev, [sid]: true }));
     window.open(`/api/vault/${sid}/`, '_blank', 'noopener');
   };
 

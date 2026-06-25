@@ -1451,6 +1451,20 @@ init_user_vault() {
         cp "$PRESEED_DIR/Raw/Graphs/Vault Graph.md" "$VAULT/Raw/Graphs/Vault Graph.md"
         echo "[entrypoint] Seeded Raw/Graphs/Vault Graph.md"
     fi
+
+    # Create-if-missing landing pages so the dashboard's [[Notes]] / [[References]]
+    # links resolve to real pages instead of 404ing as broken/aspiring pages (which
+    # spams the index and the browser console). Static (no live query blocks); never
+    # overwritten, so user edits/deletes stick. NOT in PRESEED_PAGES -- once created
+    # they sync normally with a stable mtime and do not need the deterministic stamp.
+    local LANDING
+    for LANDING in Notes.md References.md; do
+        if [ -f "$PRESEED_DIR/$LANDING" ] && [ ! -f "$VAULT/$LANDING" ]; then
+            cp "$PRESEED_DIR/$LANDING" "$VAULT/$LANDING"
+            echo "[entrypoint] Seeded $LANDING landing page"
+        fi
+    done
+
     # One-time cleanup: legacy "Global Graph.md" pages from earlier installs
     # link to a non-existent global-graph.html (404). Drop the page and the
     # never-generated viz file on every boot - idempotent, also catches
@@ -1475,6 +1489,22 @@ init_user_vault() {
             cp "$PRESEED_DIR/$PAGE" "$VAULT/$PAGE"
             echo "[entrypoint] Vault $PAGE synced from preseed"
             PRESEED_PAGE_WRITTEN=1
+        fi
+        # Stamp the codeflare-authoritative page with the IMMUTABLE preseed source's
+        # mtime on EVERY boot -- even when cmp-skip left the file untouched. The
+        # image's preseed mtime is constant for a release, so the in-container
+        # SilverBullet server reports an identical lastModified for these pages across
+        # every session. Without this, bisync/cp give Index.md a fresh mtime each
+        # boot; on a 2nd session that diverges from the REQ-VAULT-021 persisted client
+        # sync snapshot, so SilverBullet's sync engine sees Index.md "changed on
+        # secondary" on every ~3s editor watch-poll, re-enqueues an index op each
+        # cycle, and the prewarm readiness gate (indexQueue empty for 3 consecutive
+        # polls) never settles -- the Vault button breathes 'preparing' forever. A
+        # deterministic mtime keeps the persisted snapshot in agreement so the spurious
+        # "changed on secondary" never fires (cold start is unaffected: its snapshot
+        # is built fresh in-session).
+        if [ -f "$VAULT/$PAGE" ] && [ -f "$PRESEED_DIR/$PAGE" ]; then
+            touch -r "$PRESEED_DIR/$PAGE" "$VAULT/$PAGE" 2>/dev/null || true
         fi
     done
     # If any preseed page was rewritten, bump vault-extract.last so the

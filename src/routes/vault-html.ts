@@ -331,6 +331,7 @@ const VAULT_PREWARM_QUERY = 'codeflarePrewarm';
 const VAULT_PREWARM_ID_QUERY = 'prewarmId';
 export const VAULT_PREWARM_BRIDGE_MARKER = 'data-codeflare-vault-prewarm-bridge';
 export const VAULT_PREWARM_FOCUS_GUARD_MARKER = 'data-codeflare-vault-prewarm-focus-guard';
+export const VAULT_CONTROLLED_RELOAD_MARKER = 'data-codeflare-vault-controlled-reload';
 export const VAULT_PREWARM_REQUIRED_FILES = ['CONFIG.md', 'Index.md', 'STYLES.md'] as const;
 
 export function injectVaultIdbRecorder(html: string): string {
@@ -584,6 +585,12 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'return proof(recordedDbs, hasDbApi, null, active.state);' +
     '}' +
     'var inFlight = false;' +
+    'var readyStreak = 0;' +
+    // REQ-VAULT-018: require the full readiness proof to hold across this many
+    // consecutive polls before arming, so a momentary index-queue-empty (mid-sync)
+    // cannot arm the control while SilverBullet is still settling. Each poll also
+    // awaits async readiness work, so this spans ~1s+ of continuously-proven ready.
+    'var requiredReadyStreak = 3;' +
     'var timer = window.setInterval(async function () {' +
     'if (inFlight) return;' +
     'inFlight = true;' +
@@ -592,6 +599,8 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'var localProof = await checkLocalReadiness(sid);' +
     'var contentProof = localProof.ready === true ? await checkContentReadiness() : null;' +
     'if (localProof.ready === true && contentProof) {' +
+    'readyStreak++;' +
+    'if (readyStreak >= requiredReadyStreak) {' +
     'localProof.contentReady = contentProof.contentReady;' +
     'localProof.spaceSyncCompleted = contentProof.spaceSyncCompleted;' +
     'localProof.indexReady = contentProof.indexReady;' +
@@ -600,13 +609,64 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
     'window.clearInterval(timer);' +
     'post("ready", null, localProof);' +
     '}' +
-    '}' +
+    '} else { readyStreak = 0; }' +
+    '} else { readyStreak = 0; }' +
     '} catch (e) {' +
     'window.clearInterval(timer);' +
     'post("error", e && e.message ? e.message : String(e));' +
     '} finally { inFlight = false; }' +
     '}, 250);' +
     '})();</script>';
+  return html.replace('</head>', `${script}</head>`);
+}
+
+/**
+ * REQ-VAULT-018 (open-path safety net): a one-time controlled reload for the real,
+ * top-level vault tab. When an already-warmed vault is opened, the browser can load
+ * this navigation BEFORE the vault-scoped service worker controls the client
+ * (`navigator.serviceWorker.controller` is null on first paint), so SilverBullet
+ * boots without the SW-backed local space and renders an empty / partial editor
+ * until a manual reload. This reloads the page exactly once -- gated by a
+ * `sessionStorage` one-shot so it can NEVER loop -- when a vault SW is active but
+ * not yet controlling this client. Inert in the headless prewarm iframe
+ * (`window.parent !== window`), on a genuine first boot (no vault SW yet), and when
+ * the SW already controls the page (the one-shot is cleared then so a later in-tab
+ * navigation can self-heal again). Exported + `.toString()`-injected so it has a
+ * single source of truth and is unit-tested directly.
+ */
+export function installVaultControlledReload(windowRef: any, navigatorRef: any, storageRef: any): void {
+  try {
+    if (windowRef.parent !== windowRef) return;
+    const sw = navigatorRef && navigatorRef.serviceWorker;
+    if (!sw) return;
+    const KEY = 'cf-vault-sw-controlled-reload';
+    if (sw.controller) {
+      try { if (storageRef) storageRef.removeItem(KEY); } catch (_) {}
+      return;
+    }
+    sw.getRegistrations().then(function (regs: any) {
+      if (sw.controller) return;
+      let active = false;
+      for (let i = 0; i < regs.length; i++) {
+        if (regs[i] && regs[i].active && regs[i].scope.indexOf('/api/vault/') !== -1) { active = true; break; }
+      }
+      if (!active) return;
+      let already = false;
+      try { already = !!(storageRef && storageRef.getItem(KEY) === '1'); } catch (_) {}
+      if (already) return;
+      try { if (storageRef) storageRef.setItem(KEY, '1'); } catch (_) {}
+      windowRef.location.reload();
+    }).catch(function () {});
+  } catch (_) {}
+}
+
+export function injectVaultControlledReload(html: string): string {
+  const source = installVaultControlledReload.toString()
+    .replace(/<\//g, '<\\/')
+    .replace(/<!--/g, '<\\!--')
+    .replace(/[\u2028\u2029]/g, (m) => '\\u' + m.charCodeAt(0).toString(16));
+  const script = '<script ' + VAULT_CONTROLLED_RELOAD_MARKER + '="1">(function () {(' +
+    source + ')(window, navigator, window.sessionStorage);})();</script>';
   return html.replace('</head>', `${script}</head>`);
 }
 
@@ -860,6 +920,11 @@ export async function rewriteVaultHtmlResponse(
       const prewarmId = request ? readVaultPrewarmId(request) ?? undefined : undefined;
       rewritten = injectVaultPrewarmFocusGuard(rewritten, prewarmId);
       rewritten = injectVaultPrewarmBridge(rewritten, prewarmId);
+      // Only the real top-level open gets the controlled-reload safety net; the
+      // headless prewarm iframe must never reload itself (it self-excludes anyway).
+      if (prewarmId === undefined) {
+        rewritten = injectVaultControlledReload(rewritten);
+      }
     } catch (err) {
       logger.warn('vault boot-script injection skipped', { error: toErrorMessage(err) });
     }

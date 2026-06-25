@@ -21,6 +21,9 @@ import {
   VAULT_PREWARM_BRIDGE_MARKER,
   VAULT_PREWARM_FOCUS_GUARD_MARKER,
   VAULT_PREWARM_REQUIRED_FILES,
+  injectVaultControlledReload,
+  installVaultControlledReload,
+  VAULT_CONTROLLED_RELOAD_MARKER,
 } from '../../routes/vault-html';
 
 describe('CF-045: vault-html direct unit tests', () => {
@@ -296,6 +299,100 @@ describe('CF-045: vault-html direct unit tests', () => {
       expect(script.indexOf('checkContentReadiness')).toBeLessThan(
         script.indexOf('post("ready"'),
       );
+    });
+
+    it('arms only after the readiness proof holds across multiple consecutive polls (stable-green gate)', async () => {
+      const script = await readPrewarmBridgeScript(injectVaultPrewarmBridge('<html><head></head></html>', 'warm-1'));
+      // More than one consecutive proven-ready poll is required before arming.
+      const m = script.match(/requiredReadyStreak\s*=\s*(\d+)/);
+      expect(m, 'bridge must define requiredReadyStreak').not.toBeNull();
+      expect(Number(m![1])).toBeGreaterThanOrEqual(2);
+      // post("ready") is gated behind the streak threshold, not a single proof ...
+      expect(script.indexOf('readyStreak >= requiredReadyStreak')).toBeGreaterThanOrEqual(0);
+      expect(script.indexOf('readyStreak >= requiredReadyStreak')).toBeLessThan(
+        script.indexOf('post("ready"'),
+      );
+      // ... and a not-ready poll resets the streak so a momentary index-empty cannot arm.
+      expect(script).toContain('readyStreak = 0');
+    });
+  });
+
+  describe('injectVaultControlledReload (REQ-VAULT-018 open-path safety net)', () => {
+    // Call the exported installer directly (workerd blocks new Function); it is the
+    // single source of truth that injectVaultControlledReload .toString()-injects.
+    async function runControlledReload(opts: {
+      topLevel?: boolean;
+      hasServiceWorker?: boolean;
+      controller?: boolean;
+      regs?: Array<{ active: boolean; scope: string }>;
+      flagAlready?: boolean;
+    }) {
+      let reloadCount = 0;
+      const store: Record<string, string> = {};
+      if (opts.flagAlready) store['cf-vault-sw-controlled-reload'] = '1';
+      const storage = {
+        getItem: (k: string) => (k in store ? store[k] : null),
+        setItem: (k: string, v: string) => { store[k] = v; },
+        removeItem: (k: string) => { delete store[k]; },
+      };
+      const fakeWindow: any = { location: { reload: () => { reloadCount += 1; } } };
+      fakeWindow.parent = (opts.topLevel ?? true) ? fakeWindow : {};
+      const navigatorRef: any = opts.hasServiceWorker === false ? {} : {
+        serviceWorker: {
+          controller: opts.controller ? {} : null,
+          getRegistrations: async () => opts.regs ?? [],
+        },
+      };
+      installVaultControlledReload(fakeWindow, navigatorRef, storage);
+      // Let the getRegistrations().then microtask settle.
+      await Promise.resolve();
+      await Promise.resolve();
+      return { reloadCount, flagSet: store['cf-vault-sw-controlled-reload'] === '1' };
+    }
+
+    const VAULT_REG = [{ active: true, scope: 'https://x/api/vault/abc123/' }];
+
+    it('injects exactly one controlled-reload script carrying the marker', () => {
+      const rewritten = injectVaultControlledReload('<html><head></head><body></body></html>');
+      expect(rewritten).toContain(VAULT_CONTROLLED_RELOAD_MARKER);
+      expect(rewritten.split(VAULT_CONTROLLED_RELOAD_MARKER).length - 1).toBe(1);
+    });
+
+    it('reloads exactly once when a vault service worker is active but not controlling the page', async () => {
+      const { reloadCount, flagSet } = await runControlledReload({ controller: false, regs: VAULT_REG });
+      expect(reloadCount).toBe(1);
+      expect(flagSet).toBe(true); // one-shot flag set so it cannot loop
+    });
+
+    it('does NOT reload a second time once the one-shot flag is set (loop-safe)', async () => {
+      const { reloadCount } = await runControlledReload({ controller: false, regs: VAULT_REG, flagAlready: true });
+      expect(reloadCount).toBe(0);
+    });
+
+    it('is inert in the headless prewarm iframe (window.parent !== window)', async () => {
+      const { reloadCount } = await runControlledReload({ topLevel: false, controller: false, regs: VAULT_REG });
+      expect(reloadCount).toBe(0);
+    });
+
+    it('does not reload on a genuine first boot with no vault service worker registered', async () => {
+      const { reloadCount } = await runControlledReload({ controller: false, regs: [] });
+      expect(reloadCount).toBe(0);
+    });
+
+    it('does not reload when only a non-vault service worker scope is active', async () => {
+      const { reloadCount } = await runControlledReload({ controller: false, regs: [{ active: true, scope: 'https://x/other/' }] });
+      expect(reloadCount).toBe(0);
+    });
+
+    it('does not reload and clears the one-shot flag once the SW already controls the page', async () => {
+      const { reloadCount, flagSet } = await runControlledReload({ controller: true, regs: VAULT_REG, flagAlready: true });
+      expect(reloadCount).toBe(0);
+      expect(flagSet).toBe(false); // cleared so a later in-tab nav can self-heal
+    });
+
+    it('is inert when the browser has no service worker support', async () => {
+      const { reloadCount } = await runControlledReload({ hasServiceWorker: false });
+      expect(reloadCount).toBe(0);
     });
   });
 

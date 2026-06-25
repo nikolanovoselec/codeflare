@@ -38,6 +38,7 @@ import {
   existsSync,
   statSync,
   readdirSync,
+  utimesSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -254,6 +255,95 @@ describe('entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync 
     // Skeleton dirs the function guarantees exist (mkdir -p, idempotent).
     for (const d of ['Raw/Sessions', 'Notes', 'References', 'graphify-out', '.silverbullet/_plug']) {
       assert.ok(existsSync(join(vault, d)), `init_user_vault must ensure ~/Vault/${d} exists`);
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Deterministic preseed-page mtimes — the warm 2nd-start "stuck preparing"
+  // fix. The SW sync engine keys "changed on secondary" off lastModified; a
+  // fresh boot mtime on a byte-identical Index.md diverges from the
+  // REQ-VAULT-021 persisted sync snapshot and loops forever. init_user_vault
+  // must stamp the authoritative pages with the immutable preseed source mtime
+  // on EVERY boot (even when cmp-skip leaves content untouched).
+  // -------------------------------------------------------------------------
+  it('stamps codeflare-authoritative pages with the deterministic preseed mtime even when cmp-skip leaves content untouched', () => {
+    const root = mkTmp('vault-mtime-');
+    const userHome = join(root, 'home');
+    const preseedDir = join(root, 'preseed');
+    const vault = join(userHome, 'Vault');
+
+    mkdirSync(preseedDir, { recursive: true });
+    writeFileSync(join(preseedDir, 'Index.md'), 'INDEX CONTENT\n');
+    // Pin the preseed source to a fixed, image-stable instant (the value the
+    // in-container SilverBullet server should report every session).
+    const PRESEED_MTIME = new Date('2025-01-01T00:00:00.000Z');
+    utimesSync(join(preseedDir, 'Index.md'), PRESEED_MTIME, PRESEED_MTIME);
+
+    // Returning session: byte-IDENTICAL Index.md (so cmp -s SKIPS the cp) but
+    // with a DRIFTED mtime, exactly as a fresh container boot / bisync produces.
+    mkdirSync(vault, { recursive: true });
+    writeFileSync(join(vault, 'Index.md'), 'INDEX CONTENT\n');
+    const DRIFTED = new Date('2026-06-25T12:00:00.000Z');
+    utimesSync(join(vault, 'Index.md'), DRIFTED, DRIFTED);
+
+    const res = runBash(buildInitVaultHarness({ userHome, preseedDir, runs: 1 }));
+    assert.equal(res.status, 0, `init_user_vault must run cleanly; stderr: ${res.stderr}`);
+
+    // Content untouched (cmp -s skipped the cp) ...
+    assert.equal(readFileSync(join(vault, 'Index.md'), 'utf8'), 'INDEX CONTENT\n');
+    // ... but the mtime is stamped to the deterministic preseed mtime, NOT the
+    // drifted boot mtime. Gut-check: drop the `touch -r` and this fails (the
+    // cmp-skip leaves the drifted mtime in place).
+    const vaultMtime = statSync(join(vault, 'Index.md')).mtimeMs;
+    assert.ok(
+      Math.abs(vaultMtime - PRESEED_MTIME.getTime()) < 1000,
+      `Index.md mtime must be stamped to the preseed source (${PRESEED_MTIME.toISOString()}); ` +
+        `got ${new Date(vaultMtime).toISOString()}`,
+    );
+    assert.ok(
+      Math.abs(vaultMtime - DRIFTED.getTime()) > 1000,
+      'Index.md mtime must NOT remain the drifted boot mtime (that divergence is the bug)',
+    );
+  });
+
+  it('seeds Notes.md / References.md landing pages create-if-missing and never clobbers a user edit', () => {
+    const root = mkTmp('vault-landing-');
+    const userHome = join(root, 'home');
+    const preseedDir = join(root, 'preseed');
+    const vault = join(userHome, 'Vault');
+    mkdirSync(preseedDir, { recursive: true });
+    writeFileSync(join(preseedDir, 'Notes.md'), '# Notes\n');
+    writeFileSync(join(preseedDir, 'References.md'), '# References\n');
+
+    // Run 1: both missing -> seeded so [[Notes]] / [[References]] resolve.
+    let res = runBash(buildInitVaultHarness({ userHome, preseedDir, runs: 1 }));
+    assert.equal(res.status, 0, `run 1 must run cleanly; stderr: ${res.stderr}`);
+    assert.ok(existsSync(join(vault, 'Notes.md')), 'Notes.md landing page must be seeded when missing');
+    assert.ok(existsSync(join(vault, 'References.md')), 'References.md landing page must be seeded when missing');
+
+    // Run 2: user edited Notes.md -> create-if-missing must leave it untouched.
+    writeFileSync(join(vault, 'Notes.md'), 'USER EDITED\n');
+    res = runBash(buildInitVaultHarness({ userHome, preseedDir, runs: 1 }));
+    assert.equal(res.status, 0, `run 2 must run cleanly; stderr: ${res.stderr}`);
+    assert.equal(
+      readFileSync(join(vault, 'Notes.md'), 'utf8'),
+      'USER EDITED\n',
+      'create-if-missing landing page must not clobber a user edit',
+    );
+  });
+
+  it('every bare page wikilink in the real preseed Index.md resolves to a seeded preseed page (no broken links)', () => {
+    const preseedRoot = resolve(__dirname, '../../preseed/silverbullet');
+    const index = readFileSync(join(preseedRoot, 'Index.md'), 'utf8');
+    // Bare page links only: [[Name]] without a folder slash, anchor, or alias.
+    const links = [...index.matchAll(/\[\[([^\]|#/]+)\]\]/g)].map((m) => m[1].trim());
+    assert.ok(links.length > 0, 'Index.md must contain at least one wikilink to validate');
+    for (const page of links) {
+      assert.ok(
+        existsSync(join(preseedRoot, `${page}.md`)),
+        `Index.md links to [[${page}]] but preseed/silverbullet/${page}.md does not exist ` +
+          `— SilverBullet 404s it as a broken/aspiring page (perpetual index churn risk)`,
+      );
     }
   });
 
