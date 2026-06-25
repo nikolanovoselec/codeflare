@@ -433,6 +433,35 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
     });
 
+    it('REQ-VAULT-008 AC8: the open click navigates the new tab to the bootstrap-hop URL, not the bare shell, and records the opened latch', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      try {
+        render(() => <Layout />);
+        vaultProbeMock.latestOptions.setLatch();
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+
+        await (window as any).__headerProps.onVaultOpen(); // click 1 -> prewarm
+        await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
+        vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
+
+        // Click 2 opens through the key-arming bootstrap-hop (arms the SW encryption
+        // key before the editor boots, so the first open never races __cfRecover into
+        // a /.auth 403), NOT the bare shell; and it persists the opened latch so a
+        // mobile PWA reload settles the button to neutral instead of breathing green.
+        await (window as any).__headerProps.onVaultOpen();
+        expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/.codeflare-bootstrap', '_blank', 'noopener');
+        expect(openSpy).not.toHaveBeenCalledWith('/api/vault/sess1/', '_blank', 'noopener');
+        expect(vaultLocalReadinessMock.markOpened).toHaveBeenCalledWith('sess1');
+      } finally {
+        openSpy.mockRestore();
+      }
+    });
+
     it('REQ-VAULT-018: settles to a neutral (non-breathing) status after the open click, and a further click still opens', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
