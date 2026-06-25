@@ -593,9 +593,6 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ---
 
-
----
-
 ### REQ-VAULT-019: Vault key-recoverable open gate
 
 **Intent:** The ready Vault button opens only when the local browser cache and encryption key can both serve the editor.
@@ -606,7 +603,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 1. Clicking the ready control verifies the auth-gated `/.vault-key` endpoint before opening. <!-- @impl: web-ui/src/lib/vault-local-readiness.ts::checkVaultKeyRecoverable --> <!-- @test: web-ui/src/__tests__/lib/vault-local-readiness.test.ts (checkVaultKeyRecoverable: GET /.vault-key with credentials, true on non-empty key, false on non-2xx/empty/throw) -->
 2. If the key is not recoverable, the control enters a non-openable preparing state. <!-- @impl: web-ui/src/components/VaultButton.tsx::VaultButton --> <!-- @test: web-ui/src/__tests__/components/VaultButton.test.tsx (preparing status not openable + accent-breathing class) -->
-3. When the prewarm proof and key recoverability both hold, the cold-path arming poll marks the control armed (green) and the next click opens it synchronously inside the click gesture. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @test: web-ui/src/__tests__/components/VaultButton.test.tsx (armed status openable + green-breathing class + fires onOpen) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (stays available until click 1 then breathes preparing -> armed; a reload-armed click opens) -->
+3. When the prewarm proof and key recoverability both hold, the cold-path arming poll marks the control armed (green) and the next click opens it synchronously inside the click gesture. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @test: web-ui/src/__tests__/components/VaultButton.test.tsx (armed status openable + green-breathing class + fires onOpen) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (a cold-path armed click opens the vault tab synchronously; a reload-armed click opens) -->
 4. Open intent clears when the tab opens or the session stops being the active running session. <!-- @impl: web-ui/src/components/Layout.tsx::handleVaultOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (clears the open-intent when the session is no longer active-running) -->
 
 **Constraints:**
@@ -620,9 +617,6 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Verification:** [Layout wiring test](../../web-ui/src/__tests__/components/Layout.test.tsx), [key recoverability test](../../web-ui/src/__tests__/lib/vault-local-readiness.test.ts), [vault button states test](../../web-ui/src/__tests__/components/VaultButton.test.tsx)
 
 **Status:** Implemented
-
----
-
 
 ---
 

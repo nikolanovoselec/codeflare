@@ -397,6 +397,33 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(vaultLocalReadinessMock.markFullyPrewarmed).toHaveBeenCalledWith('sess1');
     });
 
+    it('REQ-VAULT-019: a cold-path armed click opens the vault tab synchronously', async () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      try {
+        render(() => <Layout />);
+        vaultProbeMock.latestOptions.setLatch();
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+
+        // Click 1 -> on-demand prewarm; completion arms the button green (cold path).
+        await (window as any).__headerProps.onVaultOpen();
+        await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
+        vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
+        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
+
+        // Click 2 (intent === 'armed'): opens synchronously without a second prewarm.
+        const prewarmCallsBeforeOpen = vaultPrewarmMock.start.mock.calls.length;
+        await (window as any).__headerProps.onVaultOpen();
+        expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/', '_blank', 'noopener');
+        expect(vaultPrewarmMock.start.mock.calls.length).toBe(prewarmCallsBeforeOpen);
+      } finally {
+        openSpy.mockRestore();
+      }
+    });
+
     it('REQ-VAULT-018 AC8: shows armed without a click (no iframe) when the vault is already warm on this device (reload)', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';

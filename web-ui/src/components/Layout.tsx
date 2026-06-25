@@ -382,8 +382,9 @@ const Layout: Component<LayoutProps> = (props) => {
   };
 
   // While 'preparing', poll until the prewarm proof is ready AND the encryption key
-  // is recoverable, then arm (button breathes green, next click opens). Re-fetching
-  // `/.vault-key` during the poll also keeps an idle container warm for the open.
+  // is recoverable, then arm (button breathes green, next click opens). The key fetch
+  // short-circuits behind the prewarm proof, so once the proof lands re-fetching
+  // `/.vault-key` each tick also keeps an idle container warm until the open.
   createEffect(() => {
     const sid = sessionStore.activeSessionId;
     if (!sid || vaultOpenIntentBySession()[sid] !== 'preparing') return;
