@@ -114,7 +114,7 @@ flowchart LR
     zero cost"]
 ```
 
-Containers scale to zero when idle (no sessions, no bill); storage persists. A per-user Timekeeper Durable Object tracks compute usage and enforces monthly quotas. Auth is handled by Cloudflare Access.
+Containers scale to zero when idle (no sessions, no bill); storage persists. A per-user Timekeeper Durable Object tracks compute usage and enforces monthly quotas. Auth defaults to Cloudflare Access; the advanced deployment modes can use GitHub OAuth instead.
 
 ---
 
