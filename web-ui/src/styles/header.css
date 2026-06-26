@@ -599,12 +599,12 @@
           opacity: 1;
           cursor: progress;
           color: var(--color-accent);
-          animation: vault-button-breathe 1.8s ease-in-out infinite;
+          animation: vault-button-breathe 3s ease-in-out infinite;
         }
 
         .header-vault-button--armed {
           color: var(--color-success, #22c55e);
-          animation: vault-button-breathe 1.8s ease-in-out infinite;
+          animation: vault-button-breathe 3s ease-in-out infinite;
         }
 
         @keyframes vault-button-breathe {

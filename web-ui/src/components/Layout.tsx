@@ -340,11 +340,6 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const vaultReady = createMemo(() => vaultButtonStatus() === 'armed');
 
-  const restartVaultPrewarm = (sid: string) => {
-    setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'error' }));
-    setVaultPrewarmRetryBySession((prev) => ({ ...prev, [sid]: (prev[sid] ?? 0) + 1 }));
-  };
-
   const clearVaultOpenIntent = (sid: string) =>
     setVaultOpenIntentBySession((prev) => {
       if (prev[sid] === undefined) return prev;
@@ -365,32 +360,25 @@ const Layout: Component<LayoutProps> = (props) => {
     window.open(`/api/vault/${sid}/.codeflare-bootstrap`, '_blank', 'noopener');
   };
 
-  const handleVaultOpen = async () => {
+  const handleVaultOpen = () => {
     const sid = sessionStore.activeSessionId;
     if (!sid || untrack(vaultReadyBySession)[sid] !== true) return;
     const intent = untrack(vaultOpenIntentBySession)[sid];
-    // Click 2 (armed/green, cold path): the poll already verified the prewarm proof
-    // and key recoverability. Open synchronously inside the click gesture so the new
-    // tab is never pop-up-blocked. The bootstrap-hop arms the SW key before the
-    // editor boots (see openVaultTab).
-    if (intent === 'armed') {
-      openVaultTab(sid);
-      return;
-    }
     // Mid-prepare clicks are no-ops while the button breathes accent.
     if (intent === 'preparing') return;
-    // Reload of an already-prewarmed session (button is green via reload-skip).
-    // Re-verify this browser's cache + key before opening (REQ-VAULT-019); if it
-    // evaporated, drop back into a fresh on-demand prepare instead of opening blind.
-    if (untrack(vaultPrewarmBySession)[sid] === 'ready') {
-      const proof = await checkVaultLocalReadiness(sid);
-      if (proof.ready && (await checkVaultKeyRecoverable(sid))) {
-        openVaultTab(sid);
-        return;
-      }
-      logger.warn('vault readiness/key evaporated before reload-open; re-preparing', { sid, reason: proof.reason });
-      restartVaultPrewarm(sid);
-      setVaultOpenIntentBySession((prev) => ({ ...prev, [sid]: 'preparing' }));
+    // Green == ready == open. Both the cold-path armed intent (click 2 after a fresh
+    // prewarm) and a steady pw==='ready' (returned-from-the-vault-tab in-session, OR a
+    // reload-skip from a prior session) open immediately via the bootstrap-hop. The hop
+    // re-posts the AES key to the service worker and waits for activation before
+    // redirecting to the editor, and the worker no longer flushes the key mid-transition
+    // (REQ-VAULT-008 AC7), so opening directly never races a wiped key into a `.auth`
+    // bounce. Opening synchronously inside the click gesture also avoids the pop-up
+    // blocker. (Previously the pw==='ready' branch re-verified local readiness + key
+    // recoverability and, on a false-negative, dropped into a full ~10s on-demand
+    // re-prewarm — making every in-session reopen of the green button "re-index" before
+    // opening even though the persisted store was healthy: REQ-VAULT-018 AC7.)
+    if (intent === 'armed' || untrack(vaultPrewarmBySession)[sid] === 'ready') {
+      openVaultTab(sid);
       return;
     }
     // Click 1 (available): start the on-demand prewarm; the button breathes accent

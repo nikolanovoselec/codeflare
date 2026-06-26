@@ -568,7 +568,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect((window as any).__headerProps.vaultStatus).toBe('preparing');
     });
 
-    it('REQ-VAULT-019: a reload-armed click rechecks this browser cache + key before opening', async () => {
+    it('REQ-VAULT-018 AC7: a reload-armed (green) click opens directly — no readiness/key re-verify', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
@@ -582,32 +582,35 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         vaultProbeMock.latestOptions.setLatch();
         await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
 
-        // No fresh prewarm verified this open, so the click re-verifies the cache + key.
-        // Capture the pre-click count: the reload-skip probe already ran a check, so the
-        // assertion must prove the CLICK itself rechecks (count increments), not just that
-        // some earlier check happened.
+        // A green button is ready by definition: the click opens immediately via the
+        // bootstrap-hop and must NOT run the open-time readiness/key re-verify that used
+        // to gate the open (and, on a false-negative, drop into a ~10s re-prewarm). The
+        // reload-skip probe already ran check(); the CLICK must add no check(), never call
+        // keyRecoverable(), and never mount a prewarm iframe.
         const checksBeforeClick = vaultLocalReadinessMock.check.mock.calls.length;
         await (window as any).__headerProps.onVaultOpen();
-        expect(vaultLocalReadinessMock.check.mock.calls.length).toBeGreaterThan(checksBeforeClick);
-        expect(vaultLocalReadinessMock.check).toHaveBeenLastCalledWith('sess1');
-        expect(vaultLocalReadinessMock.keyRecoverable).toHaveBeenCalledWith('sess1');
         expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/.codeflare-bootstrap', '_blank', 'noopener');
-        // No iframe was ever mounted on the reload-skip path.
+        expect(vaultLocalReadinessMock.check.mock.calls.length).toBe(checksBeforeClick);
+        expect(vaultLocalReadinessMock.keyRecoverable).not.toHaveBeenCalled();
         expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
+        expect((window as any).__headerProps.vaultStatus).toBe('armed');
       } finally {
         openSpy.mockRestore();
       }
     });
 
-    it('REQ-VAULT-019: a reload-armed click re-prepares (not opens) when the local cache evaporated', async () => {
+    it('REQ-VAULT-018 AC7: a green click opens directly even when local readiness reports not-ready (no re-index)', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
       vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(true);
-      // Ready for the reload-skip probe, then evaporates for the open-time recheck.
+      // Greens via the reload-skip probe (ready:true once), then local readiness goes
+      // not-ready — the exact false-negative (session-id marker-key divergence) that used
+      // to drop the green button into a ~10s re-prewarm on every subsequent click. The
+      // open must NOT gate on it: a green button stays green and opens immediately.
       vaultLocalReadinessMock.check
         .mockResolvedValueOnce({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true })
-        .mockResolvedValue({ ready: false, reason: 'missing-idb-database', recordedDbs: ['sb_data_a'], hasIndexedDbDatabasesApi: true });
+        .mockResolvedValue({ ready: false, reason: 'no-recorder', recordedDbs: [], hasIndexedDbDatabasesApi: true });
       const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
 
       try {
@@ -615,12 +618,15 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         vaultProbeMock.latestOptions.setLatch();
         await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
 
+        const prewarmCallsBefore = vaultPrewarmMock.start.mock.calls.length;
         await (window as any).__headerProps.onVaultOpen();
-        expect(openSpy).not.toHaveBeenCalled();
-        // Falls back into a fresh on-demand prepare (breathes accent) + remounts.
-        await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('preparing'));
-        await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
-        expect((window as any).__headerProps.vaultReady).toBe(false);
+        // Opens immediately via the bootstrap-hop; never mounts a prewarm iframe (no
+        // accent "re-index" breathe) and never settles off green. Reinstating the
+        // open-time gate flips this red (it would re-prewarm and go 'preparing').
+        expect(openSpy).toHaveBeenCalledWith('/api/vault/sess1/.codeflare-bootstrap', '_blank', 'noopener');
+        expect(vaultPrewarmMock.start.mock.calls.length).toBe(prewarmCallsBefore);
+        expect((window as any).__headerProps.vaultStatus).toBe('armed');
+        expect((window as any).__headerProps.vaultReady).toBe(true);
       } finally {
         openSpy.mockRestore();
       }
