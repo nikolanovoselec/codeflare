@@ -27,22 +27,14 @@ Every session comes pre-loaded with your choice of agent:
 
 *Pro mode — cross-session memory, a queryable knowledge graph, curated skills, and spec-driven workflows — runs full-strength on Claude Code and Pi. Other agents receive the rules and agent definitions; the deepest Pro capabilities are Claude/Pi-native.*
 
-<details>
-<summary><strong>How do the agents run as root?</strong></summary>
-
-Cloudflare Containers run as root, and both Claude Code and Antigravity launch with `--dangerously-skip-permissions` for fully autonomous operation — no permission prompts. Claude Code normally refuses that flag as root; the official workaround is the container-wide `IS_SANDBOX=1` environment variable, which tells the CLI it's running in a sandboxed environment. It's documented by Anthropic for exactly this sandboxed-root case. Antigravity takes the same flag for prompt-free operation. Codex isolates its execution differently, via a bubblewrap sandbox.
-
-</details>
-
 ---
 
 ## Contents
 
-- [What you get](#what-you-get)
+- [What Codeflare does](#what-codeflare-does)
 - [Architecture](#architecture)
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
-  - [Required (every deployment)](#required-every-deployment)
   - [Default mode](#default-mode-what-you-get-with-zero-extra-config)
   - [Advanced deployment modes](#advanced-deployment-modes)
 - [Security](#security)
@@ -53,7 +45,7 @@ Cloudflare Containers run as root, and both Claude Code and Antigravity launch w
 
 ---
 
-## What you get
+## What Codeflare does
 
 ![Dashboard](documentation/images/dashboard.png)
 *Manage sessions, browse persistent storage, and monitor live resource usage — all from one view.*
@@ -61,29 +53,35 @@ Cloudflare Containers run as root, and both Claude Code and Antigravity launch w
 **Native integrations, wired in, not bolted on.**
 
 - **Native GitHub integration** — connect once via OAuth (no token paste). Every session gets automatic `git push`, `gh` CLI, and CI/CD access. No SSH keys, no per-session auth.
-- **Native Cloudflare integration** — connect your own Cloudflare account once via OAuth. Deploy Workers and manage D1, R2, KV, and DNS from the terminal, already authenticated.
-- **Build, push, and deploy skills** — pre-loaded agent skills scaffold Workers projects, configure `wrangler.toml`, push to GitHub, set up CI, and deploy. Describe what you want; the agent builds, pushes, and deploys it to a live URL.
-- **Guided onboarding** — new users are walked through connecting GitHub and Cloudflare and choosing an agent. No prior Cloudflare knowledge required.
+- **Native cloud integration** — connect your own cloud account once via OAuth. Deploy and manage your infrastructure — serverless functions, storage, databases, DNS — from the terminal, already authenticated.
+- **Build, push, and deploy skills** — pre-loaded agent skills scaffold projects, wire up the deploy config, push to GitHub, set up CI, and deploy. Describe what you want; the agent builds, pushes, and deploys it to a live URL.
+- **Guided onboarding** — new users are walked through connecting their accounts and choosing an agent. No prior cloud knowledge required.
 
 **The IDE.**
 
 - Browser-native terminal with 6 tabs per session and tiling mode (2–4 terminals side by side within one session).
 - **MultiView** — view several running sessions side by side in one workspace. It's a virtual view over sessions you already have: no new session is created, and no existing session's lifecycle is affected.
 - One isolated container per session — agents can't escape their sandbox.
-- Persistent R2 storage with bisync every 15 minutes, a manual Sync-now button, and a final sync on stop. Sync conflicts are reconciled automatically on the next cycle.
+- Persistent object storage with bisync every 15 minutes, a manual Sync-now button, and a final sync on stop. Sync conflicts are reconciled automatically on the next cycle.
 - Pre-warmed terminals — the agent is loaded before you open the tab.
 - Fast Start — agent auto-updates are disabled by default for instant startup; toggle in Settings.
 - Set your API key once; it syncs across sessions.
 - Live per-session CPU/memory/disk metrics and a three-color status (active / idle / stopped).
-- Usage dashboard — daily and monthly compute hours and quota remaining, tracked by a per-user Timekeeper Durable Object.
+- Usage dashboard — daily and monthly compute hours and quota remaining, tracked per user.
 - Configurable auto-sleep — containers stop after inactivity (5m / 15m / 30m / 1h / 2h). The timer is input-aware: it resets only on real terminal input, not reconnects or background polls.
 - CPU cost scales to zero when idle — you pay for what you use.
 
 **For your agent (Pro mode).**
 
-- **SilverBullet vault** — every Pro session ships a browser-native note editor at `~/Vault/`. Notes, decisions, and transcripts bisync to R2 (covered by `ENCRYPTION_KEY` when set) and are IndexedDB-encrypted at rest with a zero-UI per-session key.
+- **SilverBullet vault** — every Pro session ships a browser-native note editor at `~/Vault/`. Notes, decisions, and transcripts sync to your object storage (covered by `ENCRYPTION_KEY` when set) and are IndexedDB-encrypted at rest with a zero-UI per-session key.
 - **Cross-session memory** — conversation context is auto-captured every 15 prompts into the vault, so the next session opens with full recall of prior decisions — even on a different device.
 - **Knowledge graph** — a queryable semantic graph (Graphify) over project source and vault content, reachable in Claude via `mcp__graphify__*` and in Pi via native `graphify_query`, `graphify_path`, and `graphify_explain` tools.
+
+**From solo to enterprise.**
+
+- **Default** — single-tenant, every user unlimited, zero extra configuration. Fork, add two secrets, deploy.
+- **SaaS** — multi-tenant: subscriptions and billing (Stripe), tiered plans, just-in-time user provisioning, an admin approval workflow, and per-user usage metering.
+- **Enterprise** — single-tenant, end-to-end Zero Trust: browser isolation, SSO with your corporate IdP, a Secure Web Gateway, and every model call routed through your own AI Gateway with dynamic routing, DLP, and guardrails — no key or token ever inside the container.
 
 ![Codeflare on a phone](documentation/images/mobile-phone.jpg)
 *Strongly optimized for mobile. Swipe up/down with the keyboard open to navigate like arrow keys; swipe left/right to scroll terminal text.*
@@ -95,26 +93,7 @@ Cloudflare Containers run as root, and both Claude Code and Antigravity launch w
 ![Codeflare IDE](documentation/images/hero-ide-fullscreen.png)
 *Six terminal tabs, split tiling, and your dev tools — in a disposable container you didn't have to configure.*
 
-```mermaid
-flowchart LR
-    A[Browser] --> B["Cloudflare Worker
-    Hono router + SolidJS static UI"]
-    B --> C["Container DO
-    session lifecycle + hibernation"]
-    C --> D["Cloudflare Container
-    isolated per session, pre-warmed PTY"]
-    D --> E["R2
-    per-user storage, bisync every 15min + manual triggers"]
-    C -. "ping every 60s" .-> G["Timekeeper DO
-    per-user usage + quota"]
-    G --> H["KV
-    usage records, flush every 5m"]
-    D -. "idle after sleepAfter
-    (no terminal input)" .-> F["Hibernated
-    zero cost"]
-```
-
-Containers scale to zero when idle (no sessions, no bill); storage persists. A per-user Timekeeper Durable Object tracks compute usage and enforces monthly quotas. Auth defaults to Cloudflare Access; the advanced deployment modes can use GitHub OAuth instead.
+Each session runs in its own isolated, pre-warmed container that scales to zero when idle — no sessions, no bill — while your storage persists and usage is tracked per user. Auth defaults to Cloudflare Access, with GitHub OAuth available in the advanced modes. Full internals in [architecture.md](documentation/lanes/architecture.md).
 
 ---
 
@@ -179,15 +158,6 @@ Create a custom token at [dash.cloudflare.com/profile/api-tokens](https://dash.c
 
 > **The only mandatory configuration is the two secrets from [step 2](#2-add-the-two-required-secrets).** Set them, deploy, run the wizard, and you have a working instance in **Default mode**. Everything else — the advanced deployment modes (Onboarding / SaaS / Enterprise) and advanced tuning — is configured separately and documented privately (see [Advanced deployment modes](#advanced-deployment-modes)).
 
-### Required (every deployment)
-
-| Secret | Type | What it's for |
-|---|---|---|
-| `CLOUDFLARE_API_TOKEN` | Secret | Deploys the Worker and manages KV, R2, Containers, and Access (see [scopes](#api-token-scopes)) |
-| `CLOUDFLARE_ACCOUNT_ID` | Secret | Identifies the Cloudflare account to deploy into |
-
-Both go in **Settings → Secrets and variables → Actions → Secrets**.
-
 ### Default mode: what you get with zero extra config
 
 With **only** the two required secrets, your instance runs in Default mode:
@@ -203,13 +173,7 @@ Most self-hosters never need anything below this line.
 
 ### Advanced deployment modes
 
-Default mode (above) needs only the two required secrets. Beyond it, Codeflare ships three optional **advanced deployment modes**:
-
-- **Onboarding** — a public marketing landing page, GitHub sign-in, and a self-serve access-request flow.
-- **SaaS** — multi-tenant operation with Stripe-backed subscriptions and billing, tiered plans, just-in-time user provisioning, and per-user usage metering via the Timekeeper.
-- **Enterprise** — single-tenant, end-to-end Zero Trust: browser isolation, SSO with your corporate IdP, a Secure Web Gateway, and every LLM call routed through your own AI Gateway with dynamic model routing, DLP, and guardrails.
-
-Setup and configuration for these modes is maintained privately: **[codeflare-private-docs](https://github.com/nikolanovoselec/codeflare-private-docs)** (access required).
+Beyond default mode, Codeflare also runs in **Onboarding**, **SaaS**, and **Enterprise** modes — see [What Codeflare does](#what-codeflare-does) for their capabilities. Setup and configuration for these modes is maintained privately: **[codeflare-private-docs](https://github.com/nikolanovoselec/codeflare-private-docs)** (access required).
 
 ---
 
