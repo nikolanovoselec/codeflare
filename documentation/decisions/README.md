@@ -1628,6 +1628,34 @@ Persistence is deferred. The actual drivers of the per-session terminal/keyboard
 
 ---
 
+### AD84: Retain the vault SW encryption key in memory (neuter the proactive flush) and open a green Vault button directly
+
+**Status:** Accepted (2026-06-26). Implemented on `fix/vault-keyflush-and-direct-open`.
+
+**Decision:** Two coupled changes to the vault open path. (1) The native-SW graft NEUTERS SilverBullet's proactive "no window clients" key flush — the `setInterval` that wiped the in-memory AES key `y` 5s after the last client disconnected — keeping its no-client log but dropping the `y=void 0` wipe, so the key is retained for the worker's natural lifetime; `__cfRecover` (re-fetch from the auth-gated `/.vault-key`) is kept only for a genuinely idle-terminated worker. (2) `handleVaultOpen` opens a green (`pw === 'ready'`) Vault button DIRECTLY via the bootstrap-hop, dropping the per-open re-verify of local readiness + key recoverability and its re-prewarm fallback.
+
+**Context:** Two user-reported symptoms shared a key-availability root and an over-defensive workaround.
+
+- **`.auth` 403 on cold open.** The bootstrap-hop posts `set-encryption-key` then immediately `location.replace`s to the editor, leaving a brief 0-client window. SilverBullet's 5s flush tick lands in that gap and wipes the just-posted key; the editor boots `config` with `y` empty and bounces to `/.auth` ("Authentication not enabled"), which the codeflare proxy returns 403. `__cfRecover` recovers a beat too late. Reopening (worker warm) works. The flush was a forward-secrecy gesture, but the key is re-derivable from `/.vault-key` and the browser idle-terminates the worker anyway, so it bought ~nothing while causing the race.
+- **~10s "re-index" on every subsequent green click.** Not a content reindex (the bucket-stable store is healthy — "0 operations", "already configured"). The dashboard gated the open on `checkVaultLocalReadiness(activeSessionId)`, reading `localStorage["vault-session-<activeSessionId>-idbs"]`. But that marker is written by the injected recorder and validated by the prewarm bridge keyed by `boot.sessionId` = the `cf_vault_sid` cookie session — and SilverBullet serves the shell from PRECACHE, freezing `boot.sessionId` to whatever session was active when the SW installed. For any later/returning session the dashboard reads a never-written marker → `no-recorder` → re-prewarm. The first open worked because the `armed`-intent path never ran the gate.
+
+**Alternatives considered:**
+
+- **Bucket-key the readiness marker (the true durable fix for the divergence).** Key `vault-session-*-idbs`/`-prewarmed` by the bucket token (like the bucket-stable SW/DBs, [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)) instead of the session id, so recorder/bridge/dashboard all agree. Deferred: the dashboard does not know the bucket token (it is server-side), so this needs the token plumbed to the client — a larger, separately-scoped change. Tracked as the durable fix in [REQ-VAULT-018](../../sdd/spec/vault.md#req-vault-018-vault-browser-prewarm-readiness-gating) AC7.
+- **Hop→SW ack before `location.replace`, and/or add `__cfRecover` to the service-proxy-error auth path.** Rejected as overengineering: neutering the flush removes the dominant race; the residual service-proxy-error path is flagged as residual-risk, not patched speculatively.
+- **Keep the per-open re-verify but fix its key.** Rejected: even keyed correctly, re-verifying an already-green button on every click adds latency and a pop-up-blocker risk for no behavioral benefit — a green button is ready by definition.
+
+**Consequences:**
+
+- The cold-open `.auth` bounce and the in-session "re-index on every click" are both resolved; a green button opens immediately and identically on mobile/tablet/desktop.
+- The two changes are COUPLED: opening a green button directly is only safe because the key is retained (no flush race), so they ship together.
+- Forward secrecy is marginally relaxed (the key lives in SW memory until idle-termination — tens of seconds — instead of 5s after close); accepted because the key is re-derivable from `/.vault-key` regardless.
+- KNOWN RESIDUAL: the marker-key divergence still false-negatives the reload-skip auto-green, so a returning session's button does not auto-green and needs one on-demand click; the durable fix (bucket-key the marker) is deferred. The residual service-proxy-error `.auth` path is also unpatched (flagged residual-risk).
+
+**Related:** [AD69](#ad69-silverbullet-vault-runs-its-native-service-worker-for-persistent-encrypted-client-indexing), [AD59](#ad59-zero-ui-vault-encryption-with-per-session-do-storage-key), [AD83](#ad83-vault-indexeddb-cannot-be-persisted-across-sessions-by-keying-the-encryption-key-to-the-r2-bucket), [REQ-VAULT-008](../../sdd/spec/vault.md#req-vault-008-zero-ui-vault-encryption), [REQ-VAULT-017](../../sdd/spec/vault.md#req-vault-017-silverbullet-native-service-worker), [REQ-VAULT-018](../../sdd/spec/vault.md#req-vault-018-vault-browser-prewarm-readiness-gating), [REQ-VAULT-019](../../sdd/spec/vault.md#req-vault-019-vault-key-recoverable-open-gate), [Troubleshooting lane — vault rows](../lanes/troubleshooting.md).
+
+---
+
 ## Related Documentation
 
 - [Architecture - System Components](../lanes/architecture.md#system-components) - Component overview

@@ -10,22 +10,30 @@
  * every cold load (issue #445). Decision recorded in AD69
  * (documentation/decisions/README.md).
  *
- * KEY-RECOVERY GRAFT (AD69, REQ-VAULT-008 AC7). The native worker holds the
- * per-session AES-CTR key in a module-local var `y` with NO recovery, and
- * actively drops it: it flushes `y` 5s after the last client disconnects, and
- * the browser can idle-terminate the worker at any time. TWO code paths read
- * `y` and fail hard when it is empty:
+ * KEY-RECOVERY + FLUSH-NEUTER GRAFT (AD69, REQ-VAULT-008 AC7; REQ-VAULT-017 AC6).
+ * The native worker holds the per-session AES-CTR key in a module-local var `y`
+ * with NO recovery, and upstream actively drops it: a `setInterval` flushes `y`
+ * 5s after the last window client disconnects, and the browser can idle-terminate
+ * the worker at any time. TWO code paths read `y` and fail hard when it is empty:
  *   1. the `config` message handler gates on `enableClientEncryption && !y` and,
  *      when empty, posts `auth-error` -> the client navigates to `.auth`
- *      ("Authentication not enabled"). This is the one that actually fires on
- *      cold boot: the client posts `config` (with codeflare-injected
- *      `enableClientEncryption:true`) while `y` is still empty from the
- *      bootstrap-hop -> shell `location.replace` client-transition flush.
+ *      ("Authentication not enabled"). This fires on cold boot: the bootstrap-hop
+ *      -> shell `location.replace` leaves a brief 0-client gap, the 5s flush tick
+ *      lands in it and wipes the just-posted key, and the editor then boots
+ *      `config` with `y` empty.
  *   2. the `get-encryption-key` message handler replies with no key.
- * `graftVaultKeyRecovery` injects a `__cfRecover()` helper (re-fetch the key
- * from the auth-gated `/.vault-key` endpoint - a same-origin SW fetch carries
- * the session cookie - and decode it with SB's own `Ze`) and calls it at BOTH
- * sites before they give up. This is the fallback the old key-shim had.
+ * `graftVaultKeyRecovery` does two complementary things:
+ *   (a) it NEUTERS the proactive 5s flush (ANCHOR_PROACTIVE_FLUSH) so `y` is
+ *       retained for the worker's natural lifetime rather than dropped while a tab
+ *       is merely transitioning/backgrounded - removing the hop->editor race at
+ *       its source. The key is re-derivable from the bucket via `/.vault-key` and
+ *       the browser still idle-terminates the worker, so this is not a meaningful
+ *       forward-secrecy regression.
+ *   (b) it injects a `__cfRecover()` helper (re-fetch the key from the auth-gated
+ *       `/.vault-key` endpoint - a same-origin SW fetch carries the session cookie
+ *       - decode with SB's own `Ze`) and calls it at BOTH read sites before they
+ *       give up, covering a genuine cold worker restart after idle-termination.
+ *       This is the fallback the old key-shim had.
  *
  * VAULT_NATIVE_SW_VERBATIM holds the upstream bytes UNMODIFIED; the graft is a
  * deterministic string transform applied on top (key recovery plus a DB-open
@@ -66,6 +74,14 @@ const CF_IDB_RECORDER =
 
 // Anchors (exact upstream minified substrings) and their grafted replacements.
 const ANCHOR_VARY = ";var y;setInterval(";
+// Upstream proactively wipes the in-memory key 5s after the last window client
+// disconnects (the flush body inside the ANCHOR_VARY setInterval). That races the
+// bootstrap-hop -> editor 0-client transition and drops the just-posted key,
+// bouncing cold opens to `.auth` (REQ-VAULT-008 AC7). Neuter the wipe so `y` lives
+// for the worker's natural lifetime; __cfRecover still re-derives it after a
+// genuine idle restart. Distinct from ANCHOR_NO_CLIENTS_INFO (`t.length===0`) and
+// occurs exactly once.
+const ANCHOR_PROACTIVE_FLUSH = 'a.length===0&&y&&(console.info("No more clients, flushing encryption key"),y=void 0)';
 const ANCHOR_GETKEY = "case\"get-encryption-key\":{a.source.postMessage({type:\"encryption-key\",key:y&&await me(y)});break}";
 const ANCHOR_CONFIG_GATE = "if(t.enableClientEncryption&&!y){console.error(\"Supposed to use encryption, but no phrase set yet, auth error\"),g({type:\"auth-error\",message:\"Re-authentication required, redirecting...\",actionOrRedirectHeader:\".auth\"});return}";
 const ANCHOR_NO_CLIENTS_INFO = "t.length===0&&console.info(\"No clients are listening for messages, dropping message\",a)";
@@ -121,6 +137,7 @@ const ANCHOR_REMOTE_LIST_COERCE = "o=await this.secondary.fetchFileList()";
 export function graftVaultKeyRecovery(verbatim: string): string {
   for (const [name, anchor] of [
     ["VARY", ANCHOR_VARY],
+    ["PROACTIVE_FLUSH", ANCHOR_PROACTIVE_FLUSH],
     ["GETKEY", ANCHOR_GETKEY],
     ["CONFIG_GATE", ANCHOR_CONFIG_GATE],
     ["NO_CLIENTS_INFO", ANCHOR_NO_CLIENTS_INFO],
@@ -137,6 +154,12 @@ export function graftVaultKeyRecovery(verbatim: string): string {
   }
   return verbatim
     .replace(ANCHOR_VARY, ";var y;" + CF_RECOVER_HELPER + CF_IDB_RECORDER + "setInterval(")
+    // Neuter the proactive 5s key flush: keep the no-client log, drop the `y=void 0`
+    // wipe so the key survives the bootstrap-hop -> editor transition (REQ-VAULT-008 AC7).
+    .replace(
+      ANCHOR_PROACTIVE_FLUSH,
+      'a.length===0&&console.info("No more clients; codeflare retains encryption key for recovery")',
+    )
     .replace(
       ANCHOR_GETKEY,
       'case"get-encryption-key":{if(y===void 0)await __cfRecover();a.source.postMessage({type:"encryption-key",key:y&&await me(y)});break}',

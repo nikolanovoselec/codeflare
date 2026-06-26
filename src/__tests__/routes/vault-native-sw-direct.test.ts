@@ -35,6 +35,34 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('console.warn("Sync space error",t.message)');
   });
 
+  // REQ-VAULT-008 AC7 / REQ-VAULT-017 AC6: the graft NEUTERS the upstream proactive
+  // 5s "no window clients" key flush so the in-memory AES key `y` is retained while
+  // the worker lives. Upstream wiped `y` during the bootstrap-hop -> editor 0-client
+  // transition, racing cold opens into a `.auth` 403. These slice the ACTUAL no-client
+  // flush callback out of each worker string and run it with zero clients, so
+  // reinstating the wipe (or gutting the graft) flips them red.
+  function runNoClientFlush(sw: string): string | undefined {
+    const NEEDLE = '.matchAll().then(a=>{';
+    const open = sw.indexOf(NEEDLE + 'a.length===0');
+    if (open < 0) throw new Error('no-client flush callback not found in served worker');
+    const exprStart = open + NEEDLE.length;
+    const exprEnd = sw.indexOf('}', exprStart);
+    const expr = sw.slice(exprStart, exprEnd);
+    // eslint-disable-next-line no-new-func
+    const fn = new Function('a', `let y = "AES-KEY"; ${expr}; return y;`) as (a: unknown[]) => string | undefined;
+    return fn([]); // [] == zero window clients == the flush trigger
+  }
+
+  it('the served worker retains the encryption key when no clients are connected (flush neutered)', () => {
+    expect(runNoClientFlush(VAULT_NATIVE_SERVICE_WORKER_JS)).toBe('AES-KEY');
+  });
+
+  it('the flush-neuter is load-bearing: the verbatim (pre-graft) worker DOES wipe the key on no clients', () => {
+    // Negative control — proves the retained key above comes from the graft, not the
+    // harness. Upstream sets y=void 0 when clients.matchAll() resolves to [].
+    expect(runNoClientFlush(VAULT_NATIVE_SW_VERBATIM)).toBeUndefined();
+  });
+
   it('throws when an anchor substring is missing (SilverBullet version drift guard)', () => {
     expect(() => graftVaultKeyRecovery('not the silverbullet worker at all')).toThrow(
       /anchor/i,
