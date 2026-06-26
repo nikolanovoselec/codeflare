@@ -53,27 +53,27 @@ Every session comes pre-loaded with your choice of agent:
 **Native integrations, wired in, not bolted on.**
 
 - **Native GitHub integration** — connect once via OAuth (no token paste). Every session gets automatic `git push`, `gh` CLI, and CI/CD access. No SSH keys, no per-session auth.
-- **Native cloud integration** — connect your own cloud account once via OAuth. Deploy and manage your infrastructure — serverless functions, storage, databases, DNS — from the terminal, already authenticated.
-- **Build, push, and deploy skills** — pre-loaded agent skills scaffold projects, wire up the deploy config, push to GitHub, set up CI, and deploy. Describe what you want; the agent builds, pushes, and deploys it to a live URL.
-- **Guided onboarding** — new users are walked through connecting their accounts and choosing an agent. No prior cloud knowledge required.
+- **Native Cloudflare integration** — connect your own Cloudflare account once via OAuth. Deploy Workers and manage D1, R2, KV, and DNS from the terminal, already authenticated.
+- **Build, push, and deploy skills** — pre-loaded agent skills scaffold Workers projects, configure `wrangler.toml`, push to GitHub, set up CI, and deploy. Describe what you want; the agent builds, pushes, and deploys it to a live URL.
+- **Guided onboarding** — new users are walked through connecting GitHub and Cloudflare and choosing an agent. No prior Cloudflare knowledge required.
 
 **The IDE.**
 
 - Browser-native terminal with 6 tabs per session and tiling mode (2–4 terminals side by side within one session).
 - **MultiView** — view several running sessions side by side in one workspace. It's a virtual view over sessions you already have: no new session is created, and no existing session's lifecycle is affected.
 - One isolated container per session — agents can't escape their sandbox.
-- Persistent object storage with bisync every 15 minutes, a manual Sync-now button, and a final sync on stop. Sync conflicts are reconciled automatically on the next cycle.
+- Persistent R2 storage with bisync every 15 minutes, a manual Sync-now button, and a final sync on stop. Sync conflicts are reconciled automatically on the next cycle.
 - Pre-warmed terminals — the agent is loaded before you open the tab.
 - Fast Start — agent auto-updates are disabled by default for instant startup; toggle in Settings.
 - Set your API key once; it syncs across sessions.
 - Live per-session CPU/memory/disk metrics and a three-color status (active / idle / stopped).
-- Usage dashboard — daily and monthly compute hours and quota remaining, tracked per user.
+- Usage dashboard — daily and monthly compute hours and quota remaining, tracked by a per-user Timekeeper Durable Object.
 - Configurable auto-sleep — containers stop after inactivity (5m / 15m / 30m / 1h / 2h). The timer is input-aware: it resets only on real terminal input, not reconnects or background polls.
 - CPU cost scales to zero when idle — you pay for what you use.
 
 **For your agent (Pro mode).**
 
-- **SilverBullet vault** — every Pro session ships a browser-native note editor at `~/Vault/`. Notes, decisions, and transcripts sync to your object storage (covered by `ENCRYPTION_KEY` when set) and are IndexedDB-encrypted at rest with a zero-UI per-session key.
+- **SilverBullet vault** — every Pro session ships a browser-native note editor at `~/Vault/`. Notes, decisions, and transcripts bisync to R2 (covered by `ENCRYPTION_KEY` when set) and are IndexedDB-encrypted at rest with a zero-UI per-session key.
 - **Cross-session memory** — conversation context is auto-captured every 15 prompts into the vault, so the next session opens with full recall of prior decisions — even on a different device.
 - **Knowledge graph** — a queryable semantic graph (Graphify) over project source and vault content, reachable in Claude via `mcp__graphify__*` and in Pi via native `graphify_query`, `graphify_path`, and `graphify_explain` tools.
 
