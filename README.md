@@ -93,7 +93,7 @@ Every session comes pre-loaded with your choice of agent:
 ![Codeflare IDE](documentation/images/hero-ide-fullscreen.png)
 *Six terminal tabs, split tiling, and your dev tools — in a disposable container you didn't have to configure.*
 
-Each session runs in its own isolated, pre-warmed container that scales to zero when idle — no sessions, no bill — while your storage persists and usage is tracked per user. Auth defaults to Cloudflare Access, with GitHub OAuth available in the advanced modes. Full internals in [architecture.md](documentation/lanes/architecture.md).
+Each session runs in its own isolated, pre-warmed container that scales to zero when idle — no sessions, no bill — while your storage persists and usage is tracked per user. Auth defaults to Cloudflare Access, with GitHub OAuth available in the advanced modes (see [authentication.md](documentation/lanes/authentication.md)). Full internals in [architecture.md](documentation/lanes/architecture.md).
 
 ---
 
@@ -182,7 +182,7 @@ Beyond default mode, Codeflare also runs in **Onboarding**, **SaaS**, and **Ente
 Defense-in-depth throughout; full detail in [security.md](documentation/lanes/security.md).
 
 - **Isolation** — one container per session, each running as root inside a locked sandbox it cannot escape. No shared shells, no cross-session access.
-- **Authentication** — every authenticated surface (`/app`, `/api`, `/setup`) is gated by JWT verification via Cloudflare Access.
+- **Authentication** — every authenticated surface (`/app`, `/api`, `/setup`) is gated by JWT verification — Cloudflare Access by default, GitHub OAuth in the advanced modes.
 - **Credential handling** — deploy tokens stay in GitHub and Cloudflare by default. When you connect Push & Deploy, they're injected into your container, stored AES-256-GCM-encrypted in KV, scoped per user, and never shared across sessions.
 - **Encryption at rest** *(optional, set `ENCRYPTION_KEY`)* — KV credentials (AES-256-GCM, per-value IVs, AAD-bound) and R2 files (SSE-C) are encrypted; the vault gets its own zero-UI per-session key. Existing plaintext entries migrate transparently on first read. See [Credential Encryption at Rest](documentation/lanes/security.md#credential-encryption-at-rest).
 - **Hardening** — HSTS, CSP, X-Frame-Options, and Referrer-Policy on every response; KV-backed per-user rate limits (429 + `Retry-After`); Zod input validation with a 64 KiB body limit.
