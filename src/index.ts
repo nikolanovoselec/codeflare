@@ -522,3 +522,11 @@ export { GitHubInterceptor } from './github-interceptor';
 // env.EGRESS Workers VPC binding. Transparent proxy — stamps no identity, preserves
 // caller credentials, fails closed. Inert unless ENTERPRISE_MODE=active and the toggle is on.
 export { EgressController } from './egress-controller';
+
+// REQUIRED for container outbound interception to function. The @cloudflare/containers
+// runtime routes intercepted container HTTPS (interceptOutboundHttps) THROUGH this
+// ContainerProxy WorkerEntrypoint to our handlers (LlmInterceptor / GitHubInterceptor /
+// EgressController). Per the SDK egress contract: "Without this export, outbound
+// interception will not work" — i.e. intercepted requests black-hole. Inert unless the
+// container DO actually registers an interceptor (enterprise mode).
+export { ContainerProxy } from '@cloudflare/containers';

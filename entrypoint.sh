@@ -1652,6 +1652,22 @@ fi
 # Note: Claude Code consent is pre-accepted via bypassPermissionsModeAccepted in .claude.json.
 
 if [ $RCLONE_CONFIG_RESULT -eq 0 ]; then
+    # REQ-ENTERPRISE-016: under strict Gateway egress the container's rclone egress is
+    # TLS-terminated by the platform with the Cloudflare containers CA. Install that CA
+    # into the system trust store BEFORE the initial R2 sync forks, so rclone (Go; reads
+    # the system bundle at handshake) trusts the intercepted connection. Without this the
+    # first sync ("Syncing…") fails the TLS handshake. The enterprise CA block later in
+    # this script re-installs it idempotently and additionally wires the agent env/.bashrc.
+    if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
+        _CF_CA_SRC="/etc/cloudflare/certs/cloudflare-containers-ca.crt"
+        if [ -f "$_CF_CA_SRC" ]; then
+            cp "$_CF_CA_SRC" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt 2>/dev/null \
+                && update-ca-certificates >/dev/null 2>&1 \
+                && echo "[entrypoint] Enterprise Mode: containers CA installed before R2 sync (rclone trusts intercepted TLS)" \
+                || echo "[entrypoint] WARNING: could not install containers CA before R2 sync; strict-egress sync may fail TLS"
+        fi
+    fi
+
     # Step 1: One-way sync FROM R2 to restore user data (credentials, plugins, etc.)
     update_sync_status "syncing" "null"
     initial_sync_from_r2 &
