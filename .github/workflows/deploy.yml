@@ -406,8 +406,10 @@ jobs:
             -e '/^# network_id = "cf1:network"$/s/^# //' \
             -e '/^# remote = true$/s/^# //' \
             wrangler.toml
+          for ln in '[[vpc_networks]]' 'binding = "EGRESS"' 'network_id = "cf1:network"' 'remote = true'; do
+            grep -qxF "$ln" wrangler.toml || { echo "::error::strict-egress binding line not enabled: $ln"; exit 1; }
+          done
           echo "--- strict-egress VPC binding enabled for enterprise deploy ---"
-          grep -A3 '^\[\[vpc_networks\]\]' wrangler.toml || { echo "::error::vpc_networks binding failed to enable"; exit 1; }
 
       - name: Deploy to Cloudflare
         run: >-

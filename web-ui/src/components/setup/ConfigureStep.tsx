@@ -239,7 +239,7 @@ const ConfigureStep: Component = () => {
         {/* REQ-ENTERPRISE-016: strict gateway egress toggle (enterprise-only). Routes
             each container's outbound HTTP/HTTPS through your Cloudflare Gateway so your
             Zero Trust egress policies apply. Default OFF — containers reach the internet
-            directly. Scoped to web traffic; not the raw-TCP plane. */}
+            directly. */}
         <div class="setup-field">
           <label class="setup-field-label">Strict Gateway Egress (optional)</label>
           <p class="setup-field-description">
