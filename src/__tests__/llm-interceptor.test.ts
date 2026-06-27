@@ -37,7 +37,7 @@ const AIG_TOKEN = 'aig-secret-token';
 const SESSION_USER = 'nikola@novoselec.ch'; // per-session attribution: the user's email (REQ-ENTERPRISE-004 AC4)
 
 /** Construct an interceptor with the given env + per-session props. */
-function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; groups?: string[] } = { user: SESSION_USER }) {
+function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; groups?: string[]; strict?: boolean } = { user: SESSION_USER }) {
   // The interceptor now reads the route catalog from KV; tests pass a __kv map
   // of key -> JSON string via envOverrides, which backs a minimal KV.get stub.
   const kvStore: Record<string, string> = (envOverrides as { __kv?: Record<string, string> }).__kv ?? {};
@@ -609,6 +609,66 @@ describe('REQ-ENTERPRISE-004 / REQ-ENTERPRISE-006 AC4: fail-closed guards', () =
     );
     expect(res.status).toBe(503);
     expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('REQ-ENTERPRISE-016: strict gateway egress transport swap', () => {
+  /** A Fetcher mock recording each upstream call, returning the default SSE response. */
+  function makeEgress() {
+    const calls: { url: string; method: string; headers: Headers; body: string }[] = [];
+    const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
+      const req = input as Request;
+      const body = req.method === 'GET' || req.method === 'HEAD' ? '' : await req.text();
+      calls.push({ url: req.url, method: req.method, headers: req.headers, body });
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
+          controller.close();
+        },
+      });
+      return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    });
+    return { calls, fetcher: { fetch: fetchFn } as unknown as Fetcher, fetchFn };
+  }
+
+  it('routes the upstream call through env.EGRESS.fetch (not global fetch) when strict, routing unchanged', async () => {
+    const egress = makeEgress();
+    const res = await makeInterceptor({ EGRESS: egress.fetcher } as Partial<Env>, { user: SESSION_USER, strict: true }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{"model":"x"}' }),
+    );
+    expect(res.status).toBe(200);
+    expect(egress.fetchFn).toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    // routing is byte-identical: still mapped onto the AI Gateway REST API host/path
+    expect(egress.calls[0].url).toBe(`${REST_BASE}/v1/chat/completions`);
+  });
+
+  it('preserves the gateway auth + routing headers on the EGRESS leg (headers unchanged)', async () => {
+    const egress = makeEgress();
+    await makeInterceptor({ EGRESS: egress.fetcher } as Partial<Env>, { user: SESSION_USER, strict: true }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+    );
+    expect(egress.calls[0].headers.get('authorization')).toBe(`Bearer ${AIG_TOKEN}`);
+    expect(egress.calls[0].headers.get('cf-aig-gateway-id')).toBe('gw');
+  });
+
+  it('fails closed with 503 EGRESS_UNAVAILABLE when strict but the binding is unbound, and never fetches', async () => {
+    const res = await makeInterceptor({}, { user: SESSION_USER, strict: true }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+    );
+    expect(res.status).toBe(503);
+    expect((await res.json() as Record<string, unknown>).code).toBe('EGRESS_UNAVAILABLE');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('uses global fetch (not EGRESS) when strict is off, even with the binding present', async () => {
+    const egress = makeEgress();
+    await makeInterceptor({ EGRESS: egress.fetcher } as Partial<Env>, { user: SESSION_USER }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+    );
+    expect(globalThis.fetch).toHaveBeenCalled();
+    expect(egress.fetchFn).not.toHaveBeenCalled();
+    expect(lastFetch?.url).toBe(`${REST_BASE}/v1/chat/completions`);
   });
 });
 

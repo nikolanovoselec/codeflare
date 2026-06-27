@@ -77,6 +77,14 @@ interface GithubInterceptorProps {
   user: string;
   /** The per-session bucket — the ONLY identity used to resolve the user's token. */
   bucket: string;
+  /**
+   * Strict gateway egress (REQ-ENTERPRISE-016): when the DO sets this from the
+   * enterprise toggle, the single upstream fetch rides env.EGRESS (the Workers
+   * VPC Fetcher → Cloudflare Gateway) instead of the global fetch. Absent/false
+   * keeps the existing direct egress; the path fails closed when strict but the
+   * EGRESS binding is unbound.
+   */
+  strict?: boolean;
 }
 
 function jsonError(status: number, code: string, error: string): Response {
@@ -102,6 +110,16 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
       console.error('GitHubInterceptor: per-session bucket prop absent; failing closed');
       return jsonError(401, 'GITHUB_NO_SESSION', 'GitHub credential unavailable');
     }
+
+    // Strict gateway egress (REQ-ENTERPRISE-016): when the per-session prop opts
+    // in, the single upstream fetch rides env.EGRESS (the Workers VPC Fetcher →
+    // Cloudflare Gateway) instead of the global fetch. Fail closed when strict but
+    // the binding is unbound — never silently fall back to direct egress.
+    const strict = props?.strict === true;
+    if (strict && !this.env.EGRESS) {
+      return jsonError(503, 'EGRESS_UNAVAILABLE', 'Strict gateway egress unavailable');
+    }
+    const send = strict ? this.env.EGRESS!.fetch.bind(this.env.EGRESS) : fetch;
 
     let token: string | null;
     try {
@@ -146,7 +164,7 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
     const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
     let upstream: Response;
     try {
-      upstream = await fetch(
+      upstream = await send(
         new Request(url.toString(), {
           method: request.method,
           headers,

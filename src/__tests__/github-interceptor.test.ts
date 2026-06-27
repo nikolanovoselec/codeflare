@@ -34,7 +34,7 @@ function makeEnv(over: Partial<Env> = {}): Env {
 
 function makeInterceptor(
   env: Env = makeEnv(),
-  props: { user: string; bucket: string } | undefined = { user: SESSION_USER, bucket: BUCKET },
+  props: { user: string; bucket: string; strict?: boolean } | undefined = { user: SESSION_USER, bucket: BUCKET },
 ): GitHubInterceptor {
   const ctx = { props } as unknown as ExecutionContext;
   return new GitHubInterceptor(ctx, env);
@@ -188,6 +188,68 @@ describe('REQ-GITHUB-003: response hygiene', () => {
     });
     await makeInterceptor().fetch(new Request('https://api.github.com/user'));
     expect(capturedRedirect).toBe('manual');
+  });
+});
+
+describe('REQ-ENTERPRISE-016: strict gateway egress transport swap', () => {
+  /** A Fetcher mock recording each upstream call. */
+  function makeEgress() {
+    const calls: { url: string; method: string; headers: Headers; redirect: string }[] = [];
+    const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
+      const req = input as Request;
+      calls.push({ url: req.url, method: req.method, headers: req.headers, redirect: req.redirect });
+      return new Response('upstream-ok', { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    return { calls, fetcher: { fetch: fetchFn } as unknown as Fetcher, fetchFn };
+  }
+
+  it('rides env.EGRESS.fetch carrying the injected Bearer credential + manual redirect when strict (global NOT called)', async () => {
+    await connect('gho_real_secret');
+    const egress = makeEgress();
+    const env = makeEnv({ EGRESS: egress.fetcher } as Partial<Env>);
+    const res = await makeInterceptor(env, { user: SESSION_USER, bucket: BUCKET, strict: true }).fetch(
+      new Request('https://api.github.com/user', { headers: { Authorization: 'Basic codeflare-enterprise' } }),
+    );
+    expect(res.status).toBe(200);
+    expect(egress.fetchFn).toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(egress.calls[0].url).toBe('https://api.github.com/user');
+    expect(egress.calls[0].headers.get('authorization')).toBe('Bearer gho_real_secret');
+    expect(egress.calls[0].redirect).toBe('manual');
+  });
+
+  it('fails closed with 503 EGRESS_UNAVAILABLE when strict but the binding is unbound, and never fetches', async () => {
+    await connect('gho_real_secret');
+    const res = await makeInterceptor(makeEnv(), { user: SESSION_USER, bucket: BUCKET, strict: true }).fetch(
+      new Request('https://api.github.com/user'),
+    );
+    expect(res.status).toBe(503);
+    expect((await res.json() as Record<string, unknown>).code).toBe('EGRESS_UNAVAILABLE');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('preserves no-spoof scoping on the EGRESS leg: injects the bound bucket token, not the request token', async () => {
+    const env = makeEnv();
+    await storeGithubConnection(env, BUCKET, { accessToken: 'TOKEN_A', source: 'oauth' });
+    await storeGithubConnection(env, 'other-bucket', { accessToken: 'TOKEN_B', source: 'oauth' });
+    const egress = makeEgress();
+    const strictEnv = makeEnv({ EGRESS: egress.fetcher } as Partial<Env>);
+    await makeInterceptor(strictEnv, { user: SESSION_USER, bucket: BUCKET, strict: true }).fetch(
+      new Request('https://api.github.com/user', { headers: { Authorization: 'Bearer TOKEN_B' } }),
+    );
+    expect(egress.calls[0].headers.get('authorization')).toBe('Bearer TOKEN_A');
+    expect(egress.calls[0].headers.get('authorization')).not.toContain('TOKEN_B');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('uses global fetch (not EGRESS) when strict is off, even with the binding present', async () => {
+    await connect('gho_real_secret');
+    const egress = makeEgress();
+    const env = makeEnv({ EGRESS: egress.fetcher } as Partial<Env>);
+    await makeInterceptor(env, { user: SESSION_USER, bucket: BUCKET }).fetch(new Request('https://api.github.com/user'));
+    expect(globalThis.fetch).toHaveBeenCalled();
+    expect(egress.fetchFn).not.toHaveBeenCalled();
+    expect(lastFetch?.url).toBe('https://api.github.com/user');
   });
 });
 
