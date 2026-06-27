@@ -173,7 +173,7 @@ describe('REQ-ENTERPRISE-016: EgressController bridges WebSocket upgrades (brows
   // vitest-pool-workers isolate tears down cleanly — a live accepted WebSocket otherwise
   // crashes the pool worker ("Worker exited unexpectedly").
   const createdPairs: Array<Record<string, WebSocket>> = [];
-  const RealWebSocketPair = globalThis.WebSocketPair;
+  const RealWebSocketPair = WebSocketPair;
   beforeEach(() => {
     createdPairs.length = 0;
     vi.stubGlobal('WebSocketPair', function WebSocketPairCapture() {
