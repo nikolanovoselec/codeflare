@@ -393,6 +393,22 @@ jobs:
           echo "--- Verifying image config ---"
           grep 'image =' wrangler.toml
 
+      - name: Enable strict Gateway egress VPC binding (enterprise mode)
+        # REQ-ENTERPRISE-016: the cf1:network EGRESS binding is enterprise-only and
+        # committed commented-out so default/fork deploys (accounts without Workers
+        # VPC / cf1:network) and the vitest-pool-workers test runtime stay green.
+        # Uncomment it only when this deploy targets an enterprise env.
+        if: ${{ vars.ENTERPRISE_MODE == 'active' }}
+        run: |
+          sed -i \
+            -e '/^# \[\[vpc_networks\]\]$/s/^# //' \
+            -e '/^# binding = "EGRESS"$/s/^# //' \
+            -e '/^# network_id = "cf1:network"$/s/^# //' \
+            -e '/^# remote = true$/s/^# //' \
+            wrangler.toml
+          echo "--- strict-egress VPC binding enabled for enterprise deploy ---"
+          grep -A3 '^\[\[vpc_networks\]\]' wrangler.toml || { echo "::error::vpc_networks binding failed to enable"; exit 1; }
+
       - name: Deploy to Cloudflare
         run: >-
           npx wrangler deploy --name "${WORKER_NAME}"
