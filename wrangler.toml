@@ -51,6 +51,14 @@ MAX_SESSIONS_ADMIN = "10"
 binding = "KV"
 id = "placeholder"
 
+# ENABLE STEP (REQ-ENTERPRISE-016): uncomment after provisioning Cloudflare Mesh
+# (WARP Connector) for cf1:network. Account currently has 0 WARP Connectors; a
+# live binding would fail wrangler deploy. See enable runbook.
+# [[vpc_networks]]
+# binding = "EGRESS"
+# network_id = "cf1:network"
+# remote = true
+
 # Container configuration (default tier)
 # Default: 1 vCPU, 3 GiB memory, 6 GB disk
 # Cloudflare containers cap disk at 2x memory in GiB - with 3 GiB memory the

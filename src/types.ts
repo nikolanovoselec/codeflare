@@ -117,6 +117,12 @@ export interface Env {
   // header on the REST API (enterprise only; AD74). Set via wrangler secret.
   // Never exposed to the container.
   AIG_TOKEN?: string;
+  // REQ-ENTERPRISE-016: Workers VPC network Fetcher binding ([[vpc_networks]],
+  // network_id "cf1:network") the EgressController forwards through when strict
+  // Gateway egress is ON. Optional — the binding is committed commented-out and
+  // is undefined at runtime until Cloudflare Mesh is provisioned, so strict-ON
+  // paths fail closed (503) rather than falling back to global fetch.
+  EGRESS?: Fetcher;
 
 }
 

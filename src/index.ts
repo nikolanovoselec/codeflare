@@ -515,3 +515,10 @@ export { LlmInterceptor } from './llm-interceptor';
 // the boundary, so the real token never enters the container. Inert unless
 // ENTERPRISE_MODE=active.
 export { GitHubInterceptor } from './github-interceptor';
+
+// Enterprise-mode strict Gateway egress controller (REQ-ENTERPRISE-016). A
+// WorkerEntrypoint the container DO wires as a catch-all (interceptOutboundHttps('*', …))
+// when the strict-egress toggle is ON, forcing all other-host egress through the
+// env.EGRESS Workers VPC binding. Transparent proxy — stamps no identity, preserves
+// caller credentials, fails closed. Inert unless ENTERPRISE_MODE=active and the toggle is on.
+export { EgressController } from './egress-controller';

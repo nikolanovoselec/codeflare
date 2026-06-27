@@ -297,6 +297,10 @@ export const SETUP_KEYS = {
   // deployment's own Cloudflare account.
   BROWSER_RENDER_TOKEN: 'setup:browser_render_token',
   BROWSER_RENDER_ACCOUNT_ID: 'setup:browser_render_account_id',
+  // REQ-ENTERPRISE-016: enterprise-only on/off toggle for strict Gateway egress.
+  // Stored as 'active' / 'inactive' (read === 'active'); default OFF when absent.
+  // Set by the setup wizard and persisted in KV — no redeploy needed to flip it.
+  STRICT_EGRESS: 'setup:strict_egress',
   // REQ-GITHUB-008: enterprise GitHub provider config set in the Setup wizard (the
   // per-user Push & Deploy accordion is hidden in enterprise). GITHUB_PROVIDER_TYPE
   // selects 'app' | 'oauth'; the matching client id is non-secret (rides the
