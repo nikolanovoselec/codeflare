@@ -9,7 +9,7 @@
  * WebSocket upgrades are BRIDGED (a fresh WebSocketPair accepted on both ends), not returned
  * as-is. `strict` comes from props (no per-request KV read).
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../types';
 import { EgressController } from '../egress-controller';
 
@@ -166,6 +166,29 @@ describe('REQ-ENTERPRISE-016: EgressController bridges WebSocket upgrades (brows
     addEventListener: vi.fn(),
     send: vi.fn(),
     close: vi.fn(),
+  });
+
+  // The controller bridges by creating a REAL WebSocketPair and accept()ing its server end.
+  // Capture every pair it creates and close both ends after each test so the
+  // vitest-pool-workers isolate tears down cleanly — a live accepted WebSocket otherwise
+  // crashes the pool worker ("Worker exited unexpectedly").
+  const createdPairs: Array<Record<string, WebSocket>> = [];
+  const RealWebSocketPair = globalThis.WebSocketPair;
+  beforeEach(() => {
+    createdPairs.length = 0;
+    vi.stubGlobal('WebSocketPair', function WebSocketPairCapture() {
+      const pair = new RealWebSocketPair();
+      createdPairs.push(pair as unknown as Record<string, WebSocket>);
+      return pair;
+    });
+  });
+  afterEach(() => {
+    for (const pair of createdPairs) {
+      for (const end of Object.values(pair)) {
+        try { end.close(); } catch { /* already closed / handed to the Response */ }
+      }
+    }
+    vi.unstubAllGlobals();
   });
 
   it('bridges a THIS-account CDP upgrade: accepts the upstream, returns a 101 with a FRESH client webSocket (not as-is), direct not env.EGRESS', async () => {

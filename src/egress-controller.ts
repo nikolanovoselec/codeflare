@@ -144,6 +144,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
           method: forward.method,
           headers: signHeaders,
           body: hasBody ? forward.body : undefined,
+          redirect: 'manual',
         });
         upstream = await fetch(signed);
         resigned = true;
