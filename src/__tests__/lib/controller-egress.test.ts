@@ -42,6 +42,13 @@ describe('REQ-ENTERPRISE-016: hasStrictGatewayEgress', () => {
     const env = makeEnv({ ENTERPRISE_MODE: 'inactive', __kv: { [STRICT_KEY]: 'active' } } as Partial<Env>);
     expect(await hasStrictGatewayEgress(env)).toBe(false);
   });
+
+  it('defaults OFF (resolves false, never throws) when the KV read rejects at the start seam', async () => {
+    // A transient KV error at the container-start seam must degrade to OFF, not fault
+    // setupEnterpriseInterception -> startAndWaitForPorts. Removing the try/catch makes this throw.
+    const env = { ENTERPRISE_MODE: 'active', KV: { get: async () => { throw new Error('kv unavailable'); } } } as unknown as Env;
+    await expect(hasStrictGatewayEgress(env)).resolves.toBe(false);
+  });
 });
 
 describe('REQ-ENTERPRISE-016: controllerFetch fail-closed transport', () => {

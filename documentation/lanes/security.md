@@ -83,6 +83,8 @@ Strict Gateway Egress ([REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#re
 
 **Off-state parity.** When the toggle is OFF or the deployment is non-enterprise, the catch-all is never wired, the LLM/GitHub interceptor transport swap is inert (global `fetch`), and no toggle KV read/write occurs outside enterprise — the egress path is byte-identical to today. See [AD85](../decisions/README.md#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off) and the [Architecture — Strict Gateway Egress](architecture.md#strict-gateway-egress) data flow.
 
+**KV-startup edge case.** `hasStrictGatewayEgress` reads the toggle from KV at the container-start seam. If KV is transiently unavailable at that moment while strict egress is ON, the read defaults to `false` (OFF) so the container boots with direct egress rather than failing to start — a deliberate availability-over-strictness trade-off, bounded because the binding is unbound today (egress is dormant regardless) and the window is the start seam only (the per-request `EgressController` re-check still fails closed). When the `EGRESS` binding is live, operators who require fail-closed-on-KV-error at startup should monitor KV availability; the trade-off is revisitable if it proves material.
+
 ## GitHub Token Handling
 
 The per-user GitHub token authorizes the agent to act with the user's full GitHub permissions (clone/push/PR/merge). Its handling reuses the same primitives as the policies above — encryption at rest and the enterprise egress-injection layer — so a prompt-injected agent or malicious dependency cannot exfiltrate a raw token.
