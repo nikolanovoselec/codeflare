@@ -5,7 +5,7 @@
  * All functions receive explicit state/context parameters instead of `this`.
  */
 import type { Env, TabConfig } from '../types';
-import { TERMINAL_SERVER_PORT, ENTERPRISE_GH_TOKEN_PLACEHOLDER } from '../lib/constants';
+import { TERMINAL_SERVER_PORT, ENTERPRISE_GH_TOKEN_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER } from '../lib/constants';
 import { getR2Config } from '../lib/r2-config';
 import { toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
@@ -24,6 +24,8 @@ export interface ContainerEnvState {
   _r2Endpoint: string | null;
   _r2AccessKeyId: string | null;
   _r2SecretAccessKey: string | null;
+  /** REQ-ENTERPRISE-016: strict Gateway egress active — emit placeholder R2 creds (worker re-signs). Optional: undefined ⇒ real key (non-enterprise / strict-off). */
+  _strictEgress?: boolean;
   _workspaceSyncEnabled: boolean;
   _fastStartEnabled: boolean;
   _tabConfig: TabConfig[] | null;
@@ -187,8 +189,15 @@ export function buildEnvVars(
   env: Env,
 ): Record<string, string> {
   const bucketName = state._bucketName || 'unknown-bucket';
-  const accessKeyId = state._r2AccessKeyId || env.R2_ACCESS_KEY_ID || '';
-  const secretAccessKey = state._r2SecretAccessKey || env.R2_SECRET_ACCESS_KEY || '';
+  // Strict Gateway egress (REQ-ENTERPRISE-016): the real R2 key must NEVER enter the
+  // container — emit a non-secret placeholder so rclone runs in signed mode while the
+  // EgressController strips it and re-signs with the worker-held key at the R2 boundary
+  // (egress-controller.ts). Only when strict is active; non-enterprise / strict-off keep
+  // the real key (rclone connects to R2 directly, byte-identical to today).
+  const realAccessKeyId = state._r2AccessKeyId || env.R2_ACCESS_KEY_ID || '';
+  const realSecretAccessKey = state._r2SecretAccessKey || env.R2_SECRET_ACCESS_KEY || '';
+  const accessKeyId = state._strictEgress ? ENTERPRISE_R2_KEY_PLACEHOLDER : realAccessKeyId;
+  const secretAccessKey = state._strictEgress ? ENTERPRISE_R2_KEY_PLACEHOLDER : realSecretAccessKey;
   const accountId = state._r2AccountId || env.R2_ACCOUNT_ID || '';
   const endpoint = state._r2Endpoint || env.R2_ENDPOINT || '';
 

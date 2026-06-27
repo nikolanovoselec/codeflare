@@ -110,16 +110,29 @@ function r2HostFor(accountId: string): string {
   return `${accountId}.r2.cloudflarestorage.com`;
 }
 
+/**
+ * True when `url` targets THIS account's R2 S3 endpoint (path-style `<accountId>.r2.…`
+ * or a vhost-bucket subdomain of it). Split out from {@link isAccountScopedDestination}
+ * because R2 is the only account-scoped destination the EgressController RE-SIGNS with the
+ * worker-held key (the CF API path stays a transparent passthrough).
+ */
+export function isOwnAccountR2(url: URL, accountId: string | undefined): boolean {
+  const acct = (accountId ?? '').trim().toLowerCase();
+  if (!acct) return false; // fail-secure: no account ⇒ not own R2
+  // Normalize host: lowercase, drop IPv6 brackets + a single trailing dot (FQDN form).
+  const host = url.hostname.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  const r2 = r2HostFor(acct);
+  return host === r2 || host.endsWith(`.${r2}`);
+}
+
 /** True when `url` targets THIS account's R2 or account-scoped CF API (direct egress, never cf1:network). */
 export function isAccountScopedDestination(url: URL, accountId: string | undefined): boolean {
   const acct = (accountId ?? '').trim().toLowerCase();
   if (!acct) return false; // fail-secure: no account ⇒ nothing exempt ⇒ all egress Gateway-inspected
-  // Normalize host: lowercase, drop IPv6 brackets + a single trailing dot (FQDN form).
-  const host = url.hostname.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
-  const r2 = r2HostFor(acct);
   // R2: own account's S3 endpoint (path-style) or a vhost-bucket subdomain of it.
-  if (host === r2 || host.endsWith(`.${r2}`)) return true;
+  if (isOwnAccountR2(url, accountId)) return true;
   // CF API (Browser Rendering / browser-run): own account's path namespace only.
+  const host = url.hostname.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
   if (host === 'api.cloudflare.com' && url.pathname.startsWith(`/client/v4/accounts/${acct}/`)) return true;
   return false;
 }

@@ -125,6 +125,8 @@ export class container extends Container<Env> implements ContainerEnvState {
   _bucketName: string | null = null;
   _r2AccountId: string | null = null;
   _r2Endpoint: string | null = null;
+  /** REQ-ENTERPRISE-016: strict Gateway egress active (enterprise + KV toggle); resolved once in the constructor. */
+  _strictEgress: boolean = false;
   _r2AccessKeyId: string | null = null;
   _r2SecretAccessKey: string | null = null;
   _workspaceSyncEnabled: boolean = false;
@@ -262,6 +264,11 @@ export class container extends Container<Env> implements ContainerEnvState {
           error: toErrorMessage(err),
         });
       }
+
+      // Resolve the strict Gateway egress toggle once (REQ-ENTERPRISE-016 AC2) so buildEnvVars
+      // emits placeholder R2 creds and setupEnterpriseInterception wires the catch-all — both
+      // without a per-request KV read. hasStrictGatewayEgress fails closed (false) on error.
+      this._strictEgress = await hasStrictGatewayEgress(this.env);
 
       if (this._bucketName) {
         this.logger.info('Loaded bucket name from storage', { bucketName: this._bucketName });
@@ -457,7 +464,9 @@ export class container extends Container<Env> implements ContainerEnvState {
     // Rendering, which egress direct (account-scoped exemption). GitHub (external) rides
     // the Gateway via its interceptor; the LLM interceptor forwards to the AI Gateway
     // direct, worker-side (the container only ever calls the intercepted provider host).
-    const strict = await hasStrictGatewayEgress(this.env);
+    // Resolved once in the constructor (REQ-ENTERPRISE-016 AC2) — no per-start KV re-read,
+    // and guarantees buildEnvVars (placeholder creds) and the wiring agree.
+    const strict = this._strictEgress;
     // Independent egress-injection transports, each gated separately so one missing
     // config (e.g. no AI Gateway) never disables the other.
     await this.wireLlmInterception();
@@ -561,14 +570,16 @@ export class container extends Container<Env> implements ContainerEnvState {
     if (!strict) return;
     try {
       const ectx = this.ctx as unknown as {
-        exports: { EgressController(opts: { props: { accountId?: string } }): Fetcher };
+        exports: { EgressController(opts: { props: { accountId?: string; strict?: boolean } }): Fetcher };
         container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
       };
       // Account-scoped exemption (REQ-ENTERPRISE-016, AD86): the EgressController lets THIS
       // account's R2 / CF API egress direct and forces every other host through the Gateway.
       // `_r2AccountId` is resolved in the DO constructor (getR2Config) before wiring; absent ⇒
-      // fail-secure (nothing exempt, all egress Gateway-inspected).
-      const controller = ectx.exports.EgressController({ props: { accountId: this._r2AccountId ?? undefined } });
+      // fail-secure (nothing exempt, all egress Gateway-inspected). `strict` is read once here
+      // (REQ-016 AC2) and passed as a prop so the controller never re-reads KV per request —
+      // we only reach this line when strict is true (guarded above).
+      const controller = ectx.exports.EgressController({ props: { accountId: this._r2AccountId ?? undefined, strict: true } });
       ectx.container?.interceptOutboundHttps('*', controller);
       this.logger.info('Enterprise strict Gateway egress wired (catch-all)');
     } catch (err) {

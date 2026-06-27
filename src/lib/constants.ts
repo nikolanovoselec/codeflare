@@ -91,6 +91,18 @@ export const PROTECTED_PATHS: string[] = [];
  */
 export const ENTERPRISE_GH_TOKEN_PLACEHOLDER = 'codeflare-enterprise';
 
+/**
+ * REQ-ENTERPRISE-016: placeholder R2 S3 credentials emitted into the container when strict
+ * Gateway egress is active, so the real R2 key never enters the container. rclone signs with
+ * this placeholder; the EgressController strips it and re-signs with the worker-held key at
+ * the R2 boundary. Any non-empty, pipe-free string works (the placeholder signature is
+ * discarded). Reuses the single canonical enterprise placeholder value
+ * ({@link ENTERPRISE_GH_TOKEN_PLACEHOLDER} = `'codeflare-enterprise'`, matching entrypoint.sh's
+ * ENTERPRISE_PLACEHOLDER_TOKEN) — every enterprise non-secret placeholder credential is the
+ * same value by design, so the invariant holds from one literal.
+ */
+export const ENTERPRISE_R2_KEY_PLACEHOLDER = ENTERPRISE_GH_TOKEN_PLACEHOLDER;
+
 /** Default max concurrent running sessions for regular users */
 const DEFAULT_MAX_SESSIONS_USER = 3;
 

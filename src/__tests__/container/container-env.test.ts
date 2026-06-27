@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildEnvVars, applyBucketName, applyPrefsOnRestart, type ContainerEnvState } from '../../container/container-env';
 import type { Env } from '../../types';
-import { ENTERPRISE_GH_TOKEN_PLACEHOLDER } from '../../lib/constants';
+import { ENTERPRISE_GH_TOKEN_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER } from '../../lib/constants';
 
 function baseState(): ContainerEnvState {
   return {
@@ -232,6 +232,36 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
   it('REQ-GITHUB-003: omits GH_TOKEN entirely in enterprise mode when not connected (no token to inject)', () => {
     const vars = buildEnvVars(baseState(), { ENTERPRISE_MODE: 'active' } as Env);
     expect('GH_TOKEN' in vars).toBe(false);
+  });
+
+  // REQ-ENTERPRISE-016: when strict Gateway egress is active the real R2 key must NEVER
+  // enter the container — both the AWS_* (rclone S3 provider) and R2_* names get a
+  // non-secret placeholder; the EgressController strips it and re-signs with the
+  // worker-held key at the R2 boundary.
+  it('REQ-ENTERPRISE-016: emits a NON-SECRET placeholder R2 key (both AWS_* and R2_*) when _strictEgress is true (real key never enters the container)', () => {
+    const state = baseState();
+    (state as unknown as { _strictEgress: boolean })._strictEgress = true;
+    const vars = buildEnvVars(state, baseEnv);
+    expect(vars.AWS_ACCESS_KEY_ID).toBe(ENTERPRISE_R2_KEY_PLACEHOLDER);
+    expect(vars.AWS_SECRET_ACCESS_KEY).toBe(ENTERPRISE_R2_KEY_PLACEHOLDER);
+    expect(vars.R2_ACCESS_KEY_ID).toBe(ENTERPRISE_R2_KEY_PLACEHOLDER);
+    expect(vars.R2_SECRET_ACCESS_KEY).toBe(ENTERPRISE_R2_KEY_PLACEHOLDER);
+    // The real key from DO state is NOT emitted anywhere.
+    expect(vars.AWS_ACCESS_KEY_ID).not.toBe('AK');
+    expect(vars.R2_SECRET_ACCESS_KEY).not.toBe('SK');
+    // Non-secret endpoint/account stay real (rclone still targets the right bucket).
+    expect(vars.R2_ACCOUNT_ID).toBe('acc');
+    expect(vars.R2_ENDPOINT).toBe('https://r2.test');
+  });
+
+  // @test buildEnvVars emits the real R2 key verbatim when strict egress is off (byte-identical to today)
+  it('REQ-ENTERPRISE-016: emits the real R2 key verbatim when _strictEgress is falsy (non-enterprise / strict-off unchanged)', () => {
+    const vars = buildEnvVars(baseState(), baseEnv);
+    expect(vars.AWS_ACCESS_KEY_ID).toBe('AK');
+    expect(vars.AWS_SECRET_ACCESS_KEY).toBe('SK');
+    expect(vars.R2_ACCESS_KEY_ID).toBe('AK');
+    expect(vars.R2_SECRET_ACCESS_KEY).toBe('SK');
+    expect(vars.AWS_ACCESS_KEY_ID).not.toBe(ENTERPRISE_R2_KEY_PLACEHOLDER);
   });
 });
 
