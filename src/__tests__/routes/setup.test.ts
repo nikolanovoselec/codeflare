@@ -2028,9 +2028,10 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(res.status).toBe(200);
         const lines = await readNdjson(res);
         // URL is non-secret -> stored verbatim. The token rides encryptAndStore (kv.put at
-        // its dedicated key); never plaintext-asserted.
+        // its dedicated key) and the stored value must NOT contain the plaintext secret —
+        // catches an accidental plaintext-storage regression of the token.
         expect(mockKV.put).toHaveBeenCalledWith('setup:aig_gateway_url', 'https://gateway.ai.cloudflare.com/v1/acct/gw');
-        expect(mockKV.put).toHaveBeenCalledWith('setup:aig_token', expect.any(String));
+        expect(mockKV.put).toHaveBeenCalledWith('setup:aig_token', expect.not.stringContaining('aig-secret'));
         // WS6: the step surfaces on the progress stream so the configuring screen shows it.
         expect(lines).toContainEqual(expect.objectContaining({ step: 'configure_ai_gateway', status: 'success' }));
       });

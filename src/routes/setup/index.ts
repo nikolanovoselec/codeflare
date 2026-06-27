@@ -454,8 +454,13 @@ app.post('/configure', async (c) => {
             if (acct) await c.env.KV.put(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID, acct);
             const tok = browserRenderToken?.trim();
             if (tok) {
+              // No-clobber, encrypted at rest. encryptAndStore handles the plaintext
+              // fallback when ENCRYPTION_KEY is unset (the documented REQ-BROWSER-007
+              // behavior) — do NOT guard on cryptoKey here, which would silently skip
+              // the write and drop the token. (The AIG token above is pre-stream-rejected
+              // without a key, so it can guard; browser-render has no such pre-check.)
               const cryptoKey = await getOrImportKey(c.env);
-              if (cryptoKey) await encryptAndStore(c.env.KV, SETUP_KEYS.BROWSER_RENDER_TOKEN, { token: tok }, cryptoKey);
+              await encryptAndStore(c.env.KV, SETUP_KEYS.BROWSER_RENDER_TOKEN, { token: tok }, cryptoKey);
             }
           });
         }
