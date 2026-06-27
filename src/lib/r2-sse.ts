@@ -28,11 +28,19 @@ function computeKeyMd5(base64Key: string): string {
 /**
  * Generate SSE-C headers for R2 PUT/GET/HEAD operations.
  * Returns empty object when ENCRYPTION_KEY is not set.
+ *
+ * REQ-ENTERPRISE-018 (Governed Mode): when `r2SseDisabled` is true the SSE-C
+ * headers are suppressed even though ENCRYPTION_KEY is set, so the bucket's
+ * objects use R2's default at-rest encryption and stay readable/scannable by
+ * the company's security tooling. ENCRYPTION_KEY keeps serving the vault HKDF
+ * master and secret-at-rest crypto (those paths never call this) — only R2
+ * SSE-C is gated here.
  */
 export function getSseHeaders(
   env: { ENCRYPTION_KEY?: string },
+  r2SseDisabled = false,
 ): Record<string, string> {
-  if (!env.ENCRYPTION_KEY) return {};
+  if (r2SseDisabled || !env.ENCRYPTION_KEY) return {};
 
   return {
     'x-amz-server-side-encryption-customer-algorithm': 'AES256',
@@ -43,12 +51,16 @@ export function getSseHeaders(
 
 /**
  * Generate SSE-C copy-source headers for S3 CopyObject operations.
- * Required when copying an SSE-C encrypted object (e.g., move.ts).
+ * Required when copying an SSE-C encrypted source object — the primitive the
+ * Governed Mode re-encrypt migration uses to decrypt the source on a server-side
+ * copy (REQ-ENTERPRISE-018, src/lib/r2-migration.ts). `r2SseDisabled` suppresses
+ * them for the same reason as getSseHeaders.
  */
 export function getSseCopyHeaders(
   env: { ENCRYPTION_KEY?: string },
+  r2SseDisabled = false,
 ): Record<string, string> {
-  if (!env.ENCRYPTION_KEY) return {};
+  if (r2SseDisabled || !env.ENCRYPTION_KEY) return {};
 
   return {
     'x-amz-copy-source-server-side-encryption-customer-algorithm': 'AES256',

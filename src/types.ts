@@ -272,6 +272,15 @@ export interface UserPreferences {
   /** REQ-AGENT-049: hash of last applied preseed content, for auto-upgrade detection. */
   lastPreseedHash?: string;
   /**
+   * REQ-ENTERPRISE-018: per-bucket R2 encryption regime marker. `'sse-c'` (or
+   * absent ⇒ legacy SSE-C) means objects are SSE-C encrypted; `'plain'` means
+   * Governed Mode re-encrypted them to R2 default at-rest encryption. The
+   * lossless migration (src/lib/r2-migration.ts) reconciles this marker to the
+   * deployment policy at session start; every R2 header choice for the bucket
+   * keys off this marker so reads stay correct during the rollout window.
+   */
+  r2SseRegime?: 'sse-c' | 'plain';
+  /**
    * REQ-STOR-009: set once getting-started docs have been confirmed seeded into
    * the bucket. Until it is true, every session start re-attempts the (idempotent)
    * seed, so a cold-bucket failure self-heals instead of leaving docs permanently
@@ -360,6 +369,10 @@ export interface ContainerConfigPayload {
   sessionMode: string;
   sleepAfter?: string;
   encryptionKey?: string;
+  /** REQ-ENTERPRISE-018: Governed Mode — this bucket's effective R2 SSE-C-disabled
+   * regime, resolved by ensureBucketAndSeed after migration. Forwarded to the
+   * container so entrypoint.sh drops SSE-C from rclone.conf and enables checksums. */
+  r2SseDisabled?: boolean;
   llmKeys?: LlmKeys;
   deployKeys?: DeployKeys;
   /** REQ-ENTERPRISE-004: the user's matched Access groups, one cf-aig-metadata tag per group. */

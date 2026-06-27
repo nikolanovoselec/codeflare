@@ -109,6 +109,12 @@ const ConfigureBodySchema = z.object({
   // egress through the Worker EgressController → Cloudflare Gateway. Absent for
   // non-enterprise setups.
   strictGatewayEgress: z.boolean().optional(),
+  // REQ-ENTERPRISE-018 (enterprise-only): Governed Mode — disable R2 SSE-C deployment-wide
+  // so corporate-owned bucket data is readable/scannable by the company's security tooling.
+  // Persisted 'active'/'inactive' in KV (default OFF). Flipping it triggers a lossless
+  // server-side re-encrypt of each bucket on its next session start. Absent for
+  // non-enterprise setups.
+  r2SseDisabled: z.boolean().optional(),
 }).refine(
   (data) => data.adminUsers.every((admin) => data.allowedUsers.includes(admin)),
   { message: 'All adminUsers must also be in allowedUsers', path: ['adminUsers'] }
@@ -178,7 +184,7 @@ app.post('/configure', async (c) => {
   // Validate body synchronously before starting the stream
   const body = await parseJsonBody(c, ConfigureBodySchema);
 
-  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, groupRouting, strictGatewayEgress } = body;
+  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, groupRouting, strictGatewayEgress, r2SseDisabled } = body;
   const token = c.env.CLOUDFLARE_API_TOKEN;
 
   // During reconfiguration, prevent admin from removing themselves
@@ -472,6 +478,16 @@ app.post('/configure', async (c) => {
         if (strictGatewayEgress !== undefined) {
           await runStep('configure_strict_egress', async () => {
             await c.env.KV.put(SETUP_KEYS.STRICT_EGRESS, strictGatewayEgress ? 'active' : 'inactive');
+          });
+        }
+
+        // REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) toggle. Always written
+        // explicitly ('active'/'inactive', no delete-on-off) so it round-trips
+        // deterministically; default OFF on an absent key. Each bucket is reconciled to
+        // this policy losslessly on its next session start (ensureBucketAndSeed → migration).
+        if (r2SseDisabled !== undefined) {
+          await runStep('configure_r2_sse', async () => {
+            await c.env.KV.put(SETUP_KEYS.R2_SSE_DISABLED, r2SseDisabled ? 'active' : 'inactive');
           });
         }
       }

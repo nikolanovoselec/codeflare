@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD87](#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD90](#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -98,6 +98,9 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off) | Controller-mediated Cloudflare Gateway egress as a mandatory web boundary (wizard-toggled, default OFF) | Architecture, Security |
 | [AD86](#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network) | Platform-native Cloudflare primitives bypass strict Gateway egress (only direct-internet egress takes cf1:network) | Architecture, Security |
 | [AD87](#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props) | EgressController re-signs own-account R2 (container holds a placeholder key), bridges WebSocket upgrades, and resolves strict via props | Architecture, Security |
+| [AD88](#ad88-bisync-compares-via-server-modtime-from-fast-list-not-per-object-mtime-heads) | Bisync compares via server-modtime from --fast-list (not per-object mtime HEADs) | Storage |
+| [AD89](#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration) | Governed Mode: deployment-wide R2 SSE-C disable via a KV toggle, with lossless in-place re-encrypt migration | Architecture, Security, Storage |
+| [AD90](#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync) | Governed Mode preseed bake + --checksum delta initial sync | Storage |
 
 ---
 
@@ -1747,6 +1750,65 @@ Bindings were ruled out as the containment path (verified): R2 bindings are stat
 - The placeholder trips entrypoint.sh's non-fatal "R2_ACCESS_KEY_ID contains unexpected characters (expected hex)" warning in strict mode (the placeholder is not hex); this is expected and harmless (rclone signs with the placeholder; the controller re-signs) — documented in the troubleshooting lane.
 
 **Related:** [AD86](#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network) (refined by this), [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off), [AD81](#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) (placeholder-credential containment precedent for GitHub), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token), [Security — Strict Gateway Egress](../lanes/security.md#strict-gateway-egress-enterprise-mode), [Architecture — Strict Gateway Egress](../lanes/architecture.md#strict-gateway-egress), [Configuration — Container env vars](../lanes/configuration.md), [Troubleshooting — Strict Gateway Egress](../lanes/troubleshooting.md).
+
+---
+
+### AD88: Bisync compares via server-modtime from --fast-list (not per-object mtime HEADs)
+
+**Category:** Storage
+
+**Status:** Accepted (2026-06-28).
+
+**Context:** The steady-state `rclone bisync` (every 15 min, plus baseline + manual triggers) issued one HEAD per object to read its mtime metadata for change detection. On a populated bucket this was the dominant sync cost — measured ~2,900 HEADs per cycle — even when almost nothing changed. The bulk `--fast-list` already returns each object's `LastModified` from R2 in a handful of list calls, so the per-object HEAD is redundant.
+
+**Decision:** Both bisync invocations (the `--resync` baseline in `establish_bisync_baseline` and the steady-state cycle in `bisync_with_r2`) add `--use-server-modtime` (compare via the `LastModified` already returned by `--fast-list`, not a per-object mtime HEAD) and widen `--checkers 32` → `--checkers 64` to overlap the remaining work. Applies in all modes (independent of Governed Mode). The initial one-way sync (`initial_sync_from_r2`) is unaffected.
+
+**Consequences:** The per-cycle HEAD storm is eliminated, cutting the dominant steady-state sync cost. The trade-off of `--use-server-modtime` — it compares the R2 upload time rather than the source file's own mtime — is acceptable for codeflare's newest-wins bisync, where the bucket is the per-user source of truth and absolute upload order is the conflict key. Verified on deploy by the drop in HEADs/cycle in `/tmp/sync.log`.
+
+**Related:** [REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake), [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers), [Storage & Sync lane](../lanes/storage-and-sync.md).
+
+---
+
+### AD89: Governed Mode — deployment-wide R2 SSE-C disable via a KV toggle, with lossless in-place re-encrypt migration
+
+**Category:** Architecture, Security, Storage
+
+**Status:** Accepted (2026-06-28).
+
+**Context:** In enterprise, bucket data is corporate-owned and the company must be able to scan agent config (skills, hooks, extensions) for malicious content with its own security tooling. By default every R2 object is SSE-C encrypted with `ENCRYPTION_KEY`, so the bucket is opaque even to the company's R2-credential holders. The customer asked for a way to make the bucket scannable; their first instinct was to **nuke and recreate** each bucket on toggle, which would lose the user's own content (custom skills/hooks/extensions, transcripts, vault, workspace).
+
+**Decision:** A deployment-wide, enterprise-only, **default-OFF** toggle (`SETUP_KEYS.R2_SSE_DISABLED`, `'active'`/`'inactive'`, in the Setup wizard, no redeploy to flip — the [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off)/[REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) toggle precedent). When ON, R2 SSE-C is disabled so objects use R2's default at-rest encryption and are readable/scannable.
+
+- **`ENCRYPTION_KEY` gating is surgical.** The key has three orthogonal roles — R2 SSE-C, vault HKDF master, and secret-at-rest KV crypto. Governed Mode gates ONLY the R2 SSE-C path (`getSseHeaders`/`getSseCopyHeaders` gain an `r2SseDisabled` parameter that returns `{}` even when the key is set); vault and secret-at-rest crypto are untouched. Disabling SSE-C therefore never weakens secret storage or the vault.
+- **Per-bucket regime marker drives header choice.** Every R2 read/write call site (download/upload/preview/seed/migration) chooses SSE-C vs plaintext by a per-bucket marker (`UserPreferences.r2SseRegime`), not the raw policy. The marker is the truth about how the bucket's objects are actually stored, so reads stay correct during the rollout window between an admin flipping the toggle and each bucket being reconciled on its next session start.
+- **Lossless re-encrypt, not nuke.** Switching regimes re-encrypts each object **in place** via a server-side `CopyObject` (verified R2-supported): copy-source SSE-C headers decrypt the source on→off; destination SSE-C headers encrypt off→on; `MetadataDirective=COPY` preserves Content-Type + system metadata (more lossless than the `REPLACE` the plan first assumed — COPY keeps metadata, and the encryption-attribute change is what makes the same-key self-copy legal). Object bytes never leave R2. The migration is **idempotent and resumable**: each object is HEAD-probed with the target regime's read headers and skipped on a 200, so a partial run — or a completed run whose marker write failed — converges on retry instead of erroring on already-done objects. It runs at session start in `ensureBucketAndSeed` **before** the container DO is configured (no concurrent writer), and the marker is advanced only after the objects are migrated.
+- **Bound + limits.** The synchronous migration is capped by the Workers Paid 10,000-subrequest budget shared with the rest of `/start` (≈4,500 objects with the idempotence probe); larger buckets would need batched migration (out of scope at current scale — the live bucket is ~1,265 objects). A single `CopyObject` is capped at 5 GB; an oversized object fails the migration loudly rather than being silently skipped (which would leave it unreadable once the marker flips).
+- **Regime reaches the container** as `R2_SSE_DISABLED` (mirrors the `_strictEgress` state field): emitted only when the bucket is plain, but always carried in the setBucketName body as a definite boolean so a regime flip OFF on a warm DO resets stale state. The entrypoint then drops the SSE-C block from rclone.conf.
+- **UI guard.** The wizard toggle requires an explicit admin confirmation (the consequence is a re-encrypt of every bucket) before it flips.
+
+**Consequences:** Enterprise admins get a scannable, controllable bucket with zero data loss. With the toggle OFF (the default), all SSE-C behavior, seeding, and sync are byte-identical to before. The rollout window is the one soft edge: while a bucket is mid-migration its objects are briefly mixed-regime, so a concurrent read can transiently fail until migration completes — acceptable for a rare, admin-initiated, confirmation-gated flip on small config buckets, and documented in the troubleshooting lane. **Rejected:** nuke-and-recreate (loses user content); `MetadataDirective=REPLACE` (would drop Content-Type unless re-sent); distributed migration locking (overengineered for a rarely-flipped toggle).
+
+**Related:** [REQ-ENTERPRISE-018](../../sdd/spec/enterprise-mode.md#req-enterprise-018-governed-mode-r2-sse-c-disable-toggle--lossless-re-encrypt-migration), [AD90](#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync), [AD13](#ad13-per-user-scoped-r2-tokens), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [Security lane](../lanes/security.md), [Configuration lane](../lanes/configuration.md), [Deployment lane](../lanes/deployment.md), [Storage & Sync lane](../lanes/storage-and-sync.md).
+
+---
+
+### AD90: Governed Mode preseed bake + --checksum delta initial sync
+
+**Category:** Storage
+
+**Status:** Accepted (2026-06-28).
+
+**Context:** The blocking `initial_sync_from_r2` re-downloads the entire agent seed (~627 files, ~9 MB — about half of a populated bucket) on every boot, because the container filesystem is ephemeral and the seed lives only in R2. It used `--size-only` (the only safe comparison under SSE-C, whose ETags are opaque), so even with the seed present locally it could not prove content equality and re-downloaded everything. Disabling SSE-C (AD89) restores usable MD5 ETags, which makes `--checksum` viable — and `--checksum` with a locally-present seed skips the unchanged files.
+
+**Decision:** In Governed Mode only:
+
+- **Bake the seed into the image.** A new `scripts/materialize-agent-seed.mjs` writes `getConfigsForMode('default'/'advanced', false)` to an on-disk tree; the Dockerfile generates it **in-image** from the committed, freshness-enforced `src/lib/agent-seed.generated.ts` (the single source of truth — `getConfigsForMode` is a pure filter, so the bake is byte-identical to what is seeded to R2). The byte-identity is the load-bearing precondition for the checksum-skip and is guarded by a behavioral drift test. The tier-gated context-mode subtree is intentionally excluded (it delta-syncs from R2).
+- **Lay it down before the sync.** A new `lay_down_agent_seed_preseed` copies the mode's baked tree into the user home before `initial_sync_from_r2`, and the initial sync switches `--size-only` → `--checksum`. The unchanged ~627 seed files are skipped and only user deltas transfer.
+- **Gated on Governed Mode.** Both the lay-down and `--checksum` activate only when `R2_SSE_DISABLED=true`, because only an SSE-C-off bucket exposes usable MD5 ETags. Under SSE-C (the default), `--size-only` cannot detect a same-size edit to a seed file, so laying down the bake there could silently lose an in-container seed edit; the path stays byte-identical to before (no lay-down, `--size-only`).
+
+**Consequences:** Governed Mode startup transfers only the user's deltas instead of re-downloading the whole seed every boot. The in-image generation needs no host build ordering (the seed source is always committed) and cannot drift from the seed. The dependency on AD89 is deliberate: REQ-STOR-017(b) ships with REQ-ENTERPRISE-018. Verified on deploy by the before/after Step-1 transfer count in `/tmp/sync.log`.
+
+**Related:** [REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake), [AD89](#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration), [AD88](#ad88-bisync-compares-via-server-modtime-from-fast-list-not-per-object-mtime-heads), [Preseed lane](../lanes/preseed.md), [Storage & Sync lane](../lanes/storage-and-sync.md).
 
 ---
 

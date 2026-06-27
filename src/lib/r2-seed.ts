@@ -34,9 +34,13 @@ async function seedDocuments(
   bucketName: string,
   endpoint: string,
   documents: SeedDocument[],
-  options: { overwrite?: boolean } = {}
+  options: { overwrite?: boolean; r2SseDisabled?: boolean } = {}
 ): Promise<SeedDocsResult> {
   const overwrite = options.overwrite === true;
+  // REQ-ENTERPRISE-018: in Governed Mode the bucket stores plaintext objects, so the
+  // seed must write/read WITHOUT SSE-C headers to match. Caller resolves the bucket's
+  // effective regime; default false keeps SSE-C on (byte-identical to pre-feature).
+  const sseHeaders = getSseHeaders(env, options.r2SseDisabled);
   const r2Client = createR2Client(env);
   const written: string[] = [];
   const skipped: string[] = [];
@@ -46,7 +50,7 @@ async function seedDocuments(
     const headResults = await Promise.allSettled(
       documents.map(async (doc) => {
         const url = getR2Url(endpoint, bucketName, doc.key);
-        const res = await r2Client.fetch(url, { method: 'HEAD', headers: getSseHeaders(env) });
+        const res = await r2Client.fetch(url, { method: 'HEAD', headers: sseHeaders });
         return { doc, exists: res.ok, status: res.status };
       })
     );
@@ -70,7 +74,7 @@ async function seedDocuments(
         const url = getR2Url(endpoint, bucketName, doc.key);
         const res = await r2Client.fetch(url, {
           method: 'PUT',
-          headers: { 'Content-Type': doc.contentType, ...getSseHeaders(env) },
+          headers: { 'Content-Type': doc.contentType, ...sseHeaders },
           body: doc.content,
         });
         if (!res.ok) throw new Error(`Failed to seed object ${doc.key}: HTTP ${res.status}`);
@@ -88,7 +92,7 @@ async function seedDocuments(
         const url = getR2Url(endpoint, bucketName, doc.key);
         const res = await r2Client.fetch(url, {
           method: 'PUT',
-          headers: { 'Content-Type': doc.contentType, ...getSseHeaders(env) },
+          headers: { 'Content-Type': doc.contentType, ...sseHeaders },
           body: doc.content,
         });
         if (!res.ok) throw new Error(`Failed to seed object ${doc.key}: HTTP ${res.status}`);
@@ -108,7 +112,7 @@ export async function seedGettingStartedDocs(
   env: SeedEnv,
   bucketName: string,
   endpoint: string,
-  options: { overwrite?: boolean; maxAttempts?: number; retryDelayMs?: number } = {}
+  options: { overwrite?: boolean; maxAttempts?: number; retryDelayMs?: number; r2SseDisabled?: boolean } = {}
 ): Promise<SeedDocsResult> {
   // A bucket created via the control-plane API is not always immediately
   // writable on the S3 data plane, and R2 credentials written as Worker
@@ -292,11 +296,11 @@ export async function reconcileAgentConfigs(
   bucketName: string,
   endpoint: string,
   mode: SessionMode,
-  options: { overwrite: boolean; cleanup: boolean; contextModeEnabled?: boolean }
+  options: { overwrite: boolean; cleanup: boolean; contextModeEnabled?: boolean; r2SseDisabled?: boolean }
 ): Promise<{ written: string[]; skipped: string[]; deleted: string[]; warnings: string[] }> {
   const contextModeEnabled = options.contextModeEnabled === true;
   const docs = getConfigsForMode(mode, contextModeEnabled);
-  const seedResult = await seedDocuments(env, bucketName, endpoint, docs, { overwrite: options.overwrite });
+  const seedResult = await seedDocuments(env, bucketName, endpoint, docs, { overwrite: options.overwrite, r2SseDisabled: options.r2SseDisabled });
 
   let deleted: string[] = [];
   let warnings: string[] = [];
@@ -329,12 +333,12 @@ export async function seedAgentConfigs(
   env: SeedEnv,
   bucketName: string,
   endpoint: string,
-  options: { overwrite?: boolean; mode?: SessionMode; contextModeEnabled?: boolean } = {}
+  options: { overwrite?: boolean; mode?: SessionMode; contextModeEnabled?: boolean; r2SseDisabled?: boolean } = {}
 ): Promise<SeedDocsResult> {
   const mode = options.mode ?? 'default';
   const contextModeEnabled = options.contextModeEnabled === true;
   const docs = getConfigsForMode(mode, contextModeEnabled);
-  const result = await seedDocuments(env, bucketName, endpoint, docs, options);
+  const result = await seedDocuments(env, bucketName, endpoint, docs, { overwrite: options.overwrite, r2SseDisabled: options.r2SseDisabled });
 
   logger.info('Seeded agent configs', {
     bucketName,
@@ -366,12 +370,13 @@ export async function reseedContextModePlugin(
   bucketName: string,
   endpoint: string,
   contextModeEnabled: boolean,
+  r2SseDisabled = false,
 ): Promise<SeedDocsResult> {
   if (!contextModeEnabled) {
     return { written: [], skipped: [] };
   }
   const contextModeDocs = AGENTS_SEEDED_CONFIGS.filter((doc) => isContextModeKey(doc.key));
-  const result = await seedDocuments(env, bucketName, endpoint, contextModeDocs, { overwrite: true });
+  const result = await seedDocuments(env, bucketName, endpoint, contextModeDocs, { overwrite: true, r2SseDisabled });
   logger.info('Reseeded context-mode plugin subtree', {
     bucketName,
     writtenCount: result.written.length,

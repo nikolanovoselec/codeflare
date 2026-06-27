@@ -345,4 +345,65 @@ describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESS
     expect(writes.userGroups).toEqual(['a', 'b']);
     expect((state as unknown as { _userGroups: string[] })._userGroups).toEqual(['a', 'b']);
   });
+
+  // REQ-ENTERPRISE-018 (Governed Mode): the container learns the bucket's R2 SSE-C
+  // regime via R2_SSE_DISABLED, emitted iff _r2SseDisabled is set. entrypoint.sh
+  // keys off it to drop SSE-C from rclone.conf and re-enable checksums.
+  describe('R2_SSE_DISABLED (REQ-ENTERPRISE-018)', () => {
+    it('emits R2_SSE_DISABLED=true when _r2SseDisabled is set', () => {
+      const state = baseState();
+      (state as unknown as { _r2SseDisabled: boolean })._r2SseDisabled = true;
+      const vars = buildEnvVars(state, baseEnv) as Record<string, string | undefined>;
+      expect(vars.R2_SSE_DISABLED).toBe('true');
+    });
+
+    it('omits R2_SSE_DISABLED when _r2SseDisabled is false', () => {
+      const state = baseState();
+      (state as unknown as { _r2SseDisabled: boolean })._r2SseDisabled = false;
+      const vars = buildEnvVars(state, baseEnv) as Record<string, string | undefined>;
+      expect(vars.R2_SSE_DISABLED).toBeUndefined();
+    });
+
+    it('omits R2_SSE_DISABLED when _r2SseDisabled is unset (default container env)', () => {
+      const vars = buildEnvVars(baseState(), baseEnv) as Record<string, string | undefined>;
+      expect(vars.R2_SSE_DISABLED).toBeUndefined();
+    });
+
+    it('applyBucketName sets _r2SseDisabled from the body', async () => {
+      const state = baseState();
+      const { storage } = makeStorage();
+      await applyBucketName(state, 'codeflare-test', baseEnv, storage, { r2SseDisabled: true });
+      expect((state as unknown as { _r2SseDisabled: boolean })._r2SseDisabled).toBe(true);
+    });
+
+    it('applyBucketName defaults _r2SseDisabled to false when the body omits it', async () => {
+      const state = baseState();
+      const { storage } = makeStorage();
+      await applyBucketName(state, 'codeflare-test', baseEnv, storage, {});
+      expect((state as unknown as { _r2SseDisabled: boolean })._r2SseDisabled).toBe(false);
+    });
+
+    it('applyPrefsOnRestart flips _r2SseDisabled both directions and regenerates env', async () => {
+      const state = baseState();
+      const s = state as unknown as { _r2SseDisabled: boolean };
+      const { storage } = makeStorage();
+
+      const onChanged = await applyPrefsOnRestart(state, storage, { r2SseDisabled: true });
+      expect(onChanged).toBe(true);
+      expect(s._r2SseDisabled).toBe(true);
+
+      // Turning Governed Mode OFF on a warm DO must reset the stale state.
+      const offChanged = await applyPrefsOnRestart(state, storage, { r2SseDisabled: false });
+      expect(offChanged).toBe(true);
+      expect(s._r2SseDisabled).toBe(false);
+    });
+
+    it('applyPrefsOnRestart is a no-op for r2SseDisabled when unchanged', async () => {
+      const state = baseState();
+      (state as unknown as { _r2SseDisabled: boolean })._r2SseDisabled = true;
+      const { storage } = makeStorage();
+      const changed = await applyPrefsOnRestart(state, storage, { r2SseDisabled: true });
+      expect(changed).toBe(false);
+    });
+  });
 });

@@ -21,6 +21,7 @@ const storeState = vi.hoisted(() => ({
   aigToken: '',
   aigTokenSet: false,
   strictGatewayEgress: false,
+  r2SseDisabled: false,
   githubProviderType: 'app' as 'app' | 'oauth',
   githubAppClientId: '',
   githubAppClientSecret: '',
@@ -53,6 +54,7 @@ const storeMethods = vi.hoisted(() => ({
   setAigGatewayUrl: vi.fn((val: string) => { storeState.aigGatewayUrl = val; }),
   setAigToken: vi.fn((val: string) => { storeState.aigToken = val; }),
   setStrictGatewayEgress: vi.fn((v: boolean) => { storeState.strictGatewayEgress = v; }),
+  setR2SseDisabled: vi.fn((v: boolean) => { storeState.r2SseDisabled = v; }),
   setGithubProviderType: vi.fn((t: 'app' | 'oauth') => { storeState.githubProviderType = t; }),
   setGithubAppClientId: vi.fn((v: string) => { storeState.githubAppClientId = v; }),
   setGithubAppClientSecret: vi.fn((v: string) => { storeState.githubAppClientSecret = v; }),
@@ -88,6 +90,7 @@ vi.mock('../../stores/setup', () => ({
     get aigToken() { return storeState.aigToken; },
     get aigTokenSet() { return storeState.aigTokenSet; },
     get strictGatewayEgress() { return storeState.strictGatewayEgress; },
+    get r2SseDisabled() { return storeState.r2SseDisabled; },
     get githubProviderType() { return storeState.githubProviderType; },
     get githubAppClientId() { return storeState.githubAppClientId; },
     get githubAppClientSecret() { return storeState.githubAppClientSecret; },
@@ -130,6 +133,7 @@ describe('ConfigureStep', () => {
     storeState.aigToken = '';
     storeState.aigTokenSet = false;
     storeState.strictGatewayEgress = false;
+    storeState.r2SseDisabled = false;
     storeState.githubProviderType = 'app';
     storeState.githubAppClientId = '';
     storeState.githubAppClientSecret = '';
@@ -428,8 +432,9 @@ describe('ConfigureStep', () => {
   });
 
   // REQ-ENTERPRISE-016: strict gateway egress toggle — enterprise-only checkbox.
-  // The checkbox input is the only one ConfigureStep renders, so it is asserted via
-  // input[type="checkbox"] (no prose copy pinned).
+  // It is the FIRST checkbox ConfigureStep renders (the Governed Mode toggle is the
+  // second), so it is asserted via querySelector('input[type="checkbox"]') — first
+  // match (no prose copy pinned).
   describe('Strict gateway egress toggle (REQ-ENTERPRISE-016)', () => {
     it('renders the toggle in enterprise mode', () => {
       storeState.enterpriseMode = true;
@@ -466,6 +471,54 @@ describe('ConfigureStep', () => {
       const checkbox = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
       fireEvent.click(checkbox);
       expect(storeMethods.setStrictGatewayEgress).toHaveBeenCalledWith(true);
+    });
+  });
+
+  // REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) toggle — enterprise-only, and
+  // the SECOND checkbox ConfigureStep renders (after strict egress). Flipping it requires
+  // an explicit admin confirmation because it triggers a re-encrypt migration.
+  describe('Governed Mode toggle (REQ-ENTERPRISE-018)', () => {
+    // The Governed Mode toggle is the 2nd checkbox; strict egress is the 1st.
+    const governedCheckbox = () =>
+      document.querySelectorAll('input[type="checkbox"]')[1] as HTMLInputElement;
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('renders a second toggle in enterprise mode', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
+    });
+
+    it('does not render the Governed Mode toggle outside enterprise mode', () => {
+      storeState.enterpriseMode = false;
+      render(() => <ConfigureStep />);
+      expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    });
+
+    it('reflects a checked toggle from store state', () => {
+      storeState.enterpriseMode = true;
+      storeState.r2SseDisabled = true;
+      render(() => <ConfigureStep />);
+      expect(governedCheckbox().checked).toBe(true);
+    });
+
+    it('calls setR2SseDisabled with true when confirmed', () => {
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      storeState.enterpriseMode = true;
+      storeState.r2SseDisabled = false;
+      render(() => <ConfigureStep />);
+      fireEvent.click(governedCheckbox());
+      expect(storeMethods.setR2SseDisabled).toHaveBeenCalledWith(true);
+    });
+
+    it('does NOT call setR2SseDisabled when the admin cancels the confirmation', () => {
+      vi.spyOn(window, 'confirm').mockReturnValue(false);
+      storeState.enterpriseMode = true;
+      storeState.r2SseDisabled = false;
+      render(() => <ConfigureStep />);
+      fireEvent.click(governedCheckbox());
+      expect(storeMethods.setR2SseDisabled).not.toHaveBeenCalled();
     });
   });
 

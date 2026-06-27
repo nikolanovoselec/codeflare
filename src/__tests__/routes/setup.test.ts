@@ -2509,6 +2509,69 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(getNdjsonSummary(lines).success).toBe(true);
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:strict_egress', expect.anything());
       });
+
+      // ─── REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) toggle ──────────
+      it('REQ-ENTERPRISE-018: persists the toggle as active when true', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ r2SseDisabled: true })),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:r2_sse_disabled', 'active');
+        expect(lines).toContainEqual(expect.objectContaining({ step: 'configure_r2_sse', status: 'success' }));
+      });
+
+      it('REQ-ENTERPRISE-018: persists the toggle as inactive when false', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ r2SseDisabled: false })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:r2_sse_disabled', 'inactive');
+      });
+
+      it('REQ-ENTERPRISE-018: defaults OFF — never writes the toggle when the field is absent', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({})),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:r2_sse_disabled', expect.anything());
+      });
+
+      it('REQ-ENTERPRISE-018: never writes the toggle in non-enterprise mode (regression)', async () => {
+        const app = createTestApp();
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ r2SseDisabled: true })),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(getNdjsonSummary(lines).success).toBe(true);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:r2_sse_disabled', expect.anything());
+      });
     });
 
     // REQ-SETUP-003: session-OIDC mode (SaaS OR onboarding) + OAUTH_CLIENT_ID skips

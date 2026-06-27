@@ -617,6 +617,87 @@ describe('Setup Store', () => {
     });
   });
 
+  describe('Governed Mode / R2 SSE-C disable (REQ-ENTERPRISE-018)', () => {
+    it('defaults to false', () => {
+      expect(setupStore.r2SseDisabled).toBe(false);
+    });
+
+    it('flips via the setter', () => {
+      setupStore.setR2SseDisabled(true);
+      expect(setupStore.r2SseDisabled).toBe(true);
+      setupStore.setR2SseDisabled(false);
+      expect(setupStore.r2SseDisabled).toBe(false);
+    });
+
+    it('omits r2SseDisabled from the configure body in non-enterprise mode', async () => {
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+      setupStore.setR2SseDisabled(true);
+
+      await setupStore.configure();
+
+      const [, options] = mockFetch.mock.calls[0];
+      const body = JSON.parse(options.body);
+      expect(body.r2SseDisabled).toBeUndefined();
+    });
+
+    it('includes r2SseDisabled in the configure body in enterprise mode', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+      await setupStore.loadExistingConfig();
+
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+      setupStore.addDynamicRoute('development');
+      setupStore.setR2SseDisabled(true);
+
+      await setupStore.configure();
+
+      const lastCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
+      const body = JSON.parse(lastCall[1].body);
+      expect(body.r2SseDisabled).toBe(true);
+    });
+
+    it('hydrates r2SseDisabled from the enterprise prefill', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [], r2SseDisabled: true }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+
+      await setupStore.loadExistingConfig();
+
+      expect(setupStore.r2SseDisabled).toBe(true);
+    });
+
+    it('resets r2SseDisabled back to false', () => {
+      setupStore.setR2SseDisabled(true);
+      setupStore.reset();
+      expect(setupStore.r2SseDisabled).toBe(false);
+    });
+  });
+
   describe('AI Gateway config (REQ-ENTERPRISE-017)', () => {
     it('includes aigGatewayUrl + aigToken in the configure body in enterprise mode', async () => {
       mockFetch.mockImplementation((url: string) => {

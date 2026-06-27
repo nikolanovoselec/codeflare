@@ -236,6 +236,8 @@ export const SetupPrefillResponseSchema = z.object({
     .default({}),
   // REQ-ENTERPRISE-016: strict gateway egress toggle (default OFF on absent).
   strictGatewayEgress: z.boolean().default(false),
+  // REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) toggle (default OFF on absent).
+  r2SseDisabled: z.boolean().default(false),
 });
 
 // User management schemas - moved from client.ts (strict versions)

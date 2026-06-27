@@ -65,6 +65,10 @@ interface SetupState {
   // REQ-ENTERPRISE-016: enterprise-only strict gateway egress toggle. Default OFF;
   // routes the container's HTTP/HTTPS egress through the Cloudflare Gateway.
   strictGatewayEgress: boolean;
+  // REQ-ENTERPRISE-018: enterprise-only Governed Mode toggle. Default OFF; disables
+  // R2 SSE-C so corporate bucket data is readable/scannable. Flipping it triggers a
+  // lossless re-encrypt of each bucket on its next session start.
+  r2SseDisabled: boolean;
   // REQ-GITHUB-008: enterprise GitHub provider config. *ClientSecret holds only a
   // freshly-typed value (the stored secret is never returned); *ClientSecretSet
   // reflects whether one is already saved.
@@ -114,6 +118,7 @@ const initialState: SetupState = {
   aigToken: '',
   aigTokenSet: false,
   strictGatewayEgress: false,
+  r2SseDisabled: false,
   githubProviderType: 'app',
   githubAppClientId: '',
   githubAppClientSecret: '',
@@ -355,6 +360,10 @@ function setAigToken(token: string): void {
 function setStrictGatewayEgress(value: boolean): void {
   setState('strictGatewayEgress', value);
 }
+// REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) toggle setter.
+function setR2SseDisabled(value: boolean): void {
+  setState('r2SseDisabled', value);
+}
 
 function setCustomDomain(domain: string): void {
   setState({ customDomain: domain, customDomainError: null });
@@ -415,6 +424,7 @@ async function loadExistingConfig(): Promise<void> {
             s.aigGatewayUrl = prefill.aigGatewayUrl;
             s.aigTokenSet = prefill.aigTokenSet;
             s.strictGatewayEgress = prefill.strictGatewayEgress;
+            s.r2SseDisabled = prefill.r2SseDisabled;
             s.githubProviderType = prefill.githubProviderType ?? 'app';
             s.githubAppClientId = prefill.githubAppClientId;
             s.githubAppClientSecretSet = prefill.githubAppClientSecretSet;
@@ -490,6 +500,7 @@ async function loadExistingConfig(): Promise<void> {
         s.aigGatewayUrl = prefill.aigGatewayUrl;
         s.aigTokenSet = prefill.aigTokenSet;
         s.strictGatewayEgress = prefill.strictGatewayEgress;
+        s.r2SseDisabled = prefill.r2SseDisabled;
         s.githubProviderType = prefill.githubProviderType ?? 'app';
         s.githubAppClientId = prefill.githubAppClientId;
         s.githubAppClientSecretSet = prefill.githubAppClientSecretSet;
@@ -552,6 +563,8 @@ async function configure(): Promise<boolean> {
           groupRouting: state.groupRouting,
           // REQ-ENTERPRISE-016: strict gateway egress toggle.
           strictGatewayEgress: state.strictGatewayEgress,
+          // REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) toggle.
+          r2SseDisabled: state.r2SseDisabled,
         } : {}),
       }),
     });
@@ -719,6 +732,7 @@ export const setupStore = {
   get aigToken() { return state.aigToken; },
   get aigTokenSet() { return state.aigTokenSet; },
   get strictGatewayEgress() { return state.strictGatewayEgress; },
+  get r2SseDisabled() { return state.r2SseDisabled; },
   get githubProviderType() { return state.githubProviderType; },
   get githubAppClientId() { return state.githubAppClientId; },
   get githubAppClientSecret() { return state.githubAppClientSecret; },
@@ -752,6 +766,7 @@ export const setupStore = {
   setAigGatewayUrl,
   setAigToken,
   setStrictGatewayEgress,
+  setR2SseDisabled,
   setGithubProviderType,
   setGithubAppClientId,
   setGithubAppClientSecret,

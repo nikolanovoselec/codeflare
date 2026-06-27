@@ -141,6 +141,17 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 
 ---
 
+## Governed Mode migration on next access
+
+Enabling or disabling [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable) (the R2 SSE-C toggle) is **not** a redeploy. Flipping the Setup-wizard toggle writes the KV policy immediately; each existing bucket is reconciled to the new regime **on its next session start** (`ensureBucketAndSeed`, before the container DO is configured), via a lossless in-place server-side `CopyObject` re-encrypt ([AD89](../decisions/README.md#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration)). No data is deleted.
+
+Operational notes:
+
+- **Admin confirmation.** The wizard requires an explicit confirmation before flipping, because the consequence is a re-encrypt of every bucket.
+- **First start after a flip is slower.** The migration runs synchronously before the session starts; it is a one-time cost per bucket (subsequent starts are no-ops once the bucket's regime marker matches the policy). It is idempotent/resumable — a transient failure retries on the next start.
+- **Bounds.** The migration is capped by the Workers Paid 10,000-subrequest budget shared with `/start` (≈4,500 objects); a single object over 5 GB fails the migration loudly (R2's single-`CopyObject` limit) rather than being silently left unreadable.
+- **Rollback.** Turning the toggle OFF re-encrypts buckets back to SSE-C on next start (same lossless mechanism).
+
 ## Related Documentation
 - [CI/CD](ci-cd.md) - GitHub Actions workflows and testing
 - [Configuration](configuration.md) - Environment variables and secrets

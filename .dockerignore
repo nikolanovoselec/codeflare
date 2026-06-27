@@ -12,3 +12,11 @@
 !preseed/agents/claude/plugins/context-mode/
 !preseed/agents/claude/plugins/context-mode/.claude-plugin/
 !preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json
+# REQ-STOR-017/AD90: the committed agent seed + materialize script, so the Dockerfile
+# bakes the agent-config tree into the image for the Governed Mode delta-sync lay-down.
+# (un-ignore does not recurse upward — list each parent dir then the exact file.)
+!src/
+!src/lib/
+!src/lib/agent-seed.generated.ts
+!scripts/
+!scripts/materialize-agent-seed.mjs

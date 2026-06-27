@@ -481,3 +481,31 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Verification:** [StorageBrowser test](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx) (AC1/AC2 — drawer/bottom-sheet rendering, R2 reads); [storage-browse test](../../src/__tests__/routes/storage-browse.test.ts) (AC3 — traversal rejection); [FileList test](../../web-ui/src/__tests__/components/FileList.test.tsx) (AC4 file-click opens a new tab; AC5 every folder surfaces `~/<prefix>`; AC6 special folder surfaces canonical `containerPath`)
 
 **Status:** Implemented
+
+---
+
+### REQ-STOR-017: Faster startup sync — bisync HEAD-storm fix + Governed Mode preseed bake
+
+
+**Intent:** Startup and steady-state sync must not waste time on avoidable R2 round-trips. Two costs are addressed: (a) the steady-state bisync issued one HEAD per object to read its mtime metadata (the dominant sync cost, ~2,900 HEADs/cycle on a populated bucket); and (b) the blocking initial sync re-downloads the entire agent seed (~627 files, ~9 MB — about half of a populated bucket) every boot, because the container filesystem is ephemeral and the seed lives only in R2. The seed re-download is eliminated in Governed Mode by laying down an image-baked copy of the seed locally and letting a content-checksum sync transfer only the user's deltas.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Both bisync invocations (the `--resync` baseline and the steady-state cycle) compare object freshness via R2 `LastModified` from the bulk `--fast-list` (`--use-server-modtime`) instead of a per-object mtime HEAD, and run with `--checkers 64`, eliminating the per-file HEAD storm. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 / AD88: bisync uses server-modtime + wider checkers describe) -->
+2. The container image bakes the agent seed as an on-disk file tree, materialized from the single generated seed source, byte-identical to the set seeded to R2 by `getConfigsForMode(mode, false)` for each session mode (the tier-gated context-mode subtree is excluded — it delta-syncs from R2). <!-- @impl: scripts/materialize-agent-seed.mjs --> <!-- @impl: Dockerfile --> <!-- @test: src/__tests__/lib/agent-seed-bake.test.ts (agent-seed bake byte-identity describe) -->
+3. In Governed Mode (R2 SSE-C disabled), the entrypoint lays the mode-appropriate baked seed into the user home before the initial sync, and the initial sync compares by `--checksum` (usable MD5 ETags) so it skips the unchanged seed files and transfers only user deltas. Outside Governed Mode (SSE-C on, the default) no bake is laid down and the initial sync stays on `--size-only` — byte-identical to prior behavior. <!-- @impl: entrypoint.sh::lay_down_agent_seed_preseed --> <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 / AD90 describes — lay-down + compare flag) -->
+
+**Constraints:**
+
+- The preseed bake + `--checksum` initial sync are gated on Governed Mode because only an SSE-C-disabled bucket exposes usable MD5 ETags. Under SSE-C, `--size-only` cannot detect a same-size edit to a seed file, so laying down the bake there could silently lose an in-container seed edit; the bake is therefore only laid down when `--checksum` can prove content equality.
+- The bake is derived in-image from the committed, freshness-enforced `src/lib/agent-seed.generated.ts`, so it never drifts from the seed and needs no host build ordering.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-ENTERPRISE-018](enterprise-mode.md#req-enterprise-018-governed-mode-r2-sse-c-disable-toggle--lossless-re-encrypt-migration)
+
+**Verification:** [Bisync + bake + sync test](../../host/__tests__/entrypoint-governed-sync.test.js); [bake byte-identity test](../../src/__tests__/lib/agent-seed-bake.test.ts)
+
+**Status:** Implemented

@@ -307,6 +307,11 @@ export const SETUP_KEYS = {
   // Stored as 'active' / 'inactive' (read === 'active'); default OFF when absent.
   // Set by the setup wizard and persisted in KV — no redeploy needed to flip it.
   STRICT_EGRESS: 'setup:strict_egress',
+  // REQ-ENTERPRISE-018: enterprise-only Governed Mode toggle — disable R2 SSE-C so the
+  // corporate bucket is readable/scannable. Stored as 'active' / 'inactive'
+  // (read === 'active'); default OFF when absent. Flipping it reconciles each bucket's
+  // encryption regime losslessly on its next session start (src/lib/r2-migration.ts).
+  R2_SSE_DISABLED: 'setup:r2_sse_disabled',
   // REQ-GITHUB-008: enterprise GitHub provider config set in the Setup wizard (the
   // per-user Push & Deploy accordion is hidden in enterprise). GITHUB_PROVIDER_TYPE
   // selects 'app' | 'oauth'; the matching client id is non-secret (rides the

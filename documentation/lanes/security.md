@@ -439,6 +439,16 @@ Every entry carries an inline comment recording the affected package, the impact
 
 ---
 
+## Governed Mode — R2 SSE-C governance trade-off
+
+By default every R2 object is encrypted with SSE-C using the deployment's `ENCRYPTION_KEY`, so the bucket is opaque even to holders of the R2 S3 credentials. Governed Mode (enterprise-only, default-OFF; REQ-ENTERPRISE-018, [AD89](../decisions/README.md#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration)) deliberately **disables** R2 SSE-C so the company can read and scan the agent configuration (skills, hooks, extensions) stored in each user's bucket with its own security tooling.
+
+**Trade-off (intentional).** With Governed Mode ON, bucket objects fall back to R2's default Cloudflare-managed at-rest encryption — readable by anyone holding the R2 credentials (including the company's scanners) and exposing the plaintext MD5 ETag. This is the point: corporate-owned data must be company-inspectable. It is a deployment-wide admin decision, gated behind an explicit confirmation in the Setup wizard.
+
+**Blast radius is contained.** `ENCRYPTION_KEY` has three orthogonal roles — R2 SSE-C, the vault HKDF master, and secret-at-rest KV crypto. Governed Mode gates ONLY the R2 SSE-C header path; the vault and every secret stored at rest (GitHub/Cloudflare/AIG/Browser-Rendering tokens) remain encrypted with the same key. Disabling SSE-C therefore never weakens secret storage or the vault.
+
+**Migration is lossless.** Switching regimes re-encrypts each object in place via a server-side `CopyObject` (object bytes never leave R2, metadata preserved) rather than deleting and recreating the bucket, so no user content is lost. A per-bucket regime marker keeps reads correct during the rollout window.
+
 ## Related Documentation
 - [Authentication - Auth Modes](authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
 - [Configuration - GitHub Integration](configuration.md#github-integration) - GitHub App/OAuth env vars, GH_TOKEN placeholder, Browser Rendering token setup

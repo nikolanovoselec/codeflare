@@ -414,4 +414,29 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
     });
   });
 
+  describe('REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) prefill', () => {
+    it('GET /prefill reports the toggle active when the stored value is "active"', async () => {
+      mockKV._store.set('setup:r2_sse_disabled', 'active');
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.r2SseDisabled).toBe(true);
+    });
+
+    it('GET /prefill reports the toggle inactive (default OFF) when nothing is stored', async () => {
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.r2SseDisabled).toBe(false);
+    });
+
+    it('GET /prefill omits the toggle when ENTERPRISE_MODE is unset', async () => {
+      mockKV._store.set('setup:r2_sse_disabled', 'active');
+      const app = createApp();
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body).not.toHaveProperty('r2SseDisabled');
+    });
+  });
+
 });

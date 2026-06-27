@@ -308,6 +308,37 @@ const ConfigureStep: Component = () => {
             />
           </div>
         </SetupSection>
+
+        {/* Data Governance (enterprise-only). REQ-ENTERPRISE-018: Governed Mode disables
+            R2 SSE-C so corporate-owned bucket data (skills/hooks/extensions) is readable
+            and scannable by the company's security tooling. Flipping it losslessly
+            re-encrypts each bucket on its next session start, so it requires an explicit
+            admin confirmation of the consequence. Default OFF. */}
+        <SetupSection
+          title="Data Governance"
+          description="Control whether bucket data is company-readable for security scanning."
+        >
+          <div class="setup-field">
+            <label class="setup-field-label">Governed Mode (optional)</label>
+            <p class="setup-field-description">
+              Disable per-object encryption (SSE-C) so your security tooling can read and scan the agent configuration (skills, hooks, extensions) stored in each user's bucket. Data stays encrypted at rest with Cloudflare-managed keys. Changing this re-encrypts every bucket losslessly the next time each user starts a session.
+            </p>
+            <Checkbox
+              label="Disable R2 SSE-C so company security tooling can scan bucket data"
+              checked={setupStore.r2SseDisabled}
+              onChange={(v) => {
+                // Explicit admin confirmation — flipping the regime triggers a lossless
+                // re-encrypt of every bucket on its next session start.
+                const proceed = window.confirm(
+                  v
+                    ? "Enable Governed Mode? Each user's bucket will be re-encrypted (SSE-C removed) on their next session so your security tooling can scan it. Data stays encrypted at rest with Cloudflare-managed keys."
+                    : "Disable Governed Mode? Each user's bucket will be re-encrypted with per-object SSE-C on their next session and will no longer be readable by your security tooling."
+                );
+                if (proceed) setupStore.setR2SseDisabled(v);
+              }}
+            />
+          </div>
+        </SetupSection>
       </Show>
 
       {/* GitHub (admin, any mode — the Setup wizard is admin-gated everywhere).

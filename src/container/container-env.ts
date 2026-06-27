@@ -26,6 +26,8 @@ export interface ContainerEnvState {
   _r2SecretAccessKey: string | null;
   /** REQ-ENTERPRISE-016: strict Gateway egress active — emit placeholder R2 creds (worker re-signs). Optional: undefined ⇒ real key (non-enterprise / strict-off). */
   _strictEgress?: boolean;
+  /** REQ-ENTERPRISE-018: Governed Mode — this bucket's R2 SSE-C is disabled. Emits R2_SSE_DISABLED so entrypoint.sh drops SSE-C from rclone.conf + enables checksums. */
+  _r2SseDisabled?: boolean;
   _workspaceSyncEnabled: boolean;
   _fastStartEnabled: boolean;
   _tabConfig: TabConfig[] | null;
@@ -73,6 +75,8 @@ interface RestartPrefsInput {
   cloudflareApiToken?: string | null;
   cloudflareAccountId?: string | null;
   encryptionKey?: string;
+  /** REQ-ENTERPRISE-018: Governed Mode regime, re-sent each start (read fresh from the bucket marker). */
+  r2SseDisabled?: boolean;
   sessionMode?: string;
   /** REQ-MEM-001 AC4: user's IANA timezone. Updated on subsequent DO wakes
    * when preferences.userTimezone changes between sessions. */
@@ -98,6 +102,8 @@ export interface SetBucketNameCreds {
   cloudflareApiToken?: string | null;
   cloudflareAccountId?: string | null;
   encryptionKey?: string;
+  /** REQ-ENTERPRISE-018: Governed Mode regime forwarded from /start. */
+  r2SseDisabled?: boolean;
   sessionMode?: string;
   /** REQ-MEM-001 AC4: user's IANA timezone forwarded from /start. */
   userTimezone?: string;
@@ -242,6 +248,11 @@ export function buildEnvVars(
     ...(!isEnterpriseMode(env) && state._geminiApiKey && { CODEFLARE_GEMINI_API_KEY: state._geminiApiKey }),
     // Encryption key for rclone SSE-C
     ...(state._encryptionKey && { ENCRYPTION_KEY: state._encryptionKey }),
+    // REQ-ENTERPRISE-018 (Governed Mode): when this bucket's R2 SSE-C is disabled,
+    // tell entrypoint.sh to omit the SSE-C block from rclone.conf and re-enable
+    // checksums (R2 default at-rest encryption keeps usable MD5 ETags). Emitted only
+    // when active so a non-Governed container's env is byte-identical to today.
+    ...(state._r2SseDisabled && { R2_SSE_DISABLED: 'true' }),
     // Deploy credentials (GitHub + Cloudflare for push & deploy).
     // REQ-GITHUB-003: in enterprise mode the real GitHub token must NEVER enter the
     // container — emit a non-secret placeholder so git/`gh` (and Copilot's GitHub
@@ -339,6 +350,10 @@ export async function applyBucketName(
 
   // Store encryption key in instance memory
   if (r2Creds?.encryptionKey) state._encryptionKey = r2Creds.encryptionKey;
+
+  // REQ-ENTERPRISE-018: Governed Mode regime (re-sent each start). Default false
+  // (SSE-C on) when omitted, so a non-Governed container is byte-identical to today.
+  state._r2SseDisabled = r2Creds?.r2SseDisabled === true;
 
   // Store session mode in instance memory only (not persisted to DO storage; re-sent on each container start)
   if (r2Creds?.sessionMode) state._sessionMode = r2Creds.sessionMode;
@@ -476,6 +491,14 @@ export async function applyPrefsOnRestart(
   }
   if (input.encryptionKey !== undefined) {
     state._encryptionKey = input.encryptionKey || null;
+    changed = true;
+  }
+  // REQ-ENTERPRISE-018: re-apply the Governed Mode regime on restart so an admin's
+  // policy flip (migration → marker change) re-emits R2_SSE_DISABLED for the next
+  // container start. Always present on the wire as a boolean; only regenerate env
+  // when it actually changes.
+  if (typeof input.r2SseDisabled === 'boolean' && input.r2SseDisabled !== (state._r2SseDisabled === true)) {
+    state._r2SseDisabled = input.r2SseDisabled;
     changed = true;
   }
   if (input.sessionMode) {

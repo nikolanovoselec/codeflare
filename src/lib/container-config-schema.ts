@@ -28,6 +28,8 @@ export const SetBucketNameBodySchema = z.object({
   cloudflareApiToken: z.string().nullable().optional(),
   cloudflareAccountId: z.string().nullable().optional(),
   encryptionKey: z.string().optional(),
+  /** REQ-ENTERPRISE-018: Governed Mode — bucket's R2 SSE-C-disabled regime forwarded to the container. */
+  r2SseDisabled: z.boolean().optional(),
   sessionMode: z.string(),
   sleepAfter: z.string(),
   /** REQ-ENTERPRISE-004: the user's matched Access groups, one cf-aig-metadata tag per group. */

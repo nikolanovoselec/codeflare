@@ -9,6 +9,7 @@
 import type { Env, SessionMode, ContainerConfigPayload, R2ConnectionConfig, UserPreferences } from '../../types';
 import { createBucketIfNotExists, getOrCreateScopedR2Token } from '../../lib/r2-admin';
 import { seedGettingStartedDocs, reconcileAgentConfigs, reseedContextModePlugin } from '../../lib/r2-seed';
+import { reconcileBucketRegimeOnStart } from '../../lib/r2-migration';
 import { getR2Config } from '../../lib/r2-config';
 import { getPreferencesKey } from '../../lib/kv-keys';
 import { ContainerError, toError, toErrorMessage } from '../../lib/error-types';
@@ -57,6 +58,11 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     ...(params.deployKeys?.cloudflareApiToken !== undefined && { cloudflareApiToken: params.deployKeys.cloudflareApiToken }),
     ...(params.deployKeys?.cloudflareAccountId !== undefined && { cloudflareAccountId: params.deployKeys.cloudflareAccountId }),
     ...(params.encryptionKey && { encryptionKey: params.encryptionKey }),
+    // REQ-ENTERPRISE-018: forward the bucket's Governed Mode regime so the container's
+    // rclone drops SSE-C and enables checksums. Always sent as a definite boolean (like
+    // workspaceSyncEnabled) so a regime flip OFF on a warm DO resets the stale state;
+    // buildEnvVars omits the R2_SSE_DISABLED env var when false (byte-identical container).
+    r2SseDisabled: params.r2SseDisabled === true,
     sessionMode: params.sessionMode,
     sleepAfter: params.sleepAfter,
     // REQ-ENTERPRISE-004: forward the user's matched Access groups so the
@@ -126,7 +132,7 @@ export async function ensureBucketAndSeed(params: {
   sessionMode: SessionMode;
   contextModeEnabled?: boolean;
   logger: Logger;
-}): Promise<{ r2Config: R2ConnectionConfig }> {
+}): Promise<{ r2Config: R2ConnectionConfig; r2SseDisabled: boolean }> {
   const { env, bucketName, sessionMode, contextModeEnabled, logger } = params;
 
   const r2Config = await getR2Config(env);
@@ -142,6 +148,13 @@ export async function ensureBucketAndSeed(params: {
   }
   logger.info('Bucket ready', { bucketName, created: bucketResult.created });
 
+  // REQ-ENTERPRISE-018 (Governed Mode): reconcile this bucket's R2 encryption regime
+  // to the deployment policy BEFORE any seed writes or container config — a new bucket
+  // adopts the policy (marker stamped here), an existing bucket whose marker differs is
+  // losslessly re-encrypted to the policy. The resolved flag drives every seed write
+  // below and is forwarded to the container so rclone matches the bucket's regime.
+  const r2SseDisabled = await reconcileBucketRegimeOnStart(env, bucketName, r2Config.endpoint, bucketResult.created === true);
+
   // Seed agent configs once, when the bucket is newly created. Agent configs have
   // additional reseed paths (the Recreate button, mode-change reconcile, and the
   // REQ-AGENT-049 preseed-hash upgrade), so the create-time gate keeps them healthy.
@@ -151,6 +164,7 @@ export async function ensureBucketAndSeed(params: {
         overwrite: false,
         cleanup: false,
         contextModeEnabled,
+        r2SseDisabled,
       });
       logger.info('Seeded initial agent configs', {
         bucketName,
@@ -180,7 +194,7 @@ export async function ensureBucketAndSeed(params: {
     const preferencesKey = getPreferencesKey(bucketName);
     const preferences = await env.KV.get<UserPreferences>(preferencesKey, 'json');
     if (preferences?.gettingStartedSeeded !== true) {
-      const seedResult = await seedGettingStartedDocs(env, bucketName, r2Config.endpoint, { overwrite: false });
+      const seedResult = await seedGettingStartedDocs(env, bucketName, r2Config.endpoint, { overwrite: false, r2SseDisabled });
       // Only mark after a successful seed, so a failed attempt retries next session.
       await env.KV.put(preferencesKey, JSON.stringify({ ...preferences, gettingStartedSeeded: true }));
       logger.info('Seeded getting-started docs', {
@@ -207,7 +221,7 @@ export async function ensureBucketAndSeed(params: {
   // overwrite:false. Cost: 3 small R2 PUTs per session start.
   if (contextModeEnabled === true) {
     try {
-      const reseedResult = await reseedContextModePlugin(env, bucketName, r2Config.endpoint, true);
+      const reseedResult = await reseedContextModePlugin(env, bucketName, r2Config.endpoint, true, r2SseDisabled);
       logger.info('Reseeded context-mode plugin subtree on session start', {
         bucketName,
         writtenCount: reseedResult.written.length,
@@ -220,7 +234,7 @@ export async function ensureBucketAndSeed(params: {
     }
   }
 
-  return { r2Config };
+  return { r2Config, r2SseDisabled };
 }
 
 /**

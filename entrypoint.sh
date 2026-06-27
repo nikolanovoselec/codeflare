@@ -201,15 +201,30 @@ RCLONE_EOF
     sed -i "s|PLACEHOLDER_SECRET_KEY|${R2_SECRET_ACCESS_KEY}|" "$USER_HOME/.config/rclone/rclone.conf"
     sed -i "s|PLACEHOLDER_ENDPOINT|${R2_ENDPOINT}|" "$USER_HOME/.config/rclone/rclone.conf"
 
+    # REQ-ENTERPRISE-018 / REQ-STOR-017 (Governed Mode): with R2 SSE-C disabled, objects
+    # keep R2's default at-rest encryption, so their ETags are usable MD5 checksums again.
+    # Re-enable checksum comparison so the delta initial sync (--checksum) catches even
+    # same-size edits the preseed bake can't. SSE-C buckets keep disable_checksum=true
+    # (SSE-C ETags are opaque). AD90.
+    if [ "${R2_SSE_DISABLED:-}" = "true" ]; then
+        sed -i "s|disable_checksum = true|disable_checksum = false|" "$USER_HOME/.config/rclone/rclone.conf"
+    fi
+
     # Append SSE-C config for R2 encryption at rest (optional)
     # Uses sse_customer_key_base64 (not sse_customer_key) because ENCRYPTION_KEY is base64-encoded.
     # rclone auto-computes the MD5 when using the base64 variant.
-    if [ -n "${ENCRYPTION_KEY:-}" ]; then
+    # REQ-ENTERPRISE-018 (Governed Mode): skip the SSE-C append when R2_SSE_DISABLED=true
+    # even though ENCRYPTION_KEY is present — the key still serves vault + secret-at-rest
+    # crypto, but the corporate bucket must be readable/scannable, so rclone must not send
+    # SSE-C headers (they would 400 against the now-plaintext objects). AD89.
+    if [ -n "${ENCRYPTION_KEY:-}" ] && [ "${R2_SSE_DISABLED:-}" != "true" ]; then
         cat >> "$USER_HOME/.config/rclone/rclone.conf" << SSEEOF
 sse_customer_key_base64 = ${ENCRYPTION_KEY}
 sse_customer_algorithm = AES256
 SSEEOF
         echo "[entrypoint] R2 SSE-C encryption configured for rclone"
+    elif [ "${R2_SSE_DISABLED:-}" = "true" ]; then
+        echo "[entrypoint] Governed Mode: R2 SSE-C disabled, rclone using R2 default encryption + checksums"
     fi
 
     chmod 600 "$USER_HOME/.config/rclone/rclone.conf"
@@ -532,13 +547,22 @@ init_recovery_filters
 # IMPORTANT: Uses timeout to prevent infinite hangs on network issues
 initial_sync_from_r2() {
     local SYNC_TIMEOUT=120  # 2 minutes max for initial sync
-    echo "[entrypoint] Step 1: One-way sync R2 → local (max ${SYNC_TIMEOUT}s)..." | tee -a /tmp/sync.log
+    # REQ-STOR-017 / AD90: under Governed Mode (SSE-C off) R2 keeps usable MD5 ETags, so
+    # compare by --checksum — combined with the image-baked seed laid down below, this
+    # skips the unchanged seed files and transfers only user deltas, catching even
+    # same-size edits the bake can't. Under SSE-C (default) ETags are opaque, so keep the
+    # historical --size-only behavior (byte-identical to today). See create_rclone_config.
+    local COMPARE_FLAG="--size-only"
+    if [ "${R2_SSE_DISABLED:-}" = "true" ]; then
+        COMPARE_FLAG="--checksum"
+    fi
+    echo "[entrypoint] Step 1: One-way sync R2 → local (max ${SYNC_TIMEOUT}s, compare ${COMPARE_FLAG})..." | tee -a /tmp/sync.log
 
     if timeout $SYNC_TIMEOUT rclone sync "r2:$R2_BUCKET_NAME/" "$USER_HOME/" \
         --config "$RCLONE_CONFIG" \
         "${RCLONE_FILTERS[@]}" \
         --fast-list \
-        --size-only \
+        "$COMPARE_FLAG" \
         --min-size 1B \
         --multi-thread-streams 4 \
         --transfers 32 \
@@ -564,6 +588,33 @@ initial_sync_from_r2() {
     fi
 }
 
+# REQ-STOR-017 / AD90: lay down the image-baked agent seed for the session's mode into
+# $USER_HOME before the initial R2 sync. Only in Governed Mode (R2_SSE_DISABLED=true),
+# where the subsequent --checksum sync can prove the laid-down files match R2 and skip
+# them — transferring only the user's deltas instead of re-downloading the whole ~9 MB
+# seed every boot. Under SSE-C the bake is NOT laid down (a same-size seed edit could not
+# be detected by --size-only, so honoring "preserve in-container edits" keeps today's
+# full download). Idempotent and mode-aware.
+lay_down_agent_seed_preseed() {
+    [ "${R2_SSE_DISABLED:-}" = "true" ] || return 0
+    local mode="${SESSION_MODE:-default}"
+    # AGENT_SEED_BAKE_DIR overrides the image bake root (defaults to the baked path);
+    # unset in production, set by the entrypoint tests to a tmpdir.
+    local bake="${AGENT_SEED_BAKE_DIR:-/opt/codeflare/agent-seed-bake}/${mode}"
+    if [ ! -d "$bake" ]; then
+        echo "[entrypoint] Governed Mode: no baked agent seed for mode '${mode}'; skipping lay-down" | tee -a /tmp/sync.log
+        return 0
+    fi
+    echo "[entrypoint] Governed Mode: laying down baked agent seed (mode=${mode}) before initial sync" | tee -a /tmp/sync.log
+    # The bake tree mirrors the R2 key layout rooted at $USER_HOME (.claude/, .pi/agent/,
+    # .gemini/, .codex/, .copilot/, .config/opencode/), so one copy lands every agent home.
+    cp -rp "$bake/." "$USER_HOME/"
+    # Seed hooks arrive as plain files; the CLI execs ~/.claude/hooks/*.mjs directly, so
+    # restore +x (mirrors the post-sync chmod). Idempotent; non-fatal if the dir is absent.
+    find "$USER_HOME/.claude/hooks" -maxdepth 2 -name '*.mjs' -type f -exec chmod 0755 {} + 2>/dev/null || true
+    echo "[entrypoint] Baked agent seed laid down" | tee -a /tmp/sync.log
+}
+
 # Step 2: Establish bisync baseline (after data is restored)
 # IMPORTANT: Uses timeout to prevent infinite hangs
 # Recovery: if a vanishing file causes failure, excludes it and retries (max 3 attempts)
@@ -575,12 +626,15 @@ establish_bisync_baseline() {
         echo "[entrypoint] Step 2: Establishing bisync baseline (max ${BISYNC_TIMEOUT}s, attempt $recovery_attempt/$MAX_RECOVERY)..." | tee -a /tmp/sync.log
 
         BASELINE_OUTPUT=$(mktemp)
+        # --use-server-modtime + --checkers 64: avoid the per-file mtime HEAD storm; see
+        # the steady-state bisync below + AD88.
         if timeout $BISYNC_TIMEOUT rclone bisync "$USER_HOME/" "r2:$R2_BUCKET_NAME/" \
             --config "$RCLONE_CONFIG" \
             "${RCLONE_FILTERS[@]}" \
             --filter-from "$RECOVERY_FILTER_FILE" \
             --resync \
             --fast-list \
+            --use-server-modtime \
             --min-size 1B \
             --conflict-resolve newer \
             --resilient \
@@ -589,7 +643,7 @@ establish_bisync_baseline() {
             --ignore-checksum \
             --max-delete 100 \
             --retries 3 --retries-sleep 10s \
-            --transfers 32 --checkers 32 -v > "$BASELINE_OUTPUT" 2>&1; then
+            --transfers 32 --checkers 64 -v > "$BASELINE_OUTPUT" 2>&1; then
             SYNC_RESULT=0
         else
             SYNC_RESULT=$?
@@ -654,12 +708,16 @@ bisync_with_r2() {
     # Write output to known location so daemon can read it for recovery
     SYNC_OUTPUT="/tmp/last-bisync-output.txt"
 
-    # Run bisync (includes recovery filter for dynamically excluded vanished files)
+    # Run bisync (includes recovery filter for dynamically excluded vanished files).
+    # --use-server-modtime: compare via R2 LastModified from the bulk --fast-list rather
+    # than each object's mtime metadata, which would cost a HEAD per file — the dominant
+    # sync cost (~80%, measured: ~2,900 HEADs/cycle). --checkers 64 overlaps the rest. AD88.
     if rclone bisync "$USER_HOME/" "r2:$R2_BUCKET_NAME/" \
         --config "$RCLONE_CONFIG" \
         "${RCLONE_FILTERS[@]}" \
         --filter-from "$RECOVERY_FILTER_FILE" \
         --fast-list \
+        --use-server-modtime \
         --min-size 1B \
         --conflict-resolve newer \
         --resilient \
@@ -668,7 +726,7 @@ bisync_with_r2() {
         --ignore-checksum \
         --max-delete 100 \
         --retries 3 --retries-sleep 10s \
-        --transfers 32 --checkers 32 "${verbose_args[@]}" > "$SYNC_OUTPUT" 2>&1; then
+        --transfers 32 --checkers 64 "${verbose_args[@]}" > "$SYNC_OUTPUT" 2>&1; then
         RESULT=0
     else
         RESULT=$?
@@ -1665,6 +1723,11 @@ if [ $RCLONE_CONFIG_RESULT -eq 0 ]; then
                 || echo "[entrypoint] WARNING: could not install containers CA before R2 sync; strict-egress sync may fail TLS"
         fi
     fi
+
+    # REQ-STOR-017 / AD90: in Governed Mode, lay down the image-baked agent seed locally
+    # BEFORE the initial sync so --checksum can skip the unchanged seed files. Synchronous
+    # (must finish before the sync starts). No-op outside Governed Mode.
+    lay_down_agent_seed_preseed
 
     # Step 1: One-way sync FROM R2 to restore user data (credentials, plugins, etc.)
     update_sync_status "syncing" "null"

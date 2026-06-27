@@ -115,4 +115,35 @@ describe('r2-sse / REQ-SEC-005 (R2 credentials never logged or exposed)', () => 
         .toBe(sseHeaders['x-amz-server-side-encryption-customer-key-MD5']);
     });
   });
+
+  // REQ-ENTERPRISE-018 (Governed Mode): the r2SseDisabled gate suppresses SSE-C
+  // headers even with a valid ENCRYPTION_KEY, so a Governed Mode bucket is read/
+  // written as plaintext (R2 default at-rest encryption) and stays scannable.
+  describe('Governed Mode gate (REQ-ENTERPRISE-018)', () => {
+    it('getSseHeaders returns {} when r2SseDisabled even with ENCRYPTION_KEY set', () => {
+      const key = generateTestKeyBase64();
+      expect(getSseHeaders({ ENCRYPTION_KEY: key }, true)).toEqual({});
+    });
+
+    it('getSseHeaders returns full headers when r2SseDisabled is false (default)', () => {
+      const key = generateTestKeyBase64();
+      const headers = getSseHeaders({ ENCRYPTION_KEY: key }, false);
+      expect(Object.keys(headers)).toHaveLength(3);
+      expect(headers['x-amz-server-side-encryption-customer-key']).toBe(key);
+      // Default (omitted second arg) keeps SSE-C on — byte-identical to pre-feature.
+      expect(getSseHeaders({ ENCRYPTION_KEY: key })).toEqual(headers);
+    });
+
+    it('getSseCopyHeaders returns {} when r2SseDisabled even with ENCRYPTION_KEY set', () => {
+      const key = generateTestKeyBase64();
+      expect(getSseCopyHeaders({ ENCRYPTION_KEY: key }, true)).toEqual({});
+    });
+
+    it('getSseCopyHeaders returns full copy-source headers when r2SseDisabled is false', () => {
+      const key = generateTestKeyBase64();
+      const headers = getSseCopyHeaders({ ENCRYPTION_KEY: key }, false);
+      expect(Object.keys(headers)).toHaveLength(3);
+      expect(headers['x-amz-copy-source-server-side-encryption-customer-key']).toBe(key);
+    });
+  });
 });

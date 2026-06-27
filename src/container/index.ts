@@ -127,6 +127,8 @@ export class container extends Container<Env> implements ContainerEnvState {
   _r2Endpoint: string | null = null;
   /** REQ-ENTERPRISE-016: strict Gateway egress active (enterprise + KV toggle); resolved once in the constructor. */
   _strictEgress: boolean = false;
+  /** REQ-ENTERPRISE-018: Governed Mode — this bucket's R2 SSE-C disabled; set per-start from the setBucketName body. */
+  _r2SseDisabled: boolean = false;
   _r2AccessKeyId: string | null = null;
   _r2SecretAccessKey: string | null = null;
   _workspaceSyncEnabled: boolean = false;

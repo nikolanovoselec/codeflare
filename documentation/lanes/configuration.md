@@ -390,6 +390,16 @@ You can adjust scopes anytime from your [GitHub token settings](https://github.c
 
 ---
 
+## Governed Mode (R2 SSE-C disable)
+
+Governed Mode is an enterprise-only, **default-OFF** policy that disables R2 SSE-C deployment-wide so corporate-owned bucket data is readable/scannable by the company's own security tooling (REQ-ENTERPRISE-018, [AD89](../decisions/README.md#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration)).
+
+- **Where it is set:** the Setup wizard "Data Governance" toggle, persisted in KV at `setup:r2_sse_disabled` (`'active'`/`'inactive'`; absent ⇒ OFF). No redeploy is needed to flip it. Enterprise-only — never written in non-enterprise mode.
+- **`ENCRYPTION_KEY` is unaffected as a secret.** The key keeps serving the vault HKDF master and secret-at-rest KV crypto; Governed Mode gates only the R2 SSE-C header path. Disabling SSE-C does not weaken secret storage or the vault.
+- **Container env var `R2_SSE_DISABLED`.** When a bucket's resolved regime is plaintext, the Worker forwards `R2_SSE_DISABLED=true` to the container (alongside the existing R2 vars). `entrypoint.sh` then omits the `sse_customer_key_*` block from `rclone.conf` and sets `disable_checksum = false` so the delta sync can compare by content. The var is omitted (SSE-C on) by default — byte-identical to before.
+
+Flipping the toggle triggers a lossless re-encrypt of each bucket on its next session start; see the [Deployment lane](deployment.md#governed-mode-migration-on-next-access).
+
 ## Related Documentation
 - [Container](container.md#auto-sleep-configurable-sleepafter) - Container startup and auto-sleep configuration
 - [Authentication](authentication.md#environment-variables-for-saas-mode) - SaaS mode variables

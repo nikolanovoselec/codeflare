@@ -83,7 +83,7 @@ describe('Storage Seed Routes / REQ-AGENT-032 (starter docs manually recreatable
       expect.any(Object),
       'my-bucket',
       'https://test.r2.cloudflarestorage.com',
-      { overwrite: true }
+      { overwrite: true, r2SseDisabled: false }
     );
   });
 
@@ -163,7 +163,7 @@ describe('Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recrea
       'my-bucket',
       'https://test.r2.cloudflarestorage.com',
       'default',
-      { overwrite: true, cleanup: true, contextModeEnabled: false }
+      { overwrite: true, cleanup: true, contextModeEnabled: false, r2SseDisabled: false }
     );
   });
 
@@ -208,7 +208,7 @@ describe('Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recrea
       'adv-bucket',
       'https://test.r2.cloudflarestorage.com',
       'advanced',
-      { overwrite: true, cleanup: true, contextModeEnabled: true }
+      { overwrite: true, cleanup: true, contextModeEnabled: true, r2SseDisabled: false }
     );
   });
 });

@@ -169,10 +169,12 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
     } catch { /* malformed stored JSON → wizard starts from empty */ }
     // REQ-ENTERPRISE-016: surface the strict gateway egress toggle (default OFF on absent).
     const strictGatewayEgress = (await c.env.KV.get(SETUP_KEYS.STRICT_EGRESS)) === 'active';
+    // REQ-ENTERPRISE-018: surface the Governed Mode (R2 SSE-C disable) toggle (default OFF).
+    const r2SseDisabled = (await c.env.KV.get(SETUP_KEYS.R2_SSE_DISABLED)) === 'active';
     enterpriseExtras = {
       ...enterpriseExtras,
       enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, browserRenderTokenSet, browserRenderAccountId,
-      aigGatewayUrl, aigTokenSet, groupRouting, strictGatewayEgress,
+      aigGatewayUrl, aigTokenSet, groupRouting, strictGatewayEgress, r2SseDisabled,
     };
   }
   if (!token) {

@@ -197,6 +197,19 @@ return an error response (4xx) rather than any listing.
 
 ---
 
+## Startup & steady-state sync performance
+
+Two sync costs are minimized (REQ-STOR-017):
+
+- **Bisync compares via server-modtime (AD88, all modes).** Both `rclone bisync` invocations in `entrypoint.sh` (the `--resync` baseline and the steady-state cycle) pass `--use-server-modtime` and `--checkers 64`. `--use-server-modtime` compares the `LastModified` already returned by the bulk `--fast-list` instead of issuing one mtime HEAD per object, eliminating the per-cycle HEAD storm (the dominant steady-state cost). This is sound under codeflare's newest-wins bisync because the bucket is the per-user source of truth and absolute upload order is the conflict key.
+- **Governed Mode delta initial sync (AD90, Governed Mode only).** The blocking `initial_sync_from_r2` normally re-downloads the whole agent seed (~627 files, ~9 MB) every boot because the container filesystem is ephemeral. In [Governed Mode](#governed-mode-r2-sse-c-disabled) the entrypoint lays the image-baked seed (see [Preseed](preseed.md)) into the user home first, then runs the initial sync with `--checksum` (usable MD5 ETags, available only when SSE-C is off), so the unchanged seed files are skipped and only user deltas transfer. Under SSE-C (the default) the path is unchanged: `--size-only`, no lay-down.
+
+## Governed Mode (R2 SSE-C disabled)
+
+When an enterprise admin enables [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable), R2 SSE-C is disabled deployment-wide so the corporate bucket is readable/scannable. Each bucket's actual encryption regime is tracked by a per-bucket marker (`UserPreferences.r2SseRegime`); flipping the policy losslessly re-encrypts the bucket in place on its next session start (server-side `CopyObject`, never a nuke). Sync behaviour follows the bucket regime: rclone drops the SSE-C block from `rclone.conf` and compares by checksum once the bucket is plain. See [AD89](../decisions/README.md#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration) and the [Deployment lane](deployment.md#governed-mode-migration-on-next-access) for the migration mechanics.
+
+---
+
 ## Related Documentation
 - [Architecture](architecture.md#container-do-container) - Container DO lifecycle
 - [Container](container.md#container-startup) - Startup sync sequence
