@@ -255,4 +255,17 @@ describe('reconcileBucketRegimeOnStart (session-start orchestration)', () => {
     expect(disabled).toBe(false); // booted in current (sse-c) regime, not the target policy
     expect(JSON.parse(store.get('user-prefs:bkt')!).r2SseRegime).toBe('sse-c'); // marker NOT advanced
   });
+
+  it('boots the TARGET regime when migration succeeds but the marker write fails (objects already migrated)', async () => {
+    // Migration completes (one small object copied), but the marker KV.put throws. Since
+    // the objects ARE in the target regime, the orchestrator must NOT brick or revert — it
+    // returns the policy (target) and re-stamps the marker next session.
+    wireFetch({ objects: [{ key: 'a.txt', size: 5 }], headOk: false, puts: [] });
+    const { kv } = makeKV({ 'setup:r2_sse_disabled': 'active', 'user-prefs:bkt': JSON.stringify({ r2SseRegime: 'sse-c' }) });
+    (kv.put as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('KV transient'));
+
+    const disabled = await reconcileBucketRegimeOnStart(startEnv(kv), 'bkt', 'https://r2.test', false);
+
+    expect(disabled).toBe(true); // objects re-encrypted → boot the target (plain) regime
+  });
 });

@@ -146,19 +146,29 @@ export async function reconcileBucketRegimeOnStart(
   if (currentRegime !== targetRegime) {
     try {
       await migrateBucketEncryption(env, bucketName, endpoint, currentRegime, targetRegime);
-      await setBucketR2Regime(env, bucketName, targetRegime);
     } catch (err) {
-      // Migration failed — a transient R2/ListObjects error, subrequest-budget
-      // exhaustion, an object > 5 GB, or > MAX_PAGES of objects. Do NOT flip the
-      // marker: the bucket is still wholly in its current regime, so booting in
-      // THAT regime is read-correct and the idempotent migration retries on the
-      // next session start. Never brick /start over a migration failure.
+      // Migration itself failed — a transient R2/ListObjects error, subrequest-budget
+      // exhaustion, an object > 5 GB, or > MAX_PAGES. The objects are still wholly in the
+      // CURRENT regime, so boot there (read-correct), do NOT flip the marker, and let the
+      // idempotent migration retry next session. Never brick /start over a migration failure.
       logger.error(
         'Governed Mode migration failed; booting in current regime, will retry next session',
         err instanceof Error ? err : new Error(String(err)),
         { bucketName, from: currentRegime, to: targetRegime },
       );
       return currentRegime === 'plain';
+    }
+    // Migration succeeded — the objects ARE in the target regime now. Advance the marker;
+    // if only the marker write fails, the objects are still in target, so boot the TARGET
+    // regime (the idempotent migration re-confirms + re-stamps the marker next session).
+    try {
+      await setBucketR2Regime(env, bucketName, targetRegime);
+    } catch (err) {
+      logger.warn('Governed Mode regime marker write failed post-migration; objects already in target regime', {
+        bucketName,
+        to: targetRegime,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
   return policyDisabled;
