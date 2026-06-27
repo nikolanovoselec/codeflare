@@ -30,6 +30,7 @@ import { getR2Config } from '../lib/r2-config';
 import { toError, toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { isEnterpriseMode } from '../lib/subscription';
+import { hasStrictGatewayEgress } from '../lib/controller-egress';
 import { INTERCEPTED_LLM_HOSTS } from '../llm-interceptor';
 import { interceptedGithubHosts } from '../github-interceptor';
 import {
@@ -422,7 +423,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   override async startAndWaitForPorts(
     ...args: Parameters<Container<Env>['startAndWaitForPorts']>
   ): Promise<void> {
-    this.setupEnterpriseInterception();
+    await this.setupEnterpriseInterception();
     await super.startAndWaitForPorts(...args);
   }
 
@@ -446,16 +447,22 @@ export class container extends Container<Env> implements ContainerEnvState {
    * see wrangler.toml); the cast isolates the runtime surface from the generated
    * types.
    */
-  private setupEnterpriseInterception(): void {
+  private async setupEnterpriseInterception(): Promise<void> {
     if (!isEnterpriseMode(this.env)) return;
+    // Strict Gateway egress (REQ-ENTERPRISE-016): a global enterprise toggle read
+    // straight from KV (the ENTERPRISE_MODE precedent), default OFF. When ON the
+    // per-host LLM/GitHub transports swap their single upstream fetch to env.EGRESS
+    // and a catch-all EgressController forces every OTHER host through env.EGRESS too.
+    const strict = await hasStrictGatewayEgress(this.env);
     // Two independent egress-injection transports, each gated separately so one
     // missing config (e.g. no AI Gateway) never disables the other.
-    this.wireLlmInterception();
-    this.wireGithubInterception();
+    this.wireLlmInterception(strict);
+    this.wireGithubInterception(strict);
+    this.wireEgressInterception(strict);
   }
 
   /** Wire the LLM provider hosts -> LlmInterceptor (REQ-ENTERPRISE-004). */
-  private wireLlmInterception(): void {
+  private wireLlmInterception(strict: boolean): void {
     if (!this.env.AIG_GATEWAY_URL) {
       this.logger.warn('Enterprise mode active but AIG_GATEWAY_URL unset; skipping LLM interception');
       return;
@@ -470,12 +477,18 @@ export class container extends Container<Env> implements ContainerEnvState {
     const user = this._userEmail ?? this._bucketName ?? 'unknown';
     // Include the matched Access groups only when non-empty, so a no-group deploy
     // passes exactly { user } (unchanged) and the interceptor stamps no group tags.
-    const props: { user: string; groups?: string[] } = this._userGroups.length > 0
+    const baseProps: { user: string; groups?: string[] } = this._userGroups.length > 0
       ? { user, groups: this._userGroups }
       : { user };
+    // REQ-ENTERPRISE-016: only add `strict` when ON, so an OFF deploy passes the
+    // exact same props as before (byte-identical) and the interceptor keeps its
+    // direct upstream fetch.
+    const props: { user: string; groups?: string[]; strict?: boolean } = strict
+      ? { ...baseProps, strict: true }
+      : baseProps;
     try {
       const ictx = this.ctx as unknown as {
-        exports: { LlmInterceptor(opts: { props: { user: string; groups?: string[] } }): Fetcher };
+        exports: { LlmInterceptor(opts: { props: { user: string; groups?: string[]; strict?: boolean } }): Fetcher };
         container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
       };
       const interceptor = ictx.exports.LlmInterceptor({ props });
@@ -494,19 +507,24 @@ export class container extends Container<Env> implements ContainerEnvState {
    * session bucket (fixed here, never read from the request), so the real token
    * never enters the container. Skipped without a bucket (no user to resolve).
    */
-  private wireGithubInterception(): void {
+  private wireGithubInterception(strict: boolean): void {
     const bucket = this._bucketName;
     if (!bucket) {
       this.logger.warn('Enterprise mode active but bucket name unset; skipping GitHub interception');
       return;
     }
     const user = this._userEmail ?? bucket;
+    // REQ-ENTERPRISE-016: only add `strict` when ON so an OFF deploy passes the
+    // exact same { user, bucket } props as before (byte-identical).
+    const props: { user: string; bucket: string; strict?: boolean } = strict
+      ? { user, bucket, strict: true }
+      : { user, bucket };
     try {
       const gctx = this.ctx as unknown as {
-        exports: { GitHubInterceptor(opts: { props: { user: string; bucket: string } }): Fetcher };
+        exports: { GitHubInterceptor(opts: { props: { user: string; bucket: string; strict?: boolean } }): Fetcher };
         container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
       };
-      const interceptor = gctx.exports.GitHubInterceptor({ props: { user, bucket } });
+      const interceptor = gctx.exports.GitHubInterceptor({ props });
       const hosts = interceptedGithubHosts(this.env);
       for (const host of hosts) {
         gctx.container?.interceptOutboundHttps(host, interceptor);
@@ -514,6 +532,33 @@ export class container extends Container<Env> implements ContainerEnvState {
       this.logger.info('Enterprise GitHub interception wired', { hostCount: hosts.length });
     } catch (err) {
       this.logger.error('Failed to wire enterprise GitHub interception', toError(err));
+    }
+  }
+
+  /**
+   * Wire the strict Gateway egress catch-all -> EgressController (REQ-ENTERPRISE-016).
+   *
+   * Only when strict is ON. Registers the `'*'` catch-all so every host NOT already
+   * claimed by the LLM/GitHub per-host interceptors is routed through the
+   * EgressController — a transparent proxy that forces the traffic through the
+   * mandatory env.EGRESS Workers VPC binding (and the customer's Zero Trust Gateway).
+   * The per-host registrations co-exist and TAKE PRECEDENCE over this catch-all
+   * (SDK v0.3.7 precedence: deniedHosts > per-host > catch-all). Independently
+   * try/catch-guarded so a wiring failure here never disables the LLM/GitHub
+   * transports.
+   */
+  private wireEgressInterception(strict: boolean): void {
+    if (!strict) return;
+    try {
+      const ectx = this.ctx as unknown as {
+        exports: { EgressController(opts: { props: Record<string, never> }): Fetcher };
+        container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
+      };
+      const controller = ectx.exports.EgressController({ props: {} });
+      ectx.container?.interceptOutboundHttps('*', controller);
+      this.logger.info('Enterprise strict Gateway egress wired (catch-all)');
+    } catch (err) {
+      this.logger.error('Failed to wire enterprise strict Gateway egress', toError(err));
     }
   }
 

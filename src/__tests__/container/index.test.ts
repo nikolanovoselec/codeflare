@@ -1150,11 +1150,20 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
   });
 
   describe('enterprise LLM interception wiring (REQ-ENTERPRISE-011)', () => {
-    const enterpriseEnv = () => ({
+    // The container DO reads the strict Gateway egress toggle (REQ-ENTERPRISE-016)
+    // straight from KV at the start seam via hasStrictGatewayEgress, so an enterprise
+    // env MUST expose a callable KV.get. Default OFF ('inactive') keeps every existing
+    // REQ-ENTERPRISE-011/REQ-GITHUB-003 assertion byte-identical; pass strictEgress=true
+    // to exercise the ON path.
+    const enterpriseEnv = (strictEgress = false) => ({
       ...mockEnv,
       ENTERPRISE_MODE: 'active',
       AIG_GATEWAY_URL: 'https://gateway.ai.cloudflare.com/v1/acct123/gw123',
       AIG_TOKEN: 'gw-token',
+      KV: {
+        get: vi.fn(async (key: string) =>
+          key === 'setup:strict_egress' ? (strictEgress ? 'active' : 'inactive') : null),
+      },
     });
 
     it('registers interceptOutboundHttps BEFORE the container starts so the CA is mounted when entrypoint.sh trusts it', async () => {
@@ -1331,8 +1340,14 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
         if (key === 'bucketName') return 'codeflare-enterprise-nikola-novoselec-ch';
         return null;
       });
-      // Enterprise mode on, but AIG_GATEWAY_URL / AIG_TOKEN absent.
-      const instance = new ContainerClass(ctx as any, { ...mockEnv, ENTERPRISE_MODE: 'active' } as any);
+      // Enterprise mode on, but AIG_GATEWAY_URL / AIG_TOKEN absent. KV.get is
+      // required because the start seam now reads the strict egress toggle
+      // (REQ-ENTERPRISE-016); 'inactive' keeps this OFF / byte-identical.
+      const instance = new ContainerClass(ctx as any, {
+        ...mockEnv,
+        ENTERPRISE_MODE: 'active',
+        KV: { get: vi.fn().mockResolvedValue('inactive') },
+      } as any);
       // Wait for userEmail (loaded after bucketName) so _bucketName is set before wiring.
       await vi.waitFor(() => {
         expect(mockStorage.get).toHaveBeenCalledWith('userEmail');
@@ -1344,6 +1359,128 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
         props: { user: 'nikola@novoselec.ch', bucket: 'codeflare-enterprise-nikola-novoselec-ch' },
       });
       expect(interceptOutboundHttps).toHaveBeenCalledWith('api.github.com', githubFetcher);
+    });
+
+    // REQ-ENTERPRISE-016: when the strict Gateway egress toggle is ON, the DO also
+    // wires a catch-all '*' interceptor to the EgressController (forcing every
+    // non-LLM/non-GitHub host through env.EGRESS) and stamps strict:true onto the
+    // LLM/GitHub interceptor props (so their single upstream fetch swaps to env.EGRESS).
+    it('REQ-ENTERPRISE-016: wires the EgressController catch-all (\'*\') BEFORE super.startAndWaitForPorts when strict is ON', async () => {
+      callOrder.length = 0;
+      const egressFetcher = { id: 'egress-controller-fetcher' };
+      const EgressController = vi.fn(() => egressFetcher);
+      const interceptOutboundHttps = vi.fn((_host: string, _worker: unknown) => {
+        callOrder.push('interceptOutboundHttps');
+      });
+      const ctx = {
+        ...mockCtx,
+        container: { ...mockContainerRuntime, interceptOutboundHttps },
+        exports: {
+          LlmInterceptor: vi.fn(() => ({ id: 'llm' })),
+          GitHubInterceptor: vi.fn(() => ({ id: 'gh' })),
+          EgressController,
+        },
+      };
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'userEmail') return 'nikola@novoselec.ch';
+        if (key === 'bucketName') return 'codeflare-enterprise-nikola-novoselec-ch';
+        return null;
+      });
+      const instance = new ContainerClass(ctx as any, enterpriseEnv(true));
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('userEmail');
+      });
+
+      await instance.startAndWaitForPorts(8080);
+
+      // The catch-all routes through the EgressController fetcher.
+      expect(interceptOutboundHttps).toHaveBeenCalledWith('*', egressFetcher);
+      // ALL interceptOutboundHttps calls (LLM + GitHub + catch-all) precede the
+      // container boot so the CA is mounted before entrypoint.sh — the same
+      // load-bearing ordering as the per-host registrations.
+      expect(callOrder[callOrder.length - 1]).toBe('super.startAndWaitForPorts');
+      expect(callOrder.indexOf('super.startAndWaitForPorts')).toBe(callOrder.length - 1);
+      expect(callOrder).toContain('interceptOutboundHttps');
+    });
+
+    it('REQ-ENTERPRISE-016: LLM and GitHub interceptor props carry strict:true when the toggle is ON', async () => {
+      const LlmInterceptor = vi.fn(() => ({ id: 'llm' }));
+      const GitHubInterceptor = vi.fn(() => ({ id: 'gh' }));
+      const ctx = {
+        ...mockCtx,
+        container: { ...mockContainerRuntime, interceptOutboundHttps: vi.fn() },
+        exports: { LlmInterceptor, GitHubInterceptor, EgressController: vi.fn(() => ({ id: 'egress' })) },
+      };
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'userEmail') return 'nikola@novoselec.ch';
+        if (key === 'bucketName') return 'codeflare-enterprise-nikola-novoselec-ch';
+        return null;
+      });
+      const instance = new ContainerClass(ctx as any, enterpriseEnv(true));
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('userEmail');
+      });
+
+      await instance.startAndWaitForPorts(8080);
+
+      // strict:true rides the per-host props so each interceptor swaps its single
+      // upstream fetch to env.EGRESS.
+      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch', strict: true } });
+      expect(GitHubInterceptor).toHaveBeenCalledWith({
+        props: { user: 'nikola@novoselec.ch', bucket: 'codeflare-enterprise-nikola-novoselec-ch', strict: true },
+      });
+    });
+
+    it('REQ-ENTERPRISE-016: does NOT wire the EgressController and omits strict from props when the toggle is OFF (byte-identical per-host path)', async () => {
+      const LlmInterceptor = vi.fn(() => ({ id: 'llm' }));
+      const GitHubInterceptor = vi.fn(() => ({ id: 'gh' }));
+      const EgressController = vi.fn(() => ({ id: 'egress' }));
+      const interceptOutboundHttps = vi.fn();
+      const ctx = {
+        ...mockCtx,
+        container: { ...mockContainerRuntime, interceptOutboundHttps },
+        exports: { LlmInterceptor, GitHubInterceptor, EgressController },
+      };
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'userEmail') return 'nikola@novoselec.ch';
+        if (key === 'bucketName') return 'codeflare-enterprise-nikola-novoselec-ch';
+        return null;
+      });
+      const instance = new ContainerClass(ctx as any, enterpriseEnv(false));
+      await vi.waitFor(() => {
+        expect(mockStorage.get).toHaveBeenCalledWith('userEmail');
+      });
+
+      await instance.startAndWaitForPorts(8080);
+
+      // No catch-all controller is constructed or registered.
+      expect(EgressController).not.toHaveBeenCalled();
+      expect(interceptOutboundHttps).not.toHaveBeenCalledWith('*', expect.anything());
+      // Per-host props are byte-identical to a non-strict deploy: no `strict` field.
+      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch' } });
+      expect(GitHubInterceptor).toHaveBeenCalledWith({
+        props: { user: 'nikola@novoselec.ch', bucket: 'codeflare-enterprise-nikola-novoselec-ch' },
+      });
+    });
+
+    it('REQ-ENTERPRISE-016: does NOT wire the EgressController catch-all on a non-enterprise start', async () => {
+      callOrder.length = 0;
+      const EgressController = vi.fn(() => ({ id: 'egress' }));
+      const interceptOutboundHttps = vi.fn();
+      const ctx = {
+        ...mockCtx,
+        container: { ...mockContainerRuntime, interceptOutboundHttps },
+        exports: { LlmInterceptor: vi.fn(), GitHubInterceptor: vi.fn(), EgressController },
+      };
+      // mockEnv has no ENTERPRISE_MODE -> setupEnterpriseInterception is a no-op
+      // and never reads the strict toggle.
+      const instance = new ContainerClass(ctx as any, mockEnv);
+
+      await instance.startAndWaitForPorts(8080);
+
+      expect(EgressController).not.toHaveBeenCalled();
+      expect(interceptOutboundHttps).not.toHaveBeenCalled();
+      expect(callOrder).toEqual(['super.startAndWaitForPorts']);
     });
   });
 
