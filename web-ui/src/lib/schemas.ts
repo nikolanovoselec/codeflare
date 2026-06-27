@@ -230,6 +230,8 @@ export const SetupPrefillResponseSchema = z.object({
       reasoning: RouteReasoningSchema,
     }))
     .default({}),
+  // REQ-ENTERPRISE-016: strict gateway egress toggle (default OFF on absent).
+  strictGatewayEgress: z.boolean().default(false),
 });
 
 // User management schemas - moved from client.ts (strict versions)

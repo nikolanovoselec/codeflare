@@ -536,6 +536,87 @@ describe('Setup Store', () => {
     });
   });
 
+  describe('strict gateway egress (REQ-ENTERPRISE-016)', () => {
+    it('defaults to false', () => {
+      expect(setupStore.strictGatewayEgress).toBe(false);
+    });
+
+    it('flips via the setter', () => {
+      setupStore.setStrictGatewayEgress(true);
+      expect(setupStore.strictGatewayEgress).toBe(true);
+      setupStore.setStrictGatewayEgress(false);
+      expect(setupStore.strictGatewayEgress).toBe(false);
+    });
+
+    it('omits strictGatewayEgress from the configure body in non-enterprise mode', async () => {
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+      setupStore.setStrictGatewayEgress(true);
+
+      await setupStore.configure();
+
+      const [, options] = mockFetch.mock.calls[0];
+      const body = JSON.parse(options.body);
+      expect(body.strictGatewayEgress).toBeUndefined();
+    });
+
+    it('includes strictGatewayEgress in the configure body in enterprise mode', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+      await setupStore.loadExistingConfig();
+
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+      setupStore.addDynamicRoute('development');
+      setupStore.setStrictGatewayEgress(true);
+
+      await setupStore.configure();
+
+      const lastCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
+      const body = JSON.parse(lastCall[1].body);
+      expect(body.strictGatewayEgress).toBe(true);
+    });
+
+    it('hydrates strictGatewayEgress from the enterprise prefill', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [], strictGatewayEgress: true }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+
+      await setupStore.loadExistingConfig();
+
+      expect(setupStore.strictGatewayEgress).toBe(true);
+    });
+
+    it('resets strictGatewayEgress back to false', () => {
+      setupStore.setStrictGatewayEgress(true);
+      setupStore.reset();
+      expect(setupStore.strictGatewayEgress).toBe(false);
+    });
+  });
+
   describe('custom domain', () => {
     it('should set custom domain', () => {
       setupStore.setCustomDomain('my-app.example.com');

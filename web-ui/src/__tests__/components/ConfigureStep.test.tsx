@@ -17,6 +17,7 @@ const storeState = vi.hoisted(() => ({
   cloudflareBrowserToken: '',
   cloudflareBrowserTokenSet: false,
   cloudflareBrowserAccountId: '',
+  strictGatewayEgress: false,
   githubProviderType: 'app' as 'app' | 'oauth',
   githubAppClientId: '',
   githubAppClientSecret: '',
@@ -46,6 +47,7 @@ const storeMethods = vi.hoisted(() => ({
   setDefaultRouteReasoning: vi.fn((level: 'off' | 'low' | 'medium' | 'high') => { storeState.defaultRouteReasoning = level; }),
   setCloudflareBrowserToken: vi.fn((val: string) => { storeState.cloudflareBrowserToken = val; }),
   setCloudflareBrowserAccountId: vi.fn((val: string) => { storeState.cloudflareBrowserAccountId = val; }),
+  setStrictGatewayEgress: vi.fn((v: boolean) => { storeState.strictGatewayEgress = v; }),
   setGithubProviderType: vi.fn((t: 'app' | 'oauth') => { storeState.githubProviderType = t; }),
   setGithubAppClientId: vi.fn((v: string) => { storeState.githubAppClientId = v; }),
   setGithubAppClientSecret: vi.fn((v: string) => { storeState.githubAppClientSecret = v; }),
@@ -77,6 +79,7 @@ vi.mock('../../stores/setup', () => ({
     get cloudflareBrowserToken() { return storeState.cloudflareBrowserToken; },
     get cloudflareBrowserTokenSet() { return storeState.cloudflareBrowserTokenSet; },
     get cloudflareBrowserAccountId() { return storeState.cloudflareBrowserAccountId; },
+    get strictGatewayEgress() { return storeState.strictGatewayEgress; },
     get githubProviderType() { return storeState.githubProviderType; },
     get githubAppClientId() { return storeState.githubAppClientId; },
     get githubAppClientSecret() { return storeState.githubAppClientSecret; },
@@ -115,6 +118,7 @@ describe('ConfigureStep', () => {
     storeState.cloudflareBrowserToken = '';
     storeState.cloudflareBrowserTokenSet = false;
     storeState.cloudflareBrowserAccountId = '';
+    storeState.strictGatewayEgress = false;
     storeState.githubProviderType = 'app';
     storeState.githubAppClientId = '';
     storeState.githubAppClientSecret = '';
@@ -371,6 +375,48 @@ describe('ConfigureStep', () => {
       const acctInput = screen.getByPlaceholderText('32-character account ID');
       fireEvent.input(acctInput, { target: { value: 'acct123' } });
       expect(storeMethods.setCloudflareBrowserAccountId).toHaveBeenCalledWith('acct123');
+    });
+  });
+
+  // REQ-ENTERPRISE-016: strict gateway egress toggle — enterprise-only checkbox.
+  // The checkbox input is the only one ConfigureStep renders, so it is asserted via
+  // input[type="checkbox"] (no prose copy pinned).
+  describe('Strict gateway egress toggle (REQ-ENTERPRISE-016)', () => {
+    it('renders the toggle in enterprise mode', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      expect(document.querySelector('input[type="checkbox"]')).not.toBeNull();
+    });
+
+    it('does not render the toggle outside enterprise mode', () => {
+      storeState.enterpriseMode = false;
+      render(() => <ConfigureStep />);
+      expect(document.querySelector('input[type="checkbox"]')).toBeNull();
+    });
+
+    it('renders unchecked by default', () => {
+      storeState.enterpriseMode = true;
+      storeState.strictGatewayEgress = false;
+      render(() => <ConfigureStep />);
+      const checkbox = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
+      expect(checkbox.checked).toBe(false);
+    });
+
+    it('reflects a checked toggle from store state', () => {
+      storeState.enterpriseMode = true;
+      storeState.strictGatewayEgress = true;
+      render(() => <ConfigureStep />);
+      const checkbox = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
+      expect(checkbox.checked).toBe(true);
+    });
+
+    it('calls setStrictGatewayEgress when toggled on', () => {
+      storeState.enterpriseMode = true;
+      storeState.strictGatewayEgress = false;
+      render(() => <ConfigureStep />);
+      const checkbox = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
+      fireEvent.click(checkbox);
+      expect(storeMethods.setStrictGatewayEgress).toHaveBeenCalledWith(true);
     });
   });
 

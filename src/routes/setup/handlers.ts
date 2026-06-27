@@ -161,10 +161,12 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
     try {
       groupRouting = (await c.env.KV.get<Record<string, { routes: string[]; defaultRoute: string; reasoning: string }>>(SETUP_KEYS.GROUP_ROUTING, 'json')) ?? {};
     } catch { /* malformed stored JSON → wizard starts from empty */ }
+    // REQ-ENTERPRISE-016: surface the strict gateway egress toggle (default OFF on absent).
+    const strictGatewayEgress = (await c.env.KV.get(SETUP_KEYS.STRICT_EGRESS)) === 'active';
     enterpriseExtras = {
       ...enterpriseExtras,
       enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, browserRenderTokenSet, browserRenderAccountId,
-      groupRouting,
+      groupRouting, strictGatewayEgress,
     };
   }
   if (!token) {

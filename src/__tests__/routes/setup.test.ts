@@ -2388,6 +2388,53 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(getNdjsonSummary(lines).success).toBe(true);
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:enterprise_admin_access_group', expect.anything());
       });
+
+      // ─── REQ-ENTERPRISE-016: strict gateway egress toggle ───────────────────
+      it('REQ-ENTERPRISE-016: persists the toggle as active when true', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ strictGatewayEgress: true })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:strict_egress', 'active');
+      });
+
+      it('REQ-ENTERPRISE-016: persists the toggle as inactive when false', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ strictGatewayEgress: false })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:strict_egress', 'inactive');
+      });
+
+      it('REQ-ENTERPRISE-016: never writes the toggle in non-enterprise mode (regression)', async () => {
+        const app = createTestApp();
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ strictGatewayEgress: true })),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(getNdjsonSummary(lines).success).toBe(true);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:strict_egress', expect.anything());
+      });
     });
 
     // REQ-SETUP-003: session-OIDC mode (SaaS OR onboarding) + OAUTH_CLIENT_ID skips

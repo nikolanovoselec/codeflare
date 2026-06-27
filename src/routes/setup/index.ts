@@ -97,6 +97,11 @@ const ConfigureBodySchema = z.object({
       reasoning: reasoningSchema,
     }))
     .optional(),
+  // REQ-ENTERPRISE-016 (enterprise-only): strict gateway egress on/off toggle.
+  // Persisted 'active'/'inactive' in KV (default OFF); routes container HTTP/HTTPS
+  // egress through the Worker EgressController → Cloudflare Gateway. Absent for
+  // non-enterprise setups.
+  strictGatewayEgress: z.boolean().optional(),
 }).refine(
   (data) => data.adminUsers.every((admin) => data.allowedUsers.includes(admin)),
   { message: 'All adminUsers must also be in allowedUsers', path: ['adminUsers'] }
@@ -166,7 +171,7 @@ app.post('/configure', async (c) => {
   // Validate body synchronously before starting the stream
   const body = await parseJsonBody(c, ConfigureBodySchema);
 
-  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, browserRenderToken, browserRenderAccountId, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, groupRouting } = body;
+  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, browserRenderToken, browserRenderAccountId, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, groupRouting, strictGatewayEgress } = body;
   const token = c.env.CLOUDFLARE_API_TOKEN;
 
   // During reconfiguration, prevent admin from removing themselves
@@ -428,6 +433,14 @@ app.post('/configure', async (c) => {
             await c.env.KV.delete(SETUP_KEYS.GROUP_ROUTING);
           }
         }
+      }
+
+      // REQ-ENTERPRISE-016: persist the strict gateway egress toggle (enterprise-only).
+      // Always write an explicit 'active'/'inactive' (no delete-on-off) so the toggle
+      // round-trips deterministically; default OFF on an absent key. Gated on
+      // isEnterpriseMode so the write mirrors the read.
+      if (isEnterpriseMode(c.env) && strictGatewayEgress !== undefined) {
+        await c.env.KV.put(SETUP_KEYS.STRICT_EGRESS, strictGatewayEgress ? 'active' : 'inactive');
       }
 
       // REQ-GITHUB-008: persist the admin provider config (any mode — the Setup

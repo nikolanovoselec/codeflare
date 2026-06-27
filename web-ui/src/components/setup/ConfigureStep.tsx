@@ -3,6 +3,7 @@ import { setupStore } from '../../stores/setup';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 import ChipListField from '../ui/ChipListField';
+import Checkbox from '../ui/Checkbox';
 import Select from '../ui/Select';
 import PerGroupRoutingCard from './PerGroupRoutingCard';
 import GitHubProviderChooser from './GitHubProviderChooser';
@@ -232,6 +233,22 @@ const ConfigureStep: Component = () => {
             value={setupStore.cloudflareBrowserAccountId}
             onInput={(value) => setupStore.setCloudflareBrowserAccountId(value)}
             placeholder="32-character account ID"
+          />
+        </div>
+
+        {/* REQ-ENTERPRISE-016: strict gateway egress toggle (enterprise-only). Routes
+            each container's outbound HTTP/HTTPS through your Cloudflare Gateway so your
+            Zero Trust egress policies apply. Default OFF — containers reach the internet
+            directly. Scoped to web traffic; not the raw-TCP plane. */}
+        <div class="setup-field">
+          <label class="setup-field-label">Strict Gateway Egress (optional)</label>
+          <p class="setup-field-description">
+            Route every container's outbound HTTP and HTTPS traffic through your Cloudflare Gateway, applying your Zero Trust egress policies. Leave off to let containers reach the internet directly.
+          </p>
+          <Checkbox
+            label="Route container HTTP/HTTPS egress through Cloudflare Gateway"
+            checked={setupStore.strictGatewayEgress}
+            onChange={(v) => setupStore.setStrictGatewayEgress(v)}
           />
         </div>
 

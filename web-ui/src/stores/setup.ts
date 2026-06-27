@@ -56,6 +56,9 @@ interface SetupState {
   cloudflareBrowserToken: string;
   cloudflareBrowserTokenSet: boolean;
   cloudflareBrowserAccountId: string;
+  // REQ-ENTERPRISE-016: enterprise-only strict gateway egress toggle. Default OFF;
+  // routes the container's HTTP/HTTPS egress through the Cloudflare Gateway.
+  strictGatewayEgress: boolean;
   // REQ-GITHUB-008: enterprise GitHub provider config. *ClientSecret holds only a
   // freshly-typed value (the stored secret is never returned); *ClientSecretSet
   // reflects whether one is already saved.
@@ -101,6 +104,7 @@ const initialState: SetupState = {
   cloudflareBrowserToken: '',
   cloudflareBrowserTokenSet: false,
   cloudflareBrowserAccountId: '',
+  strictGatewayEgress: false,
   githubProviderType: 'app',
   githubAppClientId: '',
   githubAppClientSecret: '',
@@ -331,6 +335,10 @@ function setCloudflareBrowserToken(token: string): void {
 function setCloudflareBrowserAccountId(accountId: string): void {
   setState('cloudflareBrowserAccountId', accountId);
 }
+// REQ-ENTERPRISE-016: strict gateway egress toggle setter.
+function setStrictGatewayEgress(value: boolean): void {
+  setState('strictGatewayEgress', value);
+}
 
 function setCustomDomain(domain: string): void {
   setState({ customDomain: domain, customDomainError: null });
@@ -388,6 +396,7 @@ async function loadExistingConfig(): Promise<void> {
             s.defaultRouteReasoning = prefill.defaultRoute?.reasoning ?? 'off';
             s.cloudflareBrowserTokenSet = prefill.browserRenderTokenSet;
             s.cloudflareBrowserAccountId = prefill.browserRenderAccountId;
+            s.strictGatewayEgress = prefill.strictGatewayEgress;
             s.githubProviderType = prefill.githubProviderType ?? 'app';
             s.githubAppClientId = prefill.githubAppClientId;
             s.githubAppClientSecretSet = prefill.githubAppClientSecretSet;
@@ -460,6 +469,7 @@ async function loadExistingConfig(): Promise<void> {
         s.defaultRouteReasoning = prefill.defaultRoute?.reasoning ?? 'off';
         s.cloudflareBrowserTokenSet = prefill.browserRenderTokenSet;
         s.cloudflareBrowserAccountId = prefill.browserRenderAccountId;
+        s.strictGatewayEgress = prefill.strictGatewayEgress;
         s.githubProviderType = prefill.githubProviderType ?? 'app';
         s.githubAppClientId = prefill.githubAppClientId;
         s.githubAppClientSecretSet = prefill.githubAppClientSecretSet;
@@ -517,6 +527,8 @@ async function configure(): Promise<boolean> {
           browserRenderAccountId: state.cloudflareBrowserAccountId,
           // REQ-ENTERPRISE-013: per-group routing map.
           groupRouting: state.groupRouting,
+          // REQ-ENTERPRISE-016: strict gateway egress toggle.
+          strictGatewayEgress: state.strictGatewayEgress,
         } : {}),
       }),
     });
@@ -680,6 +692,7 @@ export const setupStore = {
   get cloudflareBrowserToken() { return state.cloudflareBrowserToken; },
   get cloudflareBrowserTokenSet() { return state.cloudflareBrowserTokenSet; },
   get cloudflareBrowserAccountId() { return state.cloudflareBrowserAccountId; },
+  get strictGatewayEgress() { return state.strictGatewayEgress; },
   get githubProviderType() { return state.githubProviderType; },
   get githubAppClientId() { return state.githubAppClientId; },
   get githubAppClientSecret() { return state.githubAppClientSecret; },
@@ -710,6 +723,7 @@ export const setupStore = {
   setDefaultRouteReasoning,
   setCloudflareBrowserToken,
   setCloudflareBrowserAccountId,
+  setStrictGatewayEgress,
   setGithubProviderType,
   setGithubAppClientId,
   setGithubAppClientSecret,
