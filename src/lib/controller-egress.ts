@@ -67,7 +67,14 @@ export const RESPONSE_HOP_BY_HOP: readonly string[] = [
  */
 export async function hasStrictGatewayEgress(env: Env): Promise<boolean> {
   if (!isEnterpriseMode(env)) return false;
-  return (await env.KV?.get(SETUP_KEYS.STRICT_EGRESS)) === 'active';
+  try {
+    return (await env.KV?.get(SETUP_KEYS.STRICT_EGRESS)) === 'active';
+  } catch {
+    // This runs at the container-start seam (setupEnterpriseInterception); a
+    // transient KV error must not fail the start. Treat it like an absent key —
+    // default OFF — rather than throwing.
+    return false;
+  }
 }
 
 /**
