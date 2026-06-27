@@ -18,6 +18,8 @@ System architecture, components, data flow, and design rationale for Codeflare.
 
 > **GitHub Integration:** For the repo-clone data flow and the two per-mode credential transports, see [GitHub Integration](#github-integration) and [GitHub Clone Data Flow](#github-clone-data-flow).
 
+> **Strict Gateway Egress (Enterprise Mode):** For the optional toggle that forces all container egress through the customer's Cloudflare Gateway, see the [EgressController](#egresscontroller-strict-gateway-egress-enterprise-mode) component and the [Strict Gateway Egress](#strict-gateway-egress) data flow.
+
 ## Architecture Overview
 
 Codeflare runs AI coding agents in isolated containers, one per browser session (tab). All sessions for a user share a single R2 bucket for persistent storage, with periodic bidirectional sync every 15 minutes plus manual triggers from the storage panel and a final sync at shutdown (see [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers)).
@@ -78,6 +80,14 @@ A `WorkerEntrypoint` that transparently proxies agent LLM traffic to the custome
 `ctx.exports` is default-on at the project's compat date (`2026-02-05`). No `enable_ctx_exports` compat flag is needed.
 
 The gateway URL (`AIG_GATEWAY_URL`) and token (`AIG_TOKEN`) live exclusively in the Worker/interceptor environment. They are never forwarded to the container and never appear in any container env var or log. When `ENTERPRISE_MODE` is unset the DO never calls `interceptOutboundHttps`, the interceptor is never instantiated, and the direct-key path is byte-identical to non-enterprise deployments.
+
+### EgressController (Strict Gateway Egress, Enterprise Mode)
+
+**File:** `src/egress-controller.ts` (transport helpers in `src/lib/controller-egress.ts`)
+
+A `WorkerEntrypoint` the Container DO wires as the catch-all (`interceptOutboundHttps('*', controller)`) only when the optional **Strict Gateway Egress** toggle is ON ([REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress)). Whereas `LlmInterceptor`/`GitHubInterceptor` own specific hosts and stamp the real credential, the `EgressController` is a **transparent proxy** for every other host: it stamps no `Authorization`/`cf-aig-*`/identity header, preserves the caller's `authorization`/`cookie` on the request and `set-cookie` on the response, strips only the eight RFC 7230 hop-by-hop headers, and forwards with `redirect:'manual'` through the Workers VPC `env.EGRESS.fetch` (and from there the customer's Cloudflare Gateway). Its only job is to force otherwise-unintercepted traffic onto the mandatory Gateway boundary.
+
+The toggle is a global admin flag persisted in KV (`SETUP_KEYS.STRICT_EGRESS`, `'active'`/`'inactive'`, default OFF) and resolved by `hasStrictGatewayEgress(env)` = enterprise mode AND KV `=== 'active'` — read straight from KV (the `ENTERPRISE_MODE` precedent), not threaded per-session. The per-host LLM/GitHub registrations co-exist with and take precedence over the `'*'` catch-all (SDK precedence: deniedHosts > per-host > catch-all > allowedHosts > enableInternet), and when strict is ON those interceptors swap their single upstream `fetch` to `env.EGRESS.fetch`. The defining property is **fail-closed**: when strict is ON but `env.EGRESS` is unbound, the controller and both interceptors return `503 EGRESS_UNAVAILABLE` and never fall back to global `fetch`; the controller additionally rejects SSRF literal-IP targets with `403 EGRESS_TARGET_BLOCKED` before any send. The `[[vpc_networks]]` `EGRESS` binding ships commented-out until Cloudflare Mesh is provisioned, so OFF + unbound is inert. See [Strict Gateway Egress](#strict-gateway-egress) for the data flow, [Security](security.md#strict-gateway-egress-enterprise-mode) for the boundary properties, and [AD85](../decisions/README.md#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off).
 
 ### GitHub Integration
 
@@ -434,6 +444,35 @@ sequenceDiagram
 
 **Streaming normalization ([REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC3):** On streaming `/chat/completions` responses the interceptor pipes the SSE body through a transform that guarantees a terminal `finish_reason` chunk before `[DONE]`. AI Gateway dynamic routes can end a stream with `finish_reason: null` followed by `[DONE]`, omitting the terminal chunk; OpenAI-wire **Chat Completions** clients (Copilot) reject this as "Stream ended without finish_reason" and retry, multiplying token cost. (Both Copilot and Pi run on `chat/completions`, so this shim guards both; the `/responses` path is not used in the current configuration.) The shim synthesizes the missing terminator (`tool_calls` when a tool-call delta was seen on the stream, otherwise `stop`), is idempotent (it never adds a second terminator when the upstream already sent a non-null `finish_reason`), reassembles SSE `data:` lines split across network chunk boundaries (a single `data:` line arriving across multiple TCP chunks), and is bypassed for non-streaming and `/responses` traffic. The gateway's stored response log is normalized and shows `finish_reason: stop` even when the live wire omits it, so the repair is only observable on the wire. When `ENTERPRISE_MODE` is unset the interceptor is never wired and no normalization runs.
 
+### Strict Gateway Egress
+
+Applies only when `ENTERPRISE_MODE=active` **and** the optional Strict Gateway Egress toggle is ON ([REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress)). On container start the DO resolves `hasStrictGatewayEgress(env)`; when true it wires the catch-all `interceptOutboundHttps('*', EgressController)` (lower precedence than the per-host LLM/GitHub registrations) and passes `strict:true` into the LLM/GitHub interceptor props. From that point every container HTTP/HTTPS connection is forced through the Workers VPC `env.EGRESS` Fetcher binding and the customer's Cloudflare (Zero Trust) Gateway: LLM/GitHub hosts ride their identity-stamping interceptor (now sending upstream via `env.EGRESS.fetch`), and every other host rides the transparent `EgressController`.
+
+```mermaid
+sequenceDiagram
+    participant C as Container (agent / tool)
+    participant X as Interceptor (Llm / GitHub / EgressController)
+    participant E as env.EGRESS (Workers VPC binding)
+    participant G as Cloudflare Gateway (Zero Trust policies)
+    participant U as Upstream host
+
+    C->>X: HTTPS to any host (TLS intercepted by platform)
+    Note over X: hasStrictGatewayEgress == true<br/>SSRF literal-IP guard (catch-all): 403 if blocked<br/>fail-closed: 503 EGRESS_UNAVAILABLE if env.EGRESS unbound
+    X->>E: send = env.EGRESS.fetch(request)
+    E->>G: egress over cf1:network
+    G->>U: allowed by the account's existing policies
+    U-->>G: response
+    G-->>E: response (or policy block)
+    E-->>X: response
+    X-->>C: response (transparent for EgressController;<br/>credential-injected for LLM/GitHub)
+```
+
+**Fail-closed (the security point).** When strict is ON but `env.EGRESS` is unbound — the default today, because the `[[vpc_networks]]` `EGRESS` binding is committed commented-out until Cloudflare Mesh is provisioned — the `EgressController` and both interceptors return `503 EGRESS_UNAVAILABLE` and never fall back to global `fetch`. The dormant state (toggle OFF + binding unbound) is therefore inert, which is what makes shipping the feature OFF safe.
+
+**Transparent vs identity-stamping.** The `EgressController` adds no identity, gateway URL, or token and preserves the caller's `authorization`/`cookie`/`set-cookie` — its only effect is the mandatory Gateway hop. The per-host `LlmInterceptor`/`GitHubInterceptor` keep their existing credential injection and only swap the destination of their single upstream `fetch`; routing, header stamping, the LLM 404 compat fallback, and GitHub no-spoof scoping are byte-identical to the non-strict path.
+
+**Policy inheritance.** Egress over `cf1:network` is subject to the account's existing Cloudflare Gateway traffic policies (allow/block/isolate/DLP) unchanged; codeflare never creates or modifies them. The controller's literal-IP SSRF guard is defense-in-depth only and does not stop DNS rebinding — the Gateway policy is the authoritative egress control (see [Security](security.md#strict-gateway-egress-enterprise-mode)). When the toggle is OFF or the deployment is non-enterprise, the catch-all is never wired, the interceptor swap is inert, and the egress path is byte-identical to today.
+
 ---
 
 ## Module-Level Caches
@@ -478,6 +517,7 @@ Architectural principles and design rationale.
 16. **Vanishing-file recovery before nuke** - When bisync fails with `lstat: no such file or directory`, the file was listed by rclone then deleted before the copy completed (race condition with agents writing/deleting transient files). The correct response is to parse the error, add the file to a session-scoped exclusion filter (`/tmp/rclone-recovery-filters.txt`), and retry - not escalate to `nuke_corrupted_r2_files`. Non-workspace files are auto-excluded; workspace files (user code) trigger a plain retry on the assumption the file reappeared. Known ephemeral files (`.claude/mcp-*.json`) are statically excluded from all sync operations to prevent the race from occurring. See [Vanishing-file recovery](storage-and-sync.md#vanishing-file-recovery) and [AD43](../decisions/README.md#ad43-parse-and-exclude-vanishing-files-before-escalating-to-nuke).
 17. **Exit-writes-`stopped` over read-side reconciliation** - KV `status` is the single source of truth: every container exit persists `stopped` (rationale #5), so the dashboard renders KV verbatim with no staleness heuristic. The former `reconcileStaleStatus` read-side guess inferred `stopped` from a stale `metrics.updatedAt` heartbeat and falsely kicked live-but-idle sessions whose alarm loop had legitimately paused; it was removed in [codeflare#153](https://github.com/nikolanovoselec/codeflare/issues/153). Writing on exit is both correct (no dangling `running`) and simpler (no clock-skew tuning of a staleness threshold). See [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation).
 18. **Outbound-HTTPS interception over a Worker-side proxy for enterprise gateway routing** - `LlmInterceptor` wires into the platform's `interceptOutboundHttps` mechanism rather than a public `/llm-proxy` Worker route. Interception is platform-internal: the gateway URL and token never leave the Worker environment, the container communicates with the real provider host (intercepted transparently), no public route carries gateway credentials, and no CF Access policy can be tripped. See [AD72](../decisions/README.md#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing).
+19. **Controller-mediated Cloudflare Gateway egress as a mandatory web boundary (Strict Gateway Egress)** - the optional, default-OFF Strict Gateway Egress toggle reuses the same `interceptOutboundHttps` mechanism to make the customer's Cloudflare Gateway a *mandatory* boundary for all container HTTP/HTTPS egress: a transparent `EgressController` catch-all plus a single-`fetch` swap to `env.EGRESS.fetch` in the per-host interceptors. It fails closed (503, no global-`fetch` fallback) rather than leaking direct egress, so the dormant state (toggle OFF + the deferred commented-out VPC binding) is inert. See [AD85](../decisions/README.md#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off).
 
 ---
 
@@ -487,6 +527,7 @@ Architectural principles and design rationale.
 - [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) - Container-side enterprise routing (CA trust + constant base-URLs)
 - [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering) - Container start interception ordering (pre-start `interceptOutboundHttps`)
 - [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing) - Per-group dynamic routing (shared `resolveRouteCatalog`, first-match by configured order)
+- [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) - Strict Gateway Egress (EgressController catch-all + interceptor transport swap; fail-closed)
 - [REQ-TERM-003](../../sdd/spec/terminal.md#req-term-003-automatic-websocket-reconnection-on-transient-failures) - Automatic WebSocket reconnection on transient failures
 - [REQ-TERM-005](../../sdd/spec/terminal.md#req-term-005-tab-1-auto-starts-the-configured-agent) - Tab 1 auto-starts the configured agent
 - [REQ-TERM-007](../../sdd/spec/terminal.md#req-term-007-tiling-layouts-2-split-3-split-4-grid) - Tiling layouts (2-split, 3-split, 4-grid)

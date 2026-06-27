@@ -16,6 +16,7 @@ For authentication modes and user identity flow, see [Authentication](authentica
 - [Onboarding Access Request (OAuth-Gated)](#onboarding-access-request-oauth-gated)
 - [API Token Containment](#api-token-containment)
 - [Enterprise Mode: Credential Containment and CA Trust](#enterprise-mode-credential-containment-and-ca-trust)
+- [Strict Gateway Egress (Enterprise Mode)](#strict-gateway-egress-enterprise-mode)
 - [GitHub Token Handling](#github-token-handling)
 - [Container Auth Token (REQ-SEC-012)](#container-auth-token-req-sec-012)
 - [Dual R2 Credential Architecture](#dual-r2-credential-architecture)
@@ -67,6 +68,20 @@ In Enterprise Mode, two additional invariants apply on top of the standard API t
 **Per-user scoped R2 tokens:** Each container receives a scoped R2 API token restricted to its owner's bucket. Tokens are created on first login via `getOrCreateScopedR2Token()` in `r2-admin.ts` (called from `lifecycle-init.ts`), which calls `POST /accounts/{accountId}/tokens` with a bucket-specific Object Read + Write policy. Tokens are cached in KV as `r2token:{email}` (encrypted via AES-256-GCM when `ENCRYPTION_KEY` is set) and revoked on user deletion via `deleteScopedR2Token()`. This requires the `API Tokens: Edit` permission on the deploy token.
 
 **R2 token verification:** Cached tokens are validated before use via `verifyTokenExists()` in `r2-admin.ts`. This calls `GET /accounts/{accountId}/tokens/{tokenId}` through the circuit breaker. Only a 404 response (token definitively deleted) invalidates the cache and triggers fresh token creation. Transient errors (429, 500, 502, network errors, circuit breaker open) assume the token is still valid - this prevents a Cloudflare API blip from unnecessarily deleting a valid KV entry and causing rclone 401 errors. The verification runs on every `getOrCreateScopedR2Token()` cache hit.
+
+## Strict Gateway Egress (Enterprise Mode)
+
+Strict Gateway Egress ([REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress)) is an optional, enterprise-gated, default-OFF setup-wizard toggle that makes the customer's Cloudflare (Zero Trust) Gateway a **mandatory boundary** for all container HTTP/HTTPS egress. Its security properties:
+
+**Transparent proxy — no identity stamping.** The catch-all `EgressController` (wired as `interceptOutboundHttps('*', controller)` for every host not owned by the LLM/GitHub interceptors) is deliberately **not** an identity-stamping interceptor. Unlike `LlmInterceptor`/`GitHubInterceptor` — which strip the container placeholder and re-stamp the real gateway/GitHub credential — the `EgressController` adds no `Authorization`, `cf-aig-*`, or identity header and preserves the caller's `authorization`/`cookie` on the request and `set-cookie` on the response (stripping only the eight RFC 7230 hop-by-hop headers). It carries no secret; its only effect is to force the traffic onto the Gateway hop. This keeps the proxy from becoming a new credential-injection surface.
+
+**Mandatory Gateway boundary + fail-closed.** When the toggle is ON the single upstream `fetch` in every path is `env.EGRESS.fetch` (the Workers VPC binding → Cloudflare Gateway); there is **no fallback to global `fetch`**. When `env.EGRESS` is unbound — the default today, because the `[[vpc_networks]]` `EGRESS` binding is committed commented-out until Cloudflare Mesh is provisioned — the `EgressController` and both interceptors return `503 EGRESS_UNAVAILABLE` and send nothing. Failing closed is the entire security point: a misconfiguration can never silently leak direct (un-gatewayed) egress. The dormant state (toggle OFF + binding unbound) is inert, which is why shipping the feature OFF is safe.
+
+**SSRF guard + DNS-rebinding caveat.** Before any upstream send the `EgressController` rejects literal-IP SSRF targets — loopback, RFC 1918, link-local (incl. the `169.254.169.254` cloud-metadata endpoint), unspecified, and IPv6 literals — with `403 EGRESS_TARGET_BLOCKED`. This is **defense-in-depth only**: it is a literal-IP check and does **not** stop a public hostname that resolves to a private IP (DNS rebinding). The authoritative egress control is the customer's Cloudflare Gateway policy on `cf1:network`, not this guard.
+
+**Policy inheritance, no destructive config.** Egress over `cf1:network` is subject to the account's existing Cloudflare Gateway traffic policies (allow/block/isolate/DLP) unchanged. Codeflare references the Gateway but never creates, modifies, or deletes those policies, so enabling the feature cannot weaken the account's existing egress posture — it can only narrow it.
+
+**Off-state parity.** When the toggle is OFF or the deployment is non-enterprise, the catch-all is never wired, the LLM/GitHub interceptor transport swap is inert (global `fetch`), and no toggle KV read/write occurs outside enterprise — the egress path is byte-identical to today. See [AD85](../decisions/README.md#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off) and the [Architecture — Strict Gateway Egress](architecture.md#strict-gateway-egress) data flow.
 
 ## GitHub Token Handling
 
@@ -405,6 +420,7 @@ Every entry carries an inline comment recording the affected package, the impact
 - [REQ-ENTERPRISE-009](../../sdd/spec/enterprise-mode.md#req-enterprise-009-enterprise-backend-route-hardening) - Enterprise backend route hardening (billing, tier-config, subscribe, Stripe webhook fail closed with 403)
 - [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) - Access-gated JIT provisioning; get-identity gate fails closed on error or non-membership
 - [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) - Admin elevation via Access group: live, context-only, fails closed; confined to admin routes
+- [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) - Strict Gateway Egress: transparent proxy (no identity stamping), mandatory Gateway boundary, fail-closed, SSRF guard + DNS-rebinding caveat
 - [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token) - Enterprise admin-configured Browser Rendering token (blast-radius rationale; why it is allowed inside the container)
 - [REQ-GITHUB-002](../../sdd/spec/github.md#req-github-002-github-panel-and-repository-listing) - GitHub panel and repository listing (token never returned to the browser)
 - [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials) - Enterprise egress-injected GitHub credentials (GitHubInterceptor, AD81)

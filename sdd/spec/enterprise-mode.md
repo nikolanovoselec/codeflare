@@ -14,6 +14,11 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 | JIT Provisioning | Auto-creation of an `unlimited` Codeflare user on first authenticated access in Enterprise Mode, keyed by the Cloudflare-Access-verified `email`; gated optionally by `ENTERPRISE_ACCESS_GROUP` membership (see [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning)) |
 | Access get-identity | The Cloudflare Access endpoint `${iss}/cdn-cgi/access/get-identity`, called with the request's `CF_Authorization` token, returning the full identity (including IdP group membership) used to enforce `ENTERPRISE_ACCESS_GROUP` — the application JWT carries no group claim by default |
 | `ENTERPRISE_ACCESS_GROUP` | Optional value set during the setup wizard and stored in KV (`SETUP_KEYS.ENTERPRISE_ACCESS_GROUP`), editable by re-running setup; names one or more **customer-managed** Cloudflare Access groups (comma/newline-separated) that gate Codeflare entry — a user in ANY configured group is admitted. Codeflare references them (via `get-identity`) but never creates or populates them — unlike the non-enterprise admin/user groups it manages itself. When set, JIT provisioning verifies membership and denies non-members; when unset, any user who clears Cloudflare Access is provisioned an account (the gate then lives entirely in the customer's Access application policy) |
+| Strict Gateway Egress | An optional, enterprise-gated, default-OFF setup-wizard toggle (`SETUP_KEYS.STRICT_EGRESS`, `'active'`/`'inactive'`) that, when ON, forces **all** container HTTP/HTTPS egress through the Workers VPC `EGRESS` binding and from there the customer's Cloudflare (Zero Trust) Gateway, instead of the public internet. It fails closed (503 `EGRESS_UNAVAILABLE`) when the binding is unbound and is byte-identical to today when OFF ([REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress)) |
+| EgressController | A `WorkerEntrypoint` the container DO wires as the catch-all (`interceptOutboundHttps('*', controller)`) when Strict Gateway Egress is ON. A **transparent proxy** for every host not owned by the LLM/GitHub interceptors: it stamps no identity, gateway URL, or token and preserves the caller's `authorization`/`cookie`/`set-cookie`, forwarding through `env.EGRESS.fetch` and failing closed ([REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress)) |
+| EGRESS binding | The Workers VPC `[[vpc_networks]]` Fetcher binding (`binding="EGRESS"`, `network_id="cf1:network"`) that routes egress through the customer's Cloudflare Gateway. Committed **commented-out** in `wrangler.toml` until Cloudflare Mesh is provisioned, so `env.EGRESS` is undefined at runtime today and Strict Gateway Egress is dormant (fail-closed) ([REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress)) |
+| Workers VPC | The Cloudflare Workers VPC / Connectivity Directory capability that exposes a private network to a Worker as a Fetcher binding; the `EGRESS` binding's `cf1:network` is its Cloudflare Mesh network id ([REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress)) |
+| Cloudflare Gateway | The customer's Zero Trust (Secure Web) Gateway that applies the account's existing egress traffic policies (allow/block/isolate/DLP) to traffic leaving over `cf1:network`. Strict Gateway Egress inherits these policies unchanged; codeflare never creates or modifies them ([REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress)) |
 
 ### Out of Scope
 
@@ -22,6 +27,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 - **Multi-team / multi-tenant org structures** -- An Enterprise Mode deployment is single-tenant; there is no team, org, or workspace hierarchy within one instance.
 - **Per-user billing in Enterprise Mode** -- Billing is disabled wholesale when the flag is set; there is no enterprise invoicing, seat counting, or metered billing inside the product.
 - **New agent types** -- Enterprise Mode narrows the existing agent roster; it does not add agents beyond the seven defined in [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents).
+- **Raw-TCP / non-HTTP egress plane** -- Strict Gateway Egress ([REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress)) covers HTTP/HTTPS egress only; a raw-TCP (WARP Connector / Cloudflare Mesh) egress plane is a reserved seam ([REQ-ENTERPRISE-017](#req-enterprise-017-raw-tcp-warpmesh-egress-plane-reserved)), not built.
 
 ### Domain Dependencies
 
@@ -142,6 +148,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 - The per-user attribution stamped into `cf-aig-metadata` is the user's email (falling back to the deterministic bucket id when absent), so the customer's gateway analytics attribute usage to the real identity — an enterprise requirement that intentionally overrides the original opaque-id design.
 - The set of intercepted provider hosts is fixed in code; adding a provider requires a code change, not a request parameter.
 - The primary transport target is the AI Gateway REST API (`api.cloudflare.com`); when a model-routable request returns `404` (e.g. the `google-ai-studio` provider being absent from the REST API), the interceptor falls back to the deprecated compat path (`gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/compat/*`, `cf-aig-authorization: Bearer`) — safe because a 404 is a complete error body, not a started stream, so there is no double-billing or truncation risk ([AD74](../../documentation/decisions/README.md) dual-transport amendment). Backend selection is gateway-side via the route id stamped by the interceptor ([REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning)); agents carry only a fixed slash-free handle.
+- When the optional Strict Gateway Egress toggle ([REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress)) is ON, the interceptor's single upstream `fetch` is swapped to `env.EGRESS.fetch` (Workers VPC → Cloudflare Gateway) and fails closed (503 `EGRESS_UNAVAILABLE`) when the binding is unbound; routing, header stamping, and the 404 compat fallback are byte-identical, and the swap is inert (global `fetch`) when the toggle is OFF.
 
 **Priority:** P1
 
@@ -206,6 +213,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 - The flag is evaluated at deploy time from bindings, consistent with the deployment-mode determination in [REQ-SETUP-003](setup.md#req-setup-003-three-deployment-modes).
 - Secrets are never written to the container env; the enterprise env vars the container receives are the `ENTERPRISE_MODE` flag plus the non-secret route catalog/default/reasoning hints, all derived from Worker config (deploy var + KV), never from session state ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC1). The gateway URL/token/account-id and the resolved gateway route stay Worker-only.
 - `AIG_GATEWAY_URL` is the single source for the gateway coordinates: the interceptor parses the account id and gateway id from it for the REST API call ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC2), so no separate account-id binding is required.
+- The Workers VPC `[[vpc_networks]]` `EGRESS` Fetcher binding (`network_id="cf1:network"`) that backs Strict Gateway Egress ([REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress)) is a deploy-time binding committed **commented-out** in `wrangler.toml` until Cloudflare Mesh is provisioned; with it absent `env.EGRESS` is undefined and the feature fails closed (503), so the dormant state (toggle OFF + binding unbound) is inert. Uncommenting it after Mesh provisioning is the operator's enable step.
 
 **Priority:** P1
 
@@ -478,3 +486,64 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Verification:** [ConfigureStep.test.tsx](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx) (AC1); [enterprise-surface-suppression.test.tsx](../../web-ui/src/__tests__/components/enterprise-surface-suppression.test.tsx) (AC2 — also covers REQ-ENTERPRISE-008 AC1–AC3, AC6); [Header.test.tsx](../../web-ui/src/__tests__/components/Header.test.tsx) (AC2/AC3 — also covers REQ-ENTERPRISE-008 AC2); [Dashboard.test.tsx](../../web-ui/src/__tests__/components/Dashboard.test.tsx) (AC2/AC3 — also covers REQ-ENTERPRISE-008 AC2)
 
 **Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-016: Strict Gateway Egress
+
+**Intent:** An enterprise admin can force **all** container HTTP/HTTPS egress through the customer's Cloudflare (Zero Trust) Gateway — over the Workers VPC `EGRESS` binding — with one setup-wizard toggle, so every agent network call is subject to the account's existing egress policies; a deployment with the toggle OFF (the default) is byte-identical to today.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. The setup wizard exposes an enterprise-gated Strict Gateway Egress toggle, default OFF, persisted to KV `SETUP_KEYS.STRICT_EGRESS` as `'active'`/`'inactive'` through the existing `POST /api/setup/configure` (no new endpoint); `GET /api/setup/prefill` round-trips it, and a non-enterprise configure never writes it. <!-- @impl: src/routes/setup/index.ts --> <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @impl: web-ui/src/stores/setup.ts::setupStore --> <!-- @impl: src/routes/setup/handlers.ts --> <!-- @test: src/__tests__/routes/setup.test.ts (REQ-ENTERPRISE-016 -> persists the toggle active when true / inactive when false + never writes it in non-enterprise mode) --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-ENTERPRISE-016: strict gateway egress prefill -> seeded key prefills true, absent prefills false, omitted when non-enterprise) --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (strict gateway egress (REQ-ENTERPRISE-016) -> default false, setter flips, configure body carries it only in enterprise, prefill hydration) -->
+2. The toggle is resolved by a single `hasStrictGatewayEgress(env)` gate-then-read helper = enterprise mode AND KV `SETUP_KEYS.STRICT_EGRESS === 'active'`, defaulting OFF when the key is absent and never reading KV in a non-enterprise deploy. <!-- @impl: src/lib/controller-egress.ts::hasStrictGatewayEgress --> <!-- @test: src/__tests__/lib/controller-egress.test.ts (REQ-ENTERPRISE-016: hasStrictGatewayEgress -> true only when enterprise AND active, false on inactive/absent, false in non-enterprise) -->
+3. When the toggle is ON, the container DO wires the catch-all `interceptOutboundHttps('*', EgressController)` before the container starts (alongside, and lower-precedence than, the per-host LLM/GitHub registrations), so every otherwise-unintercepted host routes through the `EgressController`; when OFF or non-enterprise the catch-all is never wired. <!-- @impl: src/container/index.ts::wireEgressInterception --> <!-- @impl: src/container/index.ts::setupEnterpriseInterception --> <!-- @test: src/__tests__/container/index.test.ts (strict gateway egress wiring -> toggle ON wires interceptOutboundHttps('*', …) before super.startAndWaitForPorts; OFF + non-enterprise do not wire it) -->
+4. `EgressController` is a transparent proxy: it stamps no `Authorization`/`cf-aig-*`/identity header, preserves the caller's `authorization`/`cookie` on the request and `set-cookie` on the response, strips only hop-by-hop headers, and forwards with `redirect:'manual'` through `env.EGRESS.fetch`. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @impl: src/lib/controller-egress.ts::controllerFetch --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-ENTERPRISE-016: EgressController transparent proxy -> never adds an Authorization/identity header, forwards caller authorization+cookie verbatim, redirect:manual, preserves set-cookie + strips hop-by-hop) -->
+5. Before any upstream send, `EgressController` rejects SSRF targets — loopback, RFC 1918, link-local (incl. the `169.254.169.254` metadata endpoint), unspecified, and IPv6 literals — with `403 EGRESS_TARGET_BLOCKED` and performs no fetch. <!-- @impl: src/lib/controller-egress.ts::isDisallowedEgressHost --> <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-ENTERPRISE-016: EgressController fail-closed guards -> 403 EGRESS_TARGET_BLOCKED for an SSRF target and never forwards) --> <!-- @test: src/__tests__/lib/controller-egress.test.ts (REQ-ENTERPRISE-016: isDisallowedEgressHost SSRF guard -> rejects loopback/RFC1918/link-local/IPv6-literal/metadata, allows public) -->
+6. The feature fails closed: when strict is ON but `env.EGRESS` is unbound, the `EgressController` and the LLM/GitHub interceptors all return `503 EGRESS_UNAVAILABLE` and never fall back to global `fetch`. <!-- @impl: src/lib/controller-egress.ts::controllerFetch --> <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/lib/controller-egress.test.ts (REQ-ENTERPRISE-016: controllerFetch fail-closed transport -> 503 EGRESS_UNAVAILABLE when env.EGRESS unbound (no global-fetch fallback); routes through env.EGRESS.fetch when bound) --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-ENTERPRISE-016: EgressController fail-closed guards -> 503 EGRESS_UNAVAILABLE when strict ON but EGRESS unbound; 503 EGRESS_NOT_CONFIGURED when the toggle is OFF, never forwards) -->
+7. When strict is ON, the per-host `LlmInterceptor` and `GitHubInterceptor` swap their single upstream `fetch` to `env.EGRESS.fetch`; routing, header stamping, the LLM 404 compat fallback, GitHub no-spoof scoping, and `redirect:'manual'` are byte-identical to the non-strict path, and the swap is inert (global `fetch`) when strict is OFF. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-016: strict gateway egress transport swap -> routes the upstream call through env.EGRESS.fetch (not global fetch) when strict (routing/headers unchanged), 503 EGRESS_UNAVAILABLE when unbound, global fetch when off) --> <!-- @test: src/__tests__/github-interceptor.test.ts (REQ-ENTERPRISE-016: strict gateway egress transport swap -> rides env.EGRESS.fetch carrying the injected Bearer + manual redirect when strict (global NOT called), fails closed when unbound, preserves no-spoof scoping) -->
+8. `env.EGRESS` is the Workers VPC `[[vpc_networks]]` Fetcher binding (`binding="EGRESS"`, `network_id="cf1:network"`, `remote=true`) committed **commented-out** in `wrangler.toml` until Cloudflare Mesh is provisioned. <!-- @impl: wrangler.toml --> <!-- coverage-gap: the [[vpc_networks]] EGRESS binding is deploy-time Worker config committed commented-out (the account has no Cloudflare Mesh yet); uncommenting after Mesh provisioning is the operator's enable step, verified at deploy time, not unit-testable -->
+9. When the toggle is OFF or the deployment is non-enterprise, no catch-all is wired, the interceptor transport swap is inert, no toggle KV read/write occurs outside enterprise, and the container egress path plus the configure request/response shape are byte-identical to today. <!-- @impl: src/lib/controller-egress.ts::hasStrictGatewayEgress --> <!-- @impl: src/container/index.ts::setupEnterpriseInterception --> <!-- @test: src/__tests__/container/index.test.ts (strict gateway egress wiring -> OFF + non-enterprise do not wire the catch-all, byte-identical start path) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-016: strict gateway egress transport swap -> uses global fetch (not EGRESS) when strict is off, even with the binding present) -->
+
+**Constraints:**
+
+- The toggle is a global admin flag read straight from KV via `hasStrictGatewayEgress` (the `ENTERPRISE_MODE` precedent), not threaded per-session through `ContainerConfigPayload`/`setBucketName`.
+- The KV value is written explicitly as `'active'`/`'inactive'` (never delete-on-off) so the toggle round-trips deterministically, matching the `setup:onboarding_landing_page` boolean-toggle precedent.
+- Per-host LLM/GitHub registrations co-exist with and take precedence over the `'*'` catch-all (SDK precedence: deniedHosts > per-host > catch-all > allowedHosts > enableInternet), so the identity-stamping interceptors keep owning their hosts and `EgressController` handles only every other host.
+- `EgressController` is a transparent proxy (no identity stamping), in deliberate contrast to the identity-stamping `LlmInterceptor`/`GitHubInterceptor`; its only job is to force traffic onto the mandatory Gateway boundary.
+- Egress over `cf1:network` inherits the account's existing Cloudflare Gateway traffic policies unchanged; codeflare never creates or modifies them. The literal-IP SSRF guard is defense-in-depth only and does not stop a public hostname that resolves to a private IP (DNS rebinding) — the Gateway policy is the authoritative egress control.
+- WebSocket egress rides the SDK's WebSocket forwarding through the catch-all `fetch` path; raw-TCP / non-HTTP egress is out of scope (reserved [REQ-ENTERPRISE-017](#req-enterprise-017-raw-tcp-warpmesh-egress-plane-reserved)).
+
+**Priority:** P2
+
+**Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-006](#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var), [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list)
+
+**Verification:** [controller-egress resolver/transport/SSRF](../../src/__tests__/lib/controller-egress.test.ts) (AC2, AC5, AC6), [EgressController transparent proxy + fail-closed](../../src/__tests__/egress-controller.test.ts) (AC4, AC5, AC6), [LLM transport swap](../../src/__tests__/llm-interceptor.test.ts) (AC7, AC9), [GitHub transport swap](../../src/__tests__/github-interceptor.test.ts) (AC7), [container catch-all wiring](../../src/__tests__/container/index.test.ts) (AC3, AC9), [setup persistence](../../src/__tests__/routes/setup.test.ts) + [prefill](../../src/__tests__/routes/setup/handlers.test.ts) + [setup store](../../web-ui/src/__tests__/stores/setup.test.ts) (AC1). AC8 is the deploy-time `wrangler.toml` `[[vpc_networks]]` binding (committed commented-out until Cloudflare Mesh is provisioned) — verified at deploy time, carried as a coverage-gap.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-017: Raw-TCP WARP/Mesh Egress Plane (Reserved)
+
+**Intent:** Reserve a seam for a future raw-TCP (non-HTTP) container egress plane that would ride the same Workers VPC / Cloudflare Mesh transport as Strict Gateway Egress ([REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress)), so non-HTTP protocols can also be forced through the customer's Cloudflare Gateway. This REQ is a placeholder; no implementation is committed.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+_Reserved — to be defined when the plane is built. Strict Gateway Egress ([REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress)) covers HTTP/HTTPS egress only; the transport indirection it introduces (the swappable `send` binding / `EGRESS` Fetcher) is the seam a future raw-TCP plane would extend._
+
+**Constraints:**
+
+- Not built. No code, binding, or test is associated with this REQ; it exists to anchor cross-references and to mark raw-TCP egress as a known, deliberately-deferred extension of [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress).
+
+**Priority:** P3
+
+**Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress)
+
+**Verification:** None (reserved seam; no implementation).
+
+**Status:** Proposed

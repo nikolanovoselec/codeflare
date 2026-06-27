@@ -102,6 +102,7 @@ Connecting a user's GitHub account, browsing repositories, cloning them into ses
 **Constraints:**
 
 - Enterprise interception is wired only when `ENTERPRISE_MODE=active`, at container start (CA-mount timing — see [REQ-ENTERPRISE-005](enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls)).
+- When the optional Strict Gateway Egress toggle ([REQ-ENTERPRISE-016](enterprise-mode.md#req-enterprise-016-strict-gateway-egress)) is ON, the `GitHubInterceptor`'s single upstream `fetch` is swapped to `env.EGRESS.fetch` (Workers VPC → Cloudflare Gateway) and fails closed (503 `EGRESS_UNAVAILABLE`) when the binding is unbound; credential injection, no-spoof scoping (bound `props.bucket` only), `redirect:'manual'`, and response hygiene are byte-identical, and the swap is inert (global `fetch`) when the toggle is OFF.
 
 **Priority:** P1
 

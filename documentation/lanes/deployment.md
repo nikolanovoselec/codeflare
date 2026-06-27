@@ -7,6 +7,7 @@ Development setup, project file structure, and cost analysis.
 ## Contents
 
 - [Enterprise Mode Secrets](#enterprise-mode-secrets)
+- [Strict Gateway Egress (Enterprise Mode)](#strict-gateway-egress-enterprise-mode)
 - [Development](#development)
 - [File Structure](#file-structure)
 - [Cost Analysis](#cost-analysis)
@@ -31,6 +32,24 @@ To enable Enterprise Mode:
 To disable Enterprise Mode: remove or clear the `ENTERPRISE_MODE` variable. The secrets can remain; without the variable the interceptor is never wired and they are unused.
 
 > The `AIG_GATEWAY_URL` and `AIG_TOKEN` secrets are Worker secrets, not container env vars. They are never forwarded to containers. See [Security - Enterprise Mode](security.md#enterprise-mode-credential-containment-and-ca-trust) and [Configuration - Enterprise Mode Secrets](configuration.md#enterprise-mode-secrets-optional).
+
+---
+
+## Strict Gateway Egress (Enterprise Mode)
+
+Strict Gateway Egress ([REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress)) is configured at **runtime**, not at deploy time — there is **no new GitHub Actions variable or secret and no `deploy.yml` change**. The on/off toggle lives in the enterprise setup wizard and is persisted to KV (`setup:strict_egress`), so flipping it takes effect with no redeploy.
+
+**Infra (the VPC binding) is deploy-time but currently deferred.** The feature routes egress through a Workers VPC `[[vpc_networks]]` Fetcher binding (`binding = "EGRESS"`, `network_id = "cf1:network"`, `remote = true`). That binding is committed **commented-out** in `wrangler.toml` and is *not* enabled by any current deploy, because the account has no Cloudflare Mesh / WARP Connector yet and a `wrangler deploy` against an unresolvable binding would fail — breaking integration and the next production deploy. While the binding is commented out, `env.EGRESS` is undefined at runtime, so the feature fails closed (503 `EGRESS_UNAVAILABLE`) and the dormant state (toggle OFF + binding unbound) is inert. This makes shipping the code OFF safe.
+
+**Enable runbook (operator, not autonomous):**
+
+1. Provision Cloudflare Mesh (a WARP Connector / mesh node) in the Zero Trust org so `cf1:network` routes public egress through the Gateway.
+2. Uncomment the `[[vpc_networks]]` `EGRESS` binding in `wrangler.toml` and redeploy (the CI `CLOUDFLARE_API_TOKEN` already carries the Connectivity Directory scope; no new secret).
+3. Curate the account's existing Cloudflare Gateway policies so the container's required destinations are not caught by a block/DLP/isolate rule (codeflare never modifies these policies — see [Security](security.md#strict-gateway-egress-enterprise-mode)).
+4. Verify long streaming transfers (e.g. a large `git clone` / packfile) survive the Gateway path.
+5. Flip the wizard toggle ON (enterprise setup wizard → Strict Gateway Egress).
+
+**Rollback** at any point is flipping the wizard toggle **OFF** (KV write, no redeploy); the catch-all is un-wired on the next container start and egress returns to the direct path.
 
 ---
 
@@ -115,6 +134,7 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 ## Specification Coverage
 
 - [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) - AIG_GATEWAY_URL and AIG_TOKEN pushed as Worker secrets at deploy time (AC1)
+- [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) - Strict Gateway Egress: runtime-KV toggle (no new GH var/secret, no deploy.yml change), deferred commented-out VPC binding, rollback = toggle OFF (AC8)
 - [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline) - Deploy workflow trigger and pre-deploy pipeline
 - [REQ-OPS-002](../../sdd/spec/operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push) - Docker image build, vulnerability scan, and registry push
 - [REQ-OPS-013](../../sdd/spec/operations.md#req-ops-013-deploy-command-and-post-deploy-hooks) - Deploy command and post-deploy hooks
