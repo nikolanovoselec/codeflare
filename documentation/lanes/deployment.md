@@ -37,17 +37,16 @@ To disable Enterprise Mode: remove or clear the `ENTERPRISE_MODE` variable. The 
 
 ## Strict Gateway Egress (Enterprise Mode)
 
-Strict Gateway Egress ([REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress)) is configured at **runtime**, not at deploy time — there is **no new GitHub Actions variable or secret and no `deploy.yml` change**. The on/off toggle lives in the enterprise setup wizard and is persisted to KV (`setup:strict_egress`), so flipping it takes effect with no redeploy.
+Strict Gateway Egress ([REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress)) has two parts. The **on/off toggle** is configured at **runtime**: it lives in the enterprise setup wizard and is persisted to KV (`setup:strict_egress`), so flipping it takes effect with no redeploy and needs **no new GitHub Actions variable or secret**. The **VPC binding** that backs it is deploy-time and **enterprise-only** (below).
 
-**Infra (the VPC binding) is deploy-time but currently deferred.** The feature routes egress through a Workers VPC `[[vpc_networks]]` Fetcher binding (`binding = "EGRESS"`, `network_id = "cf1:network"`, `remote = true`). That binding is committed **commented-out** in `wrangler.toml` and is *not* enabled by any current deploy, because the account has no Cloudflare Mesh / WARP Connector yet and a `wrangler deploy` against an unresolvable binding would fail — breaking integration and the next production deploy. While the binding is commented out, `env.EGRESS` is undefined at runtime, so the feature fails closed (503 `EGRESS_UNAVAILABLE`) and the dormant state (toggle OFF + binding unbound) is inert. This makes shipping the code OFF safe.
+**The VPC binding is injected automatically for enterprise deploys — no manual step, no WARP Connector.** The feature routes egress through a Workers VPC `[[vpc_networks]]` Fetcher binding (`binding = "EGRESS"`, `network_id = "cf1:network"`, `remote = true`). It is committed **commented-out** in `wrangler.toml`, and `deploy.yml` uncomments it at deploy time **only when `ENTERPRISE_MODE=active`**. It is kept commented in source so that (a) default/fork deploys, whose accounts have no Workers VPC / `cf1:network`, still deploy, and (b) the `vitest-pool-workers` test runtime (which reads `wrangler.toml`) does not try to open a remote binding with no CI credentials. **No WARP Connector or Mesh node needs to be provisioned** — public egress through the Gateway rides the reserved `cf1:network` path and requires only this binding plus the account's existing Zero Trust Gateway policies (a WARP Connector pertains only to the reserved raw-TCP plane, [REQ-ENTERPRISE-017](../../sdd/spec/enterprise-mode.md#req-enterprise-017-raw-tcp-warpmesh-egress-plane-reserved)). On non-enterprise deploys the binding is absent, so `env.EGRESS` is undefined and the feature fails closed (503 `EGRESS_UNAVAILABLE`); the dormant state (toggle OFF or binding absent) is inert. This makes shipping the code OFF safe.
 
 **Enable runbook (operator, not autonomous):**
 
-1. Provision Cloudflare Mesh (a WARP Connector / mesh node) in the Zero Trust org so `cf1:network` routes public egress through the Gateway.
-2. Uncomment the `[[vpc_networks]]` `EGRESS` binding in `wrangler.toml` and redeploy (the CI `CLOUDFLARE_API_TOKEN` already carries the Connectivity Directory scope; no new secret).
-3. Curate the account's existing Cloudflare Gateway policies so the container's required destinations are not caught by a block/DLP/isolate rule (codeflare never modifies these policies — see [Security](security.md#strict-gateway-egress-enterprise-mode)).
-4. Verify long streaming transfers (e.g. a large `git clone` / packfile) survive the Gateway path.
-5. Flip the wizard toggle ON (enterprise setup wizard → Strict Gateway Egress).
+1. Deploy to an enterprise environment (`ENTERPRISE_MODE=active`); `deploy.yml` injects the `EGRESS` binding and `wrangler deploy` validates it. Workers VPC is enabled by default on the account — no WARP Connector and no manual `wrangler.toml` edit are required.
+2. Curate the account's existing Cloudflare Gateway policies so the container's required destinations are not caught by a block/DLP/isolate rule (codeflare never modifies these policies — see [Security](security.md#strict-gateway-egress-enterprise-mode)).
+3. Verify long streaming transfers (e.g. a large `git clone` / packfile) survive the Gateway path.
+4. Flip the wizard toggle ON (enterprise setup wizard → Strict Gateway Egress).
 
 **Rollback** at any point is flipping the wizard toggle **OFF** (KV write, no redeploy); the catch-all is un-wired on the next container start and egress returns to the direct path.
 
