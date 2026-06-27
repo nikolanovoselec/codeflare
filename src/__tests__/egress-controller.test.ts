@@ -66,6 +66,18 @@ describe('REQ-ENTERPRISE-016: EgressController fail-closed guards', () => {
   });
 });
 
+describe('REQ-ENTERPRISE-016 / AD86: EgressController exempts platform-native hosts from cf1:network', () => {
+  it('forwards a platform-native host (R2) DIRECT via global fetch — never env.EGRESS', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('r2', { status: 200 }));
+    const { controller, egressFetch } = makeController();
+    const res = await controller.fetch(new Request('https://acc.r2.cloudflarestorage.com/bucket/key'));
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalled();
+    expect(egressFetch).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+});
+
 describe('REQ-ENTERPRISE-016: EgressController transparent proxy', () => {
   it('never adds an Authorization or identity header', async () => {
     const { controller, egressFetch } = makeController();

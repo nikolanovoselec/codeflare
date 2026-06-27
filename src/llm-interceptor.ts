@@ -104,14 +104,6 @@ interface InterceptorProps {
    * contains — so per-group KEYS, not a CSV value). Omitted when empty.
    */
   groups?: string[];
-  /**
-   * Strict gateway egress (REQ-ENTERPRISE-016): when the DO sets this from the
-   * enterprise toggle, the single upstream fetch rides env.EGRESS (the Workers
-   * VPC Fetcher → Cloudflare Gateway) instead of the global fetch. Absent/false
-   * keeps the existing direct egress; the path fails closed when strict but the
-   * EGRESS binding is unbound.
-   */
-  strict?: boolean;
 }
 
 /**
@@ -305,19 +297,13 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
       });
     }
 
-    // Strict gateway egress (REQ-ENTERPRISE-016): when the per-session prop opts
-    // in, the single upstream fetch rides env.EGRESS (the Workers VPC Fetcher →
-    // Cloudflare Gateway) instead of the global fetch. Fail closed when strict but
-    // the binding is unbound — never silently fall back to direct egress.
-    const strict = (this.ctx as unknown as { props?: InterceptorProps }).props?.strict === true;
-    if (strict && !this.env.EGRESS) {
-      return new Response(JSON.stringify({ error: 'Strict gateway egress unavailable', code: 'EGRESS_UNAVAILABLE' }), {
-        status: 503,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    const send = strict ? this.env.EGRESS!.fetch.bind(this.env.EGRESS) : fetch;
-
+    // AI Gateway is a platform-native Cloudflare primitive (REQ-ENTERPRISE-016, AD86):
+    // the upstream forward to api.cloudflare.com (REST) / gateway.ai.cloudflare.com
+    // (compat) ALWAYS egresses DIRECT and never traverses the strict-egress cf1:network
+    // path. Those endpoints carry codeflare's own gateway token and have their own AI
+    // Gateway audit/analytics, so they are not the agent's policed external reach — only
+    // genuine direct-internet container egress takes the Gateway path (the EgressController).
+    //
     // Two AI Gateway transports, tried in order — see AD74 (dual transport):
     //   1. REST API — api.cloudflare.com/client/v4/accounts/{acct}/ai/v1/<path>.
     //      Auth: Authorization: Bearer (AIG_TOKEN's Workers AI scope); gateway by
@@ -435,7 +421,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     // complete error body — not a stream — so the replay never double-bills or
     // truncates a partial response. Genuine non-404 errors are returned as-is.
     const sendTo = (target: string, h: Headers, body: BodyInit | null | undefined = outboundBody): Promise<Response> =>
-      send(
+      fetch(
         new Request(target, {
           method: request.method,
           headers: h,

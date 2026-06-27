@@ -2,11 +2,18 @@
  * Strict Gateway egress transport primitives (REQ-ENTERPRISE-016).
  *
  * Shared helpers for the enterprise-only "strict Gateway egress" feature: a global
- * admin toggle that, when ON, forces ALL container HTTP/HTTPS egress through the
- * Workers VPC `env.EGRESS` Fetcher binding (and from there the customer's Zero Trust
- * Gateway) instead of the public internet. The toggle is read straight from KV (the
- * `ENTERPRISE_MODE` precedent — a global flag, not per-session state), default OFF
- * when the key is absent so prod/integration behaviour is byte-identical until enabled.
+ * admin toggle that, when ON, forces the container's DIRECT-INTERNET HTTP/HTTPS egress
+ * through the Workers VPC `env.EGRESS` Fetcher binding (and from there the customer's
+ * Zero Trust Gateway) instead of straight to the public internet. The toggle is read
+ * straight from KV (the `ENTERPRISE_MODE` precedent — a global flag, not per-session
+ * state), default OFF when the key is absent so prod/integration behaviour is
+ * byte-identical until enabled.
+ *
+ * Platform-native Cloudflare primitives (R2, AI Gateway, Browser Rendering) are
+ * EXEMPT: they are codeflare's own control-plane endpoints, not the agent's external
+ * reach, so they egress direct and never traverse cf1:network (see
+ * {@link isPlatformNativeHost} and AD86). Only genuine direct-internet egress takes
+ * the Gateway path.
  *
  * The defining security property is FAIL-CLOSED: when strict is ON but `env.EGRESS`
  * is unbound (the [[vpc_networks]] binding is committed commented-out until Cloudflare
@@ -78,11 +85,53 @@ export async function hasStrictGatewayEgress(env: Env): Promise<boolean> {
 }
 
 /**
- * Forward `request` through the mandatory Workers VPC `env.EGRESS` Fetcher binding.
- * When the binding is unbound, fail closed with 503 EGRESS_UNAVAILABLE — there is
- * NO fallback to global `fetch`, which is the entire security point of the feature.
+ * Cloudflare platform-native primitive hosts — codeflare's OWN control-plane
+ * endpoints, NOT the agent's external internet reach. Strict Gateway egress
+ * (REQ-ENTERPRISE-016) routes ONLY genuine direct-internet egress through
+ * `cf1:network` → the customer's Zero Trust Gateway; these platform hosts egress
+ * DIRECT. Two reasons (AD86):
+ *   1. Scaling — rclone's per-file R2 sync is the dominant container-egress volume;
+ *      forcing it through cf1:network couples every container's bootstrap-critical
+ *      persistence to the shared, rate-limited Gateway egress path, which hits
+ *      account-wide connection/rate limits at fleet scale (100 users × N containers).
+ *   2. Boundary — an egress firewall polices the workload's reach to the OUTSIDE
+ *      world, not the platform's own storage/AI/browser backends, which carry
+ *      codeflare-managed credentials to Cloudflare-owned hosts and have their own
+ *      audit trail (R2 access logs, AI Gateway analytics).
+ *
+ * - `*.r2.cloudflarestorage.com` — R2 object storage (rclone vault/workspace sync)
+ * - `api.cloudflare.com`         — CF API: Browser Rendering (browser-run) + AI Gateway REST
+ * - `gateway.ai.cloudflare.com`  — AI Gateway (compat transport)
+ */
+const PLATFORM_NATIVE_HOSTS: ReadonlySet<string> = new Set([
+  'r2.cloudflarestorage.com',
+  'api.cloudflare.com',
+  'gateway.ai.cloudflare.com',
+]);
+const PLATFORM_NATIVE_HOST_SUFFIXES: readonly string[] = ['.r2.cloudflarestorage.com'];
+
+/** True when `hostname` is a Cloudflare platform-native primitive that egresses direct (never cf1:network). */
+export function isPlatformNativeHost(hostname: string): boolean {
+  const host = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (PLATFORM_NATIVE_HOSTS.has(host)) return true;
+  return PLATFORM_NATIVE_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
+}
+
+/**
+ * Forward `request` to its upstream.
+ *
+ * Platform-native Cloudflare primitives ({@link isPlatformNativeHost}: R2, AI Gateway,
+ * Browser Rendering) egress DIRECT via global `fetch` and NEVER traverse cf1:network —
+ * checked first so they reach upstream even when the VPC binding is unbound (they never
+ * depend on it).
+ *
+ * Every OTHER (direct-internet) host is forced through the mandatory Workers VPC
+ * `env.EGRESS` Fetcher binding. When that binding is unbound, fail closed with 503
+ * EGRESS_UNAVAILABLE — there is NO fallback to global `fetch`, which is the entire
+ * security point of the feature.
  */
 export async function controllerFetch(env: Env, request: Request): Promise<Response> {
+  if (isPlatformNativeHost(new URL(request.url).hostname)) return fetch(request);
   if (!env.EGRESS) return jsonError(503, 'EGRESS_UNAVAILABLE', 'Strict Gateway egress binding unavailable');
   return env.EGRESS.fetch(request);
 }

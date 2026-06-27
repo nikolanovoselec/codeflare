@@ -1361,10 +1361,12 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(interceptOutboundHttps).toHaveBeenCalledWith('api.github.com', githubFetcher);
     });
 
-    // REQ-ENTERPRISE-016: when the strict Gateway egress toggle is ON, the DO also
-    // wires a catch-all '*' interceptor to the EgressController (forcing every
-    // non-LLM/non-GitHub host through env.EGRESS) and stamps strict:true onto the
-    // LLM/GitHub interceptor props (so their single upstream fetch swaps to env.EGRESS).
+    // REQ-ENTERPRISE-016 / AD86: when the strict Gateway egress toggle is ON, the DO
+    // wires a catch-all '*' interceptor to the EgressController (forcing the container's
+    // direct-internet egress through env.EGRESS, while the controller itself egresses
+    // platform-native hosts direct) and stamps strict:true onto the GitHub interceptor
+    // props (external egress rides the Gateway). The LLM interceptor always egresses
+    // direct (AI Gateway is platform-native), so it never carries strict.
     it('REQ-ENTERPRISE-016: wires the EgressController catch-all (\'*\') BEFORE super.startAndWaitForPorts when strict is ON', async () => {
       callOrder.length = 0;
       const egressFetcher = { id: 'egress-controller-fetcher' };
@@ -1403,7 +1405,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(callOrder).toContain('interceptOutboundHttps');
     });
 
-    it('REQ-ENTERPRISE-016: LLM and GitHub interceptor props carry strict:true when the toggle is ON', async () => {
+    it('REQ-ENTERPRISE-016 / AD86: GitHub props carry strict:true when the toggle is ON, but the LLM never does (AI Gateway is platform-native)', async () => {
       const LlmInterceptor = vi.fn(() => ({ id: 'llm' }));
       const GitHubInterceptor = vi.fn(() => ({ id: 'gh' }));
       const ctx = {
@@ -1423,12 +1425,14 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
 
       await instance.startAndWaitForPorts(8080);
 
-      // strict:true rides the per-host props so each interceptor swaps its single
-      // upstream fetch to env.EGRESS.
-      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch', strict: true } });
+      // GitHub is external internet egress -> strict:true rides its props so its
+      // upstream fetch swaps to env.EGRESS (the customer's Gateway).
       expect(GitHubInterceptor).toHaveBeenCalledWith({
         props: { user: 'nikola@novoselec.ch', bucket: 'codeflare-enterprise-nikola-novoselec-ch', strict: true },
       });
+      // AI Gateway is platform-native: the LLM interceptor ALWAYS egresses direct, so
+      // its props are byte-identical whether or not strict is ON — never a strict field.
+      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch' } });
     });
 
     it('REQ-ENTERPRISE-016: does NOT wire the EgressController and omits strict from props when the toggle is OFF (byte-identical per-host path)', async () => {

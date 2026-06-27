@@ -449,20 +449,23 @@ export class container extends Container<Env> implements ContainerEnvState {
    */
   private async setupEnterpriseInterception(): Promise<void> {
     if (!isEnterpriseMode(this.env)) return;
-    // Strict Gateway egress (REQ-ENTERPRISE-016): a global enterprise toggle read
-    // straight from KV (the ENTERPRISE_MODE precedent), default OFF. When ON the
-    // per-host LLM/GitHub transports swap their single upstream fetch to env.EGRESS
-    // and a catch-all EgressController forces every OTHER host through env.EGRESS too.
+    // Strict Gateway egress (REQ-ENTERPRISE-016, AD86): a global enterprise toggle
+    // read straight from KV (the ENTERPRISE_MODE precedent), default OFF. When ON, a
+    // catch-all EgressController forces the container's DIRECT-INTERNET egress through
+    // env.EGRESS (→ the customer's Zero Trust Gateway), while platform-native Cloudflare
+    // primitives (R2, AI Gateway, Browser Rendering) egress direct. GitHub (external)
+    // rides the Gateway too via its interceptor; the LLM interceptor always egresses
+    // direct (AI Gateway is platform-native) so it takes no strict prop.
     const strict = await hasStrictGatewayEgress(this.env);
-    // Two independent egress-injection transports, each gated separately so one
-    // missing config (e.g. no AI Gateway) never disables the other.
-    this.wireLlmInterception(strict);
+    // Independent egress-injection transports, each gated separately so one missing
+    // config (e.g. no AI Gateway) never disables the other.
+    this.wireLlmInterception();
     this.wireGithubInterception(strict);
     this.wireEgressInterception(strict);
   }
 
   /** Wire the LLM provider hosts -> LlmInterceptor (REQ-ENTERPRISE-004). */
-  private wireLlmInterception(strict: boolean): void {
+  private wireLlmInterception(): void {
     if (!this.env.AIG_GATEWAY_URL) {
       this.logger.warn('Enterprise mode active but AIG_GATEWAY_URL unset; skipping LLM interception');
       return;
@@ -477,18 +480,15 @@ export class container extends Container<Env> implements ContainerEnvState {
     const user = this._userEmail ?? this._bucketName ?? 'unknown';
     // Include the matched Access groups only when non-empty, so a no-group deploy
     // passes exactly { user } (unchanged) and the interceptor stamps no group tags.
-    const baseProps: { user: string; groups?: string[] } = this._userGroups.length > 0
+    // AI Gateway is platform-native (REQ-ENTERPRISE-016, AD86): the interceptor's
+    // upstream forward always egresses direct, so no strict-egress prop is passed —
+    // these props are identical whether or not strict Gateway egress is ON.
+    const props: { user: string; groups?: string[] } = this._userGroups.length > 0
       ? { user, groups: this._userGroups }
       : { user };
-    // REQ-ENTERPRISE-016: only add `strict` when ON, so an OFF deploy passes the
-    // exact same props as before (byte-identical) and the interceptor keeps its
-    // direct upstream fetch.
-    const props: { user: string; groups?: string[]; strict?: boolean } = strict
-      ? { ...baseProps, strict: true }
-      : baseProps;
     try {
       const ictx = this.ctx as unknown as {
-        exports: { LlmInterceptor(opts: { props: { user: string; groups?: string[]; strict?: boolean } }): Fetcher };
+        exports: { LlmInterceptor(opts: { props: { user: string; groups?: string[] } }): Fetcher };
         container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
       };
       const interceptor = ictx.exports.LlmInterceptor({ props });
@@ -540,12 +540,14 @@ export class container extends Container<Env> implements ContainerEnvState {
    *
    * Only when strict is ON. Registers the `'*'` catch-all so every host NOT already
    * claimed by the LLM/GitHub per-host interceptors is routed through the
-   * EgressController — a transparent proxy that forces the traffic through the
-   * mandatory env.EGRESS Workers VPC binding (and the customer's Zero Trust Gateway).
-   * The per-host registrations co-exist and TAKE PRECEDENCE over this catch-all
-   * (SDK v0.3.7 precedence: deniedHosts > per-host > catch-all). Independently
-   * try/catch-guarded so a wiring failure here never disables the LLM/GitHub
-   * transports.
+   * EgressController — a transparent proxy that forces genuine DIRECT-INTERNET traffic
+   * through the mandatory env.EGRESS Workers VPC binding (and the customer's Zero Trust
+   * Gateway). The controller itself egresses platform-native Cloudflare hosts (R2,
+   * Browser Rendering, AI Gateway REST) DIRECT, off cf1:network (AD86; see
+   * controllerFetch / isPlatformNativeHost). The per-host registrations co-exist and
+   * TAKE PRECEDENCE over this catch-all (SDK v0.3.7 precedence: deniedHosts > per-host >
+   * catch-all). Independently try/catch-guarded so a wiring failure here never disables
+   * the LLM/GitHub transports.
    */
   private wireEgressInterception(strict: boolean): void {
     if (!strict) return;

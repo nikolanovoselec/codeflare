@@ -10,7 +10,12 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import type { Env } from '../../types';
-import { hasStrictGatewayEgress, controllerFetch, isDisallowedEgressHost } from '../../lib/controller-egress';
+import {
+  hasStrictGatewayEgress,
+  controllerFetch,
+  isDisallowedEgressHost,
+  isPlatformNativeHost,
+} from '../../lib/controller-egress';
 
 // The literal KV key is the persisted contract (SETUP_KEYS.STRICT_EGRESS); keying the
 // stub store with it locks the read path to the real key, not a renamed constant.
@@ -61,13 +66,66 @@ describe('REQ-ENTERPRISE-016: controllerFetch fail-closed transport', () => {
     fetchSpy.mockRestore();
   });
 
-  it('routes the request through env.EGRESS.fetch when bound', async () => {
+  it('routes a direct-internet request through env.EGRESS.fetch when bound', async () => {
     const egressFetch = vi.fn(async () => new Response('ok', { status: 200 }));
     const env = makeEnv({ EGRESS: { fetch: egressFetch } } as unknown as Partial<Env>);
     const req = new Request('https://example.com/');
     const res = await controllerFetch(env, req);
     expect(res.status).toBe(200);
     expect(egressFetch).toHaveBeenCalledWith(req);
+  });
+});
+
+describe('REQ-ENTERPRISE-016 / AD86: isPlatformNativeHost', () => {
+  it.each([
+    'r2.cloudflarestorage.com',
+    'acc123.r2.cloudflarestorage.com', // account-scoped R2 S3 endpoint (rclone)
+    'mybucket.acc123.r2.cloudflarestorage.com', // virtual-hosted bucket form
+    'api.cloudflare.com', // CF API: Browser Rendering (browser-run) + AI Gateway REST
+    'gateway.ai.cloudflare.com', // AI Gateway compat
+    'API.CLOUDFLARE.COM', // case-insensitive
+  ])('treats %s as platform-native (egresses direct, off cf1:network)', (host) => {
+    expect(isPlatformNativeHost(host)).toBe(true);
+  });
+
+  it.each([
+    'example.com',
+    'api.openai.com',
+    'github.com',
+    'api.github.com',
+    'evilr2.cloudflarestorage.com', // no dot before r2 -> NOT an R2 subdomain
+    'r2.cloudflarestorage.com.attacker.example', // suffix-spoof -> not platform-native
+    'cloudflarestorage.com', // bare apex, not the R2 host
+  ])('treats %s as direct-internet egress (rides cf1:network/Gateway)', (host) => {
+    expect(isPlatformNativeHost(host)).toBe(false);
+  });
+});
+
+describe('REQ-ENTERPRISE-016 / AD86: controllerFetch exempts platform-native hosts from cf1:network', () => {
+  it('egresses a platform-native host (R2) DIRECT via global fetch — never env.EGRESS — even when the binding is bound', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok', { status: 200 }));
+    const egressFetch = vi.fn(async () => new Response('should-not-be-reached', { status: 500 }));
+    const env = makeEnv({ EGRESS: { fetch: egressFetch } } as unknown as Partial<Env>);
+    const req = new Request('https://acc123.r2.cloudflarestorage.com/bucket/key');
+    const res = await controllerFetch(env, req);
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledWith(req);
+    expect(egressFetch).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('egresses platform-native hosts DIRECT even when env.EGRESS is unbound — no 503, never depends on the binding', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok', { status: 200 }));
+    for (const url of [
+      'https://acc.r2.cloudflarestorage.com/b/k',
+      'https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/devtools',
+      'https://gateway.ai.cloudflare.com/v1/acc/gw/compat/chat/completions',
+    ]) {
+      const res = await controllerFetch(makeEnv({ EGRESS: undefined } as Partial<Env>), new Request(url));
+      expect(res.status).toBe(200);
+    }
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    fetchSpy.mockRestore();
   });
 });
 
