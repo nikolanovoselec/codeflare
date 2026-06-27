@@ -102,6 +102,14 @@ export async function hasStrictGatewayEgress(env: Env): Promise<boolean> {
  * - `*.r2.cloudflarestorage.com` — R2 object storage (rclone vault/workspace sync)
  * - `api.cloudflare.com`         — CF API: Browser Rendering (browser-run) + AI Gateway REST
  * - `gateway.ai.cloudflare.com`  — AI Gateway (compat transport)
+ *
+ * RESIDUAL SURFACE (accepted trade-off, AD86 / security.md): the match is host-based,
+ * NOT account-scoped — `api.cloudflare.com` is the whole CF API for ANY account and the
+ * R2 suffix matches any account's bucket host. So a compromised agent can reach these
+ * Cloudflare-owned hosts direct, off the customer's Gateway. This is bounded by
+ * codeflare-managed credentials + each host's own audit (R2 logs, AI Gateway analytics),
+ * and `api.cloudflare.com` cannot be host-scoped (the account is in the URL path) yet
+ * must stay exempt for browser-run — so it is documented, not closed.
  */
 const PLATFORM_NATIVE_HOSTS: ReadonlySet<string> = new Set([
   'r2.cloudflarestorage.com',
@@ -112,7 +120,9 @@ const PLATFORM_NATIVE_HOST_SUFFIXES: readonly string[] = ['.r2.cloudflarestorage
 
 /** True when `hostname` is a Cloudflare platform-native primitive that egresses direct (never cf1:network). */
 export function isPlatformNativeHost(hostname: string): boolean {
-  const host = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  // Normalize: strip whitespace, lowercase, drop IPv6 brackets, and drop a single
+  // trailing dot (FQDN form, e.g. `api.cloudflare.com.`) so the canonical host matches.
+  const host = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
   if (PLATFORM_NATIVE_HOSTS.has(host)) return true;
   return PLATFORM_NATIVE_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
 }

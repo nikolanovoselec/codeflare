@@ -84,6 +84,8 @@ describe('REQ-ENTERPRISE-016 / AD86: isPlatformNativeHost', () => {
     'api.cloudflare.com', // CF API: Browser Rendering (browser-run) + AI Gateway REST
     'gateway.ai.cloudflare.com', // AI Gateway compat
     'API.CLOUDFLARE.COM', // case-insensitive
+    'api.cloudflare.com.', // trailing-dot FQDN form normalizes to the canonical host
+    'acc.r2.cloudflarestorage.com.', // trailing-dot FQDN form (R2)
   ])('treats %s as platform-native (egresses direct, off cf1:network)', (host) => {
     expect(isPlatformNativeHost(host)).toBe(true);
   });
