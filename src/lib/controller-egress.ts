@@ -17,7 +17,7 @@ import type { Env } from '../types';
 import { isEnterpriseMode } from './subscription';
 import { SETUP_KEYS } from './kv-keys';
 
-function jsonError(status: number, code: string, error: string): Response {
+export function jsonError(status: number, code: string, error: string): Response {
   return new Response(JSON.stringify({ error, code }), {
     status,
     headers: { 'Content-Type': 'application/json' },
@@ -82,12 +82,15 @@ export async function controllerFetch(env: Env, request: Request): Promise<Respo
 
 /**
  * SSRF defense-in-depth: reject hostnames that resolve (as literals) to loopback,
- * private (RFC 1918), link-local (incl. the 169.254.169.254 cloud metadata
- * endpoint), or unspecified ranges — IPv4 and IPv6 literals plus `localhost`.
+ * private (RFC 1918), CGNAT shared space (RFC 6598 — the 100.64.0.0/10 range WARP
+ * uses), link-local (incl. the 169.254.169.254 cloud metadata endpoint), or
+ * unspecified ranges — IPv4 and IPv6 literals (including IPv4-mapped IPv6) plus
+ * `localhost`.
  *
  * This is a literal-IP guard only; it does NOT stop a public hostname that resolves
  * to a private IP (DNS rebinding). The authoritative egress control is the customer's
- * Zero Trust Gateway policy on `cf1:network` (see security.md / U6).
+ * Zero Trust Gateway policy on `cf1:network` (see security.md, "SSRF guard +
+ * DNS-rebinding caveat").
  */
 export function isDisallowedEgressHost(hostname: string): boolean {
   const host = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '');
@@ -99,6 +102,22 @@ export function isDisallowedEgressHost(hostname: string): boolean {
     if (host === '::1' || host === '::') return true; // loopback / unspecified
     if (/^f[cd][0-9a-f]*:/.test(host)) return true; // fc00::/7 unique-local
     if (/^fe[89ab][0-9a-f]*:/.test(host)) return true; // fe80::/10 link-local
+    // IPv4-mapped IPv6 (::ffff:a.b.c.d, or its WHATWG-normalized hex form
+    // ::ffff:7f00:1): decode the embedded v4 and re-evaluate so loopback / RFC1918
+    // / CGNAT / link-local / metadata cannot slip through the mapped range, which
+    // has no legitimate public-egress use.
+    const mapped = host.match(/^(?:0:0:0:0:0:|::)ffff:([0-9a-f.:]+)$/);
+    if (mapped) {
+      const tail = mapped[1];
+      if (tail.includes('.')) return isDisallowedEgressHost(tail);
+      const parts = tail.split(':');
+      if (parts.length === 2) {
+        const n = ((parseInt(parts[0], 16) << 16) | parseInt(parts[1], 16)) >>> 0;
+        const dotted = [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.');
+        return isDisallowedEgressHost(dotted);
+      }
+      return true; // unrecognized mapped shape -> fail closed
+    }
     return false;
   }
 
@@ -114,6 +133,7 @@ export function isDisallowedEgressHost(hostname: string): boolean {
     if (a === 192 && b === 168) return true; // 192.168.0.0/16 RFC 1918
     if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12 RFC 1918
     if (a === 169 && b === 254) return true; // 169.254.0.0/16 link-local + metadata
+    if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 CGNAT (RFC 6598; WARP shared range)
     return false;
   }
 

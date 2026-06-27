@@ -49,7 +49,7 @@ describe('REQ-ENTERPRISE-016: controllerFetch fail-closed transport', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     const res = await controllerFetch(makeEnv({ EGRESS: undefined } as Partial<Env>), new Request('https://example.com/'));
     expect(res.status).toBe(503);
-    expect((await res.json()).code).toBe('EGRESS_UNAVAILABLE');
+    expect(((await res.json()) as { code?: string }).code).toBe('EGRESS_UNAVAILABLE');
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
@@ -80,11 +80,28 @@ describe('REQ-ENTERPRISE-016: isDisallowedEgressHost SSRF guard', () => {
     'fd12:3456::1',
     'fe80::1',
     '[::1]',
+    '100.64.0.1', // CGNAT (RFC 6598) lower bound
+    '100.127.255.255', // CGNAT upper bound
+    '::ffff:127.0.0.1', // IPv4-mapped IPv6 loopback (dotted)
+    '::ffff:169.254.169.254', // IPv4-mapped IPv6 cloud metadata
+    '::ffff:10.0.0.1', // IPv4-mapped IPv6 RFC1918
+    '::ffff:7f00:1', // IPv4-mapped IPv6 loopback (WHATWG hex form)
+    '[::ffff:7f00:1]', // bracketed mapped loopback
   ])('rejects internal/metadata host %s', (host) => {
     expect(isDisallowedEgressHost(host)).toBe(true);
   });
 
-  it.each(['api.openai.com', 'github.com', 'api.github.com', '8.8.8.8', '172.32.0.1', '93.184.216.34', '2606:2800::1'])(
+  it.each([
+    'api.openai.com',
+    'github.com',
+    'api.github.com',
+    '8.8.8.8',
+    '172.32.0.1',
+    '100.63.255.255', // just below CGNAT -> public
+    '100.128.0.1', // just above CGNAT -> public
+    '93.184.216.34',
+    '2606:2800::1',
+  ])(
     'allows public host %s',
     (host) => {
       expect(isDisallowedEgressHost(host)).toBe(false);

@@ -46,7 +46,7 @@ describe('REQ-ENTERPRISE-016: EgressController fail-closed guards', () => {
     const { controller, egressFetch } = makeController();
     const res = await controller.fetch(new Request('https://169.254.169.254/latest/meta-data'));
     expect(res.status).toBe(403);
-    expect((await res.json()).code).toBe('EGRESS_TARGET_BLOCKED');
+    expect(((await res.json()) as { code?: string }).code).toBe('EGRESS_TARGET_BLOCKED');
     expect(egressFetch).not.toHaveBeenCalled();
   });
 
@@ -54,14 +54,14 @@ describe('REQ-ENTERPRISE-016: EgressController fail-closed guards', () => {
     const { controller } = makeController({ EGRESS: undefined } as Partial<Env>);
     const res = await controller.fetch(new Request('https://example.com/'));
     expect(res.status).toBe(503);
-    expect((await res.json()).code).toBe('EGRESS_UNAVAILABLE');
+    expect(((await res.json()) as { code?: string }).code).toBe('EGRESS_UNAVAILABLE');
   });
 
   it('returns 503 EGRESS_NOT_CONFIGURED (defense-in-depth) when the toggle is OFF and never forwards', async () => {
     const { controller, egressFetch } = makeController({ __kv: { [STRICT_KEY]: 'inactive' } });
     const res = await controller.fetch(new Request('https://example.com/'));
     expect(res.status).toBe(503);
-    expect((await res.json()).code).toBe('EGRESS_NOT_CONFIGURED');
+    expect(((await res.json()) as { code?: string }).code).toBe('EGRESS_NOT_CONFIGURED');
     expect(egressFetch).not.toHaveBeenCalled();
   });
 });

@@ -191,6 +191,15 @@ app.post('/configure', async (c) => {
     throw new ValidationError('At least one dynamic route is required in enterprise mode');
   }
 
+  // REQ-ENTERPRISE-016: refuse to enable strict Gateway egress while the EGRESS VPC
+  // binding is unbound. Persisting 'active' in that state is fail-closed-correct but
+  // would 503 every container HTTP/HTTPS call, silently severing all egress. Reject
+  // before any KV write so the toggle can only be turned on once Cloudflare Mesh is
+  // provisioned and the [[vpc_networks]] EGRESS binding is live (see the enable runbook).
+  if (isEnterpriseMode(c.env) && strictGatewayEgress === true && !c.env.EGRESS) {
+    throw new ValidationError('Strict Gateway egress requires the EGRESS VPC binding — provision Cloudflare Mesh and enable the [[vpc_networks]] binding first');
+  }
+
   // REQ-GITHUB-008: a provider client secret stored without ENCRYPTION_KEY would be
   // plaintext at rest. Applies to the GitHub provider (admin, any mode) and the
   // Connect-to-Cloudflare OAuth client. Reject before any KV write (so a rejected

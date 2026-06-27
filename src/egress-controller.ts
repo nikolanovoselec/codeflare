@@ -24,16 +24,10 @@ import {
   hasStrictGatewayEgress,
   controllerFetch,
   isDisallowedEgressHost,
+  jsonError,
   STRIPPED_REQUEST_HOP_BY_HOP,
   RESPONSE_HOP_BY_HOP,
 } from './lib/controller-egress';
-
-function jsonError(status: number, code: string, error: string): Response {
-  return new Response(JSON.stringify({ error, code }), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
 
 export class EgressController extends WorkerEntrypoint<Env> {
   override async fetch(request: Request): Promise<Response> {

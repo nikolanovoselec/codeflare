@@ -2390,8 +2390,9 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
       });
 
       // ─── REQ-ENTERPRISE-016: strict gateway egress toggle ───────────────────
-      it('REQ-ENTERPRISE-016: persists the toggle as active when true', async () => {
-        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+      it('REQ-ENTERPRISE-016: persists the toggle as active when true (EGRESS bound)', async () => {
+        // EGRESS bound -> the enable guardrail passes and the toggle persists 'active'.
+        const app = createTestApp({ ENTERPRISE_MODE: 'active', EGRESS: { fetch: async () => new Response(null) } as unknown as Env['EGRESS'] });
         mockFullSuccessFlow();
 
         const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
@@ -2403,6 +2404,22 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(res.status).toBe(200);
         await readNdjson(res);
         expect(mockKV.put).toHaveBeenCalledWith('setup:strict_egress', 'active');
+      });
+
+      it('REQ-ENTERPRISE-016: refuses to enable the toggle when EGRESS is unbound (no brick)', async () => {
+        // Enabling strict egress without the EGRESS VPC binding would 503 every
+        // container call; the handler must reject pre-stream and never persist 'active'.
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ strictGatewayEgress: true })),
+        });
+
+        expect(res.status).toBe(400);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:strict_egress', 'active');
       });
 
       it('REQ-ENTERPRISE-016: persists the toggle as inactive when false', async () => {
