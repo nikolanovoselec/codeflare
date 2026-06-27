@@ -98,9 +98,9 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off) | Controller-mediated Cloudflare Gateway egress as a mandatory web boundary (wizard-toggled, default OFF) | Architecture, Security |
 | [AD86](#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network) | Platform-native Cloudflare primitives bypass strict Gateway egress (only direct-internet egress takes cf1:network) | Architecture, Security |
 | [AD87](#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props) | EgressController re-signs own-account R2 (container holds a placeholder key), bridges WebSocket upgrades, and resolves strict via props | Architecture, Security |
-| [AD88](#ad88-bisync-compares-via-server-modtime-from-fast-list-not-per-object-mtime-heads) | Bisync compares via server-modtime from --fast-list (not per-object mtime HEADs) | Storage |
-| [AD89](#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration) | Governed Mode: deployment-wide R2 SSE-C disable via a KV toggle, with lossless in-place re-encrypt migration | Architecture, Security, Storage |
-| [AD90](#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync) | Governed Mode preseed bake + --checksum delta initial sync | Storage |
+| [AD88](#ad88-bisync-compares-via-server-modtime-from-fast-list-not-per-object-mtime-heads) | Bisync compares via server-modtime from fast-list (not per-object mtime HEADs) | Storage |
+| [AD89](#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration) | Governed Mode, deployment-wide R2 SSE-C disable via a KV toggle, with lossless in-place re-encrypt migration | Architecture, Security, Storage |
+| [AD90](#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync) | Governed Mode preseed bake + checksum delta initial sync | Storage |
 
 ---
 
@@ -1753,7 +1753,7 @@ Bindings were ruled out as the containment path (verified): R2 bindings are stat
 
 ---
 
-### AD88: Bisync compares via server-modtime from --fast-list (not per-object mtime HEADs)
+### AD88: Bisync compares via server-modtime from fast-list (not per-object mtime HEADs)
 
 **Category:** Storage
 
@@ -1769,7 +1769,7 @@ Bindings were ruled out as the containment path (verified): R2 bindings are stat
 
 ---
 
-### AD89: Governed Mode — deployment-wide R2 SSE-C disable via a KV toggle, with lossless in-place re-encrypt migration
+### AD89: Governed Mode, deployment-wide R2 SSE-C disable via a KV toggle, with lossless in-place re-encrypt migration
 
 **Category:** Architecture, Security, Storage
 
@@ -1792,7 +1792,7 @@ Bindings were ruled out as the containment path (verified): R2 bindings are stat
 
 ---
 
-### AD90: Governed Mode preseed bake + --checksum delta initial sync
+### AD90: Governed Mode preseed bake + checksum delta initial sync
 
 **Category:** Storage
 

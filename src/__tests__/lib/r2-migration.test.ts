@@ -243,4 +243,16 @@ describe('reconcileBucketRegimeOnStart (session-start orchestration)', () => {
     expect(mockFetch).not.toHaveBeenCalled();
     expect(JSON.parse(store.get('user-prefs:bkt')!).r2SseRegime).toBe('plain');
   });
+
+  it('boots in the CURRENT regime and does NOT flip the marker when migration fails (no /start lockout)', async () => {
+    // A >5 GB object makes migrateBucketEncryption throw; the orchestrator must swallow
+    // it, return the un-migrated regime (sse-c ⇒ disabled=false), and leave the marker.
+    wireFetch({ objects: [{ key: 'huge.bin', size: 6 * 1024 * 1024 * 1024 }], headOk: false, puts: [] });
+    const { kv, store } = makeKV({ 'setup:r2_sse_disabled': 'active', 'user-prefs:bkt': JSON.stringify({ r2SseRegime: 'sse-c' }) });
+
+    const disabled = await reconcileBucketRegimeOnStart(startEnv(kv), 'bkt', 'https://r2.test', false);
+
+    expect(disabled).toBe(false); // booted in current (sse-c) regime, not the target policy
+    expect(JSON.parse(store.get('user-prefs:bkt')!).r2SseRegime).toBe('sse-c'); // marker NOT advanced
+  });
 });

@@ -144,8 +144,22 @@ export async function reconcileBucketRegimeOnStart(
 
   const currentRegime = await getBucketR2Regime(env, bucketName);
   if (currentRegime !== targetRegime) {
-    await migrateBucketEncryption(env, bucketName, endpoint, currentRegime, targetRegime);
-    await setBucketR2Regime(env, bucketName, targetRegime);
+    try {
+      await migrateBucketEncryption(env, bucketName, endpoint, currentRegime, targetRegime);
+      await setBucketR2Regime(env, bucketName, targetRegime);
+    } catch (err) {
+      // Migration failed — a transient R2/ListObjects error, subrequest-budget
+      // exhaustion, an object > 5 GB, or > MAX_PAGES of objects. Do NOT flip the
+      // marker: the bucket is still wholly in its current regime, so booting in
+      // THAT regime is read-correct and the idempotent migration retries on the
+      // next session start. Never brick /start over a migration failure.
+      logger.error(
+        'Governed Mode migration failed; booting in current regime, will retry next session',
+        err instanceof Error ? err : new Error(String(err)),
+        { bucketName, from: currentRegime, to: targetRegime },
+      );
+      return currentRegime === 'plain';
+    }
   }
   return policyDisabled;
 }
@@ -239,6 +253,17 @@ export async function migrateBucketEncryption(
     continuationToken = parsed.isTruncated ? parsed.nextContinuationToken : undefined;
     pages++;
   } while (continuationToken && pages < MAX_PAGES);
+
+  // Fail loud if pagination was truncated with objects still unlisted: the caller
+  // flips the regime marker only on a clean return, so returning here would advance
+  // the marker over an incompletely-migrated bucket (the unmigrated tail would become
+  // unreadable). Throwing keeps the marker un-advanced (and the caller boots in the
+  // current regime — see reconcileBucketRegimeOnStart).
+  if (continuationToken) {
+    throw new Error(
+      `migrateBucketEncryption: bucket "${bucketName}" exceeds MAX_PAGES (${MAX_PAGES}); migration incomplete — marker must not advance`
+    );
+  }
 
   logger.info('Migrated bucket encryption regime', { bucketName, from, to, migrated, skipped });
   return { migrated, skipped };
