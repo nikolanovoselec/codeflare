@@ -283,6 +283,37 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
     });
   });
 
+  describe('REQ-ENTERPRISE-017: AI Gateway prefill (masked token, plain URL)', () => {
+    it('GET /prefill reports the token as set + returns the gateway URL, never the token', async () => {
+      mockKV._store.set('setup:aig_token', 'encrypted-aig-blob-never-returned');
+      mockKV._store.set('setup:aig_gateway_url', 'https://gateway.ai.cloudflare.com/v1/acct/gw');
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.aigTokenSet).toBe(true);
+      expect(body.aigGatewayUrl).toBe('https://gateway.ai.cloudflare.com/v1/acct/gw');
+      // The token value itself is never surfaced to the browser.
+      expect(JSON.stringify(body)).not.toContain('encrypted-aig-blob-never-returned');
+    });
+
+    it('GET /prefill reports the token unset + empty URL when nothing is stored', async () => {
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.aigTokenSet).toBe(false);
+      expect(body.aigGatewayUrl).toBe('');
+    });
+
+    it('GET /prefill omits the AI Gateway fields when ENTERPRISE_MODE is unset', async () => {
+      mockKV._store.set('setup:aig_token', 'x');
+      const app = createApp();
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body).not.toHaveProperty('aigTokenSet');
+      expect(body).not.toHaveProperty('aigGatewayUrl');
+    });
+  });
+
   describe('REQ-GITHUB-008: enterprise GitHub provider config prefill (masked)', () => {
     it('GET /prefill returns provider type + client ids + secret-set flags, never the secrets', async () => {
       mockKV._store.set('setup:github_provider_type', 'app');

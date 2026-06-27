@@ -2014,6 +2014,60 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
       // ─── REQ-GITHUB-008: enterprise GitHub provider config ──────────────────
       const ENC_KEY = 'A'.repeat(43) + '='; // base64 of 32 zero bytes — a valid AES-256 key
 
+      // ─── REQ-ENTERPRISE-017: AI Gateway URL + token configured in the wizard ──
+      it('REQ-ENTERPRISE-017: persists the AI Gateway URL (plain) + token (encrypted) and emits configure_ai_gateway', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: ENC_KEY });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ aigGatewayUrl: 'https://gateway.ai.cloudflare.com/v1/acct/gw', aigToken: 'aig-secret' })),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        // URL is non-secret -> stored verbatim. The token rides encryptAndStore (kv.put at
+        // its dedicated key); never plaintext-asserted.
+        expect(mockKV.put).toHaveBeenCalledWith('setup:aig_gateway_url', 'https://gateway.ai.cloudflare.com/v1/acct/gw');
+        expect(mockKV.put).toHaveBeenCalledWith('setup:aig_token', expect.any(String));
+        // WS6: the step surfaces on the progress stream so the configuring screen shows it.
+        expect(lines).toContainEqual(expect.objectContaining({ step: 'configure_ai_gateway', status: 'success' }));
+      });
+
+      it('REQ-ENTERPRISE-017: a blank AI Gateway token leaves the stored token untouched (no clobber)', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: ENC_KEY });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ aigGatewayUrl: 'https://gateway.ai.cloudflare.com/v1/acct/gw', aigToken: '' })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        // URL still written, but a blank token must not overwrite the stored one.
+        expect(mockKV.put).toHaveBeenCalledWith('setup:aig_gateway_url', 'https://gateway.ai.cloudflare.com/v1/acct/gw');
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:aig_token', expect.anything());
+      });
+
+      it('REQ-ENTERPRISE-017: never writes the AI Gateway keys in non-enterprise mode (regression)', async () => {
+        const app = createTestApp();
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ aigGatewayUrl: 'https://gateway.ai.cloudflare.com/v1/acct/gw', aigToken: 'aig-secret' })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:aig_gateway_url', expect.anything());
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:aig_token', expect.anything());
+      });
+
       it('REQ-GITHUB-008: persists the provider type + client id (plain) and the secret (encrypted)', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: ENC_KEY });
         mockFullSuccessFlow();
@@ -2402,8 +2456,10 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         });
 
         expect(res.status).toBe(200);
-        await readNdjson(res);
+        const lines = await readNdjson(res);
         expect(mockKV.put).toHaveBeenCalledWith('setup:strict_egress', 'active');
+        // WS6: the toggle persistence surfaces as its own progress step.
+        expect(lines).toContainEqual(expect.objectContaining({ step: 'configure_strict_egress', status: 'success' }));
       });
 
       it('REQ-ENTERPRISE-016: refuses to enable the toggle when EGRESS is unbound (no brick)', async () => {

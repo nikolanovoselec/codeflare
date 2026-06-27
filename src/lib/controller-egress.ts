@@ -9,11 +9,11 @@
  * state), default OFF when the key is absent so prod/integration behaviour is
  * byte-identical until enabled.
  *
- * Platform-native Cloudflare primitives (R2, AI Gateway, Browser Rendering) are
- * EXEMPT: they are codeflare's own control-plane endpoints, not the agent's external
- * reach, so they egress direct and never traverse cf1:network (see
- * {@link isPlatformNativeHost} and AD86). Only genuine direct-internet egress takes
- * the Gateway path.
+ * This deployment's OWN-account platform destinations (its R2 endpoint + its
+ * account-scoped CF API / Browser Rendering path) are EXEMPT and egress direct — they
+ * are codeflare's own control-plane backends, not the agent's external reach (see
+ * {@link isAccountScopedDestination} and AD86). Everything else — genuine direct-internet
+ * egress AND any OTHER account's R2/CF host — takes the Gateway path for inspection.
  *
  * The defining security property is FAIL-CLOSED: when strict is ON but `env.EGRESS`
  * is unbound (the [[vpc_networks]] binding is committed commented-out until Cloudflare
@@ -85,63 +85,62 @@ export async function hasStrictGatewayEgress(env: Env): Promise<boolean> {
 }
 
 /**
- * Cloudflare platform-native primitive hosts — codeflare's OWN control-plane
- * endpoints, NOT the agent's external internet reach. Strict Gateway egress
- * (REQ-ENTERPRISE-016) routes ONLY genuine direct-internet egress through
- * `cf1:network` → the customer's Zero Trust Gateway; these platform hosts egress
- * DIRECT. Two reasons (AD86):
+ * Account-scoped platform destinations — codeflare's OWN control-plane endpoints
+ * **for this deployment's Cloudflare account**, NOT the agent's external internet
+ * reach. Strict Gateway egress (REQ-ENTERPRISE-016, AD86) forces ALL other container
+ * egress through `cf1:network` → the customer's Zero Trust Gateway for inspection;
+ * these account-scoped destinations egress DIRECT. Two reasons:
  *   1. Scaling — rclone's per-file R2 sync is the dominant container-egress volume;
  *      forcing it through cf1:network couples every container's bootstrap-critical
- *      persistence to the shared, rate-limited Gateway egress path, which hits
- *      account-wide connection/rate limits at fleet scale (100 users × N containers).
+ *      persistence to the shared, rate-limited Gateway egress path (account-wide
+ *      connection/rate limits at fleet scale).
  *   2. Boundary — an egress firewall polices the workload's reach to the OUTSIDE
  *      world, not the platform's own storage/AI/browser backends, which carry
- *      codeflare-managed credentials to Cloudflare-owned hosts and have their own
- *      audit trail (R2 access logs, AI Gateway analytics).
+ *      codeflare-managed credentials and have their own audit (R2 logs, AI Gateway).
  *
- * - `*.r2.cloudflarestorage.com` — R2 object storage (rclone vault/workspace sync)
- * - `api.cloudflare.com`         — CF API: Browser Rendering (browser-run) + AI Gateway REST
- * - `gateway.ai.cloudflare.com`  — AI Gateway (compat transport)
- *
- * RESIDUAL SURFACE (accepted trade-off, AD86 / security.md): the match is host-based,
- * NOT account-scoped — `api.cloudflare.com` is the whole CF API for ANY account and the
- * R2 suffix matches any account's bucket host. So a compromised agent can reach these
- * Cloudflare-owned hosts direct, off the customer's Gateway. This is bounded by
- * codeflare-managed credentials + each host's own audit (R2 logs, AI Gateway analytics),
- * and `api.cloudflare.com` cannot be host-scoped (the account is in the URL path) yet
- * must stay exempt for browser-run — so it is documented, not closed.
+ * The exemption is **account-scoped** — ONLY the deployment's own account is direct:
+ *   - R2:  `<accountId>.r2.cloudflarestorage.com` (+ the `<bucket>.<accountId>.…` vhost form)
+ *   - CF API / Browser Rendering: `api.cloudflare.com` path `/client/v4/accounts/<accountId>/…`
+ * ANY OTHER account's R2/CF host falls through to the Gateway (inspected) — this closes
+ * the cross-account exfil channel. `gateway.ai.cloudflare.com` is intentionally NOT
+ * exempt: the container never reaches it directly (the worker-side LlmInterceptor does).
+ * Fail-secure: an absent/empty `accountId` exempts nothing (all egress is Gateway-inspected).
  */
-const PLATFORM_NATIVE_HOSTS: ReadonlySet<string> = new Set([
-  'r2.cloudflarestorage.com',
-  'api.cloudflare.com',
-  'gateway.ai.cloudflare.com',
-]);
-const PLATFORM_NATIVE_HOST_SUFFIXES: readonly string[] = ['.r2.cloudflarestorage.com'];
+function r2HostFor(accountId: string): string {
+  return `${accountId}.r2.cloudflarestorage.com`;
+}
 
-/** True when `hostname` is a Cloudflare platform-native primitive that egresses direct (never cf1:network). */
-export function isPlatformNativeHost(hostname: string): boolean {
-  // Normalize: strip whitespace, lowercase, drop IPv6 brackets, and drop a single
-  // trailing dot (FQDN form, e.g. `api.cloudflare.com.`) so the canonical host matches.
-  const host = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
-  if (PLATFORM_NATIVE_HOSTS.has(host)) return true;
-  return PLATFORM_NATIVE_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
+/** True when `url` targets THIS account's R2 or account-scoped CF API (direct egress, never cf1:network). */
+export function isAccountScopedDestination(url: URL, accountId: string | undefined): boolean {
+  const acct = (accountId ?? '').trim().toLowerCase();
+  if (!acct) return false; // fail-secure: no account ⇒ nothing exempt ⇒ all egress Gateway-inspected
+  // Normalize host: lowercase, drop IPv6 brackets + a single trailing dot (FQDN form).
+  const host = url.hostname.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  const r2 = r2HostFor(acct);
+  // R2: own account's S3 endpoint (path-style) or a vhost-bucket subdomain of it.
+  if (host === r2 || host.endsWith(`.${r2}`)) return true;
+  // CF API (Browser Rendering / browser-run): own account's path namespace only.
+  if (host === 'api.cloudflare.com' && url.pathname.startsWith(`/client/v4/accounts/${acct}/`)) return true;
+  return false;
 }
 
 /**
  * Forward `request` to its upstream.
  *
- * Platform-native Cloudflare primitives ({@link isPlatformNativeHost}: R2, AI Gateway,
- * Browser Rendering) egress DIRECT via global `fetch` and NEVER traverse cf1:network —
- * checked first so they reach upstream even when the VPC binding is unbound (they never
- * depend on it).
+ * Account-scoped platform destinations ({@link isAccountScopedDestination}: this account's
+ * R2 + CF API / Browser Rendering) egress DIRECT via global `fetch` and NEVER traverse
+ * cf1:network — checked first so they reach upstream even when the VPC binding is unbound.
  *
- * Every OTHER (direct-internet) host is forced through the mandatory Workers VPC
- * `env.EGRESS` Fetcher binding. When that binding is unbound, fail closed with 503
- * EGRESS_UNAVAILABLE — there is NO fallback to global `fetch`, which is the entire
- * security point of the feature.
+ * Every OTHER host (genuine direct-internet egress, INCLUDING any other account's R2/CF
+ * API) is forced through the mandatory Workers VPC `env.EGRESS` Fetcher binding for Gateway
+ * inspection. When that binding is unbound, fail closed with 503 EGRESS_UNAVAILABLE — there
+ * is NO fallback to global `fetch`, which is the entire security point of the feature.
+ *
+ * The same selector serves WebSocket upgrades: the caller (EgressController) passes the
+ * VERBATIM upgrade request here for WS and returns the upstream `101`+`webSocket` as-is.
  */
-export async function controllerFetch(env: Env, request: Request): Promise<Response> {
-  if (isPlatformNativeHost(new URL(request.url).hostname)) return fetch(request);
+export async function controllerFetch(env: Env, request: Request, accountId: string | undefined): Promise<Response> {
+  if (isAccountScopedDestination(new URL(request.url), accountId)) return fetch(request);
   if (!env.EGRESS) return jsonError(503, 'EGRESS_UNAVAILABLE', 'Strict Gateway egress binding unavailable');
   return env.EGRESS.fetch(request);
 }

@@ -587,7 +587,6 @@ establish_bisync_baseline() {
             --recover \
             --check-sync=false \
             --ignore-checksum \
-            --s3-upload-cutoff 0 \
             --max-delete 100 \
             --retries 3 --retries-sleep 10s \
             --transfers 32 --checkers 32 -v > "$BASELINE_OUTPUT" 2>&1; then
@@ -667,7 +666,6 @@ bisync_with_r2() {
         --recover \
         --check-sync=false \
         --ignore-checksum \
-        --s3-upload-cutoff 0 \
         --max-delete 100 \
         --retries 3 --retries-sleep 10s \
         --transfers 32 --checkers 32 "${verbose_args[@]}" > "$SYNC_OUTPUT" 2>&1; then

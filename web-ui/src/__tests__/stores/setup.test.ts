@@ -617,6 +617,86 @@ describe('Setup Store', () => {
     });
   });
 
+  describe('AI Gateway config (REQ-ENTERPRISE-017)', () => {
+    it('includes aigGatewayUrl + aigToken in the configure body in enterprise mode', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+      await setupStore.loadExistingConfig();
+
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+      setupStore.addDynamicRoute('development');
+      setupStore.setAigGatewayUrl('https://gateway.ai.cloudflare.com/v1/acct/gw');
+      setupStore.setAigToken('aig-secret');
+
+      await setupStore.configure();
+
+      const lastCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
+      const body = JSON.parse(lastCall[1].body);
+      expect(body.aigGatewayUrl).toBe('https://gateway.ai.cloudflare.com/v1/acct/gw');
+      expect(body.aigToken).toBe('aig-secret');
+    });
+
+    it('omits the AI Gateway fields from the configure body in non-enterprise mode', async () => {
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+      setupStore.setAigGatewayUrl('https://gateway.ai.cloudflare.com/v1/acct/gw');
+      setupStore.setAigToken('aig-secret');
+
+      await setupStore.configure();
+
+      const [, options] = mockFetch.mock.calls[0];
+      const body = JSON.parse(options.body);
+      expect(body.aigGatewayUrl).toBeUndefined();
+      expect(body.aigToken).toBeUndefined();
+    });
+
+    it('hydrates aigGatewayUrl + aigTokenSet from the enterprise prefill (never the token)', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [], aigGatewayUrl: 'https://gateway.ai.cloudflare.com/v1/acct/gw', aigTokenSet: true }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+
+      await setupStore.loadExistingConfig();
+
+      expect(setupStore.aigGatewayUrl).toBe('https://gateway.ai.cloudflare.com/v1/acct/gw');
+      expect(setupStore.aigTokenSet).toBe(true);
+      // The stored token is never returned to the client; the write-only field stays blank.
+      expect(setupStore.aigToken).toBe('');
+    });
+
+    it('resets the AI Gateway fields', () => {
+      setupStore.setAigGatewayUrl('https://x');
+      setupStore.setAigToken('y');
+      setupStore.reset();
+      expect(setupStore.aigGatewayUrl).toBe('');
+      expect(setupStore.aigToken).toBe('');
+      expect(setupStore.aigTokenSet).toBe(false);
+    });
+  });
+
   describe('custom domain', () => {
     it('should set custom domain', () => {
       setupStore.setCustomDomain('my-app.example.com');

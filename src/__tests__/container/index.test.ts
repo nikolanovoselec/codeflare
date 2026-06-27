@@ -1230,7 +1230,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       await instance.startAndWaitForPorts(8080);
 
       // cf-aig-metadata attribution must carry the real email, not the opaque bucket id.
-      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch' } });
+      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch', gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/acct123/gw123', token: 'gw-token' } });
     });
 
     it('passes the matched Access groups as the interceptor groups prop when set', async () => {
@@ -1257,7 +1257,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
 
       // The matched groups ride alongside the email; the interceptor stamps one
       // cf-aig-metadata tag per group.
-      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch', groups: ['codeflare_admins', 'codeflare_developers'] } });
+      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch', groups: ['codeflare_admins', 'codeflare_developers'], gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/acct123/gw123', token: 'gw-token' } });
     });
 
     it('coerces a legacy single-string userGroup storage value to a one-element userGroups list on wake', async () => {
@@ -1286,7 +1286,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
 
       // The legacy scalar is coerced to a one-element list so the in-flight
       // session keeps its per-group attribution.
-      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch', groups: ['codeflare_admins'] } });
+      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch', groups: ['codeflare_admins'], gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/acct123/gw123', token: 'gw-token' } });
     });
 
     it('REQ-GITHUB-003: wires the GitHubInterceptor for the github hosts with the per-session user + bucket props', async () => {
@@ -1364,9 +1364,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
     // REQ-ENTERPRISE-016 / AD86: when the strict Gateway egress toggle is ON, the DO
     // wires a catch-all '*' interceptor to the EgressController (forcing the container's
     // direct-internet egress through env.EGRESS, while the controller itself egresses
-    // platform-native hosts direct) and stamps strict:true onto the GitHub interceptor
-    // props (external egress rides the Gateway). The LLM interceptor always egresses
-    // direct (AI Gateway is platform-native), so it never carries strict.
+    // THIS account's own R2 / CF API direct, account-scoped) and stamps strict:true onto
+    // the GitHub interceptor props (external egress rides the Gateway). The LLM interceptor
+    // always egresses direct (AI Gateway is platform-native), so it never carries strict.
     it('REQ-ENTERPRISE-016: wires the EgressController catch-all (\'*\') BEFORE super.startAndWaitForPorts when strict is ON', async () => {
       callOrder.length = 0;
       const egressFetcher = { id: 'egress-controller-fetcher' };
@@ -1397,6 +1397,10 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
 
       // The catch-all routes through the EgressController fetcher.
       expect(interceptOutboundHttps).toHaveBeenCalledWith('*', egressFetcher);
+      // WS3 account-scoped exemption (REQ-ENTERPRISE-016): the DO threads its own
+      // account id (resolved via getR2Config) so the controller exempts ONLY this
+      // account's R2 / CF API. getR2Config is mocked to return accountId 'test-account'.
+      expect(EgressController).toHaveBeenCalledWith({ props: { accountId: 'test-account' } });
       // ALL interceptOutboundHttps calls (LLM + GitHub + catch-all) precede the
       // container boot so the CA is mounted before entrypoint.sh — the same
       // load-bearing ordering as the per-host registrations.
@@ -1432,7 +1436,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       });
       // AI Gateway is platform-native: the LLM interceptor ALWAYS egresses direct, so
       // its props are byte-identical whether or not strict is ON — never a strict field.
-      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch' } });
+      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch', gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/acct123/gw123', token: 'gw-token' } });
     });
 
     it('REQ-ENTERPRISE-016: does NOT wire the EgressController and omits strict from props when the toggle is OFF (byte-identical per-host path)', async () => {
@@ -1461,7 +1465,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(EgressController).not.toHaveBeenCalled();
       expect(interceptOutboundHttps).not.toHaveBeenCalledWith('*', expect.anything());
       // Per-host props are byte-identical to a non-strict deploy: no `strict` field.
-      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch' } });
+      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch', gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/acct123/gw123', token: 'gw-token' } });
       expect(GitHubInterceptor).toHaveBeenCalledWith({
         props: { user: 'nikola@novoselec.ch', bucket: 'codeflare-enterprise-nikola-novoselec-ch' },
       });

@@ -17,6 +17,9 @@ const storeState = vi.hoisted(() => ({
   cloudflareBrowserToken: '',
   cloudflareBrowserTokenSet: false,
   cloudflareBrowserAccountId: '',
+  aigGatewayUrl: '',
+  aigToken: '',
+  aigTokenSet: false,
   strictGatewayEgress: false,
   githubProviderType: 'app' as 'app' | 'oauth',
   githubAppClientId: '',
@@ -47,6 +50,8 @@ const storeMethods = vi.hoisted(() => ({
   setDefaultRouteReasoning: vi.fn((level: 'off' | 'low' | 'medium' | 'high') => { storeState.defaultRouteReasoning = level; }),
   setCloudflareBrowserToken: vi.fn((val: string) => { storeState.cloudflareBrowserToken = val; }),
   setCloudflareBrowserAccountId: vi.fn((val: string) => { storeState.cloudflareBrowserAccountId = val; }),
+  setAigGatewayUrl: vi.fn((val: string) => { storeState.aigGatewayUrl = val; }),
+  setAigToken: vi.fn((val: string) => { storeState.aigToken = val; }),
   setStrictGatewayEgress: vi.fn((v: boolean) => { storeState.strictGatewayEgress = v; }),
   setGithubProviderType: vi.fn((t: 'app' | 'oauth') => { storeState.githubProviderType = t; }),
   setGithubAppClientId: vi.fn((v: string) => { storeState.githubAppClientId = v; }),
@@ -79,6 +84,9 @@ vi.mock('../../stores/setup', () => ({
     get cloudflareBrowserToken() { return storeState.cloudflareBrowserToken; },
     get cloudflareBrowserTokenSet() { return storeState.cloudflareBrowserTokenSet; },
     get cloudflareBrowserAccountId() { return storeState.cloudflareBrowserAccountId; },
+    get aigGatewayUrl() { return storeState.aigGatewayUrl; },
+    get aigToken() { return storeState.aigToken; },
+    get aigTokenSet() { return storeState.aigTokenSet; },
     get strictGatewayEgress() { return storeState.strictGatewayEgress; },
     get githubProviderType() { return storeState.githubProviderType; },
     get githubAppClientId() { return storeState.githubAppClientId; },
@@ -118,6 +126,9 @@ describe('ConfigureStep', () => {
     storeState.cloudflareBrowserToken = '';
     storeState.cloudflareBrowserTokenSet = false;
     storeState.cloudflareBrowserAccountId = '';
+    storeState.aigGatewayUrl = '';
+    storeState.aigToken = '';
+    storeState.aigTokenSet = false;
     storeState.strictGatewayEgress = false;
     storeState.githubProviderType = 'app';
     storeState.githubAppClientId = '';
@@ -364,7 +375,9 @@ describe('ConfigureStep', () => {
     it('routes token input to setCloudflareBrowserToken', () => {
       storeState.enterpriseMode = true;
       render(() => <ConfigureStep />);
-      const tokenInput = document.querySelector('input[type="password"]') as HTMLInputElement;
+      // Select by placeholder: the AI Gateway token (also a password input) now precedes
+      // the browser token in the DOM, so "first password input" is no longer unambiguous.
+      const tokenInput = screen.getByPlaceholderText('Cloudflare API token...') as HTMLInputElement;
       fireEvent.input(tokenInput, { target: { value: 'cf-browser-token' } });
       expect(storeMethods.setCloudflareBrowserToken).toHaveBeenCalledWith('cf-browser-token');
     });
@@ -375,6 +388,42 @@ describe('ConfigureStep', () => {
       const acctInput = screen.getByPlaceholderText('32-character account ID');
       fireEvent.input(acctInput, { target: { value: 'acct123' } });
       expect(storeMethods.setCloudflareBrowserAccountId).toHaveBeenCalledWith('acct123');
+    });
+  });
+
+  // REQ-ENTERPRISE-017: AI Gateway URL + token are enterprise-only wizard fields that
+  // replace the deploy-time secrets. Asserted via placeholders (the URL field) + the
+  // password input routing (no prose pinned).
+  describe('AI Gateway config (REQ-ENTERPRISE-017)', () => {
+    it('renders the AI Gateway URL + token fields in enterprise mode', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      expect(screen.getByPlaceholderText('https://gateway.ai.cloudflare.com/v1/<account>/<gateway>')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('AI Gateway API token...')).toBeInTheDocument();
+    });
+
+    it('does not render the AI Gateway fields outside enterprise mode', () => {
+      storeState.enterpriseMode = false;
+      render(() => <ConfigureStep />);
+      expect(screen.queryByPlaceholderText('https://gateway.ai.cloudflare.com/v1/<account>/<gateway>')).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText('AI Gateway API token...')).not.toBeInTheDocument();
+    });
+
+    it('routes URL input to setAigGatewayUrl', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      const urlInput = screen.getByPlaceholderText('https://gateway.ai.cloudflare.com/v1/<account>/<gateway>');
+      fireEvent.input(urlInput, { target: { value: 'https://gateway.ai.cloudflare.com/v1/a/g' } });
+      expect(storeMethods.setAigGatewayUrl).toHaveBeenCalledWith('https://gateway.ai.cloudflare.com/v1/a/g');
+    });
+
+    it('routes token input to setAigToken', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      const tokenInput = screen.getByPlaceholderText('AI Gateway API token...') as HTMLInputElement;
+      expect(tokenInput.type).toBe('password');
+      fireEvent.input(tokenInput, { target: { value: 'aig-secret' } });
+      expect(storeMethods.setAigToken).toHaveBeenCalledWith('aig-secret');
     });
   });
 

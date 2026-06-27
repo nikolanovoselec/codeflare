@@ -286,6 +286,12 @@ export const SETUP_KEYS = {
   // DEFAULT_ROUTE for that user; absent (or no groups) ⇒ the global catalog applies,
   // byte-identical to pre-feature behavior. Non-secret (route names only).
   GROUP_ROUTING: 'setup:group_routing',
+  // REQ-ENTERPRISE-017: enterprise AI Gateway config set in the Setup wizard. The URL is
+  // non-secret (plain KV); the token is stored encrypted (kv-crypto, same shape as the
+  // Browser Rendering token). Deploy-time env AIG_GATEWAY_URL/AIG_TOKEN remain as an
+  // OPTIONAL fallback. Resolved KV-first via getAigConfig (src/lib/aig-config.ts).
+  AIG_GATEWAY_URL: 'setup:aig_gateway_url',
+  AIG_TOKEN: 'setup:aig_token',
   IDP_LIST: 'setup:idp_list',
   MAX_USERS: 'setup:max_users',
   TURNSTILE_SITE_KEY: 'setup:turnstile_site_key',

@@ -27,6 +27,7 @@
 import { Container } from '@cloudflare/containers';
 import type { Env, TabConfig } from '../types';
 import { getR2Config } from '../lib/r2-config';
+import { getAigConfig } from '../lib/aig-config';
 import { toError, toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { isEnterpriseMode } from '../lib/subscription';
@@ -449,46 +450,52 @@ export class container extends Container<Env> implements ContainerEnvState {
    */
   private async setupEnterpriseInterception(): Promise<void> {
     if (!isEnterpriseMode(this.env)) return;
-    // Strict Gateway egress (REQ-ENTERPRISE-016, AD86): a global enterprise toggle
-    // read straight from KV (the ENTERPRISE_MODE precedent), default OFF. When ON, a
-    // catch-all EgressController forces the container's DIRECT-INTERNET egress through
-    // env.EGRESS (→ the customer's Zero Trust Gateway), while platform-native Cloudflare
-    // primitives (R2, AI Gateway, Browser Rendering) egress direct. GitHub (external)
-    // rides the Gateway too via its interceptor; the LLM interceptor always egresses
-    // direct (AI Gateway is platform-native) so it takes no strict prop.
+    // Strict Gateway egress (REQ-ENTERPRISE-016, AD86): a global enterprise toggle read
+    // from KV (the ENTERPRISE_MODE precedent), default OFF. When ON, a catch-all
+    // EgressController forces the container's egress through env.EGRESS (→ the customer's
+    // Zero Trust Gateway) for inspection, EXCEPT this account's own R2 + CF API / Browser
+    // Rendering, which egress direct (account-scoped exemption). GitHub (external) rides
+    // the Gateway via its interceptor; the LLM interceptor forwards to the AI Gateway
+    // direct, worker-side (the container only ever calls the intercepted provider host).
     const strict = await hasStrictGatewayEgress(this.env);
     // Independent egress-injection transports, each gated separately so one missing
     // config (e.g. no AI Gateway) never disables the other.
-    this.wireLlmInterception();
+    await this.wireLlmInterception();
     this.wireGithubInterception(strict);
     this.wireEgressInterception(strict);
   }
 
-  /** Wire the LLM provider hosts -> LlmInterceptor (REQ-ENTERPRISE-004). */
-  private wireLlmInterception(): void {
-    if (!this.env.AIG_GATEWAY_URL) {
-      this.logger.warn('Enterprise mode active but AIG_GATEWAY_URL unset; skipping LLM interception');
+  /**
+   * Wire the LLM provider hosts -> LlmInterceptor (REQ-ENTERPRISE-004). The AI Gateway
+   * URL + token are resolved wizard-first (KV) with deploy-secret (env) fallback via
+   * {@link getAigConfig} (REQ-ENTERPRISE-017) and passed Worker-side via props — the
+   * secret is resolved once here and never enters the container.
+   */
+  private async wireLlmInterception(): Promise<void> {
+    const aig = await getAigConfig(this.env);
+    if (!aig.gatewayUrl) {
+      this.logger.warn('Enterprise mode active but AI Gateway URL unset (wizard + env); skipping LLM interception');
       return;
     }
-    if (!this.env.AIG_TOKEN) {
+    if (!aig.token) {
       // Wire interception anyway, but warn loudly: without the gateway token the
-      // interceptor cannot send the `Authorization: Bearer` header, so the
-      // customer's AI Gateway will reject every request unless it is configured
-      // for unauthenticated access. This is almost always a deploy-secret omission.
-      this.logger.warn('Enterprise mode active and gateway configured but AIG_TOKEN unset; gateway requests will be unauthenticated');
+      // interceptor cannot send the `Authorization: Bearer` header, so the customer's
+      // AI Gateway will reject every request unless it is configured for unauthenticated
+      // access. This is almost always a config omission (wizard or deploy secret).
+      this.logger.warn('Enterprise mode active and AI Gateway configured but token unset; gateway requests will be unauthenticated');
     }
     const user = this._userEmail ?? this._bucketName ?? 'unknown';
-    // Include the matched Access groups only when non-empty, so a no-group deploy
-    // passes exactly { user } (unchanged) and the interceptor stamps no group tags.
-    // AI Gateway is platform-native (REQ-ENTERPRISE-016, AD86): the interceptor's
-    // upstream forward always egresses direct, so no strict-egress prop is passed —
-    // these props are identical whether or not strict Gateway egress is ON.
-    const props: { user: string; groups?: string[] } = this._userGroups.length > 0
-      ? { user, groups: this._userGroups }
-      : { user };
+    // Per-session attribution + the resolved AI Gateway URL/token. Groups included only
+    // when non-empty. Props are Worker-internal (never enter the container).
+    const props: { user: string; groups?: string[]; gatewayUrl?: string; token?: string } = {
+      user,
+      ...(this._userGroups.length > 0 ? { groups: this._userGroups } : {}),
+      gatewayUrl: aig.gatewayUrl,
+      token: aig.token,
+    };
     try {
       const ictx = this.ctx as unknown as {
-        exports: { LlmInterceptor(opts: { props: { user: string; groups?: string[] } }): Fetcher };
+        exports: { LlmInterceptor(opts: { props: { user: string; groups?: string[]; gatewayUrl?: string; token?: string } }): Fetcher };
         container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
       };
       const interceptor = ictx.exports.LlmInterceptor({ props });
@@ -542,9 +549,10 @@ export class container extends Container<Env> implements ContainerEnvState {
    * claimed by the LLM/GitHub per-host interceptors is routed through the
    * EgressController — a transparent proxy that forces genuine DIRECT-INTERNET traffic
    * through the mandatory env.EGRESS Workers VPC binding (and the customer's Zero Trust
-   * Gateway). The controller itself egresses platform-native Cloudflare hosts (R2,
-   * Browser Rendering, AI Gateway REST) DIRECT, off cf1:network (AD86; see
-   * controllerFetch / isPlatformNativeHost). The per-host registrations co-exist and
+   * Gateway). The controller itself egresses ONLY this account's own platform hosts (its
+   * R2 + account-scoped CF API / Browser Rendering) DIRECT, off cf1:network; any other
+   * account's host rides the Gateway (AD86; see controllerFetch / isAccountScopedDestination).
+   * The per-host registrations co-exist and
    * TAKE PRECEDENCE over this catch-all (SDK v0.3.7 precedence: deniedHosts > per-host >
    * catch-all). Independently try/catch-guarded so a wiring failure here never disables
    * the LLM/GitHub transports.
@@ -553,10 +561,14 @@ export class container extends Container<Env> implements ContainerEnvState {
     if (!strict) return;
     try {
       const ectx = this.ctx as unknown as {
-        exports: { EgressController(opts: { props: Record<string, never> }): Fetcher };
+        exports: { EgressController(opts: { props: { accountId?: string } }): Fetcher };
         container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
       };
-      const controller = ectx.exports.EgressController({ props: {} });
+      // Account-scoped exemption (REQ-ENTERPRISE-016, AD86): the EgressController lets THIS
+      // account's R2 / CF API egress direct and forces every other host through the Gateway.
+      // `_r2AccountId` is resolved in the DO constructor (getR2Config) before wiring; absent ⇒
+      // fail-secure (nothing exempt, all egress Gateway-inspected).
+      const controller = ectx.exports.EgressController({ props: { accountId: this._r2AccountId ?? undefined } });
       ectx.container?.interceptOutboundHttps('*', controller);
       this.logger.info('Enterprise strict Gateway egress wired (catch-all)');
     } catch (err) {

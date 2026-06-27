@@ -56,6 +56,12 @@ interface SetupState {
   cloudflareBrowserToken: string;
   cloudflareBrowserTokenSet: boolean;
   cloudflareBrowserAccountId: string;
+  // REQ-ENTERPRISE-017: enterprise AI Gateway URL + token (wizard-configured, KV-persisted).
+  // aigToken holds only a freshly-typed value (the stored token is never returned);
+  // aigTokenSet reflects whether one is already saved; aigGatewayUrl is non-secret.
+  aigGatewayUrl: string;
+  aigToken: string;
+  aigTokenSet: boolean;
   // REQ-ENTERPRISE-016: enterprise-only strict gateway egress toggle. Default OFF;
   // routes the container's HTTP/HTTPS egress through the Cloudflare Gateway.
   strictGatewayEgress: boolean;
@@ -104,6 +110,9 @@ const initialState: SetupState = {
   cloudflareBrowserToken: '',
   cloudflareBrowserTokenSet: false,
   cloudflareBrowserAccountId: '',
+  aigGatewayUrl: '',
+  aigToken: '',
+  aigTokenSet: false,
   strictGatewayEgress: false,
   githubProviderType: 'app',
   githubAppClientId: '',
@@ -335,6 +344,13 @@ function setCloudflareBrowserToken(token: string): void {
 function setCloudflareBrowserAccountId(accountId: string): void {
   setState('cloudflareBrowserAccountId', accountId);
 }
+// REQ-ENTERPRISE-017: AI Gateway URL (non-secret) + token (write-only) setters.
+function setAigGatewayUrl(url: string): void {
+  setState('aigGatewayUrl', url);
+}
+function setAigToken(token: string): void {
+  setState('aigToken', token);
+}
 // REQ-ENTERPRISE-016: strict gateway egress toggle setter.
 function setStrictGatewayEgress(value: boolean): void {
   setState('strictGatewayEgress', value);
@@ -396,6 +412,8 @@ async function loadExistingConfig(): Promise<void> {
             s.defaultRouteReasoning = prefill.defaultRoute?.reasoning ?? 'off';
             s.cloudflareBrowserTokenSet = prefill.browserRenderTokenSet;
             s.cloudflareBrowserAccountId = prefill.browserRenderAccountId;
+            s.aigGatewayUrl = prefill.aigGatewayUrl;
+            s.aigTokenSet = prefill.aigTokenSet;
             s.strictGatewayEgress = prefill.strictGatewayEgress;
             s.githubProviderType = prefill.githubProviderType ?? 'app';
             s.githubAppClientId = prefill.githubAppClientId;
@@ -469,6 +487,8 @@ async function loadExistingConfig(): Promise<void> {
         s.defaultRouteReasoning = prefill.defaultRoute?.reasoning ?? 'off';
         s.cloudflareBrowserTokenSet = prefill.browserRenderTokenSet;
         s.cloudflareBrowserAccountId = prefill.browserRenderAccountId;
+        s.aigGatewayUrl = prefill.aigGatewayUrl;
+        s.aigTokenSet = prefill.aigTokenSet;
         s.strictGatewayEgress = prefill.strictGatewayEgress;
         s.githubProviderType = prefill.githubProviderType ?? 'app';
         s.githubAppClientId = prefill.githubAppClientId;
@@ -525,6 +545,9 @@ async function configure(): Promise<boolean> {
           // REQ-BROWSER-007: a blank token => backend keeps the existing one (no clobber).
           browserRenderToken: state.cloudflareBrowserToken,
           browserRenderAccountId: state.cloudflareBrowserAccountId,
+          // REQ-ENTERPRISE-017: AI Gateway URL (non-secret) + token (blank => no clobber).
+          aigGatewayUrl: state.aigGatewayUrl,
+          aigToken: state.aigToken,
           // REQ-ENTERPRISE-013: per-group routing map.
           groupRouting: state.groupRouting,
           // REQ-ENTERPRISE-016: strict gateway egress toggle.
@@ -692,6 +715,9 @@ export const setupStore = {
   get cloudflareBrowserToken() { return state.cloudflareBrowserToken; },
   get cloudflareBrowserTokenSet() { return state.cloudflareBrowserTokenSet; },
   get cloudflareBrowserAccountId() { return state.cloudflareBrowserAccountId; },
+  get aigGatewayUrl() { return state.aigGatewayUrl; },
+  get aigToken() { return state.aigToken; },
+  get aigTokenSet() { return state.aigTokenSet; },
   get strictGatewayEgress() { return state.strictGatewayEgress; },
   get githubProviderType() { return state.githubProviderType; },
   get githubAppClientId() { return state.githubAppClientId; },
@@ -723,6 +749,8 @@ export const setupStore = {
   setDefaultRouteReasoning,
   setCloudflareBrowserToken,
   setCloudflareBrowserAccountId,
+  setAigGatewayUrl,
+  setAigToken,
   setStrictGatewayEgress,
   setGithubProviderType,
   setGithubAppClientId,

@@ -156,6 +156,12 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
     // wizard round-trips on re-run.
     const browserRenderTokenSet = Boolean(await c.env.KV.get(SETUP_KEYS.BROWSER_RENDER_TOKEN));
     const browserRenderAccountId = (await c.env.KV.get(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID)) ?? '';
+    // REQ-ENTERPRISE-017: surface whether the AI Gateway token is set (masked — never
+    // return the token) + the non-secret gateway URL so the wizard round-trips on re-run.
+    // The deploy-secret (env.AIG_*) fallback is intentionally NOT surfaced: the wizard
+    // configures KV; env stays a silent backstop.
+    const aigTokenSet = Boolean(await c.env.KV.get(SETUP_KEYS.AIG_TOKEN));
+    const aigGatewayUrl = (await c.env.KV.get(SETUP_KEYS.AIG_GATEWAY_URL)) ?? '';
     // REQ-ENTERPRISE-013: surface the per-group routing map (route names only, no secrets).
     let groupRouting: Record<string, { routes: string[]; defaultRoute: string; reasoning: string }> = {};
     try {
@@ -166,7 +172,7 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
     enterpriseExtras = {
       ...enterpriseExtras,
       enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, browserRenderTokenSet, browserRenderAccountId,
-      groupRouting, strictGatewayEgress,
+      aigGatewayUrl, aigTokenSet, groupRouting, strictGatewayEgress,
     };
   }
   if (!token) {

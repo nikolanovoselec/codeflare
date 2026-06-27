@@ -10,8 +10,11 @@
  * Cloudflare Access and NO credential, gateway URL, or token is ever placed
  * inside the container.
  *
- * This entrypoint holds the AI Gateway secrets (AIG_GATEWAY_URL + AIG_TOKEN,
- * from the Worker env) and forwards each request to the customer's AI Gateway
+ * This entrypoint holds the AI Gateway secrets (AIG_GATEWAY_URL + AIG_TOKEN),
+ * resolved by the DO (Setup-wizard KV first, deploy-secret env fallback —
+ * REQ-ENTERPRISE-017) and passed in via props; the interceptor falls back to
+ * `env.AIG_GATEWAY_URL`/`env.AIG_TOKEN` when a prop is absent. It forwards each
+ * request to the customer's AI Gateway
  * over two transports — the REST API (`api.cloudflare.com/.../ai/v1/*`) first,
  * falling back to the deprecated-but-functional compat path
  * (`gateway.ai.cloudflare.com/v1/{acct}/{gw}/compat/*`) on a 404 — with the
@@ -104,6 +107,14 @@ interface InterceptorProps {
    * contains — so per-group KEYS, not a CSV value). Omitted when empty.
    */
   groups?: string[];
+  /**
+   * The AI Gateway URL + token resolved by the DO (wizard-first KV, deploy-secret env
+   * fallback — REQ-ENTERPRISE-017). Worker-internal (never enters the container). The
+   * interceptor falls back to env.AIG_GATEWAY_URL / env.AIG_TOKEN when a prop is absent,
+   * so existing deploys that haven't run the wizard keep working.
+   */
+  gatewayUrl?: string;
+  token?: string;
 }
 
 /**
@@ -279,7 +290,11 @@ function ensureStreamTerminator(): TransformStream<Uint8Array, Uint8Array> {
 
 export class LlmInterceptor extends WorkerEntrypoint<Env> {
   override async fetch(request: Request): Promise<Response> {
-    const gw = parseGateway(this.env.AIG_GATEWAY_URL);
+    // AI Gateway URL/token come from the DO props (wizard-first KV with deploy-secret env
+    // fallback — REQ-ENTERPRISE-017); fall back to env directly when a prop is absent.
+    const props = (this.ctx as unknown as { props?: InterceptorProps }).props;
+    const aigToken = props?.token ?? this.env.AIG_TOKEN;
+    const gw = parseGateway(props?.gatewayUrl ?? this.env.AIG_GATEWAY_URL);
     if (!gw) {
       // Enterprise deploy with interception wired but no gateway configured:
       // fail closed rather than letting the request fall through anywhere.
@@ -326,7 +341,6 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     // added per attempt below.
     const baseHeaders = new Headers(request.headers);
     for (const h of STRIPPED_HEADERS) baseHeaders.delete(h);
-    const props = (this.ctx as unknown as { props?: InterceptorProps }).props;
     const user = props?.user;
     if (!user) {
       // Attribution degrades to 'unknown'; log it so a gap in the gateway's
@@ -353,13 +367,13 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     // REST transport: standard Authorization header (Workers AI scope) + the
     // customer's named gateway in the cf-aig-gateway-id header.
     const restHeaders = new Headers(baseHeaders);
-    if (this.env.AIG_TOKEN) restHeaders.set('authorization', `Bearer ${this.env.AIG_TOKEN}`);
+    if (aigToken) restHeaders.set('authorization', `Bearer ${aigToken}`);
     restHeaders.set('cf-aig-gateway-id', gw.gatewayId);
 
     // compat transport: cf-aig-authorization (AI Gateway Run scope); the gateway
     // is in the URL and BYOK supplies the provider key, so no Authorization header.
     const compatHeaders = new Headers(baseHeaders);
-    if (this.env.AIG_TOKEN) compatHeaders.set('cf-aig-authorization', `Bearer ${this.env.AIG_TOKEN}`);
+    if (aigToken) compatHeaders.set('cf-aig-authorization', `Bearer ${aigToken}`);
 
     // Request body. The RESPONSE is always streamed back unbuffered (below) so
     // SSE token streams pass with constant memory. The REQUEST body is normally

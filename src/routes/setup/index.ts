@@ -74,6 +74,13 @@ const ConfigureBodySchema = z.object({
   // masked on prefill; a blank/masked value on save leaves the stored token in place.
   browserRenderToken: z.string().max(512).optional(),
   browserRenderAccountId: z.string().max(128).optional(),
+  // REQ-ENTERPRISE-017 (enterprise-only): the customer's AI Gateway URL + token, moved
+  // from deploy-time GitHub secrets into the wizard. The URL is non-secret (plain KV);
+  // the token is encrypted at rest and masked on prefill (blank/masked value on save ⇒
+  // keep the stored token). The deploy secrets (env.AIG_GATEWAY_URL / env.AIG_TOKEN)
+  // remain an OPTIONAL fallback — getAigConfig resolves KV first, env second.
+  aigGatewayUrl: z.string().max(512).optional(),
+  aigToken: z.string().max(512).optional(),
   // REQ-GITHUB-008 (admin, any mode): admin-configured GitHub provider. The chooser
   // selects 'app' | 'oauth'; the matching client id is non-secret, the secret is
   // encrypted at rest and masked on prefill (blank on save ⇒ keep the stored secret).
@@ -171,7 +178,7 @@ app.post('/configure', async (c) => {
   // Validate body synchronously before starting the stream
   const body = await parseJsonBody(c, ConfigureBodySchema);
 
-  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, browserRenderToken, browserRenderAccountId, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, groupRouting, strictGatewayEgress } = body;
+  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, groupRouting, strictGatewayEgress } = body;
   const token = c.env.CLOUDFLARE_API_TOKEN;
 
   // During reconfiguration, prevent admin from removing themselves
@@ -200,11 +207,11 @@ app.post('/configure', async (c) => {
     throw new ValidationError('Strict Gateway egress requires the EGRESS VPC binding — provision Cloudflare Mesh and enable the [[vpc_networks]] binding first');
   }
 
-  // REQ-GITHUB-008: a provider client secret stored without ENCRYPTION_KEY would be
-  // plaintext at rest. Applies to the GitHub provider (admin, any mode) and the
-  // Connect-to-Cloudflare OAuth client. Reject before any KV write (so a rejected
+  // REQ-GITHUB-008 / REQ-ENTERPRISE-017: a secret stored without ENCRYPTION_KEY would be
+  // plaintext at rest. Applies to the GitHub provider + Connect-to-Cloudflare OAuth client
+  // AND the AI Gateway token (enterprise). Reject before any KV write (so a rejected
   // configure leaves no partial state) rather than silently downgrade — fail closed.
-  if (githubAppClientSecret?.trim() || githubOauthClientSecret?.trim() || cloudflareOauthClientSecret?.trim()) {
+  if (githubAppClientSecret?.trim() || githubOauthClientSecret?.trim() || cloudflareOauthClientSecret?.trim() || (isEnterpriseMode(c.env) && aigToken?.trim())) {
     if (!(await getOrImportKey(c.env))) {
       throw new ValidationError('ENCRYPTION_KEY must be configured before storing a client secret');
     }
@@ -376,80 +383,92 @@ app.post('/configure', async (c) => {
       // Store custom domain in KV (case-insensitive per RFC 4343)
       await c.env.KV.put(SETUP_KEYS.CUSTOM_DOMAIN, customDomain.toLowerCase());
 
-      // Enterprise: persist (or clear) the optional Access groups that gate JIT
-      // provisioning. Persisted comma-joined (the format access.ts
-      // parseAccessGroups splits on) so the runtime reader is unchanged. Schema
-      // already trimmed each name and forbade comma/newline. Gated on
-      // isEnterpriseMode so the write mirrors the read.
-      if (isEnterpriseMode(c.env) && enterpriseAccessGroup !== undefined) {
-        const joinedGroups = enterpriseAccessGroup.join(',');
-        if (joinedGroups) {
-          await c.env.KV.put(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, joinedGroups);
-        } else {
-          await c.env.KV.delete(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP);
-        }
-      }
-
-      // REQ-ENTERPRISE-014: persist (or clear) the optional admin Access groups,
-      // same comma-joined format and enterprise gate as the user-access groups above.
-      if (isEnterpriseMode(c.env) && adminAccessGroup !== undefined) {
-        const joinedAdminGroups = adminAccessGroup.join(',');
-        if (joinedAdminGroups) {
-          await c.env.KV.put(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP, joinedAdminGroups);
-        } else {
-          await c.env.KV.delete(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP);
-        }
-      }
-
-      // Feature C: persist the enterprise dynamic-route catalog and the default
-      // route+reasoning. Stored as JSON (no legacy CSV reader, unlike groups).
-      // Same enterprise gate; the catalog is non-empty here (validated above).
-      if (isEnterpriseMode(c.env) && dynamicRoutes !== undefined) {
-        await c.env.KV.put(SETUP_KEYS.DYNAMIC_ROUTES, JSON.stringify(dynamicRoutes));
-      }
-      if (isEnterpriseMode(c.env) && defaultRoute !== undefined) {
-        if (defaultRoute) {
-          await c.env.KV.put(SETUP_KEYS.DEFAULT_ROUTE, JSON.stringify(defaultRoute));
-        } else {
-          await c.env.KV.delete(SETUP_KEYS.DEFAULT_ROUTE);
-        }
-      }
-
-      // REQ-BROWSER-007: persist the admin-global Cloudflare Browser Rendering token
-      // (encrypted at rest) + its account id, used by every enterprise session's
-      // browser-run. Both fields are no-clobber on blank: the wizard prefills the
-      // account id and sends the token blank when unchanged (the stored token never
-      // round-trips to the client), so a blank value means "keep what's stored", not
-      // "clear" — keeping the token+account a coherent pair (removing a configured
-      // token is not a v1 affordance). The account id is non-secret; the token is
-      // encrypted. Enterprise-gated, mirroring the read in applyEnterpriseBrowserToken.
+      // Enterprise configuration. Each chunk persists through its own named runStep so
+      // the "Configuring Codeflare" progress screen reflects what setup is actually doing
+      // (REQ-ENTERPRISE-017, WS6) instead of hiding it inside set_secrets/finalize. All
+      // writes are enterprise-gated, mirroring their KV readers; a step is emitted only
+      // when its field(s) are present in the body (the same conditional-step pattern as
+      // cleanup_stale_users), so non-enterprise / unrelated reconfigures stay quiet.
       if (isEnterpriseMode(c.env)) {
-        const acct = browserRenderAccountId?.trim();
-        if (acct) {
-          await c.env.KV.put(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID, acct);
-        }
-        const tok = browserRenderToken?.trim();
-        if (tok) {
-          const cryptoKey = await getOrImportKey(c.env);
-          await encryptAndStore(c.env.KV, SETUP_KEYS.BROWSER_RENDER_TOKEN, { token: tok }, cryptoKey);
+        // Access groups that gate JIT provisioning (REQ-ENTERPRISE-010/014). Persisted
+        // comma-joined (the format access.ts parseAccessGroups splits on); schema already
+        // trimmed each name and forbade comma/newline. Cleared when the chip list is empty.
+        if (enterpriseAccessGroup !== undefined || adminAccessGroup !== undefined) {
+          await runStep('configure_access_groups', async () => {
+            if (enterpriseAccessGroup !== undefined) {
+              const joinedGroups = enterpriseAccessGroup.join(',');
+              if (joinedGroups) await c.env.KV.put(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, joinedGroups);
+              else await c.env.KV.delete(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP);
+            }
+            if (adminAccessGroup !== undefined) {
+              const joinedAdminGroups = adminAccessGroup.join(',');
+              if (joinedAdminGroups) await c.env.KV.put(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP, joinedAdminGroups);
+              else await c.env.KV.delete(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP);
+            }
+          });
         }
 
-        // REQ-ENTERPRISE-013: persist the per-group routing map (or clear it when empty).
-        if (groupRouting !== undefined) {
-          if (Object.keys(groupRouting).length > 0) {
-            await c.env.KV.put(SETUP_KEYS.GROUP_ROUTING, JSON.stringify(groupRouting));
-          } else {
-            await c.env.KV.delete(SETUP_KEYS.GROUP_ROUTING);
-          }
+        // Model routing: the gateway dynamic-route catalog + default route+reasoning
+        // (Feature C) and the per-group routing map (REQ-ENTERPRISE-013). Stored as JSON;
+        // group routing is cleared when empty.
+        if (dynamicRoutes !== undefined || defaultRoute !== undefined || groupRouting !== undefined) {
+          await runStep('configure_model_routing', async () => {
+            if (dynamicRoutes !== undefined) {
+              await c.env.KV.put(SETUP_KEYS.DYNAMIC_ROUTES, JSON.stringify(dynamicRoutes));
+            }
+            if (defaultRoute !== undefined) {
+              if (defaultRoute) await c.env.KV.put(SETUP_KEYS.DEFAULT_ROUTE, JSON.stringify(defaultRoute));
+              else await c.env.KV.delete(SETUP_KEYS.DEFAULT_ROUTE);
+            }
+            if (groupRouting !== undefined) {
+              if (Object.keys(groupRouting).length > 0) await c.env.KV.put(SETUP_KEYS.GROUP_ROUTING, JSON.stringify(groupRouting));
+              else await c.env.KV.delete(SETUP_KEYS.GROUP_ROUTING);
+            }
+          });
         }
-      }
 
-      // REQ-ENTERPRISE-016: persist the strict gateway egress toggle (enterprise-only).
-      // Always write an explicit 'active'/'inactive' (no delete-on-off) so the toggle
-      // round-trips deterministically; default OFF on an absent key. Gated on
-      // isEnterpriseMode so the write mirrors the read.
-      if (isEnterpriseMode(c.env) && strictGatewayEgress !== undefined) {
-        await c.env.KV.put(SETUP_KEYS.STRICT_EGRESS, strictGatewayEgress ? 'active' : 'inactive');
+        // REQ-ENTERPRISE-017: the customer's AI Gateway URL (non-secret, plain) + token
+        // (encrypted at rest). No-clobber on blank — the wizard prefills the URL and sends
+        // the token blank when unchanged (the stored token never round-trips to the client),
+        // so a blank value means "keep what's stored", not "clear". The deploy secrets
+        // (env.AIG_*) remain an optional fallback (getAigConfig resolves KV first, env second).
+        if (aigGatewayUrl !== undefined || aigToken !== undefined) {
+          await runStep('configure_ai_gateway', async () => {
+            const gwUrl = aigGatewayUrl?.trim();
+            if (gwUrl) await c.env.KV.put(SETUP_KEYS.AIG_GATEWAY_URL, gwUrl);
+            const aigTok = aigToken?.trim();
+            if (aigTok) {
+              const cryptoKey = await getOrImportKey(c.env);
+              if (cryptoKey) await encryptAndStore(c.env.KV, SETUP_KEYS.AIG_TOKEN, { token: aigTok }, cryptoKey);
+            }
+          });
+        }
+
+        // REQ-BROWSER-007: the admin-global Cloudflare Browser Rendering token (encrypted
+        // at rest) + its account id, used by every enterprise session's browser-run. Both
+        // no-clobber on blank (same masked-prefill contract as the AI Gateway token above);
+        // the account id is non-secret. Mirrors the read in applyEnterpriseBrowserToken.
+        if (browserRenderToken !== undefined || browserRenderAccountId !== undefined) {
+          await runStep('configure_browser_rendering', async () => {
+            const acct = browserRenderAccountId?.trim();
+            if (acct) await c.env.KV.put(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID, acct);
+            const tok = browserRenderToken?.trim();
+            if (tok) {
+              const cryptoKey = await getOrImportKey(c.env);
+              if (cryptoKey) await encryptAndStore(c.env.KV, SETUP_KEYS.BROWSER_RENDER_TOKEN, { token: tok }, cryptoKey);
+            }
+          });
+        }
+
+        // REQ-ENTERPRISE-016: the strict Gateway egress toggle. Always written explicitly
+        // ('active'/'inactive', no delete-on-off) so it round-trips deterministically;
+        // default OFF on an absent key. (Enabling while EGRESS is unbound was already
+        // rejected pre-stream above.)
+        if (strictGatewayEgress !== undefined) {
+          await runStep('configure_strict_egress', async () => {
+            await c.env.KV.put(SETUP_KEYS.STRICT_EGRESS, strictGatewayEgress ? 'active' : 'inactive');
+          });
+        }
       }
 
       // REQ-GITHUB-008: persist the admin provider config (any mode — the Setup

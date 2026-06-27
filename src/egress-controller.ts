@@ -7,8 +7,13 @@
  * LlmInterceptor / GitHubInterceptor (which own specific hosts and inject the real
  * credential), this is a TRANSPARENT PROXY for every other host: it stamps NO
  * identity, gateway URL, or token, and preserves the caller's `authorization` /
- * `cookie` / `set-cookie` verbatim. Its only job is to force the traffic through the
- * mandatory `env.EGRESS` Workers VPC binding (and the customer's Zero Trust Gateway).
+ * `cookie` / `set-cookie` verbatim. Its job is to force genuine direct-internet traffic
+ * through the mandatory `env.EGRESS` Workers VPC binding (and the customer's Zero Trust
+ * Gateway) for inspection, while letting the deployment's OWN-account platform
+ * destinations (its R2 + account-scoped CF API / Browser Rendering) egress direct
+ * ({@link isAccountScopedDestination}; account id from the DO via `ctx.props.accountId`).
+ * WebSocket upgrades (browser-run CDP) are proxied verbatim — the 101 + `webSocket` is
+ * returned as-is, never rebuilt.
  *
  * Fail-closed (the security point): a defense-in-depth re-check of the toggle (503
  * EGRESS_NOT_CONFIGURED) and an SSRF literal-IP guard (403 EGRESS_TARGET_BLOCKED,
@@ -44,6 +49,25 @@ export class EgressController extends WorkerEntrypoint<Env> {
       return jsonError(403, 'EGRESS_TARGET_BLOCKED', 'Egress target host is not permitted');
     }
 
+    // The deployment's own Cloudflare account id (passed by the DO at wiring time) selects
+    // the account-scoped direct-egress exemption; every other host rides env.EGRESS (Gateway).
+    const accountId = (this.ctx as unknown as { props?: { accountId?: string } }).props?.accountId;
+
+    // WebSocket upgrades (e.g. browser-run CDP at /browser-rendering/devtools/...) must be
+    // proxied VERBATIM: the hop-by-hop strip + response rebuild below would drop the Upgrade
+    // handshake and the response's `webSocket`. Forward the original request untouched and
+    // return the upstream 101 (carrying its webSocket) as-is (REQ-ENTERPRISE-016).
+    if (request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
+      try {
+        return await controllerFetch(this.env, request, accountId);
+      } catch (err) {
+        console.error('EgressController: WebSocket egress failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return jsonError(502, 'EGRESS_WS_FAILED', 'Failed to establish WebSocket egress');
+      }
+    }
+
     // Rebuild the request: strip ONLY hop-by-hop headers + the recomputed
     // host/content-length. NEVER add Authorization / cf-aig-* / identity headers —
     // this is a transparent proxy, so the caller's authorization + cookie pass through.
@@ -64,7 +88,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
 
     let upstream: Response;
     try {
-      upstream = await controllerFetch(this.env, forward);
+      upstream = await controllerFetch(this.env, forward, accountId);
     } catch (err) {
       console.error('EgressController: upstream fetch failed', {
         error: err instanceof Error ? err.message : String(err),

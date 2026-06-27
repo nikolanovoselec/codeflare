@@ -105,6 +105,36 @@ describe('REQ-ENTERPRISE-004: OpenAI host -> AI Gateway REST API mapping', () =>
   });
 });
 
+describe('REQ-ENTERPRISE-017: AI Gateway URL/token resolved from props (wizard) with env fallback', () => {
+  // The DO resolves the gateway URL+token (wizard KV first, deploy-secret env fallback —
+  // getAigConfig) and passes them via props; the interceptor must PREFER the props and
+  // fall back to its own env only when a prop is absent.
+  const PROPS_GATEWAY = 'https://gateway.ai.cloudflare.com/v1/wizacct/wizgw';
+  const PROPS_REST_BASE = 'https://api.cloudflare.com/client/v4/accounts/wizacct/ai';
+
+  function interceptorWith(props: { user: string; gatewayUrl?: string; token?: string }, envOverrides: Partial<Env> = {}) {
+    const env = { AIG_GATEWAY_URL: GATEWAY, AIG_TOKEN, KV: { get: async () => null }, ...envOverrides } as unknown as Env;
+    return new LlmInterceptor({ props } as unknown as ExecutionContext, env);
+  }
+
+  it('routes to the props gateway URL + token, overriding the env', async () => {
+    await interceptorWith({ user: SESSION_USER, gatewayUrl: PROPS_GATEWAY, token: 'wizard-token' }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+    );
+    expect(lastFetch?.url).toBe(`${PROPS_REST_BASE}/v1/chat/completions`);
+    expect(lastFetch?.headers.get('authorization')).toBe('Bearer wizard-token');
+    expect(lastFetch?.headers.get('cf-aig-gateway-id')).toBe('wizgw');
+  });
+
+  it('falls back to env gateway URL + token when the props are absent', async () => {
+    await interceptorWith({ user: SESSION_USER }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+    );
+    expect(lastFetch?.url).toBe(`${REST_BASE}/v1/chat/completions`);
+    expect(lastFetch?.headers.get('authorization')).toBe(`Bearer ${AIG_TOKEN}`);
+  });
+});
+
 describe('REQ-ENTERPRISE-004: gateway authorization + per-user metadata', () => {
   it('AC4: stamps the standard Authorization header with the gateway token', async () => {
     await makeInterceptor().fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }));
