@@ -43,6 +43,9 @@ import {
   RESPONSE_HOP_BY_HOP,
 } from './lib/controller-egress';
 import { createR2Client } from './lib/r2-client';
+import { createLogger } from './lib/logger';
+
+const logger = createLogger('egress-controller');
 
 /** Props the container DO passes at wiring time (resolved once, never per-request). */
 interface EgressProps {
@@ -84,7 +87,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
         const upstreamWs = (upstream as unknown as { webSocket?: WebSocket }).webSocket;
         if (!upstreamWs) {
           // Not a 101 (e.g. an error response) — surface it unchanged.
-          console.log('EgressController egress', { h: url.hostname, sc: accountScoped, tx: accountScoped ? 'direct' : 'EGRESS', ws: true, bridged: false, fMs: Date.now() - t0 });
+          logger.debug('egress', { h: url.hostname, sc: accountScoped, tx: accountScoped ? 'direct' : 'EGRESS', ws: true, bridged: false, fMs: Date.now() - t0 });
           return upstream;
         }
         const pair = new WebSocketPair();
@@ -98,7 +101,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
         upstreamWs.addEventListener('close', (e) => { try { server.close(e.code, e.reason); } catch { /* already closed */ } });
         server.addEventListener('error', () => { try { upstreamWs.close(1011, 'client error'); } catch { /* noop */ } });
         upstreamWs.addEventListener('error', () => { try { server.close(1011, 'upstream error'); } catch { /* noop */ } });
-        console.log('EgressController egress', { h: url.hostname, sc: accountScoped, tx: accountScoped ? 'direct' : 'EGRESS', ws: true, bridged: true, fMs: Date.now() - t0 });
+        logger.debug('egress', { h: url.hostname, sc: accountScoped, tx: accountScoped ? 'direct' : 'EGRESS', ws: true, bridged: true, fMs: Date.now() - t0 });
         return new Response(null, { status: 101, webSocket: client });
       } catch (err) {
         console.error('EgressController: WebSocket egress failed', {
@@ -155,9 +158,10 @@ export class EgressController extends WorkerEntrypoint<Env> {
       });
       return jsonError(502, 'EGRESS_FETCH_FAILED', 'Failed to reach egress target');
     }
-    // Diagnostic (REQ-016): make the per-op routing + worker-side latency observable so the
-    // R2-speed lever can be chosen from data (compare fMs to $workers.wallTimeMs).
-    console.log('EgressController egress', { h: url.hostname, sc: accountScoped, tx: accountScoped ? 'direct' : 'EGRESS', rs: resigned, fMs: Date.now() - t0 });
+    // Diagnostic (REQ-016) at debug level — OFF by default (minLogLevel 'info'), enable
+    // LOG_LEVEL=debug to attribute the per-op routing + worker-side latency so the R2-speed
+    // lever can be chosen from data (compare fMs to $workers.wallTimeMs). Temporary.
+    logger.debug('egress', { h: url.hostname, sc: accountScoped, tx: accountScoped ? 'direct' : 'EGRESS', rs: resigned, fMs: Date.now() - t0 });
 
     // Stream the response back unread; strip ONLY hop-by-hop headers (preserve
     // set-cookie — transparent proxy).

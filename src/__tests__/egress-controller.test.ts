@@ -183,7 +183,9 @@ describe('REQ-ENTERPRISE-016: EgressController bridges WebSocket upgrades (brows
     expect(clientWs).toBeTruthy();
     expect(clientWs).not.toBe(upstreamWs); // bridged, NOT returned as-is
     expect(upstreamWs.accept).toHaveBeenCalled(); // upstream socket taken up
-    expect(upstreamWs.addEventListener).toHaveBeenCalled(); // forwarding wired
+    // upstream→client frame + close forwarding is wired (fails if the bridge reverts to return-as-is)
+    expect(upstreamWs.addEventListener).toHaveBeenCalledWith('message', expect.any(Function));
+    expect(upstreamWs.addEventListener).toHaveBeenCalledWith('close', expect.any(Function));
     expect(fetchSpy).toHaveBeenCalled();
     expect(egressFetch).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
