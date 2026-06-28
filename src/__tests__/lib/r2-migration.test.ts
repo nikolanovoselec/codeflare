@@ -251,6 +251,7 @@ describe('reconcileBucketRegimeOnLogin (first-login background migration)', () =
 
     expect(mockFetch).not.toHaveBeenCalled(); // another pass owns the lock
     expect(JSON.parse(store.get('user-prefs:bkt')!).r2SseRegime).toBe('sse-c'); // marker untouched
+    expect(store.get(LOCK)).toBe('1'); // the foreign lock is NOT deleted (only a lock this call took is released)
   });
 
   it('never throws and leaves the marker un-advanced when migration fails, releasing the lock for retry', async () => {
@@ -262,5 +263,19 @@ describe('reconcileBucketRegimeOnLogin (first-login background migration)', () =
 
     expect(JSON.parse(store.get('user-prefs:bkt')!).r2SseRegime).toBe('sse-c'); // marker NOT advanced
     expect(store.has(LOCK)).toBe(false); // lock released so the next login retries
+  });
+
+  it('never rejects when an early KV read fails (the whole body is guarded, not just the migration)', async () => {
+    // The first await is the policy read (KV.get). A KV transient there must be swallowed —
+    // it runs in the caller's waitUntil, where a rejected promise would be unhandled. Pins the
+    // widened guard: if only migrateBucketEncryption were wrapped (the pre-fix shape), this rejects.
+    const { kv, store } = makeKV({ 'setup:r2_sse_disabled': 'active', 'user-prefs:bkt': JSON.stringify({ r2SseRegime: 'sse-c' }) });
+    (kv.get as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('KV transient on policy read'));
+
+    await expect(reconcileBucketRegimeOnLogin(loginEnv(kv), 'bkt')).resolves.toBeUndefined();
+
+    expect(mockFetch).not.toHaveBeenCalled(); // never reached the migration
+    expect(JSON.parse(store.get('user-prefs:bkt')!).r2SseRegime).toBe('sse-c'); // marker untouched
+    expect(store.has(LOCK)).toBe(false); // no lock taken
   });
 });
