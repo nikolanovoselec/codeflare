@@ -496,24 +496,34 @@ RUN codex --version 2>&1 || true && \
 #   env is ignored by this build), so the warm run redirects TMPDIR and the
 #   result is moved to /opt/codeflare/jiti-cache; the entrypoint symlinks
 #   /tmp/jiti -> there at boot (same pattern as the npm preseed symlink).
-# - The cache is content-addressed (source hash), so entries baked here hit at
-#   runtime even though the seeded extensions land at a different path with
-#   fresh mtimes (the R2 agent seed ships them verbatim).
-# - The throwaway agent dir mirrors the runtime layout (npm symlinked to the
-#   image preseed cache, exactly like the entrypoint does); the package list is
-#   DERIVED from the preseed package.json so a version bump there warms the
-#   right set automatically.
+# - jiti's cache key is PATH-SENSITIVE, not just content: the cache filename is
+#   <flatpath>.<hash(abspath + source + jiti version)>.mjs. Proven empirically —
+#   identical bytes at two different paths produce two different cache entries. So
+#   the warm run MUST transpile each extension at the EXACT path Pi loads it from
+#   at runtime (/home/user/.pi/agent/extensions/<x>.ts); a different warm path
+#   (the old /tmp/pi-warm) hashes differently and the entry NEVER hits — which is
+#   why every advanced session cold-transpiled its extensions. npm packages hit
+#   regardless because both warm and runtime resolve them through a symlink to the
+#   same realpath /opt/codeflare/pi-agent/npm; extensions are real files, so their
+#   path must match — hence PI_CODING_AGENT_DIR/HOME are the real runtime values
+#   here, not a throwaway tmpdir. (Content must ALSO match at runtime; the
+#   entrypoint relay of the managed extensions guarantees that half.)
+# - The agent dir mirrors the runtime layout (npm symlinked to the image preseed
+#   cache, exactly like the entrypoint does); the package list is DERIVED from the
+#   preseed package.json so a version bump there warms the right set automatically.
+#   The warm artifacts under /home/user/.pi are removed after the cache is moved
+#   out, so nothing is baked into /home/user.
 # - The pi run exits non-zero on the missing-LLM-key model call AFTER
 #   extensions load (|| true); the mv + final test fail the build if the cache
 #   came out empty, so a pi CLI change that breaks the warm-up is caught at
 #   build, not as a silent startup regression in production.
-RUN mkdir -p /opt/codeflare/jiti-warm-tmp /tmp/pi-warm/agent && \
-    ln -s /opt/codeflare/pi-agent/npm /tmp/pi-warm/agent/npm && \
-    cp -r /opt/codeflare/pi-agent/extensions /tmp/pi-warm/agent/extensions && \
-    node -e 'const d=require("/opt/codeflare/pi-agent/npm/package.json").dependencies;process.stdout.write(JSON.stringify({packages:Object.entries(d).map(([n,v])=>`npm:${n}@${v}`)}))' > /tmp/pi-warm/agent/settings.json && \
-    (TMPDIR=/opt/codeflare/jiti-warm-tmp PI_CODING_AGENT_DIR=/tmp/pi-warm/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 timeout 240 pi -p "warm" || true) && \
+RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
+    ln -s /opt/codeflare/pi-agent/npm /home/user/.pi/agent/npm && \
+    cp -r /opt/codeflare/pi-agent/extensions /home/user/.pi/agent/extensions && \
+    node -e 'const d=require("/opt/codeflare/pi-agent/npm/package.json").dependencies;process.stdout.write(JSON.stringify({packages:Object.entries(d).map(([n,v])=>`npm:${n}@${v}`)}))' > /home/user/.pi/agent/settings.json && \
+    (TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 timeout 240 pi -p "warm" || true) && \
     mv /opt/codeflare/jiti-warm-tmp/jiti /opt/codeflare/jiti-cache && \
-    rm -rf /opt/codeflare/jiti-warm-tmp /tmp/pi-warm && \
+    rm -rf /opt/codeflare/jiti-warm-tmp /home/user/.pi && \
     test -n "$(ls -A /opt/codeflare/jiti-cache)"
 
 # Pre-initialize OpenCode's SQLite database to skip Goose migrations on first launch.
