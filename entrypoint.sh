@@ -616,10 +616,11 @@ lay_down_agent_seed_preseed() {
 }
 
 # REQ-STOR-017 / AD90: image-authoritative relay of the managed Pi extension CODE.
-# The jiti prewarm cache (Dockerfile warm-up) is content-addressed and baked from the
-# exact .pi/agent/extensions files shipped in the image. After the initial R2 sync restores
-# user data, a stale bucket copy of a managed extension (the sync faithfully restores older
-# bytes) hashes differently and defeats that cache — ~2.4s of cold transpile EVERY session.
+# The jiti prewarm cache (Dockerfile warm-up) is keyed on abspath + source + version and is
+# baked at the exact .pi/agent/extensions runtime path — the bake fixes the PATH half of the
+# key; this relay fixes the CONTENT half. After the initial R2 sync restores user data, a
+# stale bucket copy of a managed extension (the sync faithfully restores older bytes) hashes
+# differently and defeats that cache — ~2.4s of cold transpile EVERY session.
 # Re-lay the image-baked managed extensions for the session mode so their bytes always equal
 # the build → the prewarm cache always hits, in ALL deployment modes (not just Governed).
 # Surgical: copies only the codeflare-owned .pi/agent/extensions tree, so user-ADDED
