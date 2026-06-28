@@ -628,15 +628,31 @@ lay_down_agent_seed_preseed() {
 # the subsequent bisync then treats local as authoritative and self-heals R2 instead of
 # pulling the stale copy back. Idempotent and mode-aware.
 relay_managed_pi_extensions() {
-    local mode="${SESSION_MODE:-default}"
-    local src="${AGENT_SEED_BAKE_DIR:-/opt/codeflare/agent-seed-bake}/${mode}/.pi/agent/extensions"
-    if [ ! -d "$src" ]; then
-        echo "[entrypoint] No baked Pi extensions for mode '${mode}'; skipping managed-extension relay" | tee -a /tmp/sync.log
+    # Source = the EXACT dir the jiti prewarm cache was baked from (Dockerfile copies
+    # preseed/agents/pi/extensions here, UNFILTERED — all managed extensions). NOT the
+    # mode-filtered agent-seed-bake: its default subset omits advanced-only extensions
+    # (e.g. codeflare-pi.ts), which still load and cold-transpile. Overwrite-if-present
+    # only: fix the content of whatever managed extensions the session actually loaded,
+    # without adding mode-gated extensions to a session that should not have them. cp
+    # (no -p) gives a fresh mtime so the --resync baseline treats local as truth.
+    # User-added extensions (other filenames) are never matched, so they are preserved.
+    local warm_src="${PI_WARM_EXTENSIONS_DIR:-/opt/codeflare/pi-agent/extensions}"
+    local dest="$USER_HOME/.pi/agent/extensions"
+    if [ ! -d "$warm_src" ]; then
+        echo "[entrypoint] No image Pi extension source ($warm_src); skipping managed-extension relay" | tee -a /tmp/sync.log
         return 0
     fi
-    mkdir -p "$USER_HOME/.pi/agent/extensions"
-    cp -r "$src/." "$USER_HOME/.pi/agent/extensions/"
-    echo "[entrypoint] Relaid image-baked managed Pi extensions (mode=${mode}) over post-sync tree" | tee -a /tmp/sync.log
+    [ -d "$dest" ] || return 0
+    local relaid=0 f base
+    for f in "$warm_src"/*.ts; do
+        [ -e "$f" ] || continue
+        base="$(basename "$f")"
+        if [ -f "$dest/$base" ]; then
+            cp "$f" "$dest/$base"
+            relaid=$((relaid + 1))
+        fi
+    done
+    echo "[entrypoint] Relaid ${relaid} managed Pi extension(s) from image source over post-sync tree" | tee -a /tmp/sync.log
 }
 
 # Step 2: Establish bisync baseline (after data is restored)

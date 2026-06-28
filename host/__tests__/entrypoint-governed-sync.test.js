@@ -49,7 +49,7 @@ const compareFlagFragment = () =>
 const relayFn = () =>
   extractBetween(
     'relay_managed_pi_extensions() {',
-    '    echo "[entrypoint] Relaid image-baked managed Pi extensions (mode=${mode}) over post-sync tree" | tee -a /tmp/sync.log\n}',
+    '    echo "[entrypoint] Relaid ${relaid} managed Pi extension(s) from image source over post-sync tree" | tee -a /tmp/sync.log\n}',
     'relay_managed_pi_extensions',
   );
 
@@ -162,89 +162,101 @@ describe('REQ-STOR-017 / AD90: image-baked agent-seed lay-down (entrypoint.sh la
   });
 });
 
-function runRelay({ sessionMode = 'default', seedModes = ['default'], r2SseDisabled = false, bakeFileMtimeMs } = {}) {
+function runRelay({ warmFiles, destFiles, warmPresent = true, destPresent = true, warmFileMtimeMs } = {}) {
+  const warm = warmFiles ?? { 'codeflare-pi.ts': '// IMAGE codeflare-pi\n' };
+  const dest = destFiles ?? { 'codeflare-pi.ts': '// STALE from R2\n', 'my-custom.ts': '// USER addition\n' };
   const home = mkdtempSync(join(tmpdir(), 'relay-home-'));
-  const bakeRoot = mkdtempSync(join(tmpdir(), 'relay-bake-'));
-  // Image-baked managed extension per requested mode.
-  for (const mode of seedModes) {
-    const extDir = join(bakeRoot, mode, '.pi/agent/extensions');
-    mkdirSync(extDir, { recursive: true });
-    const f = join(extDir, 'codeflare-pi.ts');
-    writeFileSync(f, `// ${mode} IMAGE\n`);
-    if (bakeFileMtimeMs !== undefined) {
-      const t = new Date(bakeFileMtimeMs);
-      utimesSync(f, t, t); // age the baked file (like a real image-build mtime)
+  const warmRoot = mkdtempSync(join(tmpdir(), 'relay-warm-'));
+  // Image warm source — the EXACT unfiltered dir the jiti cache is baked from.
+  const warmSrc = join(warmRoot, 'extensions');
+  if (warmPresent) {
+    mkdirSync(warmSrc, { recursive: true });
+    for (const [name, content] of Object.entries(warm)) {
+      const f = join(warmSrc, name);
+      writeFileSync(f, content);
+      if (warmFileMtimeMs !== undefined) {
+        const t = new Date(warmFileMtimeMs);
+        utimesSync(f, t, t); // age the image file (like a real image-build mtime)
+      }
     }
   }
-  // Post-sync $USER_HOME: a STALE managed copy the R2 sync restored + a user-ADDED extension.
-  const homeExt = join(home, '.pi/agent/extensions');
-  mkdirSync(homeExt, { recursive: true });
-  writeFileSync(join(homeExt, 'codeflare-pi.ts'), '// STALE from R2\n');
-  writeFileSync(join(homeExt, 'my-custom.ts'), '// USER addition\n');
+  // Post-sync $USER_HOME runtime extensions: whatever the R2 sync restored (possibly stale).
+  const destExt = join(home, '.pi/agent/extensions');
+  if (destPresent) {
+    mkdirSync(destExt, { recursive: true });
+    for (const [name, content] of Object.entries(dest)) writeFileSync(join(destExt, name), content);
+  }
   const script = [
     'set -euo pipefail',
     `USER_HOME='${home}'`,
-    `AGENT_SEED_BAKE_DIR='${bakeRoot}'`,
-    `SESSION_MODE='${sessionMode}'`,
-    r2SseDisabled ? "R2_SSE_DISABLED='true'" : '',
+    `PI_WARM_EXTENSIONS_DIR='${warmSrc}'`,
     relayFn(),
     'relay_managed_pi_extensions',
   ].join('\n');
   const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
-  return { code: res.status, stderr: res.stderr, home, homeExt };
+  return { code: res.status, stderr: res.stderr, home, destExt };
 }
 
 describe('REQ-STOR-017 / AD90: post-sync managed Pi extension relay (entrypoint.sh relay_managed_pi_extensions)', () => {
-  it('overwrites a stale (R2-restored) managed extension with the image-baked copy', () => {
-    const { code, stderr, homeExt } = runRelay({ sessionMode: 'default' });
+  it('overwrites a stale (R2-restored) managed extension present in the runtime with the image source', () => {
+    const { code, stderr, destExt } = runRelay();
     assert.equal(code, 0, `relay exited non-zero: ${stderr}`);
     assert.equal(
-      readFileSync(join(homeExt, 'codeflare-pi.ts'), 'utf8'),
-      '// default IMAGE\n',
-      'managed extension not overwritten with image content (a stale bucket copy defeats the content-addressed jiti cache)',
+      readFileSync(join(destExt, 'codeflare-pi.ts'), 'utf8'),
+      '// IMAGE codeflare-pi\n',
+      'managed extension not overwritten with image content (a stale copy defeats the content-addressed jiti cache)',
     );
   });
 
-  it('preserves user-ADDED extensions (other filenames the sync restored)', () => {
-    const { code, stderr, homeExt } = runRelay({ sessionMode: 'default' });
+  it('preserves user-ADDED extensions (filenames not in the image source)', () => {
+    const { code, stderr, destExt } = runRelay();
     assert.equal(code, 0, `relay exited non-zero: ${stderr}`);
-    assert.ok(existsSync(join(homeExt, 'my-custom.ts')), 'user-added extension was destroyed by the relay');
-    assert.equal(readFileSync(join(homeExt, 'my-custom.ts'), 'utf8'), '// USER addition\n');
+    assert.ok(existsSync(join(destExt, 'my-custom.ts')), 'user-added extension was destroyed by the relay');
+    assert.equal(readFileSync(join(destExt, 'my-custom.ts'), 'utf8'), '// USER addition\n');
   });
 
-  it('relays in ALL modes — NOT gated on Governed Mode (R2_SSE_DISABLED unset)', () => {
-    const { code, stderr, homeExt } = runRelay({ r2SseDisabled: false, sessionMode: 'default' });
+  it('sources from the unfiltered image dir so an advanced-only extension present in the runtime is fixed', () => {
+    // codeflare-pi/browser-run are advanced-only — the bug was a mode-filtered source omitting them.
+    const { code, stderr, destExt } = runRelay({
+      warmFiles: { 'codeflare-pi.ts': '// IMAGE codeflare-pi\n', 'browser-run.ts': '// IMAGE browser-run\n' },
+      destFiles: { 'codeflare-pi.ts': '// STALE\n', 'browser-run.ts': '// STALE\n' },
+    });
     assert.equal(code, 0, `relay exited non-zero: ${stderr}`);
-    assert.equal(
-      readFileSync(join(homeExt, 'codeflare-pi.ts'), 'utf8'),
-      '// default IMAGE\n',
-      'relay did not run outside Governed Mode — the fix must apply to all deployment modes',
-    );
+    assert.equal(readFileSync(join(destExt, 'codeflare-pi.ts'), 'utf8'), '// IMAGE codeflare-pi\n');
+    assert.equal(readFileSync(join(destExt, 'browser-run.ts'), 'utf8'), '// IMAGE browser-run\n');
   });
 
-  it('is mode-aware: relays the advanced bake for SESSION_MODE=advanced', () => {
-    const { code, stderr, homeExt } = runRelay({ sessionMode: 'advanced', seedModes: ['default', 'advanced'] });
+  it('does NOT add a managed extension absent from the runtime (overwrite-if-present respects mode gating)', () => {
+    const { code, stderr, destExt } = runRelay({
+      warmFiles: { 'codeflare-pi.ts': '// IMAGE\n', 'advanced-only.ts': '// IMAGE adv\n' },
+      destFiles: { 'codeflare-pi.ts': '// STALE\n' }, // advanced-only.ts NOT present in the runtime
+    });
     assert.equal(code, 0, `relay exited non-zero: ${stderr}`);
-    assert.equal(readFileSync(join(homeExt, 'codeflare-pi.ts'), 'utf8'), '// advanced IMAGE\n');
+    assert.equal(readFileSync(join(destExt, 'codeflare-pi.ts'), 'utf8'), '// IMAGE\n', 'present managed file not fixed');
+    assert.ok(!existsSync(join(destExt, 'advanced-only.ts')), 'relay added an extension that was not loaded (mode gating broken)');
   });
 
-  it('gives the relaid file a fresh mtime (cp -r, not -p) so bisync treats local as truth', () => {
-    const aged = Date.now() - 7 * 24 * 60 * 60 * 1000; // a week old, like an image-baked file
+  it('gives the relaid file a fresh mtime (cp, not cp -p) so the --resync baseline treats local as truth', () => {
+    const aged = Date.now() - 7 * 24 * 60 * 60 * 1000; // a week old, like an image-build mtime
     const before = Date.now();
-    const { code, stderr, homeExt } = runRelay({ sessionMode: 'default', bakeFileMtimeMs: aged });
+    const { code, stderr, destExt } = runRelay({ warmFileMtimeMs: aged });
     assert.equal(code, 0, `relay exited non-zero: ${stderr}`);
-    const relaidMtime = statSync(join(homeExt, 'codeflare-pi.ts')).mtimeMs;
+    const relaidMtime = statSync(join(destExt, 'codeflare-pi.ts')).mtimeMs;
     assert.ok(
       relaidMtime >= before - 1000,
-      `relaid file kept the old baked mtime (${relaidMtime}) — cp -p would let the --resync baseline pull the stale R2 copy back`,
+      `relaid file kept the old image mtime (${relaidMtime}) — cp -p would let the --resync baseline pull the stale R2 copy back`,
     );
   });
 
-  it('is a clean no-op (exit 0, stale copy left intact) when no baked extensions exist for the mode', () => {
-    const { code, stderr, homeExt } = runRelay({ sessionMode: 'default', seedModes: [] });
-    assert.equal(code, 0, `relay should no-op cleanly when the bake is absent: ${stderr}`);
-    assert.equal(readFileSync(join(homeExt, 'codeflare-pi.ts'), 'utf8'), '// STALE from R2\n', 'no-op must not alter the tree');
-    assert.ok(existsSync(join(homeExt, 'my-custom.ts')), 'no-op must not delete user files');
+  it('is a clean no-op (exit 0, stale copy intact) when the image extension source is absent', () => {
+    const { code, stderr, destExt } = runRelay({ warmPresent: false });
+    assert.equal(code, 0, `relay should no-op cleanly when the image source is absent: ${stderr}`);
+    assert.equal(readFileSync(join(destExt, 'codeflare-pi.ts'), 'utf8'), '// STALE from R2\n', 'no-op must not alter the tree');
+  });
+
+  it('is a clean no-op (exit 0) when the runtime extensions dir does not exist yet', () => {
+    const { code, stderr } = runRelay({ destPresent: false });
+    assert.equal(code, 0, `relay should no-op cleanly when the runtime dir is absent: ${stderr}`);
   });
 });
 
