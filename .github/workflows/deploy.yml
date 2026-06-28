@@ -374,10 +374,16 @@ jobs:
           until [ "$attempt" -ge "$max" ]; do
             attempt=$((attempt+1))
             echo "::group::wrangler containers push (attempt $attempt/$max)"
-            npx wrangler containers push "${IMAGE_NAME}:${IMAGE_TAG}" 2>&1 | tee /tmp/push-output.txt
-            rc=${PIPESTATUS[0]}
+            # NB: `if <pipeline>` is required, not a bare `cmd | tee` + $PIPESTATUS:
+            # GitHub runs steps under `bash -eo pipefail`, so a bare failing pipeline
+            # would trip `set -e` and abort the step before any retry could run. The
+            # `if` condition suppresses `set -e`; pipefail still surfaces wrangler's
+            # exit through the pipe while tee keeps writing the log for URI extraction.
+            if npx wrangler containers push "${IMAGE_NAME}:${IMAGE_TAG}" 2>&1 | tee /tmp/push-output.txt; then
+              echo "::endgroup::"
+              break
+            fi
             echo "::endgroup::"
-            if [ "$rc" -eq 0 ]; then break; fi
             if [ "$attempt" -ge "$max" ]; then
               echo "::error::wrangler containers push failed after $max attempts"
               exit 1

@@ -2872,11 +2872,13 @@ fi
 configure_tab_autostart
 
 # REQ-STOR-017 / AD90: make the image-baked managed Pi extensions authoritative BEFORE the
-# bisync baseline so the content-addressed jiti prewarm cache always hits (all deployment
-# modes). Synchronous and unconditional: even if sync/bisync are skipped or fail, the local
-# managed extensions must equal the build. Placed before --resync so the baseline treats the
-# relaid local copy as truth and pushes it back to R2 (self-heal) rather than the reverse.
-relay_managed_pi_extensions
+# bisync baseline so the jiti prewarm cache (keyed on abspath + source + version) always hits
+# on its content half (all deployment modes). Synchronous and unconditional: even if sync/bisync
+# are skipped or fail, the local managed extensions must equal the build. Placed before --resync
+# so the baseline treats the relaid local copy as truth and pushes it back to R2 (self-heal)
+# rather than the reverse. Best-effort under `set -e`: a copy failure must degrade to a ~2.4s
+# cold transpile, never abort PID 1 (matches the renice/ionice convention below).
+relay_managed_pi_extensions || true
 
 # Step 2: Establish bisync baseline IN BACKGROUND (don't block startup)
 # Runs AFTER all file modifications (.claude.json, .claude/settings.json,

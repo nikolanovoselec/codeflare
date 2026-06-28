@@ -24,7 +24,7 @@ Dependabot runs weekly against the `develop` branch for four npm package directo
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
 | `deploy.yml` | `workflow_run` when PR Checks complete green on `main` + `workflow_dispatch` (production/integration/enterprise/enterprise integration) | Full pipeline: tests, typecheck, Docker build, Trivy vulnerability scan, wrangler deploy, worker secrets. Deploy only fires after checks pass - eliminates the parallel-trigger race where a broken merge could deploy before checks failed. |
-| `test.yml` | PRs to `main`, push to `main`/`develop` + `workflow_dispatch` | PR checks: lint (oxlint), tests, typecheck, build verification, dead code check (knip), `npm audit --omit=dev`, dependency review. Push-to-main trigger provides the post-merge signal that `deploy.yml` gates on. |
+| `test.yml` | PRs to `main` or `develop`, push to `main` + `workflow_dispatch` | PR checks: lint (oxlint), tests, typecheck, build verification, dead code check (knip), `npm audit --omit=dev`, dependency review. Push-to-`main` provides the post-merge signal that `deploy.yml` gates on. Push-to-`develop` is intentionally absent: an open develop→main PR already fires a `pull_request` synchronize run, so a separate `push` trigger would double-run. |
 | `e2e.yml` | `workflow_dispatch` (integration/production) | E2E tests against deployed worker - sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop` -> `e2e-ui-mobile` |
 | `codeql.yml` | Push to `main`, PRs to `main`, weekly (Monday 06:00 UTC) | CodeQL static analysis for JavaScript/TypeScript vulnerabilities, uploads SARIF to GitHub Security. Scoped by `.github/codeql/codeql-config.yml`, which excludes the vendored Impeccable copy-edit scripts (`preseed/agents/*/skills/impeccable/scripts/**`) — third-party bundle code refreshed wholesale on each shadow-pin bump, never in the production request path (the CodeQL analog of the `.trivyignore` vendored-binary acceptances). |
 | `fuzz.yml` | PRs to `main`, weekly (Sunday 04:00 UTC) + `workflow_dispatch` | Property-based fuzzing with fast-check (50,000 iterations) |
@@ -89,9 +89,9 @@ The Pi preseed job is data-driven: it diffs **every** dependency in `preseed/age
 5. Optionally generate `.cache-bust` for AI agent layer
 6. Build Docker image locally (base image pulled from `public.ecr.aws/docker/library/node:24-bookworm-slim` - AWS ECR Public mirror avoids Docker Hub anonymous pull rate limits on shared runners)
 7. Scan with Trivy (HIGH/CRITICAL severity, `ignore-unfixed: true`; `.trivyignore` for fixable CVEs consciously accepted — see [Security §Container Image Scanning](security.md#container-image-scanning-req-sec-011))
-8. Push image to Cloudflare registry via `wrangler containers push`, extract registry URI
+8. Push image to Cloudflare registry via `wrangler containers push` (wrapped in a bounded retry loop — up to 30 attempts, 30s apart — for transient registry/control-plane push failures), extract registry URI
 9. Patch `wrangler.toml` `image` field to registry URI (skips Docker rebuild on deploy)
-10. Deploy with `npx wrangler deploy` passing `--var` for runtime config
+10. Deploy with `npx wrangler deploy` passing `--var` for runtime config. Wrapped in the same bounded retry loop (up to 30 attempts, 30s apart) so a transient CF control-plane error — e.g. 100146 "Worker version not found", or a 500 on container-app image swap — never wastes the completed build; a hard `exit 1` follows exhaustion. `deploy-dockerhub.yml` applies the identical pattern to its `docker push` and `wrangler deploy` steps.
 11. Set worker secrets: `CLOUDFLARE_API_TOKEN`, optional `SERVICE_AUTH_SECRET` (E2E), optional `RESEND_API_KEY`
 12. Seed E2E service user in KV allowlist when `CF_ACCESS_CLIENT_SECRET` is present
 
