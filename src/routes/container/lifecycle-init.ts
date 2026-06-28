@@ -9,7 +9,7 @@
 import type { Env, SessionMode, ContainerConfigPayload, R2ConnectionConfig, UserPreferences } from '../../types';
 import { createBucketIfNotExists, getOrCreateScopedR2Token } from '../../lib/r2-admin';
 import { seedGettingStartedDocs, reconcileAgentConfigs, reseedContextModePlugin } from '../../lib/r2-seed';
-import { reconcileBucketRegimeOnStart } from '../../lib/r2-migration';
+import { resolveBucketSseOnEnsure } from '../../lib/r2-migration';
 import { getR2Config } from '../../lib/r2-config';
 import { getPreferencesKey } from '../../lib/kv-keys';
 import { ContainerError, toError, toErrorMessage } from '../../lib/error-types';
@@ -148,12 +148,14 @@ export async function ensureBucketAndSeed(params: {
   }
   logger.info('Bucket ready', { bucketName, created: bucketResult.created });
 
-  // REQ-ENTERPRISE-018 (Governed Mode): reconcile this bucket's R2 encryption regime
-  // to the deployment policy BEFORE any seed writes or container config — a new bucket
-  // adopts the policy (marker stamped here), an existing bucket whose marker differs is
-  // losslessly re-encrypted to the policy. The resolved flag drives every seed write
-  // below and is forwarded to the container so rclone matches the bucket's regime.
-  const r2SseDisabled = await reconcileBucketRegimeOnStart(env, bucketName, r2Config.endpoint, bucketResult.created === true);
+  // REQ-ENTERPRISE-018 (Governed Mode): resolve this bucket's CURRENT R2 encryption
+  // regime — a new bucket adopts the deployment policy (marker stamped here), an existing
+  // bucket keeps its current marker. This NEVER migrates on the container-start path (a
+  // slow re-encrypt would block session creation); the lossless re-encrypt runs in the
+  // background on first login (reconcileBucketRegimeOnLogin) and flips the marker only
+  // when complete. The resolved flag drives every seed write below and is forwarded to the
+  // container so rclone matches the bucket's regime as it actually is right now.
+  const r2SseDisabled = await resolveBucketSseOnEnsure(env, bucketName, bucketResult.created === true);
 
   // Seed agent configs once, when the bucket is newly created. Agent configs have
   // additional reseed paths (the Recreate button, mode-change reconcile, and the

@@ -173,10 +173,21 @@ async function postToken(body: Record<string, string>): Promise<TokenResponse> {
     body: new URLSearchParams(body).toString(),
     signal: AbortSignal.timeout(10000),
   });
-  if (!res.ok) throw new Error(`Cloudflare token endpoint returned ${res.status}`);
-  const data = (await res.json()) as TokenResponse;
-  if (data.error || !data.access_token) {
-    throw new Error(`Cloudflare token exchange failed: ${data.error ?? 'no access_token'}`);
+  // Parse the JSON body even on a non-2xx: Cloudflare returns an RFC 6749 OAuth error
+  // (`error` + `error_description`) that names the actual cause — e.g. `invalid_client`
+  // "...client supports 'none', but 'client_secret_post' was requested; configure the
+  // OAuth client's token_endpoint_auth_method...". Surfacing it turns an opaque
+  // "returned 401" into an actionable message in the connect logs (the failure that made
+  // this a mystery). The auth method itself is unchanged — still client_secret_post.
+  let data: TokenResponse = {};
+  try {
+    data = (await res.json()) as TokenResponse;
+  } catch {
+    // Non-JSON body (unexpected) — fall back to the status code in the throw below.
+  }
+  if (!res.ok || data.error || !data.access_token) {
+    const detail = data.error_description || data.error || `HTTP ${res.status}`;
+    throw new Error(`Cloudflare token endpoint error: ${detail}`);
   }
   return data;
 }

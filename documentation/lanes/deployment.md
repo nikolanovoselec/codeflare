@@ -141,16 +141,16 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 
 ---
 
-## Governed Mode migration on next access
+## Governed Mode migration on next login
 
-Enabling or disabling [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable) (the R2 SSE-C toggle) is **not** a redeploy. Flipping the Setup-wizard toggle writes the KV policy immediately; each existing bucket is reconciled to the new regime **on its next session start** (`ensureBucketAndSeed`, before the container DO is configured), via a lossless in-place server-side `CopyObject` re-encrypt ([AD89](../decisions/README.md#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration)). No data is deleted.
+Enabling or disabling [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable) (the R2 SSE-C toggle) is **not** a redeploy. Flipping the Setup-wizard toggle writes the KV policy immediately; each existing bucket is reconciled to the new regime **in the background on its owner's next login** (`reconcileBucketRegimeOnLogin`, triggered from the dashboard initial-load probe and run under `waitUntil`), via a lossless in-place server-side `CopyObject` re-encrypt ([AD89](../decisions/README.md#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration)). It does **not** run on the container-start path, so it can never block session creation. No data is deleted.
 
 Operational notes:
 
 - **Admin confirmation.** The wizard requires an explicit confirmation before flipping, because the consequence is a re-encrypt of every bucket.
-- **First start after a flip is slower.** The migration runs synchronously before the session starts; it is a one-time cost per bucket (subsequent starts are no-ops once the bucket's regime marker matches the policy). It is idempotent/resumable — a transient failure retries on the next start.
-- **Bounds.** The migration is capped by the Workers Paid 10,000-subrequest budget shared with `/start` (≈4,500 objects); a single object over 5 GB fails the migration loudly (R2's single-`CopyObject` limit) rather than being silently left unreadable.
-- **Rollback.** Turning the toggle OFF re-encrypts buckets back to SSE-C on next start (same lossless mechanism).
+- **Migration is off the critical path.** It runs in the background after the dashboard loads, not during session/container start — so creating a session is never blocked by a re-encrypt. It is a one-time cost per bucket (a no-op once the bucket's regime marker matches the policy), idempotent/resumable, and dedup-locked per bucket. A failed or budget-exhausted pass leaves the marker un-advanced and retries on the next login.
+- **Bounds.** A single background pass is capped by the Workers Paid 10,000-subrequest budget (≈4,500 objects); a larger bucket simply finishes over successive logins (the HEAD-probe skips already-migrated objects). A single object over 5 GB fails the migration loudly (R2's single-`CopyObject` limit) rather than being silently left unreadable.
+- **Rollback.** Turning the toggle OFF re-encrypts buckets back to SSE-C on the next login (same lossless mechanism).
 
 ## Related Documentation
 - [CI/CD](ci-cd.md) - GitHub Actions workflows and testing

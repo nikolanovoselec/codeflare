@@ -30,7 +30,7 @@ import {
   setBucketR2Regime,
   regimeForPolicy,
   resolveBucketSseOnEnsure,
-  reconcileBucketRegimeOnStart,
+  reconcileBucketRegimeOnLogin,
   migrateBucketEncryption,
 } from '../../lib/r2-migration';
 
@@ -48,6 +48,7 @@ function makeKV(initial: Record<string, string> = {}) {
         return type === 'json' ? JSON.parse(raw) : raw;
       }),
       put: vi.fn(async (key: string, value: string) => { store.set(key, value); }),
+      delete: vi.fn(async (key: string) => { store.delete(key); }),
     } as unknown as KVNamespace,
   };
 }
@@ -211,61 +212,55 @@ describe('migrateBucketEncryption (lossless re-encrypt)', () => {
   });
 });
 
-describe('reconcileBucketRegimeOnStart (session-start orchestration)', () => {
-  const startEnv = (kv: KVNamespace) => ({ ...r2Env, KV: kv } as unknown as Env);
+describe('reconcileBucketRegimeOnLogin (first-login background migration)', () => {
+  // R2_ACCOUNT_ID lets the real getR2Config resolve an endpoint synchronously (no network).
+  const loginEnv = (kv: KVNamespace) => ({ ...r2Env, R2_ACCOUNT_ID: 'acct', KV: kv } as unknown as Env);
+  const LOCK = 'r2-migration-lock:bkt';
 
-  it('migrates an existing bucket whose marker differs from the policy, then flips the marker', async () => {
+  it('migrates an existing bucket whose marker differs from the policy, flips the marker, releases the lock', async () => {
     const puts: Array<{ url: string; headers: Record<string, string> }> = [];
     wireFetch({ objects: [{ key: 'a.txt', size: 5 }], headOk: false, puts });
     const { kv, store } = makeKV({ 'setup:r2_sse_disabled': 'active', 'user-prefs:bkt': JSON.stringify({ r2SseRegime: 'sse-c' }) });
 
-    const disabled = await reconcileBucketRegimeOnStart(startEnv(kv), 'bkt', 'https://r2.test', false);
+    await reconcileBucketRegimeOnLogin(loginEnv(kv), 'bkt');
 
-    expect(disabled).toBe(true);
     expect(puts).toHaveLength(1); // migration ran
-    expect(JSON.parse(store.get('user-prefs:bkt')!).r2SseRegime).toBe('plain'); // marker advanced
+    expect(JSON.parse(store.get('user-prefs:bkt')!).r2SseRegime).toBe('plain'); // marker advanced only on a complete pass
+    expect(store.has(LOCK)).toBe(false); // lock released
   });
 
-  it('does not migrate when the marker already matches the policy', async () => {
+  it('is a no-op when the marker already matches the policy (no list/copy, no lock)', async () => {
     wireFetch({ objects: [{ key: 'a.txt', size: 5 }], headOk: false, puts: [] });
-    const { kv } = makeKV({ 'setup:r2_sse_disabled': 'active', 'user-prefs:bkt': JSON.stringify({ r2SseRegime: 'plain' }) });
+    const { kv, store } = makeKV({ 'setup:r2_sse_disabled': 'active', 'user-prefs:bkt': JSON.stringify({ r2SseRegime: 'plain' }) });
 
-    const disabled = await reconcileBucketRegimeOnStart(startEnv(kv), 'bkt', 'https://r2.test', false);
+    await reconcileBucketRegimeOnLogin(loginEnv(kv), 'bkt');
 
-    expect(disabled).toBe(true);
-    expect(mockFetch).not.toHaveBeenCalled(); // no list, no copy
-  });
-
-  it('new bucket adopts the policy with no migration', async () => {
-    const { kv, store } = makeKV({ 'setup:r2_sse_disabled': 'active' });
-    const disabled = await reconcileBucketRegimeOnStart(startEnv(kv), 'bkt', 'https://r2.test', true);
-    expect(disabled).toBe(true);
     expect(mockFetch).not.toHaveBeenCalled();
-    expect(JSON.parse(store.get('user-prefs:bkt')!).r2SseRegime).toBe('plain');
+    expect(store.has(LOCK)).toBe(false);
   });
 
-  it('boots in the CURRENT regime and does NOT flip the marker when migration fails (no /start lockout)', async () => {
-    // A >5 GB object makes migrateBucketEncryption throw; the orchestrator must swallow
-    // it, return the un-migrated regime (sse-c ⇒ disabled=false), and leave the marker.
+  it('dedupes: skips entirely when a migration lock is already held (concurrent tab/reload)', async () => {
+    wireFetch({ objects: [{ key: 'a.txt', size: 5 }], headOk: false, puts: [] });
+    const { kv, store } = makeKV({
+      'setup:r2_sse_disabled': 'active',
+      'user-prefs:bkt': JSON.stringify({ r2SseRegime: 'sse-c' }),
+      [LOCK]: '1',
+    });
+
+    await reconcileBucketRegimeOnLogin(loginEnv(kv), 'bkt');
+
+    expect(mockFetch).not.toHaveBeenCalled(); // another pass owns the lock
+    expect(JSON.parse(store.get('user-prefs:bkt')!).r2SseRegime).toBe('sse-c'); // marker untouched
+  });
+
+  it('never throws and leaves the marker un-advanced when migration fails, releasing the lock for retry', async () => {
+    // A >5 GB object makes migrateBucketEncryption throw; the login reconcile must swallow it.
     wireFetch({ objects: [{ key: 'huge.bin', size: 6 * 1024 * 1024 * 1024 }], headOk: false, puts: [] });
     const { kv, store } = makeKV({ 'setup:r2_sse_disabled': 'active', 'user-prefs:bkt': JSON.stringify({ r2SseRegime: 'sse-c' }) });
 
-    const disabled = await reconcileBucketRegimeOnStart(startEnv(kv), 'bkt', 'https://r2.test', false);
+    await expect(reconcileBucketRegimeOnLogin(loginEnv(kv), 'bkt')).resolves.toBeUndefined();
 
-    expect(disabled).toBe(false); // booted in current (sse-c) regime, not the target policy
     expect(JSON.parse(store.get('user-prefs:bkt')!).r2SseRegime).toBe('sse-c'); // marker NOT advanced
-  });
-
-  it('boots the TARGET regime when migration succeeds but the marker write fails (objects already migrated)', async () => {
-    // Migration completes (one small object copied), but the marker KV.put throws. Since
-    // the objects ARE in the target regime, the orchestrator must NOT brick or revert — it
-    // returns the policy (target) and re-stamps the marker next session.
-    wireFetch({ objects: [{ key: 'a.txt', size: 5 }], headOk: false, puts: [] });
-    const { kv } = makeKV({ 'setup:r2_sse_disabled': 'active', 'user-prefs:bkt': JSON.stringify({ r2SseRegime: 'sse-c' }) });
-    (kv.put as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('KV transient'));
-
-    const disabled = await reconcileBucketRegimeOnStart(startEnv(kv), 'bkt', 'https://r2.test', false);
-
-    expect(disabled).toBe(true); // objects re-encrypted → boot the target (plain) regime
+    expect(store.has(LOCK)).toBe(false); // lock released so the next login retries
   });
 });

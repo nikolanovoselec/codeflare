@@ -18,6 +18,7 @@
 import type { Env, UserPreferences } from '../types';
 import { SETUP_KEYS, getPreferencesKey } from './kv-keys';
 import { createR2Client, getR2Url, parseListObjectsXml } from './r2-client';
+import { getR2Config } from './r2-config';
 import { getSseHeaders, getSseCopyHeaders } from './r2-sse';
 import { createLogger } from './logger';
 
@@ -115,63 +116,63 @@ export async function resolveBucketSseOnEnsure(
   return isR2SseDisabledForBucket(env, bucketName);
 }
 
+/** KV key for the per-bucket migration lock (dedupes concurrent first-login triggers). */
+function migrationLockKey(bucketName: string): string {
+  return `r2-migration-lock:${bucketName}`;
+}
+
+/** A migration pass for any reasonable bucket finishes well within this; a crashed pass retries after it expires. */
+const MIGRATION_LOCK_TTL_S = 600;
+
 /**
- * Reconcile a bucket's encryption regime to the deployment policy at session
- * start, returning the resolved SSE-C-disabled flag (the policy) for the seed
- * writes + container env.
+ * Reconcile a bucket's encryption regime to the deployment policy on first login
+ * (REQ-ENTERPRISE-018) — the dashboard initial-load trigger that mirrors the
+ * REQ-AGENT-049 preseed-hash upgrade. The lossless re-encrypt runs HERE, in the
+ * BACKGROUND (the caller registers the returned promise with waitUntil), NOT on the
+ * container-start path: a slow re-encrypt must never block session creation, and at
+ * login no container is running yet so there is no concurrent writer.
  *
- *   - New bucket (just created): adopts the policy; marker stamped, no migration.
- *   - Existing bucket whose marker already matches the policy: no-op.
- *   - Existing bucket whose marker differs: losslessly re-encrypted to the policy,
- *     THEN the marker is flipped — so the marker only ever advances after the
- *     objects are actually in the new regime (reads stay correct).
+ *   - Marker already matches the policy ⇒ no-op (one/two KV reads). The common path
+ *     for every non-Governed deployment and every already-migrated bucket.
+ *   - Marker differs ⇒ losslessly re-encrypt, then flip the marker ONLY after a fully-
+ *     complete pass — so until then every session keeps booting in the CURRENT regime
+ *     (reads stay correct). A pass that exhausts the Workers subrequest budget on a huge
+ *     bucket simply resumes on the next login (the HEAD-probe skips already-migrated
+ *     objects).
  *
- * Runs before the container DO is configured, so there is no concurrent writer.
+ * Never throws — a failure is logged, the marker is left un-advanced, and the migration
+ * retries on the next login.
  */
-export async function reconcileBucketRegimeOnStart(
-  env: MigrationEnv & MigrateR2Env,
+export async function reconcileBucketRegimeOnLogin(
+  env: MigrationEnv & MigrateR2Env & Pick<Env, 'R2_ACCOUNT_ID' | 'R2_ENDPOINT' | 'CLOUDFLARE_API_TOKEN'>,
   bucketName: string,
-  endpoint: string,
-  created: boolean,
-): Promise<boolean> {
-  const policyDisabled = await getR2SsePolicyDisabled(env);
-  const targetRegime = regimeForPolicy(policyDisabled);
-
-  if (created) {
-    await setBucketR2Regime(env, bucketName, targetRegime);
-    return policyDisabled;
-  }
-
+): Promise<void> {
+  const targetRegime = regimeForPolicy(await getR2SsePolicyDisabled(env));
   const currentRegime = await getBucketR2Regime(env, bucketName);
-  if (currentRegime !== targetRegime) {
-    try {
-      await migrateBucketEncryption(env, bucketName, endpoint, currentRegime, targetRegime);
-    } catch (err) {
-      // Migration itself failed — a transient R2/ListObjects error, subrequest-budget
-      // exhaustion, an object > 5 GB, or > MAX_PAGES. The objects are still wholly in the
-      // CURRENT regime, so boot there (read-correct), do NOT flip the marker, and let the
-      // idempotent migration retry next session. Never brick /start over a migration failure.
-      logger.error(
-        'Governed Mode migration failed; booting in current regime, will retry next session',
-        err instanceof Error ? err : new Error(String(err)),
-        { bucketName, from: currentRegime, to: targetRegime },
-      );
-      return currentRegime === 'plain';
-    }
-    // Migration succeeded — the objects ARE in the target regime now. Advance the marker;
-    // if only the marker write fails, the objects are still in target, so boot the TARGET
-    // regime (the idempotent migration re-confirms + re-stamps the marker next session).
-    try {
-      await setBucketR2Regime(env, bucketName, targetRegime);
-    } catch (err) {
-      logger.warn('Governed Mode regime marker write failed post-migration; objects already in target regime', {
-        bucketName,
-        to: targetRegime,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+  if (currentRegime === targetRegime) return;
+
+  // Dedupe concurrent triggers (multiple tabs, or a reload during a slow pass). KV has no
+  // atomic compare-and-set, but the migration is idempotent so a rare double-run is merely
+  // wasteful, never incorrect.
+  const lockKey = migrationLockKey(bucketName);
+  if (await env.KV.get(lockKey)) return;
+  await env.KV.put(lockKey, '1', { expirationTtl: MIGRATION_LOCK_TTL_S });
+
+  try {
+    const { endpoint } = await getR2Config(env);
+    await migrateBucketEncryption(env, bucketName, endpoint, currentRegime, targetRegime);
+    // Flip the marker only on a clean, complete pass — the objects ARE in the target regime now.
+    await setBucketR2Regime(env, bucketName, targetRegime);
+    logger.info('Governed Mode bucket migrated on login', { bucketName, from: currentRegime, to: targetRegime });
+  } catch (err) {
+    logger.error(
+      'Governed Mode login migration failed; marker left un-advanced, will retry next login',
+      err instanceof Error ? err : new Error(String(err)),
+      { bucketName, from: currentRegime, to: targetRegime },
+    );
+  } finally {
+    await env.KV.delete(lockKey);
   }
-  return policyDisabled;
 }
 
 /**
@@ -267,8 +268,9 @@ export async function migrateBucketEncryption(
   // Fail loud if pagination was truncated with objects still unlisted: the caller
   // flips the regime marker only on a clean return, so returning here would advance
   // the marker over an incompletely-migrated bucket (the unmigrated tail would become
-  // unreadable). Throwing keeps the marker un-advanced (and the caller boots in the
-  // current regime — see reconcileBucketRegimeOnStart).
+  // unreadable). Throwing keeps the marker un-advanced (and the bucket keeps booting in
+  // the current regime until a later login completes a full pass — see
+  // reconcileBucketRegimeOnLogin).
   if (continuationToken) {
     throw new Error(
       `migrateBucketEncryption: bucket "${bucketName}" exceeds MAX_PAGES (${MAX_PAGES}); migration incomplete — marker must not advance`
