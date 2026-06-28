@@ -404,6 +404,15 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(res.status).toBe(200);
       expect(reconcileBucketRegimeOnLogin).not.toHaveBeenCalled();
     });
+
+    it('skips the reconcile without throwing when there is no execution context (200)', async () => {
+      // No execCtx passed → the c.executionCtx getter throws; the route must swallow it and
+      // still return 200 without invoking the reconcile (the guard's catch branch).
+      const app = createApp();
+      const res = await app.request('/sessions/batch-status?includePreseedCheck=true');
+      expect(res.status).toBe(200);
+      expect(reconcileBucketRegimeOnLogin).not.toHaveBeenCalled();
+    });
   });
 
   // CF-041 // CF-071

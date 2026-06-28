@@ -147,18 +147,25 @@ export async function reconcileBucketRegimeOnLogin(
   env: MigrationEnv & MigrateR2Env & Pick<Env, 'R2_ACCOUNT_ID' | 'R2_ENDPOINT' | 'CLOUDFLARE_API_TOKEN'>,
   bucketName: string,
 ): Promise<void> {
-  const targetRegime = regimeForPolicy(await getR2SsePolicyDisabled(env));
-  const currentRegime = await getBucketR2Regime(env, bucketName);
-  if (currentRegime === targetRegime) return;
-
-  // Dedupe concurrent triggers (multiple tabs, or a reload during a slow pass). KV has no
-  // atomic compare-and-set, but the migration is idempotent so a rare double-run is merely
-  // wasteful, never incorrect.
+  // The ENTIRE body is guarded so this truly never rejects — it runs in the caller's
+  // waitUntil, where a rejected promise (a KV transient on any read/write below) would be
+  // an unhandled rejection the caller's try/catch cannot see (that only catches the
+  // synchronous executionCtx getter). A failure is logged; the migration self-heals next login.
   const lockKey = migrationLockKey(bucketName);
-  if (await env.KV.get(lockKey)) return;
-  await env.KV.put(lockKey, '1', { expirationTtl: MIGRATION_LOCK_TTL_S });
-
+  let locked = false;
   try {
+    const targetRegime = regimeForPolicy(await getR2SsePolicyDisabled(env));
+    const currentRegime = await getBucketR2Regime(env, bucketName);
+    if (currentRegime === targetRegime) return; // already reconciled — no lock taken
+
+    // Dedupe concurrent triggers (multiple tabs, or a reload during a slow pass). KV has no
+    // atomic compare-and-set, but the migration is idempotent so a rare double-run is merely
+    // wasteful, never incorrect. A lock held by another pass means we return WITHOUT taking
+    // (or deleting) it.
+    if (await env.KV.get(lockKey)) return;
+    await env.KV.put(lockKey, '1', { expirationTtl: MIGRATION_LOCK_TTL_S });
+    locked = true;
+
     const { endpoint } = await getR2Config(env);
     await migrateBucketEncryption(env, bucketName, endpoint, currentRegime, targetRegime);
     // Flip the marker only on a clean, complete pass — the objects ARE in the target regime now.
@@ -166,12 +173,13 @@ export async function reconcileBucketRegimeOnLogin(
     logger.info('Governed Mode bucket migrated on login', { bucketName, from: currentRegime, to: targetRegime });
   } catch (err) {
     logger.error(
-      'Governed Mode login migration failed; marker left un-advanced, will retry next login',
+      'Governed Mode login reconcile failed; marker left un-advanced, will retry next login',
       err instanceof Error ? err : new Error(String(err)),
-      { bucketName, from: currentRegime, to: targetRegime },
+      { bucketName },
     );
   } finally {
-    await env.KV.delete(lockKey);
+    // Only release a lock this call actually took; best-effort so a delete transient can't reject.
+    if (locked) await env.KV.delete(lockKey).catch(() => {});
   }
 }
 
