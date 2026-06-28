@@ -7,7 +7,7 @@
 // thing" — if a branch is gutted or a flag renamed in entrypoint.sh, these fail.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, writeFileSync, mkdirSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, mkdirSync, existsSync, statSync, utimesSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -44,6 +44,13 @@ const compareFlagFragment = () =>
     '    local COMPARE_FLAG="--size-only"',
     'COMPARE_FLAG="--checksum"\n    fi',
     'COMPARE_FLAG',
+  );
+
+const relayFn = () =>
+  extractBetween(
+    'relay_managed_pi_extensions() {',
+    '    echo "[entrypoint] Relaid image-baked managed Pi extensions (mode=${mode}) over post-sync tree" | tee -a /tmp/sync.log\n}',
+    'relay_managed_pi_extensions',
   );
 
 // A valid-looking hex R2 key (create_rclone_config validates hex shape).
@@ -152,6 +159,92 @@ describe('REQ-STOR-017 / AD90: image-baked agent-seed lay-down (entrypoint.sh la
     const { code, stderr, home } = runLayDown({ r2SseDisabled: true, sessionMode: 'default', preExisting: true });
     assert.equal(code, 0, `idempotent lay-down exited non-zero: ${stderr}`);
     assert.ok(existsSync(join(home, '.claude/skills/demo/SKILL.md')), 'skill missing after re-lay-down');
+  });
+});
+
+function runRelay({ sessionMode = 'default', seedModes = ['default'], r2SseDisabled = false, bakeFileMtimeMs } = {}) {
+  const home = mkdtempSync(join(tmpdir(), 'relay-home-'));
+  const bakeRoot = mkdtempSync(join(tmpdir(), 'relay-bake-'));
+  // Image-baked managed extension per requested mode.
+  for (const mode of seedModes) {
+    const extDir = join(bakeRoot, mode, '.pi/agent/extensions');
+    mkdirSync(extDir, { recursive: true });
+    const f = join(extDir, 'codeflare-pi.ts');
+    writeFileSync(f, `// ${mode} IMAGE\n`);
+    if (bakeFileMtimeMs !== undefined) {
+      const t = new Date(bakeFileMtimeMs);
+      utimesSync(f, t, t); // age the baked file (like a real image-build mtime)
+    }
+  }
+  // Post-sync $USER_HOME: a STALE managed copy the R2 sync restored + a user-ADDED extension.
+  const homeExt = join(home, '.pi/agent/extensions');
+  mkdirSync(homeExt, { recursive: true });
+  writeFileSync(join(homeExt, 'codeflare-pi.ts'), '// STALE from R2\n');
+  writeFileSync(join(homeExt, 'my-custom.ts'), '// USER addition\n');
+  const script = [
+    'set -euo pipefail',
+    `USER_HOME='${home}'`,
+    `AGENT_SEED_BAKE_DIR='${bakeRoot}'`,
+    `SESSION_MODE='${sessionMode}'`,
+    r2SseDisabled ? "R2_SSE_DISABLED='true'" : '',
+    relayFn(),
+    'relay_managed_pi_extensions',
+  ].join('\n');
+  const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  return { code: res.status, stderr: res.stderr, home, homeExt };
+}
+
+describe('REQ-STOR-017 / AD90: post-sync managed Pi extension relay (entrypoint.sh relay_managed_pi_extensions)', () => {
+  it('overwrites a stale (R2-restored) managed extension with the image-baked copy', () => {
+    const { code, stderr, homeExt } = runRelay({ sessionMode: 'default' });
+    assert.equal(code, 0, `relay exited non-zero: ${stderr}`);
+    assert.equal(
+      readFileSync(join(homeExt, 'codeflare-pi.ts'), 'utf8'),
+      '// default IMAGE\n',
+      'managed extension not overwritten with image content (a stale bucket copy defeats the content-addressed jiti cache)',
+    );
+  });
+
+  it('preserves user-ADDED extensions (other filenames the sync restored)', () => {
+    const { code, stderr, homeExt } = runRelay({ sessionMode: 'default' });
+    assert.equal(code, 0, `relay exited non-zero: ${stderr}`);
+    assert.ok(existsSync(join(homeExt, 'my-custom.ts')), 'user-added extension was destroyed by the relay');
+    assert.equal(readFileSync(join(homeExt, 'my-custom.ts'), 'utf8'), '// USER addition\n');
+  });
+
+  it('relays in ALL modes — NOT gated on Governed Mode (R2_SSE_DISABLED unset)', () => {
+    const { code, stderr, homeExt } = runRelay({ r2SseDisabled: false, sessionMode: 'default' });
+    assert.equal(code, 0, `relay exited non-zero: ${stderr}`);
+    assert.equal(
+      readFileSync(join(homeExt, 'codeflare-pi.ts'), 'utf8'),
+      '// default IMAGE\n',
+      'relay did not run outside Governed Mode — the fix must apply to all deployment modes',
+    );
+  });
+
+  it('is mode-aware: relays the advanced bake for SESSION_MODE=advanced', () => {
+    const { code, stderr, homeExt } = runRelay({ sessionMode: 'advanced', seedModes: ['default', 'advanced'] });
+    assert.equal(code, 0, `relay exited non-zero: ${stderr}`);
+    assert.equal(readFileSync(join(homeExt, 'codeflare-pi.ts'), 'utf8'), '// advanced IMAGE\n');
+  });
+
+  it('gives the relaid file a fresh mtime (cp -r, not -p) so bisync treats local as truth', () => {
+    const aged = Date.now() - 7 * 24 * 60 * 60 * 1000; // a week old, like an image-baked file
+    const before = Date.now();
+    const { code, stderr, homeExt } = runRelay({ sessionMode: 'default', bakeFileMtimeMs: aged });
+    assert.equal(code, 0, `relay exited non-zero: ${stderr}`);
+    const relaidMtime = statSync(join(homeExt, 'codeflare-pi.ts')).mtimeMs;
+    assert.ok(
+      relaidMtime >= before - 1000,
+      `relaid file kept the old baked mtime (${relaidMtime}) — cp -p would let the --resync baseline pull the stale R2 copy back`,
+    );
+  });
+
+  it('is a clean no-op (exit 0, stale copy left intact) when no baked extensions exist for the mode', () => {
+    const { code, stderr, homeExt } = runRelay({ sessionMode: 'default', seedModes: [] });
+    assert.equal(code, 0, `relay should no-op cleanly when the bake is absent: ${stderr}`);
+    assert.equal(readFileSync(join(homeExt, 'codeflare-pi.ts'), 'utf8'), '// STALE from R2\n', 'no-op must not alter the tree');
+    assert.ok(existsSync(join(homeExt, 'my-custom.ts')), 'no-op must not delete user files');
   });
 });
 

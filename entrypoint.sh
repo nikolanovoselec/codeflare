@@ -615,6 +615,30 @@ lay_down_agent_seed_preseed() {
     echo "[entrypoint] Baked agent seed laid down" | tee -a /tmp/sync.log
 }
 
+# REQ-STOR-017 / AD90: image-authoritative relay of the managed Pi extension CODE.
+# The jiti prewarm cache (Dockerfile warm-up) is content-addressed and baked from the
+# exact .pi/agent/extensions files shipped in the image. After the initial R2 sync restores
+# user data, a stale bucket copy of a managed extension (the sync faithfully restores older
+# bytes) hashes differently and defeats that cache — ~2.4s of cold transpile EVERY session.
+# Re-lay the image-baked managed extensions for the session mode so their bytes always equal
+# the build → the prewarm cache always hits, in ALL deployment modes (not just Governed).
+# Surgical: copies only the codeflare-owned .pi/agent/extensions tree, so user-ADDED
+# extensions (other filenames the sync restored) are preserved and user-editable seed
+# docs/rules are untouched. Uses cp -r (not -p) so the relaid files carry a current mtime —
+# the subsequent bisync then treats local as authoritative and self-heals R2 instead of
+# pulling the stale copy back. Idempotent and mode-aware.
+relay_managed_pi_extensions() {
+    local mode="${SESSION_MODE:-default}"
+    local src="${AGENT_SEED_BAKE_DIR:-/opt/codeflare/agent-seed-bake}/${mode}/.pi/agent/extensions"
+    if [ ! -d "$src" ]; then
+        echo "[entrypoint] No baked Pi extensions for mode '${mode}'; skipping managed-extension relay" | tee -a /tmp/sync.log
+        return 0
+    fi
+    mkdir -p "$USER_HOME/.pi/agent/extensions"
+    cp -r "$src/." "$USER_HOME/.pi/agent/extensions/"
+    echo "[entrypoint] Relaid image-baked managed Pi extensions (mode=${mode}) over post-sync tree" | tee -a /tmp/sync.log
+}
+
 # Step 2: Establish bisync baseline (after data is restored)
 # IMPORTANT: Uses timeout to prevent infinite hangs
 # Recovery: if a vanishing file causes failure, excludes it and retries (max 3 attempts)
@@ -2830,6 +2854,13 @@ fi
 
 # Configure tab auto-start
 configure_tab_autostart
+
+# REQ-STOR-017 / AD90: make the image-baked managed Pi extensions authoritative BEFORE the
+# bisync baseline so the content-addressed jiti prewarm cache always hits (all deployment
+# modes). Synchronous and unconditional: even if sync/bisync are skipped or fail, the local
+# managed extensions must equal the build. Placed before --resync so the baseline treats the
+# relaid local copy as truth and pushes it back to R2 (self-heal) rather than the reverse.
+relay_managed_pi_extensions
 
 # Step 2: Establish bisync baseline IN BACKGROUND (don't block startup)
 # Runs AFTER all file modifications (.claude.json, .claude/settings.json,
