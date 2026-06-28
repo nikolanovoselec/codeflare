@@ -517,6 +517,12 @@ RUN codex --version 2>&1 || true && \
 #   extensions load (|| true); the mv + final test fail the build if the cache
 #   came out empty, so a pi CLI change that breaks the warm-up is caught at
 #   build, not as a silent startup regression in production.
+# - Fail-closed completeness check: the build asserts that EVERY Pi extension
+#   produced a baked cache entry (jiti names them extensions-<base>.<hash>.mjs).
+#   So a future extension that is added, modified into a non-loading state, or
+#   skipped by a pi-loader change fails the build instead of silently
+#   cold-transpiling every session in production. This enforces "the prewarm
+#   cache covers everything, every deploy".
 RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     ln -s /opt/codeflare/pi-agent/npm /home/user/.pi/agent/npm && \
     cp -r /opt/codeflare/pi-agent/extensions /home/user/.pi/agent/extensions && \
@@ -524,7 +530,15 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     (TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 timeout 240 pi -p "warm" || true) && \
     mv /opt/codeflare/jiti-warm-tmp/jiti /opt/codeflare/jiti-cache && \
     rm -rf /opt/codeflare/jiti-warm-tmp /home/user/.pi && \
-    test -n "$(ls -A /opt/codeflare/jiti-cache)"
+    test -n "$(ls -A /opt/codeflare/jiti-cache)" && \
+    for ext in /opt/codeflare/pi-agent/extensions/*.ts; do \
+        [ -e "$ext" ] || continue; \
+        base="$(basename "$ext" .ts)"; \
+        hit="$(ls /opt/codeflare/jiti-cache/extensions-"$base".*.mjs 2>/dev/null | head -1)"; \
+        if [ -n "$hit" ]; then echo "[Dockerfile]   jiti-cached: $base -> $(basename "$hit")"; \
+        else echo "ERROR: Pi extension '$base' has no jiti warm-cache entry — it would cold-transpile every session; failing build" >&2; exit 1; fi; \
+    done && \
+    echo "[Dockerfile] jiti warm cache verified: every Pi extension is baked"
 
 # Pre-initialize OpenCode's SQLite database to skip Goose migrations on first launch.
 # OpenCode stores its DB at ~/.local/share/opencode/opencode.db (XDG data dir) and runs
