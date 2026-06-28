@@ -325,3 +325,32 @@ describe('REQ-STOR-017 / AD88: bisync uses server-modtime + wider checkers (entr
     });
   }
 });
+
+// ---------------------------------------------------------------------------
+// REQ-STOR-017: the background-init subshell (bisync baseline + vault + daemons)
+// runs concurrently with the PTY pre-warm on a single vCPU, so it must
+// self-deprioritize (lowest niceness + idle I/O class) BEFORE doing any work, or
+// it starves pi pre-warm and inflates startup latency. Scheduler config = contract.
+// ---------------------------------------------------------------------------
+const backgroundInitBlock = extractBetween(
+  'if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then',
+  'BISYNC_INIT_PID=$!',
+  'background-init subshell',
+);
+
+describe('REQ-STOR-017: background init yields CPU/disk to pi pre-warm (entrypoint.sh)', () => {
+  it('renices the background subshell to lowest priority (nice 19)', () => {
+    assert.match(backgroundInitBlock, /renice -n 19 "\$BASHPID"/, 'background init not reniced — it can starve pi pre-warm on the single vCPU');
+  });
+  it('sets the background subshell to idle I/O class (ionice -c 3)', () => {
+    assert.match(backgroundInitBlock, /ionice -c 3 -p "\$BASHPID"/, 'background init not ionice-idle — its disk I/O can stall pi pre-warm reads');
+  });
+  it('applies the deprioritization BEFORE establishing the bisync baseline (so the rclone child inherits it)', () => {
+    const reniceIdx = backgroundInitBlock.indexOf('renice -n 19');
+    const baselineIdx = backgroundInitBlock.indexOf('establish_bisync_baseline');
+    assert.ok(
+      reniceIdx !== -1 && baselineIdx !== -1 && reniceIdx < baselineIdx,
+      'deprioritization must precede establish_bisync_baseline so the rclone child inherits nice/ionice',
+    );
+  });
+});

@@ -2883,7 +2883,16 @@ relay_managed_pi_extensions
 # .codex/version.json, .bashrc tab autostart) to avoid hash mismatches from files changing during --resync.
 if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then
     (
-        echo "[entrypoint] Establishing bisync baseline in background..."
+        # REQ-STOR-017: deprioritize ALL background init (bisync --resync baseline, vault
+        # seed, sync/vault daemons) so it yields the single vCPU and the disk to the pi PTY
+        # pre-warm running concurrently. Pre-warm latency was dominated by contention, not
+        # work; with idle I/O class + lowest niceness, pi preempts this subshell whenever it
+        # wants CPU/disk, so the baseline effectively runs in pre-warm's slack (and after it
+        # finishes) instead of racing it. Children (rclone, daemons) inherit. Best-effort:
+        # a missing renice/ionice (or a kernel that refuses) never aborts startup.
+        renice -n 19 "$BASHPID" >/dev/null 2>&1 || true
+        ionice -c 3 -p "$BASHPID" >/dev/null 2>&1 || true
+        echo "[entrypoint] Establishing bisync baseline in background (deprioritized: nice 19 / ionice idle)..."
         if establish_bisync_baseline; then
             echo "[entrypoint] Bisync baseline established, starting daemon..."
         else
