@@ -4,7 +4,7 @@ import type { AuthVariables } from '../../middleware/auth';
 import { createR2Client, getR2Url } from '../../lib/r2-client';
 import { getR2Config } from '../../lib/r2-config';
 import { createRateLimiter } from '../../middleware/rate-limit';
-import { ValidationError, ContainerError, ForbiddenError } from '../../lib/error-types';
+import { ValidationError, ContainerError, DownloadsDisabledError } from '../../lib/error-types';
 import { validateKey } from './validation';
 import { getSseHeaders } from '../../lib/r2-sse';
 import { isR2SseDisabledForBucket } from '../../lib/r2-migration';
@@ -103,10 +103,10 @@ app.get('/', async (c) => {
   // not the control. Default OFF / non-enterprise → no KV read, byte-identical to today.
   if (await isDownloadsDisabled(c.env)) {
     if (!inline) {
-      throw new ForbiddenError('Downloads are disabled for this deployment (view-only storage).');
+      throw new DownloadsDisabledError();
     }
     if (!isInlineViewable(filename)) {
-      throw new ForbiddenError('This file type cannot be opened in view-only storage; downloads are disabled.');
+      throw new DownloadsDisabledError('This file type cannot be opened in view-only storage; downloads are disabled.');
     }
   }
 

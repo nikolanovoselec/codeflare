@@ -52,6 +52,7 @@ const mockOpenPreview = vi.fn();
 const mockClosePreview = vi.fn();
 const mockSyncNow = vi.fn();
 const mockShowDownloadsNotice = vi.fn();
+const mockRefreshDownloadsDisabled = vi.fn();
 // MOCK-DRIFT RISK: The storageStore mock below replicates the public API surface
 // of stores/storage.ts. If the real store adds/removes/renames methods or changes
 // getter signatures, these tests will silently pass with stale behavior. When
@@ -72,6 +73,7 @@ vi.mock('../../stores/storage', () => ({
     get syncing() { return mockSyncing; },
     get downloadsDisabled() { return mockDownloadsDisabled; },
     showDownloadsNotice: (...args: any[]) => mockShowDownloadsNotice(...args),
+    refreshDownloadsDisabled: (...args: any[]) => mockRefreshDownloadsDisabled(...args),
     browse: (...args: any[]) => mockBrowse(...args),
     syncNow: (...args: any[]) => mockSyncNow(...args),
     navigateTo: (...args: any[]) => mockNavigateTo(...args),

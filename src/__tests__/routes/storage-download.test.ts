@@ -280,12 +280,14 @@ describe('Storage Download Routes', () => {
       return createTestApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
     }
 
-    it('blocks a non-inline (attachment) download with 403', async () => {
+    it('blocks a non-inline (attachment) download with 403 and the DOWNLOADS_DISABLED code', async () => {
       const app = createViewOnlyApp();
       const res = await app.request('/download?key=path/to/file.txt');
       expect(res.status).toBe(403);
       const body = await res.json() as { code: string };
-      expect(body.code).toBe('FORBIDDEN');
+      // Distinct code (not a generic FORBIDDEN) so the client can show the friendly
+      // view-only notice instead of a raw failure — REQ-ENTERPRISE-019.
+      expect(body.code).toBe('DOWNLOADS_DISABLED');
     });
 
     it('permits an inline view of a viewable type (200, inline disposition)', async () => {
@@ -296,12 +298,12 @@ describe('Storage Download Routes', () => {
       expect(res.headers.get('Content-Disposition')).not.toContain('attachment');
     });
 
-    it('blocks an inline view of a non-viewable type (archive) with 403', async () => {
+    it('blocks an inline view of a non-viewable type (archive) with 403 and the DOWNLOADS_DISABLED code', async () => {
       const app = createViewOnlyApp();
       const res = await app.request('/download?key=archive/repo.zip&disposition=inline');
       expect(res.status).toBe(403);
       const body = await res.json() as { code: string };
-      expect(body.code).toBe('FORBIDDEN');
+      expect(body.code).toBe('DOWNLOADS_DISABLED');
     });
 
     it('leaves attachment downloads unchanged (200) when the KV toggle is absent in enterprise mode', async () => {

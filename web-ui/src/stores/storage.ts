@@ -1,6 +1,6 @@
 import { createStore, produce } from 'solid-js/store';
 import * as storageApi from '../api/storage';
-import { getStartupStatus } from '../api/client';
+import { getStartupStatus, getUser } from '../api/client';
 import { shouldUseMultipart, splitIntoParts, fileToBase64 } from '../lib/file-upload';
 import { STORAGE_BROWSE_RETRY_DELAY_MS, UPLOAD_DISMISS_DELAY_MS } from '../lib/constants';
 import type { FileWithPath } from '../lib/file-upload';
@@ -199,6 +199,17 @@ export const storageStore = {
   setWorkerName(name: string) { setState('workerName', name); },
   get downloadsDisabled() { return state.downloadsDisabled; },
   setDownloadsDisabled(v: boolean) { setState('downloadsDisabled', v); },
+  // Re-pull the view-only flag from the server (set once at app load) so opening the
+  // storage panel reflects a toggle flipped after load — closing the stale-flag window
+  // proactively. On error the flag is left as-is; the server 403 backstop still covers it.
+  async refreshDownloadsDisabled() {
+    try {
+      const user = await getUser();
+      setState('downloadsDisabled', user.downloadsDisabled === true);
+    } catch {
+      // ignore — keep the current flag; downloads are still enforced server-side.
+    }
+  },
   get downloadsNoticeOpen() { return state.downloadsNoticeOpen; },
   showDownloadsNotice() { setState('downloadsNoticeOpen', true); },
   dismissDownloadsNotice() { setState('downloadsNoticeOpen', false); },

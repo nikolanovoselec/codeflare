@@ -1,9 +1,8 @@
 import { Component, Show, onMount, onCleanup, createSignal, createMemo, createEffect } from 'solid-js';
 import { storageStore } from '../stores/storage';
 import { sessionStore } from '../stores/session';
-import { getDownloadUrl } from '../api/storage';
+import { downloadFile, type DownloadResult } from '../lib/download';
 import { extractFilesFromDrop } from '../lib/file-upload';
-import { logger } from '../lib/logger';
 import { ALWAYS_VISIBLE_SPECIAL_PREFIXES } from '../lib/special-folders';
 import Button from './ui/Button';
 import StorageBreadcrumbs from './storage/StorageBreadcrumbs';
@@ -29,6 +28,9 @@ const StorageBrowser: Component = () => {
 
   onMount(() => {
     storageStore.browse(storageStore.currentPrefix || '');
+    // Re-pull the view-only flag so the Download button reflects a toggle flipped
+    // after the app loaded (the flag is otherwise set once at startup).
+    void storageStore.refreshDownloadsDisabled();
 
     // Auto-refresh file listing every 30s (silent — no loading spinner)
     const refreshInterval = setInterval(() => {
@@ -222,37 +224,18 @@ const StorageBrowser: Component = () => {
     storageStore.searchFiles(value);
   };
 
-  // Returns true on success, false on caught failure. Callers in the
-  // multi-select path use the return value to aggregate a single
-  // user-visible summary rather than silently swallowing per-file errors.
-  const triggerDownload = async (key: string): Promise<boolean> => {
-    // View-only storage backstop: never hit the server (it would 403 and the catch
-    // below would log a console error). Surface the notice and report no failure so
-    // batch callers don't raise a misleading "downloads failed" alert.
+  // Multi-select download. Each file goes through the shared downloadFile() helper,
+  // which returns 'blocked' on a DOWNLOADS_DISABLED 403 (view-only storage) so we
+  // show the friendly notice instead of the raw "downloads failed" alert — correct
+  // even when the cached downloadsDisabled flag was stale at click time.
+  const triggerDownload = async (key: string): Promise<DownloadResult> => {
     if (storageStore.downloadsDisabled) {
       storageStore.showDownloadsNotice();
-      return false;
+      return 'blocked';
     }
-    try {
-      const url = getDownloadUrl(key);
-      const response = await fetch(url, { credentials: 'include' });
-      if (!response.ok) {
-        throw new Error(`Download failed: ${response.status} ${response.statusText}`);
-      }
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = key.split('/').pop() || 'download';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(blobUrl);
-      return true;
-    } catch (e) {
-      logger.error('[StorageBrowser] Download failed:', { key, error: e instanceof Error ? e.message : e });
-      return false;
-    }
+    const result = await downloadFile(key);
+    if (result === 'blocked') storageStore.showDownloadsNotice();
+    return result;
   };
 
   const handleDownloadSelected = async () => {
@@ -265,8 +248,8 @@ const StorageBrowser: Component = () => {
     const keys = [...storageStore.selectedKeys];
     let failed = 0;
     for (const key of keys) {
-      const ok = await triggerDownload(key);
-      if (!ok) failed += 1;
+      // 'blocked' already surfaced the friendly notice; only genuine failures count.
+      if ((await triggerDownload(key)) === 'failed') failed += 1;
     }
     if (failed > 0) {
       // No global toast component is wired up yet; the per-file logger.error

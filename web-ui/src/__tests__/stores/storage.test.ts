@@ -26,7 +26,15 @@ vi.mock('../../lib/file-upload', () => ({
   fileToBase64: vi.fn(() => Promise.resolve('base64content')),
 }));
 
+// Keep api/client real (getStartupStatus is used by browse-poll) but stub getUser so
+// refreshDownloadsDisabled() can be driven without a real /api/user fetch.
+vi.mock('../../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api/client')>()),
+  getUser: vi.fn(),
+}));
+
 import * as storageApi from '../../api/storage';
+import { getUser } from '../../api/client';
 import { shouldUseMultipart, splitIntoParts } from '../../lib/file-upload';
 import { storageStore, _resetForTests, updateStatsFromBatch } from '../../stores/storage';
 
@@ -41,6 +49,7 @@ const mockGetStats = vi.mocked(storageApi.getStats);
 const mockGetPreview = vi.mocked(storageApi.getPreview);
 const mockShouldUseMultipart = vi.mocked(shouldUseMultipart);
 const mockSplitIntoParts = vi.mocked(splitIntoParts);
+const mockGetUser = vi.mocked(getUser);
 
 describe('Storage Store', () => {
   beforeEach(() => {
@@ -84,6 +93,29 @@ describe('Storage Store', () => {
       expect(storageStore.downloadsNoticeOpen).toBe(true);
       storageStore.dismissDownloadsNotice();
       expect(storageStore.downloadsNoticeOpen).toBe(false);
+    });
+
+    // Proactive refresh: the flag is hydrated once at app load, so opening the storage
+    // panel re-pulls it to reflect a toggle flipped after load (closes the stale-flag
+    // window; the server 403 backstop is the hard guarantee).
+    it('refreshDownloadsDisabled() hydrates the flag true from /api/user', async () => {
+      mockGetUser.mockResolvedValue({ downloadsDisabled: true } as Awaited<ReturnType<typeof getUser>>);
+      await storageStore.refreshDownloadsDisabled();
+      expect(storageStore.downloadsDisabled).toBe(true);
+    });
+
+    it('refreshDownloadsDisabled() clears a stale-true flag when /api/user reports enabled', async () => {
+      storageStore.setDownloadsDisabled(true);
+      mockGetUser.mockResolvedValue({ downloadsDisabled: false } as Awaited<ReturnType<typeof getUser>>);
+      await storageStore.refreshDownloadsDisabled();
+      expect(storageStore.downloadsDisabled).toBe(false);
+    });
+
+    it('refreshDownloadsDisabled() leaves the flag unchanged when /api/user fails', async () => {
+      storageStore.setDownloadsDisabled(true);
+      mockGetUser.mockRejectedValue(new Error('network'));
+      await storageStore.refreshDownloadsDisabled();
+      expect(storageStore.downloadsDisabled).toBe(true);
     });
   });
 
