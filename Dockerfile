@@ -340,6 +340,11 @@ for (const name of ['cli.bundle.mjs', 'server.bundle.mjs']) {
   // Repointing the probe URL at a refused local address makes the fetch error
   // out, resolve to "unknown", and never render the notice -- with no outbound
   // npm traffic. .split/.join replaces every occurrence in the bundle.
+  // Verified against the pinned context-mode version: the probe's request
+  // 'error' handler and its 5s setTimeout both resolve the version to
+  // "unknown" (the fetch rejection is swallowed, not thrown), so a refused
+  // address yields the silent no-notice path. A pin bump should re-confirm
+  // this swallow-on-error behavior still holds.
   if (c.includes(updateProbeUrl)) {
     c = c.split(updateProbeUrl).join(disabledProbeUrl);
     console.log('[Dockerfile] disabled update-check probe in ' + name);
