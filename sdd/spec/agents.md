@@ -1828,6 +1828,7 @@ None.
 
 - One OAuth client per operator account; each user authorizes their own Cloudflare account.
 - The operator's OAuth client must be registered with `token_endpoint_auth_method = client_secret_post` (codeflare sends the secret in the token-request body). A client registered as a public `none` client or as `client_secret_basic` is rejected by Cloudflare with `401 invalid_client` and the connect flow stays unconnected — see the [Configuration](../../documentation/lanes/configuration.md) lane.
+- Cloudflare's client-secret **rotation is broken** (Cloudflare-side bug): only the secret returned at client *creation* authenticates — every secret from `rotate_secret` (dashboard button or API) is rejected with `401 invalid_client`, whether it coexists with the old secret (`has_rotated_secret: true`) or is the sole secret after the old one is deleted, so a rotated client is permanently bricked. Configure the operator client with its creation secret and never rotate it; replace a leaked secret by registering a new client, not by rotating. See the [Troubleshooting](../../documentation/lanes/troubleshooting.md) lane.
 - The exact OAuth scope set must be granted on the operator's client — see the [Configuration](../../documentation/lanes/configuration.md) lane and verify against `GET /client/v4/oauth/scopes`.
 
 **Priority:** P1
