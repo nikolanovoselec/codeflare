@@ -9,7 +9,7 @@ type SeedDocument = {
   modes: ('default' | 'advanced')[];
 };
 
-export const PRESEED_CONTENT_HASH = '7e5f7985ae0f5c36';
+export const PRESEED_CONTENT_HASH = '83417a9b5a9a128d';
 
 export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
@@ -303,7 +303,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
     "key": ".claude/plugins/context-mode/.claude-plugin/plugin.json",
     "contentType": "application/json; charset=utf-8",
-    "content": "{\n  \"name\": \"context-mode\",\n  \"description\": \"Deterministic context-window reduction via tool-call routing (Pro tier only)\",\n  \"version\": \"1.0.166\"\n}\n",
+    "content": "{\n  \"name\": \"context-mode\",\n  \"description\": \"Deterministic context-window reduction via tool-call routing (Pro tier only)\",\n  \"version\": \"1.0.168\"\n}\n",
     "modes": [
       "advanced"
     ]
@@ -319,7 +319,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
     "key": ".claude/plugins/graphify/.claude-plugin/plugin.json",
     "contentType": "application/json; charset=utf-8",
-    "content": "{\n  \"name\": \"graphify\",\n  \"description\": \"Knowledge-graph codebase context (graphifyy@0.8.45) - MCP server everywhere, discipline Pro-only\",\n  \"version\": \"0.8.45\"\n}\n",
+    "content": "{\n  \"name\": \"graphify\",\n  \"description\": \"Knowledge-graph codebase context (graphifyy@0.9.1) - MCP server everywhere, discipline Pro-only\",\n  \"version\": \"0.9.1\"\n}\n",
     "modes": [
       "default",
       "advanced"
