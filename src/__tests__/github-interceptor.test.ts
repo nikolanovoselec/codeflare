@@ -284,13 +284,13 @@ describe('REQ-ENTERPRISE-016: strict gateway egress transport swap', () => {
 });
 
 describe('REQ-GITHUB-003: host configuration', () => {
-  it('defaults to github.com + api.github.com', () => {
-    expect(interceptedGithubHosts(makeEnv())).toEqual(['github.com', 'api.github.com']);
+  it('defaults to github.com + api.github.com + api.githubcopilot.com', () => {
+    expect(interceptedGithubHosts(makeEnv())).toEqual(['github.com', 'api.github.com', 'api.githubcopilot.com']);
   });
 
   it('honours GITHUB_HOST / GITHUB_API_HOST overrides and applies Bearer on the overridden API host', async () => {
     const env = makeEnv({ GITHUB_HOST: 'git.example.com', GITHUB_API_HOST: 'api.example.com' } as Partial<Env>);
-    expect(interceptedGithubHosts(env)).toEqual(['git.example.com', 'api.example.com']);
+    expect(interceptedGithubHosts(env)).toEqual(['git.example.com', 'api.example.com', 'api.githubcopilot.com']);
     await connect('gho_x', env);
     // The overridden API host gets the Bearer credential...
     await makeInterceptor(env).fetch(new Request('https://api.example.com/user'));

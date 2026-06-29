@@ -112,6 +112,10 @@ export const UserResponseSchema = z.object({
   hasSubscribed: z.boolean().optional(),
   subscribedMode: z.enum(['default', 'advanced']).optional(),
   enterpriseMode: z.boolean().optional(),
+  // REQ-ENTERPRISE-019: view-only storage. Without this field the strict schema
+  // strips the server's `downloadsDisabled` on parse, leaving the client flag
+  // (App.tsx hydration + storageStore.refreshDownloadsDisabled) permanently false.
+  downloadsDisabled: z.boolean().optional(),
 });
 
 export const SessionsResponseSchema = z.object({

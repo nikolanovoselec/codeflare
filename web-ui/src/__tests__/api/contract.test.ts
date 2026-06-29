@@ -786,6 +786,20 @@ describe('Frontend-Backend Contract Tests', () => {
 
       expect(() => UserResponseSchema.parse(response)).toThrow();
     });
+
+    it('preserves downloadsDisabled through parse (REQ-ENTERPRISE-019 view-only flag must survive)', () => {
+      // The strict schema strips undeclared keys; if downloadsDisabled is not in
+      // UserResponseSchema the server-sent flag is silently dropped, leaving the
+      // client's view-only proactive guard permanently false. Assert the VALUE
+      // survives, not just that parse succeeds.
+      const parsed = UserResponseSchema.parse({
+        email: 'user@example.com',
+        authenticated: true,
+        bucketName: 'codeflare-user-example-com',
+        downloadsDisabled: true,
+      });
+      expect(parsed.downloadsDisabled).toBe(true);
+    });
   });
 
   describe('Runtime Schema Contract — StartupStatusResponseSchema', () => {
