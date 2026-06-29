@@ -41,7 +41,7 @@ vi.mock('../../components/setup/SetupWizard', () => ({ default: () => <div data-
 vi.mock('../../components/LoginPage', () => ({ default: () => <div data-testid="login-page">login</div> }));
 vi.mock('../../components/OnboardingLanding', () => ({ default: () => <div data-testid="onboarding">onboarding</div> }));
 vi.mock('../../stores/session', () => ({ sessionStore: { stopAllPolling: vi.fn(), setEnterpriseMode: vi.fn(), setSaasMode: vi.fn() } }));
-vi.mock('../../stores/storage', () => ({ storageStore: { setWorkerName: vi.fn() } }));
+vi.mock('../../stores/storage', () => ({ storageStore: { setWorkerName: vi.fn(), setDownloadsDisabled: vi.fn() } }));
 vi.mock('../../stores/terminal', () => ({ terminalStore: { disposeAll: vi.fn() } }));
 
 import App from '../../App';
