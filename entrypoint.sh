@@ -1723,7 +1723,7 @@ const required = [
   'npm:@gotgenes/pi-subagents@17.4.0',
   // context-mode is now enabled by default for Pi (was disabled): its ctx_* tools
   // and the bash-curl-redirect hook are active without an explicit `/ctx on`.
-  'npm:context-mode@1.0.166',
+  'npm:context-mode@1.0.168',
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx off never disables them.
   'npm:@juicesharp/rpiv-advisor@1.20.0',
@@ -2248,14 +2248,14 @@ fi
 # A future contributor who adds a SessionStart-style ctx_* nudge for
 # commercial users would push us over the ELv2 line. Don't do that
 # without revisiting AD49 first.
-CONTEXT_MODE_VERSION="1.0.166"
+CONTEXT_MODE_VERSION="1.0.168"
 CONTEXT_MODE_MANIFEST="$USER_HOME/.claude/plugins/context-mode/.claude-plugin/plugin.json"
 if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
     # Surface the manifest version in the entrypoint log so a mismatch
     # against the build-time-installed binary (= /usr/local/bin/context-mode
     # --version output) is visible. Bumping plugin.json without a Docker
     # rebuild is a deploy ordering issue caught by this log line.
-    CONTEXT_MODE_VERSION=$(jq -r '.version // "1.0.166"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "1.0.166")
+    CONTEXT_MODE_VERSION=$(jq -r '.version // "1.0.168"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "1.0.168")
 fi
 # MCP server registration: always register the context-mode MCP server in
 # ~/.claude.json (mirrors how codeflare-memory's `memory` MCP server is wired).
