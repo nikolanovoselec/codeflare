@@ -69,6 +69,31 @@ Browser retained stale Access session. Test in incognito. Clear CF Access cookie
 
 **Fix:** (1) is fixed in code (onboarding is included in `isSessionOidcMode`). For (2), point the deployment's `OAUTH_CLIENT_ID`/`OAUTH_CLIENT_SECRET` at an OAuth App whose callback is this domain. Quick check: `curl -sI https://<domain>/auth/github/login` should 302 to `github.com/login/oauth/authorize` with `redirect_uri=https://<domain>/auth/github/callback`; that `redirect_uri` host must match the OAuth App's registered callback.
 
+### "Connect to Cloudflare" Fails with `401 invalid_client` Even After Re-saving / Rotating the Secret
+
+**Symptom:** In a non-enterprise mode, "Connect to Cloudflare" ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)) never completes. The consent screen works and Cloudflare returns a real authorization code, but the server-side token exchange fails with `401 invalid_client` ("Client authentication failed…"), surfaced in the connect logs via Cloudflare's `error_description` (AC1). Re-entering the secret in the Setup wizard, or rotating it in the Cloudflare dashboard, does not help — it stays unconnected.
+
+**Cause (two independent failure modes):**
+1. **Wrong token-endpoint auth method (config).** codeflare sends the secret in the request body, so the operator's client must be registered with `token_endpoint_auth_method = client_secret_post`. A `none` (public/PKCE) or `client_secret_basic` client is rejected with `401 invalid_client` (REQ-AGENT-064 Constraints). Client *visibility* (private vs public) is orthogonal and does **not** affect secret auth — a public client authenticates with a secret fine.
+2. **Cloudflare's client-secret rotation is broken (Cloudflare-side bug).** Only the secret returned at client **creation** authenticates. Every secret produced by **"Rotate client secret"** (the dashboard button or the API `POST /client/v4/accounts/<acct>/oauth_clients/<id>/rotate_secret`) is rejected by the token endpoint with `invalid_client`. The dashboard rotate adds a *second* secret without deleting the old one; while a client holds two secrets (`has_rotated_secret: true`) **neither** authenticates, and even after deleting back down to a single secret the rotated one **still** fails. Once a client has been rotated it is permanently bricked, which is why re-saving or re-rotating never recovers it.
+
+**Diagnose:** The token endpoint distinguishes the two modes. Send `client_secret_basic` with a real code: Cloudflare replies with a *method* error naming the supported method ("the OAuth 2.0 Client supports … `client_secret_post`"), which confirms the client id + method are correct and rules out mode 1. Send `client_secret_post` with the configured secret and a real code: a creation secret issues a token (`200`), a rotated secret returns the generic `invalid_client`. Authorize always succeeds (a code with the right scope comes back); only the token exchange fails. Inspect the client via `GET /client/v4/accounts/<acct>/oauth_clients/<id>` — `has_rotated_secret: true` means it is mid-rotation and bricked.
+
+**Fix:**
+- Use a client whose secret has **never** been rotated. If the configured client has already been rotated (bricked), **create a brand-new OAuth client** and use the `client_secret` from the create response. Never click "Rotate client secret" on it. Because rotation cannot be used to recover, a leaked secret means standing up a new client and re-pointing the wizard, not rotating.
+- To let any Cloudflare user authorize it (public visibility): set `client_uri`, add the `cloudflare_oauth_client_publisher=<code>` TXT record at that domain's apex and wait for verification, set a non-empty `logo_uri` (promotion is rejected without one), then `PATCH { "visibility": "public" }` (permanent — cannot be reverted to private).
+- Enter the new client id + creation secret in the admin Setup wizard (REQ-AGENT-064 AC6).
+
+**Verify:** the connect flow completes and the per-user token persists in `deploy-keys:<bucket>` (source `'oauth'`), then `applyCloudflareOAuthToken` injects it into the container on session start (AC4). Confirmed working on both production (`codeflare.ch`) and integration (`codeflare.novoselec.ch`).
+
+### SPA Shows a Blank/White Page on Return from Background (Mobile App-Switch)
+
+**Symptom:** After backgrounding the browser (mobile app-switch, tab eviction, bfcache) and returning, the SPA shows a blank white page or an endless loading spinner. Pressing Back several times, reloading, or re-logging-in eventually recovers it.
+
+**Cause:** The session cookie expired while backgrounded. On return, the bootstrap `getUser()` call hit a 401, and the API client's 401 handler returned a *never-resolving promise* after triggering the redirect — stalling the bootstrap chain so `setLoading(false)` never ran, leaving the SPA stuck on its loading shell. Two secondary gaps compounded it: `RootPage` had no render branch for `redirect` mode (blank while a hard navigation was pending), and there was no top-level error boundary (an unhandled bootstrap/render error painted blank). The async `window.location.href` navigation plus bfcache restore is why "Back/reload several times" eventually unstuck it. ([REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page))
+
+**Fix:** The 401 handler now redirects via `location.replace('/')` (so Back does not return to the dead page) and **throws** an `authRedirect`-tagged `ApiError` so the promise always settles; `AppContent` renders a calm "redirecting" state on that error; `RootPage` renders a non-empty state for `redirect` mode; and a top-level `ErrorBoundary` renders a reload fallback instead of a blank document. Redeploy the web-ui build to pick up the fix.
+
 ### Container Stuck at "Waiting for Services"
 
 The loading screen waits for both R2 sync and PTY pre-warm to complete before signalling ready. Check `GET /api/container/startup-status?sessionId=xxx` and inspect the `details.syncError` field.
@@ -232,6 +257,8 @@ wrangler tail codeflare --status error
 
 - [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) - Knowledge-Graph Capability (Graphify)
 - [REQ-AGENT-061](../../sdd/spec/agents.md#req-agent-061-pi-idle-durable-review-reaper) - Pi Idle Durable Review Reaper (review-repo resolution; graphify sentinel scope)
+- [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) - Connect to Cloudflare via OAuth (token-exchange `invalid_client`: auth-method vs. broken secret rotation)
+- [REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page) - Session-expiry on resume → clean redirect, never a blank page
 - [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token) - Enterprise admin-configured Browser Rendering token
 - [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) - Outbound-interception LLM routing (enterprise CA trust, interceptor wiring)
 - [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) - Container-side enterprise routing (CA trust + agent base-URLs)
