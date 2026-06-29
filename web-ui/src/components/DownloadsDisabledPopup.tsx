@@ -1,4 +1,4 @@
-import { Component, Show, onMount, onCleanup } from 'solid-js';
+import { Component, Show, onMount, onCleanup, createEffect } from 'solid-js';
 import { mdiCloudLockOutline } from '@mdi/js';
 import Icon from './Icon';
 import { storageStore } from '../stores/storage';
@@ -14,6 +14,13 @@ import '../styles/downloads-disabled-popup.css';
 const DownloadsDisabledPopup: Component = () => {
   const close = () => storageStore.dismissDownloadsNotice();
 
+  let dismissRef: HTMLButtonElement | undefined;
+  // a11y: when the dialog opens, move focus onto its actionable control so
+  // keyboard / screen-reader users are not stranded behind the backdrop.
+  createEffect(() => {
+    if (storageStore.downloadsNoticeOpen) dismissRef?.focus();
+  });
+
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Escape' && storageStore.downloadsNoticeOpen) close();
   };
@@ -28,6 +35,7 @@ const DownloadsDisabledPopup: Component = () => {
         class="downloads-disabled-popup"
         data-testid="downloads-disabled-popup"
         role="alertdialog"
+        aria-modal="true"
         aria-label="Downloads disabled"
       >
         <div class="ddp-header">
@@ -39,6 +47,7 @@ const DownloadsDisabledPopup: Component = () => {
           view files in the browser.
         </p>
         <button
+          ref={dismissRef}
           type="button"
           class="ddp-dismiss-btn"
           data-testid="downloads-disabled-dismiss"

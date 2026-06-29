@@ -24,7 +24,10 @@ describe('DownloadsDisabledPopup', () => {
   it('renders the notice when storageStore.downloadsNoticeOpen is set', () => {
     storageStore.showDownloadsNotice();
     render(() => <DownloadsDisabledPopup />);
-    expect(screen.getByTestId('downloads-disabled-popup')).toBeInTheDocument();
+    const popup = screen.getByTestId('downloads-disabled-popup');
+    expect(popup).toBeInTheDocument();
+    // contract: it is an actual modal dialog
+    expect(popup.getAttribute('aria-modal')).toBe('true');
   });
 
   it('dismiss button closes the notice (store flag false, popup removed)', () => {
@@ -44,5 +47,15 @@ describe('DownloadsDisabledPopup', () => {
     fireEvent.click(screen.getByTestId('downloads-disabled-backdrop'));
 
     expect(storageStore.downloadsNoticeOpen).toBe(false);
+  });
+
+  it('Escape key closes the notice (store flag false, popup removed)', () => {
+    storageStore.showDownloadsNotice();
+    render(() => <DownloadsDisabledPopup />);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(storageStore.downloadsNoticeOpen).toBe(false);
+    expect(screen.queryByTestId('downloads-disabled-popup')).not.toBeInTheDocument();
   });
 });

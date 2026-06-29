@@ -63,10 +63,10 @@ describe('Storage Store', () => {
     });
   });
 
-  // View-only storage (enterprise anti-exfil): the flag download controls bind their
-  // blocked (disabled-looking) state to, plus the notice popup raised on interaction.
-  // Hydrated from GET /api/user; default OFF.
-  describe('view-only storage (downloads disabled)', () => {
+  // REQ-ENTERPRISE-019 — View-only storage (enterprise anti-exfil): the flag download
+  // controls bind their blocked (disabled-looking) state to, plus the notice popup
+  // raised on interaction. Hydrated from GET /api/user; default OFF.
+  describe('REQ-ENTERPRISE-019: view-only storage (downloads disabled)', () => {
     it('defaults to false', () => {
       expect(storageStore.downloadsDisabled).toBe(false);
     });

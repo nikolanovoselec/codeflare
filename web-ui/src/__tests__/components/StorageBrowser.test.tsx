@@ -890,6 +890,23 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       expect(mockShowDownloadsNotice).toHaveBeenCalledTimes(1);
       expect(globalThis.fetch).not.toHaveBeenCalled();
     });
+
+    // REQ-ENTERPRISE-019 AC4 baseline: with downloads enabled the control is not
+    // blocked and behaves exactly as before — clicking it performs the download.
+    it('with downloads enabled, the download control is not blocked and clicking it triggers the download', async () => {
+      mockDownloadsDisabled = false;
+      mockSelectedKeys = ['workspace/test.txt'];
+      render(() => <StorageBrowser />);
+      enableSelectionMode();
+
+      const btn = screen.getByTestId('storage-download-selected');
+      expect(btn.classList.contains('storage-action-btn--blocked')).toBe(false);
+
+      fireEvent.click(btn);
+
+      await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+      expect(mockShowDownloadsNotice).not.toHaveBeenCalled();
+    });
   });
 
   describe('Upload Queue', () => {
