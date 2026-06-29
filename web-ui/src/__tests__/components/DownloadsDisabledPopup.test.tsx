@@ -30,6 +30,12 @@ describe('DownloadsDisabledPopup', () => {
     expect(popup.getAttribute('aria-modal')).toBe('true');
   });
 
+  it('moves focus to the dismiss button when the notice opens', () => {
+    storageStore.showDownloadsNotice();
+    render(() => <DownloadsDisabledPopup />);
+    expect(document.activeElement).toBe(screen.getByTestId('downloads-disabled-dismiss'));
+  });
+
   it('dismiss button closes the notice (store flag false, popup removed)', () => {
     storageStore.showDownloadsNotice();
     render(() => <DownloadsDisabledPopup />);
