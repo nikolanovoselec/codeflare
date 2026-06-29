@@ -226,6 +226,13 @@ const StorageBrowser: Component = () => {
   // multi-select path use the return value to aggregate a single
   // user-visible summary rather than silently swallowing per-file errors.
   const triggerDownload = async (key: string): Promise<boolean> => {
+    // View-only storage backstop: never hit the server (it would 403 and the catch
+    // below would log a console error). Surface the notice and report no failure so
+    // batch callers don't raise a misleading "downloads failed" alert.
+    if (storageStore.downloadsDisabled) {
+      storageStore.showDownloadsNotice();
+      return false;
+    }
     try {
       const url = getDownloadUrl(key);
       const response = await fetch(url, { credentials: 'include' });
@@ -249,6 +256,12 @@ const StorageBrowser: Component = () => {
   };
 
   const handleDownloadSelected = async () => {
+    // View-only storage: show the notice once instead of looping into per-file
+    // failures (which would also raise the aggregate "downloads failed" alert).
+    if (storageStore.downloadsDisabled) {
+      storageStore.showDownloadsNotice();
+      return;
+    }
     const keys = [...storageStore.selectedKeys];
     let failed = 0;
     for (const key of keys) {

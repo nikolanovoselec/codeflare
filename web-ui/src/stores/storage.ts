@@ -61,9 +61,14 @@ interface StorageState {
   previewFile: PreviewFile | null;
   backgroundRefreshing: boolean;
   workerName: string;
-  // View-only storage (enterprise anti-exfil): when true, the toolbar hides the Download
-  // action. Server-side download.ts is the actual enforcement.
+  // View-only storage (enterprise anti-exfil): when true, download controls render
+  // disabled and any attempt opens an explanatory notice instead of fetching.
+  // Server-side download.ts is the actual enforcement; the UI just avoids surfacing
+  // a raw 403 that "looks broken".
   downloadsDisabled: boolean;
+  // Open state for the "downloads disabled by administrator" notice, raised when a
+  // user interacts with a disabled download control.
+  downloadsNoticeOpen: boolean;
   // REQ-STOR-015: sync-now flag drives the toolbar button's disabled
   // state and spinner overlay. The last result is held briefly so the
   // toolbar can surface "Triggered N sessions" feedback.
@@ -87,6 +92,7 @@ const initialState: StorageState = {
   backgroundRefreshing: false,
   workerName: 'codeflare',
   downloadsDisabled: false,
+  downloadsNoticeOpen: false,
   syncing: false,
   syncResult: null,
 };
@@ -193,6 +199,9 @@ export const storageStore = {
   setWorkerName(name: string) { setState('workerName', name); },
   get downloadsDisabled() { return state.downloadsDisabled; },
   setDownloadsDisabled(v: boolean) { setState('downloadsDisabled', v); },
+  get downloadsNoticeOpen() { return state.downloadsNoticeOpen; },
+  showDownloadsNotice() { setState('downloadsNoticeOpen', true); },
+  dismissDownloadsNotice() { setState('downloadsNoticeOpen', false); },
   get syncing() { return state.syncing; },
   get syncResult() { return state.syncResult; },
   get breadcrumbs() {

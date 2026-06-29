@@ -13,6 +13,7 @@ import StatCards from './StatCards';
 import StorageBrowser from './StorageBrowser';
 import GitHubPanel from './github/GitHubPanel';
 import FilePreview from './FilePreview';
+import DownloadsDisabledPopup from './DownloadsDisabledPopup';
 import CreateSessionDialog from './CreateSessionDialog';
 import SessionLimitPopup from './SessionLimitPopup';
 import ScrambleText from './ScrambleText';
@@ -224,6 +225,11 @@ const Dashboard: Component<DashboardProps> = (props) => {
   };
 
   const handlePreviewDownload = () => {
+    // View-only storage: surface the notice instead of navigating to a 403.
+    if (storageStore.downloadsDisabled) {
+      storageStore.showDownloadsNotice();
+      return;
+    }
     const file = storageStore.previewFile;
     if (file) {
       const url = getDownloadUrl(file.key);
@@ -506,9 +512,10 @@ const Dashboard: Component<DashboardProps> = (props) => {
               </div>
             }>
               <Show when={storageStore.previewFile} fallback={<StorageBrowser />}>
-                <FilePreview file={storageStore.previewFile} onBack={handlePreviewBack} onDownload={handlePreviewDownload} />
+                <FilePreview file={storageStore.previewFile} onBack={handlePreviewBack} onDownload={handlePreviewDownload} downloadsDisabled={storageStore.downloadsDisabled} />
               </Show>
             </Show>
+            <DownloadsDisabledPopup />
             </div>
           </div>
         </div>

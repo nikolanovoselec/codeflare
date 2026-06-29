@@ -63,8 +63,9 @@ describe('Storage Store', () => {
     });
   });
 
-  // View-only storage (enterprise anti-exfil): the flag the toolbar binds its Download
-  // button visibility to. Hydrated from GET /api/user; default OFF.
+  // View-only storage (enterprise anti-exfil): the flag download controls bind their
+  // blocked (disabled-looking) state to, plus the notice popup raised on interaction.
+  // Hydrated from GET /api/user; default OFF.
   describe('view-only storage (downloads disabled)', () => {
     it('defaults to false', () => {
       expect(storageStore.downloadsDisabled).toBe(false);
@@ -75,6 +76,14 @@ describe('Storage Store', () => {
       expect(storageStore.downloadsDisabled).toBe(true);
       storageStore.setDownloadsDisabled(false);
       expect(storageStore.downloadsDisabled).toBe(false);
+    });
+
+    it('downloads notice defaults closed and toggles via show/dismiss', () => {
+      expect(storageStore.downloadsNoticeOpen).toBe(false);
+      storageStore.showDownloadsNotice();
+      expect(storageStore.downloadsNoticeOpen).toBe(true);
+      storageStore.dismissDownloadsNotice();
+      expect(storageStore.downloadsNoticeOpen).toBe(false);
     });
   });
 
