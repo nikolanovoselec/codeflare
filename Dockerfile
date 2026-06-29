@@ -269,29 +269,17 @@ RUN npm install -g bun@1.3.14 && \
     rm -rf /usr/local/lib/node_modules/bun/node_modules && \
     npm cache clean --force && rm -rf /root/.npm
 
-# Install context-mode globally and patch the esbuild ESM bundles.
-# Implements REQ-AGENT-005. See codeflare#309 for the bug report.
-#
-# context-mode ships an esbuild ESM bundle (cli.bundle.mjs +
-# server.bundle.mjs) whose CJS-require shim throws on every dynamic
-# require('node:*') call because esbuild does not inject a
-# createRequire polyfill in --format=esm output. The shim's
-# `typeof require < "u"` check evaluates to "undefined" in BOTH Node
-# and Bun ESM modules, so ctx_execute / ctx_batch_execute fail with
-# `Dynamic require of "node:fs" is not supported` regardless of which
-# runtime invokes the bundle. The verified-working fix (issue #309)
-# is a 2-line createRequire shim prepended to both bundles after
-# extraction.
-#
-# We do that here at build time so the patched bundles ship in the
-# container image with no runtime extraction, no per-session bunx
-# download, and no first-call delay. Hooks and the MCP server invoke
-# `context-mode` directly from /usr/local/bin (the global install).
-#
-# License posture (ELv2): we do NOT redistribute context-mode source.
-# npm pulls the package from the public registry at build time
-# exactly as `npx -y context-mode` would at runtime.
+# Install context-mode globally and patch the esbuild ESM bundles in place via
+# scripts/patch-context-mode-bundles.mjs (the SAME module host/__tests__ imports,
+# so the patch logic and its test cannot drift). Implements REQ-AGENT-005 AC5
+# (createRequire shim, codeflare#309) + AC8 (npm update-check notice disable); the
+# full rationale lives in that script's header. Done at build time so the patched
+# bundles ship in the image — no runtime extraction, no per-session bunx download,
+# no first-call delay. License posture (ELv2): we do NOT redistribute context-mode
+# source; npm pulls it from the public registry at build time exactly as
+# `npx -y context-mode` would, and we only edit the installed bundle in place.
 COPY preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json /tmp/context-mode-plugin.json
+COPY scripts/patch-context-mode-bundles.mjs /tmp/patch-context-mode-bundles.mjs
 RUN <<'EOF'
 set -e
 VER=$(jq -r '.version // empty' /tmp/context-mode-plugin.json)
@@ -302,79 +290,12 @@ fi
 echo "[Dockerfile] installing context-mode@$VER"
 npm install -g "context-mode@$VER"
 CTX_DIR="$(npm root -g)/context-mode"
-export CTX_DIR
-node <<'NODE'
-const fs = require('fs');
-const path = require('path');
-const dir = process.env.CTX_DIR;
-const shimMarker = '__ctx_createRequire';
-const shim = "import { createRequire as __ctx_createRequire } from 'node:module';\nvar require = __ctx_createRequire(import.meta.url);\n";
-// REQ-AGENT-005 AC8: the live npm probe context-mode polls for its
-// "Update available" notice, and the refused local address we repoint it to.
-const updateProbeUrl = 'https://registry.npmjs.org/context-mode/latest';
-const disabledProbeUrl = 'https://127.0.0.1:1/context-mode-update-check-disabled';
-for (const name of ['cli.bundle.mjs', 'server.bundle.mjs']) {
-  const f = path.join(dir, name);
-  if (!fs.existsSync(f)) {
-    console.error('[Dockerfile] FATAL: ' + f + ' not found; context-mode layout may have changed');
-    process.exit(1);
-  }
-  let c = fs.readFileSync(f, 'utf8');
-  if (c.includes(shimMarker)) {
-    console.log('[Dockerfile] ' + name + ' already shim-patched, skipping shim');
-  } else {
-    if (c.startsWith('#!')) {
-      const nl = c.indexOf('\n');
-      c = c.slice(0, nl + 1) + shim + c.slice(nl + 1);
-    } else {
-      c = shim + c;
-    }
-    console.log('[Dockerfile] shim-patched ' + name);
-  }
-  // Disable context-mode's npm update-check probe (REQ-AGENT-005 AC8).
-  // context-mode unconditionally GETs registry.npmjs.org/context-mode/latest
-  // (MCP server: on boot + hourly; CLI: per ctx_stats/ctx_insight render) and
-  // prints an "Update available ... ctx_upgrade" notice whenever the fetched
-  // version differs. It exposes no env var or flag to suppress this, and a
-  // governed container is not a place a user self-upgrades context-mode.
-  // Repointing the probe URL at a refused local address makes the fetch error
-  // out, resolve to "unknown", and never render the notice -- with no outbound
-  // npm traffic. .split/.join replaces every occurrence in the bundle.
-  // Verified against the pinned context-mode version: the probe's request
-  // 'error' handler and its 5s setTimeout both resolve the version to
-  // "unknown" (the fetch rejection is swallowed, not thrown), so a refused
-  // address yields the silent no-notice path. A pin bump should re-confirm
-  // this swallow-on-error behavior still holds.
-  if (c.includes(updateProbeUrl)) {
-    c = c.split(updateProbeUrl).join(disabledProbeUrl);
-    console.log('[Dockerfile] disabled update-check probe in ' + name);
-  } else if (c.includes(disabledProbeUrl)) {
-    console.log('[Dockerfile] update-check probe already disabled in ' + name);
-  } else {
-    console.warn('[Dockerfile] WARN: update-check probe URL not found in ' + name + '; upstream context-mode may have changed it');
-  }
-  fs.writeFileSync(f, c);
-  // Postconditions: re-read and verify (a) the createRequire shim is present at
-  // the expected position (catches a coincidental marker collision or a
-  // silently truncated write) and (b) the live update-check probe URL is gone
-  // (catches a disable that silently failed to apply).
-  const verify = fs.readFileSync(f, 'utf8');
-  const head = verify.startsWith('#!') ? verify.slice(verify.indexOf('\n') + 1) : verify;
-  if (!head.startsWith("import { createRequire as __ctx_createRequire } from 'node:module';")) {
-    console.error('[Dockerfile] FATAL: post-write verification failed for ' + name + '; first non-shebang bytes: ' + JSON.stringify(head.slice(0, 80)));
-    process.exit(1);
-  }
-  if (verify.includes(updateProbeUrl)) {
-    console.error('[Dockerfile] FATAL: update-check probe URL still present in ' + name + ' after patch');
-    process.exit(1);
-  }
-}
-NODE
+node /tmp/patch-context-mode-bundles.mjs "$CTX_DIR"
 # Smoke-test BOTH bundles so a regression in server.bundle.mjs surfaces
 # at build time. cli.bundle.mjs is exercised by `--version`.
 context-mode --version
 node -e "import('/usr/local/lib/node_modules/context-mode/server.bundle.mjs').catch(e => { console.error('[Dockerfile] FATAL: server.bundle.mjs import failed:', e.message); process.exit(1); }).then(() => console.log('[Dockerfile] server.bundle.mjs imports cleanly'))"
-rm -f /tmp/context-mode-plugin.json
+rm -f /tmp/context-mode-plugin.json /tmp/patch-context-mode-bundles.mjs
 npm cache clean --force
 rm -rf /root/.npm
 EOF

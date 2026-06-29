@@ -2284,7 +2284,13 @@ COPILOT_BYOK_EOF
     # real model window keeps Pi's proactive compaction firing before the provider's hard
     # context limit. Default the var to {} (set -u safe); a malformed map trips the jq
     # guard below (|| OK=0 -> Pi unpinned, container stays up).
-    ENTERPRISE_ROUTE_CONTEXT_WINDOWS="${ENTERPRISE_ROUTE_CONTEXT_WINDOWS:-{}}"
+    # Default to {} when unset/empty (set -u safe). Do NOT write `${VAR:-{}}`: bash
+    # treats the first `}` as the expansion terminator and appends the second as a
+    # literal, so when the var IS set it yields `<value>}` — invalid JSON that fails
+    # the --argjson below (PI_GATEWAY_CONFIG_OK=0 -> Pi unpinned). It only looked fine
+    # for the unset case, where the default `{` + the stray `}` happened to form `{}`.
+    ENTERPRISE_ROUTE_CONTEXT_WINDOWS="${ENTERPRISE_ROUTE_CONTEXT_WINDOWS:-}"
+    [ -n "$ENTERPRISE_ROUTE_CONTEXT_WINDOWS" ] || ENTERPRISE_ROUTE_CONTEXT_WINDOWS='{}'
     PI_MODELS_ARRAY="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -c \
         --arg defroute "$ENTERPRISE_DEFAULT_ROUTE" \
         --argjson cw "$ENTERPRISE_ROUTE_CONTEXT_WINDOWS" \
