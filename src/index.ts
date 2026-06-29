@@ -523,6 +523,15 @@ export { GitHubInterceptor } from './github-interceptor';
 // caller credentials, fails closed. Inert unless ENTERPRISE_MODE=active and the toggle is on.
 export { EgressController } from './egress-controller';
 
+// Enterprise-mode Browser Rendering credential interceptor (REQ-BROWSER-008). A
+// WorkerEntrypoint the container DO wires for api.cloudflare.com (interceptOutboundHttps)
+// whenever an admin Browser Rendering token is configured. Strips the container's placeholder
+// CLOUDFLARE_API_TOKEN and injects the real admin token, but ONLY for the wizard-configured
+// browser account's /browser-rendering/* path (REST + CDP WebSocket); everything else on
+// api.cloudflare.com is routed to the Gateway. The real token never enters the container.
+// Inert unless ENTERPRISE_MODE=active.
+export { CloudflareBrowserInterceptor } from './cloudflare-browser-interceptor';
+
 // REQUIRED for container outbound interception to function. The @cloudflare/containers
 // runtime routes intercepted container HTTPS (interceptOutboundHttps) THROUGH this
 // ContainerProxy WorkerEntrypoint to our handlers (LlmInterceptor / GitHubInterceptor /

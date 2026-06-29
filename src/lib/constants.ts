@@ -105,6 +105,20 @@ export const ENTERPRISE_GH_TOKEN_PLACEHOLDER = 'codeflare-enterprise';
 export const ENTERPRISE_R2_KEY_PLACEHOLDER = 'codeflare-enterprise';
 
 /**
+ * REQ-BROWSER-008: placeholder Cloudflare API token emitted into the container as
+ * CLOUDFLARE_API_TOKEN in enterprise mode when an admin Browser Rendering token IS
+ * configured, so the browser-run MCP servers / Pi `browser_*` extension run in authed
+ * mode but never hold the real credential. The CloudflareBrowserInterceptor strips this
+ * placeholder and injects the real admin Browser Rendering token at the
+ * api.cloudflare.com boundary (and only for the wizard-configured browser account's
+ * `/browser-rendering/*` path). Same canonical value as the other enterprise placeholders
+ * (`'codeflare-enterprise'`, matching entrypoint.sh's `ENTERPRISE_PLACEHOLDER_TOKEN`);
+ * kept a separate literal (NOT aliased) so it reads correctly here and does not trip
+ * knip's duplicate-export check.
+ */
+export const ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER = 'codeflare-enterprise';
+
+/**
  * REQ-ENTERPRISE-012: default per-route context window (tokens) for an enterprise
  * dynamic route. The Setup wizard prefills each route's context-window field with
  * this value and the admin can raise it (e.g. a 1M-context BYOK model) or reset back

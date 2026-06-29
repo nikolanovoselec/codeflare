@@ -10,10 +10,14 @@
  * byte-identical until enabled.
  *
  * This deployment's OWN-account platform destinations (its R2 endpoint + its
- * account-scoped CF API / Browser Rendering path) are EXEMPT and egress direct — they
- * are codeflare's own control-plane backends, not the agent's external reach (see
- * {@link isAccountScopedDestination} and AD86). Everything else — genuine direct-internet
- * egress AND any OTHER account's R2/CF host — takes the Gateway path for inspection.
+ * account-scoped CF API path) are EXEMPT and egress direct — they are codeflare's own
+ * control-plane backends, not the agent's external reach (see {@link isAccountScopedDestination}
+ * and AD86). Everything else — genuine direct-internet egress AND any OTHER account's R2/CF
+ * host — takes the Gateway path for inspection. NOTE: browser-run's Browser Rendering traffic
+ * (api.cloudflare.com /browser-rendering/*) is normally claimed by the per-host
+ * CloudflareBrowserInterceptor (REQ-BROWSER-008, takes precedence over this catch-all); the
+ * CF-API exemption here is a dormant fallback and can only ever carry the container's non-secret
+ * placeholder token (the real token never enters the container).
  *
  * The defining security property is FAIL-CLOSED: when strict is ON but `env.EGRESS`
  * is unbound (the [[vpc_networks]] binding is committed commented-out until Cloudflare
@@ -100,7 +104,9 @@ export async function hasStrictGatewayEgress(env: Env): Promise<boolean> {
  *
  * The exemption is **account-scoped** — ONLY the deployment's own account is direct:
  *   - R2:  `<accountId>.r2.cloudflarestorage.com` (+ the `<bucket>.<accountId>.…` vhost form)
- *   - CF API / Browser Rendering: `api.cloudflare.com` path `/client/v4/accounts/<accountId>/…`
+ *   - CF API: `api.cloudflare.com` path `/client/v4/accounts/<accountId>/…` (dormant fallback —
+ *     Browser Rendering normally goes via the per-host CloudflareBrowserInterceptor; this branch
+ *     only ever forwards the container's non-secret placeholder token).
  * ANY OTHER account's R2/CF host falls through to the Gateway (inspected) — this closes
  * the cross-account exfil channel. `gateway.ai.cloudflare.com` is intentionally NOT
  * exempt: the container never reaches it directly (the worker-side LlmInterceptor does).

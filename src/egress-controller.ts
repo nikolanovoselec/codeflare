@@ -15,10 +15,12 @@
  *     STRIPPED and the request is RE-SIGNED with the worker-held R2 key (aws4fetch,
  *     reusing the request's `x-amz-content-sha256` so the body streams through unbuffered
  *     and SSE-C headers are preserved) — so the real R2 key never enters the container.
- *   - own account-scoped CF API / Browser Rendering: transparent passthrough (the scoped
- *     "Browser Rendering - Edit" token rides through in the container per REQ-BROWSER-007).
+ *   - own account-scoped CF API: direct passthrough (dormant fallback — `api.cloudflare.com`
+ *     Browser Rendering is normally claimed by the per-host CloudflareBrowserInterceptor
+ *     (REQ-BROWSER-008), which strips the placeholder + injects the real token and TAKES
+ *     PRECEDENCE over this catch-all, so it does not reach here).
  *
- * WebSocket upgrades (browser-run CDP) are proxied by BRIDGING a fresh `WebSocketPair` to
+ * WebSocket upgrades are proxied by BRIDGING a fresh `WebSocketPair` to
  * the upstream socket (accept both ends, forward frames/close/error) and returning a 101
  * carrying the client end — returning the upstream response as-is does NOT propagate the
  * socket back to the container (it just stalls and is canceled).
@@ -75,11 +77,11 @@ export class EgressController extends WorkerEntrypoint<Env> {
     const accountId = props.accountId;
     const accountScoped = isAccountScopedDestination(url, accountId);
 
-    // WebSocket upgrades (e.g. browser-run CDP at /browser-rendering/devtools/...): bridge a
-    // fresh WebSocketPair to the upstream socket. Forward the original request VERBATIM
-    // (transparent — the scoped Browser Rendering token rides through per REQ-BROWSER-007);
-    // own-account CDP egresses direct via controllerFetch. Returning the upstream response
-    // as-is does not hand the socket back to the container, so we accept+forward both ends.
+    // WebSocket upgrades through the catch-all: bridge a fresh WebSocketPair to the upstream
+    // socket. Forward the original request VERBATIM (transparent proxy). Browser-run's CDP WS
+    // (api.cloudflare.com /browser-rendering/devtools/...) does NOT arrive here — it is claimed
+    // by the per-host CloudflareBrowserInterceptor (REQ-BROWSER-008). Returning the upstream
+    // response as-is does not hand the socket back to the container, so we accept+forward both ends.
     if (request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
       const t0 = Date.now();
       try {

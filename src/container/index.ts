@@ -34,6 +34,9 @@ import { isEnterpriseMode } from '../lib/subscription';
 import { hasStrictGatewayEgress } from '../lib/controller-egress';
 import { INTERCEPTED_LLM_HOSTS } from '../llm-interceptor';
 import { interceptedGithubHosts } from '../github-interceptor';
+import { INTERCEPTED_CF_BROWSER_HOSTS } from '../cloudflare-browser-interceptor';
+import { getEnterpriseBrowserCreds } from '../lib/browser-render-token';
+import { getOrImportKey } from '../lib/kv-crypto';
 import {
   validateBucketNameInput,
   type ContainerEnvState,
@@ -483,6 +486,7 @@ export class container extends Container<Env> implements ContainerEnvState {
     // config (e.g. no AI Gateway) never disables the other.
     await this.wireLlmInterception();
     this.wireGithubInterception(strict);
+    await this.wireCloudflareBrowserInterception(strict);
     this.wireEgressInterception(strict);
   }
 
@@ -560,6 +564,41 @@ export class container extends Container<Env> implements ContainerEnvState {
       this.logger.info('Enterprise GitHub interception wired', { hostCount: hosts.length });
     } catch (err) {
       this.logger.error('Failed to wire enterprise GitHub interception', toError(err));
+    }
+  }
+
+  /**
+   * Wire api.cloudflare.com -> CloudflareBrowserInterceptor (REQ-BROWSER-008). The container
+   * holds only the non-secret CLOUDFLARE_API_TOKEN placeholder; this interceptor strips it and
+   * injects the real admin Browser Rendering token worker-side, but ONLY for the wizard-
+   * configured browser account's /browser-rendering/* path (REST + CDP WebSocket). Wired
+   * independent of `strict` so browser-run works in every enterprise configuration; the per-host
+   * registration takes precedence over the strict-egress catch-all. `strict` is passed so the
+   * interceptor routes any non-browser-rendering api.cloudflare.com call to the Gateway (else 403).
+   *
+   * Resolved once at wiring (no per-request KV/decrypt): the real token + account id are read
+   * worker-side. Skipped when nothing is configured — without the placeholder the container
+   * registers no browser-run, so there is no api.cloudflare.com traffic to intercept.
+   */
+  private async wireCloudflareBrowserInterception(strict: boolean): Promise<void> {
+    try {
+      const cryptoKey = await getOrImportKey(this.env);
+      const { token, accountId } = await getEnterpriseBrowserCreds(this.env, cryptoKey);
+      if (!token || !accountId) {
+        this.logger.info('Enterprise Browser Rendering interception not wired (no admin token/account configured)');
+        return;
+      }
+      const bctx = this.ctx as unknown as {
+        exports: { CloudflareBrowserInterceptor(opts: { props: { browserAccountId?: string; browserToken?: string; strict?: boolean } }): Fetcher };
+        container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
+      };
+      const interceptor = bctx.exports.CloudflareBrowserInterceptor({ props: { browserAccountId: accountId, browserToken: token, strict } });
+      for (const host of INTERCEPTED_CF_BROWSER_HOSTS) {
+        bctx.container?.interceptOutboundHttps(host, interceptor);
+      }
+      this.logger.info('Enterprise Browser Rendering interception wired', { hostCount: INTERCEPTED_CF_BROWSER_HOSTS.length });
+    } catch (err) {
+      this.logger.error('Failed to wire enterprise Browser Rendering interception', toError(err));
     }
   }
 

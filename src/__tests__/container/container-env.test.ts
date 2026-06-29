@@ -238,33 +238,34 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
   });
 
   // REQ-ENTERPRISE-016: when strict Gateway egress is active the real R2 key must NEVER
-  // enter the container — both the AWS_* (rclone S3 provider) and R2_* names get a
-  // non-secret placeholder; the EgressController strips it and re-signs with the
-  // worker-held key at the R2 boundary.
-  it('REQ-ENTERPRISE-016: emits a NON-SECRET placeholder R2 key (both AWS_* and R2_*) when _strictEgress is true (real key never enters the container)', () => {
+  // enter the container — the R2_* names get a non-secret placeholder; the EgressController
+  // strips it and re-signs with the worker-held key at the R2 boundary. (The AWS_*-named
+  // duplicates are no longer emitted in any mode — they had no consumer; see the secret-
+  // hygiene tests in container-env-llm.test.ts.)
+  it('REQ-ENTERPRISE-016: emits a NON-SECRET placeholder R2 key when _strictEgress is true (real key never enters the container); no AWS_*', () => {
     const state = baseState();
     (state as unknown as { _strictEgress: boolean })._strictEgress = true;
     const vars = buildEnvVars(state, baseEnv);
-    expect(vars.AWS_ACCESS_KEY_ID).toBe(ENTERPRISE_R2_KEY_PLACEHOLDER);
-    expect(vars.AWS_SECRET_ACCESS_KEY).toBe(ENTERPRISE_R2_KEY_PLACEHOLDER);
     expect(vars.R2_ACCESS_KEY_ID).toBe(ENTERPRISE_R2_KEY_PLACEHOLDER);
     expect(vars.R2_SECRET_ACCESS_KEY).toBe(ENTERPRISE_R2_KEY_PLACEHOLDER);
-    // The real key from DO state is NOT emitted anywhere.
-    expect(vars.AWS_ACCESS_KEY_ID).not.toBe('AK');
+    // The real key from DO state is NOT emitted; the AWS_* names are gone entirely.
+    expect(vars.R2_ACCESS_KEY_ID).not.toBe('AK');
     expect(vars.R2_SECRET_ACCESS_KEY).not.toBe('SK');
+    expect('AWS_ACCESS_KEY_ID' in vars).toBe(false);
+    expect('AWS_SECRET_ACCESS_KEY' in vars).toBe(false);
     // Non-secret endpoint/account stay real (rclone still targets the right bucket).
     expect(vars.R2_ACCOUNT_ID).toBe('acc');
     expect(vars.R2_ENDPOINT).toBe('https://r2.test');
   });
 
-  // @test buildEnvVars emits the real R2 key verbatim when strict egress is off (byte-identical to today)
-  it('REQ-ENTERPRISE-016: emits the real R2 key verbatim when _strictEgress is falsy (non-enterprise / strict-off unchanged)', () => {
+  // @test buildEnvVars emits the real R2 key verbatim when strict egress is off (byte-identical to today), no AWS_*
+  it('REQ-ENTERPRISE-016: emits the real R2 key verbatim when _strictEgress is falsy (strict-off unchanged); no AWS_*', () => {
     const vars = buildEnvVars(baseState(), baseEnv);
-    expect(vars.AWS_ACCESS_KEY_ID).toBe('AK');
-    expect(vars.AWS_SECRET_ACCESS_KEY).toBe('SK');
     expect(vars.R2_ACCESS_KEY_ID).toBe('AK');
     expect(vars.R2_SECRET_ACCESS_KEY).toBe('SK');
-    expect(vars.AWS_ACCESS_KEY_ID).not.toBe(ENTERPRISE_R2_KEY_PLACEHOLDER);
+    expect(vars.R2_ACCESS_KEY_ID).not.toBe(ENTERPRISE_R2_KEY_PLACEHOLDER);
+    expect('AWS_ACCESS_KEY_ID' in vars).toBe(false);
+    expect('AWS_SECRET_ACCESS_KEY' in vars).toBe(false);
   });
 });
 
