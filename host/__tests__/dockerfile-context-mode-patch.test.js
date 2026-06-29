@@ -32,12 +32,18 @@ describe('Dockerfile context-mode patch (REQ-AGENT-005 AC5 shim + AC8 update-che
     const rawServer = 'var b=2;\n' + bodyWithProbe(UPDATE_PROBE_URL, 1);
     const expectedServer = SHIM + 'var b=2;\n' + bodyWithProbe(DISABLED_PROBE_URL, 1);
     assert.equal(patchContextModeBundle(rawServer), expectedServer);
+    // AC8 safety contract: the disabled target must be a loopback host so the probe
+    // generates no outbound traffic. Parse + check the host (not a substring match)
+    // so a future edit to a routable URL fails here.
+    assert.equal(new URL(DISABLED_PROBE_URL).hostname, '127.0.0.1');
   });
 
   it('AC5: prepends the createRequire shim, preserving a shebang line', () => {
     assert.equal(patchContextModeBundle('var a=1;\n'), SHIM + 'var a=1;\n');
     const shebang = '#!/usr/bin/env node\nvar a=1;\n';
     assert.equal(patchContextModeBundle(shebang), '#!/usr/bin/env node\n' + SHIM + 'var a=1;\n');
+    // Degenerate shebang with no trailing newline: shim still lands after it.
+    assert.equal(patchContextModeBundle('#!/usr/bin/env node'), '#!/usr/bin/env node\n' + SHIM);
   });
 
   it('is idempotent: a second pass adds no duplicate shim and keeps the probe disabled', () => {

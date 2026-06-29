@@ -47,7 +47,9 @@ export function patchContextModeBundle(content) {
   if (!out.includes(SHIM_MARKER)) {
     if (out.startsWith('#!')) {
       const nl = out.indexOf('\n');
-      out = out.slice(0, nl + 1) + SHIM + out.slice(nl + 1);
+      // A shebang with no trailing newline (degenerate, never a real bundle) still
+      // gets the shim AFTER the shebang line, not before it.
+      out = nl === -1 ? out + '\n' + SHIM : out.slice(0, nl + 1) + SHIM + out.slice(nl + 1);
     } else {
       out = SHIM + out;
     }
@@ -71,11 +73,18 @@ function main(dir) {
       console.error('[patch-context-mode] FATAL: ' + f + ' not found; context-mode layout may have changed');
       process.exit(1);
     }
-    const patched = patchContextModeBundle(readFileSync(f, 'utf8'));
-    writeFileSync(f, patched);
-    const head = patched.startsWith('#!') ? patched.slice(patched.indexOf('\n') + 1) : patched;
+    writeFileSync(f, patchContextModeBundle(readFileSync(f, 'utf8')));
+    // Re-read from disk so a truncated/corrupted write is caught too (not just the
+    // in-memory result): the createRequire shim is load-bearing, so verify it landed
+    // at the head, and verify the update-check probe (AC8) was fully removed.
+    const after = readFileSync(f, 'utf8');
+    const head = after.startsWith('#!') ? after.slice(after.indexOf('\n') + 1) : after;
     if (!head.startsWith(SHIM)) {
       console.error('[patch-context-mode] FATAL: createRequire shim missing after patch in ' + name);
+      process.exit(1);
+    }
+    if (after.split(UPDATE_PROBE_URL).length !== 1) {
+      console.error('[patch-context-mode] FATAL: update-check probe still present in ' + name + ' after patch');
       process.exit(1);
     }
     console.log('[patch-context-mode] patched ' + name + ' (createRequire shim + update-check disabled)');
