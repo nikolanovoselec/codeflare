@@ -98,6 +98,7 @@ export interface Env {
   // Default to public github.com / api.github.com.
   GITHUB_HOST?: string;       // web host for OAuth authorize/token (default github.com)
   GITHUB_API_HOST?: string;   // REST API host (default api.github.com)
+  GITHUB_COPILOT_MCP_HOST?: string; // Copilot remote GitHub MCP host (default api.githubcopilot.com)
 
   // Timekeeper Durable Object for per-user usage tracking
   TIMEKEEPER?: DurableObjectNamespace;

@@ -1320,9 +1320,11 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(GitHubInterceptor).toHaveBeenCalledWith({
         props: { user: 'nikola@novoselec.ch', bucket: 'codeflare-enterprise-nikola-novoselec-ch' },
       });
-      // Both github hosts route to the github fetcher (never the llm fetcher).
+      // All github hosts route to the github fetcher (never the llm fetcher),
+      // including Copilot's remote MCP host so its github-mcp-server is authed.
       expect(interceptOutboundHttps).toHaveBeenCalledWith('github.com', githubFetcher);
       expect(interceptOutboundHttps).toHaveBeenCalledWith('api.github.com', githubFetcher);
+      expect(interceptOutboundHttps).toHaveBeenCalledWith('api.githubcopilot.com', githubFetcher);
     });
 
     it('REQ-GITHUB-003: still wires GitHub interception when the AI gateway is unconfigured (independent transports)', async () => {

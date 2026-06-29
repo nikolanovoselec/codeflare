@@ -121,6 +121,36 @@ describe('REQ-GITHUB-003: git Smart-HTTP credential injection', () => {
   });
 });
 
+describe('REQ-GITHUB-003: Copilot remote GitHub MCP credential injection', () => {
+  it('includes api.githubcopilot.com in the intercepted host set', () => {
+    expect(interceptedGithubHosts(makeEnv())).toContain('api.githubcopilot.com');
+  });
+
+  it('stamps Authorization: Bearer <real token> on api.githubcopilot.com/mcp (not git Basic), strips the placeholder, sets no API-version header', async () => {
+    await connect('gho_real_secret');
+    const res = await makeInterceptor().fetch(
+      new Request('https://api.githubcopilot.com/mcp', {
+        method: 'POST',
+        headers: { Authorization: 'token codeflare-enterprise', 'content-type': 'application/json' },
+        body: '{"jsonrpc":"2.0","method":"initialize"}',
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(lastFetch?.url).toBe('https://api.githubcopilot.com/mcp');
+    expect(lastFetch?.headers.get('authorization')).toBe('Bearer gho_real_secret');
+    // MCP uses Bearer, never the git Basic format, and carries no REST API version.
+    expect(lastFetch?.headers.get('authorization')?.startsWith('Basic ')).toBe(false);
+    expect(lastFetch?.headers.has('x-github-api-version')).toBe(false);
+  });
+
+  it('relays the upstream response body (SSE / Streamable-HTTP transport)', async () => {
+    await connect('gho_real_secret');
+    const res = await makeInterceptor().fetch(new Request('https://api.githubcopilot.com/mcp'));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('upstream-ok');
+  });
+});
+
 describe('REQ-GITHUB-003: fail closed', () => {
   it('returns 401 and makes NO upstream fetch when the user is not connected', async () => {
     const res = await makeInterceptor().fetch(new Request('https://api.github.com/user'));

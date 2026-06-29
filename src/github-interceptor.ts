@@ -2,7 +2,8 @@
  * GitHubInterceptor — enterprise-mode outbound GitHub credential injection (REQ-GITHUB-003).
  *
  * A WorkerEntrypoint the container DO wires into container egress for the GitHub
- * hosts (github.com + api.github.com) via `ctx.container.interceptOutboundHttps`
+ * hosts (github.com + api.github.com + Copilot's api.githubcopilot.com MCP) via
+ * `ctx.container.interceptOutboundHttps`
  * (see src/container/index.ts wireGithubInterception). The container holds only a
  * NON-SECRET placeholder GH_TOKEN, so git / `gh` / Copilot's GitHub features run
  * in authed mode but never possess the real credential. Each intercepted request
@@ -40,10 +41,20 @@ function gitWebHost(env: Env): string {
 function gitApiHost(env: Env): string {
   return env.GITHUB_API_HOST?.trim() || 'api.github.com';
 }
+/**
+ * Copilot's remote GitHub MCP host (`api.githubcopilot.com`, path `/mcp`). Copilot
+ * CLI's built-in `github-mcp-server` dials this and authenticates with a GitHub
+ * Bearer token. Without interception the connection rides the strict-egress catch-all
+ * to the Gateway unauthenticated and the MCP handshake fails ("Failed to connect to
+ * MCP server github-mcp-server"). Env-overridable for GHES / Copilot-Enterprise hosts.
+ */
+function gitCopilotMcpHost(env: Env): string {
+  return env.GITHUB_COPILOT_MCP_HOST?.trim() || 'api.githubcopilot.com';
+}
 
 /** Hosts the DO intercepts for enterprise GitHub credential injection (deduped). */
 export function interceptedGithubHosts(env: Env): string[] {
-  return [...new Set([gitWebHost(env), gitApiHost(env)])];
+  return [...new Set([gitWebHost(env), gitApiHost(env), gitCopilotMcpHost(env)])];
 }
 
 /**
@@ -98,6 +109,7 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const apiHost = gitApiHost(this.env);
+    const mcpHost = gitCopilotMcpHost(this.env);
     if (!interceptedGithubHosts(this.env).includes(url.hostname)) {
       // An unmapped host reaching here is a wiring misconfiguration; fail closed.
       return jsonError(400, 'BAD_HOST', 'Unsupported GitHub host');
@@ -147,6 +159,11 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
       // client did not pin its own, so a client-chosen version is honoured).
       headers.set('authorization', `Bearer ${token}`);
       if (!headers.has('x-github-api-version')) headers.set('x-github-api-version', GITHUB_API_VERSION);
+    } else if (url.hostname === mcpHost) {
+      // Copilot's remote GitHub MCP (api.githubcopilot.com/mcp): Bearer auth, no REST
+      // API version header. Without this the MCP connection rides the strict-egress
+      // catch-all to the Gateway unauthenticated and the handshake fails (REQ-GITHUB-003).
+      headers.set('authorization', `Bearer ${token}`);
     } else {
       // git Smart HTTP over HTTPS: Basic x-access-token:<token> — matches the
       // container credential helper's `username=x-access-token` convention
