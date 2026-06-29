@@ -38,6 +38,8 @@ export const SetBucketNameBodySchema = z.object({
   routeCatalog: z.array(z.string()).optional(),
   defaultRoute: z.string().optional(),
   defaultReasoning: z.string().optional(),
+  /** REQ-ENTERPRISE-012: per-route context window map (route name -> positive token count). */
+  routeContextWindows: z.record(z.string(), z.number().int().positive()).optional(),
   /** REQ-MEM-001 AC4: forward the user's IANA timezone to the container. */
   userTimezone: z.string().optional(),
   /** REQ-GITHUB-004: one-shot GitHub clone directive (repo owner/name + optional ref). */

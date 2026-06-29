@@ -2273,9 +2273,22 @@ COPILOT_BYOK_EOF
     # unpinned, container stays up", never a dead container — so the `|| OK=0`
     # guards keep set -e from aborting and we skip the pin on any jq failure.
     PI_GATEWAY_CONFIG_OK=1
-    PI_MODELS_ARRAY="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -c --arg defroute "$ENTERPRISE_DEFAULT_ROUTE" '
+    # contextWindow (REQ-ENTERPRISE-012): a dynamic route's underlying model is not
+    # introspectable over the chat/completions API, so Pi falls back to its built-in 128k
+    # default unless we declare it. The admin configures a per-route window in the Setup
+    # wizard; the Worker fans it as ENTERPRISE_ROUTE_CONTEXT_WINDOWS (JSON map route->tokens).
+    # Each model entry gets its route's window, or DEFAULT (256000, mirrors
+    # DEFAULT_ROUTE_CONTEXT_WINDOW) when the route has no entry. Declaring at-or-below the
+    # real model window keeps Pi's proactive compaction firing before the provider's hard
+    # context limit. Default the var to {} (set -u safe); a malformed map trips the jq
+    # guard below (|| OK=0 -> Pi unpinned, container stays up).
+    ENTERPRISE_ROUTE_CONTEXT_WINDOWS="${ENTERPRISE_ROUTE_CONTEXT_WINDOWS:-{}}"
+    PI_MODELS_ARRAY="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -c \
+        --arg defroute "$ENTERPRISE_DEFAULT_ROUTE" \
+        --argjson cw "$ENTERPRISE_ROUTE_CONTEXT_WINDOWS" \
+        --argjson dflt 256000 '
         (if type=="array" and length>0 then . else [$defroute] end)
-        | map({ id: ., reasoning: true, input: ["text", "image"] })' 2>/dev/null)" || PI_GATEWAY_CONFIG_OK=0
+        | map({ id: ., reasoning: true, input: ["text", "image"], contextWindow: ($cw[.] // $dflt) })' 2>/dev/null)" || PI_GATEWAY_CONFIG_OK=0
     PI_PROVIDER_CONFIG=""
     if [ "$PI_GATEWAY_CONFIG_OK" = "1" ]; then
         PI_PROVIDER_CONFIG="$(jq -n \
@@ -2330,6 +2343,15 @@ COPILOT_BYOK_EOF
         echo "$PI_SETTINGS_CFG" | jq '.' > "$PI_SETTINGS_JSON"
     fi
     echo "[entrypoint] Enterprise Mode: Pi pinned to codeflare-gateway/$ENTERPRISE_DEFAULT_ROUTE (default provider + model; catalog has all routes)"
+
+    # Routes-only model picker: clear ~/.pi/agent/auth.json so NO built-in provider is
+    # authenticated. Pi only lists a provider in /model when it has auth; codeflare-gateway
+    # authenticates via the models.json apiKey placeholder (NOT auth.json), so emptying
+    # auth.json leaves the dynamic routes as the only selectable models. Authoritative on
+    # every enterprise start so a restored/synced home dir cannot reintroduce a built-in
+    # provider's stored token (e.g. the seeded openai-codex entry).
+    echo '{}' > "$USER_HOME/.pi/agent/auth.json"
+    echo "[entrypoint] Enterprise Mode: cleared Pi auth.json (routes-only model picker)"
 fi
 
 # Configure context-mode MCP server. (Implements REQ-AGENT-005)

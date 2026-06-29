@@ -605,9 +605,34 @@ export async function resolveAdminAccessGroup(request: Request, env: Env): Promi
 export async function loadEnterpriseRouteConfig(
   env: Env,
   groups?: string[],
-): Promise<{ routeCatalog: string[]; defaultRoute: string; defaultReasoning: string }> {
-  if (!isEnterpriseMode(env)) return { routeCatalog: [], defaultRoute: '', defaultReasoning: '' };
-  return resolveRouteCatalog(env.KV, groups);
+): Promise<{ routeCatalog: string[]; defaultRoute: string; defaultReasoning: string; routeContextWindows: Record<string, number> }> {
+  if (!isEnterpriseMode(env)) return { routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {} };
+  const resolved = await resolveRouteCatalog(env.KV, groups);
+  return { ...resolved, routeContextWindows: await loadRouteContextWindows(env.KV) };
+}
+
+/**
+ * REQ-ENTERPRISE-012: the global per-route context-window map (route name -> tokens),
+ * persisted under SETUP_KEYS.ROUTE_CONTEXT_WINDOWS. Keyed by route name (not group), so
+ * it applies to whatever catalog a session resolves. Validated at the boundary: only
+ * positive-integer values survive; a malformed/absent value degrades to an empty map
+ * (entrypoint then falls back to DEFAULT_ROUTE_CONTEXT_WINDOW for every route).
+ */
+async function loadRouteContextWindows(kv: KVNamespace): Promise<Record<string, number>> {
+  try {
+    const raw = await kv.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const out: Record<string, number> = {};
+      for (const [route, win] of Object.entries(parsed)) {
+        if (typeof win === 'number' && Number.isInteger(win) && win > 0) out[route] = win;
+      }
+      return out;
+    }
+  } catch {
+    /* malformed -> empty, entrypoint applies the per-route default */
+  }
+  return {};
 }
 
 /** Per-group routing entry persisted under SETUP_KEYS.GROUP_ROUTING (REQ-ENTERPRISE-013). */

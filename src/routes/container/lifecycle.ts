@@ -260,6 +260,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       routeCatalog: routeConfig.routeCatalog,
       defaultRoute: routeConfig.defaultRoute,
       defaultReasoning: routeConfig.defaultReasoning,
+      routeContextWindows: routeConfig.routeContextWindows,
       scopedCreds,
       r2Config,
       tabConfig,

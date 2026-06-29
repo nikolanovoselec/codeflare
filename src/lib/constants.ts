@@ -104,6 +104,17 @@ export const ENTERPRISE_GH_TOKEN_PLACEHOLDER = 'codeflare-enterprise';
  */
 export const ENTERPRISE_R2_KEY_PLACEHOLDER = 'codeflare-enterprise';
 
+/**
+ * REQ-ENTERPRISE-012: default per-route context window (tokens) for an enterprise
+ * dynamic route. The Setup wizard prefills each route's context-window field with
+ * this value and the admin can raise it (e.g. a 1M-context BYOK model) or reset back
+ * to it. entrypoint.sh uses it as the fallback when a route has no configured window.
+ * 256000 is the safe floor across the current Workers-AI route models (kimi-k2.6
+ * 262144 / gemma-4-26b 256000); declaring at-or-below the real model window keeps Pi's
+ * proactive compaction firing before the provider's hard context limit.
+ */
+export const DEFAULT_ROUTE_CONTEXT_WINDOW = 256000;
+
 /** Default max concurrent running sessions for regular users */
 const DEFAULT_MAX_SESSIONS_USER = 3;
 

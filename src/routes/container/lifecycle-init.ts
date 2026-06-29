@@ -79,6 +79,9 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
       routeCatalog: params.routeCatalog,
       defaultRoute: params.defaultRoute ?? '',
       defaultReasoning: params.defaultReasoning ?? '',
+      // REQ-ENTERPRISE-012: forward the per-route context-window map alongside the
+      // catalog so buildEnvVars fans it for entrypoint's Pi models.json.
+      ...(params.routeContextWindows && Object.keys(params.routeContextWindows).length > 0 && { routeContextWindows: params.routeContextWindows }),
     }),
     // REQ-MEM-001 AC4: forward the user's IANA timezone so the capture
     // pipeline's TZ resolution produces wall-clock filenames matching

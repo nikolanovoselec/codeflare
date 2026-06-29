@@ -1,5 +1,5 @@
 import { Component, For, Show, onMount } from 'solid-js';
-import { setupStore } from '../../stores/setup';
+import { setupStore, DEFAULT_ROUTE_CONTEXT_WINDOW } from '../../stores/setup';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 import ChipListField from '../ui/ChipListField';
@@ -199,6 +199,45 @@ const ConfigureStep: Component = () => {
             onAdd={addRoute}
             onRemove={(name) => setupStore.removeDynamicRoute(name)}
           />
+
+          {/* REQ-ENTERPRISE-012: per-route context window (tokens). A route's underlying
+              model is not introspectable, so the admin sets the window that matches it.
+              Defaults to DEFAULT_ROUTE_CONTEXT_WINDOW; editable and resettable. */}
+          <Show when={setupStore.dynamicRoutes.length > 0}>
+            <div class="setup-field">
+              <label class="setup-field-label">Context Window (per route)</label>
+              <p class="setup-field-description">
+                Tokens each route's model can hold. Defaults to {DEFAULT_ROUTE_CONTEXT_WINDOW.toLocaleString()}; raise it for a large-context model (e.g. a 1M-context model) or reset to the default.
+              </p>
+              <For each={setupStore.dynamicRoutes}>
+                {(name) => (
+                  <div class="route-cw-row" data-testid={`route-cw-${name}`}>
+                    <span class="route-cw-name">{name}</span>
+                    <input
+                      class="route-cw-input"
+                      type="number"
+                      min="1"
+                      step="1"
+                      data-testid={`route-cw-input-${name}`}
+                      value={setupStore.routeContextWindows[name] ?? DEFAULT_ROUTE_CONTEXT_WINDOW}
+                      onInput={(e) => {
+                        const n = Number(e.currentTarget.value);
+                        setupStore.setRouteContextWindow(name, Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_ROUTE_CONTEXT_WINDOW);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      class="route-cw-reset"
+                      data-testid={`route-cw-reset-${name}`}
+                      onClick={() => setupStore.resetRouteContextWindow(name)}
+                    >
+                      Reset
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
 
           {/* Feature C: optional default route + reasoning level. Shown only when no
               Access groups exist — once groups are added, routing is configured

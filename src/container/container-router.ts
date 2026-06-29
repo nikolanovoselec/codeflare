@@ -39,6 +39,9 @@ interface SetBucketNameBody {
   routeCatalog?: string[];
   defaultRoute?: string;
   defaultReasoning?: string;
+  // REQ-ENTERPRISE-012: per-route context window (route name -> tokens) forwarded by
+  // the Worker; applyBucketName persists it and buildEnvVars fans ENTERPRISE_ROUTE_CONTEXT_WINDOWS.
+  routeContextWindows?: Record<string, number>;
   r2AccessKeyId?: string;
   r2SecretAccessKey?: string;
   r2AccountId?: string;
@@ -154,7 +157,7 @@ export function dispatchInternalRoute(
 /** Handle POST /_internal/setBucketName. */
 async function handleSetBucketName(host: ContainerHost, request: Request): Promise<Response> {
   try {
-    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, r2SseDisabled, sessionMode, userTimezone, gitCloneRepo, gitCloneRef, sleepAfter: sleepAfterPref } =
+    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, routeContextWindows, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, r2SseDisabled, sessionMode, userTimezone, gitCloneRepo, gitCloneRef, sleepAfter: sleepAfterPref } =
       await request.json() as SetBucketNameBody;
 
     // FIX-28: Idempotency - once bucket name is set, reject subsequent calls.
@@ -164,7 +167,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       // Update user preferences on restart even though bucket is already set.
       // Without this, preference changes made between sessions are lost.
       const prefsChanged = await applyPrefsOnRestart(host, host.ctx.storage, {
-        sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning,
+        sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, routeContextWindows,
         workspaceSyncEnabled, fastStartEnabled, tabConfig,
         openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId,
         encryptionKey, r2SseDisabled, sessionMode, userTimezone,
@@ -242,6 +245,11 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       if (defaultReasoning !== undefined) {
         await host.ctx.storage.put('defaultReasoning', defaultReasoning);
         host._defaultReasoning = defaultReasoning;
+      }
+      // REQ-ENTERPRISE-012: per-route context windows travel as a unit with the catalog.
+      if (routeContextWindows !== undefined) {
+        await host.ctx.storage.put('routeContextWindows', routeContextWindows);
+        host._routeContextWindows = routeContextWindows;
       }
     }
 

@@ -69,6 +69,10 @@ const ConfigureBodySchema = z.object({
     .object({ route: accessNameSchema, reasoning: reasoningSchema })
     .nullable()
     .optional(),
+  // REQ-ENTERPRISE-012: per-route context window map (route name -> positive token
+  // count). Sent for the catalog routes; entrypoint defaults any unlisted route to
+  // DEFAULT_ROUTE_CONTEXT_WINDOW.
+  routeContextWindows: z.record(accessNameSchema, z.number().int().positive()).optional(),
   // REQ-BROWSER-007 (enterprise-only): the admin-global Cloudflare Browser Rendering
   // token + account id used by every enterprise session's browser-run. The token is
   // masked on prefill; a blank/masked value on save leaves the stored token in place.
@@ -188,7 +192,7 @@ app.post('/configure', async (c) => {
   // Validate body synchronously before starting the stream
   const body = await parseJsonBody(c, ConfigureBodySchema);
 
-  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled } = body;
+  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled } = body;
   const token = c.env.CLOUDFLARE_API_TOKEN;
 
   // During reconfiguration, prevent admin from removing themselves
@@ -421,7 +425,7 @@ app.post('/configure', async (c) => {
         // Model routing: the gateway dynamic-route catalog + default route+reasoning
         // (Feature C) and the per-group routing map (REQ-ENTERPRISE-013). Stored as JSON;
         // group routing is cleared when empty.
-        if (dynamicRoutes !== undefined || defaultRoute !== undefined || groupRouting !== undefined) {
+        if (dynamicRoutes !== undefined || defaultRoute !== undefined || groupRouting !== undefined || routeContextWindows !== undefined) {
           await runStep('configure_model_routing', async () => {
             if (dynamicRoutes !== undefined) {
               await c.env.KV.put(SETUP_KEYS.DYNAMIC_ROUTES, JSON.stringify(dynamicRoutes));
@@ -429,6 +433,11 @@ app.post('/configure', async (c) => {
             if (defaultRoute !== undefined) {
               if (defaultRoute) await c.env.KV.put(SETUP_KEYS.DEFAULT_ROUTE, JSON.stringify(defaultRoute));
               else await c.env.KV.delete(SETUP_KEYS.DEFAULT_ROUTE);
+            }
+            // REQ-ENTERPRISE-012: per-route context windows; cleared when empty.
+            if (routeContextWindows !== undefined) {
+              if (Object.keys(routeContextWindows).length > 0) await c.env.KV.put(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, JSON.stringify(routeContextWindows));
+              else await c.env.KV.delete(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS);
             }
             if (groupRouting !== undefined) {
               if (Object.keys(groupRouting).length > 0) await c.env.KV.put(SETUP_KEYS.GROUP_ROUTING, JSON.stringify(groupRouting));

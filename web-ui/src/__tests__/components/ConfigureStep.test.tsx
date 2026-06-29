@@ -12,6 +12,7 @@ const storeState = vi.hoisted(() => ({
   enterpriseAccessGroups: [] as string[],
   adminAccessGroups: [] as string[],
   dynamicRoutes: [] as string[],
+  routeContextWindows: {} as Record<string, number>,
   defaultRouteName: '',
   defaultRouteReasoning: 'off' as 'off' | 'low' | 'medium' | 'high',
   cloudflareBrowserToken: '',
@@ -48,6 +49,8 @@ const storeMethods = vi.hoisted(() => ({
   removeAdminAccessGroup: vi.fn((name: string) => { storeState.adminAccessGroups = storeState.adminAccessGroups.filter(g => g !== name); }),
   addDynamicRoute: vi.fn((name: string) => { storeState.dynamicRoutes.push(name); }),
   removeDynamicRoute: vi.fn((name: string) => { storeState.dynamicRoutes = storeState.dynamicRoutes.filter(r => r !== name); }),
+  setRouteContextWindow: vi.fn((name: string, tokens: number) => { storeState.routeContextWindows[name] = tokens; }),
+  resetRouteContextWindow: vi.fn((name: string) => { storeState.routeContextWindows[name] = 256000; }),
   setDefaultRouteName: vi.fn((name: string) => { storeState.defaultRouteName = name; }),
   setDefaultRouteReasoning: vi.fn((level: 'off' | 'low' | 'medium' | 'high') => { storeState.defaultRouteReasoning = level; }),
   setCloudflareBrowserToken: vi.fn((val: string) => { storeState.cloudflareBrowserToken = val; }),
@@ -83,6 +86,7 @@ vi.mock('../../stores/setup', () => ({
     get enterpriseAccessGroups() { return storeState.enterpriseAccessGroups; },
     get adminAccessGroups() { return storeState.adminAccessGroups; },
     get dynamicRoutes() { return storeState.dynamicRoutes; },
+    get routeContextWindows() { return storeState.routeContextWindows; },
     get defaultRouteName() { return storeState.defaultRouteName; },
     get defaultRouteReasoning() { return storeState.defaultRouteReasoning; },
     get cloudflareBrowserToken() { return storeState.cloudflareBrowserToken; },
@@ -107,6 +111,9 @@ vi.mock('../../stores/setup', () => ({
     get groupRouting() { return storeState.groupRouting; },
     ...storeMethods,
   },
+  // The component imports this constant alongside the store; the mock must export it
+  // or the per-route field renders `undefined.toLocaleString()` and crashes.
+  DEFAULT_ROUTE_CONTEXT_WINDOW: 256000,
 }));
 
 vi.mock('../../components/Icon', () => ({
@@ -127,6 +134,7 @@ describe('ConfigureStep', () => {
     storeState.enterpriseAccessGroups = [];
     storeState.adminAccessGroups = [];
     storeState.dynamicRoutes = [];
+    storeState.routeContextWindows = {};
     storeState.defaultRouteName = '';
     storeState.defaultRouteReasoning = 'off';
     storeState.cloudflareBrowserToken = '';
@@ -236,6 +244,57 @@ describe('ConfigureStep', () => {
       storeState.dynamicRoutes = ['development'];
       render(() => <ConfigureStep />);
       expect(document.querySelector('.group-routing-card')).toBeNull();
+    });
+  });
+
+  // REQ-ENTERPRISE-012: per-route context window editor.
+  describe('Per-route context window (REQ-ENTERPRISE-012)', () => {
+    it('renders one context-window input per dynamic route, prefilled from the store', () => {
+      storeState.enterpriseMode = true;
+      storeState.dynamicRoutes = ['development', 'prod'];
+      storeState.routeContextWindows = { development: 262144, prod: 1048576 };
+      render(() => <ConfigureStep />);
+
+      const dev = screen.getByTestId('route-cw-input-development') as HTMLInputElement;
+      const prod = screen.getByTestId('route-cw-input-prod') as HTMLInputElement;
+      expect(dev.value).toBe('262144');
+      expect(prod.value).toBe('1048576');
+    });
+
+    it('falls back to the default window when a route has no stored value', () => {
+      storeState.enterpriseMode = true;
+      storeState.dynamicRoutes = ['development'];
+      storeState.routeContextWindows = {};
+      render(() => <ConfigureStep />);
+
+      const dev = screen.getByTestId('route-cw-input-development') as HTMLInputElement;
+      expect(dev.value).toBe('256000');
+    });
+
+    it('does not render the context-window editor when there are no routes', () => {
+      storeState.enterpriseMode = true;
+      storeState.dynamicRoutes = [];
+      render(() => <ConfigureStep />);
+      expect(screen.queryByTestId('route-cw-input-development')).not.toBeInTheDocument();
+    });
+
+    it('routes an edit to setRouteContextWindow with the parsed integer', () => {
+      storeState.enterpriseMode = true;
+      storeState.dynamicRoutes = ['development'];
+      render(() => <ConfigureStep />);
+
+      const input = screen.getByTestId('route-cw-input-development');
+      fireEvent.input(input, { target: { value: '512000' } });
+      expect(storeMethods.setRouteContextWindow).toHaveBeenCalledWith('development', 512000);
+    });
+
+    it('routes the Reset button to resetRouteContextWindow', () => {
+      storeState.enterpriseMode = true;
+      storeState.dynamicRoutes = ['development'];
+      render(() => <ConfigureStep />);
+
+      fireEvent.click(screen.getByTestId('route-cw-reset-development'));
+      expect(storeMethods.resetRouteContextWindow).toHaveBeenCalledWith('development');
     });
   });
 

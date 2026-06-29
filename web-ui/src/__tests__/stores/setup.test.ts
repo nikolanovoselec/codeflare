@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { setupStore } from '../../stores/setup';
+import { setupStore, DEFAULT_ROUTE_CONTEXT_WINDOW } from '../../stores/setup';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -303,6 +303,29 @@ describe('Setup Store', () => {
       expect(setupStore.dynamicRoutes).toEqual(['prod']);
     });
 
+    // REQ-ENTERPRISE-012: each route carries an admin-editable context window.
+    it('seeds a new dynamic route with the default context window', () => {
+      setupStore.addDynamicRoute('development');
+      expect(setupStore.routeContextWindows['development']).toBe(DEFAULT_ROUTE_CONTEXT_WINDOW);
+    });
+
+    it('drops a route context-window entry when the route is removed', () => {
+      setupStore.addDynamicRoute('development');
+      expect(setupStore.routeContextWindows).toHaveProperty('development');
+
+      setupStore.removeDynamicRoute('development');
+      expect(setupStore.routeContextWindows).not.toHaveProperty('development');
+    });
+
+    it('sets and resets a per-route context window', () => {
+      setupStore.addDynamicRoute('development');
+      setupStore.setRouteContextWindow('development', 1048576);
+      expect(setupStore.routeContextWindows['development']).toBe(1048576);
+
+      setupStore.resetRouteContextWindow('development');
+      expect(setupStore.routeContextWindows['development']).toBe(DEFAULT_ROUTE_CONTEXT_WINDOW);
+    });
+
     it('should clear the default route name when the default route is removed', () => {
       setupStore.addDynamicRoute('development');
       setupStore.setDefaultRouteName('development');
@@ -506,6 +529,7 @@ describe('Setup Store', () => {
               enterpriseAccessGroup: ['team_a'],
               adminAccessGroup: ['ops_admins'],
               dynamicRoutes: ['development', 'prod'],
+              routeContextWindows: { development: 262144 },
               githubProviderType: 'oauth',
               githubOauthClientId: 'stored-oauth-id',
               githubOauthClientSecretSet: true,
@@ -533,6 +557,10 @@ describe('Setup Store', () => {
       });
       // REQ-ENTERPRISE-014: admin groups round-trip from prefill, separate from routing.
       expect(setupStore.adminAccessGroups).toEqual(['ops_admins']);
+      // REQ-ENTERPRISE-012: stored windows hydrate; a route with no stored window
+      // is back-filled with the default so every route has an editable value.
+      expect(setupStore.routeContextWindows['development']).toBe(262144);
+      expect(setupStore.routeContextWindows['prod']).toBe(DEFAULT_ROUTE_CONTEXT_WINDOW);
     });
   });
 

@@ -49,6 +49,8 @@ export interface ContainerEnvState {
   _defaultRoute: string | null;
   /** REQ-ENTERPRISE-005 (revised): the default route's reasoning grade (Pi defaultThinkingLevel). */
   _defaultReasoning: string | null;
+  /** REQ-ENTERPRISE-012: per-route context window (route name -> tokens) for Pi models.json. */
+  _routeContextWindows: Record<string, number>;
   /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   _userTimezone: string | null;
   /** REQ-GITHUB-004: GitHub repo (owner/name) to clone at container start. */
@@ -65,6 +67,7 @@ interface RestartPrefsInput {
   routeCatalog?: string[];
   defaultRoute?: string;
   defaultReasoning?: string;
+  routeContextWindows?: Record<string, number>;
   workspaceSyncEnabled?: boolean;
   fastStartEnabled?: boolean;
   tabConfig?: TabConfig[];
@@ -217,9 +220,16 @@ export function buildEnvVars(
   });
 
   return {
-    // R2 credentials - AWS naming convention for rclone S3 provider compatibility
-    AWS_ACCESS_KEY_ID: accessKeyId,
-    AWS_SECRET_ACCESS_KEY: secretAccessKey,
+    // R2 credentials. The AWS_*-named duplicates exist only for S3-client naming
+    // compatibility, but rclone reads its creds from rclone.conf (built from R2_* via
+    // entrypoint.sh), so AWS_* are redundant. In enterprise their mere presence makes
+    // Pi's built-in amazon-bedrock provider appear (Pi auths it from the AWS env),
+    // polluting /model with a non-route model. Suppress AWS_* in enterprise so the
+    // picker is routes-only; non-enterprise keeps them, byte-identical to today.
+    ...(!isEnterpriseMode(env) && {
+      AWS_ACCESS_KEY_ID: accessKeyId,
+      AWS_SECRET_ACCESS_KEY: secretAccessKey,
+    }),
     // R2 configuration
     R2_ACCESS_KEY_ID: accessKeyId,
     R2_SECRET_ACCESS_KEY: secretAccessKey,
@@ -267,8 +277,12 @@ export function buildEnvVars(
       (isEnterpriseMode(env)
         ? { GH_TOKEN: ENTERPRISE_GH_TOKEN_PLACEHOLDER }
         : { GH_TOKEN: state._githubToken })),
-    ...(state._cloudflareApiToken && { CLOUDFLARE_API_TOKEN: state._cloudflareApiToken }),
-    ...(state._cloudflareAccountId && { CLOUDFLARE_ACCOUNT_ID: state._cloudflareAccountId }),
+    // Cloudflare deploy creds: Connect-to-Cloudflare does not exist in enterprise, so
+    // these must never enter the enterprise container — mirror the OpenAI/Gemini
+    // suppression above (omit entirely; the feature is absent, so no placeholder is
+    // needed). Non-enterprise is byte-identical to today.
+    ...(!isEnterpriseMode(env) && state._cloudflareApiToken && { CLOUDFLARE_API_TOKEN: state._cloudflareApiToken }),
+    ...(!isEnterpriseMode(env) && state._cloudflareAccountId && { CLOUDFLARE_ACCOUNT_ID: state._cloudflareAccountId }),
     // REQ-GITHUB-004: one-shot clone directive. entrypoint.sh clones the repo
     // into $USER_WORKSPACE/<repo-name> at start (after the git credential helper
     // is configured, before the agent autostarts), refusing on a name collision.
@@ -304,6 +318,11 @@ export function buildEnvVars(
     ...(isEnterpriseMode(env) && state._routeCatalog.length > 0 && { ENTERPRISE_ROUTE_CATALOG: JSON.stringify(state._routeCatalog) }),
     ...(isEnterpriseMode(env) && state._defaultRoute && { ENTERPRISE_DEFAULT_ROUTE: state._defaultRoute }),
     ...(isEnterpriseMode(env) && state._defaultReasoning && { ENTERPRISE_DEFAULT_REASONING: state._defaultReasoning }),
+    // REQ-ENTERPRISE-012: per-route context-window map (route name -> tokens), a
+    // non-secret routing hint. entrypoint.sh sets each Pi model's contextWindow from
+    // it (falling back to DEFAULT_ROUTE_CONTEXT_WINDOW per route). Emitted only when
+    // enterprise AND configured, so a non-enterprise/unconfigured env is byte-identical.
+    ...(isEnterpriseMode(env) && Object.keys(state._routeContextWindows).length > 0 && { ENTERPRISE_ROUTE_CONTEXT_WINDOWS: JSON.stringify(state._routeContextWindows) }),
   };
 }
 
@@ -552,6 +571,14 @@ export async function applyPrefsOnRestart(
     await storage.put('defaultReasoning', input.defaultReasoning);
     changed = true;
     logger.info('Updated defaultReasoning on restart', { defaultReasoning: input.defaultReasoning });
+  }
+  // REQ-ENTERPRISE-012: value-equality compare on the map (a reference !== compare
+  // would churn storage every restart), mirroring routeCatalog above.
+  if (input.routeContextWindows && JSON.stringify(input.routeContextWindows) !== JSON.stringify(state._routeContextWindows)) {
+    state._routeContextWindows = input.routeContextWindows;
+    await storage.put('routeContextWindows', input.routeContextWindows);
+    changed = true;
+    logger.info('Updated routeContextWindows on restart', { routeContextWindows: input.routeContextWindows });
   }
 
   return changed;

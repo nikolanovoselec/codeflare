@@ -167,6 +167,13 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
     try {
       groupRouting = (await c.env.KV.get<Record<string, { routes: string[]; defaultRoute: string; reasoning: string }>>(SETUP_KEYS.GROUP_ROUTING, 'json')) ?? {};
     } catch { /* malformed stored JSON → wizard starts from empty */ }
+    // REQ-ENTERPRISE-012: surface the per-route context-window map so the wizard
+    // prefills each route's field (the wizard fills DEFAULT_ROUTE_CONTEXT_WINDOW for any
+    // route absent from this map).
+    let routeContextWindows: Record<string, number> = {};
+    try {
+      routeContextWindows = (await c.env.KV.get<Record<string, number>>(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, 'json')) ?? {};
+    } catch { /* malformed stored JSON → wizard starts from empty */ }
     // REQ-ENTERPRISE-016: surface the strict gateway egress toggle (default OFF on absent).
     const strictGatewayEgress = (await c.env.KV.get(SETUP_KEYS.STRICT_EGRESS)) === 'active';
     // REQ-ENTERPRISE-018: surface the Governed Mode (R2 SSE-C disable) toggle (default OFF).
@@ -175,7 +182,7 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
     const downloadsDisabled = (await c.env.KV.get(SETUP_KEYS.DOWNLOADS_DISABLED)) === 'active';
     enterpriseExtras = {
       ...enterpriseExtras,
-      enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, browserRenderTokenSet, browserRenderAccountId,
+      enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, browserRenderTokenSet, browserRenderAccountId,
       aigGatewayUrl, aigTokenSet, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled,
     };
   }

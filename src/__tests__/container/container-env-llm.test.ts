@@ -50,6 +50,7 @@ function baseState(): ContainerEnvState {
     _routeCatalog: [],
     _defaultRoute: null,
     _defaultReasoning: null,
+    _routeContextWindows: {},
     _userTimezone: null,
     // Cast covers ContainerEnvState fields this enterprise-LLM fixture does not
     // exercise (e.g. _gitCloneRepo/_gitCloneRef), matching the sibling fixtures
@@ -103,6 +104,46 @@ describe('REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)', () => {
     expect('ENTERPRISE_ROUTE_CATALOG' in vars).toBe(false);
     expect('ENTERPRISE_DEFAULT_ROUTE' in vars).toBe(false);
     expect('ENTERPRISE_DEFAULT_REASONING' in vars).toBe(false);
+  });
+
+  it('fans the per-route context-window map when enterprise + present, omits it when empty or non-enterprise', () => {
+    // REQ-ENTERPRISE-012: the map is fanned as ENTERPRISE_ROUTE_CONTEXT_WINDOWS for
+    // entrypoint's Pi models.json; empty map => omitted (entrypoint applies the default);
+    // present-but-non-enterprise => omitted (byte-identical).
+    const withWindows = { ...baseState(), _routeContextWindows: { development: 262144, opus: 1048576 } };
+    const vars = buildEnvVars(withWindows, { ENTERPRISE_MODE: 'active' } as Env);
+    expect(vars.ENTERPRISE_ROUTE_CONTEXT_WINDOWS).toBe(JSON.stringify({ development: 262144, opus: 1048576 }));
+    expect('ENTERPRISE_ROUTE_CONTEXT_WINDOWS' in buildEnvVars(baseState(), { ENTERPRISE_MODE: 'active' } as Env)).toBe(false);
+    expect('ENTERPRISE_ROUTE_CONTEXT_WINDOWS' in buildEnvVars(withWindows, {} as Env)).toBe(false);
+  });
+});
+
+describe('enterprise container secret hygiene (no AWS_* / Cloudflare deploy creds)', () => {
+  it('omits AWS_* in enterprise but still emits R2_* (rclone reads creds from rclone.conf built from R2_*)', () => {
+    // AWS_* presence is what makes Pi auth its built-in amazon-bedrock provider and
+    // pollute /model; rclone never needs them. Gut-check: drop the enterprise gate and
+    // AWS_* reappear.
+    const vars = buildEnvVars(baseState(), { ENTERPRISE_MODE: 'active' } as Env);
+    expect('AWS_ACCESS_KEY_ID' in vars).toBe(false);
+    expect('AWS_SECRET_ACCESS_KEY' in vars).toBe(false);
+    expect(vars.R2_ACCESS_KEY_ID).toBeDefined();
+    expect(vars.R2_SECRET_ACCESS_KEY).toBeDefined();
+  });
+
+  it('omits Cloudflare deploy creds in enterprise even when DO state carries them (feature absent in enterprise)', () => {
+    const state = { ...baseState(), _cloudflareApiToken: 'cf-secret', _cloudflareAccountId: 'cf-acct' };
+    const vars = buildEnvVars(state, { ENTERPRISE_MODE: 'active' } as Env);
+    expect('CLOUDFLARE_API_TOKEN' in vars).toBe(false);
+    expect('CLOUDFLARE_ACCOUNT_ID' in vars).toBe(false);
+  });
+
+  it('non-enterprise still emits AWS_* and Cloudflare deploy creds (byte-identical regression)', () => {
+    const state = { ...baseState(), _cloudflareApiToken: 'cf-secret', _cloudflareAccountId: 'cf-acct' };
+    const vars = buildEnvVars(state, {} as Env);
+    expect(vars.AWS_ACCESS_KEY_ID).toBeDefined();
+    expect(vars.AWS_SECRET_ACCESS_KEY).toBeDefined();
+    expect(vars.CLOUDFLARE_API_TOKEN).toBe('cf-secret');
+    expect(vars.CLOUDFLARE_ACCOUNT_ID).toBe('cf-acct');
   });
 });
 

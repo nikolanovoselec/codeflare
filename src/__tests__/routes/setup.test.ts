@@ -1975,6 +1975,50 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).toHaveBeenCalledWith('setup:dynamic_routes', JSON.stringify(['development', 'prod']));
       });
 
+      it('REQ-ENTERPRISE-012: persists the per-route context-window map as JSON', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const routeContextWindows = { development: 262144, prod: 1048576 };
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ dynamicRoutes: ['development', 'prod'], routeContextWindows })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:route_context_windows', JSON.stringify(routeContextWindows));
+      });
+
+      it('REQ-ENTERPRISE-012: clears the per-route context-window map when empty', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ routeContextWindows: {} })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.delete).toHaveBeenCalledWith('setup:route_context_windows');
+      });
+
+      it('REQ-ENTERPRISE-012: rejects a non-positive context window (boundary validation)', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ routeContextWindows: { development: 0 } })),
+        });
+
+        expect(res.status).toBe(400);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:route_context_windows', expect.anything());
+      });
+
       it('REQ-BROWSER-007: persists the Browser Rendering token + account id', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active' });
         mockFullSuccessFlow();

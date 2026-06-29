@@ -183,6 +183,21 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
       expect(body.dynamicRoutes).toEqual(['development']);
     });
 
+    it('REQ-ENTERPRISE-012: GET /prefill round-trips the stored per-route context windows', async () => {
+      mockKV._store.set('setup:route_context_windows', JSON.stringify({ development: 262144 }));
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as { routeContextWindows?: Record<string, number> };
+      expect(body.routeContextWindows).toEqual({ development: 262144 });
+    });
+
+    it('REQ-ENTERPRISE-012: GET /prefill returns an empty context-window map when nothing is stored', async () => {
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as { routeContextWindows?: Record<string, number> };
+      expect(body.routeContextWindows).toEqual({});
+    });
+
     it('GET /prefill round-trips the stored defaultRoute', async () => {
       mockKV._store.set('setup:default_route', JSON.stringify({ route: 'development', reasoning: 'high' }));
       const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);

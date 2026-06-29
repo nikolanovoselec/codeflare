@@ -35,6 +35,9 @@ function baseState(): ContainerEnvState {
     // the enterprise branch of buildEnvVars reads `.length`, so the fixture must
     // carry the same empty-array default rather than leaving it undefined.
     _routeCatalog: [],
+    // REQ-ENTERPRISE-012: the enterprise branch of buildEnvVars reads
+    // Object.keys(_routeContextWindows), so the fixture must carry the {} default.
+    _routeContextWindows: {},
   } as unknown as ContainerEnvState;
 }
 

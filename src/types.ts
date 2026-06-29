@@ -383,6 +383,8 @@ export interface ContainerConfigPayload {
   defaultRoute?: string;
   /** REQ-ENTERPRISE-005 (revised): the default route's reasoning grade (Pi defaultThinkingLevel). */
   defaultReasoning?: string;
+  /** REQ-ENTERPRISE-012: per-route context window (route name -> tokens) for Pi models.json. */
+  routeContextWindows?: Record<string, number>;
   /** REQ-MEM-001 AC4: user's IANA timezone forwarded to the container. */
   userTimezone?: string;
   /** REQ-GITHUB-004: one-shot GitHub clone directive forwarded to the container. */
