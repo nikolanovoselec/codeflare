@@ -562,6 +562,13 @@ function connect(
       clearTimeout(existing);
       retryTimeouts.delete(key);
     }
+    // A drop AFTER a successful open leaves the state at 'connected'. Mark it 'connecting'
+    // before we (possibly) defer, so a tab-hidden reconnect is still rescued on return:
+    // reconnectOnVisibilityReturn only revives 'disconnected'/'connecting' panes, so without
+    // this a pane that drops while backgrounded strands as a dead 'connected' socket
+    // (typing silently dropped, needs a reload) — the exact mobile app-switch failure this
+    // feature exists to cure (REQ-TERM-003 AC8/AC9).
+    setConnectionState(sessionId, terminalId, 'connecting');
     if (typeof document !== 'undefined' && document.hidden) {
       logger.debug(`[Terminal ${key}] tab hidden — deferring reconnect to visibility return`);
       return;

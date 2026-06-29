@@ -530,7 +530,7 @@ describe('ConfigureStep', () => {
   // View-only storage (downloads disabled) toggle — enterprise-only, the THIRD checkbox
   // ConfigureStep renders (after strict egress and Governed Mode). A plain toggle: no
   // window.confirm, so a click flips it straight through setDownloadsDisabled.
-  describe('View-only storage toggle', () => {
+  describe('View-only storage toggle / REQ-ENTERPRISE-019', () => {
     // The View-only toggle is the 3rd checkbox; strict egress is 1st, Governed Mode 2nd.
     const downloadsCheckbox = () =>
       document.querySelectorAll('input[type="checkbox"]')[2] as HTMLInputElement;

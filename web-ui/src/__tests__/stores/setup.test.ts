@@ -698,7 +698,7 @@ describe('Setup Store', () => {
     });
   });
 
-  describe('view-only storage / downloads disabled', () => {
+  describe('view-only storage / downloads disabled / REQ-ENTERPRISE-019', () => {
     it('defaults to false', () => {
       expect(setupStore.downloadsDisabled).toBe(false);
     });

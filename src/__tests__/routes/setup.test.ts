@@ -2574,7 +2574,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
       });
 
       // ─── View-only storage (downloads disabled) toggle ────────────────────────
-      it('persists the downloads-disabled toggle as active when true', async () => {
+      it('REQ-ENTERPRISE-019: persists the downloads-disabled toggle as active when true', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active' });
         mockFullSuccessFlow();
 
@@ -2590,7 +2590,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(lines).toContainEqual(expect.objectContaining({ step: 'configure_downloads_disabled', status: 'success' }));
       });
 
-      it('persists the downloads-disabled toggle as inactive when false', async () => {
+      it('REQ-ENTERPRISE-019: persists the downloads-disabled toggle as inactive when false', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active' });
         mockFullSuccessFlow();
 
@@ -2605,7 +2605,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).toHaveBeenCalledWith('setup:downloads_disabled', 'inactive');
       });
 
-      it('defaults OFF — never writes the downloads-disabled toggle when the field is absent', async () => {
+      it('REQ-ENTERPRISE-019: defaults OFF — never writes the downloads-disabled toggle when the field is absent', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active' });
         mockFullSuccessFlow();
 
@@ -2620,7 +2620,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:downloads_disabled', expect.anything());
       });
 
-      it('never writes the downloads-disabled toggle in non-enterprise mode (regression)', async () => {
+      it('REQ-ENTERPRISE-019: never writes the downloads-disabled toggle in non-enterprise mode (regression)', async () => {
         const app = createTestApp();
         mockFullSuccessFlow();
 

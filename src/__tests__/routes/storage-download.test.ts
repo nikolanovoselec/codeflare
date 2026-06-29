@@ -274,7 +274,7 @@ describe('Storage Download Routes', () => {
   // toggle (KV setup:downloads_disabled === 'active') is on, download.ts blocks attachment
   // downloads and inline views of non-viewable types, while still permitting inline views
   // of viewable types. Default OFF / non-enterprise is byte-identical to today.
-  describe('view-only storage (downloads disabled)', () => {
+  describe('view-only storage (downloads disabled) / REQ-ENTERPRISE-019', () => {
     function createViewOnlyApp() {
       mockKV._store.set('setup:downloads_disabled', 'active');
       return createTestApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);

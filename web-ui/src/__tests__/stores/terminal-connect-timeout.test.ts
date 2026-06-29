@@ -164,4 +164,71 @@ describe('Terminal Store / REQ-TERM-003 AC8: connect-timeout force-close & AC9 p
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     }
   });
+
+  // AC9 regression: a socket that has ALREADY OPENED ('connected') and then drops with a
+  // retryable code WHILE HIDDEN must still be rescued on visibility return. The bug was that
+  // scheduleReconnect deferred without clearing 'connected', so reconnectOnVisibilityReturn
+  // (which only revives 'disconnected'/'connecting') skipped the pane → dead socket on return.
+  it('rescues a pane that drops (retryable) while hidden AFTER it had connected', async () => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+
+    const OriginalWebSocket = globalThis.WebSocket;
+    let connectCount = 0;
+
+    vi.stubGlobal(
+      'WebSocket',
+      class {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+        readyState = 0;
+        binaryType = 'arraybuffer';
+        onopen: ((e: Event) => void) | null = null;
+        onmessage: ((e: MessageEvent) => void) | null = null;
+        onclose: ((e: CloseEvent) => void) | null = null;
+        onerror: ((e: Event) => void) | null = null;
+        send = vi.fn();
+        constructor(_url: string) {
+          connectCount++;
+          // Open first (→ 'connected'), THEN drop retryably (1006) — both while hidden.
+          setTimeout(() => {
+            this.readyState = 1;
+            this.onopen?.(new Event('open'));
+          }, 0);
+          setTimeout(() => {
+            this.readyState = 3;
+            this.onclose?.(new CloseEvent('close', { code: 1006 }));
+          }, 1);
+        }
+        close(): void {
+          this.readyState = 3;
+        }
+      } as unknown as typeof WebSocket,
+    );
+
+    try {
+      terminalStore.connect(sessionId, terminalId, createMockTerminal());
+      await vi.advanceTimersByTimeAsync(0); // onopen → 'connected'
+      expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('connected');
+
+      await vi.advanceTimersByTimeAsync(1); // 1006 drop while hidden
+      expect(connectCount).toBe(1);
+      // Must NOT strand as 'connected'; marked 'connecting' (deferred) so the
+      // visibility-return handler will rescue it. (Without the fix this stays 'connected'.)
+      expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('connecting');
+
+      // Still hidden: no reconnect even past the backoff delay.
+      await vi.advanceTimersByTimeAsync(300);
+      expect(connectCount).toBe(1);
+
+      // Visibility return revives it (skipped entirely if it were still 'connected').
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+      reconnectOnVisibilityReturn(undefined, [`${sessionId}:${terminalId}`]);
+      expect(connectCount).toBe(2);
+    } finally {
+      delete (document as { hidden?: unknown }).hidden;
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    }
+  });
 });
