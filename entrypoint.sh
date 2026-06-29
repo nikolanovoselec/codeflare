@@ -2230,12 +2230,14 @@ COPILOT_BYOK_EOF
     # (Pi natively switches between them via /model), then PIN the default route
     # as the default in ~/.pi/agent/settings.json.
     #
-    # Why the pin is essential: without a default, Pi keeps all its built-in
-    # providers and binds the request to one of them — amazon-bedrock, which it
-    # treats as authenticated because the container exports AWS_ACCESS_KEY_ID /
-    # AWS_SECRET_ACCESS_KEY (actually R2 S3 keys for rclone). Pi then signs a
-    # SigV4 call to AWS Bedrock (-> UnrecognizedClientException) that NEVER reaches
-    # api.openai.com, so the interceptor and gateway see nothing. Pinning
+    # Why the pin is essential: without a default, Pi may bind the request to a
+    # built-in provider instead of the gateway route — a call that never reaches
+    # api.openai.com, so the interceptor and gateway see nothing. (Historically the
+    # worst case was amazon-bedrock, which Pi treated as authenticated from the
+    # container's AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY R2 keys and SigV4-signed to
+    # Bedrock; those AWS_* vars are no longer emitted in any mode — REQ-ENTERPRISE-005
+    # AC7 — and auth.json is cleared to {} so no built-in provider stays authed, but
+    # the pin is still required so launch binds to the gateway route.) Pinning
     # defaultProvider+defaultModel makes Pi gateway-bound on launch, zero-touch.
     # The handles are slash-free (Pi parses a slash as provider/model); the real
     # gateway route is mapped by the Worker interceptor from the slash-free handle.

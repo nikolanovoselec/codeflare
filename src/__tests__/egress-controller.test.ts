@@ -157,7 +157,7 @@ describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (
   });
 });
 
-describe('REQ-ENTERPRISE-016: EgressController bridges WebSocket upgrades (browser-run CDP)', () => {
+describe('REQ-ENTERPRISE-016: EgressController bridges WebSocket upgrades (catch-all fallback)', () => {
   // The upstream socket is mocked (accept/addEventListener) so the bridge can accept it and
   // wire forwarding; the controller returns a FRESH WebSocketPair client end (not the upstream
   // as-is). Returning the upstream as-is would fail these assertions.

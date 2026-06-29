@@ -309,6 +309,10 @@ const path = require('path');
 const dir = process.env.CTX_DIR;
 const shimMarker = '__ctx_createRequire';
 const shim = "import { createRequire as __ctx_createRequire } from 'node:module';\nvar require = __ctx_createRequire(import.meta.url);\n";
+// REQ-AGENT-005 AC8: the live npm probe context-mode polls for its
+// "Update available" notice, and the refused local address we repoint it to.
+const updateProbeUrl = 'https://registry.npmjs.org/context-mode/latest';
+const disabledProbeUrl = 'https://127.0.0.1:1/context-mode-update-check-disabled';
 for (const name of ['cli.bundle.mjs', 'server.bundle.mjs']) {
   const f = path.join(dir, name);
   if (!fs.existsSync(f)) {
@@ -317,7 +321,7 @@ for (const name of ['cli.bundle.mjs', 'server.bundle.mjs']) {
   }
   let c = fs.readFileSync(f, 'utf8');
   if (c.includes(shimMarker)) {
-    console.log('[Dockerfile] ' + name + ' already patched, skipping');
+    console.log('[Dockerfile] ' + name + ' already shim-patched, skipping shim');
   } else {
     if (c.startsWith('#!')) {
       const nl = c.indexOf('\n');
@@ -325,17 +329,38 @@ for (const name of ['cli.bundle.mjs', 'server.bundle.mjs']) {
     } else {
       c = shim + c;
     }
-    fs.writeFileSync(f, c);
-    console.log('[Dockerfile] patched ' + name);
+    console.log('[Dockerfile] shim-patched ' + name);
   }
-  // Postcondition check: re-read and verify the shim is present at
-  // the expected position. Catches regressions if a future esbuild
-  // bundle ships with a coincidental marker collision or if the
-  // write silently truncated.
+  // Disable context-mode's npm update-check probe (REQ-AGENT-005 AC8).
+  // context-mode unconditionally GETs registry.npmjs.org/context-mode/latest
+  // (MCP server: on boot + hourly; CLI: per ctx_stats/ctx_insight render) and
+  // prints an "Update available ... ctx_upgrade" notice whenever the fetched
+  // version differs. It exposes no env var or flag to suppress this, and a
+  // governed container is not a place a user self-upgrades context-mode.
+  // Repointing the probe URL at a refused local address makes the fetch error
+  // out, resolve to "unknown", and never render the notice -- with no outbound
+  // npm traffic. .split/.join replaces every occurrence in the bundle.
+  if (c.includes(updateProbeUrl)) {
+    c = c.split(updateProbeUrl).join(disabledProbeUrl);
+    console.log('[Dockerfile] disabled update-check probe in ' + name);
+  } else if (c.includes(disabledProbeUrl)) {
+    console.log('[Dockerfile] update-check probe already disabled in ' + name);
+  } else {
+    console.warn('[Dockerfile] WARN: update-check probe URL not found in ' + name + '; upstream context-mode may have changed it');
+  }
+  fs.writeFileSync(f, c);
+  // Postconditions: re-read and verify (a) the createRequire shim is present at
+  // the expected position (catches a coincidental marker collision or a
+  // silently truncated write) and (b) the live update-check probe URL is gone
+  // (catches a disable that silently failed to apply).
   const verify = fs.readFileSync(f, 'utf8');
   const head = verify.startsWith('#!') ? verify.slice(verify.indexOf('\n') + 1) : verify;
   if (!head.startsWith("import { createRequire as __ctx_createRequire } from 'node:module';")) {
     console.error('[Dockerfile] FATAL: post-write verification failed for ' + name + '; first non-shebang bytes: ' + JSON.stringify(head.slice(0, 80)));
+    process.exit(1);
+  }
+  if (verify.includes(updateProbeUrl)) {
+    console.error('[Dockerfile] FATAL: update-check probe URL still present in ' + name + ' after patch');
     process.exit(1);
   }
 }
