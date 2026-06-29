@@ -17,6 +17,7 @@ For authentication modes and user identity flow, see [Authentication](authentica
 - [API Token Containment](#api-token-containment)
 - [Enterprise Mode: Credential Containment and CA Trust](#enterprise-mode-credential-containment-and-ca-trust)
 - [Strict Gateway Egress (Enterprise Mode)](#strict-gateway-egress-enterprise-mode)
+- [View-Only Storage (Enterprise Anti-Exfil)](#view-only-storage-enterprise-anti-exfil)
 - [GitHub Token Handling](#github-token-handling)
 - [Container Auth Token (REQ-SEC-012)](#container-auth-token-req-sec-012)
 - [Dual R2 Credential Architecture](#dual-r2-credential-architecture)
