@@ -312,6 +312,11 @@ export const SETUP_KEYS = {
   // (read === 'active'); default OFF when absent. Flipping it reconciles each bucket's
   // encryption regime losslessly on its next session start (src/lib/r2-migration.ts).
   R2_SSE_DISABLED: 'setup:r2_sse_disabled',
+  // Enterprise-only view-only-storage toggle: when 'active', the R2 Storage Panel allows
+  // open/view (inline) of safe types but blocks file downloads (attachment) so an agent or
+  // user cannot bulk-exfiltrate the bucket (e.g. zip the repo and download it). Stored as
+  // 'active' / 'inactive' (read === 'active'); default OFF when absent; enterprise-gated.
+  DOWNLOADS_DISABLED: 'setup:downloads_disabled',
   // REQ-GITHUB-008: enterprise GitHub provider config set in the Setup wizard (the
   // per-user Push & Deploy accordion is hidden in enterprise). GITHUB_PROVIDER_TYPE
   // selects 'app' | 'oauth'; the matching client id is non-secret (rides the

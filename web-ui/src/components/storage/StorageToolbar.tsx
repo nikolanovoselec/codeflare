@@ -136,18 +136,20 @@ const StorageToolbar: Component<StorageToolbarProps> = (props) => {
           <Icon path={mdiDelete} size={14} />
           <span>{props.selectedCount()}</span>
         </button>
-        <button
-          type="button"
-          class="storage-action-btn storage-action-btn--download"
-          title="Download selected"
-          onClick={async () => {
-            await props.onDownloadSelected();
-          }}
-          disabled={storageStore.selectedKeys.length === 0}
-        >
-          <Icon path={mdiDownload} size={14} />
-          <span>{storageStore.selectedKeys.length}</span>
-        </button>
+        <Show when={!storageStore.downloadsDisabled}>
+          <button
+            type="button"
+            class="storage-action-btn storage-action-btn--download"
+            title="Download selected"
+            onClick={async () => {
+              await props.onDownloadSelected();
+            }}
+            disabled={storageStore.selectedKeys.length === 0}
+          >
+            <Icon path={mdiDownload} size={14} />
+            <span>{storageStore.selectedKeys.length}</span>
+          </button>
+        </Show>
       </Show>
     </div>
   );

@@ -148,7 +148,24 @@ describe('User Profile Routes', () => {
         hasSubscribed: true,
         subscribedMode: 'advanced',
         enterpriseMode: false,
+        // View-only storage: non-enterprise default is OFF (no KV read).
+        downloadsDisabled: false,
       });
+    });
+
+    it('reports downloadsDisabled true when enterprise mode + the KV toggle are both set', async () => {
+      mockAuthenticateRequest.mockResolvedValue({
+        user: { email: 'test@example.com', authenticated: true, role: 'user' },
+        bucketName: 'codeflare-abc123',
+      });
+      mockKV._store.set('setup:downloads_disabled', 'active');
+
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/user');
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { downloadsDisabled: boolean };
+      expect(body.downloadsDisabled).toBe(true);
     });
 
     it('returns 401 when not authenticated', async () => {

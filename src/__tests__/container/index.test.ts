@@ -1490,6 +1490,40 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(interceptOutboundHttps).not.toHaveBeenCalled();
       expect(callOrder).toEqual(['super.startAndWaitForPorts']);
     });
+
+    // REQ-ENTERPRISE-016: when strict Gateway egress is ON the constructor also denies the
+    // container raw (non-HTTP) platform egress by setting enableInternet=false. When strict
+    // is OFF / non-enterprise, enableInternet is left at the platform default (never forced
+    // off), so every other mode is byte-identical.
+    it('REQ-ENTERPRISE-016: forces enableInternet=false when strict egress is ON', async () => {
+      // enableInternet is set in the constructor's blockConcurrencyWhile body, right after
+      // the strict-egress toggle resolves; poll until that microtask chain lands.
+      const instance = new ContainerClass(mockCtx as any, enterpriseEnv(true));
+      await vi.waitFor(() => {
+        expect(instance.enableInternet).toBe(false);
+      });
+    });
+
+    it('REQ-ENTERPRISE-016: leaves enableInternet at the platform default (not false) when strict egress is OFF', async () => {
+      // A bucketName forces updateEnvVars() at the END of the constructor body, so a settled
+      // envVars proves the body ran PAST the enableInternet line — without that anchor the
+      // assertion could pass before the line executed (and would miss an unconditional disable).
+      mockStorage.get.mockImplementation(async (key: string) => (key === 'bucketName' ? 'test-bucket' : null));
+      const instance = new ContainerClass(mockCtx as any, enterpriseEnv(false));
+      await vi.waitFor(() => {
+        expect(instance.envVars).toBeDefined();
+      });
+      expect(instance.enableInternet).not.toBe(false);
+    });
+
+    it('REQ-ENTERPRISE-016: leaves enableInternet at the platform default (not false) on a non-enterprise start', async () => {
+      mockStorage.get.mockImplementation(async (key: string) => (key === 'bucketName' ? 'test-bucket' : null));
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => {
+        expect(instance.envVars).toBeDefined();
+      });
+      expect(instance.enableInternet).not.toBe(false);
+    });
   });
 
   describe('onStart lifecycle', () => {

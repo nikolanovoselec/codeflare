@@ -57,6 +57,7 @@ const AppContent: Component = () => {
       sessionStore.setEnterpriseMode(user.enterpriseMode === true);
       sessionStore.setSaasMode(user.saasMode === true);
       if (user.workerName) storageStore.setWorkerName(user.workerName);
+      storageStore.setDownloadsDisabled(user.downloadsDisabled === true);
 
       // SaaS mode redirect priority:
       // 1. Pending tier → subscribe page (choose a plan)

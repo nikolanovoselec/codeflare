@@ -338,6 +338,17 @@ const ConfigureStep: Component = () => {
               }}
             />
           </div>
+          <div class="setup-field">
+            <label class="setup-field-label">View-only storage (optional)</label>
+            <p class="setup-field-description">
+              Block file downloads in the Storage panel so users and agents can open and view files (text, Markdown, HTML, images, PDF) but cannot download them, preventing bulk export of bucket contents.
+            </p>
+            <Checkbox
+              label="Disable file downloads (view-only storage)"
+              checked={setupStore.downloadsDisabled}
+              onChange={(v) => setupStore.setDownloadsDisabled(v)}
+            />
+          </div>
         </SetupSection>
       </Show>
 

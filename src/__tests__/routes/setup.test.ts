@@ -2572,6 +2572,69 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(getNdjsonSummary(lines).success).toBe(true);
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:r2_sse_disabled', expect.anything());
       });
+
+      // ─── View-only storage (downloads disabled) toggle ────────────────────────
+      it('persists the downloads-disabled toggle as active when true', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ downloadsDisabled: true })),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:downloads_disabled', 'active');
+        expect(lines).toContainEqual(expect.objectContaining({ step: 'configure_downloads_disabled', status: 'success' }));
+      });
+
+      it('persists the downloads-disabled toggle as inactive when false', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ downloadsDisabled: false })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:downloads_disabled', 'inactive');
+      });
+
+      it('defaults OFF — never writes the downloads-disabled toggle when the field is absent', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({})),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:downloads_disabled', expect.anything());
+      });
+
+      it('never writes the downloads-disabled toggle in non-enterprise mode (regression)', async () => {
+        const app = createTestApp();
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ downloadsDisabled: true })),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(getNdjsonSummary(lines).success).toBe(true);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:downloads_disabled', expect.anything());
+      });
     });
 
     // REQ-SETUP-003: session-OIDC mode (SaaS OR onboarding) + OAUTH_CLIENT_ID skips

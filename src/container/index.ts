@@ -271,6 +271,14 @@ export class container extends Container<Env> implements ContainerEnvState {
       // emits placeholder R2 creds and setupEnterpriseInterception wires the catch-all — both
       // without a per-request KV read. hasStrictGatewayEgress fails closed (false) on error.
       this._strictEgress = await hasStrictGatewayEgress(this.env);
+      // REQ-ENTERPRISE-016: when strict Gateway egress is active, also deny the container
+      // raw (non-HTTP) egress at the platform. enableInternet=false leaves only ports
+      // 80/443 + Cloudflare DNS available — which the catch-all EgressController carries
+      // to the Gateway — so raw TCP/UDP (SSH, arbitrary sockets, WireGuard/MASQUE) is
+      // fail-closed at the boundary the container cannot manipulate. Left at the platform
+      // default (true) when strict is off / non-enterprise, so every other mode is
+      // byte-identical to today.
+      if (this._strictEgress) this.enableInternet = false;
 
       if (this._bucketName) {
         this.logger.info('Loaded bucket name from storage', { bucketName: this._bucketName });

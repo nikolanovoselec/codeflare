@@ -22,6 +22,7 @@ const storeState = vi.hoisted(() => ({
   aigTokenSet: false,
   strictGatewayEgress: false,
   r2SseDisabled: false,
+  downloadsDisabled: false,
   githubProviderType: 'app' as 'app' | 'oauth',
   githubAppClientId: '',
   githubAppClientSecret: '',
@@ -55,6 +56,7 @@ const storeMethods = vi.hoisted(() => ({
   setAigToken: vi.fn((val: string) => { storeState.aigToken = val; }),
   setStrictGatewayEgress: vi.fn((v: boolean) => { storeState.strictGatewayEgress = v; }),
   setR2SseDisabled: vi.fn((v: boolean) => { storeState.r2SseDisabled = v; }),
+  setDownloadsDisabled: vi.fn((v: boolean) => { storeState.downloadsDisabled = v; }),
   setGithubProviderType: vi.fn((t: 'app' | 'oauth') => { storeState.githubProviderType = t; }),
   setGithubAppClientId: vi.fn((v: string) => { storeState.githubAppClientId = v; }),
   setGithubAppClientSecret: vi.fn((v: string) => { storeState.githubAppClientSecret = v; }),
@@ -91,6 +93,7 @@ vi.mock('../../stores/setup', () => ({
     get aigTokenSet() { return storeState.aigTokenSet; },
     get strictGatewayEgress() { return storeState.strictGatewayEgress; },
     get r2SseDisabled() { return storeState.r2SseDisabled; },
+    get downloadsDisabled() { return storeState.downloadsDisabled; },
     get githubProviderType() { return storeState.githubProviderType; },
     get githubAppClientId() { return storeState.githubAppClientId; },
     get githubAppClientSecret() { return storeState.githubAppClientSecret; },
@@ -134,6 +137,7 @@ describe('ConfigureStep', () => {
     storeState.aigTokenSet = false;
     storeState.strictGatewayEgress = false;
     storeState.r2SseDisabled = false;
+    storeState.downloadsDisabled = false;
     storeState.githubProviderType = 'app';
     storeState.githubAppClientId = '';
     storeState.githubAppClientSecret = '';
@@ -487,7 +491,8 @@ describe('ConfigureStep', () => {
     it('renders a second toggle in enterprise mode', () => {
       storeState.enterpriseMode = true;
       render(() => <ConfigureStep />);
-      expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
+      // Three enterprise checkboxes render: strict egress, Governed Mode, and View-only storage.
+      expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(3);
     });
 
     it('does not render the Governed Mode toggle outside enterprise mode', () => {
@@ -519,6 +524,42 @@ describe('ConfigureStep', () => {
       render(() => <ConfigureStep />);
       fireEvent.click(governedCheckbox());
       expect(storeMethods.setR2SseDisabled).not.toHaveBeenCalled();
+    });
+  });
+
+  // View-only storage (downloads disabled) toggle — enterprise-only, the THIRD checkbox
+  // ConfigureStep renders (after strict egress and Governed Mode). A plain toggle: no
+  // window.confirm, so a click flips it straight through setDownloadsDisabled.
+  describe('View-only storage toggle', () => {
+    // The View-only toggle is the 3rd checkbox; strict egress is 1st, Governed Mode 2nd.
+    const downloadsCheckbox = () =>
+      document.querySelectorAll('input[type="checkbox"]')[2] as HTMLInputElement;
+
+    it('renders a third toggle in enterprise mode', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(3);
+    });
+
+    it('does not render the View-only toggle outside enterprise mode', () => {
+      storeState.enterpriseMode = false;
+      render(() => <ConfigureStep />);
+      expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    });
+
+    it('reflects a checked toggle from store state', () => {
+      storeState.enterpriseMode = true;
+      storeState.downloadsDisabled = true;
+      render(() => <ConfigureStep />);
+      expect(downloadsCheckbox().checked).toBe(true);
+    });
+
+    it('calls setDownloadsDisabled with true when toggled on', () => {
+      storeState.enterpriseMode = true;
+      storeState.downloadsDisabled = false;
+      render(() => <ConfigureStep />);
+      fireEvent.click(downloadsCheckbox());
+      expect(storeMethods.setDownloadsDisabled).toHaveBeenCalledWith(true);
     });
   });
 

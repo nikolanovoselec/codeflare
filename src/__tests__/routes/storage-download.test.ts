@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { Env } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
-import { ValidationError } from '../../lib/error-types';
+import { ValidationError, AppError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
 
 // Track mock state for assertions - vi.hoisted() ensures these are available when vi.mock() factory runs
@@ -36,7 +36,7 @@ vi.mock('../../lib/r2-config', () => ({
 }));
 
 // Import after mocks are set up
-import downloadRoutes, { safeInlineContentType } from '../../routes/storage/download';
+import downloadRoutes, { safeInlineContentType, isInlineViewable } from '../../routes/storage/download';
 
 describe('Storage Download Routes', () => {
   let mockKV: ReturnType<typeof createMockKV>;
@@ -74,11 +74,16 @@ describe('Storage Download Routes', () => {
     vi.unstubAllGlobals();
   });
 
-  function createTestApp() {
+  function createTestApp(envOverrides: Partial<Env> = {}) {
     const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
     app.onError((err, c) => {
       if (err instanceof ValidationError) {
+        return c.json(err.toJSON(), err.statusCode as ContentfulStatusCode);
+      }
+      // View-only storage rejections surface as ForbiddenError (403); map any AppError
+      // to its own status so the 403 reaches the client instead of the 500 fallback.
+      if (err instanceof AppError) {
         return c.json(err.toJSON(), err.statusCode as ContentfulStatusCode);
       }
       return c.json({ error: err.message }, 500);
@@ -89,6 +94,7 @@ describe('Storage Download Routes', () => {
         KV: mockKV as unknown as KVNamespace,
         R2_ACCESS_KEY_ID: 'test-key',
         R2_SECRET_ACCESS_KEY: 'test-secret',
+        ...envOverrides,
       } as unknown as Env;
       c.set('user', { email: 'test@example.com', authenticated: true });
       c.set('bucketName', 'test-bucket');
@@ -261,6 +267,76 @@ describe('Storage Download Routes', () => {
       expect(safeInlineContentType('x.md')).toBe('text/plain; charset=utf-8');
       expect(safeInlineContentType('x.json')).toBe('text/plain; charset=utf-8');
       expect(safeInlineContentType('noext')).toBe('text/plain; charset=utf-8');
+    });
+  });
+
+  // View-only storage (enterprise anti-exfil): when ENTERPRISE_MODE=active AND the admin
+  // toggle (KV setup:downloads_disabled === 'active') is on, download.ts blocks attachment
+  // downloads and inline views of non-viewable types, while still permitting inline views
+  // of viewable types. Default OFF / non-enterprise is byte-identical to today.
+  describe('view-only storage (downloads disabled)', () => {
+    function createViewOnlyApp() {
+      mockKV._store.set('setup:downloads_disabled', 'active');
+      return createTestApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+    }
+
+    it('blocks a non-inline (attachment) download with 403', async () => {
+      const app = createViewOnlyApp();
+      const res = await app.request('/download?key=path/to/file.txt');
+      expect(res.status).toBe(403);
+      const body = await res.json() as { code: string };
+      expect(body.code).toBe('FORBIDDEN');
+    });
+
+    it('permits an inline view of a viewable type (200, inline disposition)', async () => {
+      const app = createViewOnlyApp();
+      const res = await app.request('/download?key=docs/readme.md&disposition=inline');
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Content-Disposition')).toContain('inline');
+      expect(res.headers.get('Content-Disposition')).not.toContain('attachment');
+    });
+
+    it('blocks an inline view of a non-viewable type (archive) with 403', async () => {
+      const app = createViewOnlyApp();
+      const res = await app.request('/download?key=archive/repo.zip&disposition=inline');
+      expect(res.status).toBe(403);
+      const body = await res.json() as { code: string };
+      expect(body.code).toBe('FORBIDDEN');
+    });
+
+    it('leaves attachment downloads unchanged (200) when the KV toggle is absent in enterprise mode', async () => {
+      // ENTERPRISE_MODE on but no setup:downloads_disabled key → downloads allowed.
+      const app = createTestApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/download?key=path/to/file.txt');
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Content-Disposition')).toContain('attachment');
+    });
+
+    it('leaves attachment downloads unchanged (200) in non-enterprise mode even when the key is set', async () => {
+      // Gate-then-read: a non-enterprise deploy never honors the toggle.
+      mockKV._store.set('setup:downloads_disabled', 'active');
+      const app = createTestApp();
+      const res = await app.request('/download?key=path/to/file.txt');
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Content-Disposition')).toContain('attachment');
+    });
+  });
+
+  describe('isInlineViewable', () => {
+    it('returns true for images, pdf, and known text/source types', () => {
+      expect(isInlineViewable('a.png')).toBe(true);
+      expect(isInlineViewable('b.pdf')).toBe(true);
+      expect(isInlineViewable('c.md')).toBe(true);
+      expect(isInlineViewable('d.ts')).toBe(true);
+      expect(isInlineViewable('e.json')).toBe(true);
+      expect(isInlineViewable('f.html')).toBe(true);
+    });
+
+    it('returns false for archives, binaries, media, and extensionless files', () => {
+      expect(isInlineViewable('g.zip')).toBe(false);
+      expect(isInlineViewable('h.tar')).toBe(false);
+      expect(isInlineViewable('i.bin')).toBe(false);
+      expect(isInlineViewable('noext')).toBe(false);
     });
   });
 });

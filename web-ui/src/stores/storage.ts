@@ -61,6 +61,9 @@ interface StorageState {
   previewFile: PreviewFile | null;
   backgroundRefreshing: boolean;
   workerName: string;
+  // View-only storage (enterprise anti-exfil): when true, the toolbar hides the Download
+  // action. Server-side download.ts is the actual enforcement.
+  downloadsDisabled: boolean;
   // REQ-STOR-015: sync-now flag drives the toolbar button's disabled
   // state and spinner overlay. The last result is held briefly so the
   // toolbar can surface "Triggered N sessions" feedback.
@@ -83,6 +86,7 @@ const initialState: StorageState = {
   previewFile: null,
   backgroundRefreshing: false,
   workerName: 'codeflare',
+  downloadsDisabled: false,
   syncing: false,
   syncResult: null,
 };
@@ -187,6 +191,8 @@ export const storageStore = {
   get backgroundRefreshing() { return state.backgroundRefreshing; },
   get workerName() { return state.workerName; },
   setWorkerName(name: string) { setState('workerName', name); },
+  get downloadsDisabled() { return state.downloadsDisabled; },
+  setDownloadsDisabled(v: boolean) { setState('downloadsDisabled', v); },
   get syncing() { return state.syncing; },
   get syncResult() { return state.syncResult; },
   get breadcrumbs() {

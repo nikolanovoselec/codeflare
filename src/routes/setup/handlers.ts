@@ -171,10 +171,12 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
     const strictGatewayEgress = (await c.env.KV.get(SETUP_KEYS.STRICT_EGRESS)) === 'active';
     // REQ-ENTERPRISE-018: surface the Governed Mode (R2 SSE-C disable) toggle (default OFF).
     const r2SseDisabled = (await c.env.KV.get(SETUP_KEYS.R2_SSE_DISABLED)) === 'active';
+    // View-only storage toggle (default OFF on absent).
+    const downloadsDisabled = (await c.env.KV.get(SETUP_KEYS.DOWNLOADS_DISABLED)) === 'active';
     enterpriseExtras = {
       ...enterpriseExtras,
       enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, browserRenderTokenSet, browserRenderAccountId,
-      aigGatewayUrl, aigTokenSet, groupRouting, strictGatewayEgress, r2SseDisabled,
+      aigGatewayUrl, aigTokenSet, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled,
     };
   }
   if (!token) {

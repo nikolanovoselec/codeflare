@@ -69,6 +69,9 @@ interface SetupState {
   // R2 SSE-C so corporate bucket data is readable/scannable. Flipping it triggers a
   // lossless re-encrypt of each bucket on its next session start.
   r2SseDisabled: boolean;
+  // Enterprise-only view-only-storage toggle. Default OFF; blocks file downloads in the
+  // Storage panel (open/view only) to prevent bulk export of bucket contents.
+  downloadsDisabled: boolean;
   // REQ-GITHUB-008: enterprise GitHub provider config. *ClientSecret holds only a
   // freshly-typed value (the stored secret is never returned); *ClientSecretSet
   // reflects whether one is already saved.
@@ -119,6 +122,7 @@ const initialState: SetupState = {
   aigTokenSet: false,
   strictGatewayEgress: false,
   r2SseDisabled: false,
+  downloadsDisabled: false,
   githubProviderType: 'app',
   githubAppClientId: '',
   githubAppClientSecret: '',
@@ -364,6 +368,10 @@ function setStrictGatewayEgress(value: boolean): void {
 function setR2SseDisabled(value: boolean): void {
   setState('r2SseDisabled', value);
 }
+// View-only-storage toggle setter.
+function setDownloadsDisabled(value: boolean): void {
+  setState('downloadsDisabled', value);
+}
 
 function setCustomDomain(domain: string): void {
   setState({ customDomain: domain, customDomainError: null });
@@ -425,6 +433,7 @@ async function loadExistingConfig(): Promise<void> {
             s.aigTokenSet = prefill.aigTokenSet;
             s.strictGatewayEgress = prefill.strictGatewayEgress;
             s.r2SseDisabled = prefill.r2SseDisabled;
+            s.downloadsDisabled = prefill.downloadsDisabled;
             s.githubProviderType = prefill.githubProviderType ?? 'app';
             s.githubAppClientId = prefill.githubAppClientId;
             s.githubAppClientSecretSet = prefill.githubAppClientSecretSet;
@@ -501,6 +510,7 @@ async function loadExistingConfig(): Promise<void> {
         s.aigTokenSet = prefill.aigTokenSet;
         s.strictGatewayEgress = prefill.strictGatewayEgress;
         s.r2SseDisabled = prefill.r2SseDisabled;
+        s.downloadsDisabled = prefill.downloadsDisabled;
         s.githubProviderType = prefill.githubProviderType ?? 'app';
         s.githubAppClientId = prefill.githubAppClientId;
         s.githubAppClientSecretSet = prefill.githubAppClientSecretSet;
@@ -565,6 +575,8 @@ async function configure(): Promise<boolean> {
           strictGatewayEgress: state.strictGatewayEgress,
           // REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) toggle.
           r2SseDisabled: state.r2SseDisabled,
+          // View-only-storage toggle.
+          downloadsDisabled: state.downloadsDisabled,
         } : {}),
       }),
     });
@@ -733,6 +745,7 @@ export const setupStore = {
   get aigTokenSet() { return state.aigTokenSet; },
   get strictGatewayEgress() { return state.strictGatewayEgress; },
   get r2SseDisabled() { return state.r2SseDisabled; },
+  get downloadsDisabled() { return state.downloadsDisabled; },
   get githubProviderType() { return state.githubProviderType; },
   get githubAppClientId() { return state.githubAppClientId; },
   get githubAppClientSecret() { return state.githubAppClientSecret; },
@@ -767,6 +780,7 @@ export const setupStore = {
   setAigToken,
   setStrictGatewayEgress,
   setR2SseDisabled,
+  setDownloadsDisabled,
   setGithubProviderType,
   setGithubAppClientId,
   setGithubAppClientSecret,

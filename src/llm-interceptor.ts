@@ -101,7 +101,7 @@ interface InterceptorProps {
   user: string;
   /**
    * The user's matched Cloudflare Access groups, when the deployment configures
-   * group gating. Each becomes one cf-aig-metadata tag (group_<sanitized>=1) so
+   * group gating. Each becomes one cf-aig-metadata tag (group_<sanitized>_<hash>=1) so
    * the gateway can branch routing/cost/rate-limit policies per group with an
    * equals filter (CF metadata log filters support equals/not-equals only — no
    * contains — so per-group KEYS, not a CSV value). Omitted when empty.
@@ -348,7 +348,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
       console.warn('LlmInterceptor: per-session user prop absent; cf-aig-metadata user=unknown');
     }
     // Per-user + per-group attribution. One tag per matched group
-    // (group_<sanitized>=1) so each is equals-filterable to drive Dynamic-Route
+    // (group_<sanitized>_<hash>=1) so each is equals-filterable to drive Dynamic-Route
     // if/else (CF filters: equals/not-equals only). Budget: 1 user tag + up to
     // (MAX_METADATA_TAGS-1) group tags. CF silently drops extras past 5, so a
     // user matching more groups than fit is truncated DETERMINISTICALLY (configured

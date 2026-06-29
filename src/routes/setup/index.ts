@@ -115,6 +115,10 @@ const ConfigureBodySchema = z.object({
   // server-side re-encrypt of each bucket on its next session start. Absent for
   // non-enterprise setups.
   r2SseDisabled: z.boolean().optional(),
+  // Enterprise-only view-only-storage toggle. Persisted 'active'/'inactive' in KV
+  // (default OFF); blocks file downloads in the R2 Storage Panel (open/view only).
+  // Absent for non-enterprise setups.
+  downloadsDisabled: z.boolean().optional(),
 }).refine(
   (data) => data.adminUsers.every((admin) => data.allowedUsers.includes(admin)),
   { message: 'All adminUsers must also be in allowedUsers', path: ['adminUsers'] }
@@ -184,7 +188,7 @@ app.post('/configure', async (c) => {
   // Validate body synchronously before starting the stream
   const body = await parseJsonBody(c, ConfigureBodySchema);
 
-  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, groupRouting, strictGatewayEgress, r2SseDisabled } = body;
+  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled } = body;
   const token = c.env.CLOUDFLARE_API_TOKEN;
 
   // During reconfiguration, prevent admin from removing themselves
@@ -488,6 +492,14 @@ app.post('/configure', async (c) => {
         if (r2SseDisabled !== undefined) {
           await runStep('configure_r2_sse', async () => {
             await c.env.KV.put(SETUP_KEYS.R2_SSE_DISABLED, r2SseDisabled ? 'active' : 'inactive');
+          });
+        }
+
+        // View-only storage toggle. Written explicitly ('active'/'inactive', no
+        // delete-on-off) so it round-trips deterministically; default OFF on absent.
+        if (downloadsDisabled !== undefined) {
+          await runStep('configure_downloads_disabled', async () => {
+            await c.env.KV.put(SETUP_KEYS.DOWNLOADS_DISABLED, downloadsDisabled ? 'active' : 'inactive');
           });
         }
       }

@@ -698,6 +698,87 @@ describe('Setup Store', () => {
     });
   });
 
+  describe('view-only storage / downloads disabled', () => {
+    it('defaults to false', () => {
+      expect(setupStore.downloadsDisabled).toBe(false);
+    });
+
+    it('flips via the setter', () => {
+      setupStore.setDownloadsDisabled(true);
+      expect(setupStore.downloadsDisabled).toBe(true);
+      setupStore.setDownloadsDisabled(false);
+      expect(setupStore.downloadsDisabled).toBe(false);
+    });
+
+    it('omits downloadsDisabled from the configure body in non-enterprise mode', async () => {
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+      setupStore.setDownloadsDisabled(true);
+
+      await setupStore.configure();
+
+      const [, options] = mockFetch.mock.calls[0];
+      const body = JSON.parse(options.body);
+      expect(body.downloadsDisabled).toBeUndefined();
+    });
+
+    it('includes downloadsDisabled in the configure body in enterprise mode', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+      await setupStore.loadExistingConfig();
+
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+      setupStore.addDynamicRoute('development');
+      setupStore.setDownloadsDisabled(true);
+
+      await setupStore.configure();
+
+      const lastCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
+      const body = JSON.parse(lastCall[1].body);
+      expect(body.downloadsDisabled).toBe(true);
+    });
+
+    it('hydrates downloadsDisabled from the enterprise prefill', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [], downloadsDisabled: true }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+
+      await setupStore.loadExistingConfig();
+
+      expect(setupStore.downloadsDisabled).toBe(true);
+    });
+
+    it('resets downloadsDisabled back to false', () => {
+      setupStore.setDownloadsDisabled(true);
+      setupStore.reset();
+      expect(setupStore.downloadsDisabled).toBe(false);
+    });
+  });
+
   describe('AI Gateway config (REQ-ENTERPRISE-017)', () => {
     it('includes aigGatewayUrl + aigToken in the configure body in enterprise mode', async () => {
       mockFetch.mockImplementation((url: string) => {

@@ -8,6 +8,7 @@ import { isEnterpriseMode } from '../lib/subscription';
 import { getOrCreateScopedR2Token } from '../lib/r2-admin';
 import { getOrImportKey } from '../lib/kv-crypto';
 import { SETUP_KEYS } from '../lib/kv-keys';
+import { isDownloadsDisabled } from '../lib/downloads-policy';
 
 /**
  * Rate limiter for ensure-r2-token
@@ -57,6 +58,9 @@ app.get('/', async (c) => {
     hasSubscribed,
     subscribedMode,
     enterpriseMode: isEnterpriseMode(c.env),
+    // View-only storage (enterprise anti-exfil): tells the client to hide the Download
+    // action in the Storage Panel. Server-side download.ts is the actual enforcement.
+    downloadsDisabled: await isDownloadsDisabled(c.env),
   });
 });
 

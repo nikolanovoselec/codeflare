@@ -162,7 +162,7 @@ describe('REQ-ENTERPRISE-004: gateway authorization + per-user metadata', () => 
     expect(parsed.user).toBe('unknown');
   });
 
-  it('stamps one group_<sanitized>=1 tag per matched group and NO scalar group key', async () => {
+  it('stamps one group_<sanitized>_<hash>=1 tag per matched group and NO scalar group key', async () => {
     await makeInterceptor({}, { user: SESSION_USER, groups: ['codeflare_admins', 'Dev Team'] }).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{"model":"x"}' }),
     );

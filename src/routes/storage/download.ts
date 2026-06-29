@@ -4,10 +4,11 @@ import type { AuthVariables } from '../../middleware/auth';
 import { createR2Client, getR2Url } from '../../lib/r2-client';
 import { getR2Config } from '../../lib/r2-config';
 import { createRateLimiter } from '../../middleware/rate-limit';
-import { ValidationError, ContainerError } from '../../lib/error-types';
+import { ValidationError, ContainerError, ForbiddenError } from '../../lib/error-types';
 import { validateKey } from './validation';
 import { getSseHeaders } from '../../lib/r2-sse';
 import { isR2SseDisabledForBucket } from '../../lib/r2-migration';
+import { isDownloadsDisabled } from '../../lib/downloads-policy';
 
 /**
  * Build a safe Content-Disposition header value.
@@ -58,6 +59,29 @@ export function safeInlineContentType(filename: string): string {
   return 'text/plain; charset=utf-8';
 }
 
+// Extensions safe to OPEN/VIEW inline under view-only storage. Deny-by-default: any type
+// NOT listed here (archives, binaries, media, unknown/extensionless) cannot be opened when
+// downloads are disabled, which closes the "request a zip with disposition=inline and read
+// its bytes as text/plain" exfil hole. Images + PDF render; the rest view as source text.
+const TEXT_VIEWABLE_EXTENSIONS = new Set([
+  'txt', 'text', 'log', 'md', 'markdown', 'rst', 'html', 'htm', 'xml', 'svg', 'css',
+  'scss', 'sass', 'less', 'js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'json', 'jsonc',
+  'yaml', 'yml', 'toml', 'ini', 'conf', 'cfg', 'env', 'csv', 'tsv', 'sql', 'sh', 'bash',
+  'zsh', 'py', 'rb', 'go', 'rs', 'java', 'kt', 'c', 'h', 'cpp', 'hpp', 'cc', 'cs', 'php',
+  'pl', 'lua', 'r', 'swift', 'dockerfile', 'gitignore', 'makefile',
+]);
+
+/**
+ * True when `filename` is safe to OPEN/VIEW inline under view-only storage: an image, a
+ * PDF, or a known text/source type. Used only when downloads are disabled to reject inline
+ * requests for non-viewable blobs (whose bytes would otherwise leak via the text/plain
+ * fallback). Distinct from {@link safeInlineContentType}, which always returns a type.
+ */
+export function isInlineViewable(filename: string): boolean {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+  return ext in INLINE_IMAGE_TYPES || ext === 'pdf' || TEXT_VIEWABLE_EXTENSIONS.has(ext);
+}
+
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', storageDownloadRateLimiter);
 
@@ -69,6 +93,22 @@ app.get('/', async (c) => {
   }
 
   const sanitizedKey = validateKey(key);
+
+  const filename = sanitizedKey.split('/').pop() || 'download';
+  const inline = c.req.query('disposition') === 'inline';
+
+  // View-only storage (enterprise anti-exfil): block file downloads; permit only inline
+  // view of viewable types. Enforced server-side BEFORE any R2 fetch, so a blocked request
+  // never streams object bytes — the frontend also hides the Download button, but that is
+  // not the control. Default OFF / non-enterprise → no KV read, byte-identical to today.
+  if (await isDownloadsDisabled(c.env)) {
+    if (!inline) {
+      throw new ForbiddenError('Downloads are disabled for this deployment (view-only storage).');
+    }
+    if (!isInlineViewable(filename)) {
+      throw new ForbiddenError('This file type cannot be opened in view-only storage; downloads are disabled.');
+    }
+  }
 
   const bucketName = c.get('bucketName');
   const r2Client = createR2Client(c.env);
@@ -90,13 +130,10 @@ app.get('/', async (c) => {
     throw new ContainerError('download', 'R2 fetch failed');
   }
 
-  const filename = sanitizedKey.split('/').pop() || 'download';
-
   // `?disposition=inline` opens the object in a new browser tab (view) instead of
   // forcing a download. The Content-Type is derived from the extension via the
   // XSS-safe allowlist (never trusting R2's stored type), and nosniff prevents the
   // browser from upgrading text/plain into executable HTML.
-  const inline = c.req.query('disposition') === 'inline';
   const headers: Record<string, string> = {
     'Content-Length': r2Response.headers.get('Content-Length') || '',
   };

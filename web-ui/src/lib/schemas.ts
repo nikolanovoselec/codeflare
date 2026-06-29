@@ -238,6 +238,8 @@ export const SetupPrefillResponseSchema = z.object({
   strictGatewayEgress: z.boolean().default(false),
   // REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) toggle (default OFF on absent).
   r2SseDisabled: z.boolean().default(false),
+  // View-only-storage toggle (default OFF on absent).
+  downloadsDisabled: z.boolean().default(false),
 });
 
 // User management schemas - moved from client.ts (strict versions)

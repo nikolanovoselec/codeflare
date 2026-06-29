@@ -63,6 +63,21 @@ describe('Storage Store', () => {
     });
   });
 
+  // View-only storage (enterprise anti-exfil): the flag the toolbar binds its Download
+  // button visibility to. Hydrated from GET /api/user; default OFF.
+  describe('view-only storage (downloads disabled)', () => {
+    it('defaults to false', () => {
+      expect(storageStore.downloadsDisabled).toBe(false);
+    });
+
+    it('flips via the setter', () => {
+      storageStore.setDownloadsDisabled(true);
+      expect(storageStore.downloadsDisabled).toBe(true);
+      storageStore.setDownloadsDisabled(false);
+      expect(storageStore.downloadsDisabled).toBe(false);
+    });
+  });
+
   describe('browse()', () => {
     it('should call browseStorage API and set objects/prefixes/isTruncated', async () => {
       mockBrowseStorage.mockResolvedValue({
