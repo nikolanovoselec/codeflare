@@ -6,7 +6,9 @@ import type { Terminal } from '@xterm/xterm';
 import { logger } from '../lib/logger';
 import { recordFrame, recordFlush, recordRestore } from '../lib/ws-debug';
 import {
-  WS_RETRY_DELAY_MS,
+  WS_RECONNECT_BASE_MS,
+  WS_RECONNECT_MAX_MS,
+  WS_CONNECT_TIMEOUT_MS,
   WS_RETRYABLE_CLOSE_CODES,
   WS_CONTAINER_STOPPED_CODE,
 } from '../lib/constants';
@@ -84,6 +86,27 @@ function makeKey(sessionId: string, terminalId: string): string {
 }
 
 /**
+ * Equal-jitter exponential backoff for WebSocket reconnect (REQ-TERM-003 AC8).
+ * raw = min(MAX, BASE * 2^(attempt-1)); returns raw scaled to 50–100% (jitter)
+ * so multiple panes de-correlate. `attempt` is 1-based; `rand` is injectable for
+ * deterministic tests. Worst-case settles at the MAX cap (~4 attempts/min),
+ * keeping a stuck pane well under the per-user WS connect budget.
+ */
+export function reconnectBackoffMs(attempt: number, rand: () => number = Math.random): number {
+  const raw = Math.min(WS_RECONNECT_MAX_MS, WS_RECONNECT_BASE_MS * 2 ** Math.max(0, attempt - 1));
+  return Math.round(raw * (0.5 + rand() * 0.5));
+}
+
+/** Clear a pending connect-timeout for a key, if any. */
+function clearConnectTimer(key: string): void {
+  const t = connectTimers.get(key);
+  if (t) {
+    clearTimeout(t);
+    connectTimers.delete(key);
+  }
+}
+
+/**
  * Remove all entries from a Map whose keys start with `prefix`, optionally
  * calling `teardown` on each value before deletion (L14: extracted helper).
  */
@@ -111,6 +134,7 @@ const [state, setState] = createStore<{
 const connections = new Map<string, WebSocket>();
 const terminals = new Map<string, Terminal>();
 const retryTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+const connectTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const abortControllers = new Map<string, AbortController>();
 const pendingFocusClaims = new Set<string>();
 const desiredFocusClaims = new Set<string>();
@@ -336,6 +360,8 @@ function connect(
       clearTimeout(existingTimeout);
       retryTimeouts.delete(key);
     }
+    // Clear any prior connect-timeout (a superseding attempt)
+    clearConnectTimer(key);
 
     setConnectionState(sessionId, terminalId, 'connecting');
     if (desiredFocusClaims.has(key)) pendingFocusClaims.add(key);
@@ -351,7 +377,22 @@ function connect(
 
     ws.binaryType = 'arraybuffer';
 
+    // Connect-timeout: a socket frozen in CONNECTING (network re-establishing
+    // after a mobile app-switch) emits no close/error event and would otherwise
+    // strand the terminal on "Connecting". Force-close it and schedule the
+    // backoff retry (REQ-TERM-003 AC8).
+    clearConnectTimer(key);
+    connectTimers.set(key, setTimeout(() => {
+      if (signal.aborted || !ownsConnection()) return;
+      if (ws.readyState === WebSocket.CONNECTING) {
+        logger.warn(`[Terminal ${key}] connect timeout (${WS_CONNECT_TIMEOUT_MS}ms), forcing retry`);
+        try { ws.close(); } catch { /* noop */ }
+        scheduleReconnect(attemptNumber);
+      }
+    }, WS_CONNECT_TIMEOUT_MS));
+
     ws.onopen = () => {
+      clearConnectTimer(key);
       if (signal.aborted || !ownsConnection()) {
         ws.close();
         return;
@@ -455,6 +496,7 @@ function connect(
 
     function handleWebSocketClose(event: CloseEvent): void {
       if (signal.aborted || !ownsConnection()) return;
+      clearConnectTimer(key);
 
       const expectedStartupClose = event.code === WS_CONTAINER_STOPPED_CODE || event.code === 1013;
       const closeLog = `[Terminal ${key}] WS CLOSED: code=${event.code}, reason="${event.reason}", state=${getConnectionState(sessionId, terminalId)}`;
@@ -480,13 +522,10 @@ function connect(
       // Retry on retryable close codes (flat delay, no limit).
       // Network errors (1006) just retry — KV polling handles session status.
       if (WS_RETRYABLE_CLOSE_CODES.has(event.code) && !signal.aborted) {
-        const retryLog = `[Terminal ${key}] Retrying connection, attempt ${attemptNumber + 1}, code=${event.code}`;
+        const retryLog = `[Terminal ${key}] Scheduling reconnect, next attempt ${attemptNumber + 1}, code=${event.code}`;
         if (event.code === 1013) logger.debug(retryLog);
         else logger.warn(retryLog);
-        const timeout = setTimeout(() => {
-          attemptConnection(attemptNumber + 1);
-        }, WS_RETRY_DELAY_MS);
-        retryTimeouts.set(key, timeout);
+        scheduleReconnect(attemptNumber);
         return;
       }
 
@@ -510,6 +549,26 @@ function connect(
     ws.onclose = handleWebSocketClose;
 
     connections.set(key, ws);
+  }
+
+  // Schedule a backoff reconnect for the NEXT attempt (REQ-TERM-003 AC8/AC9).
+  // Paused while the tab is hidden — the visibility-return handler restarts at
+  // attempt 1 on foreground, so background tabs burn no battery/connect budget.
+  function scheduleReconnect(attemptNumber: number): void {
+    if (signal.aborted || !ownsConnection()) return;
+    clearConnectTimer(key);
+    const existing = retryTimeouts.get(key);
+    if (existing) {
+      clearTimeout(existing);
+      retryTimeouts.delete(key);
+    }
+    if (typeof document !== 'undefined' && document.hidden) {
+      logger.debug(`[Terminal ${key}] tab hidden — deferring reconnect to visibility return`);
+      return;
+    }
+    const delay = reconnectBackoffMs(attemptNumber + 1);
+    const timeout = setTimeout(() => attemptConnection(attemptNumber + 1), delay);
+    retryTimeouts.set(key, timeout);
   }
 
   // Start first connection attempt
@@ -563,6 +622,7 @@ function disconnect(sessionId: string, terminalId: string): void {
     clearTimeout(timeout);
     retryTimeouts.delete(key);
   }
+  clearConnectTimer(key);
 
   // Bug 1 fix: Dispose input handler before closing WebSocket
   const disposable = inputDisposables.get(key);

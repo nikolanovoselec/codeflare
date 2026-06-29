@@ -2,13 +2,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Terminal } from '@xterm/xterm';
 
 // Mock constants but keep real values (the real getTerminalWebSocketUrl reads
-// MAX_TERMINALS_PER_SESSION from here). Shorten the retry delay like the
-// sibling terminal.test.ts so fake-timer advances stay small.
+// MAX_TERMINALS_PER_SESSION from here). Shorten the reconnect backoff like the
+// sibling terminal.test.ts so fake-timer advances stay small, and push the
+// connect-timeout out of reach so it never fires in these always-opening tests.
 vi.mock('../../lib/constants', async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
-    WS_RETRY_DELAY_MS: 100,
+    WS_RECONNECT_BASE_MS: 50,
+    WS_RECONNECT_MAX_MS: 200,
+    WS_CONNECT_TIMEOUT_MS: 1_000_000,
   };
 });
 

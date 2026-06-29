@@ -94,6 +94,14 @@ Browser retained stale Access session. Test in incognito. Clear CF Access cookie
 
 **Fix:** The 401 handler now redirects via `location.replace('/')` (so Back does not return to the dead page) and **throws** an `authRedirect`-tagged `ApiError` so the promise always settles; `AppContent` renders a calm "redirecting" state on that error; `RootPage` renders a non-empty state for `redirect` mode; and a top-level `ErrorBoundary` renders a reload fallback instead of a blank document. Redeploy the web-ui build to pick up the fix.
 
+### Terminal Stuck on "Connecting" After a Mobile App-Switch
+
+**Symptom:** After backgrounding the browser on mobile (app-switch) and returning, one or more terminal panes sit on the connecting state indefinitely and never recover on their own.
+
+**Cause:** When the network is still re-establishing right after the foreground return, the new WebSocket can sit in `CONNECTING` without ever emitting a close or error event, so the close-code reconnect path never runs and the pane is stranded mid-handshake. The previous reconnect also used a flat retry delay with no watchdog for a socket that simply hangs while opening.
+
+**Fix:** A connect-timeout watchdog force-closes any socket still in `CONNECTING` after `WS_CONNECT_TIMEOUT_MS` and schedules a reconnect. Reconnect now uses equal-jitter exponential backoff (`reconnectBackoffMs`, base 500ms, capped at 15000ms) that resets to attempt 1 on a successful open, and is paused while the tab is hidden — the visibility-return handler restarts it at attempt 1 so a backgrounded pane burns no battery or connect budget. Redeploy the web-ui build to pick up the fix. ([REQ-TERM-003](../../sdd/spec/terminal.md#req-term-003-automatic-websocket-reconnection-on-transient-failures))
+
 ### Container Stuck at "Waiting for Services"
 
 The loading screen waits for both R2 sync and PTY pre-warm to complete before signalling ready. Check `GET /api/container/startup-status?sessionId=xxx` and inspect the `details.syncError` field.
@@ -269,4 +277,5 @@ wrangler tail codeflare --status error
 - [REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants) - sleepAfter fail-safe invariants
 - [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) - Container Port-Readiness Gating with Pre-Warm Pre-Condition
 - [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit) - Persisted status is authoritative on container exit
+- [REQ-TERM-003](../../sdd/spec/terminal.md#req-term-003-automatic-websocket-reconnection-on-transient-failures) - Automatic WebSocket reconnection (connect-timeout force-close, equal-jitter exponential backoff, pause-while-hidden)
 - [REQ-VAULT-017](../../sdd/spec/vault.md#req-vault-017-silverbullet-native-service-worker) - SilverBullet native service worker (SW parse validity, graft-layer coercions, readiness gating)
