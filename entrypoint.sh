@@ -1720,16 +1720,16 @@ warm_pi_npm_dependencies() {
 const fs = require('fs');
 const path = process.argv[2];
 const required = [
-  'npm:@gotgenes/pi-subagents@17.4.0',
+  'npm:@gotgenes/pi-subagents@18.0.1',
   // context-mode is now enabled by default for Pi (was disabled): its ctx_* tools
   // and the bash-curl-redirect hook are active without an explicit `/ctx on`.
-  'npm:context-mode@1.0.166',
+  'npm:context-mode@1.0.168',
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx off never disables them.
   'npm:@juicesharp/rpiv-advisor@1.20.0',
   'npm:@juicesharp/rpiv-ask-user-question@1.20.0',
   'npm:@juicesharp/rpiv-todo@1.20.0',
-  'npm:pi-web-access@0.10.7',
+  'npm:pi-web-access@0.13.0',
   'npm:pi-mcp-adapter@2.10.0',
 ];
 const disabledPackageIds = new Set([]);
