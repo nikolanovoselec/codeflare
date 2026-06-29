@@ -91,6 +91,48 @@ export const PROTECTED_PATHS: string[] = [];
  */
 export const ENTERPRISE_GH_TOKEN_PLACEHOLDER = 'codeflare-enterprise';
 
+/**
+ * REQ-ENTERPRISE-016: placeholder R2 S3 credentials emitted into the container when strict
+ * Gateway egress is active, so the real R2 key never enters the container. rclone signs with
+ * this placeholder; the EgressController strips it and re-signs with the worker-held key at
+ * the R2 boundary. Any non-empty, pipe-free string works (the placeholder signature is
+ * discarded). Deliberately the SAME canonical value as {@link ENTERPRISE_GH_TOKEN_PLACEHOLDER}
+ * (`'codeflare-enterprise'`, matching entrypoint.sh's `ENTERPRISE_PLACEHOLDER_TOKEN`) — every
+ * enterprise non-secret placeholder credential is this one value by design. Kept a separate
+ * literal (NOT aliased to `ENTERPRISE_GH_TOKEN_PLACEHOLDER`) so it reads correctly for R2 and
+ * does not trip knip's duplicate-export check.
+ */
+export const ENTERPRISE_R2_KEY_PLACEHOLDER = 'codeflare-enterprise';
+
+/**
+ * REQ-BROWSER-008: placeholder Cloudflare API token emitted into the container as
+ * CLOUDFLARE_API_TOKEN in enterprise mode when an admin Browser Rendering token IS
+ * configured, so the browser-run MCP servers / Pi `browser_*` extension run in authed
+ * mode but never hold the real credential. The CloudflareBrowserInterceptor strips this
+ * placeholder and injects the real admin Browser Rendering token at the
+ * api.cloudflare.com boundary (and only for the wizard-configured browser account's
+ * `/browser-rendering/*` path). Same canonical value as the other enterprise placeholders
+ * (`'codeflare-enterprise'`, matching entrypoint.sh's `ENTERPRISE_PLACEHOLDER_TOKEN`);
+ * kept a separate literal (NOT aliased) so it reads correctly here and does not trip
+ * knip's duplicate-export check.
+ */
+export const ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER = 'codeflare-enterprise';
+
+/**
+ * REQ-ENTERPRISE-012: default per-route context window (tokens) for an enterprise
+ * dynamic route. The Setup wizard prefills each route's context-window field with
+ * this value and the admin can raise it (e.g. a 1M-context BYOK model) or reset back
+ * to it. entrypoint.sh uses it as the fallback when a route has no configured window.
+ * 256000 is the safe floor across the current Workers-AI route models (kimi-k2.6
+ * 262144 / gemma-4-26b 256000); declaring at-or-below the real model window keeps Pi's
+ * proactive compaction firing before the provider's hard context limit.
+ *
+ * @public — the canonical default is consumed cross-boundary (the web-ui bundle keeps its
+ * own mirror, entrypoint.sh uses the literal as the per-route jq fallback), so knip's
+ * backend project sees no importer; the tag marks the export intentional, not dead.
+ */
+export const DEFAULT_ROUTE_CONTEXT_WINDOW = 256000;
+
 /** Default max concurrent running sessions for regular users */
 const DEFAULT_MAX_SESSIONS_USER = 3;
 

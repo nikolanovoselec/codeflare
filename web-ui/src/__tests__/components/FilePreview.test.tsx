@@ -67,6 +67,27 @@ describe('FilePreview Component', () => {
       expect(onDownload).toHaveBeenCalledTimes(1);
     });
 
+    // REQ-ENTERPRISE-019: view-only storage renders the download control blocked
+    // (class + aria-disabled) but still invokes onDownload, so the parent surfaces
+    // the "disabled by administrator" notice instead of a raw 403.
+    it('renders the download control blocked when downloadsDisabled, still invoking onDownload', () => {
+      const onDownload = vi.fn();
+      render(() => (
+        <FilePreview
+          file={createMockPreviewFile({ key: 'workspace/readme.md', content: 'content', size: 7 })}
+          onBack={() => {}}
+          onDownload={onDownload}
+          downloadsDisabled={true}
+        />
+      ));
+
+      const dlBtn = screen.getByTestId('file-preview-download');
+      expect(dlBtn.classList.contains('file-preview-download-btn--blocked')).toBe(true);
+      expect(dlBtn.getAttribute('aria-disabled')).toBe('true');
+      fireEvent.click(dlBtn);
+      expect(onDownload).toHaveBeenCalledTimes(1);
+    });
+
     it('should show line numbers', () => {
       render(() => (
         <FilePreview

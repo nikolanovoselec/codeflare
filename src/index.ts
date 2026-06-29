@@ -515,3 +515,27 @@ export { LlmInterceptor } from './llm-interceptor';
 // the boundary, so the real token never enters the container. Inert unless
 // ENTERPRISE_MODE=active.
 export { GitHubInterceptor } from './github-interceptor';
+
+// Enterprise-mode strict Gateway egress controller (REQ-ENTERPRISE-016). A
+// WorkerEntrypoint the container DO wires as a catch-all (interceptOutboundHttps('*', …))
+// when the strict-egress toggle is ON, forcing all other-host egress through the
+// env.EGRESS Workers VPC binding. Transparent proxy — stamps no identity, preserves
+// caller credentials, fails closed. Inert unless ENTERPRISE_MODE=active and the toggle is on.
+export { EgressController } from './egress-controller';
+
+// Enterprise-mode Browser Rendering credential interceptor (REQ-BROWSER-008). A
+// WorkerEntrypoint the container DO wires for api.cloudflare.com (interceptOutboundHttps)
+// whenever an admin Browser Rendering token is configured. Strips the container's placeholder
+// CLOUDFLARE_API_TOKEN and injects the real admin token, but ONLY for the wizard-configured
+// browser account's /browser-rendering/* path (REST + CDP WebSocket); everything else on
+// api.cloudflare.com is routed to the Gateway. The real token never enters the container.
+// Inert unless ENTERPRISE_MODE=active.
+export { CloudflareBrowserInterceptor } from './cloudflare-browser-interceptor';
+
+// REQUIRED for container outbound interception to function. The @cloudflare/containers
+// runtime routes intercepted container HTTPS (interceptOutboundHttps) THROUGH this
+// ContainerProxy WorkerEntrypoint to our handlers (LlmInterceptor / GitHubInterceptor /
+// EgressController). Per the SDK egress contract: "Without this export, outbound
+// interception will not work" — i.e. intercepted requests black-hole. Inert unless the
+// container DO actually registers an interceptor (enterprise mode).
+export { ContainerProxy } from '@cloudflare/containers';

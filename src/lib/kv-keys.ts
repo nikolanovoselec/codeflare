@@ -280,12 +280,24 @@ export const SETUP_KEYS = {
   // (entrypoint writes Pi defaultThinkingLevel); absent ⇒ no default pinned.
   DYNAMIC_ROUTES: 'setup:dynamic_routes',
   DEFAULT_ROUTE: 'setup:default_route',
+  // REQ-ENTERPRISE-012: per-route context window. A JSON map keyed by dynamic-route
+  // name -> token count (e.g. { "development": 262144 }). The admin sets it in the
+  // Setup wizard (default DEFAULT_ROUTE_CONTEXT_WINDOW); fanned to the container so
+  // entrypoint sets each Pi model's contextWindow. A route with no entry falls back
+  // to the default. Non-secret (route names + integers).
+  ROUTE_CONTEXT_WINDOWS: 'setup:route_context_windows',
   // REQ-ENTERPRISE-013: per-group dynamic routing. A JSON map keyed by Access group
   // name -> { routes: string[] (subset of DYNAMIC_ROUTES), defaultRoute, reasoning }.
   // When set and the user matches a configured group, it overrides DYNAMIC_ROUTES /
   // DEFAULT_ROUTE for that user; absent (or no groups) ⇒ the global catalog applies,
   // byte-identical to pre-feature behavior. Non-secret (route names only).
   GROUP_ROUTING: 'setup:group_routing',
+  // REQ-ENTERPRISE-017: enterprise AI Gateway config set in the Setup wizard. The URL is
+  // non-secret (plain KV); the token is stored encrypted (kv-crypto, same shape as the
+  // Browser Rendering token). Deploy-time env AIG_GATEWAY_URL/AIG_TOKEN remain as an
+  // OPTIONAL fallback. Resolved KV-first via getAigConfig (src/lib/aig-config.ts).
+  AIG_GATEWAY_URL: 'setup:aig_gateway_url',
+  AIG_TOKEN: 'setup:aig_token',
   IDP_LIST: 'setup:idp_list',
   MAX_USERS: 'setup:max_users',
   TURNSTILE_SITE_KEY: 'setup:turnstile_site_key',
@@ -297,6 +309,20 @@ export const SETUP_KEYS = {
   // deployment's own Cloudflare account.
   BROWSER_RENDER_TOKEN: 'setup:browser_render_token',
   BROWSER_RENDER_ACCOUNT_ID: 'setup:browser_render_account_id',
+  // REQ-ENTERPRISE-016: enterprise-only on/off toggle for strict Gateway egress.
+  // Stored as 'active' / 'inactive' (read === 'active'); default OFF when absent.
+  // Set by the setup wizard and persisted in KV — no redeploy needed to flip it.
+  STRICT_EGRESS: 'setup:strict_egress',
+  // REQ-ENTERPRISE-018: enterprise-only Governed Mode toggle — disable R2 SSE-C so the
+  // corporate bucket is readable/scannable. Stored as 'active' / 'inactive'
+  // (read === 'active'); default OFF when absent. Flipping it reconciles each bucket's
+  // encryption regime losslessly on its next session start (src/lib/r2-migration.ts).
+  R2_SSE_DISABLED: 'setup:r2_sse_disabled',
+  // Enterprise-only view-only-storage toggle: when 'active', the R2 Storage Panel allows
+  // open/view (inline) of safe types but blocks file downloads (attachment) so an agent or
+  // user cannot bulk-exfiltrate the bucket (e.g. zip the repo and download it). Stored as
+  // 'active' / 'inactive' (read === 'active'); default OFF when absent; enterprise-gated.
+  DOWNLOADS_DISABLED: 'setup:downloads_disabled',
   // REQ-GITHUB-008: enterprise GitHub provider config set in the Setup wizard (the
   // per-user Push & Deploy accordion is hidden in enterprise). GITHUB_PROVIDER_TYPE
   // selects 'app' | 'oauth'; the matching client id is non-secret (rides the

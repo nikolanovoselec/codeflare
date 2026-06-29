@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { setupStore } from '../../stores/setup';
+import { setupStore, DEFAULT_ROUTE_CONTEXT_WINDOW } from '../../stores/setup';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -303,6 +303,29 @@ describe('Setup Store', () => {
       expect(setupStore.dynamicRoutes).toEqual(['prod']);
     });
 
+    // REQ-ENTERPRISE-012: each route carries an admin-editable context window.
+    it('seeds a new dynamic route with the default context window', () => {
+      setupStore.addDynamicRoute('development');
+      expect(setupStore.routeContextWindows['development']).toBe(DEFAULT_ROUTE_CONTEXT_WINDOW);
+    });
+
+    it('drops a route context-window entry when the route is removed', () => {
+      setupStore.addDynamicRoute('development');
+      expect(setupStore.routeContextWindows).toHaveProperty('development');
+
+      setupStore.removeDynamicRoute('development');
+      expect(setupStore.routeContextWindows).not.toHaveProperty('development');
+    });
+
+    it('sets and resets a per-route context window', () => {
+      setupStore.addDynamicRoute('development');
+      setupStore.setRouteContextWindow('development', 1048576);
+      expect(setupStore.routeContextWindows['development']).toBe(1048576);
+
+      setupStore.resetRouteContextWindow('development');
+      expect(setupStore.routeContextWindows['development']).toBe(DEFAULT_ROUTE_CONTEXT_WINDOW);
+    });
+
     it('should clear the default route name when the default route is removed', () => {
       setupStore.addDynamicRoute('development');
       setupStore.setDefaultRouteName('development');
@@ -506,6 +529,7 @@ describe('Setup Store', () => {
               enterpriseAccessGroup: ['team_a'],
               adminAccessGroup: ['ops_admins'],
               dynamicRoutes: ['development', 'prod'],
+              routeContextWindows: { development: 262144 },
               githubProviderType: 'oauth',
               githubOauthClientId: 'stored-oauth-id',
               githubOauthClientSecretSet: true,
@@ -533,6 +557,333 @@ describe('Setup Store', () => {
       });
       // REQ-ENTERPRISE-014: admin groups round-trip from prefill, separate from routing.
       expect(setupStore.adminAccessGroups).toEqual(['ops_admins']);
+      // REQ-ENTERPRISE-012: stored windows hydrate; a route with no stored window
+      // is back-filled with the default so every route has an editable value.
+      expect(setupStore.routeContextWindows['development']).toBe(262144);
+      expect(setupStore.routeContextWindows['prod']).toBe(DEFAULT_ROUTE_CONTEXT_WINDOW);
+    });
+  });
+
+  describe('strict gateway egress (REQ-ENTERPRISE-016)', () => {
+    it('defaults to false', () => {
+      expect(setupStore.strictGatewayEgress).toBe(false);
+    });
+
+    it('flips via the setter', () => {
+      setupStore.setStrictGatewayEgress(true);
+      expect(setupStore.strictGatewayEgress).toBe(true);
+      setupStore.setStrictGatewayEgress(false);
+      expect(setupStore.strictGatewayEgress).toBe(false);
+    });
+
+    it('omits strictGatewayEgress from the configure body in non-enterprise mode', async () => {
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+      setupStore.setStrictGatewayEgress(true);
+
+      await setupStore.configure();
+
+      const [, options] = mockFetch.mock.calls[0];
+      const body = JSON.parse(options.body);
+      expect(body.strictGatewayEgress).toBeUndefined();
+    });
+
+    it('includes strictGatewayEgress in the configure body in enterprise mode', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+      await setupStore.loadExistingConfig();
+
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+      setupStore.addDynamicRoute('development');
+      setupStore.setStrictGatewayEgress(true);
+
+      await setupStore.configure();
+
+      const lastCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
+      const body = JSON.parse(lastCall[1].body);
+      expect(body.strictGatewayEgress).toBe(true);
+    });
+
+    it('hydrates strictGatewayEgress from the enterprise prefill', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [], strictGatewayEgress: true }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+
+      await setupStore.loadExistingConfig();
+
+      expect(setupStore.strictGatewayEgress).toBe(true);
+    });
+
+    it('resets strictGatewayEgress back to false', () => {
+      setupStore.setStrictGatewayEgress(true);
+      setupStore.reset();
+      expect(setupStore.strictGatewayEgress).toBe(false);
+    });
+  });
+
+  describe('Governed Mode / R2 SSE-C disable (REQ-ENTERPRISE-018)', () => {
+    it('defaults to false', () => {
+      expect(setupStore.r2SseDisabled).toBe(false);
+    });
+
+    it('flips via the setter', () => {
+      setupStore.setR2SseDisabled(true);
+      expect(setupStore.r2SseDisabled).toBe(true);
+      setupStore.setR2SseDisabled(false);
+      expect(setupStore.r2SseDisabled).toBe(false);
+    });
+
+    it('omits r2SseDisabled from the configure body in non-enterprise mode', async () => {
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+      setupStore.setR2SseDisabled(true);
+
+      await setupStore.configure();
+
+      const [, options] = mockFetch.mock.calls[0];
+      const body = JSON.parse(options.body);
+      expect(body.r2SseDisabled).toBeUndefined();
+    });
+
+    it('includes r2SseDisabled in the configure body in enterprise mode', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+      await setupStore.loadExistingConfig();
+
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+      setupStore.addDynamicRoute('development');
+      setupStore.setR2SseDisabled(true);
+
+      await setupStore.configure();
+
+      const lastCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
+      const body = JSON.parse(lastCall[1].body);
+      expect(body.r2SseDisabled).toBe(true);
+    });
+
+    it('hydrates r2SseDisabled from the enterprise prefill', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [], r2SseDisabled: true }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+
+      await setupStore.loadExistingConfig();
+
+      expect(setupStore.r2SseDisabled).toBe(true);
+    });
+
+    it('resets r2SseDisabled back to false', () => {
+      setupStore.setR2SseDisabled(true);
+      setupStore.reset();
+      expect(setupStore.r2SseDisabled).toBe(false);
+    });
+  });
+
+  describe('view-only storage / downloads disabled / REQ-ENTERPRISE-019', () => {
+    it('defaults to false', () => {
+      expect(setupStore.downloadsDisabled).toBe(false);
+    });
+
+    it('flips via the setter', () => {
+      setupStore.setDownloadsDisabled(true);
+      expect(setupStore.downloadsDisabled).toBe(true);
+      setupStore.setDownloadsDisabled(false);
+      expect(setupStore.downloadsDisabled).toBe(false);
+    });
+
+    it('omits downloadsDisabled from the configure body in non-enterprise mode', async () => {
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+      setupStore.setDownloadsDisabled(true);
+
+      await setupStore.configure();
+
+      const [, options] = mockFetch.mock.calls[0];
+      const body = JSON.parse(options.body);
+      expect(body.downloadsDisabled).toBeUndefined();
+    });
+
+    it('includes downloadsDisabled in the configure body in enterprise mode', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+      await setupStore.loadExistingConfig();
+
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+      setupStore.addDynamicRoute('development');
+      setupStore.setDownloadsDisabled(true);
+
+      await setupStore.configure();
+
+      const lastCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
+      const body = JSON.parse(lastCall[1].body);
+      expect(body.downloadsDisabled).toBe(true);
+    });
+
+    it('hydrates downloadsDisabled from the enterprise prefill', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [], downloadsDisabled: true }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+
+      await setupStore.loadExistingConfig();
+
+      expect(setupStore.downloadsDisabled).toBe(true);
+    });
+
+    it('resets downloadsDisabled back to false', () => {
+      setupStore.setDownloadsDisabled(true);
+      setupStore.reset();
+      expect(setupStore.downloadsDisabled).toBe(false);
+    });
+  });
+
+  describe('AI Gateway config (REQ-ENTERPRISE-017)', () => {
+    it('includes aigGatewayUrl + aigToken in the configure body in enterprise mode', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+      await setupStore.loadExistingConfig();
+
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+      setupStore.addDynamicRoute('development');
+      setupStore.setAigGatewayUrl('https://gateway.ai.cloudflare.com/v1/acct/gw');
+      setupStore.setAigToken('aig-secret');
+
+      await setupStore.configure();
+
+      const lastCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
+      const body = JSON.parse(lastCall[1].body);
+      expect(body.aigGatewayUrl).toBe('https://gateway.ai.cloudflare.com/v1/acct/gw');
+      expect(body.aigToken).toBe('aig-secret');
+    });
+
+    it('omits the AI Gateway fields from the configure body in non-enterprise mode', async () => {
+      mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
+      setupStore.setAigGatewayUrl('https://gateway.ai.cloudflare.com/v1/acct/gw');
+      setupStore.setAigToken('aig-secret');
+
+      await setupStore.configure();
+
+      const [, options] = mockFetch.mock.calls[0];
+      const body = JSON.parse(options.body);
+      expect(body.aigGatewayUrl).toBeUndefined();
+      expect(body.aigToken).toBeUndefined();
+    });
+
+    it('hydrates aigGatewayUrl + aigTokenSet from the enterprise prefill (never the token)', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: true, enterpriseMode: true, customDomain: 'claude.example.com' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [], aigGatewayUrl: 'https://gateway.ai.cloudflare.com/v1/acct/gw', aigTokenSet: true }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+
+      await setupStore.loadExistingConfig();
+
+      expect(setupStore.aigGatewayUrl).toBe('https://gateway.ai.cloudflare.com/v1/acct/gw');
+      expect(setupStore.aigTokenSet).toBe(true);
+      // The stored token is never returned to the client; the write-only field stays blank.
+      expect(setupStore.aigToken).toBe('');
+    });
+
+    it('resets the AI Gateway fields', () => {
+      setupStore.setAigGatewayUrl('https://x');
+      setupStore.setAigToken('y');
+      setupStore.reset();
+      expect(setupStore.aigGatewayUrl).toBe('');
+      expect(setupStore.aigToken).toBe('');
+      expect(setupStore.aigTokenSet).toBe(false);
     });
   });
 

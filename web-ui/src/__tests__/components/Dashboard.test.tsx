@@ -148,6 +148,10 @@ vi.mock('../../stores/storage', () => ({
   storageStore: {
     get stats() { return null; },
     get previewFile() { return null; },
+    get downloadsDisabled() { return false; },
+    get downloadsNoticeOpen() { return false; },
+    showDownloadsNotice: vi.fn(),
+    dismissDownloadsNotice: vi.fn(),
     fetchStats: vi.fn(),
     closePreview: vi.fn(),
     searchFiles: vi.fn((query: string) => {

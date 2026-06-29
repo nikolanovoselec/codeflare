@@ -17,8 +17,18 @@ export const MAX_STARTUP_POLL_ERRORS = 10;
 // Terminal Connection
 // =============================================================================
 
-/** Delay between WebSocket retry attempts (ms) */
-export const WS_RETRY_DELAY_MS = 1000;
+/** WebSocket reconnect backoff: base delay for attempt 1 (ms). */
+export const WS_RECONNECT_BASE_MS = 500;
+
+/** WebSocket reconnect backoff: maximum (capped) delay per attempt (ms). */
+export const WS_RECONNECT_MAX_MS = 15_000;
+
+/** Max time a socket may sit in CONNECTING before it is force-closed and the
+ *  reconnect backoff is scheduled. Cures a socket frozen at CONNECTING (e.g. the
+ *  network is still re-establishing right after a mobile app-switch), which emits
+ *  no close/error event and would otherwise strand the terminal on "Connecting"
+ *  (REQ-TERM-003 AC8). */
+export const WS_CONNECT_TIMEOUT_MS = 10_000;
 
 // =============================================================================
 // UI Timing

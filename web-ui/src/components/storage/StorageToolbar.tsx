@@ -139,11 +139,22 @@ const StorageToolbar: Component<StorageToolbarProps> = (props) => {
         <button
           type="button"
           class="storage-action-btn storage-action-btn--download"
-          title="Download selected"
+          classList={{ 'storage-action-btn--blocked': storageStore.downloadsDisabled }}
+          data-testid="storage-download-selected"
+          title={storageStore.downloadsDisabled ? 'Downloads are disabled by your administrator' : 'Download selected'}
+          aria-disabled={storageStore.downloadsDisabled || undefined}
           onClick={async () => {
+            // View-only storage: never trigger the download (which would 403 and log
+            // a console error). Surface the explanatory notice instead. The button
+            // stays clickable (not the `disabled` attribute) so the tap handler fires
+            // on touch devices where a tooltip would never show.
+            if (storageStore.downloadsDisabled) {
+              storageStore.showDownloadsNotice();
+              return;
+            }
             await props.onDownloadSelected();
           }}
-          disabled={storageStore.selectedKeys.length === 0}
+          disabled={!storageStore.downloadsDisabled && storageStore.selectedKeys.length === 0}
         >
           <Icon path={mdiDownload} size={14} />
           <span>{storageStore.selectedKeys.length}</span>

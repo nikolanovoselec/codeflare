@@ -42,8 +42,12 @@ vi.mock('@cloudflare/containers', () => ({
     destroy: vi.fn().mockResolvedValue(undefined),
   })),
 }));
+// REQ-ENTERPRISE-018: stub the background Governed Mode reconcile so the wiring test can
+// assert it is scheduled without running a real migration.
+vi.mock('../../lib/r2-migration', () => ({ reconcileBucketRegimeOnLogin: vi.fn(async () => {}) }));
 
 import lifecycleRoutes from '../../routes/session/lifecycle';
+import { reconcileBucketRegimeOnLogin } from '../../lib/r2-migration';
 
 describe('REQ-SESSION-010: Session status observable from dashboard', () => {
   let mockKV: ReturnType<typeof createMockKV>;
@@ -370,6 +374,44 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(res.status).toBe(200);
       const body = await res.json() as { preseedNeedsUpgrade?: boolean };
       expect(body.preseedNeedsUpgrade).toBeUndefined();
+    });
+  });
+
+  // REQ-ENTERPRISE-018: the initial dashboard load (the preseed-check trigger) is ALSO the
+  // first-login hook that schedules the background Governed Mode regime reconcile — off the
+  // container-start path so a slow re-encrypt can never block session creation.
+  describe('REQ-ENTERPRISE-018: schedules the Governed Mode reconcile on first dashboard load', () => {
+    beforeEach(() => { vi.mocked(reconcileBucketRegimeOnLogin).mockClear(); });
+
+    function makeExecCtx() {
+      const scheduled: Promise<unknown>[] = [];
+      return { ctx: { waitUntil: (p: Promise<unknown>) => { scheduled.push(p); }, passThroughOnException: () => {} }, scheduled };
+    }
+
+    it('schedules the reconcile via waitUntil on the initial load (includePreseedCheck)', async () => {
+      const app = createApp();
+      const { ctx, scheduled } = makeExecCtx();
+      const res = await app.request('/sessions/batch-status?includePreseedCheck=true', undefined, undefined, ctx as any);
+      expect(res.status).toBe(200);
+      expect(reconcileBucketRegimeOnLogin).toHaveBeenCalledWith(expect.anything(), 'test-bucket');
+      expect(scheduled).toHaveLength(1); // backgrounded, not awaited inline
+    });
+
+    it('does NOT schedule the reconcile on a status poll (no includePreseedCheck)', async () => {
+      const app = createApp();
+      const { ctx } = makeExecCtx();
+      const res = await app.request('/sessions/batch-status', undefined, undefined, ctx as any);
+      expect(res.status).toBe(200);
+      expect(reconcileBucketRegimeOnLogin).not.toHaveBeenCalled();
+    });
+
+    it('skips the reconcile without throwing when there is no execution context (200)', async () => {
+      // No execCtx passed → the c.executionCtx getter throws; the route must swallow it and
+      // still return 200 without invoking the reconcile (the guard's catch branch).
+      const app = createApp();
+      const res = await app.request('/sessions/batch-status?includePreseedCheck=true');
+      expect(res.status).toBe(200);
+      expect(reconcileBucketRegimeOnLogin).not.toHaveBeenCalled();
     });
   });
 

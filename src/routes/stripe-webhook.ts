@@ -293,6 +293,8 @@ async function handleSubscriptionDeleted(
     // explicitly closed. cleanup: true also removes any context-mode files
     // already in the bucket via the mode filter (advanced-only keys), but
     // we make the gate explicit at every reconcile call site for consistency.
+    // REQ-ENTERPRISE-018: no r2SseDisabled here — Stripe billing is SaaS-only and
+    // Governed Mode is enterprise-only, so these buckets are always SSE-C (policy off).
     await reconcileAgentConfigs(env, bucketName, endpoint, 'default', {
       overwrite: true,
       cleanup: true,

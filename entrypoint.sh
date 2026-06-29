@@ -201,15 +201,30 @@ RCLONE_EOF
     sed -i "s|PLACEHOLDER_SECRET_KEY|${R2_SECRET_ACCESS_KEY}|" "$USER_HOME/.config/rclone/rclone.conf"
     sed -i "s|PLACEHOLDER_ENDPOINT|${R2_ENDPOINT}|" "$USER_HOME/.config/rclone/rclone.conf"
 
+    # REQ-ENTERPRISE-018 / REQ-STOR-017 (Governed Mode): with R2 SSE-C disabled, objects
+    # keep R2's default at-rest encryption, so their ETags are usable MD5 checksums again.
+    # Re-enable checksum comparison so the delta initial sync (--checksum) catches even
+    # same-size edits the preseed bake can't. SSE-C buckets keep disable_checksum=true
+    # (SSE-C ETags are opaque). AD90.
+    if [ "${R2_SSE_DISABLED:-}" = "true" ]; then
+        sed -i "s|disable_checksum = true|disable_checksum = false|" "$USER_HOME/.config/rclone/rclone.conf"
+    fi
+
     # Append SSE-C config for R2 encryption at rest (optional)
     # Uses sse_customer_key_base64 (not sse_customer_key) because ENCRYPTION_KEY is base64-encoded.
     # rclone auto-computes the MD5 when using the base64 variant.
-    if [ -n "${ENCRYPTION_KEY:-}" ]; then
+    # REQ-ENTERPRISE-018 (Governed Mode): skip the SSE-C append when R2_SSE_DISABLED=true
+    # even though ENCRYPTION_KEY is present — the key still serves vault + secret-at-rest
+    # crypto, but the corporate bucket must be readable/scannable, so rclone must not send
+    # SSE-C headers (they would 400 against the now-plaintext objects). AD89.
+    if [ -n "${ENCRYPTION_KEY:-}" ] && [ "${R2_SSE_DISABLED:-}" != "true" ]; then
         cat >> "$USER_HOME/.config/rclone/rclone.conf" << SSEEOF
 sse_customer_key_base64 = ${ENCRYPTION_KEY}
 sse_customer_algorithm = AES256
 SSEEOF
         echo "[entrypoint] R2 SSE-C encryption configured for rclone"
+    elif [ "${R2_SSE_DISABLED:-}" = "true" ]; then
+        echo "[entrypoint] Governed Mode: R2 SSE-C disabled, rclone using R2 default encryption + checksums"
     fi
 
     chmod 600 "$USER_HOME/.config/rclone/rclone.conf"
@@ -532,13 +547,22 @@ init_recovery_filters
 # IMPORTANT: Uses timeout to prevent infinite hangs on network issues
 initial_sync_from_r2() {
     local SYNC_TIMEOUT=120  # 2 minutes max for initial sync
-    echo "[entrypoint] Step 1: One-way sync R2 → local (max ${SYNC_TIMEOUT}s)..." | tee -a /tmp/sync.log
+    # REQ-STOR-017 / AD90: under Governed Mode (SSE-C off) R2 keeps usable MD5 ETags, so
+    # compare by --checksum — combined with the image-baked seed laid down below, this
+    # skips the unchanged seed files and transfers only user deltas, catching even
+    # same-size edits the bake can't. Under SSE-C (default) ETags are opaque, so keep the
+    # historical --size-only behavior (byte-identical to today). See create_rclone_config.
+    local COMPARE_FLAG="--size-only"
+    if [ "${R2_SSE_DISABLED:-}" = "true" ]; then
+        COMPARE_FLAG="--checksum"
+    fi
+    echo "[entrypoint] Step 1: One-way sync R2 → local (max ${SYNC_TIMEOUT}s, compare ${COMPARE_FLAG})..." | tee -a /tmp/sync.log
 
     if timeout $SYNC_TIMEOUT rclone sync "r2:$R2_BUCKET_NAME/" "$USER_HOME/" \
         --config "$RCLONE_CONFIG" \
         "${RCLONE_FILTERS[@]}" \
         --fast-list \
-        --size-only \
+        "$COMPARE_FLAG" \
         --min-size 1B \
         --multi-thread-streams 4 \
         --transfers 32 \
@@ -564,6 +588,74 @@ initial_sync_from_r2() {
     fi
 }
 
+# REQ-STOR-017 / AD90: lay down the image-baked agent seed for the session's mode into
+# $USER_HOME before the initial R2 sync. Only in Governed Mode (R2_SSE_DISABLED=true),
+# where the subsequent --checksum sync can prove the laid-down files match R2 and skip
+# them — transferring only the user's deltas instead of re-downloading the whole ~9 MB
+# seed every boot. Under SSE-C the bake is NOT laid down (a same-size seed edit could not
+# be detected by --size-only, so honoring "preserve in-container edits" keeps today's
+# full download). Idempotent and mode-aware.
+lay_down_agent_seed_preseed() {
+    [ "${R2_SSE_DISABLED:-}" = "true" ] || return 0
+    local mode="${SESSION_MODE:-default}"
+    # AGENT_SEED_BAKE_DIR overrides the image bake root (defaults to the baked path);
+    # unset in production, set by the entrypoint tests to a tmpdir.
+    local bake="${AGENT_SEED_BAKE_DIR:-/opt/codeflare/agent-seed-bake}/${mode}"
+    if [ ! -d "$bake" ]; then
+        echo "[entrypoint] Governed Mode: no baked agent seed for mode '${mode}'; skipping lay-down" | tee -a /tmp/sync.log
+        return 0
+    fi
+    echo "[entrypoint] Governed Mode: laying down baked agent seed (mode=${mode}) before initial sync" | tee -a /tmp/sync.log
+    # The bake tree mirrors the R2 key layout rooted at $USER_HOME (.claude/, .pi/agent/,
+    # .gemini/, .codex/, .copilot/, .config/opencode/), so one copy lands every agent home.
+    cp -rp "$bake/." "$USER_HOME/"
+    # Seed hooks arrive as plain files; the CLI execs ~/.claude/hooks/*.mjs directly, so
+    # restore +x (mirrors the post-sync chmod). Idempotent; non-fatal if the dir is absent.
+    find "$USER_HOME/.claude/hooks" -maxdepth 2 -name '*.mjs' -type f -exec chmod 0755 {} + 2>/dev/null || true
+    echo "[entrypoint] Baked agent seed laid down" | tee -a /tmp/sync.log
+}
+
+# REQ-STOR-017 / AD90: image-authoritative relay of the managed Pi extension CODE.
+# The jiti prewarm cache (Dockerfile warm-up) is keyed on abspath + source + version and is
+# baked at the exact .pi/agent/extensions runtime path — the bake fixes the PATH half of the
+# key; this relay fixes the CONTENT half. After the initial R2 sync restores user data, a
+# stale bucket copy of a managed extension (the sync faithfully restores older bytes) hashes
+# differently and defeats that cache — ~2.4s of cold transpile EVERY session.
+# Re-lay the image-baked managed extensions for the session mode so their bytes always equal
+# the build → the prewarm cache always hits, in ALL deployment modes (not just Governed).
+# Surgical: copies only the codeflare-owned .pi/agent/extensions tree, so user-ADDED
+# extensions (other filenames the sync restored) are preserved and user-editable seed
+# docs/rules are untouched. Uses cp -r (not -p) so the relaid files carry a current mtime —
+# the subsequent bisync then treats local as authoritative and self-heals R2 instead of
+# pulling the stale copy back. Idempotent and mode-aware.
+relay_managed_pi_extensions() {
+    # Source = the EXACT dir the jiti prewarm cache was baked from (Dockerfile copies
+    # preseed/agents/pi/extensions here, UNFILTERED — all managed extensions). NOT the
+    # mode-filtered agent-seed-bake: its default subset omits advanced-only extensions
+    # (e.g. codeflare-pi.ts), which still load and cold-transpile. Overwrite-if-present
+    # only: fix the content of whatever managed extensions the session actually loaded,
+    # without adding mode-gated extensions to a session that should not have them. cp
+    # (no -p) gives a fresh mtime so the --resync baseline treats local as truth.
+    # User-added extensions (other filenames) are never matched, so they are preserved.
+    local warm_src="${PI_WARM_EXTENSIONS_DIR:-/opt/codeflare/pi-agent/extensions}"
+    local dest="$USER_HOME/.pi/agent/extensions"
+    if [ ! -d "$warm_src" ]; then
+        echo "[entrypoint] No image Pi extension source ($warm_src); skipping managed-extension relay" | tee -a /tmp/sync.log
+        return 0
+    fi
+    [ -d "$dest" ] || return 0
+    local relaid=0 f base
+    for f in "$warm_src"/*.ts; do
+        [ -e "$f" ] || continue
+        base="$(basename "$f")"
+        if [ -f "$dest/$base" ]; then
+            cp "$f" "$dest/$base"
+            relaid=$((relaid + 1))
+        fi
+    done
+    echo "[entrypoint] Relaid ${relaid} managed Pi extension(s) from image source over post-sync tree" | tee -a /tmp/sync.log
+}
+
 # Step 2: Establish bisync baseline (after data is restored)
 # IMPORTANT: Uses timeout to prevent infinite hangs
 # Recovery: if a vanishing file causes failure, excludes it and retries (max 3 attempts)
@@ -575,22 +667,24 @@ establish_bisync_baseline() {
         echo "[entrypoint] Step 2: Establishing bisync baseline (max ${BISYNC_TIMEOUT}s, attempt $recovery_attempt/$MAX_RECOVERY)..." | tee -a /tmp/sync.log
 
         BASELINE_OUTPUT=$(mktemp)
+        # --use-server-modtime + --checkers 64: avoid the per-file mtime HEAD storm; see
+        # the steady-state bisync below + AD88.
         if timeout $BISYNC_TIMEOUT rclone bisync "$USER_HOME/" "r2:$R2_BUCKET_NAME/" \
             --config "$RCLONE_CONFIG" \
             "${RCLONE_FILTERS[@]}" \
             --filter-from "$RECOVERY_FILTER_FILE" \
             --resync \
             --fast-list \
+            --use-server-modtime \
             --min-size 1B \
             --conflict-resolve newer \
             --resilient \
             --recover \
             --check-sync=false \
             --ignore-checksum \
-            --s3-upload-cutoff 0 \
             --max-delete 100 \
             --retries 3 --retries-sleep 10s \
-            --transfers 32 --checkers 32 -v > "$BASELINE_OUTPUT" 2>&1; then
+            --transfers 32 --checkers 64 -v > "$BASELINE_OUTPUT" 2>&1; then
             SYNC_RESULT=0
         else
             SYNC_RESULT=$?
@@ -655,22 +749,25 @@ bisync_with_r2() {
     # Write output to known location so daemon can read it for recovery
     SYNC_OUTPUT="/tmp/last-bisync-output.txt"
 
-    # Run bisync (includes recovery filter for dynamically excluded vanished files)
+    # Run bisync (includes recovery filter for dynamically excluded vanished files).
+    # --use-server-modtime: compare via R2 LastModified from the bulk --fast-list rather
+    # than each object's mtime metadata, which would cost a HEAD per file — the dominant
+    # sync cost (~80%, measured: ~2,900 HEADs/cycle). --checkers 64 overlaps the rest. AD88.
     if rclone bisync "$USER_HOME/" "r2:$R2_BUCKET_NAME/" \
         --config "$RCLONE_CONFIG" \
         "${RCLONE_FILTERS[@]}" \
         --filter-from "$RECOVERY_FILTER_FILE" \
         --fast-list \
+        --use-server-modtime \
         --min-size 1B \
         --conflict-resolve newer \
         --resilient \
         --recover \
         --check-sync=false \
         --ignore-checksum \
-        --s3-upload-cutoff 0 \
         --max-delete 100 \
         --retries 3 --retries-sleep 10s \
-        --transfers 32 --checkers 32 "${verbose_args[@]}" > "$SYNC_OUTPUT" 2>&1; then
+        --transfers 32 --checkers 64 "${verbose_args[@]}" > "$SYNC_OUTPUT" 2>&1; then
         RESULT=0
     else
         RESULT=$?
@@ -1652,6 +1749,27 @@ fi
 # Note: Claude Code consent is pre-accepted via bypassPermissionsModeAccepted in .claude.json.
 
 if [ $RCLONE_CONFIG_RESULT -eq 0 ]; then
+    # REQ-ENTERPRISE-016: under strict Gateway egress the container's rclone egress is
+    # TLS-terminated by the platform with the Cloudflare containers CA. Install that CA
+    # into the system trust store BEFORE the initial R2 sync forks, so rclone (Go; reads
+    # the system bundle at handshake) trusts the intercepted connection. Without this the
+    # first sync ("Syncing…") fails the TLS handshake. The enterprise CA block later in
+    # this script re-installs it idempotently and additionally wires the agent env/.bashrc.
+    if [ "${ENTERPRISE_MODE:-}" = "active" ]; then
+        _CF_CA_SRC="/etc/cloudflare/certs/cloudflare-containers-ca.crt"
+        if [ -f "$_CF_CA_SRC" ]; then
+            cp "$_CF_CA_SRC" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt 2>/dev/null \
+                && update-ca-certificates >/dev/null 2>&1 \
+                && echo "[entrypoint] Enterprise Mode: containers CA installed before R2 sync (rclone trusts intercepted TLS)" \
+                || echo "[entrypoint] WARNING: could not install containers CA before R2 sync; strict-egress sync may fail TLS"
+        fi
+    fi
+
+    # REQ-STOR-017 / AD90: in Governed Mode, lay down the image-baked agent seed locally
+    # BEFORE the initial sync so --checksum can skip the unchanged seed files. Synchronous
+    # (must finish before the sync starts). No-op outside Governed Mode.
+    lay_down_agent_seed_preseed
+
     # Step 1: One-way sync FROM R2 to restore user data (credentials, plugins, etc.)
     update_sync_status "syncing" "null"
     initial_sync_from_r2 &
@@ -2112,12 +2230,14 @@ COPILOT_BYOK_EOF
     # (Pi natively switches between them via /model), then PIN the default route
     # as the default in ~/.pi/agent/settings.json.
     #
-    # Why the pin is essential: without a default, Pi keeps all its built-in
-    # providers and binds the request to one of them — amazon-bedrock, which it
-    # treats as authenticated because the container exports AWS_ACCESS_KEY_ID /
-    # AWS_SECRET_ACCESS_KEY (actually R2 S3 keys for rclone). Pi then signs a
-    # SigV4 call to AWS Bedrock (-> UnrecognizedClientException) that NEVER reaches
-    # api.openai.com, so the interceptor and gateway see nothing. Pinning
+    # Why the pin is essential: without a default, Pi may bind the request to a
+    # built-in provider instead of the gateway route — a call that never reaches
+    # api.openai.com, so the interceptor and gateway see nothing. (Historically the
+    # worst case was amazon-bedrock, which Pi treated as authenticated from the
+    # container's AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY R2 keys and SigV4-signed to
+    # Bedrock; those AWS_* vars are no longer emitted in any mode — REQ-ENTERPRISE-005
+    # AC7 — and auth.json is cleared to {} so no built-in provider stays authed, but
+    # the pin is still required so launch binds to the gateway route.) Pinning
     # defaultProvider+defaultModel makes Pi gateway-bound on launch, zero-touch.
     # The handles are slash-free (Pi parses a slash as provider/model); the real
     # gateway route is mapped by the Worker interceptor from the slash-free handle.
@@ -2155,9 +2275,28 @@ COPILOT_BYOK_EOF
     # unpinned, container stays up", never a dead container — so the `|| OK=0`
     # guards keep set -e from aborting and we skip the pin on any jq failure.
     PI_GATEWAY_CONFIG_OK=1
-    PI_MODELS_ARRAY="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -c --arg defroute "$ENTERPRISE_DEFAULT_ROUTE" '
+    # contextWindow (REQ-ENTERPRISE-012): a dynamic route's underlying model is not
+    # introspectable over the chat/completions API, so Pi falls back to its built-in 128k
+    # default unless we declare it. The admin configures a per-route window in the Setup
+    # wizard; the Worker fans it as ENTERPRISE_ROUTE_CONTEXT_WINDOWS (JSON map route->tokens).
+    # Each model entry gets its route's window, or DEFAULT (256000, mirrors
+    # DEFAULT_ROUTE_CONTEXT_WINDOW) when the route has no entry. Declaring at-or-below the
+    # real model window keeps Pi's proactive compaction firing before the provider's hard
+    # context limit. Default the var to {} (set -u safe); a malformed map trips the jq
+    # guard below (|| OK=0 -> Pi unpinned, container stays up).
+    # Default to {} when unset/empty (set -u safe). Do NOT write `${VAR:-{}}`: bash
+    # treats the first `}` as the expansion terminator and appends the second as a
+    # literal, so when the var IS set it yields `<value>}` — invalid JSON that fails
+    # the --argjson below (PI_GATEWAY_CONFIG_OK=0 -> Pi unpinned). It only looked fine
+    # for the unset case, where the default `{` + the stray `}` happened to form `{}`.
+    ENTERPRISE_ROUTE_CONTEXT_WINDOWS="${ENTERPRISE_ROUTE_CONTEXT_WINDOWS:-}"
+    [ -n "$ENTERPRISE_ROUTE_CONTEXT_WINDOWS" ] || ENTERPRISE_ROUTE_CONTEXT_WINDOWS='{}'
+    PI_MODELS_ARRAY="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -c \
+        --arg defroute "$ENTERPRISE_DEFAULT_ROUTE" \
+        --argjson cw "$ENTERPRISE_ROUTE_CONTEXT_WINDOWS" \
+        --argjson dflt 256000 '
         (if type=="array" and length>0 then . else [$defroute] end)
-        | map({ id: ., reasoning: true, input: ["text", "image"] })' 2>/dev/null)" || PI_GATEWAY_CONFIG_OK=0
+        | map({ id: ., reasoning: true, input: ["text", "image"], contextWindow: ($cw[.] // $dflt) })' 2>/dev/null)" || PI_GATEWAY_CONFIG_OK=0
     PI_PROVIDER_CONFIG=""
     if [ "$PI_GATEWAY_CONFIG_OK" = "1" ]; then
         PI_PROVIDER_CONFIG="$(jq -n \
@@ -2212,6 +2351,15 @@ COPILOT_BYOK_EOF
         echo "$PI_SETTINGS_CFG" | jq '.' > "$PI_SETTINGS_JSON"
     fi
     echo "[entrypoint] Enterprise Mode: Pi pinned to codeflare-gateway/$ENTERPRISE_DEFAULT_ROUTE (default provider + model; catalog has all routes)"
+
+    # Routes-only model picker: clear ~/.pi/agent/auth.json so NO built-in provider is
+    # authenticated. Pi only lists a provider in /model when it has auth; codeflare-gateway
+    # authenticates via the models.json apiKey placeholder (NOT auth.json), so emptying
+    # auth.json leaves the dynamic routes as the only selectable models. Authoritative on
+    # every enterprise start so a restored/synced home dir cannot reintroduce a built-in
+    # provider's stored token (e.g. the seeded openai-codex entry).
+    echo '{}' > "$USER_HOME/.pi/agent/auth.json"
+    echo "[entrypoint] Enterprise Mode: cleared Pi auth.json (routes-only model picker)"
 fi
 
 # Configure context-mode MCP server. (Implements REQ-AGENT-005)
@@ -2754,12 +2902,30 @@ fi
 # Configure tab auto-start
 configure_tab_autostart
 
+# REQ-STOR-017 / AD90: make the image-baked managed Pi extensions authoritative BEFORE the
+# bisync baseline so the jiti prewarm cache (keyed on abspath + source + version) always hits
+# on its content half (all deployment modes). Synchronous and unconditional: even if sync/bisync
+# are skipped or fail, the local managed extensions must equal the build. Placed before --resync
+# so the baseline treats the relaid local copy as truth and pushes it back to R2 (self-heal)
+# rather than the reverse. Best-effort under `set -e`: a copy failure must degrade to a ~2.4s
+# cold transpile, never abort PID 1 (matches the renice/ionice convention below).
+relay_managed_pi_extensions || true
+
 # Step 2: Establish bisync baseline IN BACKGROUND (don't block startup)
 # Runs AFTER all file modifications (.claude.json, .claude/settings.json,
 # .codex/version.json, .bashrc tab autostart) to avoid hash mismatches from files changing during --resync.
 if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then
     (
-        echo "[entrypoint] Establishing bisync baseline in background..."
+        # REQ-STOR-017: deprioritize ALL background init (bisync --resync baseline, vault
+        # seed, sync/vault daemons) so it yields the single vCPU and the disk to the pi PTY
+        # pre-warm running concurrently. Pre-warm latency was dominated by contention, not
+        # work; with idle I/O class + lowest niceness, pi preempts this subshell whenever it
+        # wants CPU/disk, so the baseline effectively runs in pre-warm's slack (and after it
+        # finishes) instead of racing it. Children (rclone, daemons) inherit. Best-effort:
+        # a missing renice/ionice (or a kernel that refuses) never aborts startup.
+        renice -n 19 "$BASHPID" >/dev/null 2>&1 || true
+        ionice -c 3 -p "$BASHPID" >/dev/null 2>&1 || true
+        echo "[entrypoint] Establishing bisync baseline in background (deprioritized: nice 19 / ionice idle)..."
         if establish_bisync_baseline; then
             echo "[entrypoint] Bisync baseline established, starting daemon..."
         else

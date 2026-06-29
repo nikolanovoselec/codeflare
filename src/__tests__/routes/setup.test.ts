@@ -1975,6 +1975,50 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).toHaveBeenCalledWith('setup:dynamic_routes', JSON.stringify(['development', 'prod']));
       });
 
+      it('REQ-ENTERPRISE-012: persists the per-route context-window map as JSON', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const routeContextWindows = { development: 262144, prod: 1048576 };
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ dynamicRoutes: ['development', 'prod'], routeContextWindows })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:route_context_windows', JSON.stringify(routeContextWindows));
+      });
+
+      it('REQ-ENTERPRISE-012: clears the per-route context-window map when empty', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ routeContextWindows: {} })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.delete).toHaveBeenCalledWith('setup:route_context_windows');
+      });
+
+      it('REQ-ENTERPRISE-012: rejects a non-positive context window (boundary validation)', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ routeContextWindows: { development: 0 } })),
+        });
+
+        expect(res.status).toBe(400);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:route_context_windows', expect.anything());
+      });
+
       it('REQ-BROWSER-007: persists the Browser Rendering token + account id', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active' });
         mockFullSuccessFlow();
@@ -2013,6 +2057,61 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
 
       // ─── REQ-GITHUB-008: enterprise GitHub provider config ──────────────────
       const ENC_KEY = 'A'.repeat(43) + '='; // base64 of 32 zero bytes — a valid AES-256 key
+
+      // ─── REQ-ENTERPRISE-017: AI Gateway URL + token configured in the wizard ──
+      it('REQ-ENTERPRISE-017: persists the AI Gateway URL (plain) + token (encrypted) and emits configure_ai_gateway', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: ENC_KEY });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ aigGatewayUrl: 'https://gateway.ai.cloudflare.com/v1/acct/gw', aigToken: 'aig-secret' })),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        // URL is non-secret -> stored verbatim. The token rides encryptAndStore (kv.put at
+        // its dedicated key) and the stored value must NOT contain the plaintext secret —
+        // catches an accidental plaintext-storage regression of the token.
+        expect(mockKV.put).toHaveBeenCalledWith('setup:aig_gateway_url', 'https://gateway.ai.cloudflare.com/v1/acct/gw');
+        expect(mockKV.put).toHaveBeenCalledWith('setup:aig_token', expect.not.stringContaining('aig-secret'));
+        // WS6: the step surfaces on the progress stream so the configuring screen shows it.
+        expect(lines).toContainEqual(expect.objectContaining({ step: 'configure_ai_gateway', status: 'success' }));
+      });
+
+      it('REQ-ENTERPRISE-017: a blank AI Gateway token leaves the stored token untouched (no clobber)', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: ENC_KEY });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ aigGatewayUrl: 'https://gateway.ai.cloudflare.com/v1/acct/gw', aigToken: '' })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        // URL still written, but a blank token must not overwrite the stored one.
+        expect(mockKV.put).toHaveBeenCalledWith('setup:aig_gateway_url', 'https://gateway.ai.cloudflare.com/v1/acct/gw');
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:aig_token', expect.anything());
+      });
+
+      it('REQ-ENTERPRISE-017: never writes the AI Gateway keys in non-enterprise mode (regression)', async () => {
+        const app = createTestApp();
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ aigGatewayUrl: 'https://gateway.ai.cloudflare.com/v1/acct/gw', aigToken: 'aig-secret' })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:aig_gateway_url', expect.anything());
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:aig_token', expect.anything());
+      });
 
       it('REQ-GITHUB-008: persists the provider type + client id (plain) and the secret (encrypted)', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: ENC_KEY });
@@ -2387,6 +2486,198 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         const lines = await readNdjson(res);
         expect(getNdjsonSummary(lines).success).toBe(true);
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:enterprise_admin_access_group', expect.anything());
+      });
+
+      // ─── REQ-ENTERPRISE-016: strict gateway egress toggle ───────────────────
+      it('REQ-ENTERPRISE-016: persists the toggle as active when true (EGRESS bound)', async () => {
+        // EGRESS bound -> the enable guardrail passes and the toggle persists 'active'.
+        const app = createTestApp({ ENTERPRISE_MODE: 'active', EGRESS: { fetch: async () => new Response(null) } as unknown as Env['EGRESS'] });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ strictGatewayEgress: true })),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:strict_egress', 'active');
+        // WS6: the toggle persistence surfaces as its own progress step.
+        expect(lines).toContainEqual(expect.objectContaining({ step: 'configure_strict_egress', status: 'success' }));
+      });
+
+      it('REQ-ENTERPRISE-016: refuses to enable the toggle when EGRESS is unbound (no brick)', async () => {
+        // Enabling strict egress without the EGRESS VPC binding would 503 every
+        // container call; the handler must reject pre-stream and never persist 'active'.
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ strictGatewayEgress: true })),
+        });
+
+        expect(res.status).toBe(400);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:strict_egress', 'active');
+      });
+
+      it('REQ-ENTERPRISE-016: persists the toggle as inactive when false', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ strictGatewayEgress: false })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:strict_egress', 'inactive');
+      });
+
+      it('REQ-ENTERPRISE-016: never writes the toggle in non-enterprise mode (regression)', async () => {
+        const app = createTestApp();
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ strictGatewayEgress: true })),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(getNdjsonSummary(lines).success).toBe(true);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:strict_egress', expect.anything());
+      });
+
+      // ─── REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) toggle ──────────
+      it('REQ-ENTERPRISE-018: persists the toggle as active when true', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ r2SseDisabled: true })),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:r2_sse_disabled', 'active');
+        expect(lines).toContainEqual(expect.objectContaining({ step: 'configure_r2_sse', status: 'success' }));
+      });
+
+      it('REQ-ENTERPRISE-018: persists the toggle as inactive when false', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ r2SseDisabled: false })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:r2_sse_disabled', 'inactive');
+      });
+
+      it('REQ-ENTERPRISE-018: defaults OFF — never writes the toggle when the field is absent', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({})),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:r2_sse_disabled', expect.anything());
+      });
+
+      it('REQ-ENTERPRISE-018: never writes the toggle in non-enterprise mode (regression)', async () => {
+        const app = createTestApp();
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ r2SseDisabled: true })),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(getNdjsonSummary(lines).success).toBe(true);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:r2_sse_disabled', expect.anything());
+      });
+
+      // ─── View-only storage (downloads disabled) toggle ────────────────────────
+      it('REQ-ENTERPRISE-019: persists the downloads-disabled toggle as active when true', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ downloadsDisabled: true })),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:downloads_disabled', 'active');
+        expect(lines).toContainEqual(expect.objectContaining({ step: 'configure_downloads_disabled', status: 'success' }));
+      });
+
+      it('REQ-ENTERPRISE-019: persists the downloads-disabled toggle as inactive when false', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ downloadsDisabled: false })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:downloads_disabled', 'inactive');
+      });
+
+      it('REQ-ENTERPRISE-019: defaults OFF — never writes the downloads-disabled toggle when the field is absent', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({})),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:downloads_disabled', expect.anything());
+      });
+
+      it('REQ-ENTERPRISE-019: never writes the downloads-disabled toggle in non-enterprise mode (regression)', async () => {
+        const app = createTestApp();
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ downloadsDisabled: true })),
+        });
+
+        expect(res.status).toBe(200);
+        const lines = await readNdjson(res);
+        expect(getNdjsonSummary(lines).success).toBe(true);
+        expect(mockKV.put).not.toHaveBeenCalledWith('setup:downloads_disabled', expect.anything());
       });
     });
 

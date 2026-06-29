@@ -34,7 +34,7 @@ function extractModelsBlock() {
 }
 
 // Run the extracted block with the given catalog and return { code, modelsJson }.
-function runBlock(catalogJson, defaultRoute) {
+function runBlock(catalogJson, defaultRoute, contextWindowsJson) {
   const block = extractModelsBlock();
   const dir = mkdtempSync(join(tmpdir(), 'ent-pi-models-'));
   const modelsPath = join(dir, 'models.json');
@@ -42,6 +42,7 @@ function runBlock(catalogJson, defaultRoute) {
     'set -euo pipefail',
     `ENTERPRISE_ROUTE_CATALOG='${catalogJson}'`,
     `ENTERPRISE_DEFAULT_ROUTE='${defaultRoute}'`,
+    ...(contextWindowsJson !== undefined ? [`ENTERPRISE_ROUTE_CONTEXT_WINDOWS='${contextWindowsJson}'`] : []),
     "ENTERPRISE_PLACEHOLDER_TOKEN='codeflare-enterprise'",
     "PI_GATEWAY_BASE_URL='https://api.openai.com/v1'",
     `PI_MODELS_JSON='${modelsPath}'`,
@@ -61,7 +62,52 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005)', () =
     const models = modelsJson.providers['codeflare-gateway'].models;
     assert.equal(models.length, catalog.length);
     assert.deepEqual(models.map((m) => m.id), catalog);
-    for (const m of models) assert.equal(m.reasoning, true);
+    for (const m of models) {
+      assert.equal(m.reasoning, true);
+      // With no per-route window configured, each model defaults to 256000
+      // (DEFAULT_ROUTE_CONTEXT_WINDOW), not Pi's built-in 128k. Drop the contextWindow
+      // field or its default and this fails.
+      assert.equal(m.contextWindow, 256000);
+    }
+  });
+
+  it('applies the per-route context window from ENTERPRISE_ROUTE_CONTEXT_WINDOWS, default 256000 for unlisted routes', () => {
+    // REQ-ENTERPRISE-012: admin-configured per-route windows (e.g. a 1M-context BYOK
+    // route) win; a route with no entry falls back to the 256000 default. Revert to a
+    // hardcoded single window and the per-route value fails.
+    const catalog = ['general_usage', 'development'];
+    const windows = { general_usage: 1048576 };
+    const { code, stderr, modelsJson } = runBlock(JSON.stringify(catalog), 'general_usage', JSON.stringify(windows));
+    assert.equal(code, 0, `entrypoint block exited non-zero: ${stderr}`);
+    const byId = Object.fromEntries(
+      modelsJson.providers['codeflare-gateway'].models.map((m) => [m.id, m.contextWindow]),
+    );
+    assert.equal(byId.general_usage, 1048576, 'configured route uses its window');
+    assert.equal(byId.development, 256000, 'unlisted route falls back to the default');
+  });
+
+  it('clears Pi auth.json to {} in enterprise so the model picker is routes-only', () => {
+    // Routes-only picker: Pi lists a provider in /model only when it has auth.
+    // codeflare-gateway authenticates via the models.json apiKey placeholder, NOT
+    // auth.json, so emptying auth.json drops every built-in provider (e.g. the seeded
+    // openai-codex) from the picker. Extract the real entrypoint line and run it
+    // against a seeded auth.json. Remove the line and this fails.
+    const clearLine = entrypoint
+      .split('\n')
+      .find((l) => l.includes(`echo '{}' > "$USER_HOME/.pi/agent/auth.json"`));
+    assert.ok(clearLine, 'auth.json clear line not found in entrypoint.sh');
+    const dir = mkdtempSync(join(tmpdir(), 'ent-pi-auth-'));
+    const script = [
+      'set -euo pipefail',
+      `USER_HOME='${dir}'`,
+      'mkdir -p "$USER_HOME/.pi/agent"',
+      `echo '{"openai-codex":{"token":"seeded"}}' > "$USER_HOME/.pi/agent/auth.json"`,
+      clearLine.trim(),
+    ].join('\n');
+    const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    assert.equal(res.status, 0, `auth.json clear exited non-zero: ${res.stderr}`);
+    const authJson = JSON.parse(readFileSync(join(dir, '.pi/agent/auth.json'), 'utf8'));
+    assert.deepEqual(authJson, {}, 'auth.json must be emptied so no built-in provider stays authed');
   });
 
   it('falls back to the default route when the catalog is empty (provider never has zero models)', () => {

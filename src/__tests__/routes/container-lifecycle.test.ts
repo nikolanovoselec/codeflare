@@ -229,7 +229,7 @@ describe('Container Lifecycle Routes', () => {
         expect.any(Object),
         'my-bucket',
         'https://test.r2.cloudflarestorage.com',
-        { overwrite: false }
+        { overwrite: false, r2SseDisabled: false }
       );
     });
 

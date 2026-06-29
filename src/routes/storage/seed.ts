@@ -4,6 +4,7 @@ import type { AuthVariables } from '../../middleware/auth';
 import { createBucketIfNotExists } from '../../lib/r2-admin';
 import { getR2Config } from '../../lib/r2-config';
 import { seedGettingStartedDocs, reconcileAgentConfigs } from '../../lib/r2-seed';
+import { resolveBucketSseOnEnsure } from '../../lib/r2-migration';
 import { PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { ContainerError, toErrorMessage } from '../../lib/error-types';
@@ -36,8 +37,12 @@ app.post('/getting-started', async (c) => {
     throw new ContainerError('seed-documentation', bucketResult.error || 'Failed to create storage bucket');
   }
 
+  // REQ-ENTERPRISE-018: write the starter docs in the bucket's current regime so
+  // they are readable (new bucket adopts policy; existing keeps its marker).
+  const r2SseDisabled = await resolveBucketSseOnEnsure(c.env, bucketName, bucketResult.created === true);
+
   try {
-    const seedResult = await seedGettingStartedDocs(c.env, bucketName, endpoint, { overwrite: true });
+    const seedResult = await seedGettingStartedDocs(c.env, bucketName, endpoint, { overwrite: true, r2SseDisabled });
 
     logger.info('Recreated getting-started docs', {
       bucketName,
@@ -74,6 +79,9 @@ app.post('/agent-configs', async (c) => {
     throw new ContainerError('seed-agent-configs', bucketResult.error || 'Failed to create storage bucket');
   }
 
+  // REQ-ENTERPRISE-018: reconcile in the bucket's current regime (see getting-started above).
+  const r2SseDisabled = await resolveBucketSseOnEnsure(c.env, bucketName, bucketResult.created === true);
+
   try {
     // Resolve session mode from user preferences
     const preferencesKey = getPreferencesKey(bucketName);
@@ -88,6 +96,7 @@ app.post('/agent-configs', async (c) => {
       overwrite: true,
       cleanup: true,
       contextModeEnabled,
+      r2SseDisabled,
     });
 
     logger.info('Recreated agent configs', {

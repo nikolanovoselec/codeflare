@@ -99,6 +99,8 @@ describe('GET /api/user enterpriseMode flag / REQ-ENTERPRISE-002', () => {
       hasSubscribed: true,
       subscribedMode: 'default',
       enterpriseMode: false,
+      // View-only storage: non-enterprise default is OFF (no KV read).
+      downloadsDisabled: false,
     });
   });
 });

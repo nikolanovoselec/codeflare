@@ -92,7 +92,11 @@ vi.mock('../../../lib/agent-config', () => ({
 }));
 
 // Mock kv-keys
-vi.mock('../../../lib/kv-keys', () => ({
+vi.mock('../../../lib/kv-keys', async () => ({
+  // Spread the real module so non-overridden exports (notably SETUP_KEYS, which
+  // r2-migration reads via the /start ensureBucketAndSeed path) resolve — mirrors
+  // the container-lifecycle-helpers test. Only KV-interaction helpers are overridden.
+  ...(await vi.importActual<typeof import('../../../lib/kv-keys')>('../../../lib/kv-keys')),
   getSessionKey: vi.fn((bucket: string, sessionId: string) => `session:${bucket}:${sessionId}`),
   getPreferencesKey: vi.fn((bucket: string) => `user-prefs:${bucket}`),
   getLlmKeysKey: vi.fn((bucket: string) => `llm-keys:${bucket}`),

@@ -2,7 +2,8 @@
  * GitHubInterceptor — enterprise-mode outbound GitHub credential injection (REQ-GITHUB-003).
  *
  * A WorkerEntrypoint the container DO wires into container egress for the GitHub
- * hosts (github.com + api.github.com) via `ctx.container.interceptOutboundHttps`
+ * hosts (github.com + api.github.com + Copilot's api.githubcopilot.com MCP) via
+ * `ctx.container.interceptOutboundHttps`
  * (see src/container/index.ts wireGithubInterception). The container holds only a
  * NON-SECRET placeholder GH_TOKEN, so git / `gh` / Copilot's GitHub features run
  * in authed mode but never possess the real credential. Each intercepted request
@@ -40,10 +41,20 @@ function gitWebHost(env: Env): string {
 function gitApiHost(env: Env): string {
   return env.GITHUB_API_HOST?.trim() || 'api.github.com';
 }
+/**
+ * Copilot's remote GitHub MCP host (`api.githubcopilot.com`, path `/mcp`). Copilot
+ * CLI's built-in `github-mcp-server` dials this and authenticates with a GitHub
+ * Bearer token. Without interception the connection rides the strict-egress catch-all
+ * to the Gateway unauthenticated and the MCP handshake fails ("Failed to connect to
+ * MCP server github-mcp-server"). Env-overridable for GHES / Copilot-Enterprise hosts.
+ */
+function gitCopilotMcpHost(env: Env): string {
+  return env.GITHUB_COPILOT_MCP_HOST?.trim() || 'api.githubcopilot.com';
+}
 
 /** Hosts the DO intercepts for enterprise GitHub credential injection (deduped). */
 export function interceptedGithubHosts(env: Env): string[] {
-  return [...new Set([gitWebHost(env), gitApiHost(env)])];
+  return [...new Set([gitWebHost(env), gitApiHost(env), gitCopilotMcpHost(env)])];
 }
 
 /**
@@ -77,6 +88,14 @@ interface GithubInterceptorProps {
   user: string;
   /** The per-session bucket — the ONLY identity used to resolve the user's token. */
   bucket: string;
+  /**
+   * Strict gateway egress (REQ-ENTERPRISE-016): when the DO sets this from the
+   * enterprise toggle, the single upstream fetch rides env.EGRESS (the Workers
+   * VPC Fetcher → Cloudflare Gateway) instead of the global fetch. Absent/false
+   * keeps the existing direct egress; the path fails closed when strict but the
+   * EGRESS binding is unbound.
+   */
+  strict?: boolean;
 }
 
 function jsonError(status: number, code: string, error: string): Response {
@@ -90,6 +109,7 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const apiHost = gitApiHost(this.env);
+    const mcpHost = gitCopilotMcpHost(this.env);
     if (!interceptedGithubHosts(this.env).includes(url.hostname)) {
       // An unmapped host reaching here is a wiring misconfiguration; fail closed.
       return jsonError(400, 'BAD_HOST', 'Unsupported GitHub host');
@@ -102,6 +122,16 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
       console.error('GitHubInterceptor: per-session bucket prop absent; failing closed');
       return jsonError(401, 'GITHUB_NO_SESSION', 'GitHub credential unavailable');
     }
+
+    // Strict gateway egress (REQ-ENTERPRISE-016): when the per-session prop opts
+    // in, the single upstream fetch rides env.EGRESS (the Workers VPC Fetcher →
+    // Cloudflare Gateway) instead of the global fetch. Fail closed when strict but
+    // the binding is unbound — never silently fall back to direct egress.
+    const strict = props?.strict === true;
+    if (strict && !this.env.EGRESS) {
+      return jsonError(503, 'EGRESS_UNAVAILABLE', 'Strict gateway egress unavailable');
+    }
+    const send = strict ? this.env.EGRESS!.fetch.bind(this.env.EGRESS) : fetch;
 
     let token: string | null;
     try {
@@ -129,6 +159,11 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
       // client did not pin its own, so a client-chosen version is honoured).
       headers.set('authorization', `Bearer ${token}`);
       if (!headers.has('x-github-api-version')) headers.set('x-github-api-version', GITHUB_API_VERSION);
+    } else if (url.hostname === mcpHost) {
+      // Copilot's remote GitHub MCP (api.githubcopilot.com/mcp): Bearer auth, no REST
+      // API version header. Without this the MCP connection rides the strict-egress
+      // catch-all to the Gateway unauthenticated and the handshake fails (REQ-GITHUB-003).
+      headers.set('authorization', `Bearer ${token}`);
     } else {
       // git Smart HTTP over HTTPS: Basic x-access-token:<token> — matches the
       // container credential helper's `username=x-access-token` convention
@@ -146,7 +181,7 @@ export class GitHubInterceptor extends WorkerEntrypoint<Env> {
     const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
     let upstream: Response;
     try {
-      upstream = await fetch(
+      upstream = await send(
         new Request(url.toString(), {
           method: request.method,
           headers,

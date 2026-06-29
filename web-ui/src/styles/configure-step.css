@@ -13,6 +13,43 @@
           letter-spacing: -0.01em;
         }
 
+        /* A titled group of related setup fields (SetupSection). Sections stack within
+           the configure-step flex column; the body holds the fields with its own gap. */
+        .setup-section {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .setup-section-header {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          padding-bottom: 6px;
+          border-bottom: 1px solid var(--glass-border);
+        }
+
+        .setup-section-title {
+          margin: 0;
+          font-size: 16px;
+          font-weight: 600;
+          color: var(--color-text-primary);
+          letter-spacing: -0.01em;
+        }
+
+        .setup-section-description {
+          margin: 0;
+          font-size: 13px;
+          color: var(--color-text-secondary);
+          line-height: 1.4;
+        }
+
+        .setup-section-body {
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+        }
+
         .setup-field {
           display: flex;
           flex-direction: column;
@@ -110,6 +147,46 @@
           display: flex;
           gap: 10px;
           flex-wrap: wrap;
+        }
+
+        /* REQ-ENTERPRISE-012: per-route context-window editor row. */
+        .route-cw-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 8px;
+        }
+
+        .route-cw-name {
+          flex: 1;
+          min-width: 120px;
+          font-size: 13px;
+          color: var(--color-text-secondary);
+        }
+
+        .route-cw-input {
+          width: 140px;
+          min-height: 36px;
+          padding: 6px 10px;
+          background: rgba(24, 24, 27, 0.82);
+          border: 1px solid var(--color-border-subtle);
+          border-radius: 8px;
+          color: var(--color-text-primary);
+        }
+
+        .route-cw-reset {
+          min-height: 36px;
+          padding: 6px 12px;
+          background: transparent;
+          border: 1px solid var(--color-border-subtle);
+          border-radius: 8px;
+          color: var(--color-text-secondary);
+          cursor: pointer;
+        }
+
+        .route-cw-reset:hover {
+          color: var(--color-text-primary);
+          border-color: var(--color-border-default);
         }
 
         .route-select {

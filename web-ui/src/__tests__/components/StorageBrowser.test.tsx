@@ -19,6 +19,9 @@ let mockActiveSessionId: string | null = 'test-session';
 // REQ-STOR-015 AC6: Sync-now button disabled while a fan-out is in flight.
 // Default false; flip per test to assert disabled-state coupling.
 let mockSyncing = false;
+// REQ-ENTERPRISE-019: view-only storage. When true, download controls render
+// blocked and any attempt opens a notice instead of hitting the server.
+let mockDownloadsDisabled = false;
 
 const mockBrowse = vi.fn();
 const mockNavigateTo = vi.fn();
@@ -48,6 +51,8 @@ const mockFetchStats = vi.fn();
 const mockOpenPreview = vi.fn();
 const mockClosePreview = vi.fn();
 const mockSyncNow = vi.fn();
+const mockShowDownloadsNotice = vi.fn();
+const mockRefreshDownloadsDisabled = vi.fn();
 // MOCK-DRIFT RISK: The storageStore mock below replicates the public API surface
 // of stores/storage.ts. If the real store adds/removes/renames methods or changes
 // getter signatures, these tests will silently pass with stale behavior. When
@@ -66,6 +71,9 @@ vi.mock('../../stores/storage', () => ({
     get stats() { return mockStats; },
     get previewFile() { return mockPreviewFile; },
     get syncing() { return mockSyncing; },
+    get downloadsDisabled() { return mockDownloadsDisabled; },
+    showDownloadsNotice: (...args: any[]) => mockShowDownloadsNotice(...args),
+    refreshDownloadsDisabled: (...args: any[]) => mockRefreshDownloadsDisabled(...args),
     browse: (...args: any[]) => mockBrowse(...args),
     syncNow: (...args: any[]) => mockSyncNow(...args),
     navigateTo: (...args: any[]) => mockNavigateTo(...args),
@@ -173,6 +181,7 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
     mockPreviewFile = null;
     mockWorkspaceSyncEnabled = true;
     mockActiveSessionId = 'test-session';
+    mockDownloadsDisabled = false;
   });
 
   afterEach(() => {
@@ -854,6 +863,51 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
         const selectBtn = screen.getByTitle('Selection mode');
         expect(selectBtn.classList.contains('storage-icon-btn--active')).toBe(false);
       });
+    });
+  });
+
+  describe('REQ-ENTERPRISE-019: view-only storage download guard', () => {
+    it('renders the download control blocked (visible, not the disabled attribute) when downloads are disabled', () => {
+      mockDownloadsDisabled = true;
+      mockSelectedKeys = ['workspace/test.txt'];
+      render(() => <StorageBrowser />);
+      enableSelectionMode();
+
+      const btn = screen.getByTestId('storage-download-selected');
+      expect(btn).toBeInTheDocument();
+      expect(btn.classList.contains('storage-action-btn--blocked')).toBe(true);
+      // Must stay clickable (not the `disabled` attribute) so the tap handler can
+      // raise the notice on touch devices, where a tooltip would never show.
+      expect((btn as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it('clicking the blocked download control opens the notice and never hits the server (no 403, no console error)', () => {
+      mockDownloadsDisabled = true;
+      mockSelectedKeys = ['workspace/test.txt'];
+      render(() => <StorageBrowser />);
+      enableSelectionMode();
+
+      fireEvent.click(screen.getByTestId('storage-download-selected'));
+
+      expect(mockShowDownloadsNotice).toHaveBeenCalledTimes(1);
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    // REQ-ENTERPRISE-019 AC4 baseline: with downloads enabled the control is not
+    // blocked and behaves exactly as before — clicking it performs the download.
+    it('with downloads enabled, the download control is not blocked and clicking it triggers the download', async () => {
+      mockDownloadsDisabled = false;
+      mockSelectedKeys = ['workspace/test.txt'];
+      render(() => <StorageBrowser />);
+      enableSelectionMode();
+
+      const btn = screen.getByTestId('storage-download-selected');
+      expect(btn.classList.contains('storage-action-btn--blocked')).toBe(false);
+
+      fireEvent.click(btn);
+
+      await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+      expect(mockShowDownloadsNotice).not.toHaveBeenCalled();
     });
   });
 

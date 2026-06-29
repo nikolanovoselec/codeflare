@@ -16,6 +16,9 @@ interface FilePreviewProps {
   error?: string;
   onBack: () => void;
   onDownload: () => void;
+  // View-only storage: when true the download control renders blocked; onDownload is
+  // still invoked (the parent surfaces the "disabled by administrator" notice).
+  downloadsDisabled?: boolean;
 }
 
 function getFileName(key: string): string {
@@ -48,7 +51,10 @@ const FilePreview: Component<FilePreviewProps> = (props) => {
           <button
             type="button"
             class="file-preview-download-btn"
+            classList={{ 'file-preview-download-btn--blocked': props.downloadsDisabled }}
             data-testid="file-preview-download"
+            title={props.downloadsDisabled ? 'Downloads are disabled by your administrator' : undefined}
+            aria-disabled={props.downloadsDisabled}
             onClick={props.onDownload}
           >
             Download

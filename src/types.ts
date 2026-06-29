@@ -98,6 +98,7 @@ export interface Env {
   // Default to public github.com / api.github.com.
   GITHUB_HOST?: string;       // web host for OAuth authorize/token (default github.com)
   GITHUB_API_HOST?: string;   // REST API host (default api.github.com)
+  GITHUB_COPILOT_MCP_HOST?: string; // Copilot remote GitHub MCP host (default api.githubcopilot.com)
 
   // Timekeeper Durable Object for per-user usage tracking
   TIMEKEEPER?: DurableObjectNamespace;
@@ -117,6 +118,12 @@ export interface Env {
   // header on the REST API (enterprise only; AD74). Set via wrangler secret.
   // Never exposed to the container.
   AIG_TOKEN?: string;
+  // REQ-ENTERPRISE-016: Workers VPC network Fetcher binding ([[vpc_networks]],
+  // network_id "cf1:network") the EgressController forwards through when strict
+  // Gateway egress is ON. Optional — the binding is committed commented-out and
+  // is undefined at runtime until Cloudflare Mesh is provisioned, so strict-ON
+  // paths fail closed (503) rather than falling back to global fetch.
+  EGRESS?: Fetcher;
 
 }
 
@@ -266,6 +273,15 @@ export interface UserPreferences {
   /** REQ-AGENT-049: hash of last applied preseed content, for auto-upgrade detection. */
   lastPreseedHash?: string;
   /**
+   * REQ-ENTERPRISE-018: per-bucket R2 encryption regime marker. `'sse-c'` (or
+   * absent ⇒ legacy SSE-C) means objects are SSE-C encrypted; `'plain'` means
+   * Governed Mode re-encrypted them to R2 default at-rest encryption. The
+   * lossless migration (src/lib/r2-migration.ts) reconciles this marker to the
+   * deployment policy at session start; every R2 header choice for the bucket
+   * keys off this marker so reads stay correct during the rollout window.
+   */
+  r2SseRegime?: 'sse-c' | 'plain';
+  /**
    * REQ-STOR-009: set once getting-started docs have been confirmed seeded into
    * the bucket. Until it is true, every session start re-attempts the (idempotent)
    * seed, so a cold-bucket failure self-heals instead of leaving docs permanently
@@ -354,6 +370,10 @@ export interface ContainerConfigPayload {
   sessionMode: string;
   sleepAfter?: string;
   encryptionKey?: string;
+  /** REQ-ENTERPRISE-018: Governed Mode — this bucket's effective R2 SSE-C-disabled
+   * regime, resolved by ensureBucketAndSeed after migration. Forwarded to the
+   * container so entrypoint.sh drops SSE-C from rclone.conf and enables checksums. */
+  r2SseDisabled?: boolean;
   llmKeys?: LlmKeys;
   deployKeys?: DeployKeys;
   /** REQ-ENTERPRISE-004: the user's matched Access groups, one cf-aig-metadata tag per group. */
@@ -364,6 +384,8 @@ export interface ContainerConfigPayload {
   defaultRoute?: string;
   /** REQ-ENTERPRISE-005 (revised): the default route's reasoning grade (Pi defaultThinkingLevel). */
   defaultReasoning?: string;
+  /** REQ-ENTERPRISE-012: per-route context window (route name -> tokens) for Pi models.json. */
+  routeContextWindows?: Record<string, number>;
   /** REQ-MEM-001 AC4: user's IANA timezone forwarded to the container. */
   userTimezone?: string;
   /** REQ-GITHUB-004: one-shot GitHub clone directive forwarded to the container. */

@@ -112,6 +112,10 @@ export const UserResponseSchema = z.object({
   hasSubscribed: z.boolean().optional(),
   subscribedMode: z.enum(['default', 'advanced']).optional(),
   enterpriseMode: z.boolean().optional(),
+  // REQ-ENTERPRISE-019: view-only storage. Without this field the strict schema
+  // strips the server's `downloadsDisabled` on parse, leaving the client flag
+  // (App.tsx hydration + storageStore.refreshDownloadsDisabled) permanently false.
+  downloadsDisabled: z.boolean().optional(),
 });
 
 export const SessionsResponseSchema = z.object({
@@ -207,10 +211,16 @@ export const SetupPrefillResponseSchema = z.object({
   // Feature C: route catalog + optional default route.
   dynamicRoutes: z.array(z.string()).default([]),
   defaultRoute: z.object({ route: z.string(), reasoning: RouteReasoningSchema }).nullable().default(null),
+  // REQ-ENTERPRISE-012: per-route context window map (route name -> tokens).
+  routeContextWindows: z.record(z.string(), z.number()).default({}),
   // REQ-BROWSER-007: admin Browser Rendering token state (masked — the server returns
   // only whether it is set, never the token) + the non-secret account id.
   browserRenderTokenSet: z.boolean().default(false),
   browserRenderAccountId: z.string().default(''),
+  // REQ-ENTERPRISE-017: AI Gateway state (masked — the server returns only whether the
+  // token is set, never the token) + the non-secret gateway URL.
+  aigTokenSet: z.boolean().default(false),
+  aigGatewayUrl: z.string().default(''),
   // REQ-GITHUB-008: enterprise GitHub provider config (masked — the server returns only
   // whether each client secret is set, never the secrets) + the non-secret client ids.
   githubProviderType: z.enum(['app', 'oauth']).nullable().default(null),
@@ -230,6 +240,12 @@ export const SetupPrefillResponseSchema = z.object({
       reasoning: RouteReasoningSchema,
     }))
     .default({}),
+  // REQ-ENTERPRISE-016: strict gateway egress toggle (default OFF on absent).
+  strictGatewayEgress: z.boolean().default(false),
+  // REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) toggle (default OFF on absent).
+  r2SseDisabled: z.boolean().default(false),
+  // View-only-storage toggle (default OFF on absent).
+  downloadsDisabled: z.boolean().default(false),
 });
 
 // User management schemas - moved from client.ts (strict versions)

@@ -7,6 +7,7 @@ Development setup, project file structure, and cost analysis.
 ## Contents
 
 - [Enterprise Mode Secrets](#enterprise-mode-secrets)
+- [Strict Gateway Egress (Enterprise Mode)](#strict-gateway-egress-enterprise-mode)
 - [Development](#development)
 - [File Structure](#file-structure)
 - [Cost Analysis](#cost-analysis)
@@ -31,6 +32,23 @@ To enable Enterprise Mode:
 To disable Enterprise Mode: remove or clear the `ENTERPRISE_MODE` variable. The secrets can remain; without the variable the interceptor is never wired and they are unused.
 
 > The `AIG_GATEWAY_URL` and `AIG_TOKEN` secrets are Worker secrets, not container env vars. They are never forwarded to containers. See [Security - Enterprise Mode](security.md#enterprise-mode-credential-containment-and-ca-trust) and [Configuration - Enterprise Mode Secrets](configuration.md#enterprise-mode-secrets-optional).
+
+---
+
+## Strict Gateway Egress (Enterprise Mode)
+
+Strict Gateway Egress ([REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress)) has two parts. The **on/off toggle** is configured at **runtime**: it lives in the enterprise setup wizard and is persisted to KV (`setup:strict_egress`), so flipping it takes effect with no redeploy and needs **no new GitHub Actions variable or secret**. The **VPC binding** that backs it is deploy-time and **enterprise-only** (below).
+
+**The VPC binding is injected automatically for enterprise deploys — no manual step.** The feature routes the container's **direct-internet** egress through a Workers VPC `[[vpc_networks]]` Fetcher binding (`binding = "EGRESS"`, `network_id = "cf1:network"`, `remote = true`); this deployment's own-account destinations (its R2 + account-scoped CF API / Browser Rendering) and the AI Gateway are exempt and egress direct, so R2 bisync does not depend on this binding; any other account's R2/CF host rides the binding/Gateway ([AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network)). It is committed **commented-out** in `wrangler.toml`, and `deploy.yml` uncomments it at deploy time **only when `ENTERPRISE_MODE=active`**. It is kept commented in source so that (a) default/fork deploys, whose accounts have no Workers VPC / `cf1:network`, still deploy, and (b) the `vitest-pool-workers` test runtime (which reads `wrangler.toml`) does not try to open a remote binding with no CI credentials. Public egress through the Gateway requires only this binding plus the account's existing Zero Trust Gateway policies. On non-enterprise deploys the binding is absent, so `env.EGRESS` is undefined and direct-internet egress fails closed (503 `EGRESS_UNAVAILABLE`); the dormant state (toggle OFF or binding absent) is inert. This makes shipping the code OFF safe.
+
+**Enable runbook (operator, not autonomous):**
+
+1. Deploy to an enterprise environment (`ENTERPRISE_MODE=active`); `deploy.yml` injects the `EGRESS` binding and `wrangler deploy` validates it. Workers VPC is enabled by default on the account — no manual `wrangler.toml` edit is required.
+2. Curate the account's existing Cloudflare Gateway policies so the container's required destinations are not caught by a block/DLP/isolate rule (codeflare never modifies these policies — see [Security](security.md#strict-gateway-egress-enterprise-mode)).
+3. Verify long streaming transfers (e.g. a large `git clone` / packfile) survive the Gateway path.
+4. Flip the wizard toggle ON (enterprise setup wizard → Strict Gateway Egress).
+
+**Rollback** at any point is flipping the wizard toggle **OFF** (KV write, no redeploy); the catch-all is un-wired on the next container start and egress returns to the direct path.
 
 ---
 
@@ -115,12 +133,24 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 ## Specification Coverage
 
 - [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) - AIG_GATEWAY_URL and AIG_TOKEN pushed as Worker secrets at deploy time (AC1)
+- [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) - Strict Gateway Egress: runtime-KV toggle (no new GH var/secret), enterprise-only deploy-injected VPC binding, rollback = toggle OFF (AC8)
 - [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline) - Deploy workflow trigger and pre-deploy pipeline
 - [REQ-OPS-002](../../sdd/spec/operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push) - Docker image build, vulnerability scan, and registry push
 - [REQ-OPS-013](../../sdd/spec/operations.md#req-ops-013-deploy-command-and-post-deploy-hooks) - Deploy command and post-deploy hooks
 - [REQ-OPS-014](../../sdd/spec/operations.md#req-ops-014-container-binding-and-scaling-from-image) - Container binding and scaling from image
 
 ---
+
+## Governed Mode migration on next login
+
+Enabling or disabling [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable) (the R2 SSE-C toggle) is **not** a redeploy. Flipping the Setup-wizard toggle writes the KV policy immediately; each existing bucket is reconciled to the new regime **in the background on its owner's next login** (`reconcileBucketRegimeOnLogin`, triggered from the dashboard initial-load probe and run under `waitUntil`), via a lossless in-place server-side `CopyObject` re-encrypt ([AD89](../decisions/README.md#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration)). It does **not** run on the container-start path, so it can never block session creation. No data is deleted.
+
+Operational notes:
+
+- **Admin confirmation.** The wizard requires an explicit confirmation before flipping, because the consequence is a re-encrypt of every bucket.
+- **Migration is off the critical path.** It runs in the background after the dashboard loads, not during session/container start — so creating a session is never blocked by a re-encrypt. It is a one-time cost per bucket (a no-op once the bucket's regime marker matches the policy), idempotent/resumable, and dedup-locked per bucket. A failed or budget-exhausted pass leaves the marker un-advanced and retries on the next login.
+- **Bounds.** A single background pass is capped by the Workers Paid 10,000-subrequest budget (≈4,500 objects); a larger bucket simply finishes over successive logins (the HEAD-probe skips already-migrated objects). A single object over 5 GB fails the migration loudly (R2's single-`CopyObject` limit) rather than being silently left unreadable.
+- **Rollback.** Turning the toggle OFF re-encrypts buckets back to SSE-C on the next login (same lossless mechanism).
 
 ## Related Documentation
 - [CI/CD](ci-cd.md) - GitHub Actions workflows and testing

@@ -7,6 +7,7 @@ import { ValidationError, ContainerError } from '../../lib/error-types';
 import { validateKey } from './validation';
 import { createBucketIfNotExists } from '../../lib/r2-admin';
 import { seedGettingStartedDocs, seedAgentConfigs } from '../../lib/r2-seed';
+import { resolveBucketSseOnEnsure } from '../../lib/r2-migration';
 import { getEffectiveTier } from '../../lib/subscription';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { createLogger } from '../../lib/logger';
@@ -75,8 +76,11 @@ app.get('/', async (c) => {
         throw new ContainerError('create-bucket', result.error || 'Failed to create storage bucket');
       }
       if (result.created) {
+        // REQ-ENTERPRISE-018: a new bucket adopts the deployment's Governed Mode policy;
+        // stamp its regime marker and seed in that regime so reads/writes stay consistent.
+        const r2SseDisabled = await resolveBucketSseOnEnsure(c.env, bucketName, true);
         try {
-          const seedResult = await seedGettingStartedDocs(c.env, bucketName, endpoint, { overwrite: false });
+          const seedResult = await seedGettingStartedDocs(c.env, bucketName, endpoint, { overwrite: false, r2SseDisabled });
           logger.info('Seeded initial getting-started docs after auto-create', {
             bucketName,
             writtenCount: seedResult.written.length,
@@ -96,7 +100,7 @@ app.get('/', async (c) => {
           const user = c.get('user');
           const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
           const contextModeEnabled = effectiveTier === 'unlimited' && mode === 'advanced';
-          const agentResult = await seedAgentConfigs(c.env, bucketName, endpoint, { overwrite: false, mode, contextModeEnabled });
+          const agentResult = await seedAgentConfigs(c.env, bucketName, endpoint, { overwrite: false, mode, contextModeEnabled, r2SseDisabled });
           logger.info('Seeded initial agent configs after auto-create', {
             bucketName,
             mode,

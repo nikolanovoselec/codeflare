@@ -50,12 +50,31 @@ interface SetupState {
   dynamicRoutes: string[];
   defaultRouteName: string;            // '' = no default
   defaultRouteReasoning: 'off' | 'low' | 'medium' | 'high';
+  // REQ-ENTERPRISE-012: per-route context window (route name -> tokens). Each route
+  // defaults to DEFAULT_ROUTE_CONTEXT_WINDOW; the admin can raise or reset it.
+  routeContextWindows: Record<string, number>;
   // REQ-BROWSER-007: admin-global Cloudflare Browser Rendering token + account id.
   // cloudflareBrowserToken holds only a freshly-typed value (the stored token is
   // never returned); cloudflareBrowserTokenSet reflects whether one is already saved.
   cloudflareBrowserToken: string;
   cloudflareBrowserTokenSet: boolean;
   cloudflareBrowserAccountId: string;
+  // REQ-ENTERPRISE-017: enterprise AI Gateway URL + token (wizard-configured, KV-persisted).
+  // aigToken holds only a freshly-typed value (the stored token is never returned);
+  // aigTokenSet reflects whether one is already saved; aigGatewayUrl is non-secret.
+  aigGatewayUrl: string;
+  aigToken: string;
+  aigTokenSet: boolean;
+  // REQ-ENTERPRISE-016: enterprise-only strict gateway egress toggle. Default OFF;
+  // routes the container's HTTP/HTTPS egress through the Cloudflare Gateway.
+  strictGatewayEgress: boolean;
+  // REQ-ENTERPRISE-018: enterprise-only Governed Mode toggle. Default OFF; disables
+  // R2 SSE-C so corporate bucket data is readable/scannable. Flipping it triggers a
+  // lossless re-encrypt of each bucket on its next session start.
+  r2SseDisabled: boolean;
+  // Enterprise-only view-only-storage toggle. Default OFF; blocks file downloads in the
+  // Storage panel (open/view only) to prevent bulk export of bucket contents.
+  downloadsDisabled: boolean;
   // REQ-GITHUB-008: enterprise GitHub provider config. *ClientSecret holds only a
   // freshly-typed value (the stored secret is never returned); *ClientSecretSet
   // reflects whether one is already saved.
@@ -98,9 +117,16 @@ const initialState: SetupState = {
   dynamicRoutes: [],
   defaultRouteName: '',
   defaultRouteReasoning: 'off',
+  routeContextWindows: {},
   cloudflareBrowserToken: '',
   cloudflareBrowserTokenSet: false,
   cloudflareBrowserAccountId: '',
+  aigGatewayUrl: '',
+  aigToken: '',
+  aigTokenSet: false,
+  strictGatewayEgress: false,
+  r2SseDisabled: false,
+  downloadsDisabled: false,
   githubProviderType: 'app',
   githubAppClientId: '',
   githubAppClientSecret: '',
@@ -293,6 +319,11 @@ function applyGroupRoutingToAll(source: string): void {
   }));
 }
 
+// REQ-ENTERPRISE-012: default per-route context window. Mirrors the worker's
+// DEFAULT_ROUTE_CONTEXT_WINDOW (src/lib/constants.ts); web-ui is a separate bundle so
+// the value is duplicated, like the enterprise placeholder credentials.
+export const DEFAULT_ROUTE_CONTEXT_WINDOW = 256000;
+
 function addDynamicRoute(name: string): void {
   if (name && !state.dynamicRoutes.includes(name)) {
     setState(produce((s) => {
@@ -300,6 +331,8 @@ function addDynamicRoute(name: string): void {
       // The first route added auto-becomes the default an agent uses when it
       // names none; a later explicit pick overrides it.
       if (!s.defaultRouteName) s.defaultRouteName = name;
+      // Seed the new route's context window with the default (REQ-ENTERPRISE-012).
+      if (s.routeContextWindows[name] === undefined) s.routeContextWindows[name] = DEFAULT_ROUTE_CONTEXT_WINDOW;
     }));
   }
 }
@@ -307,6 +340,8 @@ function removeDynamicRoute(name: string): void {
   setState(produce((s) => {
     const i = s.dynamicRoutes.indexOf(name);
     if (i !== -1) s.dynamicRoutes.splice(i, 1);
+    // Drop the removed route's context-window entry (REQ-ENTERPRISE-012).
+    delete s.routeContextWindows[name];
     // If the removed route was the default, fall back to the new first route (or
     // clear when the catalog is now empty). The reasoning grade belonged to the
     // removed route, so reset it to off for the fallback (matching the resolver's
@@ -324,12 +359,38 @@ function setDefaultRouteName(name: string): void {
 function setDefaultRouteReasoning(level: 'off' | 'low' | 'medium' | 'high'): void {
   setState('defaultRouteReasoning', level);
 }
+// REQ-ENTERPRISE-012: set / reset a route's context window.
+function setRouteContextWindow(name: string, tokens: number): void {
+  setState(produce((s) => { s.routeContextWindows[name] = tokens; }));
+}
+function resetRouteContextWindow(name: string): void {
+  setState(produce((s) => { s.routeContextWindows[name] = DEFAULT_ROUTE_CONTEXT_WINDOW; }));
+}
 
 function setCloudflareBrowserToken(token: string): void {
   setState('cloudflareBrowserToken', token);
 }
 function setCloudflareBrowserAccountId(accountId: string): void {
   setState('cloudflareBrowserAccountId', accountId);
+}
+// REQ-ENTERPRISE-017: AI Gateway URL (non-secret) + token (write-only) setters.
+function setAigGatewayUrl(url: string): void {
+  setState('aigGatewayUrl', url);
+}
+function setAigToken(token: string): void {
+  setState('aigToken', token);
+}
+// REQ-ENTERPRISE-016: strict gateway egress toggle setter.
+function setStrictGatewayEgress(value: boolean): void {
+  setState('strictGatewayEgress', value);
+}
+// REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) toggle setter.
+function setR2SseDisabled(value: boolean): void {
+  setState('r2SseDisabled', value);
+}
+// View-only-storage toggle setter.
+function setDownloadsDisabled(value: boolean): void {
+  setState('downloadsDisabled', value);
 }
 
 function setCustomDomain(domain: string): void {
@@ -386,8 +447,19 @@ async function loadExistingConfig(): Promise<void> {
             s.dynamicRoutes = prefill.dynamicRoutes;
             s.defaultRouteName = prefill.defaultRoute?.route ?? prefill.dynamicRoutes[0] ?? '';
             s.defaultRouteReasoning = prefill.defaultRoute?.reasoning ?? 'off';
+            // REQ-ENTERPRISE-012: hydrate per-route windows, then fill the default for
+            // any catalog route the stored map doesn't cover so every field shows a value.
+            s.routeContextWindows = { ...prefill.routeContextWindows };
+            for (const r of prefill.dynamicRoutes) {
+              if (s.routeContextWindows[r] === undefined) s.routeContextWindows[r] = DEFAULT_ROUTE_CONTEXT_WINDOW;
+            }
             s.cloudflareBrowserTokenSet = prefill.browserRenderTokenSet;
             s.cloudflareBrowserAccountId = prefill.browserRenderAccountId;
+            s.aigGatewayUrl = prefill.aigGatewayUrl;
+            s.aigTokenSet = prefill.aigTokenSet;
+            s.strictGatewayEgress = prefill.strictGatewayEgress;
+            s.r2SseDisabled = prefill.r2SseDisabled;
+            s.downloadsDisabled = prefill.downloadsDisabled;
             s.githubProviderType = prefill.githubProviderType ?? 'app';
             s.githubAppClientId = prefill.githubAppClientId;
             s.githubAppClientSecretSet = prefill.githubAppClientSecretSet;
@@ -460,6 +532,11 @@ async function loadExistingConfig(): Promise<void> {
         s.defaultRouteReasoning = prefill.defaultRoute?.reasoning ?? 'off';
         s.cloudflareBrowserTokenSet = prefill.browserRenderTokenSet;
         s.cloudflareBrowserAccountId = prefill.browserRenderAccountId;
+        s.aigGatewayUrl = prefill.aigGatewayUrl;
+        s.aigTokenSet = prefill.aigTokenSet;
+        s.strictGatewayEgress = prefill.strictGatewayEgress;
+        s.r2SseDisabled = prefill.r2SseDisabled;
+        s.downloadsDisabled = prefill.downloadsDisabled;
         s.githubProviderType = prefill.githubProviderType ?? 'app';
         s.githubAppClientId = prefill.githubAppClientId;
         s.githubAppClientSecretSet = prefill.githubAppClientSecretSet;
@@ -512,11 +589,22 @@ async function configure(): Promise<boolean> {
           defaultRoute: state.defaultRouteName || state.dynamicRoutes[0]
             ? { route: state.defaultRouteName || state.dynamicRoutes[0], reasoning: state.defaultRouteName ? state.defaultRouteReasoning : 'off' }
             : null,
+          // REQ-ENTERPRISE-012: per-route context windows (route name -> tokens).
+          routeContextWindows: state.routeContextWindows,
           // REQ-BROWSER-007: a blank token => backend keeps the existing one (no clobber).
           browserRenderToken: state.cloudflareBrowserToken,
           browserRenderAccountId: state.cloudflareBrowserAccountId,
+          // REQ-ENTERPRISE-017: AI Gateway URL (non-secret) + token (blank => no clobber).
+          aigGatewayUrl: state.aigGatewayUrl,
+          aigToken: state.aigToken,
           // REQ-ENTERPRISE-013: per-group routing map.
           groupRouting: state.groupRouting,
+          // REQ-ENTERPRISE-016: strict gateway egress toggle.
+          strictGatewayEgress: state.strictGatewayEgress,
+          // REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) toggle.
+          r2SseDisabled: state.r2SseDisabled,
+          // View-only-storage toggle.
+          downloadsDisabled: state.downloadsDisabled,
         } : {}),
       }),
     });
@@ -677,9 +765,16 @@ export const setupStore = {
   get dynamicRoutes() { return state.dynamicRoutes; },
   get defaultRouteName() { return state.defaultRouteName; },
   get defaultRouteReasoning() { return state.defaultRouteReasoning; },
+  get routeContextWindows() { return state.routeContextWindows; },
   get cloudflareBrowserToken() { return state.cloudflareBrowserToken; },
   get cloudflareBrowserTokenSet() { return state.cloudflareBrowserTokenSet; },
   get cloudflareBrowserAccountId() { return state.cloudflareBrowserAccountId; },
+  get aigGatewayUrl() { return state.aigGatewayUrl; },
+  get aigToken() { return state.aigToken; },
+  get aigTokenSet() { return state.aigTokenSet; },
+  get strictGatewayEgress() { return state.strictGatewayEgress; },
+  get r2SseDisabled() { return state.r2SseDisabled; },
+  get downloadsDisabled() { return state.downloadsDisabled; },
   get githubProviderType() { return state.githubProviderType; },
   get githubAppClientId() { return state.githubAppClientId; },
   get githubAppClientSecret() { return state.githubAppClientSecret; },
@@ -708,8 +803,15 @@ export const setupStore = {
   removeDynamicRoute,
   setDefaultRouteName,
   setDefaultRouteReasoning,
+  setRouteContextWindow,
+  resetRouteContextWindow,
   setCloudflareBrowserToken,
   setCloudflareBrowserAccountId,
+  setAigGatewayUrl,
+  setAigToken,
+  setStrictGatewayEgress,
+  setR2SseDisabled,
+  setDownloadsDisabled,
   setGithubProviderType,
   setGithubAppClientId,
   setGithubAppClientSecret,

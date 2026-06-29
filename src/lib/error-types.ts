@@ -71,6 +71,18 @@ export class ForbiddenError extends AppError {
 }
 
 /**
+ * View-only storage block (REQ-ENTERPRISE-019). A distinct 403 code so the client
+ * can tell a downloads-disabled block apart from a generic/auth 403 and render the
+ * friendly "disabled by your administrator" notice instead of a raw failure — even
+ * when its cached downloadsDisabled flag is stale.
+ */
+export class DownloadsDisabledError extends AppError {
+  constructor(message: string = 'Downloads are disabled for this deployment (view-only storage).') {
+    super('DOWNLOADS_DISABLED', 403, message, 'Downloading is disabled by your administrator.');
+  }
+}
+
+/**
  * Error thrown exclusively from setup routes during initial configuration.
  * Includes step-level progress reporting for the setup wizard UI.
  */

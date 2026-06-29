@@ -1,0 +1,91 @@
+/* DownloadsDisabledPopup — centered notice for view-only storage (REQ-ENTERPRISE-019) */
+
+.ddp-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 209;
+}
+
+.downloads-disabled-popup {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 210;
+  width: min(360px, calc(100vw - var(--space-6)));
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-4);
+  animation: ddp-fade-in 150ms ease-out;
+}
+
+@keyframes ddp-fade-in {
+  from { opacity: 0; transform: translate(-50%, calc(-50% - 8px)); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
+}
+
+.ddp-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.ddp-icon {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+}
+
+.ddp-title {
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+}
+
+.ddp-body {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-normal);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.ddp-dismiss-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.ddp-dismiss-btn:hover {
+  background: var(--color-bg-muted);
+}
+
+/* Mobile: full-width bottom sheet, matching the session-limit popup convention */
+@media (max-width: 640px) {
+  .downloads-disabled-popup {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    transform: none;
+    width: 100%;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    animation: ddp-slide-up 200ms ease-out;
+  }
+
+  @keyframes ddp-slide-up {
+    from { opacity: 0; transform: translateY(100%); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
