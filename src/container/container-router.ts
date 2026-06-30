@@ -39,6 +39,9 @@ interface SetBucketNameBody {
   routeCatalog?: string[];
   defaultRoute?: string;
   defaultReasoning?: string;
+  // REQ-ENTERPRISE-012: per-route context window (route name -> tokens) forwarded by
+  // the Worker; applyBucketName persists it and buildEnvVars fans ENTERPRISE_ROUTE_CONTEXT_WINDOWS.
+  routeContextWindows?: Record<string, number>;
   r2AccessKeyId?: string;
   r2SecretAccessKey?: string;
   r2AccountId?: string;
@@ -52,6 +55,10 @@ interface SetBucketNameBody {
   cloudflareApiToken?: string;
   cloudflareAccountId?: string;
   encryptionKey?: string;
+  // REQ-ENTERPRISE-018: Governed Mode regime forwarded by the Worker. buildEnvVars
+  // surfaces it to the container as R2_SSE_DISABLED so entrypoint.sh drops SSE-C from
+  // rclone.conf and re-enables checksums.
+  r2SseDisabled?: boolean;
   sessionMode?: string;
   // REQ-MEM-001 AC4: user's IANA timezone forwarded by the Worker from
   // preferences.userTimezone. applyBucketName persists it and buildEnvVars
@@ -150,7 +157,7 @@ export function dispatchInternalRoute(
 /** Handle POST /_internal/setBucketName. */
 async function handleSetBucketName(host: ContainerHost, request: Request): Promise<Response> {
   try {
-    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, sessionMode, userTimezone, gitCloneRepo, gitCloneRef, sleepAfter: sleepAfterPref } =
+    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, routeContextWindows, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, r2SseDisabled, sessionMode, userTimezone, gitCloneRepo, gitCloneRef, sleepAfter: sleepAfterPref } =
       await request.json() as SetBucketNameBody;
 
     // FIX-28: Idempotency - once bucket name is set, reject subsequent calls.
@@ -160,10 +167,10 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       // Update user preferences on restart even though bucket is already set.
       // Without this, preference changes made between sessions are lost.
       const prefsChanged = await applyPrefsOnRestart(host, host.ctx.storage, {
-        sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning,
+        sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, routeContextWindows,
         workspaceSyncEnabled, fastStartEnabled, tabConfig,
         openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId,
-        encryptionKey, sessionMode, userTimezone,
+        encryptionKey, r2SseDisabled, sessionMode, userTimezone,
       });
 
       // Update idle timeout on restart. Storage key is 'sleepAfter' for
@@ -239,6 +246,11 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
         await host.ctx.storage.put('defaultReasoning', defaultReasoning);
         host._defaultReasoning = defaultReasoning;
       }
+      // REQ-ENTERPRISE-012: per-route context windows travel as a unit with the catalog.
+      if (routeContextWindows !== undefined) {
+        await host.ctx.storage.put('routeContextWindows', routeContextWindows);
+        host._routeContextWindows = routeContextWindows;
+      }
     }
 
     await applySetBucketName(host, bucketName, {
@@ -255,6 +267,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       cloudflareApiToken,
       cloudflareAccountId,
       encryptionKey,
+      r2SseDisabled,
       sessionMode,
       userTimezone,
       // REQ-GITHUB-004: one-shot clone directive. Only on the first (create→start)

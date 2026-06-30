@@ -12,6 +12,7 @@ import { parseJsonBody } from '../lib/request-helpers';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { isSaasModeActive } from '../lib/onboarding';
 import { reconcileAgentConfigs } from '../lib/r2-seed';
+import { isR2SseDisabledForBucket } from '../lib/r2-migration';
 import { getR2Config } from '../lib/r2-config';
 import { getEffectiveTier, getTierConfig, getEffectiveTierForUser, isEnterpriseMode } from '../lib/subscription';
 import { allowedAgents } from '../lib/agent-allowlist';
@@ -120,10 +121,14 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
       const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
       const contextModeEnabled = effectiveTier === 'unlimited' && body.sessionMode === 'advanced';
       const { endpoint } = await getR2Config(c.env);
+      // REQ-ENTERPRISE-018: reconcile in the bucket's current regime so a Governed Mode
+      // (plain) bucket gets plaintext configs, not unreadable SSE-C ones.
+      const r2SseDisabled = await isR2SseDisabledForBucket(c.env, bucketName);
       const result = await reconcileAgentConfigs(c.env, bucketName, endpoint, body.sessionMode, {
         overwrite: true,
         cleanup: true,
         contextModeEnabled,
+        r2SseDisabled,
       });
       logger.info('Auto-reconciled agent configs on preferences change', {
         bucketName,

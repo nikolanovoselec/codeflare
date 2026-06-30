@@ -1,4 +1,4 @@
-import { Component, onMount, onCleanup, createSignal, Show, lazy, type JSX } from 'solid-js';
+import { Component, onMount, onCleanup, createSignal, Show, ErrorBoundary, lazy, type JSX } from 'solid-js';
 import type { AccessTier, SubscriptionTier } from './types';
 import { Router, Route, Navigate, useNavigate } from '@solidjs/router';
 import Layout from './components/Layout';
@@ -43,6 +43,7 @@ const AppContent: Component = () => {
   const [enterpriseMode, setEnterpriseMode] = createSignal<boolean | undefined>();
   const [loading, setLoading] = createSignal(true);
   const [authError, setAuthError] = createSignal<string | null>(null);
+  const [redirecting, setRedirecting] = createSignal(false);
 
   onMount(async () => {
     try {
@@ -56,6 +57,7 @@ const AppContent: Component = () => {
       sessionStore.setEnterpriseMode(user.enterpriseMode === true);
       sessionStore.setSaasMode(user.saasMode === true);
       if (user.workerName) storageStore.setWorkerName(user.workerName);
+      storageStore.setDownloadsDisabled(user.downloadsDisabled === true);
 
       // SaaS mode redirect priority:
       // 1. Pending tier → subscribe page (choose a plan)
@@ -89,6 +91,14 @@ const AppContent: Component = () => {
           // Failed to parse body — fall through to generic error
         }
       }
+      // REQ-AUTH-022 AC2: an expired-session 401 already triggered a redirect in
+      // fetch-helper (location.replace). Show a calm "redirecting" state, not the
+      // generic auth-error page; the promise settled so the loading shell clears
+      // (no white page) and `finally` runs setLoading(false).
+      if (err instanceof ApiError && (err.authRedirect || err.status === 401)) {
+        setRedirecting(true);
+        return;
+      }
       if (import.meta.env.DEV) {
         setUserName('dev@localhost');
         setUserRole('admin');
@@ -116,16 +126,26 @@ const AppContent: Component = () => {
       }
     >
       <Show
-        when={!authError()}
+        when={!redirecting()}
         fallback={
-          <div class="app-auth-error">
-            <h1>Authentication Error</h1>
-            <p>{authError()}</p>
-            <button type="button" onClick={() => window.location.reload()}>Retry</button>
+          <div class="app-loading" data-testid="auth-redirecting">
+            <div class="app-loading-spinner" />
+            <span>Signing you back in…</span>
           </div>
         }
       >
-        <Layout userName={userName()} userRole={userRole()} userAccessTier={userAccessTier()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} enterpriseMode={enterpriseMode()} />
+        <Show
+          when={!authError()}
+          fallback={
+            <div class="app-auth-error">
+              <h1>Authentication Error</h1>
+              <p>{authError()}</p>
+              <button type="button" onClick={() => window.location.reload()}>Retry</button>
+            </div>
+          }
+        >
+          <Layout userName={userName()} userRole={userRole()} userAccessTier={userAccessTier()} userSubscriptionTier={userSubscriptionTier()} onboardingActive={onboardingActive()} enterpriseMode={enterpriseMode()} />
+        </Show>
       </Show>
     </Show>
   );
@@ -221,6 +241,12 @@ const RootPage: Component = () => {
       <Show when={mode() === 'onboarding'}>
         <OnboardingLanding />
       </Show>
+      <Show when={mode() === 'redirect'}>
+        <div class="app-loading" data-testid="root-redirecting">
+          <div class="app-loading-spinner" />
+          <span>Redirecting…</span>
+        </div>
+      </Show>
     </Show>
   );
 };
@@ -265,6 +291,18 @@ export const SubscribeGuard: Component = () => {
 
 const App: Component = () => {
   return (
+    <ErrorBoundary
+      fallback={(err) => {
+        logger.error('App crashed during bootstrap/render:', err);
+        return (
+          <div class="app-auth-error" data-testid="app-error-boundary">
+            <h1>Something went wrong</h1>
+            <p>Reloading the app…</p>
+            <button type="button" onClick={() => window.location.reload()}>Reload</button>
+          </div>
+        );
+      }}
+    >
     <Router>
       <Route path="/setup" component={SetupWizard} />
       <Route path="/" component={RootPage} />
@@ -291,6 +329,7 @@ const App: Component = () => {
         )}
       />
     </Router>
+    </ErrorBoundary>
   );
 };
 

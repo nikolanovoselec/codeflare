@@ -34,7 +34,7 @@ function makeEnv(over: Partial<Env> = {}): Env {
 
 function makeInterceptor(
   env: Env = makeEnv(),
-  props: { user: string; bucket: string } | undefined = { user: SESSION_USER, bucket: BUCKET },
+  props: { user: string; bucket: string; strict?: boolean } | undefined = { user: SESSION_USER, bucket: BUCKET },
 ): GitHubInterceptor {
   const ctx = { props } as unknown as ExecutionContext;
   return new GitHubInterceptor(ctx, env);
@@ -121,6 +121,36 @@ describe('REQ-GITHUB-003: git Smart-HTTP credential injection', () => {
   });
 });
 
+describe('REQ-GITHUB-003: Copilot remote GitHub MCP credential injection', () => {
+  it('includes api.githubcopilot.com in the intercepted host set', () => {
+    expect(interceptedGithubHosts(makeEnv())).toContain('api.githubcopilot.com');
+  });
+
+  it('stamps Authorization: Bearer <real token> on api.githubcopilot.com/mcp (not git Basic), strips the placeholder, sets no API-version header', async () => {
+    await connect('gho_real_secret');
+    const res = await makeInterceptor().fetch(
+      new Request('https://api.githubcopilot.com/mcp', {
+        method: 'POST',
+        headers: { Authorization: 'token codeflare-enterprise', 'content-type': 'application/json' },
+        body: '{"jsonrpc":"2.0","method":"initialize"}',
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(lastFetch?.url).toBe('https://api.githubcopilot.com/mcp');
+    expect(lastFetch?.headers.get('authorization')).toBe('Bearer gho_real_secret');
+    // MCP uses Bearer, never the git Basic format, and carries no REST API version.
+    expect(lastFetch?.headers.get('authorization')?.startsWith('Basic ')).toBe(false);
+    expect(lastFetch?.headers.has('x-github-api-version')).toBe(false);
+  });
+
+  it('relays the upstream response body (SSE / Streamable-HTTP transport)', async () => {
+    await connect('gho_real_secret');
+    const res = await makeInterceptor().fetch(new Request('https://api.githubcopilot.com/mcp'));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('upstream-ok');
+  });
+});
+
 describe('REQ-GITHUB-003: fail closed', () => {
   it('returns 401 and makes NO upstream fetch when the user is not connected', async () => {
     const res = await makeInterceptor().fetch(new Request('https://api.github.com/user'));
@@ -191,14 +221,76 @@ describe('REQ-GITHUB-003: response hygiene', () => {
   });
 });
 
+describe('REQ-ENTERPRISE-016: strict gateway egress transport swap', () => {
+  /** A Fetcher mock recording each upstream call. */
+  function makeEgress() {
+    const calls: { url: string; method: string; headers: Headers; redirect: string }[] = [];
+    const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
+      const req = input as Request;
+      calls.push({ url: req.url, method: req.method, headers: req.headers, redirect: req.redirect });
+      return new Response('upstream-ok', { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    return { calls, fetcher: { fetch: fetchFn } as unknown as Fetcher, fetchFn };
+  }
+
+  it('rides env.EGRESS.fetch carrying the injected Bearer credential + manual redirect when strict (global NOT called)', async () => {
+    await connect('gho_real_secret');
+    const egress = makeEgress();
+    const env = makeEnv({ EGRESS: egress.fetcher } as Partial<Env>);
+    const res = await makeInterceptor(env, { user: SESSION_USER, bucket: BUCKET, strict: true }).fetch(
+      new Request('https://api.github.com/user', { headers: { Authorization: 'Basic codeflare-enterprise' } }),
+    );
+    expect(res.status).toBe(200);
+    expect(egress.fetchFn).toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(egress.calls[0].url).toBe('https://api.github.com/user');
+    expect(egress.calls[0].headers.get('authorization')).toBe('Bearer gho_real_secret');
+    expect(egress.calls[0].redirect).toBe('manual');
+  });
+
+  it('fails closed with 503 EGRESS_UNAVAILABLE when strict but the binding is unbound, and never fetches', async () => {
+    await connect('gho_real_secret');
+    const res = await makeInterceptor(makeEnv(), { user: SESSION_USER, bucket: BUCKET, strict: true }).fetch(
+      new Request('https://api.github.com/user'),
+    );
+    expect(res.status).toBe(503);
+    expect((await res.json() as Record<string, unknown>).code).toBe('EGRESS_UNAVAILABLE');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('preserves no-spoof scoping on the EGRESS leg: injects the bound bucket token, not the request token', async () => {
+    const env = makeEnv();
+    await storeGithubConnection(env, BUCKET, { accessToken: 'TOKEN_A', source: 'oauth' });
+    await storeGithubConnection(env, 'other-bucket', { accessToken: 'TOKEN_B', source: 'oauth' });
+    const egress = makeEgress();
+    const strictEnv = makeEnv({ EGRESS: egress.fetcher } as Partial<Env>);
+    await makeInterceptor(strictEnv, { user: SESSION_USER, bucket: BUCKET, strict: true }).fetch(
+      new Request('https://api.github.com/user', { headers: { Authorization: 'Bearer TOKEN_B' } }),
+    );
+    expect(egress.calls[0].headers.get('authorization')).toBe('Bearer TOKEN_A');
+    expect(egress.calls[0].headers.get('authorization')).not.toContain('TOKEN_B');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('uses global fetch (not EGRESS) when strict is off, even with the binding present', async () => {
+    await connect('gho_real_secret');
+    const egress = makeEgress();
+    const env = makeEnv({ EGRESS: egress.fetcher } as Partial<Env>);
+    await makeInterceptor(env, { user: SESSION_USER, bucket: BUCKET }).fetch(new Request('https://api.github.com/user'));
+    expect(globalThis.fetch).toHaveBeenCalled();
+    expect(egress.fetchFn).not.toHaveBeenCalled();
+    expect(lastFetch?.url).toBe('https://api.github.com/user');
+  });
+});
+
 describe('REQ-GITHUB-003: host configuration', () => {
-  it('defaults to github.com + api.github.com', () => {
-    expect(interceptedGithubHosts(makeEnv())).toEqual(['github.com', 'api.github.com']);
+  it('defaults to github.com + api.github.com + api.githubcopilot.com', () => {
+    expect(interceptedGithubHosts(makeEnv())).toEqual(['github.com', 'api.github.com', 'api.githubcopilot.com']);
   });
 
   it('honours GITHUB_HOST / GITHUB_API_HOST overrides and applies Bearer on the overridden API host', async () => {
     const env = makeEnv({ GITHUB_HOST: 'git.example.com', GITHUB_API_HOST: 'api.example.com' } as Partial<Env>);
-    expect(interceptedGithubHosts(env)).toEqual(['git.example.com', 'api.example.com']);
+    expect(interceptedGithubHosts(env)).toEqual(['git.example.com', 'api.example.com', 'api.githubcopilot.com']);
     await connect('gho_x', env);
     // The overridden API host gets the Bearer credential...
     await makeInterceptor(env).fetch(new Request('https://api.example.com/user'));

@@ -51,6 +51,18 @@ MAX_SESSIONS_ADMIN = "10"
 binding = "KV"
 id = "placeholder"
 
+# Strict Gateway egress VPC binding (REQ-ENTERPRISE-016) — ENTERPRISE DEPLOYS ONLY,
+# injected at deploy time by .github/workflows/deploy.yml when ENTERPRISE_MODE=active.
+# Committed commented-out on purpose: (a) default/fork deploys whose accounts have no
+# Workers VPC / cf1:network must still deploy, and (b) the vitest-pool-workers test
+# runtime reads this file and would try to open a remote binding with no CI creds.
+# No WARP Connector needed — public egress rides the cf1:network Gateway path; the
+# binding is inert until the enterprise wizard toggle is ON (default OFF, fail-closed).
+# [[vpc_networks]]
+# binding = "EGRESS"
+# network_id = "cf1:network"
+# remote = true
+
 # Container configuration (default tier)
 # Default: 1 vCPU, 3 GiB memory, 6 GB disk
 # Cloudflare containers cap disk at 2x memory in GiB - with 3 GiB memory the

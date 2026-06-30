@@ -28,6 +28,8 @@ export const SetBucketNameBodySchema = z.object({
   cloudflareApiToken: z.string().nullable().optional(),
   cloudflareAccountId: z.string().nullable().optional(),
   encryptionKey: z.string().optional(),
+  /** REQ-ENTERPRISE-018: Governed Mode — bucket's R2 SSE-C-disabled regime forwarded to the container. */
+  r2SseDisabled: z.boolean().optional(),
   sessionMode: z.string(),
   sleepAfter: z.string(),
   /** REQ-ENTERPRISE-004: the user's matched Access groups, one cf-aig-metadata tag per group. */
@@ -36,6 +38,8 @@ export const SetBucketNameBodySchema = z.object({
   routeCatalog: z.array(z.string()).optional(),
   defaultRoute: z.string().optional(),
   defaultReasoning: z.string().optional(),
+  /** REQ-ENTERPRISE-012: per-route context window map (route name -> positive token count). */
+  routeContextWindows: z.record(z.string(), z.number().int().positive()).optional(),
   /** REQ-MEM-001 AC4: forward the user's IANA timezone to the container. */
   userTimezone: z.string().optional(),
   /** REQ-GITHUB-004: one-shot GitHub clone directive (repo owner/name + optional ref). */

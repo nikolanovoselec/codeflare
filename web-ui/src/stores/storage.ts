@@ -1,6 +1,6 @@
 import { createStore, produce } from 'solid-js/store';
 import * as storageApi from '../api/storage';
-import { getStartupStatus } from '../api/client';
+import { getStartupStatus, getUser } from '../api/client';
 import { shouldUseMultipart, splitIntoParts, fileToBase64 } from '../lib/file-upload';
 import { STORAGE_BROWSE_RETRY_DELAY_MS, UPLOAD_DISMISS_DELAY_MS } from '../lib/constants';
 import type { FileWithPath } from '../lib/file-upload';
@@ -61,6 +61,14 @@ interface StorageState {
   previewFile: PreviewFile | null;
   backgroundRefreshing: boolean;
   workerName: string;
+  // View-only storage (enterprise anti-exfil): when true, download controls render
+  // disabled and any attempt opens an explanatory notice instead of fetching.
+  // Server-side download.ts is the actual enforcement; the UI just avoids surfacing
+  // a raw 403 that "looks broken".
+  downloadsDisabled: boolean;
+  // Open state for the "downloads disabled by administrator" notice, raised when a
+  // user interacts with a disabled download control.
+  downloadsNoticeOpen: boolean;
   // REQ-STOR-015: sync-now flag drives the toolbar button's disabled
   // state and spinner overlay. The last result is held briefly so the
   // toolbar can surface "Triggered N sessions" feedback.
@@ -83,6 +91,8 @@ const initialState: StorageState = {
   previewFile: null,
   backgroundRefreshing: false,
   workerName: 'codeflare',
+  downloadsDisabled: false,
+  downloadsNoticeOpen: false,
   syncing: false,
   syncResult: null,
 };
@@ -187,6 +197,22 @@ export const storageStore = {
   get backgroundRefreshing() { return state.backgroundRefreshing; },
   get workerName() { return state.workerName; },
   setWorkerName(name: string) { setState('workerName', name); },
+  get downloadsDisabled() { return state.downloadsDisabled; },
+  setDownloadsDisabled(v: boolean) { setState('downloadsDisabled', v); },
+  // Re-pull the view-only flag from the server (set once at app load) so opening the
+  // storage panel reflects a toggle flipped after load — closing the stale-flag window
+  // proactively. On error the flag is left as-is; the server 403 backstop still covers it.
+  async refreshDownloadsDisabled() {
+    try {
+      const user = await getUser();
+      setState('downloadsDisabled', user.downloadsDisabled === true);
+    } catch {
+      // ignore — keep the current flag; downloads are still enforced server-side.
+    }
+  },
+  get downloadsNoticeOpen() { return state.downloadsNoticeOpen; },
+  showDownloadsNotice() { setState('downloadsNoticeOpen', true); },
+  dismissDownloadsNotice() { setState('downloadsNoticeOpen', false); },
   get syncing() { return state.syncing; },
   get syncResult() { return state.syncResult; },
   get breadcrumbs() {

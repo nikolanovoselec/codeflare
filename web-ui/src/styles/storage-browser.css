@@ -395,6 +395,17 @@
   background: var(--color-accent-hover);
 }
 
+/* View-only storage: render the download control disabled-looking while keeping it
+   clickable, so the tap handler can raise the "downloads disabled" notice (a tooltip
+   alone would never show on touch devices). */
+.storage-action-btn--download.storage-action-btn--blocked,
+.storage-action-btn--download.storage-action-btn--blocked:hover {
+  background: var(--color-bg-muted);
+  color: var(--color-text-secondary);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 /* ======================================
    Workspace container sync icon + tooltip
    ====================================== */

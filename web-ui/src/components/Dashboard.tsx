@@ -5,7 +5,7 @@ import Icon from './Icon';
 import IconButton from './ui/IconButton';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import { storageStore } from '../stores/storage';
-import { getDownloadUrl } from '../api/storage';
+import { downloadFile } from '../lib/download';
 import { getGravatarUrl, gravatarExists } from '../lib/gravatar';
 import SessionStatCard from './SessionStatCard';
 import SessionContextMenu from './SessionContextMenu';
@@ -13,6 +13,7 @@ import StatCards from './StatCards';
 import StorageBrowser from './StorageBrowser';
 import GitHubPanel from './github/GitHubPanel';
 import FilePreview from './FilePreview';
+import DownloadsDisabledPopup from './DownloadsDisabledPopup';
 import CreateSessionDialog from './CreateSessionDialog';
 import SessionLimitPopup from './SessionLimitPopup';
 import ScrambleText from './ScrambleText';
@@ -223,15 +224,17 @@ const Dashboard: Component<DashboardProps> = (props) => {
     storageStore.closePreview();
   };
 
-  const handlePreviewDownload = () => {
-    const file = storageStore.previewFile;
-    if (file) {
-      const url = getDownloadUrl(file.key);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = file.key.split('/').pop() || 'download';
-      a.click();
+  const handlePreviewDownload = async () => {
+    // View-only storage: surface the friendly notice instead of a raw failure.
+    if (storageStore.downloadsDisabled) {
+      storageStore.showDownloadsNotice();
+      return;
     }
+    const file = storageStore.previewFile;
+    if (!file) return;
+    // Fetch-based (via the shared helper) so a stale flag + a server 403 still shows
+    // the notice rather than a broken-looking download.
+    if ((await downloadFile(file.key)) === 'blocked') storageStore.showDownloadsNotice();
   };
 
   const handleMenuClick = (e: MouseEvent, session: SessionWithStatus) => {
@@ -506,9 +509,10 @@ const Dashboard: Component<DashboardProps> = (props) => {
               </div>
             }>
               <Show when={storageStore.previewFile} fallback={<StorageBrowser />}>
-                <FilePreview file={storageStore.previewFile} onBack={handlePreviewBack} onDownload={handlePreviewDownload} />
+                <FilePreview file={storageStore.previewFile} onBack={handlePreviewBack} onDownload={handlePreviewDownload} downloadsDisabled={storageStore.downloadsDisabled} />
               </Show>
             </Show>
+            <DownloadsDisabledPopup />
             </div>
           </div>
         </div>

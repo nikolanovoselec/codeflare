@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildEnvVars, applyBucketName, applyPrefsOnRestart, type ContainerEnvState } from '../../container/container-env';
 import type { Env } from '../../types';
-import { ENTERPRISE_GH_TOKEN_PLACEHOLDER } from '../../lib/constants';
+import { ENTERPRISE_GH_TOKEN_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER } from '../../lib/constants';
 
 function baseState(): ContainerEnvState {
   return {
@@ -35,6 +35,9 @@ function baseState(): ContainerEnvState {
     // the enterprise branch of buildEnvVars reads `.length`, so the fixture must
     // carry the same empty-array default rather than leaving it undefined.
     _routeCatalog: [],
+    // REQ-ENTERPRISE-012: the enterprise branch of buildEnvVars reads
+    // Object.keys(_routeContextWindows), so the fixture must carry the {} default.
+    _routeContextWindows: {},
   } as unknown as ContainerEnvState;
 }
 
@@ -233,6 +236,37 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
     const vars = buildEnvVars(baseState(), { ENTERPRISE_MODE: 'active' } as Env);
     expect('GH_TOKEN' in vars).toBe(false);
   });
+
+  // REQ-ENTERPRISE-016: when strict Gateway egress is active the real R2 key must NEVER
+  // enter the container — the R2_* names get a non-secret placeholder; the EgressController
+  // strips it and re-signs with the worker-held key at the R2 boundary. (The AWS_*-named
+  // duplicates are no longer emitted in any mode — they had no consumer; see the secret-
+  // hygiene tests in container-env-llm.test.ts.)
+  it('REQ-ENTERPRISE-016: emits a NON-SECRET placeholder R2 key when _strictEgress is true (real key never enters the container); no AWS_*', () => {
+    const state = baseState();
+    (state as unknown as { _strictEgress: boolean })._strictEgress = true;
+    const vars = buildEnvVars(state, baseEnv);
+    expect(vars.R2_ACCESS_KEY_ID).toBe(ENTERPRISE_R2_KEY_PLACEHOLDER);
+    expect(vars.R2_SECRET_ACCESS_KEY).toBe(ENTERPRISE_R2_KEY_PLACEHOLDER);
+    // The real key from DO state is NOT emitted; the AWS_* names are gone entirely.
+    expect(vars.R2_ACCESS_KEY_ID).not.toBe('AK');
+    expect(vars.R2_SECRET_ACCESS_KEY).not.toBe('SK');
+    expect('AWS_ACCESS_KEY_ID' in vars).toBe(false);
+    expect('AWS_SECRET_ACCESS_KEY' in vars).toBe(false);
+    // Non-secret endpoint/account stay real (rclone still targets the right bucket).
+    expect(vars.R2_ACCOUNT_ID).toBe('acc');
+    expect(vars.R2_ENDPOINT).toBe('https://r2.test');
+  });
+
+  // @test buildEnvVars emits the real R2 key verbatim when strict egress is off (byte-identical to today), no AWS_*
+  it('REQ-ENTERPRISE-016: emits the real R2 key verbatim when _strictEgress is falsy (strict-off unchanged); no AWS_*', () => {
+    const vars = buildEnvVars(baseState(), baseEnv);
+    expect(vars.R2_ACCESS_KEY_ID).toBe('AK');
+    expect(vars.R2_SECRET_ACCESS_KEY).toBe('SK');
+    expect(vars.R2_ACCESS_KEY_ID).not.toBe(ENTERPRISE_R2_KEY_PLACEHOLDER);
+    expect('AWS_ACCESS_KEY_ID' in vars).toBe(false);
+    expect('AWS_SECRET_ACCESS_KEY' in vars).toBe(false);
+  });
 });
 
 // Regression test for the entry-point destructure: handleSetBucketName at
@@ -314,5 +348,66 @@ describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESS
     await applyPrefsOnRestart(state, storage, { userGroups: ['a', 'b'] });
     expect(writes.userGroups).toEqual(['a', 'b']);
     expect((state as unknown as { _userGroups: string[] })._userGroups).toEqual(['a', 'b']);
+  });
+
+  // REQ-ENTERPRISE-018 (Governed Mode): the container learns the bucket's R2 SSE-C
+  // regime via R2_SSE_DISABLED, emitted iff _r2SseDisabled is set. entrypoint.sh
+  // keys off it to drop SSE-C from rclone.conf and re-enable checksums.
+  describe('R2_SSE_DISABLED (REQ-ENTERPRISE-018)', () => {
+    it('emits R2_SSE_DISABLED=true when _r2SseDisabled is set', () => {
+      const state = baseState();
+      (state as unknown as { _r2SseDisabled: boolean })._r2SseDisabled = true;
+      const vars = buildEnvVars(state, baseEnv) as Record<string, string | undefined>;
+      expect(vars.R2_SSE_DISABLED).toBe('true');
+    });
+
+    it('omits R2_SSE_DISABLED when _r2SseDisabled is false', () => {
+      const state = baseState();
+      (state as unknown as { _r2SseDisabled: boolean })._r2SseDisabled = false;
+      const vars = buildEnvVars(state, baseEnv) as Record<string, string | undefined>;
+      expect(vars.R2_SSE_DISABLED).toBeUndefined();
+    });
+
+    it('omits R2_SSE_DISABLED when _r2SseDisabled is unset (default container env)', () => {
+      const vars = buildEnvVars(baseState(), baseEnv) as Record<string, string | undefined>;
+      expect(vars.R2_SSE_DISABLED).toBeUndefined();
+    });
+
+    it('applyBucketName sets _r2SseDisabled from the body', async () => {
+      const state = baseState();
+      const { storage } = makeStorage();
+      await applyBucketName(state, 'codeflare-test', baseEnv, storage, { r2SseDisabled: true });
+      expect((state as unknown as { _r2SseDisabled: boolean })._r2SseDisabled).toBe(true);
+    });
+
+    it('applyBucketName defaults _r2SseDisabled to false when the body omits it', async () => {
+      const state = baseState();
+      const { storage } = makeStorage();
+      await applyBucketName(state, 'codeflare-test', baseEnv, storage, {});
+      expect((state as unknown as { _r2SseDisabled: boolean })._r2SseDisabled).toBe(false);
+    });
+
+    it('applyPrefsOnRestart flips _r2SseDisabled both directions and regenerates env', async () => {
+      const state = baseState();
+      const s = state as unknown as { _r2SseDisabled: boolean };
+      const { storage } = makeStorage();
+
+      const onChanged = await applyPrefsOnRestart(state, storage, { r2SseDisabled: true });
+      expect(onChanged).toBe(true);
+      expect(s._r2SseDisabled).toBe(true);
+
+      // Turning Governed Mode OFF on a warm DO must reset the stale state.
+      const offChanged = await applyPrefsOnRestart(state, storage, { r2SseDisabled: false });
+      expect(offChanged).toBe(true);
+      expect(s._r2SseDisabled).toBe(false);
+    });
+
+    it('applyPrefsOnRestart is a no-op for r2SseDisabled when unchanged', async () => {
+      const state = baseState();
+      (state as unknown as { _r2SseDisabled: boolean })._r2SseDisabled = true;
+      const { storage } = makeStorage();
+      const changed = await applyPrefsOnRestart(state, storage, { r2SseDisabled: true });
+      expect(changed).toBe(false);
+    });
   });
 });

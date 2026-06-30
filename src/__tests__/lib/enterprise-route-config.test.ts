@@ -19,7 +19,7 @@ function makeEnv(kv: MockKV, enterprise = true): Env {
 describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-012)', () => {
   it('AC5: returns empty config when ENTERPRISE_MODE is not active', async () => {
     const cfg = await loadEnterpriseRouteConfig(makeEnv(createMockKV(), false));
-    expect(cfg).toEqual({ routeCatalog: [], defaultRoute: '', defaultReasoning: '' });
+    expect(cfg).toEqual({ routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {} });
   });
 
   it('AC2: parses the route catalog (JSON string[]) from KV', async () => {
@@ -148,6 +148,6 @@ describe('loadEnterpriseRouteConfig per-group routing (REQ-ENTERPRISE-013)', () 
 
   it('non-enterprise ignores groups and returns empty config', async () => {
     const cfg = await loadEnterpriseRouteConfig(makeEnv(withGlobalAndGroups(createMockKV()), false), ['developers']);
-    expect(cfg).toEqual({ routeCatalog: [], defaultRoute: '', defaultReasoning: '' });
+    expect(cfg).toEqual({ routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {} });
   });
 });

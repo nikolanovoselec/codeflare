@@ -607,3 +607,32 @@ None.
 **Verification:** [Login page render tests](../../landing/src/__tests__/login-page.test.ts), [login script tests](../../landing/src/__tests__/login.script.test.ts), [Onboarding login route tests](../../src/__tests__/routes/onboarding-login.test.ts), [auth gap tests](../../src/__tests__/lib/auth-gaps.test.ts), [auth middleware tests](../../src/__tests__/middleware/auth-saas.test.ts), [onboarding helper tests](../../src/__tests__/lib/onboarding.test.ts)
 
 **Status:** Implemented
+
+---
+
+### REQ-AUTH-022: Session-expiry on resume produces a clean sign-in redirect, never a blank page
+
+**Intent:** When a backgrounded SPA returns (mobile app-switch, tab eviction, bfcache restore) and the session cookie has expired, the app must redirect to sign-in cleanly. It must never hang on its loading shell (the blank/white page users had to "Back/reload several times" to clear), never render nothing during a pending hard navigation, and never crash to a blank document on an unhandled bootstrap/render error.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The API client's 401 handler on an authenticated path (`/app/*`, `/admin/*`) performs `window.location.replace('/')` (not `href`, so Back does not return to the dead page) and **throws** an `ApiError` tagged `authRedirect = true`; it never returns a non-resolving promise, so the bootstrap promise always settles. <!-- @impl: web-ui/src/api/fetch-helper.ts --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (rejects with authRedirect ApiError, calls location.replace('/'), settles rather than hangs, and does not redirect on public paths) -->
+2. On a caught `authRedirect`/401 bootstrap error, `AppContent` clears the loading shell and renders a calm "redirecting" state, not the generic auth-error page and not a hung spinner. <!-- @impl: web-ui/src/App.tsx --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (AC2 -> redirecting state shown, Layout never mounts; plain 401 handled the same) -->
+3. `RootPage` renders a non-empty state for every mode including `redirect`, so a pending hard navigation never shows a blank document. <!-- @impl: web-ui/src/App.tsx --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (AC3 -> root-redirecting state present) -->
+4. A top-level `ErrorBoundary` wraps the app; an unhandled bootstrap/render error renders a recovery fallback (reload control) instead of a blank document. <!-- @impl: web-ui/src/App.tsx --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (AC4 -> error-boundary fallback renders on a render throw) -->
+
+**Constraints:**
+
+- Redirect uses `location.replace`, not `href`, so the dead page is not left in history.
+- Behavior is deployment-mode agnostic (CF Access, SaaS, onboarding) — the 401-on-authed-path rule and the boundary apply uniformly.
+- The redirecting/fallback states are asserted by structure (testids/branch), not by UI copy (mandate #2).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode)
+
+**Verification:** [fetch-helper 401 redirect tests](../../web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts), [App resume-redirect tests](../../web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx)
+
+**Status:** Implemented

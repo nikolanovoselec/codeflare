@@ -5,7 +5,7 @@
  * All functions receive explicit state/context parameters instead of `this`.
  */
 import type { Env, TabConfig } from '../types';
-import { TERMINAL_SERVER_PORT, ENTERPRISE_GH_TOKEN_PLACEHOLDER } from '../lib/constants';
+import { TERMINAL_SERVER_PORT, ENTERPRISE_GH_TOKEN_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER, ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER } from '../lib/constants';
 import { getR2Config } from '../lib/r2-config';
 import { toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
@@ -24,6 +24,10 @@ export interface ContainerEnvState {
   _r2Endpoint: string | null;
   _r2AccessKeyId: string | null;
   _r2SecretAccessKey: string | null;
+  /** REQ-ENTERPRISE-016: strict Gateway egress active — emit placeholder R2 creds (worker re-signs). Optional: undefined ⇒ real key (non-enterprise / strict-off). */
+  _strictEgress?: boolean;
+  /** REQ-ENTERPRISE-018: Governed Mode — this bucket's R2 SSE-C is disabled. Emits R2_SSE_DISABLED so entrypoint.sh drops SSE-C from rclone.conf + enables checksums. */
+  _r2SseDisabled?: boolean;
   _workspaceSyncEnabled: boolean;
   _fastStartEnabled: boolean;
   _tabConfig: TabConfig[] | null;
@@ -45,6 +49,8 @@ export interface ContainerEnvState {
   _defaultRoute: string | null;
   /** REQ-ENTERPRISE-005 (revised): the default route's reasoning grade (Pi defaultThinkingLevel). */
   _defaultReasoning: string | null;
+  /** REQ-ENTERPRISE-012: per-route context window (route name -> tokens) for Pi models.json. */
+  _routeContextWindows: Record<string, number>;
   /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   _userTimezone: string | null;
   /** REQ-GITHUB-004: GitHub repo (owner/name) to clone at container start. */
@@ -61,6 +67,7 @@ interface RestartPrefsInput {
   routeCatalog?: string[];
   defaultRoute?: string;
   defaultReasoning?: string;
+  routeContextWindows?: Record<string, number>;
   workspaceSyncEnabled?: boolean;
   fastStartEnabled?: boolean;
   tabConfig?: TabConfig[];
@@ -71,6 +78,8 @@ interface RestartPrefsInput {
   cloudflareApiToken?: string | null;
   cloudflareAccountId?: string | null;
   encryptionKey?: string;
+  /** REQ-ENTERPRISE-018: Governed Mode regime, re-sent each start (read fresh from the bucket marker). */
+  r2SseDisabled?: boolean;
   sessionMode?: string;
   /** REQ-MEM-001 AC4: user's IANA timezone. Updated on subsequent DO wakes
    * when preferences.userTimezone changes between sessions. */
@@ -96,6 +105,8 @@ export interface SetBucketNameCreds {
   cloudflareApiToken?: string | null;
   cloudflareAccountId?: string | null;
   encryptionKey?: string;
+  /** REQ-ENTERPRISE-018: Governed Mode regime forwarded from /start. */
+  r2SseDisabled?: boolean;
   sessionMode?: string;
   /** REQ-MEM-001 AC4: user's IANA timezone forwarded from /start. */
   userTimezone?: string;
@@ -187,8 +198,15 @@ export function buildEnvVars(
   env: Env,
 ): Record<string, string> {
   const bucketName = state._bucketName || 'unknown-bucket';
-  const accessKeyId = state._r2AccessKeyId || env.R2_ACCESS_KEY_ID || '';
-  const secretAccessKey = state._r2SecretAccessKey || env.R2_SECRET_ACCESS_KEY || '';
+  // Strict Gateway egress (REQ-ENTERPRISE-016): the real R2 key must NEVER enter the
+  // container — emit a non-secret placeholder so rclone runs in signed mode while the
+  // EgressController strips it and re-signs with the worker-held key at the R2 boundary
+  // (egress-controller.ts). Only when strict is active; non-enterprise / strict-off keep
+  // the real key (rclone connects to R2 directly, byte-identical to today).
+  const realAccessKeyId = state._r2AccessKeyId || env.R2_ACCESS_KEY_ID || '';
+  const realSecretAccessKey = state._r2SecretAccessKey || env.R2_SECRET_ACCESS_KEY || '';
+  const accessKeyId = state._strictEgress ? ENTERPRISE_R2_KEY_PLACEHOLDER : realAccessKeyId;
+  const secretAccessKey = state._strictEgress ? ENTERPRISE_R2_KEY_PLACEHOLDER : realSecretAccessKey;
   const accountId = state._r2AccountId || env.R2_ACCOUNT_ID || '';
   const endpoint = state._r2Endpoint || env.R2_ENDPOINT || '';
 
@@ -202,9 +220,10 @@ export function buildEnvVars(
   });
 
   return {
-    // R2 credentials - AWS naming convention for rclone S3 provider compatibility
-    AWS_ACCESS_KEY_ID: accessKeyId,
-    AWS_SECRET_ACCESS_KEY: secretAccessKey,
+    // R2 credentials. The AWS_*-named duplicates are NOT emitted in any mode: rclone reads
+    // its creds from rclone.conf (built from R2_* via entrypoint.sh), so the AWS_* names had
+    // no consumer; their only effect was surfacing Pi's built-in amazon-bedrock provider in
+    // /model (Pi auths it from the AWS env). Dropped everywhere — R2_* below are authoritative.
     // R2 configuration
     R2_ACCESS_KEY_ID: accessKeyId,
     R2_SECRET_ACCESS_KEY: secretAccessKey,
@@ -231,8 +250,18 @@ export function buildEnvVars(
     // Gateway BYOK and per-user LLM keys do not exist.
     ...(!isEnterpriseMode(env) && state._openaiApiKey && { CODEFLARE_OPENAI_API_KEY: state._openaiApiKey }),
     ...(!isEnterpriseMode(env) && state._geminiApiKey && { CODEFLARE_GEMINI_API_KEY: state._geminiApiKey }),
-    // Encryption key for rclone SSE-C
-    ...(state._encryptionKey && { ENCRYPTION_KEY: state._encryptionKey }),
+    // Encryption key for rclone SSE-C. Omitted in Governed Mode (R2_SSE_DISABLED, REQ-ENTERPRISE-018):
+    // SSE-C is off there, so rclone never uses it (entrypoint.sh skips the sse_customer_key block) and
+    // this high-power shared key (also the vault HKDF master + secret-at-rest key) must not sit unused
+    // in the container. Consequence (REQ-ENTERPRISE-016/018): under strict egress + Governed Mode the
+    // container carries NO real secret except the DO-issued CONTAINER_AUTH_TOKEN — R2/GitHub/Cloudflare
+    // creds are all non-secret placeholders. Non-Governed (SSE-C on) still emits it: rclone needs it.
+    ...(state._encryptionKey && !state._r2SseDisabled && { ENCRYPTION_KEY: state._encryptionKey }),
+    // REQ-ENTERPRISE-018 (Governed Mode): when this bucket's R2 SSE-C is disabled,
+    // tell entrypoint.sh to omit the SSE-C block from rclone.conf and re-enable
+    // checksums (R2 default at-rest encryption keeps usable MD5 ETags). Emitted only
+    // when active so a non-Governed container's env is byte-identical to today.
+    ...(state._r2SseDisabled && { R2_SSE_DISABLED: 'true' }),
     // Deploy credentials (GitHub + Cloudflare for push & deploy).
     // REQ-GITHUB-003: in enterprise mode the real GitHub token must NEVER enter the
     // container — emit a non-secret placeholder so git/`gh` (and Copilot's GitHub
@@ -247,7 +276,20 @@ export function buildEnvVars(
       (isEnterpriseMode(env)
         ? { GH_TOKEN: ENTERPRISE_GH_TOKEN_PLACEHOLDER }
         : { GH_TOKEN: state._githubToken })),
-    ...(state._cloudflareApiToken && { CLOUDFLARE_API_TOKEN: state._cloudflareApiToken }),
+    // CLOUDFLARE_API_TOKEN: non-enterprise emits the real Connect-to-Cloudflare deploy
+    // token (byte-identical to today). Enterprise has no Connect-to-Cloudflare; the only
+    // CLOUDFLARE_API_TOKEN it may emit is the non-secret browser-run PLACEHOLDER
+    // (REQ-BROWSER-008) — applyEnterpriseBrowserToken sets `_cloudflareApiToken` to the
+    // placeholder when an admin Browser Rendering token is configured (else null). The real
+    // token never enters the container; the CloudflareBrowserInterceptor injects it
+    // worker-side. Defense-in-depth: in enterprise emit ONLY when the value is exactly the
+    // placeholder, so a real token reaching `_cloudflareApiToken` via any path can never leak.
+    ...(state._cloudflareApiToken &&
+      (!isEnterpriseMode(env) || state._cloudflareApiToken === ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER) &&
+      { CLOUDFLARE_API_TOKEN: state._cloudflareApiToken }),
+    // CLOUDFLARE_ACCOUNT_ID is non-secret. Non-enterprise = the deploy account; enterprise =
+    // the wizard-configured Browser Rendering account (browser-run builds its API URL from it,
+    // and the interceptor matches that account). Emitted in both modes when present.
     ...(state._cloudflareAccountId && { CLOUDFLARE_ACCOUNT_ID: state._cloudflareAccountId }),
     // REQ-GITHUB-004: one-shot clone directive. entrypoint.sh clones the repo
     // into $USER_WORKSPACE/<repo-name> at start (after the git credential helper
@@ -284,6 +326,11 @@ export function buildEnvVars(
     ...(isEnterpriseMode(env) && state._routeCatalog.length > 0 && { ENTERPRISE_ROUTE_CATALOG: JSON.stringify(state._routeCatalog) }),
     ...(isEnterpriseMode(env) && state._defaultRoute && { ENTERPRISE_DEFAULT_ROUTE: state._defaultRoute }),
     ...(isEnterpriseMode(env) && state._defaultReasoning && { ENTERPRISE_DEFAULT_REASONING: state._defaultReasoning }),
+    // REQ-ENTERPRISE-012: per-route context-window map (route name -> tokens), a
+    // non-secret routing hint. entrypoint.sh sets each Pi model's contextWindow from
+    // it (falling back to DEFAULT_ROUTE_CONTEXT_WINDOW per route). Emitted only when
+    // enterprise AND configured, so a non-enterprise/unconfigured env is byte-identical.
+    ...(isEnterpriseMode(env) && Object.keys(state._routeContextWindows).length > 0 && { ENTERPRISE_ROUTE_CONTEXT_WINDOWS: JSON.stringify(state._routeContextWindows) }),
   };
 }
 
@@ -330,6 +377,10 @@ export async function applyBucketName(
 
   // Store encryption key in instance memory
   if (r2Creds?.encryptionKey) state._encryptionKey = r2Creds.encryptionKey;
+
+  // REQ-ENTERPRISE-018: Governed Mode regime (re-sent each start). Default false
+  // (SSE-C on) when omitted, so a non-Governed container is byte-identical to today.
+  state._r2SseDisabled = r2Creds?.r2SseDisabled === true;
 
   // Store session mode in instance memory only (not persisted to DO storage; re-sent on each container start)
   if (r2Creds?.sessionMode) state._sessionMode = r2Creds.sessionMode;
@@ -469,6 +520,14 @@ export async function applyPrefsOnRestart(
     state._encryptionKey = input.encryptionKey || null;
     changed = true;
   }
+  // REQ-ENTERPRISE-018: re-apply the Governed Mode regime on restart so an admin's
+  // policy flip (migration → marker change) re-emits R2_SSE_DISABLED for the next
+  // container start. Always present on the wire as a boolean; only regenerate env
+  // when it actually changes.
+  if (typeof input.r2SseDisabled === 'boolean' && input.r2SseDisabled !== (state._r2SseDisabled === true)) {
+    state._r2SseDisabled = input.r2SseDisabled;
+    changed = true;
+  }
   if (input.sessionMode) {
     state._sessionMode = input.sessionMode;
     changed = true;
@@ -520,6 +579,14 @@ export async function applyPrefsOnRestart(
     await storage.put('defaultReasoning', input.defaultReasoning);
     changed = true;
     logger.info('Updated defaultReasoning on restart', { defaultReasoning: input.defaultReasoning });
+  }
+  // REQ-ENTERPRISE-012: value-equality compare on the map (a reference !== compare
+  // would churn storage every restart), mirroring routeCatalog above.
+  if (input.routeContextWindows && JSON.stringify(input.routeContextWindows) !== JSON.stringify(state._routeContextWindows)) {
+    state._routeContextWindows = input.routeContextWindows;
+    await storage.put('routeContextWindows', input.routeContextWindows);
+    changed = true;
+    logger.info('Updated routeContextWindows on restart', { routeContextWindows: input.routeContextWindows });
   }
 
   return changed;

@@ -14,6 +14,7 @@ import { escapeXml } from '../../lib/xml-utils';
 import { validateKey, MAX_KEY_LENGTH } from './validation';
 import { parseJsonBody } from '../../lib/request-helpers';
 import { getSseHeaders } from '../../lib/r2-sse';
+import { isR2SseDisabledForBucket } from '../../lib/r2-migration';
 
 const storageUploadRateLimiter = createRateLimiter({
   windowMs: 60_000,
@@ -65,6 +66,8 @@ app.post('/', async (c) => {
   const bucketName = c.get('bucketName');
   const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
+  // REQ-ENTERPRISE-018: SSE-C headers follow the bucket's regime marker (see download.ts).
+  const r2SseDisabled = await isR2SseDisabledForBucket(c.env, bucketName);
 
   let binaryContent: Uint8Array;
   try {
@@ -77,7 +80,7 @@ app.post('/', async (c) => {
   const response = await r2Client.fetch(url, {
     method: 'PUT',
     body: binaryContent,
-    headers: { 'Content-Type': 'application/octet-stream', ...getSseHeaders(c.env) },
+    headers: { 'Content-Type': 'application/octet-stream', ...getSseHeaders(c.env, r2SseDisabled) },
   });
 
   if (!response.ok) {
@@ -107,9 +110,11 @@ app.post('/initiate', async (c) => {
   const bucketName = c.get('bucketName');
   const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
+  // REQ-ENTERPRISE-018: SSE-C headers follow the bucket's regime marker (see download.ts).
+  const r2SseDisabled = await isR2SseDisabledForBucket(c.env, bucketName);
 
   const url = `${getR2Url(endpoint, bucketName, sanitizedKey)}?uploads`;
-  const response = await r2Client.fetch(url, { method: 'POST', headers: getSseHeaders(c.env) });
+  const response = await r2Client.fetch(url, { method: 'POST', headers: getSseHeaders(c.env, r2SseDisabled) });
 
   if (!response.ok) {
     throw new ContainerError('upload', `R2 InitiateMultipartUpload failed: ${response.status}`);
@@ -132,6 +137,8 @@ app.post('/part', async (c) => {
   const bucketName = c.get('bucketName');
   const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
+  // REQ-ENTERPRISE-018: SSE-C headers follow the bucket's regime marker (see download.ts).
+  const r2SseDisabled = await isR2SseDisabledForBucket(c.env, bucketName);
 
   let binaryContent: Uint8Array;
   try {
@@ -144,7 +151,7 @@ app.post('/part', async (c) => {
   const response = await r2Client.fetch(url, {
     method: 'PUT',
     body: binaryContent,
-    headers: getSseHeaders(c.env),
+    headers: getSseHeaders(c.env, r2SseDisabled),
   });
 
   if (!response.ok) {

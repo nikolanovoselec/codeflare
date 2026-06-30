@@ -12,11 +12,18 @@ const storeState = vi.hoisted(() => ({
   enterpriseAccessGroups: [] as string[],
   adminAccessGroups: [] as string[],
   dynamicRoutes: [] as string[],
+  routeContextWindows: {} as Record<string, number>,
   defaultRouteName: '',
   defaultRouteReasoning: 'off' as 'off' | 'low' | 'medium' | 'high',
   cloudflareBrowserToken: '',
   cloudflareBrowserTokenSet: false,
   cloudflareBrowserAccountId: '',
+  aigGatewayUrl: '',
+  aigToken: '',
+  aigTokenSet: false,
+  strictGatewayEgress: false,
+  r2SseDisabled: false,
+  downloadsDisabled: false,
   githubProviderType: 'app' as 'app' | 'oauth',
   githubAppClientId: '',
   githubAppClientSecret: '',
@@ -42,10 +49,17 @@ const storeMethods = vi.hoisted(() => ({
   removeAdminAccessGroup: vi.fn((name: string) => { storeState.adminAccessGroups = storeState.adminAccessGroups.filter(g => g !== name); }),
   addDynamicRoute: vi.fn((name: string) => { storeState.dynamicRoutes.push(name); }),
   removeDynamicRoute: vi.fn((name: string) => { storeState.dynamicRoutes = storeState.dynamicRoutes.filter(r => r !== name); }),
+  setRouteContextWindow: vi.fn((name: string, tokens: number) => { storeState.routeContextWindows[name] = tokens; }),
+  resetRouteContextWindow: vi.fn((name: string) => { storeState.routeContextWindows[name] = 256000; }),
   setDefaultRouteName: vi.fn((name: string) => { storeState.defaultRouteName = name; }),
   setDefaultRouteReasoning: vi.fn((level: 'off' | 'low' | 'medium' | 'high') => { storeState.defaultRouteReasoning = level; }),
   setCloudflareBrowserToken: vi.fn((val: string) => { storeState.cloudflareBrowserToken = val; }),
   setCloudflareBrowserAccountId: vi.fn((val: string) => { storeState.cloudflareBrowserAccountId = val; }),
+  setAigGatewayUrl: vi.fn((val: string) => { storeState.aigGatewayUrl = val; }),
+  setAigToken: vi.fn((val: string) => { storeState.aigToken = val; }),
+  setStrictGatewayEgress: vi.fn((v: boolean) => { storeState.strictGatewayEgress = v; }),
+  setR2SseDisabled: vi.fn((v: boolean) => { storeState.r2SseDisabled = v; }),
+  setDownloadsDisabled: vi.fn((v: boolean) => { storeState.downloadsDisabled = v; }),
   setGithubProviderType: vi.fn((t: 'app' | 'oauth') => { storeState.githubProviderType = t; }),
   setGithubAppClientId: vi.fn((v: string) => { storeState.githubAppClientId = v; }),
   setGithubAppClientSecret: vi.fn((v: string) => { storeState.githubAppClientSecret = v; }),
@@ -72,11 +86,18 @@ vi.mock('../../stores/setup', () => ({
     get enterpriseAccessGroups() { return storeState.enterpriseAccessGroups; },
     get adminAccessGroups() { return storeState.adminAccessGroups; },
     get dynamicRoutes() { return storeState.dynamicRoutes; },
+    get routeContextWindows() { return storeState.routeContextWindows; },
     get defaultRouteName() { return storeState.defaultRouteName; },
     get defaultRouteReasoning() { return storeState.defaultRouteReasoning; },
     get cloudflareBrowserToken() { return storeState.cloudflareBrowserToken; },
     get cloudflareBrowserTokenSet() { return storeState.cloudflareBrowserTokenSet; },
     get cloudflareBrowserAccountId() { return storeState.cloudflareBrowserAccountId; },
+    get aigGatewayUrl() { return storeState.aigGatewayUrl; },
+    get aigToken() { return storeState.aigToken; },
+    get aigTokenSet() { return storeState.aigTokenSet; },
+    get strictGatewayEgress() { return storeState.strictGatewayEgress; },
+    get r2SseDisabled() { return storeState.r2SseDisabled; },
+    get downloadsDisabled() { return storeState.downloadsDisabled; },
     get githubProviderType() { return storeState.githubProviderType; },
     get githubAppClientId() { return storeState.githubAppClientId; },
     get githubAppClientSecret() { return storeState.githubAppClientSecret; },
@@ -90,6 +111,9 @@ vi.mock('../../stores/setup', () => ({
     get groupRouting() { return storeState.groupRouting; },
     ...storeMethods,
   },
+  // The component imports this constant alongside the store; the mock must export it
+  // or the per-route field renders `undefined.toLocaleString()` and crashes.
+  DEFAULT_ROUTE_CONTEXT_WINDOW: 256000,
 }));
 
 vi.mock('../../components/Icon', () => ({
@@ -110,11 +134,18 @@ describe('ConfigureStep', () => {
     storeState.enterpriseAccessGroups = [];
     storeState.adminAccessGroups = [];
     storeState.dynamicRoutes = [];
+    storeState.routeContextWindows = {};
     storeState.defaultRouteName = '';
     storeState.defaultRouteReasoning = 'off';
     storeState.cloudflareBrowserToken = '';
     storeState.cloudflareBrowserTokenSet = false;
     storeState.cloudflareBrowserAccountId = '';
+    storeState.aigGatewayUrl = '';
+    storeState.aigToken = '';
+    storeState.aigTokenSet = false;
+    storeState.strictGatewayEgress = false;
+    storeState.r2SseDisabled = false;
+    storeState.downloadsDisabled = false;
     storeState.githubProviderType = 'app';
     storeState.githubAppClientId = '';
     storeState.githubAppClientSecret = '';
@@ -213,6 +244,57 @@ describe('ConfigureStep', () => {
       storeState.dynamicRoutes = ['development'];
       render(() => <ConfigureStep />);
       expect(document.querySelector('.group-routing-card')).toBeNull();
+    });
+  });
+
+  // REQ-ENTERPRISE-012: per-route context window editor.
+  describe('Per-route context window (REQ-ENTERPRISE-012)', () => {
+    it('renders one context-window input per dynamic route, prefilled from the store', () => {
+      storeState.enterpriseMode = true;
+      storeState.dynamicRoutes = ['development', 'prod'];
+      storeState.routeContextWindows = { development: 262144, prod: 1048576 };
+      render(() => <ConfigureStep />);
+
+      const dev = screen.getByTestId('route-cw-input-development') as HTMLInputElement;
+      const prod = screen.getByTestId('route-cw-input-prod') as HTMLInputElement;
+      expect(dev.value).toBe('262144');
+      expect(prod.value).toBe('1048576');
+    });
+
+    it('falls back to the default window when a route has no stored value', () => {
+      storeState.enterpriseMode = true;
+      storeState.dynamicRoutes = ['development'];
+      storeState.routeContextWindows = {};
+      render(() => <ConfigureStep />);
+
+      const dev = screen.getByTestId('route-cw-input-development') as HTMLInputElement;
+      expect(dev.value).toBe('256000');
+    });
+
+    it('does not render the context-window editor when there are no routes', () => {
+      storeState.enterpriseMode = true;
+      storeState.dynamicRoutes = [];
+      render(() => <ConfigureStep />);
+      expect(screen.queryByTestId('route-cw-input-development')).not.toBeInTheDocument();
+    });
+
+    it('routes an edit to setRouteContextWindow with the parsed integer', () => {
+      storeState.enterpriseMode = true;
+      storeState.dynamicRoutes = ['development'];
+      render(() => <ConfigureStep />);
+
+      const input = screen.getByTestId('route-cw-input-development');
+      fireEvent.input(input, { target: { value: '512000' } });
+      expect(storeMethods.setRouteContextWindow).toHaveBeenCalledWith('development', 512000);
+    });
+
+    it('routes the Reset button to resetRouteContextWindow', () => {
+      storeState.enterpriseMode = true;
+      storeState.dynamicRoutes = ['development'];
+      render(() => <ConfigureStep />);
+
+      fireEvent.click(screen.getByTestId('route-cw-reset-development'));
+      expect(storeMethods.resetRouteContextWindow).toHaveBeenCalledWith('development');
     });
   });
 
@@ -360,7 +442,9 @@ describe('ConfigureStep', () => {
     it('routes token input to setCloudflareBrowserToken', () => {
       storeState.enterpriseMode = true;
       render(() => <ConfigureStep />);
-      const tokenInput = document.querySelector('input[type="password"]') as HTMLInputElement;
+      // Select by placeholder: the AI Gateway token (also a password input) now precedes
+      // the browser token in the DOM, so "first password input" is no longer unambiguous.
+      const tokenInput = screen.getByPlaceholderText('Cloudflare API token...') as HTMLInputElement;
       fireEvent.input(tokenInput, { target: { value: 'cf-browser-token' } });
       expect(storeMethods.setCloudflareBrowserToken).toHaveBeenCalledWith('cf-browser-token');
     });
@@ -371,6 +455,170 @@ describe('ConfigureStep', () => {
       const acctInput = screen.getByPlaceholderText('32-character account ID');
       fireEvent.input(acctInput, { target: { value: 'acct123' } });
       expect(storeMethods.setCloudflareBrowserAccountId).toHaveBeenCalledWith('acct123');
+    });
+  });
+
+  // REQ-ENTERPRISE-017: AI Gateway URL + token are enterprise-only wizard fields that
+  // replace the deploy-time secrets. Asserted via placeholders (the URL field) + the
+  // password input routing (no prose pinned).
+  describe('AI Gateway config (REQ-ENTERPRISE-017)', () => {
+    it('renders the AI Gateway URL + token fields in enterprise mode', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      expect(screen.getByPlaceholderText('https://gateway.ai.cloudflare.com/v1/<account>/<gateway>')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('AI Gateway API token...')).toBeInTheDocument();
+    });
+
+    it('does not render the AI Gateway fields outside enterprise mode', () => {
+      storeState.enterpriseMode = false;
+      render(() => <ConfigureStep />);
+      expect(screen.queryByPlaceholderText('https://gateway.ai.cloudflare.com/v1/<account>/<gateway>')).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText('AI Gateway API token...')).not.toBeInTheDocument();
+    });
+
+    it('routes URL input to setAigGatewayUrl', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      const urlInput = screen.getByPlaceholderText('https://gateway.ai.cloudflare.com/v1/<account>/<gateway>');
+      fireEvent.input(urlInput, { target: { value: 'https://gateway.ai.cloudflare.com/v1/a/g' } });
+      expect(storeMethods.setAigGatewayUrl).toHaveBeenCalledWith('https://gateway.ai.cloudflare.com/v1/a/g');
+    });
+
+    it('routes token input to setAigToken', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      const tokenInput = screen.getByPlaceholderText('AI Gateway API token...') as HTMLInputElement;
+      expect(tokenInput.type).toBe('password');
+      fireEvent.input(tokenInput, { target: { value: 'aig-secret' } });
+      expect(storeMethods.setAigToken).toHaveBeenCalledWith('aig-secret');
+    });
+  });
+
+  // REQ-ENTERPRISE-016: strict gateway egress toggle — enterprise-only checkbox.
+  // It is the FIRST checkbox ConfigureStep renders (the Governed Mode toggle is the
+  // second), so it is asserted via querySelector('input[type="checkbox"]') — first
+  // match (no prose copy pinned).
+  describe('Strict gateway egress toggle (REQ-ENTERPRISE-016)', () => {
+    it('renders the toggle in enterprise mode', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      expect(document.querySelector('input[type="checkbox"]')).not.toBeNull();
+    });
+
+    it('does not render the toggle outside enterprise mode', () => {
+      storeState.enterpriseMode = false;
+      render(() => <ConfigureStep />);
+      expect(document.querySelector('input[type="checkbox"]')).toBeNull();
+    });
+
+    it('renders unchecked by default', () => {
+      storeState.enterpriseMode = true;
+      storeState.strictGatewayEgress = false;
+      render(() => <ConfigureStep />);
+      const checkbox = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
+      expect(checkbox.checked).toBe(false);
+    });
+
+    it('reflects a checked toggle from store state', () => {
+      storeState.enterpriseMode = true;
+      storeState.strictGatewayEgress = true;
+      render(() => <ConfigureStep />);
+      const checkbox = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
+      expect(checkbox.checked).toBe(true);
+    });
+
+    it('calls setStrictGatewayEgress when toggled on', () => {
+      storeState.enterpriseMode = true;
+      storeState.strictGatewayEgress = false;
+      render(() => <ConfigureStep />);
+      const checkbox = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
+      fireEvent.click(checkbox);
+      expect(storeMethods.setStrictGatewayEgress).toHaveBeenCalledWith(true);
+    });
+  });
+
+  // REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) toggle — enterprise-only, and
+  // the SECOND checkbox ConfigureStep renders (after strict egress). Flipping it requires
+  // an explicit admin confirmation because it triggers a re-encrypt migration.
+  describe('Governed Mode toggle (REQ-ENTERPRISE-018)', () => {
+    // The Governed Mode toggle is the 2nd checkbox; strict egress is the 1st.
+    const governedCheckbox = () =>
+      document.querySelectorAll('input[type="checkbox"]')[1] as HTMLInputElement;
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('renders a second toggle in enterprise mode', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      // Three enterprise checkboxes render: strict egress, Governed Mode, and View-only storage.
+      expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(3);
+    });
+
+    it('does not render the Governed Mode toggle outside enterprise mode', () => {
+      storeState.enterpriseMode = false;
+      render(() => <ConfigureStep />);
+      expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    });
+
+    it('reflects a checked toggle from store state', () => {
+      storeState.enterpriseMode = true;
+      storeState.r2SseDisabled = true;
+      render(() => <ConfigureStep />);
+      expect(governedCheckbox().checked).toBe(true);
+    });
+
+    it('calls setR2SseDisabled with true when confirmed', () => {
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      storeState.enterpriseMode = true;
+      storeState.r2SseDisabled = false;
+      render(() => <ConfigureStep />);
+      fireEvent.click(governedCheckbox());
+      expect(storeMethods.setR2SseDisabled).toHaveBeenCalledWith(true);
+    });
+
+    it('does NOT call setR2SseDisabled when the admin cancels the confirmation', () => {
+      vi.spyOn(window, 'confirm').mockReturnValue(false);
+      storeState.enterpriseMode = true;
+      storeState.r2SseDisabled = false;
+      render(() => <ConfigureStep />);
+      fireEvent.click(governedCheckbox());
+      expect(storeMethods.setR2SseDisabled).not.toHaveBeenCalled();
+    });
+  });
+
+  // View-only storage (downloads disabled) toggle — enterprise-only, the THIRD checkbox
+  // ConfigureStep renders (after strict egress and Governed Mode). A plain toggle: no
+  // window.confirm, so a click flips it straight through setDownloadsDisabled.
+  describe('View-only storage toggle / REQ-ENTERPRISE-019', () => {
+    // The View-only toggle is the 3rd checkbox; strict egress is 1st, Governed Mode 2nd.
+    const downloadsCheckbox = () =>
+      document.querySelectorAll('input[type="checkbox"]')[2] as HTMLInputElement;
+
+    it('renders a third toggle in enterprise mode', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(3);
+    });
+
+    it('does not render the View-only toggle outside enterprise mode', () => {
+      storeState.enterpriseMode = false;
+      render(() => <ConfigureStep />);
+      expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    });
+
+    it('reflects a checked toggle from store state', () => {
+      storeState.enterpriseMode = true;
+      storeState.downloadsDisabled = true;
+      render(() => <ConfigureStep />);
+      expect(downloadsCheckbox().checked).toBe(true);
+    });
+
+    it('calls setDownloadsDisabled with true when toggled on', () => {
+      storeState.enterpriseMode = true;
+      storeState.downloadsDisabled = false;
+      render(() => <ConfigureStep />);
+      fireEvent.click(downloadsCheckbox());
+      expect(storeMethods.setDownloadsDisabled).toHaveBeenCalledWith(true);
     });
   });
 

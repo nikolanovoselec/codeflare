@@ -1072,6 +1072,14 @@ To inspect enforcement state without reading `.git/` by hand, Pi exposes a read-
 
 ---
 
+## Image-baked seed (Governed Mode delta sync)
+
+In addition to seeding the agent config into R2 at session start, the container image **bakes** the same seed as an on-disk file tree so a [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable) container can avoid re-downloading it every boot (REQ-STOR-017, [AD90](../decisions/README.md#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync)).
+
+- **Build (in-image).** The Dockerfile runs `scripts/materialize-agent-seed.mjs` against the committed, freshness-enforced `src/lib/agent-seed.generated.ts`, writing `getConfigsForMode('default'/'advanced', false)` to `/opt/codeflare/agent-seed-bake/<mode>/<key>`. Because `getConfigsForMode` is a pure filter (no content transform), the baked tree is **byte-identical** to what is seeded to R2 — the precondition for the checksum skip, guarded by the `agent-seed-bake` byte-identity test. The tier-gated context-mode subtree is excluded (it delta-syncs from R2). Generating in-image needs no host build ordering and cannot drift from the seed.
+- **Runtime (Governed Mode only).** Before the initial R2 sync, `entrypoint.sh::lay_down_agent_seed_preseed` copies the mode's baked tree into the user home (mirroring the R2 key layout, so one copy lands every agent home) and `chmod +x`'s the hooks. The initial sync then compares by `--checksum` (usable MD5 ETags, available only when SSE-C is off), so the unchanged ~627 seed files are skipped and only user deltas transfer.
+- **Gated.** Both the lay-down and `--checksum` activate only when `R2_SSE_DISABLED=true`; under SSE-C (the default) the path is byte-identical to before (no lay-down, `--size-only`), because `--size-only` could not detect a same-size edit to a seed file and the bake might otherwise overwrite an in-container edit.
+
 ## Related Documentation
 
 - [Vault](vault.md#memory-capture-system) - Vault-based cross-session memory and the

@@ -40,7 +40,7 @@ vi.mock('../../stores/session', () => ({
 }));
 
 vi.mock('../../stores/storage', () => ({
-  storageStore: { setWorkerName: vi.fn() },
+  storageStore: { setWorkerName: vi.fn(), setDownloadsDisabled: vi.fn() },
 }));
 
 vi.mock('../../stores/terminal', () => ({

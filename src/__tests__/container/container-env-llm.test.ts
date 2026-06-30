@@ -24,6 +24,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { buildEnvVars, type ContainerEnvState } from '../../container/container-env';
+import { ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER, ENTERPRISE_GH_TOKEN_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER } from '../../lib/constants';
 import type { Env } from '../../types';
 
 function baseState(): ContainerEnvState {
@@ -50,6 +51,7 @@ function baseState(): ContainerEnvState {
     _routeCatalog: [],
     _defaultRoute: null,
     _defaultReasoning: null,
+    _routeContextWindows: {},
     _userTimezone: null,
     // Cast covers ContainerEnvState fields this enterprise-LLM fixture does not
     // exercise (e.g. _gitCloneRepo/_gitCloneRef), matching the sibling fixtures
@@ -103,6 +105,101 @@ describe('REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)', () => {
     expect('ENTERPRISE_ROUTE_CATALOG' in vars).toBe(false);
     expect('ENTERPRISE_DEFAULT_ROUTE' in vars).toBe(false);
     expect('ENTERPRISE_DEFAULT_REASONING' in vars).toBe(false);
+  });
+
+  it('fans the per-route context-window map when enterprise + present, omits it when empty or non-enterprise', () => {
+    // REQ-ENTERPRISE-012: the map is fanned as ENTERPRISE_ROUTE_CONTEXT_WINDOWS for
+    // entrypoint's Pi models.json; empty map => omitted (entrypoint applies the default);
+    // present-but-non-enterprise => omitted (byte-identical).
+    const withWindows = { ...baseState(), _routeContextWindows: { development: 262144, opus: 1048576 } };
+    const vars = buildEnvVars(withWindows, { ENTERPRISE_MODE: 'active' } as Env);
+    expect(vars.ENTERPRISE_ROUTE_CONTEXT_WINDOWS).toBe(JSON.stringify({ development: 262144, opus: 1048576 }));
+    expect('ENTERPRISE_ROUTE_CONTEXT_WINDOWS' in buildEnvVars(baseState(), { ENTERPRISE_MODE: 'active' } as Env)).toBe(false);
+    expect('ENTERPRISE_ROUTE_CONTEXT_WINDOWS' in buildEnvVars(withWindows, {} as Env)).toBe(false);
+  });
+});
+
+describe('container secret hygiene: no AWS_* anywhere, CF token placeholder-only in enterprise', () => {
+  it('never emits AWS_* in enterprise; R2_* still emitted (rclone reads creds from rclone.conf)', () => {
+    // AWS_* had no consumer (rclone uses rclone.conf from R2_*) and surfaced Pi's
+    // amazon-bedrock provider in /model. Gut-check: re-add the AWS_* emission and this fails.
+    const vars = buildEnvVars(baseState(), { ENTERPRISE_MODE: 'active' } as Env);
+    expect('AWS_ACCESS_KEY_ID' in vars).toBe(false);
+    expect('AWS_SECRET_ACCESS_KEY' in vars).toBe(false);
+    expect(vars.R2_ACCESS_KEY_ID).toBeDefined();
+    expect(vars.R2_SECRET_ACCESS_KEY).toBeDefined();
+  });
+
+  it('never emits AWS_* in non-enterprise either (dropped everywhere — no consumer); R2_* still emitted', () => {
+    const vars = buildEnvVars(baseState(), {} as Env);
+    expect('AWS_ACCESS_KEY_ID' in vars).toBe(false);
+    expect('AWS_SECRET_ACCESS_KEY' in vars).toBe(false);
+    expect(vars.R2_ACCESS_KEY_ID).toBeDefined();
+    expect(vars.R2_SECRET_ACCESS_KEY).toBeDefined();
+  });
+
+  it('REQ-BROWSER-008: in enterprise emits ONLY the placeholder CLOUDFLARE_API_TOKEN, never a real token', () => {
+    // A real token reaching _cloudflareApiToken (e.g. a stray deploy token via any path) must
+    // never leak: in enterprise only the exact placeholder is emitted. Gut-check: drop the
+    // === placeholder guard and the real-token case below leaks.
+    const real = { ...baseState(), _cloudflareApiToken: 'real-secret-token', _cloudflareAccountId: 'browser-acct' };
+    const realVars = buildEnvVars(real, { ENTERPRISE_MODE: 'active' } as Env);
+    expect('CLOUDFLARE_API_TOKEN' in realVars).toBe(false);
+    // The placeholder (set by applyEnterpriseBrowserToken when a browser token is configured) IS emitted.
+    const ph = { ...baseState(), _cloudflareApiToken: ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER, _cloudflareAccountId: 'browser-acct' };
+    const phVars = buildEnvVars(ph, { ENTERPRISE_MODE: 'active' } as Env);
+    expect(phVars.CLOUDFLARE_API_TOKEN).toBe(ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER);
+    // Account id is non-secret and needed by browser-run to build its URL — emitted in enterprise.
+    expect(phVars.CLOUDFLARE_ACCOUNT_ID).toBe('browser-acct');
+  });
+
+  it('non-enterprise emits the real Connect-to-Cloudflare token + account id (byte-identical regression)', () => {
+    const state = { ...baseState(), _cloudflareApiToken: 'cf-secret', _cloudflareAccountId: 'cf-acct' };
+    const vars = buildEnvVars(state, {} as Env);
+    expect(vars.CLOUDFLARE_API_TOKEN).toBe('cf-secret');
+    expect(vars.CLOUDFLARE_ACCOUNT_ID).toBe('cf-acct');
+  });
+
+  it('REQ-ENTERPRISE-018: omits ENCRYPTION_KEY in Governed Mode (SSE-C off → rclone never uses it); emits it when SSE-C on', () => {
+    const governed = { ...baseState(), _encryptionKey: 'enc-master-key', _r2SseDisabled: true } as unknown as ContainerEnvState;
+    expect('ENCRYPTION_KEY' in buildEnvVars(governed, { ENTERPRISE_MODE: 'active' } as Env)).toBe(false);
+    const sseOn = { ...baseState(), _encryptionKey: 'enc-master-key', _r2SseDisabled: false } as unknown as ContainerEnvState;
+    expect(buildEnvVars(sseOn, { ENTERPRISE_MODE: 'active' } as Env).ENCRYPTION_KEY).toBe('enc-master-key');
+  });
+
+  it('REQ-ENTERPRISE-016/018: strict egress + Governed Mode leaves CONTAINER_AUTH_TOKEN as the ONLY real secret', () => {
+    // Capstone invariant: every credential is a non-secret placeholder or absent except the
+    // DO-issued container auth token. Gut-check: un-placeholder any cred (R2/GH/CF), or re-emit
+    // ENCRYPTION_KEY / AWS_* / the LLM keys, and this fails.
+    const state = {
+      ...baseState(),
+      _strictEgress: true,
+      _r2SseDisabled: true,
+      _encryptionKey: 'enc-master-key',
+      _githubToken: 'gho_real',
+      _cloudflareApiToken: 'stray-real-cf-token', // a stray real token must NOT leak
+      _cloudflareAccountId: 'browser-acct',
+      _openaiApiKey: 'sk-openai',
+      _geminiApiKey: 'gem-key',
+      _containerAuthToken: 'do-issued-token',
+    } as unknown as ContainerEnvState;
+    const vars = buildEnvVars(state, { ENTERPRISE_MODE: 'active' } as Env);
+
+    // The ONE allowed secret — the DO-issued container token.
+    expect(vars.CONTAINER_AUTH_TOKEN).toBe('do-issued-token');
+    // R2 creds are non-secret placeholders (real key re-signed worker-side), not the real key.
+    expect(vars.R2_ACCESS_KEY_ID).toBe(ENTERPRISE_R2_KEY_PLACEHOLDER);
+    expect(vars.R2_SECRET_ACCESS_KEY).toBe(ENTERPRISE_R2_KEY_PLACEHOLDER);
+    // GitHub token is the non-secret placeholder (real injected at the github.com boundary).
+    expect(vars.GH_TOKEN).toBe(ENTERPRISE_GH_TOKEN_PLACEHOLDER);
+    // No real secret of any other kind reaches the container.
+    expect('ENCRYPTION_KEY' in vars).toBe(false);
+    expect('AWS_ACCESS_KEY_ID' in vars).toBe(false);
+    expect('AWS_SECRET_ACCESS_KEY' in vars).toBe(false);
+    expect('CODEFLARE_OPENAI_API_KEY' in vars).toBe(false);
+    expect('CODEFLARE_GEMINI_API_KEY' in vars).toBe(false);
+    // A stray real CF token never leaks — only the browser placeholder is ever emitted in enterprise.
+    expect('CLOUDFLARE_API_TOKEN' in vars).toBe(false);
   });
 });
 

@@ -183,6 +183,21 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
       expect(body.dynamicRoutes).toEqual(['development']);
     });
 
+    it('REQ-ENTERPRISE-012: GET /prefill round-trips the stored per-route context windows', async () => {
+      mockKV._store.set('setup:route_context_windows', JSON.stringify({ development: 262144 }));
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as { routeContextWindows?: Record<string, number> };
+      expect(body.routeContextWindows).toEqual({ development: 262144 });
+    });
+
+    it('REQ-ENTERPRISE-012: GET /prefill returns an empty context-window map when nothing is stored', async () => {
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as { routeContextWindows?: Record<string, number> };
+      expect(body.routeContextWindows).toEqual({});
+    });
+
     it('GET /prefill round-trips the stored defaultRoute', async () => {
       mockKV._store.set('setup:default_route', JSON.stringify({ route: 'development', reasoning: 'high' }));
       const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
@@ -283,6 +298,37 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
     });
   });
 
+  describe('REQ-ENTERPRISE-017: AI Gateway prefill (masked token, plain URL)', () => {
+    it('GET /prefill reports the token as set + returns the gateway URL, never the token', async () => {
+      mockKV._store.set('setup:aig_token', 'encrypted-aig-blob-never-returned');
+      mockKV._store.set('setup:aig_gateway_url', 'https://gateway.ai.cloudflare.com/v1/acct/gw');
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.aigTokenSet).toBe(true);
+      expect(body.aigGatewayUrl).toBe('https://gateway.ai.cloudflare.com/v1/acct/gw');
+      // The token value itself is never surfaced to the browser.
+      expect(JSON.stringify(body)).not.toContain('encrypted-aig-blob-never-returned');
+    });
+
+    it('GET /prefill reports the token unset + empty URL when nothing is stored', async () => {
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.aigTokenSet).toBe(false);
+      expect(body.aigGatewayUrl).toBe('');
+    });
+
+    it('GET /prefill omits the AI Gateway fields when ENTERPRISE_MODE is unset', async () => {
+      mockKV._store.set('setup:aig_token', 'x');
+      const app = createApp();
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body).not.toHaveProperty('aigTokenSet');
+      expect(body).not.toHaveProperty('aigGatewayUrl');
+    });
+  });
+
   describe('REQ-GITHUB-008: enterprise GitHub provider config prefill (masked)', () => {
     it('GET /prefill returns provider type + client ids + secret-set flags, never the secrets', async () => {
       mockKV._store.set('setup:github_provider_type', 'app');
@@ -355,6 +401,81 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
       const res = await app.request('/setup/prefill');
       const body = await res.json() as Record<string, unknown>;
       expect(body).not.toHaveProperty('groupRouting');
+    });
+  });
+
+  describe('REQ-ENTERPRISE-016: strict gateway egress prefill', () => {
+    it('GET /prefill reports the toggle active when the stored value is "active"', async () => {
+      mockKV._store.set('setup:strict_egress', 'active');
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.strictGatewayEgress).toBe(true);
+    });
+
+    it('GET /prefill reports the toggle inactive (default OFF) when nothing is stored', async () => {
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.strictGatewayEgress).toBe(false);
+    });
+
+    it('GET /prefill omits the toggle when ENTERPRISE_MODE is unset', async () => {
+      mockKV._store.set('setup:strict_egress', 'active');
+      const app = createApp();
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body).not.toHaveProperty('strictGatewayEgress');
+    });
+  });
+
+  describe('REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) prefill', () => {
+    it('GET /prefill reports the toggle active when the stored value is "active"', async () => {
+      mockKV._store.set('setup:r2_sse_disabled', 'active');
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.r2SseDisabled).toBe(true);
+    });
+
+    it('GET /prefill reports the toggle inactive (default OFF) when nothing is stored', async () => {
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.r2SseDisabled).toBe(false);
+    });
+
+    it('GET /prefill omits the toggle when ENTERPRISE_MODE is unset', async () => {
+      mockKV._store.set('setup:r2_sse_disabled', 'active');
+      const app = createApp();
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body).not.toHaveProperty('r2SseDisabled');
+    });
+  });
+
+  describe('view-only storage (downloads disabled) prefill', () => {
+    it('GET /prefill reports the toggle active when the stored value is "active"', async () => {
+      mockKV._store.set('setup:downloads_disabled', 'active');
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.downloadsDisabled).toBe(true);
+    });
+
+    it('GET /prefill reports the toggle inactive (default OFF) when nothing is stored', async () => {
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.downloadsDisabled).toBe(false);
+    });
+
+    it('GET /prefill omits the toggle when ENTERPRISE_MODE is unset', async () => {
+      mockKV._store.set('setup:downloads_disabled', 'active');
+      const app = createApp();
+      const res = await app.request('/setup/prefill');
+      const body = await res.json() as Record<string, unknown>;
+      expect(body).not.toHaveProperty('downloadsDisabled');
     });
   });
 

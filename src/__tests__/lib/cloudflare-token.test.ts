@@ -326,6 +326,24 @@ describe('CloudflareOAuthProvider', () => {
     mockFetch.mockResolvedValueOnce(ok({ error: 'invalid_grant' }));
     await expect(p!.exchangeCode('bad', 'https://app/cb')).rejects.toThrow();
   });
+
+  it('surfaces Cloudflare error_description from a non-2xx response (invalid_client diagnosability)', async () => {
+    // Previously a non-ok response threw an opaque "returned 401" WITHOUT reading the body,
+    // hiding the actual cause. The body must now be parsed and its error_description surfaced.
+    configureClient();
+    const p = await getCloudflareProvider(env());
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: async () => ({
+        error: 'invalid_client',
+        error_description: "the client supports 'none', but 'client_secret_post' was requested",
+      }),
+    });
+    // Asserts the server's diagnostic propagates (a contract value), not the opaque status —
+    // reverting to "returned 401" (no body read) fails this.
+    await expect(p!.exchangeCode('code', 'https://app/cb')).rejects.toThrow(/client_secret_post/);
+  });
 });
 
 // ─── accounts + connect orchestration ────────────────────────────────────────

@@ -7,6 +7,7 @@ import { getContainer } from '@cloudflare/containers';
 import type { Env, Session, UserPreferences } from '../../types';
 import { getSessionKey, getSessionPrefix, listAllKvKeys, getSessionOrThrow, getTimekeeperKey, getUtcMonthString, getUtcDateString, putSessionWithMetadata, expandSessionMetadata, buildSessionMetadata, getPreferencesKey, type SessionListMetadata } from '../../lib/kv-keys';
 import { PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
+import { reconcileBucketRegimeOnLogin } from '../../lib/r2-migration';
 import { getMaxSessions, SESSION_ID_PATTERN } from '../../lib/constants';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
@@ -170,6 +171,17 @@ app.get('/batch-status', async (c) => {
   if (c.req.query('includePreseedCheck') === 'true') {
     const prefs = await c.env.KV.get<UserPreferences>(getPreferencesKey(bucketName), 'json');
     preseedNeedsUpgrade = prefs?.lastPreseedHash !== PRESEED_CONTENT_HASH;
+    // REQ-ENTERPRISE-018: the initial dashboard load is the first-login trigger that
+    // reconciles a Governed Mode regime flip. Migrate the bucket losslessly in the
+    // BACKGROUND (off the container-start path so it can never block session creation);
+    // a no-op unless the bucket's marker differs from the deployment policy. waitUntil so
+    // it never delays this response. Guarded: a synthetic request with no execution
+    // context (unit tests) simply skips the background reconcile.
+    try {
+      c.executionCtx.waitUntil(reconcileBucketRegimeOnLogin(c.env, bucketName));
+    } catch {
+      /* no execution context (e.g. unit tests) — skip the background reconcile */
+    }
   }
 
   return c.json({ statuses, maxSessions, storageStats, usage, preseedNeedsUpgrade });

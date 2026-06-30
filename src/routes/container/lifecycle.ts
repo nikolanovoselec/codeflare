@@ -211,7 +211,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     effectiveDeployKeys = await applyCloudflareOAuthToken(c.env, effectiveDeployKeys, bucketName);
 
     // Step 2: Ensure R2 bucket exists and seed if new
-    const { r2Config } = await ensureBucketAndSeed({
+    const { r2Config, r2SseDisabled } = await ensureBucketAndSeed({
       env: c.env,
       bucketName,
       sessionMode,
@@ -260,6 +260,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       routeCatalog: routeConfig.routeCatalog,
       defaultRoute: routeConfig.defaultRoute,
       defaultReasoning: routeConfig.defaultReasoning,
+      routeContextWindows: routeConfig.routeContextWindows,
       scopedCreds,
       r2Config,
       tabConfig,
@@ -268,6 +269,8 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       sessionMode,
       sleepAfter,
       encryptionKey: c.env.ENCRYPTION_KEY,
+      // REQ-ENTERPRISE-018: this bucket's resolved Governed Mode regime (post-migration).
+      r2SseDisabled,
       llmKeys: llmKeys ?? undefined,
       deployKeys: effectiveDeployKeys ?? undefined,
       // REQ-MEM-001 AC4: forward the browser's IANA timezone (captured

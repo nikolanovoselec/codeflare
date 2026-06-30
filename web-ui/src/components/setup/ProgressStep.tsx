@@ -28,6 +28,12 @@ const ProgressStep: Component = () => {
     configure_custom_domain: 'Configuring custom domain',
     create_access_app: 'Creating Access application',
     configure_turnstile: 'Configuring waitlist Turnstile',
+    // Enterprise configuration steps (emitted only in enterprise mode — WS6).
+    configure_access_groups: 'Applying Access groups',
+    configure_model_routing: 'Configuring model routing',
+    configure_ai_gateway: 'Configuring AI Gateway',
+    configure_browser_rendering: 'Enabling Browser Rendering',
+    configure_strict_egress: 'Enabling strict Gateway egress',
     finalize: 'Finalizing setup',
   };
 

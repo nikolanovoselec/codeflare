@@ -6,7 +6,13 @@ vi.mock('../../lib/constants', async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>;
   return {
     ...actual,
-    WS_RETRY_DELAY_MS: 100,
+    // Short backoff window so fake-timer advances stay small: with base 50ms and
+    // Math.random pinned to 1 (see beforeEach), reconnectBackoffMs(2)=100ms and
+    // reconnectBackoffMs(3+)=200ms (capped). A huge connect-timeout keeps the
+    // CONNECTING-freeze watchdog from firing in these socket-closes-at-t0 tests.
+    WS_RECONNECT_BASE_MS: 50,
+    WS_RECONNECT_MAX_MS: 200,
+    WS_CONNECT_TIMEOUT_MS: 1_000_000,
     CSS_TRANSITION_DELAY_MS: 10,
   };
 });
@@ -35,7 +41,7 @@ const _MockWebSocket = globalThis.WebSocket as unknown as {
 };
 
 // REQ-TERM-016: Terminal Pane Reconnect and Resize Authority
-describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff using WS_RETRY_DELAY_MS) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)', () => {
+describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)', () => {
   const sessionId = 'test-session-123';
   const terminalId = '1';
 
@@ -57,6 +63,9 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff u
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    // Pin jitter so reconnectBackoffMs is deterministic: rand=1 ⇒ full (100%)
+    // backoff, i.e. reconnectBackoffMs(2)=100ms, reconnectBackoffMs(3+)=200ms.
+    vi.spyOn(Math, 'random').mockReturnValue(1);
     // Write batching uses setTimeout(cb, 33) for 30fps throttle.
     // Fake timers handle this — tests must advance by ≥33ms to flush writes.
     // Also stub rAF for any remaining callers (ResizeObserver, etc).
@@ -67,6 +76,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff u
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    vi.restoreAllMocks();
     // Clean up any connections
     terminalStore.disposeAll();
   });
@@ -1064,12 +1074,12 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff u
 
       terminalStore.connect(sessionId, terminalId, terminal);
 
-      // Let initial attempt fail + 4 retries
+      // Let the initial attempt fail, then walk the backoff schedule. Each socket
+      // closes on its setTimeout(0), so attempts land at t=0 (initial), 100, 300,
+      // 500, 700… (backoff 100, then 200 capped). advance(0) fires the first
+      // close; advance(800) blows through attempts 2–5 (700 < 800).
       await vi.advanceTimersByTimeAsync(0);
-      await vi.advanceTimersByTimeAsync(101);
-      await vi.advanceTimersByTimeAsync(101);
-      await vi.advanceTimersByTimeAsync(101);
-      await vi.advanceTimersByTimeAsync(101);
+      await vi.advanceTimersByTimeAsync(800);
 
       // Should keep retrying — no dead-container cutoff at attemptNumber > 1
       expect(connectCount).toBeGreaterThanOrEqual(5);
@@ -1119,7 +1129,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff u
 
       terminalStore.connect(sessionId, terminalId, terminal);
       await vi.advanceTimersByTimeAsync(0);   // First WS closes with 1001
-      await vi.advanceTimersByTimeAsync(100);  // WS_RETRY_DELAY_MS (mocked to 100)
+      await vi.advanceTimersByTimeAsync(100);  // first backoff = reconnectBackoffMs(2) = 100ms
       await vi.advanceTimersByTimeAsync(0);    // Second WS created
 
       expect(connectCount).toBeGreaterThanOrEqual(2);
@@ -1314,17 +1324,16 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff u
       terminalStore.connect(sessionId, terminalId, terminal);
       await vi.advanceTimersByTimeAsync(0); // Second WS fails
 
-      // Advance through multiple retry cycles.
-      // Retries are unlimited with flat delay. Each cycle is ~101ms
-      // (100ms WS_RETRY_DELAY_MS + 1ms for setTimeout(close, 0) resolution
-      // in @sinonjs/fake-timers). 500ms / 101ms ≈ 5 closes from a single loop.
-      // If the bug existed (both loops running in parallel), we'd see ~10 closes.
+      // Advance through multiple retry cycles. Each socket closes on its
+      // setTimeout(0), so a single loop's closes land at t=100,300,500,700,900
+      // (backoff 100ms, then 200ms capped). Over a 900ms window a single loop
+      // produces 5 closes; two parallel loops (the regression) would produce ~10.
       wsCloseCount = 0;
-      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(900);
 
       // Only ONE retry loop should be active (the second connect's loop).
-      // A single loop produces at most floor(500/101)+1 ≈ 5-6 closes.
-      // Two parallel loops would produce ~10+. Assert single-loop bound.
+      // A single loop produces 5 closes in 900ms; two parallel loops would
+      // produce ~10. Assert the single-loop bound.
       expect(wsCloseCount).toBeLessThanOrEqual(6);
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);

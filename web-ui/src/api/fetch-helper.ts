@@ -4,6 +4,10 @@ export class ApiError extends Error {
   public steps?: Array<{ step: string; status: string; error?: string }>;
   /** Error code from backend (e.g., QUOTA_EXCEEDED, PENDING, BLOCKED) */
   public code?: string;
+  /** Set when this 401 already triggered a redirect to sign-in. The UI should
+   *  render a calm "redirecting" state rather than an error page, and callers
+   *  must still let the rejection settle (never hang) — REQ-AUTH-022 AC1. */
+  public authRedirect?: boolean;
 
   constructor(
     message: string,
@@ -70,13 +74,22 @@ export async function baseFetch<T>(
     // Auto-redirect to login on 401 (expired session cookie).
     // Only redirect from authenticated pages (/app/*, /admin/*).
     // Login page (/, /login) and public pages handle 401 in their own error flow.
-    // Return a never-resolving promise to prevent error propagation to the UI
-    // (avoids flash of "unauthorized" error before redirect completes).
+    // REQ-AUTH-022 AC1: redirect via location.replace (not href, so Back does not
+    // return to the dead page) AND throw an authRedirect-tagged ApiError. The old
+    // never-resolving promise hung the bootstrap promise, leaving the SPA stuck on
+    // its loading shell = the blank/white page on return-from-background.
     if (response.status === 401) {
       const path = window.location.pathname;
       if (path.startsWith('/app/') || path.startsWith('/admin/')) {
-        window.location.href = '/';
-        return new Promise<never>(() => {});
+        try { window.location.replace('/'); } catch { /* non-browser/test env */ }
+        const redirectErr = new ApiError(
+          'Session expired — redirecting to sign in',
+          401,
+          'Unauthorized',
+          body
+        );
+        redirectErr.authRedirect = true;
+        throw redirectErr;
       }
     }
 

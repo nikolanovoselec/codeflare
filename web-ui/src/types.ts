@@ -158,6 +158,7 @@ export interface UserInfo {
   hasSubscribed?: boolean;
   subscribedMode?: 'default' | 'advanced';
   enterpriseMode?: boolean;
+  downloadsDisabled?: boolean;
 }
 
 // Terminal connection state (no 'error' — infinite retries mean we never give up)

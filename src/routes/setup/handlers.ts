@@ -156,15 +156,34 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
     // wizard round-trips on re-run.
     const browserRenderTokenSet = Boolean(await c.env.KV.get(SETUP_KEYS.BROWSER_RENDER_TOKEN));
     const browserRenderAccountId = (await c.env.KV.get(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID)) ?? '';
+    // REQ-ENTERPRISE-017: surface whether the AI Gateway token is set (masked — never
+    // return the token) + the non-secret gateway URL so the wizard round-trips on re-run.
+    // The deploy-secret (env.AIG_*) fallback is intentionally NOT surfaced: the wizard
+    // configures KV; env stays a silent backstop.
+    const aigTokenSet = Boolean(await c.env.KV.get(SETUP_KEYS.AIG_TOKEN));
+    const aigGatewayUrl = (await c.env.KV.get(SETUP_KEYS.AIG_GATEWAY_URL)) ?? '';
     // REQ-ENTERPRISE-013: surface the per-group routing map (route names only, no secrets).
     let groupRouting: Record<string, { routes: string[]; defaultRoute: string; reasoning: string }> = {};
     try {
       groupRouting = (await c.env.KV.get<Record<string, { routes: string[]; defaultRoute: string; reasoning: string }>>(SETUP_KEYS.GROUP_ROUTING, 'json')) ?? {};
     } catch { /* malformed stored JSON → wizard starts from empty */ }
+    // REQ-ENTERPRISE-012: surface the per-route context-window map so the wizard
+    // prefills each route's field (the wizard fills DEFAULT_ROUTE_CONTEXT_WINDOW for any
+    // route absent from this map).
+    let routeContextWindows: Record<string, number> = {};
+    try {
+      routeContextWindows = (await c.env.KV.get<Record<string, number>>(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, 'json')) ?? {};
+    } catch { /* malformed stored JSON → wizard starts from empty */ }
+    // REQ-ENTERPRISE-016: surface the strict gateway egress toggle (default OFF on absent).
+    const strictGatewayEgress = (await c.env.KV.get(SETUP_KEYS.STRICT_EGRESS)) === 'active';
+    // REQ-ENTERPRISE-018: surface the Governed Mode (R2 SSE-C disable) toggle (default OFF).
+    const r2SseDisabled = (await c.env.KV.get(SETUP_KEYS.R2_SSE_DISABLED)) === 'active';
+    // View-only storage toggle (default OFF on absent).
+    const downloadsDisabled = (await c.env.KV.get(SETUP_KEYS.DOWNLOADS_DISABLED)) === 'active';
     enterpriseExtras = {
       ...enterpriseExtras,
-      enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, browserRenderTokenSet, browserRenderAccountId,
-      groupRouting,
+      enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, browserRenderTokenSet, browserRenderAccountId,
+      aigGatewayUrl, aigTokenSet, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled,
     };
   }
   if (!token) {

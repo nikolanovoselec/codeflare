@@ -105,6 +105,36 @@ describe('REQ-ENTERPRISE-004: OpenAI host -> AI Gateway REST API mapping', () =>
   });
 });
 
+describe('REQ-ENTERPRISE-017: AI Gateway URL/token resolved from props (wizard) with env fallback', () => {
+  // The DO resolves the gateway URL+token (wizard KV first, deploy-secret env fallback —
+  // getAigConfig) and passes them via props; the interceptor must PREFER the props and
+  // fall back to its own env only when a prop is absent.
+  const PROPS_GATEWAY = 'https://gateway.ai.cloudflare.com/v1/wizacct/wizgw';
+  const PROPS_REST_BASE = 'https://api.cloudflare.com/client/v4/accounts/wizacct/ai';
+
+  function interceptorWith(props: { user: string; gatewayUrl?: string; token?: string }, envOverrides: Partial<Env> = {}) {
+    const env = { AIG_GATEWAY_URL: GATEWAY, AIG_TOKEN, KV: { get: async () => null }, ...envOverrides } as unknown as Env;
+    return new LlmInterceptor({ props } as unknown as ExecutionContext, env);
+  }
+
+  it('routes to the props gateway URL + token, overriding the env', async () => {
+    await interceptorWith({ user: SESSION_USER, gatewayUrl: PROPS_GATEWAY, token: 'wizard-token' }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+    );
+    expect(lastFetch?.url).toBe(`${PROPS_REST_BASE}/v1/chat/completions`);
+    expect(lastFetch?.headers.get('authorization')).toBe('Bearer wizard-token');
+    expect(lastFetch?.headers.get('cf-aig-gateway-id')).toBe('wizgw');
+  });
+
+  it('falls back to env gateway URL + token when the props are absent', async () => {
+    await interceptorWith({ user: SESSION_USER }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+    );
+    expect(lastFetch?.url).toBe(`${REST_BASE}/v1/chat/completions`);
+    expect(lastFetch?.headers.get('authorization')).toBe(`Bearer ${AIG_TOKEN}`);
+  });
+});
+
 describe('REQ-ENTERPRISE-004: gateway authorization + per-user metadata', () => {
   it('AC4: stamps the standard Authorization header with the gateway token', async () => {
     await makeInterceptor().fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }));
@@ -132,7 +162,7 @@ describe('REQ-ENTERPRISE-004: gateway authorization + per-user metadata', () => 
     expect(parsed.user).toBe('unknown');
   });
 
-  it('stamps one group_<sanitized>=1 tag per matched group and NO scalar group key', async () => {
+  it('stamps one group_<sanitized>_<hash>=1 tag per matched group and NO scalar group key', async () => {
     await makeInterceptor({}, { user: SESSION_USER, groups: ['codeflare_admins', 'Dev Team'] }).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{"model":"x"}' }),
     );
@@ -609,6 +639,43 @@ describe('REQ-ENTERPRISE-004 / REQ-ENTERPRISE-006 AC4: fail-closed guards', () =
     );
     expect(res.status).toBe(503);
     expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('REQ-ENTERPRISE-016 / AD86: AI Gateway is platform-native — always direct egress, never cf1:network', () => {
+  /** A Fetcher mock that MUST NOT be called: the LLM upstream never rides env.EGRESS. */
+  function makeEgress() {
+    const fetchFn = vi.fn(async () => new Response('unexpected', { status: 500 }));
+    return { fetcher: { fetch: fetchFn } as unknown as Fetcher, fetchFn };
+  }
+
+  it('forwards via global fetch (NEVER env.EGRESS) even when the EGRESS binding is present', async () => {
+    const egress = makeEgress();
+    const res = await makeInterceptor({ EGRESS: egress.fetcher } as Partial<Env>).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{"model":"x"}' }),
+    );
+    expect(res.status).toBe(200);
+    expect(globalThis.fetch).toHaveBeenCalled();
+    expect(egress.fetchFn).not.toHaveBeenCalled();
+    // routing unchanged: still mapped onto the AI Gateway REST API host/path.
+    expect(lastFetch?.url).toBe(`${REST_BASE}/v1/chat/completions`);
+  });
+
+  it('does NOT fail closed when no EGRESS binding exists — the AI Gateway path never depends on it', async () => {
+    const res = await makeInterceptor({}).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+    );
+    expect(res.status).toBe(200);
+    expect(globalThis.fetch).toHaveBeenCalled();
+    expect(lastFetch?.url).toBe(`${REST_BASE}/v1/chat/completions`);
+  });
+
+  it('stamps the gateway auth + routing headers on the direct leg', async () => {
+    await makeInterceptor({}).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+    );
+    expect(lastFetch?.headers.get('authorization')).toBe(`Bearer ${AIG_TOKEN}`);
+    expect(lastFetch?.headers.get('cf-aig-gateway-id')).toBe('gw');
   });
 });
 
