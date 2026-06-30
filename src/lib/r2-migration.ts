@@ -490,7 +490,7 @@ export async function advanceMigration(
       }
       cursor = nextCursor;
       if (cursor) {
-        const s: RegimeState = { ...state, drained, phase: 'verify', cursor };
+        const s: RegimeState = { ...state, drained, phase: 'verify', cursor, ...(lastError ? { lastError } : {}) };
         if (Date.now() < deadline) { if (!(await commit(s, true))) return; continue; }
         await commit(s, false);
         return;

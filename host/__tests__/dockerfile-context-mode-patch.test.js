@@ -8,12 +8,22 @@
 // the expected output no longer matches.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import {
   patchContextModeBundle,
   SHIM,
   UPDATE_PROBE_URL,
   DISABLED_PROBE_URL,
 } from '../../scripts/patch-context-mode-bundles.mjs';
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const dockerfile = readFileSync(join(repoRoot, 'Dockerfile'), 'utf8');
+const piPkg = JSON.parse(readFileSync(join(repoRoot, 'preseed/agents/pi/package.json'), 'utf8'));
+const ctxPluginVer = JSON.parse(
+  readFileSync(join(repoRoot, 'preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json'), 'utf8')
+).version;
 
 // A bundle body referencing the probe URL `n` times (the real cli bundle has it
 // twice — the boot + render probes; the server bundle once). JSON.stringify embeds
@@ -54,5 +64,27 @@ describe('Dockerfile context-mode patch (REQ-AGENT-005 AC5 shim + AC8 update-che
   it('warn-only when upstream removed the probe: shim still applied, nothing to repoint', () => {
     const raw = 'var a=1;\n';
     assert.equal(patchContextModeBundle(raw), SHIM + raw);
+  });
+});
+
+// The patch FUNCTION working is necessary but not sufficient — the bug that shipped was the
+// Dockerfile only running it on the GLOBAL install while Pi loads its OWN copy (npm:context-mode
+// resolved from ~/.pi/agent/npm/node_modules, a symlink to the build prewarm tree). These assert
+// the Dockerfile patches BOTH installs and guards the two version pins from drifting.
+describe('Dockerfile patches context-mode in BOTH installs (global + Pi prewarm)', () => {
+  it('patches the global install (Claude MCP bin)', () => {
+    assert.match(dockerfile, /node \/tmp\/patch-context-mode-bundles\.mjs "\$CTX_DIR"/);
+  });
+
+  it('patches the Pi prewarm copy (what Pi loads via npm:context-mode)', () => {
+    assert.match(dockerfile, /PI_CTX_DIR="\/opt\/codeflare\/pi-agent\/npm\/node_modules\/context-mode"/);
+    assert.match(dockerfile, /node \/tmp\/patch-context-mode-bundles\.mjs "\$PI_CTX_DIR"/);
+  });
+
+  it('asserts the two version pins match so they cannot silently drift', () => {
+    // The build FATALs if Pi's pinned context-mode != plugin.json's version.
+    assert.match(dockerfile, /Pi context-mode .* != plugin\.json/);
+    // And the committed pins are in fact equal right now.
+    assert.equal(piPkg.dependencies['context-mode'], ctxPluginVer);
   });
 });

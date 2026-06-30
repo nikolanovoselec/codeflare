@@ -32,7 +32,9 @@ describe('REQ-AGENT-075: Cloudflare platform skills bundled into the advanced se
   it('includes the cloudflare-one Zero Trust / SASE skill (enterprise Codeflare is Cloudflare One)', () => {
     const doc = docFor('.claude/skills/cloudflare-one/SKILL.md');
     expect(doc).toBeDefined();
-    expect(doc!.content).toMatch(/Zero Trust|Access|Gateway|WARP/i);
+    // Structural, not prose: the bundled skill is the real cloudflare-one (its frontmatter name),
+    // not an empty stub — assert the contract, not the copy.
+    expect(doc!.content).toMatch(/^name:\s*cloudflare-one\s*$/m);
   });
 
   it('SLIMS the cloudflare mega-skill: SKILL.md is kept, the references/ tree is NOT bundled', () => {

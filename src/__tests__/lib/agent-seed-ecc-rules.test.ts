@@ -136,6 +136,11 @@ describe('ECC rules in agent-seed', () => {
     // the plan/done gates. A sibling of karpathy.md / frontend-components.md:
     // rigorous coding discipline default-mode vibe-coders didn't opt into.
     '.claude/rules/engineering-constitution.md',
+    // cloudflare-workers.md is the path-scoped retrieval rule that ships with the
+    // bundled Cloudflare platform skills (REQ-AGENT-075). The CF skills are
+    // advanced/Pro-only, so their companion Workers rule is too (asserted in
+    // cloudflare-skills-seed.test.ts as advancedOnly).
+    '.claude/rules/cloudflare-workers.md',
   ];
 
   it('non-memory codeflare rules have default+advanced modes', () => {

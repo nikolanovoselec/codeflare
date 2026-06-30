@@ -412,7 +412,7 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
 
     await advanceMigration(driverEnv(kv), 'bkt', drainNoop);
 
-    const mid = JSON.parse(store.get('r2-regime:bkt')!);
+    const mid = await getRegimeState({ KV: kv } as unknown as Env, 'bkt'); // regime state lives in KV, not the R2 store
     expect(mid.status).toBe('migrating'); // not done — only the first page ran
     expect(mid.phase).toBe('migrate');
     expect(mid.cursor).toBeTruthy(); // checkpointed mid-pass (no progress lost)

@@ -34,6 +34,10 @@ updates:
   # drift out of sync. The `pi-preseed` job in bump-shadow-pins.yml owns these
   # pins instead: it updates the manifest, lockfile, entrypoint.sh, the
   # agent-seed-manifest tests, and regenerates the seed in one PR.
+  # context-mode is the exception: it is pinned in TWO installs (this Pi copy AND
+  # the Claude global plugin via plugin.json), so the dedicated `context-mode` job
+  # owns its FULL bump (both pins in one PR) and the `pi-preseed` job skips it —
+  # otherwise two PRs could move only one pin and the Dockerfile would FATAL on drift.
 
   - package-ecosystem: docker
     directory: /
