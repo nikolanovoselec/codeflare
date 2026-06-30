@@ -253,10 +253,14 @@ async function reEncryptObject(
  */
 async function abortInFlightMultiparts(env: MigrateR2Env, bucketName: string, endpoint: string): Promise<void> {
   const client = createR2Client(env);
-  // Bounded like every other migration R2 op: this runs inside the same waitUntil window (before the
-  // first page on the first invocation), so a hung list/DELETE here must not consume the budget and
-  // strand the lease. Failures are swallowed — defense-in-depth, not the correctness backstop.
-  const listRes = await fetchWithTimeout(client, `${getR2Url(endpoint, bucketName)}?uploads`, { method: 'GET' }, HEAD_TIMEOUT_MS, 'abortMultiparts list').catch(() => null);
+  // Bounded in BOTH per-op AND aggregate wall-clock: this runs inside the same waitUntil window (before
+  // the first page on the first invocation), so it must not consume the budget and strand the lease.
+  // The list is capped (`max-uploads`) and the aborts run with the same bounded concurrency as a page
+  // (not a sequential await-loop), so the whole drain is ≈ list + one concurrent batch. Any uploads
+  // beyond the cap are left for the verify-rescan + read self-heal (a stray assembled by a late
+  // /complete reads back via the dual-regime fallback) — this is defense-in-depth, not the backstop.
+  // Failures are swallowed.
+  const listRes = await fetchWithTimeout(client, `${getR2Url(endpoint, bucketName)}?uploads&max-uploads=${MIGRATION_PAGE_SIZE}`, { method: 'GET' }, HEAD_TIMEOUT_MS, 'abortMultiparts list').catch(() => null);
   if (!listRes || !listRes.ok) return;
   const xml = await listRes.text();
   const uploads: Array<{ key: string; uploadId: string }> = [];
@@ -267,10 +271,10 @@ async function abortInFlightMultiparts(env: MigrateR2Env, bucketName: string, en
     const uploadId = m[1].match(/<UploadId>([\s\S]*?)<\/UploadId>/)?.[1];
     if (key && uploadId) uploads.push({ key: decodeXmlEntities(key), uploadId: decodeXmlEntities(uploadId) });
   }
-  for (const u of uploads) {
+  await mapConcurrent(uploads, MIGRATION_CONCURRENCY, async (u) => {
     await fetchWithTimeout(client, `${objectUrl(endpoint, bucketName, u.key)}?uploadId=${encodeURIComponent(u.uploadId)}`, { method: 'DELETE' }, HEAD_TIMEOUT_MS, `abortMultipart ${u.key}`)
       .catch(() => {});
-  }
+  });
 }
 
 /** One bounded page of re-encryption from `cursor`. Returns the next cursor (null ⇒ pass complete) and any oversized keys skipped. */
@@ -522,6 +526,12 @@ export async function advanceMigration(
       return true;
     };
 
+    // Persist the one-time drain durably BEFORE the first page, so a kill during or after the first
+    // page can never re-trigger the (R2-op-heavy) drain on the next poll — it sees drained=true and
+    // goes straight to pages. Combined with the bounded+concurrent abort above, the drain can neither
+    // strand the lease nor loop. (commit re-checks the lease; bail if we lost it.)
+    if (!state.drained && !(await commit({ ...state, drained: true }, true))) return;
+
     // Process bounded pages, checkpointing the cursor after EACH page so a crash loses at most one
     // page. Each invocation stops VOLUNTARILY — once a full WORST-CASE page would no longer finish
     // before the waitUntil deadline, OR once its estimated R2 op count would approach MAX_SUBREQUESTS —
@@ -529,7 +539,8 @@ export async function advanceMigration(
     // worst-case PAGE wall-clock (not just elapsed time) is what guarantees a started page completes
     // before the platform's ~30s waitUntil force-kill: a kill is not catchable and would leave the
     // lease HELD, stalling the migration until the lease expires. The unconditional first page is safe
-    // because one page (one slice, PAGE_SIZE == CONCURRENCY) is itself bounded well under the window.
+    // because one page (one slice, PAGE_SIZE == CONCURRENCY) is itself bounded well under the window
+    // and the one-time drain was already persisted above.
     const deadline = now + WAITUNTIL_BUDGET_MS;
     let usedSubreq = 0;
     const nextPageCost = (p: 'migrate' | 'verify') =>
