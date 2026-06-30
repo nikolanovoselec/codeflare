@@ -412,8 +412,9 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
     const { store } = makeR2(objs, { pageSize: 2 }); // 2 migrate pages
     const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false }) });
 
-    // Force the wall-clock budget to elapse right after the first page: Date.now() returns the
-    // start time once (deadline anchor), then a value past the deadline on the first budget check.
+    // Force a voluntary mid-pass exit after the first page: Date.now() returns the start time once
+    // (deadline anchor = T0 + WAITUNTIL_BUDGET_MS), then a later value so the post-page gate sees that
+    // another worst-case page would no longer fit before the deadline → commit(release) + return.
     const T0 = 1_000_000;
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValueOnce(T0).mockReturnValue(T0 + 16_000);
 

@@ -57,7 +57,8 @@ type MigrationEnv = Pick<Env, 'KV'>;
  * itself to the ~26s waitUntil budget (WAITUNTIL_BUDGET_MS) and RELEASES the lease on exit, so in the
  * normal path this TTL is never reached. It only matters if an isolate is force-killed without
  * releasing; kept short (60s) so such a stall self-heals quickly, yet comfortably longer than one
- * invocation's ~26s worst-case wall-clock so two polls don't race for the same chunk. */
+ * invocation's worst-case wall-clock (the ~26s budget plus the final started page completing, ≈28s)
+ * so two polls don't race for the same chunk. */
 export const MIGRATION_LEASE_MS = 60 * 1000;
 
 /** The default state for a bucket with no state object: legacy buckets are SSE-C and ready. */

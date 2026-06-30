@@ -77,14 +77,22 @@ const MIGRATION_PAGE_SIZE = MIGRATION_CONCURRENCY;
  * config/vault/transcripts), so these are generous; HEAD/list are quick, CopyObject gets headroom. */
 const HEAD_TIMEOUT_MS = 4_000;
 const COPY_TIMEOUT_MS = 8_000;
-/** Worst-case wall-clock for ONE page = (slices) × (worst op-chain). With PAGE_SIZE == CONCURRENCY
- * there is one slice, and a migrate object's chain is HEAD+HEAD+PUT. This MUST stay well under the ~30s
- * waitUntil ceiling so a started page (including the unconditional first page) always finishes. */
-export const MAX_PAGE_WALLCLOCK_MS =
-  Math.ceil(MIGRATION_PAGE_SIZE / MIGRATION_CONCURRENCY) * (HEAD_TIMEOUT_MS * 2 + COPY_TIMEOUT_MS);
+const PAGE_SLICES = Math.ceil(MIGRATION_PAGE_SIZE / MIGRATION_CONCURRENCY);
+/** Worst-case wall-clock for ONE page, modeling its FULL sequential cost: a ListObjectsV2
+ * (HEAD_TIMEOUT_MS) THEN `PAGE_SLICES` concurrent batches each bounded by the slowest object's op-chain
+ * (migrate = HEAD probe + source HEAD + PUT; verify = one HEAD). With PAGE_SIZE == CONCURRENCY there is
+ * one slice. The list op MUST be included — omitting it consumed the entire 30s−budget margin and let a
+ * page started late overrun the waitUntil kill (the residual the code review caught). */
+const pageWallclockMs = (phase: 'migrate' | 'verify'): number =>
+  HEAD_TIMEOUT_MS /* ListObjectsV2 */ + PAGE_SLICES * (phase === 'migrate' ? HEAD_TIMEOUT_MS * 2 + COPY_TIMEOUT_MS : HEAD_TIMEOUT_MS);
+/** The binding (largest) worst-case page — migrate — exported for the guard test. This MUST stay under
+ * WAITUNTIL_BUDGET_MS so a started page (incl. the unconditional first page) plus its KV commit + body
+ * parse finishes before the ~30s waitUntil kill. */
+export const MAX_PAGE_WALLCLOCK_MS = pageWallclockMs('migrate');
 /** Usable slice of the ~30s ctx.waitUntil window. advanceMigration starts a new page only while a full
  * worst-case page still fits before this deadline, then exits + RELEASES the lease so the next poll
- * resumes from the cursor. Buffered under 30s so even the last started page finishes before any kill. */
+ * resumes from the cursor. ~4s under 30s so the KV commit + XML parse + jitter after the last page
+ * still land before any platform kill. */
 export const WAITUNTIL_BUDGET_MS = 26_000;
 /** Secondary, defense-in-depth bound: stop before an invocation's estimated R2 op count grows large.
  * Estimates: ~3 ops per migrated object, 1 per verify HEAD, 1 list + 2 KV per commit. */
@@ -245,8 +253,11 @@ async function reEncryptObject(
  */
 async function abortInFlightMultiparts(env: MigrateR2Env, bucketName: string, endpoint: string): Promise<void> {
   const client = createR2Client(env);
-  const listRes = await client.fetch(`${getR2Url(endpoint, bucketName)}?uploads`, { method: 'GET' });
-  if (!listRes.ok) return;
+  // Bounded like every other migration R2 op: this runs inside the same waitUntil window (before the
+  // first page on the first invocation), so a hung list/DELETE here must not consume the budget and
+  // strand the lease. Failures are swallowed — defense-in-depth, not the correctness backstop.
+  const listRes = await fetchWithTimeout(client, `${getR2Url(endpoint, bucketName)}?uploads`, { method: 'GET' }, HEAD_TIMEOUT_MS, 'abortMultiparts list').catch(() => null);
+  if (!listRes || !listRes.ok) return;
   const xml = await listRes.text();
   const uploads: Array<{ key: string; uploadId: string }> = [];
   const re = /<Upload>([\s\S]*?)<\/Upload>/g;
@@ -257,8 +268,7 @@ async function abortInFlightMultiparts(env: MigrateR2Env, bucketName: string, en
     if (key && uploadId) uploads.push({ key: decodeXmlEntities(key), uploadId: decodeXmlEntities(uploadId) });
   }
   for (const u of uploads) {
-    await client
-      .fetch(`${objectUrl(endpoint, bucketName, u.key)}?uploadId=${encodeURIComponent(u.uploadId)}`, { method: 'DELETE' })
+    await fetchWithTimeout(client, `${objectUrl(endpoint, bucketName, u.key)}?uploadId=${encodeURIComponent(u.uploadId)}`, { method: 'DELETE' }, HEAD_TIMEOUT_MS, `abortMultipart ${u.key}`)
       .catch(() => {});
   }
 }
@@ -524,10 +534,8 @@ export async function advanceMigration(
     let usedSubreq = 0;
     const nextPageCost = (p: 'migrate' | 'verify') =>
       EST_LIST + EST_COMMIT + MIGRATION_PAGE_SIZE * (p === 'migrate' ? EST_MIGRATE_OBJECT : EST_VERIFY_OBJECT);
-    const worstPageMs = (p: 'migrate' | 'verify') =>
-      Math.ceil(MIGRATION_PAGE_SIZE / MIGRATION_CONCURRENCY) * (p === 'migrate' ? HEAD_TIMEOUT_MS * 2 + COPY_TIMEOUT_MS : HEAD_TIMEOUT_MS);
     const canContinue = (p: 'migrate' | 'verify') =>
-      Date.now() + worstPageMs(p) <= deadline && usedSubreq + nextPageCost(p) <= MAX_SUBREQUESTS;
+      Date.now() + pageWallclockMs(p) <= deadline && usedSubreq + nextPageCost(p) <= MAX_SUBREQUESTS;
     let curPhase = phase;
     let cursor = state.cursor ?? null;
     let lastError = state.lastError;
