@@ -187,14 +187,10 @@ describe('Rate limit coverage', () => {
         mockKV,
         envOverrides: storageEnv(),
       });
-      mockSign.mockResolvedValue(
-        new Request('https://r2.test/test-bucket/file.txt', { method: 'GET' })
-      );
-      vi.stubGlobal('fetch', async () =>
-        new Response('data', {
-          status: 200,
-          headers: { 'Content-Type': 'text/plain', 'Content-Length': '4' },
-        })
+      // REQ-ENTERPRISE-018: download now reads via fetchObjectWithRegimeFallback →
+      // createR2Client(env).fetch (mockR2Fetch), not AwsClient.sign() + global fetch.
+      mockR2Fetch.mockResolvedValue(
+        new Response('data', { status: 200, headers: { 'Content-Type': 'text/plain', 'Content-Length': '4' } })
       );
 
       await assertRateLimited(120, () =>
