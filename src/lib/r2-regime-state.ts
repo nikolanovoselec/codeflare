@@ -53,11 +53,11 @@ export interface RegimeState {
 
 type MigrationEnv = Pick<Env, 'KV'>;
 
-/** In-flight lock TTL — now purely a CRASH-RECOVERY backstop. Each advanceMigration invocation exits
- * voluntarily (within DEADLINE_MARGIN_MS of its ≈8s wall-clock budget) and RELEASES the lease, so in
- * the normal path this TTL is never reached. It only matters if an isolate is force-killed without
- * releasing; kept short (60s) so such a stall self-heals quickly. Comfortably longer than one
- * invocation's worst-case wall-clock, so two polls don't race for the same chunk. */
+/** In-flight lock TTL — now purely a CRASH-RECOVERY backstop. Each advanceMigration invocation bounds
+ * itself to the ~26s waitUntil budget (WAITUNTIL_BUDGET_MS) and RELEASES the lease on exit, so in the
+ * normal path this TTL is never reached. It only matters if an isolate is force-killed without
+ * releasing; kept short (60s) so such a stall self-heals quickly, yet comfortably longer than one
+ * invocation's ~26s worst-case wall-clock so two polls don't race for the same chunk. */
 export const MIGRATION_LEASE_MS = 60 * 1000;
 
 /** The default state for a bucket with no state object: legacy buckets are SSE-C and ready. */

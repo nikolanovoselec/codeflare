@@ -44,6 +44,8 @@ import {
   markMixedRecovery,
   fetchObjectWithRegimeFallback,
   withTimeout,
+  MAX_PAGE_WALLCLOCK_MS,
+  WAITUNTIL_BUDGET_MS,
   type R2SseRegime,
   type RegimeState,
 } from '../../lib/r2-migration';
@@ -585,14 +587,26 @@ describe('withTimeout (bounds a hung R2 op so it cannot hold the lease until a f
     }
   });
 
-  it('passes a fast result straight through (timer cleared, no spurious rejection)', async () => {
+  it('passes a fast result straight through and clears its timer (no leaked timer, no spurious rejection)', async () => {
     vi.useFakeTimers();
     try {
       const p = withTimeout(Promise.resolve('ok'), 5_000, 'fast op');
-      await vi.advanceTimersByTimeAsync(10_000); // well past the timeout: must NOT reject
       await expect(p).resolves.toBe('ok');
+      expect(vi.getTimerCount()).toBe(0); // timer was cleared in finally — gut-check: drop clearTimeout and this fails
+      await vi.advanceTimersByTimeAsync(10_000); // and nothing fires afterward
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// ── Page wall-clock fits the waitUntil window (the MEDIUM the code-reviewer caught) ──────────────────
+// Per-op timeouts alone don't bound a page; a multi-slice page could run `slices × op-chain` and overrun
+// the ~30s waitUntil window mid-page → force-kill → held lease → stall. The constants must guarantee one
+// WHOLE page (worst case) finishes inside the budget, which itself sits under the platform window.
+describe('migration page is bounded to fit the ctx.waitUntil window', () => {
+  it('a single worst-case page completes within the waitUntil budget, which is under the ~30s platform ceiling', () => {
+    expect(MAX_PAGE_WALLCLOCK_MS).toBeLessThan(WAITUNTIL_BUDGET_MS); // a started page (incl. the unconditional first) always finishes before the deadline
+    expect(WAITUNTIL_BUDGET_MS).toBeLessThan(30_000); // and the deadline is under the platform's ~30s waitUntil kill
   });
 });
