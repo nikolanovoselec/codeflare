@@ -20,7 +20,8 @@ import type { Env, UserPreferences } from '../types';
 import { SETUP_KEYS, getRegimeStateKey, getPreferencesKey } from './kv-keys';
 
 export type R2SseRegime = 'sse-c' | 'plain';
-export type RegimeStatus = 'ready' | 'migrating' | 'mixed-recovery';
+/** Internal to the RegimeState shape; not exported (no external consumer — knip dead-code gate). */
+type RegimeStatus = 'ready' | 'migrating' | 'mixed-recovery';
 
 export interface RegimeState {
   /** ready: objects uniformly in `regime`. migrating: an in-flight from→to pass. mixed-recovery: a forced full scan to heal stray outliers. */
@@ -33,8 +34,10 @@ export interface RegimeState {
   generation: number;
   /** ListObjectsV2 continuation-token for chunked resume; null/absent ⇒ start of pass. */
   cursor?: string | null;
-  /** Consecutive verify-phase failures. Bounds the migrate↔verify retry on an un-migratable (poison/corrupt) object so it can never wedge into an infinite loop. Reset to 0 on a clean verify chunk. */
+  /** Consecutive verify-phase failures on the SAME object (`lastFailedKey`). Bounds the migrate↔verify retry on an un-migratable (poison/corrupt) object so it can never wedge into an infinite loop; resets when a different key fails (so a transient blip on another object can't trip the halt) and is dropped when the migration flips to ready. */
   stuckCount?: number;
+  /** The object key that failed the last verify pass — `stuckCount` only accumulates while this stays the same (a persistent poison object), not for transient failures across different keys. */
+  lastFailedKey?: string;
   /** SSE-C key fingerprint (key-MD5) captured at migration start — detects ENCRYPTION_KEY rotation (D3: detect-only). */
   keyMd5?: string;
   startedAt?: string;

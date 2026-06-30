@@ -191,7 +191,7 @@ async function migrateChunk(
   from: R2SseRegime,
   to: R2SseRegime,
   cursor: string | null,
-): Promise<{ migrated: number; skipped: number; nextCursor: string | null; oversized: string[] }> {
+): Promise<{ migrated: number; skipped: number; nextCursor: string | null; oversized: string[]; failed: string[] }> {
   const client = createR2Client(env);
   const listUrl = new URL(getR2Url(endpoint, bucketName));
   listUrl.searchParams.set('list-type', '2');
@@ -366,7 +366,7 @@ export async function advanceMigration(
   deps: { drainContainers: () => Promise<void>; hasHealthyContainer: () => Promise<boolean> },
 ): Promise<void> {
   try {
-    const state = await getRegimeState(env, bucketName);
+    let state = await getRegimeState(env, bucketName);
     if (state.status === 'ready') return;
 
     // H2 backstop: an un-migratable (poison/corrupt) object exhausted the verify-retry budget.
@@ -392,7 +392,12 @@ export async function advanceMigration(
     if (!(state.drained ?? false) && await deps.hasHealthyContainer()) return;
 
     // Claim the lease for this chunk; `myLease` is the optimistic-lock value re-checked at commit.
+    // Re-read immediately before claiming: another poll may have finished (→ ready) or claimed the
+    // lease during the awaits above (e.g. hasHealthyContainer). Bail rather than revert a completed
+    // migration back to `migrating`; the rest of the chunk works from this fresh snapshot.
     const myLease = now + MIGRATION_LEASE_MS;
+    state = await getRegimeState(env, bucketName);
+    if (state.status === 'ready' || (state.leaseExpiresAt && state.leaseExpiresAt > now)) return;
     await setRegimeState(env, bucketName, { ...state, leaseExpiresAt: myLease });
 
     const { endpoint } = await getR2Config(env);
@@ -424,9 +429,11 @@ export async function advanceMigration(
       if (!ok) {
         // A stray object is not in the target regime — re-run a migrate pass to heal it, but BOUND
         // the bounces: an object that re-migration cannot fix (poison/corrupt) must not loop forever.
-        const stuckCount = (state.stuckCount ?? 0) + 1;
+        // Per-key: only accumulate while the SAME object keeps failing; a transient failure on a
+        // different key resets the counter so it can never trip a false halt.
+        const stuckCount = (state.lastFailedKey === failedKey ? (state.stuckCount ?? 0) : 0) + 1;
         next = {
-          ...state, drained, stuckCount, phase: 'migrate', cursor: null,
+          ...state, drained, stuckCount, lastFailedKey: failedKey, phase: 'migrate', cursor: null,
           lastError: stuckCount >= MAX_VERIFY_RETRIES
             ? `verify failed at ${failedKey} after ${stuckCount} attempts; halting (un-migratable object — admin review)`
             : `verify failed at ${failedKey}; re-migrating`,

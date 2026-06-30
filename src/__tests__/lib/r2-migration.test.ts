@@ -485,6 +485,19 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
     expect(final.stuckCount).toBeGreaterThanOrEqual(3);
     expect(final.lastError).toMatch(/halting/);
   });
+
+  it('halts with a clear error when the SSE-C key rotated mid-migration (keyMd5 mismatch, detect-only)', async () => {
+    makeR2({ 'a.md': { regime: 'sse-c' } });
+    // state.keyMd5 was captured under a different key than env.ENCRYPTION_KEY (rotation since start).
+    const { kv, store } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false, keyMd5: 'STALE-DIFFERENT-MD5==' }) });
+
+    await advanceMigration(driverEnv(kv), 'bkt', drainNoop);
+
+    const state = JSON.parse(store.get('r2-regime:bkt')!);
+    expect(state.status).toBe('migrating'); // halted, stays gated for admin review
+    expect(state.lastError).toMatch(/rotated/);
+    expect(mockFetch).not.toHaveBeenCalled(); // never copied a single object with the wrong key
+  });
 });
 
 describe('markMixedRecovery', () => {
