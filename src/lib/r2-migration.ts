@@ -61,12 +61,37 @@ type DriverEnv = MigrateR2Env & Pick<Env, 'KV' | 'R2_ACCOUNT_ID' | 'R2_ENDPOINT'
 
 /** S3 single-request CopyObject caps at 5 GB; larger objects need UploadPartCopy. Agent config/vault/transcripts are tiny, so we record + skip an oversized object rather than wedge the whole migration. */
 const COPY_OBJECT_MAX_BYTES = 5 * 1024 * 1024 * 1024;
-/** Objects listed per page. The page is processed with bounded concurrency (MIGRATION_CONCURRENCY) and advanceMigration loops pages within WORK_BUDGET_MS, so this is a list-batch size, not a per-poll cap. */
-const MIGRATION_PAGE_SIZE = 200;
-/** Per-object re-encrypt/verify operations run concurrently in batches of this size. Each object is ~3 serial R2 round-trips; processing a page serially blew past the waitUntil wall-clock and wedged the migration, so we fan out (mirrors sync-fanout's FANOUT_CONCURRENCY_CAP). */
-const MIGRATION_CONCURRENCY = 16;
-/** advanceMigration loops pages until the phase's cursor is exhausted OR this wall-clock budget elapses, persisting the cursor after each page and releasing the lease on exit so the next poll resumes immediately. Kept well under the waitUntil ceiling. */
-const WORK_BUDGET_MS = 15_000;
+/** Objects listed per re-encrypt/verify page. Deliberately small: one page must complete well within
+ * ctx.waitUntil's ~30s execution window even on slow R2, so the invocation exits VOLUNTARILY and
+ * releases the lease before the platform force-kills the isolate. A force-kill is not a catchable
+ * exception, so it would skip both release paths and leave the lease held → the migration stalls
+ * until the lease naturally expires (the bug this sizing prevents). */
+const MIGRATION_PAGE_SIZE = 32;
+/** Concurrent R2 ops per batch. Cloudflare caps SIMULTANEOUS OUTGOING CONNECTIONS per invocation at
+ * 6; a higher value (this was 16) just queues the surplus and stretches each page's wall-clock toward
+ * the waitUntil kill rather than going faster. Matching the platform limit keeps pages bounded. */
+const MIGRATION_CONCURRENCY = 6;
+/** advanceMigration loops pages until the cursor is exhausted OR it comes within DEADLINE_MARGIN_MS of
+ * this budget, persisting the cursor + RELEASING the lease on exit so the next poll resumes immediately.
+ * Kept well under the ~30s waitUntil window so the release always runs before any platform kill. */
+const WORK_BUDGET_MS = 8_000;
+/** Don't START another page once less than this remains of WORK_BUDGET_MS — the budget is only checked
+ * between pages, so this margin keeps an in-flight page from overrunning the waitUntil window. */
+const DEADLINE_MARGIN_MS = 6_000;
+/** Secondary, defense-in-depth bound: stop before an invocation's estimated R2 op count grows large
+ * (the wall-clock budget is the primary bound; this guards against many fast pages piling up
+ * connection/subrequest pressure). Estimates: ~3 ops per migrated object, 1 per verify HEAD, 1 list +
+ * 2 KV per commit. Stays far under the platform per-invocation subrequest ceiling. */
+const MAX_SUBREQUESTS = 600;
+const EST_LIST = 1;
+const EST_COMMIT = 2;
+const EST_MIGRATE_OBJECT = 3;
+const EST_VERIFY_OBJECT = 1;
+/** Per-op R2 timeouts so one hung request can't stall a whole batch past the waitUntil window and
+ * leave the lease held. HEAD/list are quick; CopyObject (the re-encrypt PUT) gets more headroom; the
+ * worst case per object (HEAD+HEAD+PUT) stays under the ~30s waitUntil ceiling. */
+const HEAD_TIMEOUT_MS = 6_000;
+const COPY_TIMEOUT_MS = 12_000;
 /** Max consecutive verify-phase failures before the migration halts (gated, with lastError) instead of looping. A healthy migration verifies on the first pass (0 failures); a non-zero count means an un-migratable poison/corrupt object that re-migration cannot fix. */
 const MAX_VERIFY_RETRIES = 3;
 /** System metadata headers preserved across a REPLACE copy (REPLACE drops anything not re-supplied). */
@@ -128,6 +153,25 @@ function release(state: RegimeState): RegimeState {
  * source-decrypt headers iff from=sse-c, dest-encrypt headers iff to=sse-c. The CopyObject
  * 200 body is parsed for an embedded <Error> (S3 returns 200 with an error body on failure).
  */
+/**
+ * Race an R2 op against a timeout so a single hung request can't hold the migration lease until the
+ * isolate is force-killed (a kill skips the lease-release path, stalling the migration). On timeout
+ * the op rejects; migrateChunk records the key as `failed` and the verify pass heals it next round.
+ */
+export async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function reEncryptObject(
   client: ReturnType<typeof createR2Client>,
   env: MigrateR2Env,
@@ -139,16 +183,16 @@ async function reEncryptObject(
 ): Promise<'migrated' | 'skipped'> {
   const url = objectUrl(endpoint, bucketName, key);
 
-  const probe = await client.fetch(url, { method: 'HEAD', headers: regimeReadHeaders(env, to) });
+  const probe = await withTimeout(client.fetch(url, { method: 'HEAD', headers: regimeReadHeaders(env, to) }), HEAD_TIMEOUT_MS, `HEAD probe ${key}`);
   if (probe.ok) return 'skipped';
 
-  const srcHead = await client.fetch(url, { method: 'HEAD', headers: regimeReadHeaders(env, from) });
+  const srcHead = await withTimeout(client.fetch(url, { method: 'HEAD', headers: regimeReadHeaders(env, from) }), HEAD_TIMEOUT_MS, `source HEAD ${key}`);
   if (!srcHead.ok) {
     throw new Error(`reEncryptObject: source HEAD "${key}" failed: HTTP ${srcHead.status}`);
   }
   const etag = srcHead.headers.get('etag');
 
-  const copyRes = await client.fetch(url, {
+  const copyRes = await withTimeout(client.fetch(url, {
     method: 'PUT',
     headers: {
       'x-amz-copy-source': encodeCopySource(bucketName, key),
@@ -158,7 +202,7 @@ async function reEncryptObject(
       ...getSseCopyHeaders(env, from === 'plain'),
       ...getSseHeaders(env, to === 'plain'),
     },
-  });
+  }), COPY_TIMEOUT_MS, `CopyObject ${key}`);
   if (!copyRes.ok) {
     throw new Error(`reEncryptObject: CopyObject "${key}" failed: HTTP ${copyRes.status}`);
   }
@@ -210,7 +254,7 @@ async function migrateChunk(
   listUrl.searchParams.set('list-type', '2');
   listUrl.searchParams.set('max-keys', String(MIGRATION_PAGE_SIZE));
   if (cursor) listUrl.searchParams.set('continuation-token', cursor);
-  const listRes = await client.fetch(listUrl.toString(), { method: 'GET' });
+  const listRes = await withTimeout(client.fetch(listUrl.toString(), { method: 'GET' }), HEAD_TIMEOUT_MS, 'migrateChunk list');
   if (!listRes.ok) throw new Error(`migrateChunk: ListObjectsV2 failed: HTTP ${listRes.status}`);
   const parsed = parseListObjectsXml(await listRes.text());
 
@@ -250,14 +294,14 @@ async function verifyChunk(
   endpoint: string,
   to: R2SseRegime,
   cursor: string | null,
-): Promise<{ ok: boolean; failedKey?: string; nextCursor: string | null }> {
+): Promise<{ ok: boolean; failedKey?: string; nextCursor: string | null; checked: number }> {
   const client = createR2Client(env);
   const readHeaders = regimeReadHeaders(env, to);
   const listUrl = new URL(getR2Url(endpoint, bucketName));
   listUrl.searchParams.set('list-type', '2');
   listUrl.searchParams.set('max-keys', String(MIGRATION_PAGE_SIZE));
   if (cursor) listUrl.searchParams.set('continuation-token', cursor);
-  const listRes = await client.fetch(listUrl.toString(), { method: 'GET' });
+  const listRes = await withTimeout(client.fetch(listUrl.toString(), { method: 'GET' }), HEAD_TIMEOUT_MS, 'verifyChunk list');
   if (!listRes.ok) throw new Error(`verifyChunk: ListObjectsV2 failed: HTTP ${listRes.status}`);
   const parsed = parseListObjectsXml(await listRes.text());
 
@@ -267,13 +311,13 @@ async function verifyChunk(
   // read fallback (a known stray, surfaced in lastError, not a wedge).
   const checkable = parsed.objects.filter((obj) => obj.size <= COPY_OBJECT_MAX_BYTES);
   const failedKeys = await mapConcurrent(checkable, MIGRATION_CONCURRENCY, async (obj) => {
-    const h = await client.fetch(objectUrl(endpoint, bucketName, obj.key), { method: 'HEAD', headers: readHeaders });
+    const h = await withTimeout(client.fetch(objectUrl(endpoint, bucketName, obj.key), { method: 'HEAD', headers: readHeaders }), HEAD_TIMEOUT_MS, `verify HEAD ${obj.key}`);
     return h.ok ? null : obj.key;
   });
   const failedKey = failedKeys.find((k): k is string => k !== null);
-  if (failedKey) return { ok: false, failedKey, nextCursor: cursor };
+  if (failedKey) return { ok: false, failedKey, nextCursor: cursor, checked: checkable.length };
   const nextCursor = parsed.isTruncated ? parsed.nextContinuationToken ?? null : null;
-  return { ok: true, nextCursor };
+  return { ok: true, nextCursor, checked: checkable.length };
 }
 
 /**
@@ -445,18 +489,26 @@ export async function advanceMigration(
       return true;
     };
 
-    // Loop pages within a wall-clock budget, checkpointing the cursor after EACH page so a crash
-    // loses at most one page (never the whole pass). migrate→verify transitions within the same
-    // invocation while budget remains, so a typical bucket converges in one poll; on budget
-    // exhaustion the lease is released so the next poll continues immediately from the cursor.
+    // Process bounded pages, checkpointing the cursor after EACH page so a crash loses at most one
+    // page. Each invocation stops VOLUNTARILY — once within DEADLINE_MARGIN_MS of the wall-clock
+    // budget OR once its estimated R2 op count would approach MAX_SUBREQUESTS — and RELEASES the
+    // lease, so the next poll resumes immediately from the cursor. Exiting well before the platform's
+    // ~30s waitUntil kill is what guarantees the release runs: a force-kill is not catchable and
+    // would leave the lease HELD, stalling the migration until the lease expires.
     const deadline = now + WORK_BUDGET_MS;
+    let usedSubreq = 0;
+    const nextPageCost = (p: 'migrate' | 'verify') =>
+      EST_LIST + EST_COMMIT + MIGRATION_PAGE_SIZE * (p === 'migrate' ? EST_MIGRATE_OBJECT : EST_VERIFY_OBJECT);
+    const canContinue = (p: 'migrate' | 'verify') =>
+      Date.now() + DEADLINE_MARGIN_MS < deadline && usedSubreq + nextPageCost(p) <= MAX_SUBREQUESTS;
     let curPhase = phase;
     let cursor = state.cursor ?? null;
     let lastError = state.lastError;
 
     for (;;) {
       if (curPhase === 'migrate') {
-        const { oversized, failed, nextCursor } = await migrateChunk(env, bucketName, endpoint, from, to, cursor);
+        const { migrated, skipped, oversized, failed, nextCursor } = await migrateChunk(env, bucketName, endpoint, from, to, cursor);
+        usedSubreq += EST_LIST + EST_COMMIT + (migrated + skipped + oversized.length + failed.length) * EST_MIGRATE_OBJECT;
         const notes = [
           oversized.length ? `oversized skipped (need UploadPartCopy): ${oversized.join(', ')}` : '',
           failed.length ? `failed to re-encrypt: ${failed.join(', ')}` : '',
@@ -465,19 +517,20 @@ export async function advanceMigration(
         cursor = nextCursor;
         if (cursor) {
           const s: RegimeState = { ...state, drained, phase: 'migrate', cursor, ...(lastError ? { lastError } : {}) };
-          if (Date.now() < deadline) { if (!(await commit(s, true))) return; continue; }
+          if (canContinue('migrate')) { if (!(await commit(s, true))) return; continue; }
           await commit(s, false);
           return;
         }
         // Migrate pass complete → verify (continue in this invocation if budget remains).
         curPhase = 'verify';
         const s: RegimeState = { ...state, drained, phase: 'verify', cursor: null, ...(lastError ? { lastError } : {}) };
-        if (Date.now() >= deadline) { await commit(s, false); return; }
+        if (!canContinue('verify')) { await commit(s, false); return; }
         if (!(await commit(s, true))) return;
         continue;
       }
 
-      const { ok, failedKey, nextCursor } = await verifyChunk(env, bucketName, endpoint, to, cursor);
+      const { ok, failedKey, nextCursor, checked } = await verifyChunk(env, bucketName, endpoint, to, cursor);
+      usedSubreq += EST_LIST + EST_COMMIT + checked * EST_VERIFY_OBJECT;
       if (!ok) {
         // A stray object is not in the target regime — re-run a migrate pass to heal it, but BOUND
         // the bounces (MAX_VERIFY_RETRIES): an un-fixable poison/corrupt object must not loop forever.
@@ -494,7 +547,7 @@ export async function advanceMigration(
       cursor = nextCursor;
       if (cursor) {
         const s: RegimeState = { ...state, drained, phase: 'verify', cursor, ...(lastError ? { lastError } : {}) };
-        if (Date.now() < deadline) { if (!(await commit(s, true))) return; continue; }
+        if (canContinue('verify')) { if (!(await commit(s, true))) return; continue; }
         await commit(s, false);
         return;
       }

@@ -43,6 +43,7 @@ import {
   advanceMigration,
   markMixedRecovery,
   fetchObjectWithRegimeFallback,
+  withTimeout,
   type R2SseRegime,
   type RegimeState,
 } from '../../lib/r2-migration';
@@ -384,15 +385,19 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
     expect(deps.drainContainers).toHaveBeenCalledTimes(1); // drained once, before the first chunk
   });
 
-  it('fully migrates a multi-page bucket within a SINGLE advanceMigration call (budget loop)', async () => {
-    // 6 objects across 3 list pages. The pre-fix engine did ONE page per call (this would still be
-    // mid-migrate after one invocation); the budget loop drains every migrate AND verify page in one.
+  it('fully migrates a small bucket within a SINGLE advanceMigration call (loops pages under budget)', async () => {
+    // 6 objects across 3 list pages, far under the per-invocation budgets, so one poll drains every
+    // migrate AND verify page. Date.now is FROZEN so the wall-clock gate is deterministic (the budget
+    // has only a couple seconds of real-time headroom, so an unfrozen clock would make this flaky
+    // under CI load); the subrequest budget is nowhere near reached for 6 objects.
     const objs: Record<string, { regime: R2SseRegime }> = {};
     for (let i = 0; i < 6; i++) objs[`k${i}.md`] = { regime: 'sse-c' };
     const { store } = makeR2(objs, { pageSize: 2 });
     const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false }) });
 
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(5_000_000); // frozen ⇒ wall-clock gate always has budget
     await advanceMigration(driverEnv(kv), 'bkt', drainNoop); // exactly ONE call
+    nowSpy.mockRestore();
 
     const final = await getRegimeState({ KV: kv } as unknown as Env, 'bkt');
     expect(final).toMatchObject({ status: 'ready', regime: 'plain', generation: 1 });
@@ -558,5 +563,36 @@ describe('markMixedRecovery', () => {
     const { kv, store } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'ready', regime: 'sse-c', generation: 2 }) });
     await markMixedRecovery(driverEnv(kv), 'bkt', async () => true);
     expect(JSON.parse(store.get('r2-regime:bkt')!).status).toBe('ready'); // a live session is not gated for an opportunistic self-heal
+  });
+});
+
+// ── Per-op timeout ───────────────────────────────────────────────────────────────
+// A hung R2 request must not stall a migrate/verify batch indefinitely: if it did, the isolate would
+// be force-killed by the waitUntil ceiling WITHOUT releasing the lease, stalling the whole migration.
+describe('withTimeout (bounds a hung R2 op so it cannot hold the lease until a force-kill)', () => {
+  it('rejects once the timeout elapses if the op has not settled', async () => {
+    vi.useFakeTimers();
+    try {
+      const hung = new Promise<never>(() => {}); // never settles, like a wedged R2 connection
+      const raced = withTimeout(hung, 5_000, 'stuck op').then(
+        () => 'resolved',
+        (e) => (e as Error).message,
+      );
+      await vi.advanceTimersByTimeAsync(5_001);
+      expect(await raced).toMatch(/stuck op timed out after 5000ms/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('passes a fast result straight through (timer cleared, no spurious rejection)', async () => {
+    vi.useFakeTimers();
+    try {
+      const p = withTimeout(Promise.resolve('ok'), 5_000, 'fast op');
+      await vi.advanceTimersByTimeAsync(10_000); // well past the timeout: must NOT reject
+      await expect(p).resolves.toBe('ok');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
