@@ -29,11 +29,12 @@ export interface RegimeState {
   regime: R2SseRegime;
   from?: R2SseRegime;
   to?: R2SseRegime;
-  /** Monotonic; ++ on every completed flip. Stamped on containers; a stale-generation container is refused + destroyed. */
+  /** Monotonic; ++ on every completed flip. Used as the verify-commit ordering marker (no container generation guard is built — the /start 409 gate + container drain cover that; see ADR AD91). */
   generation: number;
   /** ListObjectsV2 continuation-token for chunked resume; null/absent ⇒ start of pass. */
   cursor?: string | null;
-  migratedCount?: number;
+  /** Consecutive verify-phase failures. Bounds the migrate↔verify retry on an un-migratable (poison/corrupt) object so it can never wedge into an infinite loop. Reset to 0 on a clean verify chunk. */
+  stuckCount?: number;
   /** SSE-C key fingerprint (key-MD5) captured at migration start — detects ENCRYPTION_KEY rotation (D3: detect-only). */
   keyMd5?: string;
   startedAt?: string;

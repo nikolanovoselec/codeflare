@@ -397,6 +397,16 @@ describe('Session Store', () => {
       await sessionStore.loadSessions();
       expect(sessionStore.bucketMigrating).toBe(false);
     });
+
+    it('reflects bucketMigrationPending so a deferred Governed Mode flip is surfaced (D1)', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrationPending: true });
+      await sessionStore.loadSessions();
+      expect(sessionStore.bucketMigrationPending).toBe(true);
+
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
+      await sessionStore.loadSessions();
+      expect(sessionStore.bucketMigrationPending).toBe(false);
+    });
   });
 
   describe('createSession', () => {

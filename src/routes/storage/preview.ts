@@ -9,6 +9,7 @@ import { createLogger } from '../../lib/logger';
 import { validateKey } from './validation';
 import { getSseHeaders } from '../../lib/r2-sse';
 import { fetchObjectWithRegimeFallback, markMixedRecovery } from '../../lib/r2-migration';
+import { hasHealthyContainer } from '../../lib/migration-containers';
 
 const logger = createLogger('storage-preview');
 
@@ -54,7 +55,7 @@ app.get('/', async (c) => {
   // reused for the GET below so it never re-probes. A fallback hit on a ready bucket self-heals.
   const { response: headResponse, stray, sseDisabled } = await fetchObjectWithRegimeFallback(c.env, bucketName, objectUrl, { method: 'HEAD' });
   if (stray) {
-    try { c.executionCtx.waitUntil(markMixedRecovery(c.env, bucketName)); } catch { /* no execution context (tests) */ }
+    try { c.executionCtx.waitUntil(markMixedRecovery(c.env, bucketName, () => hasHealthyContainer(c.env, bucketName))); } catch { /* no execution context (tests) */ }
   }
 
   if (!headResponse.ok) {

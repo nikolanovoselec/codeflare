@@ -7,6 +7,7 @@ import { createRateLimiter } from '../../middleware/rate-limit';
 import { ValidationError, ContainerError, DownloadsDisabledError } from '../../lib/error-types';
 import { validateKey } from './validation';
 import { fetchObjectWithRegimeFallback, markMixedRecovery } from '../../lib/r2-migration';
+import { hasHealthyContainer } from '../../lib/migration-containers';
 import { isDownloadsDisabled } from '../../lib/downloads-policy';
 
 /**
@@ -120,7 +121,7 @@ app.get('/', async (c) => {
   // a background mixed-recovery scan.
   const { response: r2Response, stray } = await fetchObjectWithRegimeFallback(c.env, bucketName, objectUrl, { method: 'GET' });
   if (stray) {
-    try { c.executionCtx.waitUntil(markMixedRecovery(c.env, bucketName)); } catch { /* no execution context (tests) */ }
+    try { c.executionCtx.waitUntil(markMixedRecovery(c.env, bucketName, () => hasHealthyContainer(c.env, bucketName))); } catch { /* no execution context (tests) */ }
   }
 
   if (!r2Response.ok) {

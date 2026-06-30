@@ -191,7 +191,10 @@ app.get('/batch-status', async (c) => {
     // execution context (unit tests) simply skips the background advance.
     try {
       c.executionCtx.waitUntil(
-        advanceMigration(c.env, bucketName, { drainContainers: () => drainContainers(c.env, bucketName) }),
+        advanceMigration(c.env, bucketName, {
+          drainContainers: () => drainContainers(c.env, bucketName),
+          hasHealthyContainer: () => hasHealthyContainer(c.env, bucketName),
+        }),
       );
     } catch {
       /* no execution context (e.g. unit tests) — skip the background advance */

@@ -279,10 +279,12 @@ describe('migrateBucketEncryption (lossless REPLACE re-encrypt)', () => {
     expect(puts).toHaveLength(0);
   });
 
-  it('throws when CopyObject returns 200 with an embedded <Error> body', async () => {
+  it('throws (loud) when CopyObject returns 200 with an embedded <Error> body', async () => {
     makeR2({ 'a.txt': { regime: 'sse-c' } }, { copyErrorBody: true });
+    // reEncryptObject rejects on the embedded error; migrateChunk records it as failed; the
+    // blocking helper aggregates and throws so a single-pass caller sees the failure.
     await expect(migrateBucketEncryption(r2Env, 'bkt', 'https://r2.test', 'sse-c', 'plain'))
-      .rejects.toThrow(/error\/invalid body/);
+      .rejects.toThrow(/failed to re-encrypt/);
   });
 
   it('resumes across pages — migrates every object when the listing is paginated', async () => {
@@ -359,7 +361,7 @@ describe('planRegimeReconcile (synchronous decision)', () => {
 
 // ── Chunked driver ──────────────────────────────────────────────────────────────
 describe('advanceMigration (chunked, verified, self-healing)', () => {
-  const drainNoop = { drainContainers: vi.fn(async () => {}) };
+  const drainNoop = { drainContainers: vi.fn(async () => {}), hasHealthyContainer: vi.fn(async () => false) };
 
   async function runToReady(kv: KVNamespace, deps = drainNoop, max = 20): Promise<RegimeState> {
     for (let i = 0; i < max; i++) {
@@ -373,7 +375,7 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
   it('migrates then verifies then flips to ready + bumps generation, draining once', async () => {
     const { store } = makeR2({ 'a.md': { regime: 'sse-c' }, 'b.md': { regime: 'sse-c' } });
     const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 4, phase: 'migrate', drained: false }) });
-    const deps = { drainContainers: vi.fn(async () => {}) };
+    const deps = { drainContainers: vi.fn(async () => {}), hasHealthyContainer: vi.fn(async () => false) };
 
     const final = await runToReady(kv, deps);
 
@@ -385,7 +387,7 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
   it('does nothing while another chunk holds a live lease (in-flight lock)', async () => {
     const { puts } = makeR2({ 'a.md': { regime: 'sse-c' } });
     const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false, leaseExpiresAt: Date.now() + 60_000 }) });
-    const deps = { drainContainers: vi.fn(async () => {}) };
+    const deps = { drainContainers: vi.fn(async () => {}), hasHealthyContainer: vi.fn(async () => false) };
 
     await advanceMigration(driverEnv(kv), 'bkt', deps);
 
@@ -445,23 +447,62 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
 
   it('returns immediately on a ready bucket', async () => {
     const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'ready', regime: 'plain', generation: 1 }) });
-    const deps = { drainContainers: vi.fn(async () => {}) };
+    const deps = { drainContainers: vi.fn(async () => {}), hasHealthyContainer: vi.fn(async () => false) };
     await advanceMigration(driverEnv(kv), 'bkt', deps);
     expect(deps.drainContainers).not.toHaveBeenCalled();
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('D1: defers (never drains) while a session container is still healthy', async () => {
+    makeR2({ 'a.md': { regime: 'sse-c' } });
+    const { kv, store } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false }) });
+    const deps = { drainContainers: vi.fn(async () => {}), hasHealthyContainer: vi.fn(async () => true) };
+
+    await advanceMigration(driverEnv(kv), 'bkt', deps);
+
+    expect(deps.drainContainers).not.toHaveBeenCalled(); // no force-kill
+    expect(JSON.parse(store.get('r2-regime:bkt')!).status).toBe('migrating'); // deferred, not advanced
+  });
+
+  it('an oversized object does not wedge the migration — verify skips it and the bucket reaches ready', async () => {
+    const { store } = makeR2({ 'small.md': { regime: 'sse-c' }, 'huge.bin': { regime: 'sse-c', size: 6 * 1024 * 1024 * 1024 } });
+    const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false }) });
+
+    const final = await runToReady(kv);
+
+    expect(final).toMatchObject({ status: 'ready', regime: 'plain', generation: 1 }); // committed, not stuck
+    expect(store.get('small.md')!.regime).toBe('plain'); // migrated
+    expect(store.get('huge.bin')!.regime).toBe('sse-c'); // skipped, left as a readable stray
+  });
+
+  it('an un-migratable (poison) object halts the migration after MAX_VERIFY_RETRIES instead of looping forever', async () => {
+    makeR2({ 'a.md': { regime: 'sse-c' } }, { copyErrorBody: true }); // copy never succeeds, object never flips
+    const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false }) });
+
+    const final = await runToReady(kv); // would never return ready; bounded by stuckCount
+
+    expect(final.status).toBe('migrating'); // halted, never falsely flipped to ready
+    expect(final.stuckCount).toBeGreaterThanOrEqual(3);
+    expect(final.lastError).toMatch(/halting/);
   });
 });
 
 describe('markMixedRecovery', () => {
   it('flips a ready bucket into a mixed-recovery scan', async () => {
     const { kv, store } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'ready', regime: 'sse-c', generation: 2 }) });
-    await markMixedRecovery(driverEnv(kv), 'bkt');
+    await markMixedRecovery(driverEnv(kv), 'bkt', async () => false);
     expect(JSON.parse(store.get('r2-regime:bkt')!)).toMatchObject({ status: 'mixed-recovery', regime: 'sse-c', generation: 2, phase: 'migrate', drained: false });
   });
 
   it('is a no-op when a migration is already in flight', async () => {
     const { kv, store } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', to: 'plain', generation: 0 }) });
-    await markMixedRecovery(driverEnv(kv), 'bkt');
+    await markMixedRecovery(driverEnv(kv), 'bkt', async () => false);
     expect(JSON.parse(store.get('r2-regime:bkt')!).status).toBe('migrating'); // unchanged
+  });
+
+  it('D1: defers (does not flip/gate) when a session container is still healthy', async () => {
+    const { kv, store } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'ready', regime: 'sse-c', generation: 2 }) });
+    await markMixedRecovery(driverEnv(kv), 'bkt', async () => true);
+    expect(JSON.parse(store.get('r2-regime:bkt')!).status).toBe('ready'); // a live session is not gated for an opportunistic self-heal
   });
 });

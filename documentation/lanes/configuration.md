@@ -408,7 +408,7 @@ Governed Mode is an enterprise-only, **default-OFF** policy that disables R2 SSE
 - **`ENCRYPTION_KEY` is unaffected as a secret.** The key keeps serving the vault HKDF master and secret-at-rest KV crypto; Governed Mode gates only the R2 SSE-C header path. Disabling SSE-C does not weaken secret storage or the vault.
 - **Container env var `R2_SSE_DISABLED`.** When a bucket's resolved regime is plaintext, the Worker forwards `R2_SSE_DISABLED=true` to the container (alongside the existing R2 vars). `entrypoint.sh` then omits the `sse_customer_key_*` block from `rclone.conf` and sets `disable_checksum = false` so the delta sync can compare by content. The var is omitted (SSE-C on) by default — byte-identical to before.
 
-Flipping the toggle triggers a lossless re-encrypt of each bucket in the background on its owner's next login (never on the container-start path); see the [Deployment lane](deployment.md#governed-mode-migration-on-next-login).
+Flipping the toggle triggers a lossless re-encrypt of each bucket in the background, driven by the owner's dashboard `batch-status` poll in verified resumable chunks (never on the container-start path); see the [Deployment lane](deployment.md#governed-mode-migration-batch-status-driven).
 
 ## Related Documentation
 - [Container](container.md#auto-sleep-configurable-sleepafter) - Container startup and auto-sleep configuration

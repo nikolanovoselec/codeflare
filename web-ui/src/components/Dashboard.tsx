@@ -413,6 +413,12 @@ const Dashboard: Component<DashboardProps> = (props) => {
                 </Show>
             </div>
 
+            <Show when={sessionStore.bucketMigrationPending}>
+              <div class="dashboard-migration-notice" role="status" data-testid="dashboard-migration-pending">
+                Storage update pending — close your running sessions to apply it.
+              </div>
+            </Show>
+
             <Show when={props.sessions.length > 0}>
               <div class="dashboard-sessions-section">
                 <div class="dashboard-section-divider"><span>Recent Sessions</span></div>

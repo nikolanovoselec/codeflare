@@ -141,7 +141,7 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 
 ---
 
-## Governed Mode migration on next login
+## Governed Mode migration (batch-status driven)
 
 Enabling or disabling [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable) (the R2 SSE-C toggle) is **not** a redeploy. Flipping the Setup-wizard toggle writes the KV policy immediately; each existing bucket is reconciled to the new regime **in the background, driven by the owner's dashboard `batch-status` poll** (`planRegimeReconcile` decides synchronously, `advanceMigration` runs one chunk per poll under `waitUntil`), via a lossless in-place same-key server-side `CopyObject` re-encrypt with `MetadataDirective=REPLACE` ([AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile), supersedes [AD89](../decisions/README.md#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration)). It does **not** run on the container-start path, so it can never block session creation. No data is deleted.
 
