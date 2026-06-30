@@ -189,7 +189,9 @@ describe('Rate limit coverage', () => {
       });
       // REQ-ENTERPRISE-018: download now reads via fetchObjectWithRegimeFallback →
       // createR2Client(env).fetch (mockR2Fetch), not AwsClient.sign() + global fetch.
-      mockR2Fetch.mockResolvedValue(
+      // mockImplementation (not mockResolvedValue) so each of the 120 calls gets a FRESH
+      // Response — the handler consumes the body stream (matches preview/browse/stats here).
+      mockR2Fetch.mockImplementation(async () =>
         new Response('data', { status: 200, headers: { 'Content-Type': 'text/plain', 'Content-Length': '4' } })
       );
 
