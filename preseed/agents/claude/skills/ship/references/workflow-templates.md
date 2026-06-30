@@ -119,7 +119,7 @@ jobs:
 
 ## Adding Deploy Step to Existing CI Workflow
 
-When the `/github-cloudflare-ship` skill needs to add deployment to an existing `ci.yml`, append this step after the last existing step and rename the workflow from "CI" to "CI & Deploy":
+When the `/ship` skill needs to add deployment to an existing `ci.yml`, append this step after the last existing step and rename the workflow from "CI" to "CI & Deploy":
 
 ```yaml
       - name: Deploy to Cloudflare Workers
