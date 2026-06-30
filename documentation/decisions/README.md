@@ -1859,7 +1859,7 @@ Bindings were ruled out as the containment path (verified): R2 bindings are stat
 
 **Consequences:** Pro agents get authoritative, retrieval-first Cloudflare guidance (platform, Workers best practices, Wrangler, Durable Objects, Agents SDK, Sandbox SDK, Turnstile, email, web-perf, Zero Trust) without growing the always-on token budget meaningfully (~+450 tok of trimmed descriptions; bodies/references load on demand) and without bloating the Worker. A `scripts/measure-seed-tokens.mjs` tool reports the always-on seed budget per mode.
 
-**Related:** [REQ-AGENT-075](../../sdd/spec/agents.md#req-agent-075-cloudflare-platform-skills-bundled-into-the-advanced-seed), [REQ-AGENT-014](../../sdd/spec/agents.md#req-agent-014-manifest-driven-preseed-pipeline), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [Configuration lane](../lanes/configuration.md), [Security lane](../lanes/security.md).
+**Related:** [REQ-AGENT-075](../../sdd/spec/agents.md#req-agent-075-cloudflare-platform-skills-bundled-into-the-advanced-seed), [REQ-AGENT-014](../../sdd/spec/agents.md#req-agent-014-manifest-driven-preseed-pipeline), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [Configuration lane](../lanes/configuration.md), [Security lane](../lanes/security.md), [Preseed lane](../lanes/preseed.md).
 
 ---
 

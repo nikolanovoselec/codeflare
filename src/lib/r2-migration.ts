@@ -225,7 +225,10 @@ async function migrateChunk(
   const results = await mapConcurrent(parsed.objects, MIGRATION_CONCURRENCY, async (obj) => {
     if (obj.size > COPY_OBJECT_MAX_BYTES) return { kind: 'oversized' as const, key: obj.key };
     try {
-      return { kind: await reEncryptObject(client, env, endpoint, bucketName, obj.key, from, to) };
+      // Carry the key on every result (not just oversized/failed) so the union is
+      // uniform — otherwise the migrated/skipped shape lacks `key` and the `failed`
+      // branch below widens r.key to `string | undefined` (tsc TS2345).
+      return { kind: await reEncryptObject(client, env, endpoint, bucketName, obj.key, from, to), key: obj.key };
     } catch {
       return { kind: 'failed' as const, key: obj.key };
     }
