@@ -1142,5 +1142,390 @@
     "modes": [
       "advanced"
     ]
+  },
+  "commands/cloudflare-build-agent.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "commands/cloudflare-build-mcp.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/cloudflare-workers.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/browse-the-web.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/callable.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/client-sdk.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/codemode.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/configuration.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/durable-execution.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/email.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/human-in-the-loop.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/mcp.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/observability.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/queue-retries.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/routing.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/server-driven-messages.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/state-scheduling.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/streaming-chat.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/think.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/voice.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/webhooks-push.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/workflows.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/cloudflare-email-service/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/cloudflare-email-service/references/cli-and-mcp.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/cloudflare-email-service/references/deliverability.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/cloudflare-email-service/references/rest-api.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/cloudflare-email-service/references/routing.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/cloudflare-email-service/references/sending.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/cloudflare-one-migrations/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/cloudflare-one/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/cloudflare/LICENSE": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/cloudflare/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/durable-objects/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/durable-objects/references/rules.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/durable-objects/references/testing.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/durable-objects/references/workers.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/sandbox-sdk/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/sandbox-sdk/references/api-quick-ref.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/sandbox-sdk/references/examples.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/README.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/references/astro.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/references/hugo.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/references/nextjs-app.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/references/nextjs-pages.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/references/sveltekit.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/references/vanilla-html.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/scripts/auth-probe.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/scripts/fetch-secret.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/scripts/persist-skill.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/scripts/validate.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/scripts/widget-create.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/scripts/worker-deploy.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/templates/worker/.gitignore": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/templates/worker/LICENSE": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/templates/worker/README.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/templates/worker/package.json": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/templates/worker/public/post-deploy.html": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/templates/worker/src/errors.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/templates/worker/src/index.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/templates/worker/src/observability.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/templates/worker/src/types.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/templates/worker/src/validate.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/templates/worker/test/deploy.test.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/templates/worker/test/integration.test.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/templates/worker/test/unit.test.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/templates/worker/test/validation.test.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/templates/worker/tsconfig.json": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/templates/worker/vitest.config.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/templates/worker/wrangler.toml": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/tests/validation.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/web-perf/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/workers-best-practices/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/workers-best-practices/references/review.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/workers-best-practices/references/rules.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/wrangler/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
   }
 }

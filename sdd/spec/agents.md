@@ -2121,3 +2121,32 @@ None.
 **Status:** Implemented
 
 ---
+
+### REQ-AGENT-075: Cloudflare Platform Skills Bundled into the Advanced Seed
+
+**Intent:** Codeflare is a Cloudflare-native build platform AND an enterprise Zero Trust product, so the official Cloudflare skills ([github.com/cloudflare/skills](https://github.com/cloudflare/skills), Apache-2.0) are vendored into the advanced-mode agent seed via the existing manifest pipeline ([REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)) — giving Pro agents authoritative, retrieval-first guidance for Workers/KV/D1/R2, the Agents SDK, Durable Objects, Wrangler, Turnstile, email, web performance, and Cloudflare One (Zero Trust / SASE). The bundle is **slimmed for the Worker bundle budget**: the cloudflare mega-skill's 319-file `references/` tree is dropped (it is retrieval-first — agents fetch live docs), keeping only its decision-tree `SKILL.md`. The bundled remote-MCP config is excluded (strict-egress + interactive OAuth incompatible); retrieval is via WebFetch of `developers.cloudflare.com`.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. All 11 Cloudflare skills (`cloudflare`, `cloudflare-one`, `cloudflare-one-migrations`, `wrangler`, `workers-best-practices`, `durable-objects`, `agents-sdk`, `sandbox-sdk`, `turnstile-spin`, `cloudflare-email-service`, `web-perf`) plus the `cloudflare-build-agent`/`cloudflare-build-mcp` commands are seeded to advanced-mode agents (Claude + the non-Claude agents via the shared pipeline) and gated `advanced`-only; default mode receives none. <!-- @impl: preseed/agents/claude/skills/cloudflare/SKILL.md --> <!-- @impl: preseed/agents/claude/skills/cloudflare-one/SKILL.md --> <!-- @impl: preseed/agents/claude/manifest.json --> <!-- @impl: preseed/agents/claude/commands/cloudflare-build-agent.md --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (all 11 Cloudflare skills are seeded to Claude and are advanced-only) --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (default mode receives NONE of the Cloudflare skills) -->
+2. The cloudflare mega-skill is slimmed: its `SKILL.md` decision tree is kept (with the dangling `references:` frontmatter removed) but the `references/` tree is NOT bundled, so the Worker bundle does not carry ~2.2 MB × every agent of retrieval-first reference markdown. <!-- @impl: preseed/agents/claude/skills/cloudflare/SKILL.md --> <!-- @impl: preseed/agents/claude/manifest.json --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (SLIMS the cloudflare mega-skill: SKILL.md is kept, the references/ tree is NOT bundled) -->
+3. Doc retrieval is via WebFetch of `developers.cloudflare.com`: a `paths:`-scoped `rules/cloudflare-workers.md` (loaded only on Workers files, not always-on) carries the retrieval-first guidance, and the upstream remote-MCP config (`.mcp.json`) is NOT bundled. <!-- @impl: preseed/agents/claude/rules/cloudflare-workers.md --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (the Workers retrieval rule is path-conditional (not always-on) and WebFetch-oriented) --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (does NOT bundle the upstream .mcp.json) -->
+4. The upstream Apache-2.0 `LICENSE` is vendored alongside the skills for attribution. <!-- @impl: preseed/agents/claude/skills/cloudflare/LICENSE --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (carries the upstream Apache-2.0 LICENSE alongside the vendored skills) -->
+
+**Constraints:**
+
+- Bundled via the manifest pipeline (REQ-AGENT-014); the per-user seed is a downstream artifact, never separately authored. Skill bodies/references load on demand (progressive disclosure), so the always-on token cost is only the trimmed one-line descriptions.
+- In enterprise strict-egress ([REQ-ENTERPRISE-016](enterprise-mode.md#req-enterprise-016-strict-gateway-egress)), the operator must allowlist `developers.cloudflare.com` for the skills' retrieval to function (documented in the configuration + security lanes).
+- Skill/command/rule prose is upstream-authored and intentionally not pinned by tests (mandate #2); tests assert bundling, mode-gating, slimming, and attribution — the contract — not copy.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
+
+**Verification:** [Automated test](../../src/__tests__/lib/cloudflare-skills-seed.test.ts)
+
+**Status:** Implemented
+
+---

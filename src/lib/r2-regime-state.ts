@@ -53,8 +53,8 @@ export interface RegimeState {
 
 type MigrationEnv = Pick<Env, 'KV'>;
 
-/** A migration pass + verify for a real bucket finishes well within this; a crashed pass is retaken after it elapses. */
-export const MIGRATION_LEASE_MS = 10 * 60 * 1000;
+/** In-flight lock TTL for one advanceMigration invocation (which loops pages within WORK_BUDGET_MS ≈ 15s and releases the lease on exit). Sized to comfortably cover one invocation while bounding crash recovery: a poll whose work-loop dies without releasing is retaken after this elapses. */
+export const MIGRATION_LEASE_MS = 2 * 60 * 1000;
 
 /** The default state for a bucket with no state object: legacy buckets are SSE-C and ready. */
 function defaultState(regime: R2SseRegime = 'sse-c'): RegimeState {

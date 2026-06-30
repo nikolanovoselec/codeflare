@@ -384,6 +384,47 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
     expect(deps.drainContainers).toHaveBeenCalledTimes(1); // drained once, before the first chunk
   });
 
+  it('fully migrates a multi-page bucket within a SINGLE advanceMigration call (budget loop)', async () => {
+    // 6 objects across 3 list pages. The pre-fix engine did ONE page per call (this would still be
+    // mid-migrate after one invocation); the budget loop drains every migrate AND verify page in one.
+    const objs: Record<string, { regime: R2SseRegime }> = {};
+    for (let i = 0; i < 6; i++) objs[`k${i}.md`] = { regime: 'sse-c' };
+    const { store } = makeR2(objs, { pageSize: 2 });
+    const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false }) });
+
+    await advanceMigration(driverEnv(kv), 'bkt', drainNoop); // exactly ONE call
+
+    const final = await getRegimeState({ KV: kv } as unknown as Env, 'bkt');
+    expect(final).toMatchObject({ status: 'ready', regime: 'plain', generation: 1 });
+    expect([...store.values()].every((o) => o.regime === 'plain')).toBe(true);
+  });
+
+  it('on budget exhaustion mid-pass: checkpoints the cursor and RELEASES the lease so the next poll resumes immediately', async () => {
+    const objs: Record<string, { regime: R2SseRegime }> = {};
+    for (let i = 0; i < 4; i++) objs[`k${i}.md`] = { regime: 'sse-c' };
+    const { store } = makeR2(objs, { pageSize: 2 }); // 2 migrate pages
+    const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false }) });
+
+    // Force the wall-clock budget to elapse right after the first page: Date.now() returns the
+    // start time once (deadline anchor), then a value past the deadline on the first budget check.
+    const T0 = 1_000_000;
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValueOnce(T0).mockReturnValue(T0 + 16_000);
+
+    await advanceMigration(driverEnv(kv), 'bkt', drainNoop);
+
+    const mid = JSON.parse(store.get('r2-regime:bkt')!);
+    expect(mid.status).toBe('migrating'); // not done — only the first page ran
+    expect(mid.phase).toBe('migrate');
+    expect(mid.cursor).toBeTruthy(); // checkpointed mid-pass (no progress lost)
+    expect(mid.leaseExpiresAt).toBeUndefined(); // RELEASED so the next poll continues immediately, not after lease expiry
+    expect([...store.values()].filter((o) => o.regime === 'plain')).toHaveLength(2); // first page converted
+
+    nowSpy.mockRestore();
+    const final = await runToReady(kv); // next poll resumes from the cursor and finishes
+    expect(final).toMatchObject({ status: 'ready', regime: 'plain', generation: 1 });
+    expect([...store.values()].every((o) => o.regime === 'plain')).toBe(true);
+  });
+
   it('does nothing while another chunk holds a live lease (in-flight lock)', async () => {
     const { puts } = makeR2({ 'a.md': { regime: 'sse-c' } });
     const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false, leaseExpiresAt: Date.now() + 60_000 }) });

@@ -61,8 +61,12 @@ type DriverEnv = MigrateR2Env & Pick<Env, 'KV' | 'R2_ACCOUNT_ID' | 'R2_ENDPOINT'
 
 /** S3 single-request CopyObject caps at 5 GB; larger objects need UploadPartCopy. Agent config/vault/transcripts are tiny, so we record + skip an oversized object rather than wedge the whole migration. */
 const COPY_OBJECT_MAX_BYTES = 5 * 1024 * 1024 * 1024;
-/** Objects processed per chunk invocation. Small enough that one chunk's R2 round-trips stay well within the Workers subrequest budget and waitUntil wall-clock; the cursor resumes the rest on the next poll. */
+/** Objects listed per page. The page is processed with bounded concurrency (MIGRATION_CONCURRENCY) and advanceMigration loops pages within WORK_BUDGET_MS, so this is a list-batch size, not a per-poll cap. */
 const MIGRATION_PAGE_SIZE = 200;
+/** Per-object re-encrypt/verify operations run concurrently in batches of this size. Each object is ~3 serial R2 round-trips; processing a page serially blew past the waitUntil wall-clock and wedged the migration, so we fan out (mirrors sync-fanout's FANOUT_CONCURRENCY_CAP). */
+const MIGRATION_CONCURRENCY = 16;
+/** advanceMigration loops pages until the phase's cursor is exhausted OR this wall-clock budget elapses, persisting the cursor after each page and releasing the lease on exit so the next poll resumes immediately. Kept well under the waitUntil ceiling. */
+const WORK_BUDGET_MS = 15_000;
 /** Max consecutive verify-phase failures before the migration halts (gated, with lastError) instead of looping. A healthy migration verifies on the first pass (0 failures); a non-zero count means an un-migratable poison/corrupt object that re-migration cannot fix. */
 const MAX_VERIFY_RETRIES = 3;
 /** System metadata headers preserved across a REPLACE copy (REPLACE drops anything not re-supplied). */
@@ -70,6 +74,15 @@ const PRESERVED_HEADERS = ['content-type', 'cache-control', 'content-disposition
 
 function opposite(regime: R2SseRegime): R2SseRegime {
   return regime === 'plain' ? 'sse-c' : 'plain';
+}
+
+/** Run `fn` over `items` in bounded-concurrency batches (mirrors sync-fanout's slice + Promise.all). Preserves input order. */
+async function mapConcurrent<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = [];
+  for (let i = 0; i < items.length; i += limit) {
+    out.push(...(await Promise.all(items.slice(i, i + limit).map(fn))));
+  }
+  return out;
 }
 
 /** The SSE-C read headers required to READ an object stored in the given regime (plain ⇒ none). */
@@ -205,21 +218,23 @@ async function migrateChunk(
   let skipped = 0;
   const oversized: string[] = [];
   const failed: string[] = [];
-  for (const obj of parsed.objects) {
-    if (obj.size > COPY_OBJECT_MAX_BYTES) {
-      oversized.push(obj.key);
-      continue;
-    }
-    // Per-object isolation: a single poison/corrupt object (or a key racing a delete) must not
-    // abort the whole chunk. It stays unconverted → the verify pass catches it; the bounded
-    // verify-retry (MAX_VERIFY_RETRIES) is the backstop against an un-fixable object looping.
+  // Fan out the page's re-encrypts (each ~3 serial R2 round-trips); a serial page blew the
+  // waitUntil wall-clock and wedged the migration. Per-object isolation is preserved: a single
+  // poison/corrupt object (or a key racing a delete) is recorded in `failed` and never aborts
+  // the batch — the verify pass catches it; the bounded verify-retry is the un-fixable backstop.
+  const results = await mapConcurrent(parsed.objects, MIGRATION_CONCURRENCY, async (obj) => {
+    if (obj.size > COPY_OBJECT_MAX_BYTES) return { kind: 'oversized' as const, key: obj.key };
     try {
-      const r = await reEncryptObject(client, env, endpoint, bucketName, obj.key, from, to);
-      if (r === 'migrated') migrated++;
-      else skipped++;
+      return { kind: await reEncryptObject(client, env, endpoint, bucketName, obj.key, from, to) };
     } catch {
-      failed.push(obj.key);
+      return { kind: 'failed' as const, key: obj.key };
     }
+  });
+  for (const r of results) {
+    if (r.kind === 'migrated') migrated++;
+    else if (r.kind === 'skipped') skipped++;
+    else if (r.kind === 'oversized') oversized.push(r.key);
+    else failed.push(r.key);
   }
   const nextCursor = parsed.isTruncated ? parsed.nextContinuationToken ?? null : null;
   return { migrated, skipped, nextCursor, oversized, failed };
@@ -243,15 +258,17 @@ async function verifyChunk(
   if (!listRes.ok) throw new Error(`verifyChunk: ListObjectsV2 failed: HTTP ${listRes.status}`);
   const parsed = parseListObjectsXml(await listRes.text());
 
-  for (const obj of parsed.objects) {
-    // Oversized objects are intentionally skipped by migrateChunk (single CopyObject caps at 5 GB),
-    // so verify must skip them too — otherwise an un-migratable object HEAD-fails here and bounces
-    // the migration into an endless migrate↔verify loop. They remain readable via the dual-regime
-    // read fallback (a known stray, surfaced in lastError, not a wedge).
-    if (obj.size > COPY_OBJECT_MAX_BYTES) continue;
+  // Oversized objects are intentionally skipped by migrateChunk (single CopyObject caps at 5 GB),
+  // so verify must skip them too — otherwise an un-migratable object HEAD-fails here and bounces
+  // the migration into an endless migrate↔verify loop. They remain readable via the dual-regime
+  // read fallback (a known stray, surfaced in lastError, not a wedge).
+  const checkable = parsed.objects.filter((obj) => obj.size <= COPY_OBJECT_MAX_BYTES);
+  const failedKeys = await mapConcurrent(checkable, MIGRATION_CONCURRENCY, async (obj) => {
     const h = await client.fetch(objectUrl(endpoint, bucketName, obj.key), { method: 'HEAD', headers: readHeaders });
-    if (!h.ok) return { ok: false, failedKey: obj.key, nextCursor: cursor };
-  }
+    return h.ok ? null : obj.key;
+  });
+  const failedKey = failedKeys.find((k): k is string => k !== null);
+  if (failedKey) return { ok: false, failedKey, nextCursor: cursor };
   const nextCursor = parsed.isTruncated ? parsed.nextContinuationToken ?? null : null;
   return { ok: true, nextCursor };
 }
@@ -414,49 +431,79 @@ export async function advanceMigration(
       drained = true;
     }
 
-    let next: RegimeState;
-    if (phase === 'migrate') {
-      const { nextCursor, oversized, failed } = await migrateChunk(env, bucketName, endpoint, from, to, state.cursor ?? null);
-      const notes = [
-        oversized.length ? `oversized skipped (need UploadPartCopy): ${oversized.join(', ')}` : '',
-        failed.length ? `failed to re-encrypt: ${failed.join(', ')}` : '',
-      ].filter(Boolean).join('; ');
-      const lastError = notes || state.lastError;
-      const base: RegimeState = { ...state, drained, ...(lastError ? { lastError } : {}) };
-      next = nextCursor ? { ...base, cursor: nextCursor } : { ...base, phase: 'verify', cursor: null };
-    } else {
-      const { ok, failedKey, nextCursor } = await verifyChunk(env, bucketName, endpoint, to, state.cursor ?? null);
+    // Commit under our lease: re-read + M1 optimistic-lock check, then persist. Returns false if we
+    // lost the lease (its expiry let another poll take over) so the caller stops — writing a stale
+    // snapshot could clobber a migration another poll already finished. `hold` keeps the lease for
+    // the next page; otherwise it is released so the very next poll resumes immediately.
+    const commit = async (s: RegimeState, hold: boolean): Promise<boolean> => {
+      const current = await getRegimeState(env, bucketName);
+      if (current.leaseExpiresAt !== myLease) return false;
+      await setRegimeState(env, bucketName, hold ? { ...s, leaseExpiresAt: myLease } : release(s));
+      return true;
+    };
+
+    // Loop pages within a wall-clock budget, checkpointing the cursor after EACH page so a crash
+    // loses at most one page (never the whole pass). migrate→verify transitions within the same
+    // invocation while budget remains, so a typical bucket converges in one poll; on budget
+    // exhaustion the lease is released so the next poll continues immediately from the cursor.
+    const deadline = now + WORK_BUDGET_MS;
+    let curPhase = phase;
+    let cursor = state.cursor ?? null;
+    let lastError = state.lastError;
+
+    for (;;) {
+      if (curPhase === 'migrate') {
+        const { oversized, failed, nextCursor } = await migrateChunk(env, bucketName, endpoint, from, to, cursor);
+        const notes = [
+          oversized.length ? `oversized skipped (need UploadPartCopy): ${oversized.join(', ')}` : '',
+          failed.length ? `failed to re-encrypt: ${failed.join(', ')}` : '',
+        ].filter(Boolean).join('; ');
+        lastError = notes || lastError;
+        cursor = nextCursor;
+        if (cursor) {
+          const s: RegimeState = { ...state, drained, phase: 'migrate', cursor, ...(lastError ? { lastError } : {}) };
+          if (Date.now() < deadline) { if (!(await commit(s, true))) return; continue; }
+          await commit(s, false);
+          return;
+        }
+        // Migrate pass complete → verify (continue in this invocation if budget remains).
+        curPhase = 'verify';
+        const s: RegimeState = { ...state, drained, phase: 'verify', cursor: null, ...(lastError ? { lastError } : {}) };
+        if (Date.now() >= deadline) { await commit(s, false); return; }
+        if (!(await commit(s, true))) return;
+        continue;
+      }
+
+      const { ok, failedKey, nextCursor } = await verifyChunk(env, bucketName, endpoint, to, cursor);
       if (!ok) {
         // A stray object is not in the target regime — re-run a migrate pass to heal it, but BOUND
-        // the bounces: an object that re-migration cannot fix (poison/corrupt) must not loop forever.
-        // Per-key: only accumulate while the SAME object keeps failing; a transient failure on a
-        // different key resets the counter so it can never trip a false halt.
+        // the bounces (MAX_VERIFY_RETRIES): an un-fixable poison/corrupt object must not loop forever.
+        // Per-key: only accumulate while the SAME object keeps failing; a different key resets it.
         const stuckCount = (state.lastFailedKey === failedKey ? (state.stuckCount ?? 0) : 0) + 1;
-        next = {
+        await commit({
           ...state, drained, stuckCount, lastFailedKey: failedKey, phase: 'migrate', cursor: null,
           lastError: stuckCount >= MAX_VERIFY_RETRIES
             ? `verify failed at ${failedKey} after ${stuckCount} attempts; halting (un-migratable object — admin review)`
             : `verify failed at ${failedKey}; re-migrating`,
-        };
-      } else if (nextCursor) {
-        next = { ...state, drained, cursor: nextCursor };
-      } else {
-        // Verified clean → flip to ready (drops stuckCount/cursor/phase). A real migration advances
-        // the regime + generation; a mixed-recovery only heals.
-        next = state.status === 'mixed-recovery'
-          ? { status: 'ready', regime: state.regime, generation: state.generation }
-          : { status: 'ready', regime: to, generation: state.generation + 1 };
+        }, false);
+        return;
       }
-    }
-
-    // M1 optimistic lock: only commit if we STILL hold the lease we claimed. If our lease expired
-    // mid-chunk and another poll took over (possibly already finishing the migration), writing our
-    // stale snapshot would clobber it — e.g. revert a completed `ready`/gen+1 back to `migrating`.
-    const current = await getRegimeState(env, bucketName);
-    if (current.leaseExpiresAt !== myLease) return;
-    await setRegimeState(env, bucketName, release(next));
-    if (next.status === 'ready') {
-      logger.info('Governed Mode migration complete', { bucketName, regime: next.regime, generation: next.generation });
+      cursor = nextCursor;
+      if (cursor) {
+        const s: RegimeState = { ...state, drained, phase: 'verify', cursor };
+        if (Date.now() < deadline) { if (!(await commit(s, true))) return; continue; }
+        await commit(s, false);
+        return;
+      }
+      // Verified clean → ready (drops stuckCount/cursor/phase). A real migration advances the regime
+      // + generation; a mixed-recovery only heals.
+      const done: RegimeState = state.status === 'mixed-recovery'
+        ? { status: 'ready', regime: state.regime, generation: state.generation }
+        : { status: 'ready', regime: to, generation: state.generation + 1 };
+      if (await commit(done, false)) {
+        logger.info('Governed Mode migration complete', { bucketName, regime: done.regime, generation: done.generation });
+      }
+      return;
     }
   } catch (err) {
     logger.error('advanceMigration chunk failed; will retry next poll', err instanceof Error ? err : new Error(String(err)), { bucketName });
