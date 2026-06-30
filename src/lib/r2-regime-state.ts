@@ -32,7 +32,7 @@ export interface RegimeState {
   to?: R2SseRegime;
   /** Monotonic; ++ on every completed flip. Used as the verify-commit ordering marker (no container generation guard is built — the /start 409 gate + container drain cover that; see ADR AD91). */
   generation: number;
-  /** ListObjectsV2 continuation-token for chunked resume; null/absent ⇒ start of pass. */
+  /** ListObjectsV2 `start-after` key (the last object processed) for chunked resume; null/absent ⇒ start of pass. */
   cursor?: string | null;
   /** Consecutive verify-phase failures on the SAME object (`lastFailedKey`). Bounds the migrate↔verify retry on an un-migratable (poison/corrupt) object so it can never wedge into an infinite loop; resets when a different key fails (so a transient blip on another object can't trip the halt) and is dropped when the migration flips to ready. */
   stuckCount?: number;
@@ -54,11 +54,11 @@ export interface RegimeState {
 type MigrationEnv = Pick<Env, 'KV'>;
 
 /** In-flight lock TTL — now purely a CRASH-RECOVERY backstop. Each advanceMigration invocation bounds
- * itself to the ~26s waitUntil budget (WAITUNTIL_BUDGET_MS) and RELEASES the lease on exit, so in the
- * normal path this TTL is never reached. It only matters if an isolate is force-killed without
- * releasing; kept short (60s) so such a stall self-heals quickly, yet comfortably longer than one
- * invocation's worst-case wall-clock (the ~26s budget plus the final started page completing, ≈28s)
- * so two polls don't race for the same chunk. */
+ * itself to the ~22s work deadline (WORK_DEADLINE_MS) and RELEASES the lease on exit, so in the normal
+ * path this TTL is never reached. It only matters if an isolate is force-killed without releasing; kept
+ * short (60s) so such a stall self-heals quickly, yet comfortably longer than one invocation's wall-clock
+ * (the ~22s deadline plus the final started slice completing, ≈28s) so two polls don't race for the same
+ * chunk. */
 export const MIGRATION_LEASE_MS = 60 * 1000;
 
 /** The default state for a bucket with no state object: legacy buckets are SSE-C and ready. */

@@ -44,8 +44,8 @@ import {
   markMixedRecovery,
   fetchObjectWithRegimeFallback,
   withTimeout,
-  MAX_PAGE_WALLCLOCK_MS,
-  WAITUNTIL_BUDGET_MS,
+  WORK_DEADLINE_MS,
+  MIGRATE_SLICE_MS,
   type R2SseRegime,
   type RegimeState,
 } from '../../lib/r2-migration';
@@ -106,12 +106,11 @@ function makeR2(objects: Record<string, { regime: R2SseRegime; size?: number; et
     if (method === 'GET' && url.includes('list-type=2')) {
       const allKeys = [...store.keys()];
       const u = new URL(url);
-      const token = u.searchParams.get('continuation-token');
-      const start = token ? allKeys.indexOf(token) + 1 : 0;
+      const startAfter = u.searchParams.get('start-after');
+      const start = startAfter ? allKeys.indexOf(startAfter) + 1 : 0;
       const pageKeys = allKeys.slice(start, start + pageSize);
       const truncated = start + pageSize < allKeys.length;
-      const nextToken = truncated ? pageKeys[pageKeys.length - 1] : undefined;
-      return new Response(listXml(pageKeys.map((k) => ({ key: k, size: store.get(k)!.size })), truncated, nextToken), { status: 200 });
+      return new Response(listXml(pageKeys.map((k) => ({ key: k, size: store.get(k)!.size })), truncated), { status: 200 });
     }
     if (method === 'GET' && url.includes('uploads')) {
       return new Response('<ListMultipartUploadsResult></ListMultipartUploadsResult>', { status: 200 });
@@ -267,6 +266,24 @@ describe('migrateBucketEncryption (lossless REPLACE re-encrypt)', () => {
     expect(puts).toHaveLength(0);
   });
 
+  it('re-encrypts each object with a SINGLE source-regime HEAD (no separate target skip-probe)', async () => {
+    const { puts, heads } = makeR2({ 'a.md': { regime: 'sse-c' } });
+    const res = await migrateBucketEncryption(r2Env, 'bkt', 'https://r2.test', 'sse-c', 'plain');
+    expect(res.migrated).toBe(1);
+    expect(puts).toHaveLength(1);
+    // ONE head per migrated object — gut-check: re-add the probe HEAD and this becomes 2.
+    expect(heads.filter((h) => h.key === 'a.md')).toHaveLength(1);
+    expect(heads[0].regime).toBe('sse-c'); // the SOURCE regime — decides skip AND captures metadata in one op
+  });
+
+  it('skips an already-migrated object via the source-HEAD 400 (no probe, no copy)', async () => {
+    const { puts, heads } = makeR2({ 'a.md': { regime: 'plain' } }); // already plain; migrating sse-c→plain
+    const res = await migrateBucketEncryption(r2Env, 'bkt', 'https://r2.test', 'sse-c', 'plain');
+    expect(res).toEqual({ migrated: 0, skipped: 1, oversized: [] });
+    expect(puts).toHaveLength(0);
+    expect(heads.filter((h) => h.key === 'a.md')).toHaveLength(1); // single source HEAD → 400 → skip
+  });
+
   it('no-ops (no network) when from === to', async () => {
     makeR2({ 'a.txt': { regime: 'plain' } });
     const res = await migrateBucketEncryption(r2Env, 'bkt', 'https://r2.test', 'plain', 'plain');
@@ -412,9 +429,9 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
     const { store } = makeR2(objs, { pageSize: 2 }); // 2 migrate pages
     const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false }) });
 
-    // Force a voluntary mid-pass exit after the first page: Date.now() returns the start time once
-    // (deadline anchor = T0 + WAITUNTIL_BUDGET_MS), then a later value so the post-page gate sees that
-    // another worst-case page would no longer fit before the deadline → commit(release) + return.
+    // Force a voluntary mid-pass exit after the first chunk: Date.now() returns the start time once
+    // (deadline anchor = T0 + WORK_DEADLINE_MS), then a later value so canStartChunk sees that another
+    // list + slice (LIST_TIMEOUT_MS + MIGRATE_SLICE_MS) would no longer fit → commit(release) + return.
     const T0 = 1_000_000;
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValueOnce(T0).mockReturnValue(T0 + 16_000);
 
@@ -601,13 +618,13 @@ describe('withTimeout (bounds a hung R2 op so it cannot hold the lease until a f
   });
 });
 
-// ── Page wall-clock fits the waitUntil window (the MEDIUM the code-reviewer caught) ──────────────────
-// Per-op timeouts alone don't bound a page; a multi-slice page could run `slices × op-chain` and overrun
-// the ~30s waitUntil window mid-page → force-kill → held lease → stall. The constants must guarantee one
-// WHOLE page (worst case) finishes inside the budget, which itself sits under the platform window.
-describe('migration page is bounded to fit the ctx.waitUntil window', () => {
-  it('a single worst-case page completes within the waitUntil budget, which is under the ~30s platform ceiling', () => {
-    expect(MAX_PAGE_WALLCLOCK_MS).toBeLessThan(WAITUNTIL_BUDGET_MS); // a started page (incl. the unconditional first) always finishes before the deadline
-    expect(WAITUNTIL_BUDGET_MS).toBeLessThan(30_000); // and the deadline is under the platform's ~30s waitUntil kill
+// ── An invocation always releases the lease before the waitUntil kill ────────────────────────────────
+// The only correctness requirement of the per-slice gate: the LAST slice it starts (at worst at the
+// work deadline) must still finish before the ~30s platform force-kill, so the lease is always released
+// voluntarily (a force-kill skips the release and stalls the migration). That reduces to a constant
+// relationship between the deadline and one slice's worst-case wall-clock.
+describe('an invocation always releases the lease before the waitUntil kill', () => {
+  it('the last slice startable at the work deadline still finishes within the ~30s platform window', () => {
+    expect(WORK_DEADLINE_MS + MIGRATE_SLICE_MS).toBeLessThan(30_000); // gut-check: push the deadline past 24s and this fails
   });
 });
