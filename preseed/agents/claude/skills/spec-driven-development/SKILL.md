@@ -1,7 +1,7 @@
 ---
 name: spec-driven-development
-description: Specification-driven development index. Defines spec structure, REQ format, Status semantics, three autonomy modes, and routes to sub-command skills (sdd-init for bootstrap, sdd-clean for rescue). Holds the small sub-commands (edit, add, mode), Plan Mode integration, test discipline, templates. Invoked via /sdd.
-version: 5.0.0
+description: Specification-driven development index. Defines spec structure, REQ format, Status semantics, the @impl source-anchor and @test test-anchor conventions (per-AC, at parity), three autonomy modes, and routes to sub-command skills (sdd-init for bootstrap, sdd-clean for rescue). Holds the small sub-commands (edit, add, mode), Plan Mode integration, test discipline, templates. Invoked via /sdd.
+version: 5.1.0
 ---
 
 # Spec-Driven Development
@@ -91,6 +91,7 @@ The enforcement check (one walk, one rule) lives in `doc-enforce-lanes` § Layou
 - ACs are **numbered** (`1. 2. 3.`), never bulleted (`-`) — MEDIUM `ac-bullets-not-numbered`. Maximum 7 ACs per REQ.
 - CON-* and REQ-* IDs inside Constraints/Dependencies render as markdown anchor links, not plain text — MEDIUM `cross-reference-not-linked`.
 - Every AC describing observable behaviour ends with `<!-- @impl: <path>::<symbol> -->`. ACs asserting a concrete value use `<!-- @impl: <path>::<symbol> = <value-pattern> -->`. Validators in `spec-enforce-truth` (CQ-SOURCE) read these comments and verify symbol + value against source. AC bullets without an anchor are valid but generate `ac-missing-source-anchor` findings (MEDIUM); `Verification: Manual check` REQs are exempt. Same convention applies to ADR `Context:` blocks.
+- **Test-anchor parity (gated by `enforce_tdd`).** When `enforce_tdd: true`, every AC describing observable behaviour ALSO ends with a test anchor `<!-- @test: <path> (<describe/it title>) -->` naming the test block that proves it (it sits alongside the `@impl` anchor on the same AC line). Validators in `spec-enforce-truth` (CQ-TEST) verify the block resolves: an AC without a test anchor is `ac-missing-test-anchor` (MEDIUM), the test parallel of `ac-missing-source-anchor`; a test anchor whose block cannot be found is `spec-test-anchor-orphaned` (HIGH), the parallel of `spec-anchor-orphaned`. `Verification: Manual check` REQs are exempt. When `enforce_tdd: false` the project has opted out of test verification, so these are informational only (never Status-mutating, never blocking).
 - **Notes** is OPTIONAL — only two shapes (see `spec-enforce` § Rule B): Partial-explanation (`Status: Partial` only, ≤3 sentences) or Doc-pointer (any status, ≤2 sentences, MUST contain a markdown link to `documentation/**` or `sdd/**`). Sibling-REQ cross-references go in `Dependencies:`.
 - Each REQ ends with `---` on its own line, blank lines either side.
 - **Deprecated REQs are deleted, not tombstoned.** No `Replaced By:`, no `Removed In:`. Out-of-scope ideas go to `## Out of Scope` in the domain README.
@@ -131,6 +132,36 @@ The `@impl` HTML comment is the framework's anchor format for the Truth guarante
 **Drift behaviour:** symbol renames or deletions break the anchor and force a spec update on the next PR-boundary review — correct, because renames change the contract. Line moves within a file do NOT break the anchor (graphify indexes by symbol identity, not line number).
 
 **This validation runs ALWAYS** — both `enforce_tdd: true` and `enforce_tdd: false`, both Greenfield and Import Mode, both inside and outside SDD transition. `enforce_tdd` gates only the test-anchor check (`Implemented` defaulting on test absence); it never gates source-anchor truth-check.
+
+## Test-anchor convention (parity with source anchors, gated by `enforce_tdd`)
+
+The `@test` HTML comment is the test parallel of `@impl`: it ties each AC to the specific test block that proves it, so coverage is checked AC-by-AC rather than only "some test names the REQ ID" (REQ-level). It is enforced when `enforce_tdd: true`; a project that opts out of automated testing (`enforce_tdd: false`) is exempt, exactly as the REQ-level test pass is.
+
+**Form:**
+
+```
+<!-- @test: <path> (<describe/it title>) -->
+```
+
+- `<path>` is a repo-relative test-file path (forward slashes) matched by `test_globs`.
+- `<describe/it title>` is the title of the `describe`/`test`/`it` block that exercises the AC, copied verbatim (it may itself contain parentheses). It sits ALONGSIDE the AC's `@impl` anchor on the same AC line; an AC may carry more than one `@test` anchor when several blocks cover it.
+
+**Examples:**
+
+```
+<!-- @test: src/__tests__/lib/auth.test.ts (login describe) -->
+<!-- @test: packages/node-agent/internal/agent/config_test.go (TestLoadConfigBackfillsDashboardToken) -->
+```
+
+**Detection regex:** `<!--\s*@test:\s*(\S+?)\s*\((.+)\)\s*-->` — capture groups `<path>`, `<block-title>` (greedy so parentheses nested in the title are captured).
+
+**Validation contract (CQ-TEST in `spec-enforce-truth`), gated by `enforce_tdd: true`:**
+
+1. `<path>` must be a `test_globs` file that exists. Missing → HIGH `spec-test-anchor-orphaned`.
+2. `<block-title>` must appear in `<path>` as a `describe`/`test`/`it` block title (substring of a block-name line; not a comment or fixture path). Not found → HIGH `spec-test-anchor-orphaned` (the test parallel of `spec-anchor-orphaned`).
+3. An AC describing observable behaviour with NO `@test` anchor → MEDIUM `ac-missing-test-anchor` (the parallel of `ac-missing-source-anchor`). `Verification: Manual check` REQs are exempt.
+
+**Gating:** when `enforce_tdd: false`, all three are informational only — written to the `## Coverage gaps` section of the layout-resolved triage file, never Status-mutating, never blocking — mirroring the REQ-level CQ-TEST false-branch. `@impl` / CQ-SOURCE is NEVER gated this way: tests are opt-out-able, source truth is not.
 
 ## Status semantics
 

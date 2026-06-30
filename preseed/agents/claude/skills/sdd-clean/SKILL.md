@@ -1,7 +1,7 @@
 ---
 name: sdd-clean
-description: Workflow for /sdd clean — rescuing a rotted spec. Mode-aware behaviors (interactive/auto/unleashed), safety nets, what gets cleaned, JUDGMENT auto-resolution rules. Invoked when /sdd clean runs. Requires the spec-driven-development skill for REQ format and Status semantics, and the spec-enforce skill family for the detection mechanics.
-version: 1.0.0
+description: Workflow for /sdd clean — rescuing a rotted spec. Mode-aware behaviors (interactive/auto/unleashed), safety nets, what gets cleaned (incl. per-AC @impl AND @test anchor backfill at parity, gated by enforce_tdd), JUDGMENT auto-resolution rules. Invoked when /sdd clean runs. Requires the spec-driven-development skill for REQ format and Status semantics, and the spec-enforce skill family for the detection mechanics.
+version: 1.1.0
 ---
 
 # /sdd clean — rescuing a rotted spec
@@ -98,11 +98,11 @@ If `LAYOUT=nested`, no migration needed; layout migration is a no-op. If `LAYOUT
 2. Shape rewrite (heading level, blank lines, field order, numbered ACs, anchor-linked cross-refs) — `spec-enforce` row 3 mechanics.
 3. AC-cap split (>7 ACs) — `spec-enforce-ac` § Splitting by sub-feature.
 4. **REQ anchor backfill** (legacy-spec @impl injection) — described below. Outputs feed pass 5.
-5. **Test-anchor backfill** (REQ-ID comments on the test `describe`/`it` blocks of every annotated symbol) — described below.
+5. **Test-anchor backfill** (REQ-ID comments on the test `describe`/`it` blocks of every annotated symbol, AND per-AC `<!-- @test: ... -->` anchors written into the spec at parity with `@impl`, gated by `enforce_tdd`) — described below.
 6. Status revaluation — CQ-TEST runs on the now-anchored spec + now-annotated tests. Implemented REQs whose tests now reference the REQ ID pass; the residual flows to Coverage gaps triage. Status drift caught here is the TRUE coverage gap, not an artefact of the legacy anchor-less shape.
 7. Implementation leakage extraction, false-positive ADR reclassification, changelog archival, doc backlink generation, fake-Deprecated cleanup.
 
-Passes 4 and 5 are the legacy-import bridge. On a project where every REQ already carries `@impl` anchors and every test already mentions its REQ IDs they are both inert no-ops.
+Passes 4 and 5 are the legacy-import bridge. On a project where every REQ already carries `@impl` anchors, every AC carries a `@test` anchor (when `enforce_tdd: true`), and every test already mentions its REQ IDs they are both inert no-ops.
 
 ### Per-category mechanics
 
@@ -132,6 +132,13 @@ Passes 4 and 5 are the legacy-import bridge. On a project where every REQ alread
   6. Test files are NOT renamed and `describe` titles are NOT mutated; the comment is the contract anchor that CQ-TEST greps. spec-enforce-truth's test-coverage check is a substring match on the REQ-ID literal, not a parser, so comments suffice.
 
   Severity: MEDIUM `req-test-anchor-missing` per REQ that had matchable symbols but no current REQ-ID mention. Auto-fix in `auto`/`unleashed`: the backfill above. Interactive prompts per test file before writing. REQs with zero matchable symbols in any test fall through to the `Coverage gaps` triage entry below — there is no test to annotate, the spec is genuinely uncovered.
+
+- **ACs missing per-AC `@test` anchors** (the test parallel of the `@impl` backfill above; only when `enforce_tdd: true`) → backfill in `auto`/`unleashed`. Mechanics:
+  1. For each AC carrying a resolved `<!-- @impl: <path>::<symbol> -->` anchor, reuse the symbol→test-block resolution from the REQ-ID backfill above: grep `test_globs` for the symbol, then locate the outermost `describe`/`test`/`it` block whose body references it.
+  2. If exactly one block resolves, emit `<!-- @test: <test-path> (<block-title>) -->` inline on the AC, alongside its `@impl` anchor (copy the block title verbatim, parentheses and all). More than one strong candidate, or none: leave the AC unanchored and route to `## Coverage gaps`.
+  3. Idempotent: an AC that already carries a `@test` anchor is a no-op.
+
+  Severity: MEDIUM `ac-missing-test-anchor` per anchorless AC (the parallel of pass 4's `req-missing-impl-anchors`). Runs AFTER the `@impl` backfill — those anchors are this pass's input — and produces the spec-side `@test` anchors that the per-AC CQ-TEST check then verifies. Interactive prompts per REQ before writing. Gated by `enforce_tdd: true`; when `false`, write `ac-missing-test-anchor` entries to the `## Coverage gaps` triage section instead of mutating the spec.
 
 - **Status: Implemented REQs without test coverage** → if `enforce_tdd: true`, demoted to `Partial` with `Notes:`; if `enforce_tdd: false`, written to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy) under `## Coverage gaps` only. After the two backfill passes above run, this check fires against the residual — REQs that genuinely have no test, not just REQs that lacked the anchor.
 - **Status: Planned/Partial REQs with source but no test** → if `enforce_tdd: true`, HIGH finding + auto-promote `Planned → Partial` with `Notes:`.

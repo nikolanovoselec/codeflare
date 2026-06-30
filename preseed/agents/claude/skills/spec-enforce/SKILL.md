@@ -1,7 +1,7 @@
 ---
 name: spec-enforce
-description: SDD spec enforcement orchestrator. Runs the 23-row execution manifest against the current diff (or full spec on scope=all). Detects forbidden content, REQ-shape violations, status drift, meta-leakage, changelog drift, backlog state, source-anchor truth-check (CQ-SOURCE — always runs). Conditionally invokes spec-enforce-ac (when ACs touched) and spec-enforce-truth (when Implemented or Partial REQs touched or scope=all — Partial included so CQ-SOURCE can validate anchors). Invoked by spec-reviewer on every PR-boundary trigger and by /sdd clean.
-version: 2.0.0
+description: SDD spec enforcement orchestrator. Runs the 23-row execution manifest against the current diff (or full spec on scope=all). Detects forbidden content, REQ-shape violations, status drift, meta-leakage, changelog drift, backlog state, source-anchor truth-check (CQ-SOURCE — always runs), and per-AC test-anchor coverage at parity with source anchors (CQ-TEST — gated by enforce_tdd). Conditionally invokes spec-enforce-ac (when ACs touched) and spec-enforce-truth (when Implemented or Partial REQs touched or scope=all — Partial included so CQ-SOURCE can validate anchors). Invoked by spec-reviewer on every PR-boundary trigger and by /sdd clean.
+version: 2.1.0
 ---
 
 # Spec Enforcement (orchestrator)
@@ -51,7 +51,7 @@ Audit location by trigger: `/sdd clean` writes to the per-category commit bodies
 | Meta-content leakage Rule A (stub-after-extraction) | Walk every REQ; flag stub shape. | `ran (N REQs, M findings)` |
 | Meta-content leakage Rule B (Notes two-shape) | Walk every Notes field; flag violations. | `ran (N Notes, M findings)` |
 | Meta-content leakage Rule C (preamble edit-history) | Walk every `sdd/{domain}.md` preamble; flag edit-history prose. | `ran (K files, M findings)` |
-| CQ-TEST — Test-anchor coverage | Invoke `spec-enforce-truth` if `enforce_tdd: true` AND (Implemented REQs touched OR scope=all). | `ran (N REQs, M findings)` or `inert (enforce_tdd: false)` |
+| CQ-TEST — Test-anchor coverage | Invoke `spec-enforce-truth` if `enforce_tdd: true` AND (Implemented REQs touched OR scope=all). Covers BOTH the REQ-level binary check AND the per-AC `@test` anchor verification at parity with `@impl`/CQ-SOURCE (`ac-missing-test-anchor` MEDIUM, `spec-test-anchor-orphaned` HIGH). | `ran (N REQs, M findings, T test-anchors verified, O orphaned, U unanchored)` or `inert (enforce_tdd: false)` |
 | CQ-SOURCE — Source-anchor truth-check | During `/sdd init`: consume both the Phase 7a verifier JSON (`.verify-anchors.json`) AND the Phase 7b enumeration-coverage verifier JSON (`.phase-7b.json`). The Phase 7a output drives anchor-orphaned / value-drift findings; the Phase 7b output drives `phase-7b-evidence-missing` / `import-mode-narrowed-scope` findings (a Phase 7b `unaccounted > 0` reported in the `[sdd-init]` commit body is itself a CRITICAL spec-side finding). Outside `/sdd init`: invoke `spec-enforce-truth` UNCONDITIONALLY when any Implemented or Partial REQ in diff OR scope=all. Never gated by `enforce_tdd`. Agent self-attestation without verifier output = CRITICAL `phase-7a-self-attestation` / `phase-7b-self-attestation` (see `sdd-init/SKILL.md` steps 7 and 8). When reading the most recent `[sdd-init]` commit body to verify the bulk-op actually ran, both the Phase 7a line (`Phase 7a verifier: parsed=...`) AND the Phase 7b line (`Phase 7b enum verifier: enumerated=...`) MUST be present; either line missing = CRITICAL `phase-7a-evidence-missing` / `phase-7b-evidence-missing`. | `ran (N REQs, A anchors verified, V drift, O orphaned, U unanchored)` |
 | CQ-1, CQ-2, CQ-3 | Invoke `spec-enforce-truth`. | `ran (...)` or `inert` |
 | Index integrity (README ↔ filesystem) | Run the mandated command in § Index integrity; every tracked file under `sdd/spec/` (flat: `sdd/*.md`) must be indexed in `sdd/README.md`, REQ-bearing files in the Domains table, support files in a Support section. Non-empty output = finding. Eyeballing the index is forbidden — the command is the check. | `ran (F files, M unindexed/misclassified)` |
@@ -126,6 +126,7 @@ Auto-fix in `auto`/`unleashed`: detect `Status: Deprecated` REQs and delete them
 - **Blank-line policy**: one blank line between every `**Field:**` line, including each member of the trailing-fields block (Constraints, Priority, Dependencies, Verification, Status). Two label lines on consecutive lines collapse on GitHub render = MEDIUM `trailing-fields-collapsed`. Closing `---` separator on its own line, blank lines either side.
 - **AC numbering**: ACs are numbered (`1. 2. 3.`), never bulleted (`-`) = MEDIUM `ac-bullets-not-numbered`. Maximum 7 ACs per REQ.
 - **Source anchors**: Every AC describing observable behaviour ends with `<!-- @impl: <path>::<symbol> -->`. ACs asserting a concrete value use `<!-- @impl: <path>::<symbol> = <value-pattern> -->`. Anchor absent on an AC = MEDIUM `ac-missing-source-anchor` (Manual-check REQs exempt).
+- **Test anchors (parity, gated by `enforce_tdd`)**: when `enforce_tdd: true`, every such AC ALSO ends with `<!-- @test: <path> (<describe/it title>) -->` naming the test block that proves it. Anchor absent = MEDIUM `ac-missing-test-anchor` (the parallel of `ac-missing-source-anchor`); anchor whose file/block does not resolve = HIGH `spec-test-anchor-orphaned` (the parallel of `spec-anchor-orphaned`). Manual-check REQs exempt; informational only when `enforce_tdd: false`. Verified by CQ-TEST in `spec-enforce-truth`.
 - **Banned inside a REQ body**: sub-headings (`####`/`#####`), nested lists, code blocks, tables, strikethrough, "Current behaviour:" / "Previously:" branches, block quotes.
 
 Auto-fix in `auto`/`unleashed`: re-render the REQ from its parsed fields into the canonical shape (inserts blank lines, renumbers ACs, reorders fields, rewrites cross-refs as anchor links, fills `None.` on empty Constraints/Dependencies). Interactive mode prompts before each rewrite. If a required field cannot be inferred from existing content (e.g. `Applies To:` was never written), escalate to triage rather than fabricate.
@@ -307,7 +308,7 @@ Re-triage runs BEFORE other CQ checks this cycle so newly-fixable backlog items 
 **Format requirement for triage entries:**
 ```
 **Finding ID:** {category}-{N}  ({YYYY-MM-DD})
-**Category:** req-test-name-only-match | sub-feature-split-cannot-mechanize | spec-anchor-orphaned | ...
+**Category:** req-test-name-only-match | sub-feature-split-cannot-mechanize | spec-anchor-orphaned | ac-missing-test-anchor | spec-test-anchor-orphaned | ...
 **Affected:** REQ-X-NNN | documentation/lanes/{file}.md | tests/path
 ```
 
