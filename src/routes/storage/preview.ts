@@ -8,7 +8,8 @@ import { createRateLimiter } from '../../middleware/rate-limit';
 import { createLogger } from '../../lib/logger';
 import { validateKey } from './validation';
 import { getSseHeaders } from '../../lib/r2-sse';
-import { isR2SseDisabledForBucket } from '../../lib/r2-migration';
+import { fetchObjectWithRegimeFallback, markMixedRecovery } from '../../lib/r2-migration';
+import { hasHealthyContainer } from '../../lib/migration-containers';
 
 const logger = createLogger('storage-preview');
 
@@ -47,12 +48,15 @@ app.get('/', async (c) => {
   const bucketName = c.get('bucketName');
   const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
-  // REQ-ENTERPRISE-018: SSE-C headers follow the bucket's regime marker (see download.ts).
-  const r2SseDisabled = await isR2SseDisabledForBucket(c.env, bucketName);
   const objectUrl = getR2Url(endpoint, bucketName, validatedKey);
 
-  // HEAD request to get metadata without downloading the full object
-  const headResponse = await r2Client.fetch(objectUrl, { method: 'HEAD', headers: getSseHeaders(c.env, r2SseDisabled) });
+  // REQ-ENTERPRISE-018: HEAD in the bucket's committed regime, falling back to the opposite
+  // regime once on an SSE-mismatch (see download.ts). `sseDisabled` is the regime that worked,
+  // reused for the GET below so it never re-probes. A fallback hit on a ready bucket self-heals.
+  const { response: headResponse, stray, sseDisabled } = await fetchObjectWithRegimeFallback(c.env, bucketName, objectUrl, { method: 'HEAD' });
+  if (stray) {
+    try { c.executionCtx.waitUntil(markMixedRecovery(c.env, bucketName, () => hasHealthyContainer(c.env, bucketName))); } catch { /* no execution context (tests) */ }
+  }
 
   if (!headResponse.ok) {
     logger.error('R2 HEAD failed', undefined, { status: headResponse.status, bucketName, key });
@@ -65,7 +69,7 @@ app.get('/', async (c) => {
 
   // Text files under 1MB: return content inline
   if (isTextContentType(contentType) && size <= MAX_TEXT_SIZE) {
-    const getResponse = await r2Client.fetch(objectUrl, { method: 'GET', headers: getSseHeaders(c.env, r2SseDisabled) });
+    const getResponse = await r2Client.fetch(objectUrl, { method: 'GET', headers: getSseHeaders(c.env, sseDisabled) });
     const content = await getResponse.text();
 
     return c.json({

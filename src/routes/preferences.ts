@@ -7,12 +7,12 @@ import { z } from 'zod';
 import { AgentTypeSchema, SessionModeSchema, SleepAfterOptions, type Env, type UserPreferences } from '../types';
 import { getPreferencesKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
-import { ValidationError } from '../lib/error-types';
+import { ValidationError, BucketMigratingError } from '../lib/error-types';
 import { parseJsonBody } from '../lib/request-helpers';
 import { createRateLimiter } from '../middleware/rate-limit';
 import { isSaasModeActive } from '../lib/onboarding';
 import { reconcileAgentConfigs } from '../lib/r2-seed';
-import { isR2SseDisabledForBucket } from '../lib/r2-migration';
+import { isR2SseDisabledForBucket, isBucketMigrating } from '../lib/r2-migration';
 import { getR2Config } from '../lib/r2-config';
 import { getEffectiveTier, getTierConfig, getEffectiveTierForUser, isEnterpriseMode } from '../lib/subscription';
 import { allowedAgents } from '../lib/agent-allowlist';
@@ -109,6 +109,14 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
 
   const key = getPreferencesKey(bucketName);
   const existing = await c.env.KV.get<UserPreferences>(key, 'json') || {};
+
+  // REQ-ENTERPRISE-018: a sessionMode change triggers an R2 agent-config reconcile below;
+  // refuse it while the bucket's encryption regime is migrating so configs are never written
+  // in the wrong (pre-flip) regime. Non-R2 preference changes are unaffected.
+  if (body.sessionMode && body.sessionMode !== existing.sessionMode && await isBucketMigrating(c.env, bucketName)) {
+    throw new BucketMigratingError();
+  }
+
   const updated: UserPreferences = { ...existing, ...body } as UserPreferences;
 
   await c.env.KV.put(key, JSON.stringify(updated));

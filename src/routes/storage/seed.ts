@@ -4,10 +4,10 @@ import type { AuthVariables } from '../../middleware/auth';
 import { createBucketIfNotExists } from '../../lib/r2-admin';
 import { getR2Config } from '../../lib/r2-config';
 import { seedGettingStartedDocs, reconcileAgentConfigs } from '../../lib/r2-seed';
-import { resolveBucketSseOnEnsure } from '../../lib/r2-migration';
+import { resolveBucketSseOnEnsure, isBucketMigrating } from '../../lib/r2-migration';
 import { PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { createRateLimiter } from '../../middleware/rate-limit';
-import { ContainerError, toErrorMessage } from '../../lib/error-types';
+import { ContainerError, BucketMigratingError, toErrorMessage } from '../../lib/error-types';
 import { createLogger } from '../../lib/logger';
 import { getPreferencesKey } from '../../lib/kv-keys';
 import { resolveSessionMode } from '../../lib/session-mode';
@@ -30,6 +30,8 @@ app.use('*', storageSeedRateLimiter);
  */
 app.post('/getting-started', async (c) => {
   const bucketName = c.get('bucketName');
+  // REQ-ENTERPRISE-018: block reseed while the bucket's encryption regime is migrating.
+  if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
   const { accountId, endpoint } = await getR2Config(c.env);
 
   const bucketResult = await createBucketIfNotExists(accountId, c.env.CLOUDFLARE_API_TOKEN, bucketName);
@@ -72,6 +74,8 @@ app.post('/getting-started', async (c) => {
  */
 app.post('/agent-configs', async (c) => {
   const bucketName = c.get('bucketName');
+  // REQ-ENTERPRISE-018: block reseed while the bucket's encryption regime is migrating.
+  if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
   const { accountId, endpoint } = await getR2Config(c.env);
 
   const bucketResult = await createBucketIfNotExists(accountId, c.env.CLOUDFLARE_API_TOKEN, bucketName);

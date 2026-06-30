@@ -34,7 +34,7 @@ deployed on Recreate or new bucket creation.
 | Memory plugin & rule | No | Yes | Yes |
 | Core environment rules (cloudflare-environment, no-local-builds, git-workflow) | Yes | Yes | Yes |
 | Pi startup header and local statusline | Yes | Yes | Yes |
-| Cloudflare-stack, github-cloudflare-ship (+ refs), ci-monitoring, pr-workflow, deploy-credentials skills | Yes | Yes | Yes |
+| Cloudflare-stack, ship (+ refs), ci-monitoring, pr-workflow, deploy-credentials skills | Yes | Yes | Yes |
 | `consult-llm` skill (Claude + Pi) | No | Yes | Yes |
 | CC hooks: `block-attributed-commits`, `git-push-review-reminder`, `enforce-review-spawn` | No | Yes | Yes |
 | Language rules (common, TS, Python, Go, Swift) | No | Yes | Yes |
@@ -121,7 +121,7 @@ deep-reviewer agents) and `--verify-high` (Phase 7 external-LLM
 second-opinion); invoking it with no arguments prints a CLI help
 screen and exits without running.
 
-**Skills** (each preseeded as `<name>/SKILL.md`): `cloudflare-stack`, `github-cloudflare-ship`
+**Skills** (each preseeded as `<name>/SKILL.md`): `cloudflare-stack`, `ship`
 (+ reference files), `consult-llm`, `api-design`, `backend-patterns`,
 `content-hash-cache-pattern`, `database-migrations`, `deployment-patterns`,
 `frontend-patterns`, `iterative-retrieval`, `search-first`,
@@ -286,7 +286,7 @@ All preseed content is deployed via the manifest pipeline:
   (advanced only)
 - `commands/`: brainstorm, debug, deploy, review, sdd
   (advanced only)
-- `skills/`: cloudflare-stack, github-cloudflare-ship (+
+- `skills/`: cloudflare-stack, ship (+
   refs), ci-monitoring, pr-workflow, deploy-credentials (the
   default+advanced skills), consult-llm, api-design,
   backend-patterns, content-hash-cache-pattern, database-migrations,

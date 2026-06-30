@@ -9,6 +9,8 @@ import { createLogger } from '../../lib/logger';
 import { escapeXml, decodeXmlEntities } from '../../lib/xml-utils';
 import { validateKey } from './validation';
 import { parseJsonBody } from '../../lib/request-helpers';
+import { isBucketMigrating } from '../../lib/r2-migration';
+import { BucketMigratingError } from '../../lib/error-types';
 
 const logger = createLogger('storage-delete');
 
@@ -40,6 +42,9 @@ app.post('/', async (c) => {
   const validatedPrefixes = prefixes.map(prefix => validateKey(prefix, 'prefix'));
 
   const bucketName = c.get('bucketName');
+  // REQ-ENTERPRISE-018: block deletes while the bucket's encryption regime is migrating so a delete
+  // can't race a re-encrypt chunk (404 the copy-source) and so writers stay uniformly gated.
+  if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
   const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
 

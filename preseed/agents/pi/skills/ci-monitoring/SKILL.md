@@ -1,12 +1,25 @@
 ---
 name: ci-monitoring
-description: Pi-native background CI monitoring after every CI-producing push unless the user explicitly skips it; never blocks the main session.
-version: 1.0.0
+description: Pi-native background CI monitoring after every CI-producing push unless the user explicitly skips it; never blocks the main session. Includes a post-push launch guard (main session verifies registered runs before spawning; prefer a known-run verifier) to avoid the startup race.
+version: 1.1.0
 ---
 
 # Pi Background CI Monitoring
 
 After any push that can produce CI, the main session must start exactly one backgrounded subagent to monitor the pushed HEAD unless the user explicitly says to skip CI monitoring for that push.
+
+## Post-push launch guard (avoid the startup race)
+
+Do NOT spawn the monitor in the same beat as the post-push hook — the subagent can start before GitHub has registered any runs for the new HEAD (and before the push/review hooks settle), which is the startup race. First, in the MAIN session, query the exact head once:
+
+```bash
+gh run list --commit "$HEAD" --limit 20 --json databaseId,name,status,conclusion,url,event
+```
+
+- **Runs already registered** → spawn the background monitor as a **known-run verifier**: pass the discovered run IDs/URLs into the subagent prompt so it watches those specific runs instead of polling for workflows to appear.
+- **No runs yet** → wait briefly and re-check once before spawning; do not start the long polling monitor inside the immediate post-push hook window.
+
+The main session doing the first GitHub query (after the hooks settle) is what removes the race; the detached monitor below still tolerates a briefly-empty `gh run list` as a backstop.
 
 ## Hard rule: never monitor in the main session
 

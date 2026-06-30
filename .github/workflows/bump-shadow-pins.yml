@@ -119,8 +119,32 @@ jobs:
             fs.writeFileSync(ep, epContent);
             console.log(`updated ${ep}`);
           }
+
+          // Pi prewarm copy: Pi loads context-mode as its OWN `npm:context-mode@<ver>`
+          // package (preseed/agents/pi package.json + lockfile), mirrored in
+          // codeflare-pi.ts (CONTEXT_MODE_PACKAGE) and the Pi settings test. This job
+          // owns the WHOLE context-mode bump so the global plugin pin and the Pi pin
+          // move together in ONE PR and can never drift (the Dockerfile FATALs if they
+          // do; the pi-preseed job excludes context-mode for this reason). Name-anchored
+          // replacements only, so no unrelated version string is ever rewritten.
+          const piFiles = [
+            'preseed/agents/pi/package.json',
+            'preseed/agents/pi/extensions/codeflare-pi.ts',
+            'host/__tests__/pi-settings-packages.test.js',
+            'src/__tests__/lib/agent-seed-manifest.test.ts',
+          ];
+          for (const f of piFiles) {
+            const before = fs.readFileSync(f, 'utf-8');
+            const after = before
+              .replaceAll(`"context-mode": "${cur}"`, `"context-mode": "${lat}"`)
+              .replaceAll(`npm:context-mode@${cur}`, `npm:context-mode@${lat}`);
+            if (before !== after) { fs.writeFileSync(f, after); console.log(`updated ${f}`); }
+          }
           NODE
 
+          # Regenerate the Pi preseed lockfile so its context-mode pin matches the
+          # bumped manifest (same mechanism the pi-preseed job uses for its deps).
+          ( cd preseed/agents/pi && npm install --package-lock-only --no-audit --no-fund )
           npm ci --no-audit --no-fund --silent
           npm run generate:agent-seed
 
@@ -146,12 +170,15 @@ jobs:
           BODY=$(cat <<EOF
           Auto-generated bump of \`context-mode\` from \`$CUR\` to \`$LAT\`.
 
-          The version is shadow-pinned (no package.json entry) so Dependabot can't open this PR - \`bump-shadow-pins.yml\` does it weekly.
+          The version is shadow-pinned (no package.json entry the global install reads) so Dependabot can't open this PR - \`bump-shadow-pins.yml\` does it weekly. This job bumps BOTH context-mode installs (the Claude global plugin pin AND the Pi prewarm copy) in one PR so they can never drift; the \`pi-preseed\` job intentionally excludes context-mode.
 
-          Files updated by string replace + agent-seed regenerate:
-          - \`preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json\`
-          - \`entrypoint.sh\` (CONTEXT_MODE_VERSION + jq/bash fallback strings + Pi disabledPackages pin)
+          Files updated by string replace + lockfile + agent-seed regenerate:
+          - \`preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json\` (global install)
           - \`preseed/agents/claude/plugins/context-mode/README.md\`
+          - \`entrypoint.sh\` (CONTEXT_MODE_VERSION + jq/bash fallback strings + Pi \`npm:context-mode@\` spec)
+          - \`preseed/agents/pi/package.json\` + \`package-lock.json\` (Pi prewarm copy)
+          - \`preseed/agents/pi/extensions/codeflare-pi.ts\` (\`CONTEXT_MODE_PACKAGE\`)
+          - \`host/__tests__/pi-settings-packages.test.js\` + \`src/__tests__/lib/agent-seed-manifest.test.ts\` (pinned-version assertions)
           - \`src/lib/agent-seed.generated.ts\` (regenerated)
 
           ## Test plan
@@ -757,10 +784,13 @@ jobs:
     # in entrypoint.sh's Pi settings `required` array (and CONTEXT_MODE_PACKAGE in
     # codeflare-pi.ts), and baked into src/lib/agent-seed.generated.ts. Dependabot
     # only sees the manifest, so it would drift the entrypoint literals / generated
-    # seed out of sync. This job owns ALL Pi preseed pins (the @juicesharp rpiv
-    # family, pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents, context-mode):
+    # seed out of sync. This job owns the Pi preseed pins EXCEPT context-mode (the
+    # @juicesharp rpiv family, pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents):
     # it diffs each dep against npm latest, applies name-anchored replacements across
     # every copy, regenerates the lockfile + seed, and opens one PR per changed set.
+    # context-mode is excluded here because it is pinned in TWO installs (this Pi copy
+    # AND the Claude global plugin via plugin.json); the dedicated `context-mode:` job
+    # bumps both pins together in one PR so they can never drift.
     # (Graphify is no longer an npm pin — it ships as the first-party
     # graphify-native.ts extension.)
     runs-on: ubuntu-latest
@@ -786,6 +816,11 @@ jobs:
           const pkg = require('./preseed/agents/pi/package.json');
           const changed = [];
           for (const [name, cur] of Object.entries(pkg.dependencies || {})) {
+            // context-mode is bumped atomically (global plugin pin + this Pi pin
+            // together, one PR) by the dedicated `context-mode:` job above, so skip
+            // it here — otherwise this job would open a second, competing PR that
+            // moves only the Pi pin and drifts it from plugin.json.
+            if (name === 'context-mode') continue;
             const lat = execFileSync('npm', ['view', name, 'version'], { encoding: 'utf8' }).trim();
             if (cur !== lat) changed.push({ name, cur, lat });
           }

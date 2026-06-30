@@ -44,3 +44,13 @@ graphify save-result --question "Explain NODE_NAME" --answer "ANSWER" --type exp
 ```
 
 Write a 3-5 sentence explanation of what the node is, what it connects to, and why those connections matter, using the source locations as citations - then save it.
+
+## Work memory (self-improving loop)
+
+When you save a result, append an `--outcome` so future sessions learn from this one - add `--outcome useful|dead_end|corrected` to the `save-result` command (and `--correction "the right answer"` when the saved answer was wrong):
+
+- `useful` - the cited nodes answered the question well; they become *preferred sources* next time.
+- `dead_end` - the question or path led nowhere; don't re-derive it.
+- `corrected` - the answer was wrong; `--correction` records what was right.
+
+At the **start** of graph work, refresh and read the lessons: run `graphify reflect --if-stale` (cheap, deterministic, no LLM; `--if-stale` is a no-op when `graphify-out/reflections/LESSONS.md` is already newer than every input), then read `graphify-out/reflections/LESSONS.md`. It lists **preferred sources** (start there), **known dead ends** (skip them), and prior **corrections**. Running `reflect` yourself keeps the lessons current even without the git hook installed.

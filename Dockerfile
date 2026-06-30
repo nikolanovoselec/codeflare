@@ -291,10 +291,27 @@ echo "[Dockerfile] installing context-mode@$VER"
 npm install -g "context-mode@$VER"
 CTX_DIR="$(npm root -g)/context-mode"
 node /tmp/patch-context-mode-bundles.mjs "$CTX_DIR"
-# Smoke-test BOTH bundles so a regression in server.bundle.mjs surfaces
+# Pi loads context-mode as an `npm:context-mode@<ver>` PACKAGE (preseed/agents/pi
+# settings.json + package.json), resolved at runtime from ~/.pi/agent/npm/node_modules,
+# which the entrypoint SYMLINKS to this build-time prewarm tree (PI_OFFLINE=1 — no runtime
+# reinstall). So the Pi copy MUST be patched here too, else Pi sessions hit the live npm
+# update-probe (the "Update available … ctx_upgrade" chat spam) + miss the createRequire
+# shim (ctx_execute "Dynamic require of node:*"). The global (Claude MCP bin) and the Pi
+# package copy are separate installs with separate version pins — assert they match so a
+# Dependabot bump to one without the other (preseed/agents/pi/package.json vs plugin.json)
+# FAILS the build instead of silently shipping a half-patched/mismatched pair.
+PI_CTX_DIR="/opt/codeflare/pi-agent/npm/node_modules/context-mode"
+PI_CTX_VER="$(node -p "require('$PI_CTX_DIR/package.json').version")"
+if [ "$PI_CTX_VER" != "$VER" ]; then
+  echo "[Dockerfile] FATAL: Pi context-mode $PI_CTX_VER != plugin.json $VER — bump preseed/agents/pi/package.json and plugin.json together" >&2
+  exit 1
+fi
+node /tmp/patch-context-mode-bundles.mjs "$PI_CTX_DIR"
+# Smoke-test BOTH bundles in BOTH installs so a regression in server.bundle.mjs surfaces
 # at build time. cli.bundle.mjs is exercised by `--version`.
 context-mode --version
 node -e "import('/usr/local/lib/node_modules/context-mode/server.bundle.mjs').catch(e => { console.error('[Dockerfile] FATAL: server.bundle.mjs import failed:', e.message); process.exit(1); }).then(() => console.log('[Dockerfile] server.bundle.mjs imports cleanly'))"
+node -e "import('/opt/codeflare/pi-agent/npm/node_modules/context-mode/server.bundle.mjs').catch(e => { console.error('[Dockerfile] FATAL: Pi server.bundle.mjs import failed:', e.message); process.exit(1); }).then(() => console.log('[Dockerfile] Pi server.bundle.mjs imports cleanly'))"
 rm -f /tmp/context-mode-plugin.json /tmp/patch-context-mode-bundles.mjs
 npm cache clean --force
 rm -rf /root/.npm

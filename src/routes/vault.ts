@@ -53,6 +53,7 @@ import {
 import { VAULT_NATIVE_SERVICE_WORKER_JS } from './vault-native-sw';
 import { getVaultEncryptionKey } from './vault-crypto';
 import { getVaultBucketToken } from '../lib/vault-bucket-token';
+import { isBucketMigrating } from '../lib/r2-migration';
 import { validateVaultRoute, VaultRouteResult } from './vault-validation';
 import {
   checkVaultOrigin,
@@ -530,6 +531,13 @@ app.get('/:sessionId/status', async (c) => {
   const session = await c.env.KV.get<Session>(sessionKey, 'json');
   if (!session) {
     throw new NotFoundError('Session');
+  }
+
+  // REQ-ENTERPRISE-018: while the bucket's encryption regime is migrating the container is
+  // drained and the vault is served from a re-encrypting bucket — report not-ready with an
+  // explicit reason instead of probing a torn-down container.
+  if (await isBucketMigrating(c.env, bucketName)) {
+    return c.json({ session, containerRunning: false, vaultReady: false, bucketMigrating: true, url: `/api/vault/${sessionId}/` });
   }
 
   try {

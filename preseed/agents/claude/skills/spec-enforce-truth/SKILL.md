@@ -1,7 +1,7 @@
 ---
 name: spec-enforce-truth
-description: SDD spec content-quality / source-of-truth checks. Runs CQ-1 (REQ-test truth-check), CQ-2 (vendor / external-interface drift), CQ-3 (content-preservation on shrink), CQ-TEST (test-anchor coverage, gated by enforce_tdd), and CQ-SOURCE (source-anchor truth-check, ALWAYS runs). Invoked conditionally by spec-enforce when Implemented REQs are touched OR scope=all.
-version: 2.0.0
+description: SDD spec content-quality / source-of-truth checks. Runs CQ-1 (REQ-test truth-check), CQ-2 (vendor / external-interface drift), CQ-3 (content-preservation on shrink), CQ-TEST (test-anchor coverage — REQ-level coverage AND per-AC @test anchor verification at parity with @impl, gated by enforce_tdd), and CQ-SOURCE (source-anchor @impl truth-check, ALWAYS runs). Invoked conditionally by spec-enforce when Implemented REQs are touched OR scope=all.
+version: 2.1.0
 ---
 
 # Spec Enforcement — content quality and source-of-truth
@@ -83,6 +83,32 @@ When `enforce_tdd: false`:
 2. **No auto-demote on existing REQs**: do not move `Implemented` → `Partial` based on test absence alone. Test-coverage findings still emit, but as informational entries in `sdd/spec/.review-queue.md` under `## Coverage gaps`, never as Status mutations.
 3. **CQ-1, CQ-2, CQ-3, CQ-SOURCE still run normally** (see below); CQ-SOURCE specifically is NEVER gated by `enforce_tdd`.
 
+### Per-AC test-anchor coverage (anchor-level — the test parallel of CQ-SOURCE)
+
+Beyond the binary REQ-level check above, when `enforce_tdd: true` CQ-TEST verifies each AC's inline `@test` anchor, giving AC-by-AC coverage parity with `@impl`. When `enforce_tdd: false` every finding here is informational only — written to the `## Coverage gaps` section of the layout-resolved triage file (`sdd/spec/.review-queue.md` nested, `sdd/.review-needed.md` flat-legacy), never a Status mutation, never blocking.
+
+**Anchor parsing.** For every `Implemented` or `Partial` REQ (skip `Verification: Manual check`), scan each AC bullet for the inline test-anchor comment:
+
+```
+<!--\s*@test:\s*(\S+?)\s*\((.+)\)\s*-->
+```
+
+Capture groups: `<path>`, `<block-title>` (`(.+)` is greedy so parentheses nested in the title are captured).
+
+**Per-anchor validation.** For each captured `@test` anchor:
+
+1. **Resolve the file.** `<path>` must match a `test_globs` entry AND exist on disk. Not found → HIGH `spec-test-anchor-orphaned` listing REQ-ID, AC-N, the searched `<path>`. No auto-fix; escalate to the triage file.
+2. **Resolve the block.** Grep `<path>` for `<block-title>` as a substring of a `describe`/`test`/`it`/`context` block-name line (not a code comment, not a fixture path). Not found → HIGH `spec-test-anchor-orphaned` listing REQ-ID, AC-N, `<path> (<block-title>)`. No auto-fix; escalate. (Mirrors CQ-1's "REQ-ID must be in a block name, not a comment" rule.)
+
+**Unanchored AC detection.** For every AC bullet describing observable behaviour without a `@test` anchor:
+
+- Skip clause: `Verification: Manual check` REQs are exempt.
+- MEDIUM `ac-missing-test-anchor` (the test parallel of `ac-missing-source-anchor`) listing REQ-ID, AC-N. Auto-fix in `auto`/`unleashed`: best-effort retrofit — for the AC's resolved `@impl` symbol, find a `test_globs` block whose body exercises that symbol (import + call) or whose name overlaps the AC ≥3 tokens; if exactly one plausible block resolves, write the `@test` anchor inline via Edit. Otherwise escalate. (Same retrofit shape as CQ-SOURCE's unanchored-AC auto-fix, and the same engine `/sdd clean` pass 5 uses.)
+
+**This pass is the only place `@test` parity is enforced**: the always-on `@impl` truth-check is CQ-SOURCE; the per-AC `@test` check lives here under `enforce_tdd` because tests are opt-out-able while source truth is not.
+
+**Anchor-level output** folds into the CQ-TEST manifest row: `ran (N REQs, M REQ-level findings, T test-anchors verified, O orphaned, U unanchored)`.
+
 ## CQ-SOURCE — Source-anchor truth-check (ALWAYS runs, never gated)
 
 CQ-SOURCE is the framework's Truth guarantee. It verifies every spec claim against its source anchor. **This pass runs unconditionally**: both `enforce_tdd: true` and `enforce_tdd: false`; both Greenfield, Import Mode, and Resume Mode; both inside and outside SDD transition; both via `/sdd clean` and on every PR-boundary trigger. Fabrication is never permitted.
@@ -101,7 +127,7 @@ Same regex applies to ADR `Context:` blocks in `documentation/decisions/README.m
 
 ### Per-anchor validation — Phase 7a is the canonical implementation
 
-During `/sdd init`, anchor validation is performed by the Phase 7a verifier (`~/.claude/skills/sdd-init/references/verify-source-anchors.py`), and this skill's row 16 (CQ-SOURCE) consumes the resulting JSON (`.verify-anchors.json`) rather than re-deriving — see `sdd-init/SKILL.md` step 7. The agent never claims "I checked the anchors" without the verifier output line in the commit body; that self-attestation is **CRITICAL `phase-7a-self-attestation`**.
+During `/sdd init`, anchor validation is performed by the Phase 7a verifier (`~/.claude/skills/sdd-init/references/verify-source-anchors.py`), and this skill's row 17 (CQ-SOURCE) consumes the resulting JSON (`.verify-anchors.json`) rather than re-deriving — see `sdd-init/SKILL.md` step 7. The agent never claims "I checked the anchors" without the verifier output line in the commit body; that self-attestation is **CRITICAL `phase-7a-self-attestation`**.
 
 Outside `/sdd init` (steady-state PR-boundary review on an existing project), this skill performs the same checks inline using the same algorithm:
 

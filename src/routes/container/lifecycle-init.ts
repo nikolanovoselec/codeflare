@@ -152,12 +152,13 @@ export async function ensureBucketAndSeed(params: {
   logger.info('Bucket ready', { bucketName, created: bucketResult.created });
 
   // REQ-ENTERPRISE-018 (Governed Mode): resolve this bucket's CURRENT R2 encryption
-  // regime — a new bucket adopts the deployment policy (marker stamped here), an existing
-  // bucket keeps its current marker. This NEVER migrates on the container-start path (a
-  // slow re-encrypt would block session creation); the lossless re-encrypt runs in the
-  // background on first login (reconcileBucketRegimeOnLogin) and flips the marker only
-  // when complete. The resolved flag drives every seed write below and is forwarded to the
-  // container so rclone matches the bucket's regime as it actually is right now.
+  // regime — a new bucket adopts the deployment policy (state stamped ready here), an existing
+  // bucket keeps its committed regime. This NEVER migrates on the container-start path (a slow
+  // re-encrypt would block session creation); the lossless re-encrypt runs chunked in the
+  // background, driven by the dashboard batch-status poll (planRegimeReconcile/advanceMigration),
+  // and the regime advances only after a verified pass. /start is itself gated 409 while a
+  // migration is in flight, so this only resolves a `ready` regime. The resolved flag drives
+  // every seed write below and is forwarded to the container so rclone matches the bucket's regime.
   const r2SseDisabled = await resolveBucketSseOnEnsure(env, bucketName, bucketResult.created === true);
 
   // Seed agent configs once, when the bucket is newly created. Agent configs have

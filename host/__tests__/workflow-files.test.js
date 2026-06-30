@@ -200,10 +200,39 @@ describe('shadow-pin bump workflow / REQ-OPS-020 (shadow-pin version bump automa
     const body = readWorkflow('bump-shadow-pins.yml');
     assert.match(body, /^\s+pi-preseed:/m, 'bump-shadow-pins.yml must declare a `pi-preseed:` job');
     // The job iterates every dependency in the Pi preseed package.json and checks
-    // npm latest for each (not just @gotgenes/pi-subagents + context-mode), so the
-    // rpiv family / pi-web-access / pi-mcp-adapter are tracked too.
+    // npm latest for each (not just @gotgenes/pi-subagents), so the rpiv family /
+    // pi-web-access / pi-mcp-adapter are tracked too. context-mode is the one
+    // exception — owned by the dedicated context-mode job (asserted below).
     assert.match(body, /execFileSync\('npm', \['view', name, 'version'\]/, 'pi-preseed job must check npm latest for every preseed dep');
     assert.match(body, /preseed\/agents\/pi\/package\.json/, 'pi-preseed job must read the pins from the Pi preseed package.json');
+  });
+
+  test('context-mode is bumped in BOTH installs by ONE job, never split across two PRs', () => {
+    const body = readWorkflow('bump-shadow-pins.yml');
+    // Slice one top-level job block (from `  <job>:` to the next 2-space job key) so
+    // the assertions are scoped to a single job and cannot accidentally match another.
+    const jobBlock = (job) => {
+      const start = body.search(new RegExp(`^  ${job}:$`, 'm'));
+      assert.notEqual(start, -1, `job ${job} not found`);
+      const after = body.slice(start + 1);
+      const nextRel = after.search(/^  [a-z][a-z0-9-]*:$/m);
+      return nextRel === -1 ? body.slice(start) : body.slice(start, start + 1 + nextRel);
+    };
+
+    // The dedicated context-mode job bumps the global plugin pin AND the Pi prewarm
+    // copy (manifest + name-anchored npm:context-mode@ spec + CONTEXT_MODE_PACKAGE)
+    // and regenerates the Pi lockfile — all in its single PR, so the two pins move
+    // together and the Dockerfile drift FATAL can never trip.
+    const ctx = jobBlock('context-mode');
+    assert.match(ctx, /preseed\/agents\/pi\/package\.json/, 'context-mode job must also bump the Pi prewarm manifest');
+    assert.match(ctx, /preseed\/agents\/pi\/extensions\/codeflare-pi\.ts/, 'context-mode job must bump CONTEXT_MODE_PACKAGE in codeflare-pi.ts');
+    assert.match(ctx, /npm:context-mode@\$\{cur\}/, 'context-mode job must name-anchor the Pi npm: spec replace');
+    assert.match(ctx, /cd preseed\/agents\/pi && npm install --package-lock-only/, 'context-mode job must regenerate the Pi lockfile');
+
+    // The pi-preseed job MUST exclude context-mode, or it would open a second PR that
+    // moves only the Pi pin — the exact "bump only one" drift this fix removes.
+    const pi = jobBlock('pi-preseed');
+    assert.match(pi, /if \(name === 'context-mode'\) continue;/, 'pi-preseed job must skip context-mode (owned by the context-mode job)');
   });
 
   test('AC2: graphify (graphifyy) PyPI package is watched', () => {

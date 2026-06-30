@@ -1,13 +1,13 @@
 import { Hono } from 'hono';
 import type { Env } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
-import { createR2Client, getR2Url } from '../../lib/r2-client';
+import { getR2Url } from '../../lib/r2-client';
 import { getR2Config } from '../../lib/r2-config';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { ValidationError, ContainerError, DownloadsDisabledError } from '../../lib/error-types';
 import { validateKey } from './validation';
-import { getSseHeaders } from '../../lib/r2-sse';
-import { isR2SseDisabledForBucket } from '../../lib/r2-migration';
+import { fetchObjectWithRegimeFallback, markMixedRecovery } from '../../lib/r2-migration';
+import { hasHealthyContainer } from '../../lib/migration-containers';
 import { isDownloadsDisabled } from '../../lib/downloads-policy';
 
 /**
@@ -111,20 +111,18 @@ app.get('/', async (c) => {
   }
 
   const bucketName = c.get('bucketName');
-  const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
-  // REQ-ENTERPRISE-018: pick SSE-C headers by the bucket's actual regime marker so a
-  // Governed Mode (plain) bucket is read without SSE-C, and a still-SSE-C bucket keeps
-  // its key — correct even mid-rollout before this bucket's migration runs.
-  const r2SseDisabled = await isR2SseDisabledForBucket(c.env, bucketName);
-
   const objectUrl = getR2Url(endpoint, bucketName, sanitizedKey);
 
-  // Sign the request for R2 auth and stream the response through the worker.
-  // Previously this returned a 302 redirect to a presigned R2 URL, but that
-  // caused CORS failures since the browser followed the redirect cross-origin.
-  const signedRequest = await r2Client.sign(objectUrl, { method: 'GET', headers: getSseHeaders(c.env, r2SseDisabled) });
-  const r2Response = await fetch(signedRequest);
+  // REQ-ENTERPRISE-018: read in the bucket's committed regime, falling back to the opposite
+  // regime once on an SSE-mismatch so a partially-migrated (or stray-outlier) bucket stays
+  // readable. The helper signs + streams the response through the worker (a 302 to a presigned
+  // R2 URL caused cross-origin CORS failures). A fallback hit on a ready bucket self-heals via
+  // a background mixed-recovery scan.
+  const { response: r2Response, stray } = await fetchObjectWithRegimeFallback(c.env, bucketName, objectUrl, { method: 'GET' });
+  if (stray) {
+    try { c.executionCtx.waitUntil(markMixedRecovery(c.env, bucketName, () => hasHealthyContainer(c.env, bucketName))); } catch { /* no execution context (tests) */ }
+  }
 
   if (!r2Response.ok) {
     throw new ContainerError('download', 'R2 fetch failed');

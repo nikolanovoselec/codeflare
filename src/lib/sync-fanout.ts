@@ -21,15 +21,10 @@
  * final R2 state per file. See AD56.
  */
 import { getContainer } from '@cloudflare/containers';
-import type { Env, Session } from '../types';
-import {
-  getSessionPrefix,
-  listAllKvKeys,
-  expandSessionMetadata,
-  type SessionListMetadata,
-} from './kv-keys';
+import type { Env } from '../types';
 import { getContainerId } from './container-helpers';
-import { SESSION_ID_PATTERN } from './constants';
+import { listRunningSessionIds } from './session-helpers';
+import { isBucketMigrating } from './r2-regime-state';
 
 /**
  * Maximum concurrent per-session sync triggers in one fan-out call
@@ -54,50 +49,12 @@ export async function fanOutBisyncTrigger(
   env: Pick<Env, 'KV' | 'CONTAINER'>,
   bucketName: string
 ): Promise<SyncSessionResult[]> {
-  const prefix = getSessionPrefix(bucketName);
-  const keys = await listAllKvKeys(env.KV, prefix);
+  // REQ-ENTERPRISE-018: never trigger bisync while the bucket's regime is migrating — a
+  // container's rclone daemon would push its local FS in the pre-flip regime. Containers are
+  // drained on migration start; this guards any stale/racing container.
+  if (await isBucketMigrating(env, bucketName)) return [];
 
-  // Collect running sessions only. Use list-metadata fast path; fall
-  // back to KV.get for pre-migration keys (same pattern as batch-status
-  // in src/routes/session/lifecycle.ts).
-  const runningSessionIds: string[] = [];
-  const fallbackKeys: Array<{ name: string }> = [];
-  for (const key of keys) {
-    const meta = key.metadata as SessionListMetadata | null;
-    if (meta && meta.s) {
-      const expanded = expandSessionMetadata(meta);
-      if (expanded.status === 'running') {
-        // Parse sid as the final colon-delimited segment of the KV key.
-        // Validate against SESSION_ID_PATTERN to fail-closed on
-        // unexpected key shapes — a malformed key should not crash
-        // fan-out (code-reviewer 2nd report H2: replaces unsafe `!`).
-        const lastColon = key.name.lastIndexOf(':');
-        const sid = lastColon >= 0 ? key.name.slice(lastColon + 1) : '';
-        if (sid && SESSION_ID_PATTERN.test(sid)) {
-          runningSessionIds.push(sid);
-        }
-      }
-    } else {
-      fallbackKeys.push(key);
-    }
-  }
-  if (fallbackKeys.length > 0) {
-    const fallbackSessions = await Promise.all(
-      fallbackKeys.map((key) => env.KV.get<Session>(key.name, 'json'))
-    );
-    for (const session of fallbackSessions) {
-      // Apply the same SESSION_ID_PATTERN guard the fast path uses.
-      // A corrupt KV entry whose `id` field contains arbitrary
-      // characters would otherwise flow into getContainerId() unchecked.
-      if (
-        session &&
-        session.status === 'running' &&
-        SESSION_ID_PATTERN.test(session.id)
-      ) {
-        runningSessionIds.push(session.id);
-      }
-    }
-  }
+  const runningSessionIds = await listRunningSessionIds(env, bucketName);
 
   // Fan out with concurrency cap. Each chunk's failures are isolated.
   const results: SyncSessionResult[] = [];

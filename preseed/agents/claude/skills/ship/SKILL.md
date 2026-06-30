@@ -1,5 +1,5 @@
 ---
-name: github-cloudflare-ship
+name: ship
 description: This skill should be used when the user wants to "ship this", "deploy this", "publish my code", "push to GitHub", "create a repo", "set up GitHub", "share my code", "put this online", "make this live", "get a URL for this", "host this", "I want people to see this", "deploy to Cloudflare", "how do I get this on the internet", "I want to share what I built", "make this accessible", "launch this", "push my changes", "create a repository", "set up version control", or mentions anything about getting their code online, shared, deployed, or published. This skill detects the current state of GitHub and Cloudflare configuration and only guides through what is missing. Use this skill proactively — if the user has finished building something and expresses any desire to share it, back it up, deploy it, or make it accessible, this is the right skill.
 version: 2.0.0
 ---
@@ -41,7 +41,7 @@ Check if the workspace has any meaningful files (not just hidden files or empty 
 - "Do you already have code somewhere, or are we starting from scratch?"
 - "Do you have an existing GitHub repository you want to clone?"
 
-If they have an existing repo, clone it with `gh repo clone <url> ~/workspace/<name>`. If they want to start from scratch, help them describe their idea and build it first (the `/cloudflare-stack` skill ensures the right tech stack). Return to `/github-cloudflare-ship` when they have code ready.
+If they have an existing repo, clone it with `gh repo clone <url> ~/workspace/<name>`. If they want to start from scratch, help them describe their idea and build it first (the `/cloudflare-stack` skill ensures the right tech stack). Return to `/ship` when they have code ready.
 
 ### Step 2: Authenticate with GitHub
 
@@ -346,7 +346,7 @@ Do not ask the user to create resources manually. Get the credentials first, the
 
 1. Tell the user: "Your project uses [D1/R2/KV]. I need your Cloudflare credentials to set these up."
 2. Offer two options:
-   - "Go to Settings > Push & Deploy and connect your Cloudflare account. Then start a new session and run /github-cloudflare-ship again." (persistent, recommended)
+   - "Go to Settings > Push & Deploy and connect your Cloudflare account. Then start a new session and run /ship again." (persistent, recommended)
    - "Or paste your token and account ID in a terminal tab." The safest option for commands involving secrets is for the user to run them manually in a separate terminal tab — this avoids secrets appearing in the AI conversation history. Give the user the exact `export` commands to paste: `export CLOUDFLARE_API_TOKEN='...'` and `export CLOUDFLARE_ACCOUNT_ID='...'`. Once set, run the provisioning commands in that same tab.
 3. Once credentials are available, run the automated provisioning steps — never ask the user to create resources in the dashboard.
 

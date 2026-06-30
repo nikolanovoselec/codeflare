@@ -9,6 +9,7 @@
     "deploy": "npm run build && wrangler deploy",
     "generate:tutorial-seed": "node scripts/generate-tutorial-seed.mjs",
     "generate:agent-seed": "node scripts/generate-agent-seed.mjs && node scripts/check-pi-extensions.mjs",
+    "measure:seed-tokens": "node scripts/measure-seed-tokens.mjs",
     "prebuild": "npm run generate:tutorial-seed && npm run generate:agent-seed",
     "pretest": "npm run generate:tutorial-seed && npm run generate:agent-seed",
     "types:generate": "wrangler types",
