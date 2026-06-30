@@ -8,16 +8,17 @@
  *
  * Design (see the ADR): a same-key in-place S3 CopyObject with MetadataDirective=REPLACE
  * (COPY is rejected by R2 for a self-copy) re-supplying the source's system + user
- * metadata; an idempotent target-regime HEAD skip-probe makes every pass resumable; the
- * regime marker advances ONLY after a full verification HEAD-scan. Reads use a dual-regime
- * fallback (resolveReadRegime) so a partially-migrated bucket stays readable, and any
- * stray cross-regime object self-heals via the `mixed-recovery` status.
+ * metadata; a single source-regime HEAD (a 400/403 SSE-mismatch ⇒ already in the target
+ * regime ⇒ skip) makes every object idempotent and a `start-after` key cursor makes every
+ * pass resumable; the regime marker advances ONLY after a full verification HEAD-scan. Reads
+ * use a dual-regime fallback (resolveReadRegime) so a partially-migrated bucket stays
+ * readable, and any stray cross-regime object self-heals via the `mixed-recovery` status.
  *
  * Concurrency: advanceMigration runs in waitUntil on every dashboard poll, so overlapping
  * invocations are expected. `leaseExpiresAt` is a per-chunk in-flight lock claimed at chunk
  * start and released on completion; a crashed chunk's lease expires after MIGRATION_LEASE_MS
  * and the next poll takes over. The lock is best-effort (KV has no CAS) — the idempotent
- * skip-probe + verify-rescan make concurrent advances converge correctly regardless.
+ * source-HEAD skip + verify-rescan make concurrent advances converge correctly regardless.
  */
 import type { Env } from '../types';
 import { createR2Client, getR2Url, parseListObjectsXml } from './r2-client';
@@ -76,6 +77,9 @@ const COPY_TIMEOUT_MS = 4_000;
  * the platform kill. */
 export const MIGRATE_SLICE_MS = HEAD_TIMEOUT_MS + COPY_TIMEOUT_MS; // 6s
 const VERIFY_SLICE_MS = HEAD_TIMEOUT_MS; // 2s
+/** Bound the one-time container drain (an injected dep with no internal timeout) so a hung
+ * container.destroy() can't consume the whole waitUntil window and strand the lease via a force-kill. */
+const DRAIN_TIMEOUT_MS = 10_000;
 /** Stop STARTING R2 work at this point in the ~30s ctx.waitUntil window. The last started slice
  * (≤ MIGRATE_SLICE_MS) plus the final KV release then land with room to spare before the kill, so the
  * lease is always released voluntarily (a force-kill would skip the release and stall the migration). */
@@ -396,7 +400,12 @@ export async function fetchObjectWithRegimeFallback(
     return { response: first, stray: false, sseDisabled: primary };
   }
   const second = await fetchRegime(fallback);
-  return { response: second, stray: second.ok && selfHealOnFallbackHit, sseDisabled: fallback };
+  // An oversized object is intentionally never migrated (single CopyObject caps at 5 GB), so a
+  // mixed-recovery scan would re-skip it and re-flag it on every read — a pointless loop. Don't
+  // self-heal a known-oversized stray (best-effort: a range read reports a partial length, which
+  // just falls back to the prior behavior).
+  const oversized = Number(second.headers.get('content-length') ?? '0') > COPY_OBJECT_MAX_BYTES;
+  return { response: second, stray: second.ok && selfHealOnFallbackHit && !oversized, sseDisabled: fallback };
 }
 
 /**
@@ -483,6 +492,8 @@ export async function advanceMigration(
   bucketName: string,
   deps: { drainContainers: () => Promise<void>; hasHealthyContainer: () => Promise<boolean> },
 ): Promise<void> {
+  // Hoisted so the catch can release ONLY our own lease (mirrors commit's identity check).
+  let myLease: number | undefined;
   try {
     let state = await getRegimeState(env, bucketName);
     if (state.status === 'ready') return;
@@ -513,7 +524,7 @@ export async function advanceMigration(
     // Re-read immediately before claiming: another poll may have finished (→ ready) or claimed the
     // lease during the awaits above (e.g. hasHealthyContainer). Bail rather than revert a completed
     // migration back to `migrating`; the rest of the chunk works from this fresh snapshot.
-    const myLease = now + MIGRATION_LEASE_MS;
+    myLease = now + MIGRATION_LEASE_MS;
     state = await getRegimeState(env, bucketName);
     if (state.status === 'ready' || (state.leaseExpiresAt && state.leaseExpiresAt > now)) return;
     await setRegimeState(env, bucketName, { ...state, leaseExpiresAt: myLease });
@@ -527,7 +538,12 @@ export async function advanceMigration(
 
     let drained = state.drained ?? false;
     if (!drained) {
-      await deps.drainContainers();
+      // Bound the drain so a hung destroy can't blow the waitUntil window. D1 already ensured no
+      // container is healthy, so a timed-out drain is safe to proceed past — the verify-rescan +
+      // read self-heal are the backstop for any straggler.
+      await withTimeout(deps.drainContainers(), DRAIN_TIMEOUT_MS, 'drainContainers').catch((e) =>
+        logger.warn('drainContainers did not finish in time; proceeding (verify-rescan is the backstop)', { bucketName, error: String(e) }),
+      );
       await abortInFlightMultiparts(env, bucketName, endpoint);
       drained = true;
     }
@@ -628,7 +644,8 @@ export async function advanceMigration(
     logger.error('advanceMigration chunk failed; will retry next poll', err instanceof Error ? err : new Error(String(err)), { bucketName });
     // Release the lease so the next poll retries soon (idempotent skip-probe re-does only unfinished work).
     const s = await getRegimeState(env, bucketName).catch(() => null);
-    if (s && s.status !== 'ready') {
+    // Release ONLY if we still own the lease (mirrors commit) — never clobber a successor poll's lease.
+    if (s && s.status !== 'ready' && myLease !== undefined && s.leaseExpiresAt === myLease) {
       await setRegimeState(env, bucketName, release({ ...s, lastError: String(err) })).catch(() => {});
     }
   }
