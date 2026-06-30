@@ -42,18 +42,29 @@ vi.mock('@cloudflare/containers', () => ({
     destroy: vi.fn().mockResolvedValue(undefined),
   })),
 }));
-// REQ-ENTERPRISE-018: stub the background Governed Mode reconcile so the wiring test can
-// assert it is scheduled without running a real migration.
-vi.mock('../../lib/r2-migration', () => ({ reconcileBucketRegimeOnLogin: vi.fn(async () => {}) }));
+// REQ-ENTERPRISE-018: stub the Governed Mode reconcile + driver so the wiring test can assert
+// the synchronous decision + backgrounded chunk advance without running a real migration.
+vi.mock('../../lib/r2-migration', () => ({
+  planRegimeReconcile: vi.fn(async () => ({ state: {}, migrating: false, pending: false })),
+  advanceMigration: vi.fn(async () => {}),
+}));
+vi.mock('../../lib/migration-containers', () => ({
+  hasHealthyContainer: vi.fn(async () => false),
+  drainContainers: vi.fn(async () => {}),
+}));
 
 import lifecycleRoutes from '../../routes/session/lifecycle';
-import { reconcileBucketRegimeOnLogin } from '../../lib/r2-migration';
+import { planRegimeReconcile, advanceMigration } from '../../lib/r2-migration';
 
 describe('REQ-SESSION-010: Session status observable from dashboard', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {
     mockKV = createMockKV();
+    // REQ-ENTERPRISE-018: every test starts with a not-migrating bucket so unrelated batch-status
+    // assertions are unaffected; the Governed Mode block overrides these per test.
+    vi.mocked(planRegimeReconcile).mockResolvedValue({ state: {} as never, migrating: false, pending: false });
+    vi.mocked(advanceMigration).mockResolvedValue(undefined);
   });
 
   function createApp() {
@@ -377,41 +388,64 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     });
   });
 
-  // REQ-ENTERPRISE-018: the initial dashboard load (the preseed-check trigger) is ALSO the
-  // first-login hook that schedules the background Governed Mode regime reconcile — off the
-  // container-start path so a slow re-encrypt can never block session creation.
-  describe('REQ-ENTERPRISE-018: schedules the Governed Mode reconcile on first dashboard load', () => {
-    beforeEach(() => { vi.mocked(reconcileBucketRegimeOnLogin).mockClear(); });
+  // REQ-ENTERPRISE-018: every batch-status poll synchronously decides the Governed Mode regime
+  // (so the same response reports bucketMigrating) and, while migrating, advances one re-encrypt
+  // chunk in the background — off the container-start path so it can never block session creation.
+  describe('REQ-ENTERPRISE-018: Governed Mode reconcile + chunk advance on batch-status', () => {
+    beforeEach(() => {
+      vi.mocked(planRegimeReconcile).mockReset().mockResolvedValue({ state: {} as any, migrating: false, pending: false });
+      vi.mocked(advanceMigration).mockReset().mockResolvedValue(undefined);
+    });
 
     function makeExecCtx() {
       const scheduled: Promise<unknown>[] = [];
       return { ctx: { waitUntil: (p: Promise<unknown>) => { scheduled.push(p); }, passThroughOnException: () => {} }, scheduled };
     }
 
-    it('schedules the reconcile via waitUntil on the initial load (includePreseedCheck)', async () => {
-      const app = createApp();
-      const { ctx, scheduled } = makeExecCtx();
-      const res = await app.request('/sessions/batch-status?includePreseedCheck=true', undefined, undefined, ctx as any);
-      expect(res.status).toBe(200);
-      expect(reconcileBucketRegimeOnLogin).toHaveBeenCalledWith(expect.anything(), 'test-bucket');
-      expect(scheduled).toHaveLength(1); // backgrounded, not awaited inline
-    });
-
-    it('does NOT schedule the reconcile on a status poll (no includePreseedCheck)', async () => {
+    it('decides the regime on every poll and reports a not-migrating bucket as false', async () => {
       const app = createApp();
       const { ctx } = makeExecCtx();
       const res = await app.request('/sessions/batch-status', undefined, undefined, ctx as any);
       expect(res.status).toBe(200);
-      expect(reconcileBucketRegimeOnLogin).not.toHaveBeenCalled();
+      expect(planRegimeReconcile).toHaveBeenCalledWith(expect.anything(), 'test-bucket', expect.any(Function));
+      const body = await res.json() as { bucketMigrating: boolean; bucketMigrationPending: boolean };
+      expect(body.bucketMigrating).toBe(false);
+      expect(body.bucketMigrationPending).toBe(false);
+      expect(advanceMigration).not.toHaveBeenCalled(); // nothing to advance
     });
 
-    it('skips the reconcile without throwing when there is no execution context (200)', async () => {
-      // No execCtx passed → the c.executionCtx getter throws; the route must swallow it and
-      // still return 200 without invoking the reconcile (the guard's catch branch).
+    it('schedules a background chunk advance via waitUntil and reports bucketMigrating when migrating', async () => {
+      vi.mocked(planRegimeReconcile).mockResolvedValue({ state: {} as any, migrating: true, pending: false });
+      const app = createApp();
+      const { ctx, scheduled } = makeExecCtx();
+      const res = await app.request('/sessions/batch-status?includePreseedCheck=true', undefined, undefined, ctx as any);
+      expect(res.status).toBe(200);
+      expect(scheduled).toHaveLength(1); // chunk advance backgrounded, not awaited inline
+      expect(advanceMigration).toHaveBeenCalledWith(expect.anything(), 'test-bucket', expect.objectContaining({ drainContainers: expect.any(Function) }));
+      const body = await res.json() as { bucketMigrating: boolean };
+      expect(body.bucketMigrating).toBe(true);
+    });
+
+    it('reports a pending flip (container healthy) without scheduling a chunk advance', async () => {
+      vi.mocked(planRegimeReconcile).mockResolvedValue({ state: {} as any, migrating: false, pending: true });
+      const app = createApp();
+      const { ctx, scheduled } = makeExecCtx();
+      const res = await app.request('/sessions/batch-status', undefined, undefined, ctx as any);
+      expect(res.status).toBe(200);
+      expect(scheduled).toHaveLength(0);
+      expect(advanceMigration).not.toHaveBeenCalled();
+      const body = await res.json() as { bucketMigrationPending: boolean };
+      expect(body.bucketMigrationPending).toBe(true);
+    });
+
+    it('does not throw when migrating but no execution context exists (200, no advance)', async () => {
+      // No execCtx passed → the c.executionCtx getter throws; the route must swallow it and still
+      // return 200 without invoking the chunk advance (the guard's catch branch).
+      vi.mocked(planRegimeReconcile).mockResolvedValue({ state: {} as any, migrating: true, pending: false });
       const app = createApp();
       const res = await app.request('/sessions/batch-status?includePreseedCheck=true');
       expect(res.status).toBe(200);
-      expect(reconcileBucketRegimeOnLogin).not.toHaveBeenCalled();
+      expect(advanceMigration).not.toHaveBeenCalled();
     });
   });
 

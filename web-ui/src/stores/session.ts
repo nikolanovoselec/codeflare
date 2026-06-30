@@ -127,6 +127,8 @@ export interface SessionState {
   preferences: UserPreferences;
   maxSessions: number;
   preseedUpgrading: boolean;
+  /** REQ-ENTERPRISE-018: the bucket's encryption regime is migrating (Governed Mode flip). Reuses the Upgrading affordance to disable New Session. */
+  bucketMigrating: boolean;
   enterpriseMode: boolean;
   saasMode: boolean;
 }
@@ -144,6 +146,7 @@ const [state, setState] = createStore<SessionState>({
   preferences: {},
   maxSessions: 3,
   preseedUpgrading: false,
+  bucketMigrating: false,
   enterpriseMode: false,
   saasMode: false,
 });
@@ -249,6 +252,11 @@ async function loadSessions(): Promise<void> {
         .catch((err) => logger.warn('[SessionStore] preseed auto-upgrade failed:', err))
         .finally(() => setState('preseedUpgrading', false));
     }
+
+    // REQ-ENTERPRISE-018: mirror the backend Governed Mode migration flag so the New Session
+    // button disables (reusing the Upgrading affordance) while the bucket re-encrypts. Every
+    // batch-status poll while migrating also advances a chunk server-side, so keep polling.
+    setState('bucketMigrating', 'bucketMigrating' in batchResponse && batchResponse.bucketMigrating === true);
 
     if (thisGen !== loadSessionsGeneration) return;
 
@@ -627,6 +635,7 @@ export const sessionStore = {
   isAtSessionLimit,
   hasRecentContext,
   get preseedUpgrading() { return state.preseedUpgrading; },
+  get bucketMigrating() { return state.bucketMigrating; },
   get enterpriseMode() { return state.enterpriseMode; },
   setEnterpriseMode: (value: boolean) => setState('enterpriseMode', value),
   get saasMode() { return state.saasMode; },

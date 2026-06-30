@@ -1814,6 +1814,28 @@ Bindings were ruled out as the containment path (verified): R2 bindings are stat
 
 **Related:** [REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake), [AD89](#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration), [AD88](#ad88-bisync-compares-via-server-modtime-from-fast-list-not-per-object-mtime-heads), [AD79](#ad79-image-baked-pi-extension-transpile-cache), [Preseed lane](../lanes/preseed.md), [Storage & Sync lane](../lanes/storage-and-sync.md).
 
+### AD91: Governed Mode migration is a verified, gated, chunked state machine (REPLACE copy), not a boolean-marker lazy reconcile
+
+**Category:** Storage
+
+**Status:** Accepted (2026-06-30). Supersedes the migration mechanics of [AD89](#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration) (the policy toggle + intent are unchanged).
+
+**Context:** The AD89 first-login lazy reconcile broke in production on an enterprise bucket. Verified live via the R2 S3 API: of 663 objects, 0 were migrated, the boolean `UserPreferences.r2SseRegime` marker was never set, and the migration lock was stuck — yet the in-container rclone bisync daemon wrote a few plaintext files, leaving a **mixed** bucket whose SSE-C reads then 400'd, so R2 sync failed and the vault never became ready; toggling OFF did not recover (the revert path early-returned without scanning for the outliers). Four root causes: (1) `migrateBucketEncryption` issued a same-key self-copy with `MetadataDirective=COPY`, which R2 rejects → every copy failed; (2) a single boolean marker cannot describe a partially in-place-migrated bucket — reads key off it, so any converted object 400s mid-migration; (3) the revert path early-returned when `marker==policy`, never scanning for strays; (4) the in-container rclone daemon writes R2 directly with its baked regime and the worker cannot header-gate it. Confirmed by a GPT-5.5 consult + a 3-agent analysis workflow.
+
+**Decision:**
+
+- **Per-bucket state object** `r2-regime:<bucket>` (`{status: ready|migrating|mixed-recovery, regime, from?, to?, generation, cursor?, phase?, leaseExpiresAt?, keyMd5?}`) is the single source of truth, replacing the boolean marker AND the standalone lock (the `leaseExpiresAt` is the per-chunk in-flight lock; a legacy `r2SseRegime='plain'` is still read one-way for pre-existing migrated buckets).
+- **REPLACE copy.** Re-encrypt in place with `MetadataDirective=REPLACE` (not COPY), re-supplying source-HEAD metadata + `copy-source-if-match`, and parse the 200 CopyObject body for an embedded `<Error>`. Oversized (>5 GB) objects are recorded + skipped, not fatal.
+- **Chunked, verified driver.** The dashboard `batch-status` poll calls `planRegimeReconcile` synchronously (reports `bucketMigrating`) and `waitUntil(advanceMigration)` runs one bounded, cursor-resumable chunk per poll. A migrate phase re-encrypts; a verify phase HEAD-scans every object under the target regime; the regime + `generation` advance **only after a clean full verify**.
+- **Backend gate + container drain (the safety boundary).** While not `ready`, every writer returns `409 BUCKET_MIGRATING`, the sync fan-out is skipped, running containers are drained (destroyed) once, and in-flight multipart uploads are aborted. The frontend reuses the "Upgrading" affordance (New Session → "Migrating").
+- **Dual-regime reads + self-heal.** Reads try the committed regime then fall back once on a 400/403; a fallback hit on a `ready` bucket triggers a one-time `mixed-recovery` scan that re-encrypts strays to the committed regime — exactly the production-incident shape, now self-healing.
+
+**Rejected — container regime generation guard.** A secondary guard threading a regime `generation` into the container and refusing stale-regime bisync was scoped but **not built**: `/start` is gated and containers are drained at migration start, so no container runs with a stale regime; and the verify-rescan + read self-heal already catch any object an un-drainable zombie writes. It added surface (container-env, entrypoint, container-router) for no coverage the gate+verify+self-heal don't provide. **Rejected — Durable Object / Queue / Workflow:** overkill for single-tenant ~hundreds-of-objects buckets; a chunked-resumable `waitUntil` pass is provably sufficient under either subrequest budget. **Rejected — ENCRYPTION_KEY old-key fallback:** key rotation is detect-only via `keyMd5`.
+
+**Consequences:** A regime flip (both directions) is atomic from the user's view, resumable, verified, and never leaves the bucket unreadable; the prior mixed-bucket incident self-heals on next read. Residual risk: a container whose best-effort drain `destroy()` fails could write a stray during the ~tens-of-seconds window — caught by the verify-rescan and read self-heal, and bounded by the idle timeout. New modules: `src/lib/r2-regime-state.ts` (state), `src/lib/migration-containers.ts` (drain/health). Verified on enterprise-integration by an R2 S3 HEAD-scan (0 objects in the wrong regime) both directions.
+
+**Related:** [REQ-ENTERPRISE-018](../../sdd/spec/enterprise-mode.md#req-enterprise-018-governed-mode-r2-sse-c-disable-toggle--lossless-re-encrypt-migration), [AD89](#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration), [Storage & Sync lane](../lanes/storage-and-sync.md), [Security lane](../lanes/security.md).
+
 ---
 
 ## Related Documentation

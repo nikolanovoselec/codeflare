@@ -7,7 +7,8 @@ import { getContainer } from '@cloudflare/containers';
 import type { Env, Session, UserPreferences } from '../../types';
 import { getSessionKey, getSessionPrefix, listAllKvKeys, getSessionOrThrow, getTimekeeperKey, getUtcMonthString, getUtcDateString, putSessionWithMetadata, expandSessionMetadata, buildSessionMetadata, getPreferencesKey, type SessionListMetadata } from '../../lib/kv-keys';
 import { PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
-import { reconcileBucketRegimeOnLogin } from '../../lib/r2-migration';
+import { planRegimeReconcile, advanceMigration } from '../../lib/r2-migration';
+import { hasHealthyContainer, drainContainers } from '../../lib/migration-containers';
 import { getMaxSessions, SESSION_ID_PATTERN } from '../../lib/constants';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
@@ -171,20 +172,33 @@ app.get('/batch-status', async (c) => {
   if (c.req.query('includePreseedCheck') === 'true') {
     const prefs = await c.env.KV.get<UserPreferences>(getPreferencesKey(bucketName), 'json');
     preseedNeedsUpgrade = prefs?.lastPreseedHash !== PRESEED_CONTENT_HASH;
-    // REQ-ENTERPRISE-018: the initial dashboard load is the first-login trigger that
-    // reconciles a Governed Mode regime flip. Migrate the bucket losslessly in the
-    // BACKGROUND (off the container-start path so it can never block session creation);
-    // a no-op unless the bucket's marker differs from the deployment policy. waitUntil so
-    // it never delays this response. Guarded: a synthetic request with no execution
-    // context (unit tests) simply skips the background reconcile.
+  }
+
+  // REQ-ENTERPRISE-018: Governed Mode regime reconcile. Decide synchronously so THIS
+  // response reports `bucketMigrating` (the New Session button reuses the Upgrading gate);
+  // a no-op when the bucket already matches the deployment policy. The lossless re-encrypt
+  // runs one bounded chunk per poll in the BACKGROUND so it never blocks this response or
+  // session creation; running on every batch-status poll (not just initial load) is what
+  // advances the chunked pass to completion. D1: a pending flip waits for running sessions
+  // to stop (no force-kill).
+  const { migrating: bucketMigrating, pending: bucketMigrationPending } = await planRegimeReconcile(
+    c.env,
+    bucketName,
+    () => hasHealthyContainer(c.env, bucketName),
+  );
+  if (bucketMigrating) {
+    // waitUntil so the chunk never delays this response; a synthetic request with no
+    // execution context (unit tests) simply skips the background advance.
     try {
-      c.executionCtx.waitUntil(reconcileBucketRegimeOnLogin(c.env, bucketName));
+      c.executionCtx.waitUntil(
+        advanceMigration(c.env, bucketName, { drainContainers: () => drainContainers(c.env, bucketName) }),
+      );
     } catch {
-      /* no execution context (e.g. unit tests) — skip the background reconcile */
+      /* no execution context (e.g. unit tests) — skip the background advance */
     }
   }
 
-  return c.json({ statuses, maxSessions, storageStats, usage, preseedNeedsUpgrade });
+  return c.json({ statuses, maxSessions, storageStats, usage, preseedNeedsUpgrade, bucketMigrating, bucketMigrationPending });
 });
 
 /**

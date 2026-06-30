@@ -273,12 +273,12 @@ export interface UserPreferences {
   /** REQ-AGENT-049: hash of last applied preseed content, for auto-upgrade detection. */
   lastPreseedHash?: string;
   /**
-   * REQ-ENTERPRISE-018: per-bucket R2 encryption regime marker. `'sse-c'` (or
-   * absent ⇒ legacy SSE-C) means objects are SSE-C encrypted; `'plain'` means
-   * Governed Mode re-encrypted them to R2 default at-rest encryption. The
-   * lossless migration (src/lib/r2-migration.ts) reconciles this marker to the
-   * deployment policy at session start; every R2 header choice for the bucket
-   * keys off this marker so reads stay correct during the rollout window.
+   * REQ-ENTERPRISE-018: DEPRECATED legacy per-bucket R2 encryption regime marker.
+   * Superseded by the `r2-regime:<bucket>` state object (src/lib/r2-regime-state.ts), which a
+   * single boolean cannot replace (it cannot describe a partially in-place-migrated bucket).
+   * Still READ as a one-way fallback: a pre-state-object bucket that was migrated under this
+   * boolean (`'plain'`) is honored by getRegimeState() so its objects aren't misread as SSE-C.
+   * No longer WRITTEN. Do not add new readers — use getRegimeState()/isR2SseDisabledForBucket().
    */
   r2SseRegime?: 'sse-c' | 'plain';
   /**

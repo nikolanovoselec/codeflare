@@ -148,4 +148,20 @@ describe('CF-040 / REQ-STOR-015: POST /api/sessions/sync fan-out', () => {
     expect(body.count).toBe(1);
     expect(body.sessions[0].sessionId).toBe('aabbccdd11223344');
   });
+
+  // REQ-ENTERPRISE-018: never trigger bisync while the bucket's encryption regime is migrating —
+  // a container's rclone daemon would push the pre-flip regime. Fan-out returns empty.
+  it('skips the entire fan-out while the bucket is migrating (no container is contacted)', async () => {
+    seedRunning('aabbccdd11223344');
+    containerBehavior.map.set('test-bucket-aabbccdd11223344', { status: 202 });
+    mockKV._set('r2-regime:test-bucket', { status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0 });
+
+    const app = createApp();
+    const res = await app.request('/sessions/sync', { method: 'POST' });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { count: number; sessions: unknown[] };
+    expect(body.count).toBe(0);
+    expect(body.sessions).toEqual([]);
+  });
 });

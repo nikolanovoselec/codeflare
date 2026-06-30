@@ -7,32 +7,22 @@ import { ValidationError, AppError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
 
 // Track mock state for assertions - vi.hoisted() ensures these are available when vi.mock() factory runs
-const { mockSign, mockCreateR2Client, mockGetR2Url, mockFetch: _mockFetch } = vi.hoisted(() => {
-  const mockSign = vi.fn();
-  const mockFetch = vi.fn();
-  return {
-    mockSign,
-    mockFetch,
-    mockCreateR2Client: vi.fn(() => ({ sign: mockSign })),
-    mockGetR2Url: vi.fn((endpoint: string, bucket: string, key?: string) => {
-      if (key) return `${endpoint}/${bucket}/${key}`;
-      return `${endpoint}/${bucket}`;
-    }),
-  };
-});
-
-// Mock r2-client module - download uses AwsClient.sign(), not .fetch()
-vi.mock('../../lib/r2-client', () => ({
-  createR2Client: mockCreateR2Client,
-  getR2Url: mockGetR2Url,
+const { mockGetR2Url, mockFetchObjectWithRegimeFallback, mockMarkMixedRecovery } = vi.hoisted(() => ({
+  mockGetR2Url: vi.fn((endpoint: string, bucket: string, key?: string) => (key ? `${endpoint}/${bucket}/${key}` : `${endpoint}/${bucket}`)),
+  mockFetchObjectWithRegimeFallback: vi.fn(),
+  mockMarkMixedRecovery: vi.fn(async () => {}),
 }));
 
-// Mock r2-config
+// download.ts builds the object URL with getR2Url, then reads via fetchObjectWithRegimeFallback
+// (REQ-ENTERPRISE-018 dual-regime read). The regime-fallback logic itself is covered in
+// r2-migration.test.ts; here we control the returned R2 Response to exercise download behavior.
+vi.mock('../../lib/r2-client', () => ({ getR2Url: mockGetR2Url }));
 vi.mock('../../lib/r2-config', () => ({
-  getR2Config: vi.fn().mockResolvedValue({
-    accountId: 'test-account',
-    endpoint: 'https://test.r2.cloudflarestorage.com',
-  }),
+  getR2Config: vi.fn().mockResolvedValue({ accountId: 'test-account', endpoint: 'https://test.r2.cloudflarestorage.com' }),
+}));
+vi.mock('../../lib/r2-migration', () => ({
+  fetchObjectWithRegimeFallback: mockFetchObjectWithRegimeFallback,
+  markMixedRecovery: mockMarkMixedRecovery,
 }));
 
 // Import after mocks are set up
@@ -45,27 +35,11 @@ describe('Storage Download Routes', () => {
     mockKV = createMockKV();
     vi.clearAllMocks();
 
-    // Default: sign() returns a signed Request object
-    mockSign.mockResolvedValue(
-      new Request('https://test.r2.cloudflarestorage.com/test-bucket/path/to/file.txt?X-Amz-Signature=abc123', {
-        method: 'GET',
-      })
-    );
-
-    // Default: global fetch returns a successful R2 response (streaming proxy)
-    const originalFetch = globalThis.fetch;
-    vi.stubGlobal('fetch', async (input: RequestInfo) => {
-      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : '';
-      if (new URL(url).hostname === 'test.r2.cloudflarestorage.com') {
-        return new Response('file-content', {
-          status: 200,
-          headers: {
-            'Content-Type': 'text/plain',
-            'Content-Length': '12',
-          },
-        });
-      }
-      return originalFetch(input);
+    // Default: the dual-regime read returns a successful R2 response (streaming proxy).
+    mockFetchObjectWithRegimeFallback.mockResolvedValue({
+      response: new Response('file-content', { status: 200, headers: { 'Content-Type': 'text/plain', 'Content-Length': '12' } }),
+      stray: false,
+      sseDisabled: false,
     });
   });
 
@@ -151,24 +125,20 @@ describe('Storage Download Routes', () => {
       expect(body.error).toContain('path traversal');
     });
 
-    it('calls AwsClient.sign() with GET method and fetches from R2', async () => {
+    it('reads the object via the dual-regime helper with GET method and the object URL', async () => {
       const app = createTestApp();
 
       await app.request('/download?key=path/to/file.txt');
 
-      expect(mockSign).toHaveBeenCalledTimes(1);
-
-      // sign() receives a URL string and an options object
-      const callArgs = mockSign.mock.calls[0];
-      const signedUrl = callArgs[0] as string;
-      const signOpts = callArgs[1] as { method: string };
-
-      expect(signedUrl).toContain('path/to/file.txt');
-      expect(signOpts.method).toBe('GET');
+      expect(mockFetchObjectWithRegimeFallback).toHaveBeenCalledTimes(1);
+      const [, bucket, objectUrl, opts] = mockFetchObjectWithRegimeFallback.mock.calls[0];
+      expect(bucket).toBe('test-bucket');
+      expect(objectUrl).toContain('path/to/file.txt');
+      expect(opts).toEqual({ method: 'GET' });
     });
 
-    it('returns 500 on sign failure', async () => {
-      mockSign.mockRejectedValue(new Error('Sign failed'));
+    it('returns 500 when the R2 read throws', async () => {
+      mockFetchObjectWithRegimeFallback.mockRejectedValue(new Error('read failed'));
 
       const app = createTestApp();
 
@@ -176,8 +146,8 @@ describe('Storage Download Routes', () => {
       expect(res.status).toBe(500);
     });
 
-    it('returns 500 when R2 fetch fails', async () => {
-      vi.stubGlobal('fetch', async () => new Response(null, { status: 403 }));
+    it('returns 500 when R2 fetch fails (non-ok response)', async () => {
+      mockFetchObjectWithRegimeFallback.mockResolvedValue({ response: new Response(null, { status: 403 }), stray: false, sseDisabled: false });
 
       const app = createTestApp();
 

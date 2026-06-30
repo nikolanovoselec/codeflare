@@ -600,4 +600,53 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
       expect(mockKV.delete).not.toHaveBeenCalledWith('storage-stats:test-bucket');
     });
   });
+
+  // REQ-ENTERPRISE-018: every write path is gated 409 while the bucket's encryption regime is
+  // migrating, so no object can land in the wrong (pre-flip) regime. The gate short-circuits
+  // before any R2 call.
+  describe('Governed Mode write gate (REQ-ENTERPRISE-018)', () => {
+    function migratingApp() {
+      mockKV._set('r2-regime:test-bucket', { status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0 });
+      return createApp();
+    }
+
+    it('blocks a simple upload with 409 BUCKET_MIGRATING and never touches R2', async () => {
+      const app = migratingApp();
+      const res = await app.request('/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'workspace/file.ts', content: btoa('hi') }),
+      });
+      expect(res.status).toBe(409);
+      expect((await res.json() as { code: string }).code).toBe('BUCKET_MIGRATING');
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('blocks multipart initiate / part / complete with 409', async () => {
+      const app = migratingApp();
+      const post = (path: string, body: unknown) =>
+        app.request(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+      const initiate = await post('/upload/initiate', { key: 'big.bin' });
+      const part = await post('/upload/part', { key: 'big.bin', uploadId: 'u1', partNumber: 1, content: btoa('x') });
+      const complete = await post('/upload/complete', { key: 'big.bin', uploadId: 'u1', parts: [{ partNumber: 1, etag: 'e' }] });
+
+      expect(initiate.status).toBe(409);
+      expect(part.status).toBe(409);
+      expect(complete.status).toBe(409);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('still allows an abort during migration (cleanup must not be blocked)', async () => {
+      const app = migratingApp();
+      mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+      const res = await app.request('/upload/abort', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'big.bin', uploadId: 'u1' }),
+      });
+      expect(res.status).toBe(200);
+      expect(mockFetch).toHaveBeenCalledOnce(); // abort reached R2
+    });
+  });
 });

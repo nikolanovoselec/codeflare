@@ -379,6 +379,24 @@ describe('Session Store', () => {
 
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
     });
+
+    // REQ-ENTERPRISE-018: mirror the backend Governed Mode migration flag so the New Session
+    // button can disable (reusing the Upgrading affordance) while the bucket re-encrypts.
+    it('reflects bucketMigrating=true from batch-status', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: true });
+      await sessionStore.loadSessions();
+      expect(sessionStore.bucketMigrating).toBe(true);
+    });
+
+    it('clears bucketMigrating when batch-status reports it false / absent', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: true });
+      await sessionStore.loadSessions();
+      expect(sessionStore.bucketMigrating).toBe(true);
+
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
+      await sessionStore.loadSessions();
+      expect(sessionStore.bucketMigrating).toBe(false);
+    });
   });
 
   describe('createSession', () => {

@@ -117,6 +117,18 @@ export class CircuitBreakerOpenError extends AppError {
   }
 }
 
+/**
+ * REQ-ENTERPRISE-018: a bucket is mid-migration (Governed Mode regime flip). Every writer
+ * path throws this so no client or stale container can write the wrong encryption regime
+ * while objects are being re-encrypted. The `BUCKET_MIGRATING` code lets the frontend reuse
+ * the Upgrading affordance.
+ */
+export class BucketMigratingError extends AppError {
+  constructor() {
+    super('BUCKET_MIGRATING', 409, 'Bucket is migrating its encryption regime (Governed Mode)', 'Storage is being updated by your administrator. Please try again in a moment.');
+  }
+}
+
 /** Convert unknown catch values to Error instances */
 export function toError(error: unknown): Error {
   if (error instanceof Error) return error;

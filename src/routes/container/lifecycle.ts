@@ -9,7 +9,8 @@ import { resolveSessionMode, clampSessionModeToTier } from '../../lib/session-mo
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
-import { AppError, ContainerError, toError, toErrorMessage } from '../../lib/error-types';
+import { AppError, ContainerError, BucketMigratingError, toError, toErrorMessage } from '../../lib/error-types';
+import { isBucketMigrating } from '../../lib/r2-migration';
 import { getTierConfig, getEffectiveTier } from '../../lib/subscription';
 import { isSaasModeActive } from '../../lib/onboarding';
 import { CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
@@ -153,6 +154,15 @@ app.post('/start', containerStartRateLimiter, async (c) => {
   try {
     const bucketName = c.get('bucketName');
     const sessionId = getSessionIdFromQuery(c);
+
+    // REQ-ENTERPRISE-018: refuse to start a container while the bucket is migrating its
+    // encryption regime. A container bakes the bucket's SSE-C regime at boot and its rclone
+    // daemon writes R2 directly; starting one mid-flip would write the wrong regime. 409
+    // until the migration verifies + flips status back to ready (reuses the Upgrading UX).
+    if (await isBucketMigrating(c.env, bucketName)) {
+      throw new BucketMigratingError();
+    }
+
     const user = c.get('user');
     const maxSessions = getMaxSessions(user.role, c.env);
 

@@ -387,8 +387,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   ref={setNewSessionBtnRef}
                   class={`dashboard-new-session-btn ${sessionStore.isAtSessionLimit() ? 'dashboard-new-session-btn--limited' : ''}`}
                   data-testid="dashboard-new-session"
-                  disabled={!sessionStore.r2Ready || isAtUsageQuota() || sessionStore.preseedUpgrading}
-                  aria-label={sessionStore.preseedUpgrading ? 'Upgrading agent skills' : !sessionStore.r2Ready ? 'Waiting for storage setup' : isAtUsageQuota() ? 'Monthly compute quota exceeded' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session'}
+                  disabled={!sessionStore.r2Ready || isAtUsageQuota() || sessionStore.preseedUpgrading || sessionStore.bucketMigrating}
+                  aria-label={sessionStore.bucketMigrating ? 'Storage is migrating' : sessionStore.preseedUpgrading ? 'Upgrading agent skills' : !sessionStore.r2Ready ? 'Waiting for storage setup' : isAtUsageQuota() ? 'Monthly compute quota exceeded' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session'}
                   onClick={() => {
                     if (sessionStore.isAtSessionLimit()) {
                       setShowLimitPopup(!showLimitPopup());
@@ -397,7 +397,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     }
                   }}
                 >
-                  {sessionStore.preseedUpgrading ? 'Upgrading' : '+ New Session'}
+                  {sessionStore.bucketMigrating ? 'Migrating' : sessionStore.preseedUpgrading ? 'Upgrading' : '+ New Session'}
                 </button>
                 <Show when={multiViewWorkspace()}>
                   <button

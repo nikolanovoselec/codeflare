@@ -12,7 +12,7 @@ import { Buffer } from 'node:buffer';
 let cachedMd5Source: string | null = null;
 let cachedMd5B64: string | null = null;
 
-function computeKeyMd5(base64Key: string): string {
+export function computeKeyMd5(base64Key: string): string {
   if (cachedMd5Source === base64Key && cachedMd5B64) return cachedMd5B64;
 
   const rawKey = Buffer.from(base64Key, 'base64');
