@@ -138,7 +138,7 @@ Walk each `documentation/*.md` and apply per-element caps. Cells over 50 words: 
 
 Pass 2 historically enforced numeric line caps per lane file. The cap was wrong: it constrained large projects into artificial splits while offering no signal on small ones. The cap is removed as of `doc-enforce` v2.0.
 
-Pass 2 is preserved as a manifest row for backward compatibility with downstream tooling that reads the 15-row manifest shape; the row always reports `inert (file-level cap removed)`. Per-element caps (Pass 1) and structural-shape passes (Pass 6, Pass 7) remain authoritative.
+Pass 2 is preserved as a manifest row for backward compatibility with downstream tooling that reads the 16-row manifest shape; the row always reports `inert (file-level cap removed)`. Per-element caps (Pass 1) and structural-shape passes (Pass 6, Pass 7) remain authoritative.
 
 `<!-- doc-allow-large: AD-NN ... -->` markers in existing files are silently accepted and no longer required. Removing them is a documentation cleanup task, not an enforcement need.
 
