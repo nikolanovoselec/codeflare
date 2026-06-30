@@ -18,9 +18,10 @@ function monitorScript(skill = PI_SKILL) {
 
 function launcherScript(repo, skill = PI_SKILL) {
   const text = readFileSync(skill, 'utf8');
-  const match = text.match(/```bash\n([\s\S]*?)\n```/);
-  assert.ok(match, 'ci-monitoring skill must contain a launcher snippet');
-  return speedUp(match[1])
+  const blocks = [...text.matchAll(/```bash\n([\s\S]*?)\n```/g)].map((m) => m[1]);
+  const launcher = blocks.find((b) => b.includes('CI_MONITOR_STARTED'));
+  assert.ok(launcher, 'ci-monitoring skill must contain a launcher snippet that emits CI_MONITOR_STARTED');
+  return speedUp(launcher)
     .replace('cd <repo>', `cd '${repo}'`)
     .replace('BRANCH=<branch>', 'BRANCH=multiview');
 }

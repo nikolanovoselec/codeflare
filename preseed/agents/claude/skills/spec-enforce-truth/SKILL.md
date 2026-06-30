@@ -127,7 +127,7 @@ Same regex applies to ADR `Context:` blocks in `documentation/decisions/README.m
 
 ### Per-anchor validation — Phase 7a is the canonical implementation
 
-During `/sdd init`, anchor validation is performed by the Phase 7a verifier (`~/.claude/skills/sdd-init/references/verify-source-anchors.py`), and this skill's row 16 (CQ-SOURCE) consumes the resulting JSON (`.verify-anchors.json`) rather than re-deriving — see `sdd-init/SKILL.md` step 7. The agent never claims "I checked the anchors" without the verifier output line in the commit body; that self-attestation is **CRITICAL `phase-7a-self-attestation`**.
+During `/sdd init`, anchor validation is performed by the Phase 7a verifier (`~/.claude/skills/sdd-init/references/verify-source-anchors.py`), and this skill's row 17 (CQ-SOURCE) consumes the resulting JSON (`.verify-anchors.json`) rather than re-deriving — see `sdd-init/SKILL.md` step 7. The agent never claims "I checked the anchors" without the verifier output line in the commit body; that self-attestation is **CRITICAL `phase-7a-self-attestation`**.
 
 Outside `/sdd init` (steady-state PR-boundary review on an existing project), this skill performs the same checks inline using the same algorithm:
 

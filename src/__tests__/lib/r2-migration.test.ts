@@ -123,7 +123,7 @@ function makeR2(objects: Record<string, { regime: R2SseRegime; size?: number; et
       const reqRegime = regimeFromHeaders(headers);
       heads.push({ key, regime: reqRegime });
       if (obj && obj.regime === reqRegime) {
-        return new Response(null, { status: 200, headers: { etag: obj.etag, 'content-type': obj.contentType, ...obj.meta } });
+        return new Response(null, { status: 200, headers: { etag: obj.etag, 'content-type': obj.contentType, 'content-length': String(obj.size), ...obj.meta } });
       }
       return new Response(null, { status: 400 });
     }
@@ -334,6 +334,16 @@ describe('fetchObjectWithRegimeFallback (D2 reads stay up)', () => {
     expect(response.status).toBe(200);
     expect(stray).toBe(true); // ready bucket + fallback hit ⇒ trigger mixed-recovery
     expect(sseDisabled).toBe(true); // succeeded reading it as plain
+  });
+
+  it('does NOT self-heal an oversized cross-regime stray (no mixed-recovery loop on every read)', async () => {
+    makeR2({ 'huge.bin': { regime: 'plain', size: 6 * 1024 * 1024 * 1024 } }); // committed sse-c; object plain AND >5GB
+    const { kv } = makeKV(); // default ready/sse-c
+    const { response, stray } = await fetchObjectWithRegimeFallback(driverEnv(kv), 'bkt', 'https://r2.test/bkt/huge.bin', { method: 'HEAD' });
+    expect(response.status).toBe(200); // still readable via the fallback
+    // Oversized ⇒ un-migratable (single CopyObject caps at 5 GB) ⇒ suppress the self-heal flag so it
+    // doesn't re-trigger a mixed-recovery scan on every read. Gut-check: a normal-size stray is `true`.
+    expect(stray).toBe(false);
   });
 
   it('falls back without flagging a stray while the bucket is migrating', async () => {
@@ -563,6 +573,50 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
     expect(state.status).toBe('migrating'); // halted, stays gated for admin review
     expect(state.lastError).toMatch(/rotated/);
     expect(mockFetch).not.toHaveBeenCalled(); // never copied a single object with the wrong key
+  });
+
+  it('bounds a hung drainContainers so the migration still proceeds and releases the lease', async () => {
+    vi.useFakeTimers();
+    try {
+      const { store } = makeR2({ 'a.md': { regime: 'sse-c' } });
+      const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false }) });
+      const hang = new Promise<void>(() => {}); // drainContainers never settles
+      const deps = { drainContainers: vi.fn(() => hang), hasHealthyContainer: vi.fn(async () => false) };
+
+      const p = advanceMigration(driverEnv(kv), 'bkt', deps);
+      await vi.advanceTimersByTimeAsync(11_000); // fire the DRAIN_TIMEOUT_MS bound + flush the migrate/verify microtasks
+      await p;
+
+      const final = await getRegimeState({ KV: kv } as unknown as Env, 'bkt');
+      expect(deps.drainContainers).toHaveBeenCalledTimes(1);
+      expect(final.status).toBe('ready'); // proceeded past the hung drain (a ready state has no lease — it was released)
+      expect(store.get('a.md')!.regime).toBe('plain'); // migrated despite the drain timing out
+      // Gut-check: drop the withTimeout bound on the drain and advanceMigration never resolves → this hangs.
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the failure catch never clobbers a successor poll’s lease (releases only its own)', async () => {
+    // drained:true ⇒ first op is the migrate list. Make that list fail AND, as a side effect, simulate a
+    // successor poll having claimed the lease, so the catch re-read sees a DIFFERENT leaseExpiresAt.
+    const { kv, store } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: true }) });
+    const SUCCESSOR_LEASE = 9_999_999_999_999;
+    mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && url.includes('list-type=2')) {
+        store.set('r2-regime:bkt', JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: true, leaseExpiresAt: SUCCESSOR_LEASE }));
+        return new Response('boom', { status: 500 }); // list fails → advanceMigration throws into its catch
+      }
+      if (method === 'GET' && url.includes('uploads')) return new Response('<ListMultipartUploadsResult></ListMultipartUploadsResult>', { status: 200 });
+      return new Response(null, { status: 500 });
+    });
+
+    await expect(advanceMigration(driverEnv(kv), 'bkt', drainNoop)).resolves.toBeUndefined();
+
+    const finalState = JSON.parse(store.get('r2-regime:bkt')!);
+    expect(finalState.leaseExpiresAt).toBe(SUCCESSOR_LEASE); // catch saw a different owner ⇒ did NOT release/clobber it
+    // Gut-check: revert the ownership check and the catch releases unconditionally → leaseExpiresAt is stripped → fails.
   });
 });
 

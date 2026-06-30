@@ -113,7 +113,7 @@ Compresses the old 10-15-turn back-and-forth into two decisions.
    **Anti-substitution clauses (CRITICAL severity — these are the failure modes that cause the spec to lie):**
    - Agent self-attestation ("I checked the anchors manually, all good") without the verifier output in the commit body is itself **CRITICAL `phase-7a-self-attestation`**, caught by the next PR-boundary review and blocking the merge.
    - Sampling ("I verified the load-bearing anchors") is not Phase 7a. The verifier walks 100% of anchors deterministically; partial reads are not equivalent. A sampled audit is **CRITICAL `phase-7a-incomplete-coverage`**.
-   - "spec-enforce ran its own CQ-SOURCE pass, that covers it" is wrong: spec-enforce-truth row 16 trusts Phase 7a's output during `/sdd init`. Running spec-enforce first without Phase 7a leaves the broader enforcement skill consuming an unverified anchor set — **CRITICAL `phase-7a-pipeline-inversion`**.
+   - "spec-enforce ran its own CQ-SOURCE pass, that covers it" is wrong: spec-enforce-truth row 17 trusts Phase 7a's output during `/sdd init`. Running spec-enforce first without Phase 7a leaves the broader enforcement skill consuming an unverified anchor set — **CRITICAL `phase-7a-pipeline-inversion`**.
    - "The verifier path didn't exist on disk, so I skipped it" is **CRITICAL `phase-7a-tooling-bypass`**. The verifier ships inside this skill (`references/verify-source-anchors.py`); if the install path doesn't resolve, install or copy it before proceeding.
 
    **On `exit_code = 1`:**
@@ -127,7 +127,7 @@ Compresses the old 10-15-turn back-and-forth into two decisions.
    Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N malformed=N unreadable=N exit_code=0|1
    ```
 
-   The line is the cheap-to-verify proof Phase 7a ran. Absence is **CRITICAL `phase-7a-evidence-missing`** caught by the next PR-boundary review and by `spec-enforce` row 16 reading the most recent `[sdd-init]` commit body.
+   The line is the cheap-to-verify proof Phase 7a ran. Absence is **CRITICAL `phase-7a-evidence-missing`** caught by the next PR-boundary review and by `spec-enforce` row 17 reading the most recent `[sdd-init]` commit body.
 
 8. **Phase 7b — Programmatic enumeration-coverage verification (CRITICAL, evidence-gated, non-skippable).**
 
@@ -166,7 +166,7 @@ Compresses the old 10-15-turn back-and-forth into two decisions.
    Phase 7b enum verifier: enumerated=N accounted=N unaccounted=N coverage_pct=P exit_code=0|1
    ```
 
-   Absence is **CRITICAL `phase-7b-evidence-missing`** caught by the next PR-boundary review and by `spec-enforce` row 16 reading the most recent `[sdd-init]` commit body alongside the Phase 7a line.
+   Absence is **CRITICAL `phase-7b-evidence-missing`** caught by the next PR-boundary review and by `spec-enforce` row 17 reading the most recent `[sdd-init]` commit body alongside the Phase 7a line.
 
    **Phase 7b is advisory for greenfield.** A greenfield project has no source files to enumerate; `enumerated=0` and `coverage_pct=100.0` is the expected outcome. The verifier still runs (the commit body line is still required) so the audit-trail format stays uniform across modes.
 
@@ -175,8 +175,8 @@ Compresses the old 10-15-turn back-and-forth into two decisions.
    **Anti-substitution rule.** A structural sanity check (file existence + REQ-ID uniqueness + template-field presence) is NOT iterate-to-clean. It is necessary but not sufficient. The "Execute Full Plan" user-memory directive is about not pausing between phases for confirmation — it is NOT authority to skip protocol-required enforcement passes. Conflating the two is itself a HIGH finding.
 
    **Required invocations (every /sdd init run, every mode):**
-   1. **Invoke `spec-enforce` skill with `scope=all`.** Run the full 20-row execution manifest against `sdd/spec/`. CQ-SOURCE (row 16) consumes the Phase 7a verifier JSON output (`.verify-anchors.json`) rather than re-running anchor resolution; CQ-1/2/3 (row 17) runs independently. CQ-SOURCE is ALWAYS RUN — never gated by `enforce_tdd` or by transition state.
-   2. **Invoke `doc-enforce` skill with `scope=all`.** Run the full 15-row execution manifest against `documentation/`. Pass 15 (doc source-anchor truth-check) ALSO consumes the Phase 7a verifier JSON (the verifier walks `documentation/**/*.md` too) rather than re-deriving; Pass 8/9/10/11 run independently. Pass 15 is ALWAYS RUN — never gated.
+   1. **Invoke `spec-enforce` skill with `scope=all`.** Run the full 23-row execution manifest against `sdd/spec/`. CQ-SOURCE (row 17) consumes the Phase 7a verifier JSON output (`.verify-anchors.json`) rather than re-running anchor resolution; CQ-1/2/3 (row 18) runs independently. CQ-SOURCE is ALWAYS RUN — never gated by `enforce_tdd` or by transition state.
+   2. **Invoke `doc-enforce` skill with `scope=all`.** Run the full 16-row execution manifest against `documentation/`. Pass 15 (doc source-anchor truth-check) ALSO consumes the Phase 7a verifier JSON (the verifier walks `documentation/**/*.md` too) rather than re-deriving; Pass 8/9/10/11 run independently. Pass 15 is ALWAYS RUN — never gated.
    3. **Template-verbatim + layout audit (step-9 owned).** Walk each `references/templates/*.md` that was emitted; for each, extract the level-2 (`##`) section headings and verify every one appears in the emitted file. Missing heading = HIGH `scaffold-template-stripped` listing the template, the emitted path, and the missing section. Layout conformance (any file outside `spec-driven-development` § "Spec structure") is caught by `doc-enforce-lanes` § Layout conformance — no separate check needed here. Finally verify `sdd/README.md`'s Domains table lists every domain file actually present under `sdd/spec/*.md` (excluding glossary, constraints, changes, .review-queue, .init-triage, config); missing rows = HIGH `scaffold-domain-table-incomplete`.
 
    **Mode-dependent action on findings:**
@@ -383,13 +383,13 @@ This section is the operational detail of greenfield-flow steps 7 (Phase 7a veri
 
 **Phase 7a (CRITICAL gate, BEFORE the two enforcement skills).** Run `python3 ~/.claude/skills/sdd-init/references/verify-source-anchors.py --root . --json-out .verify-anchors.json`. Block commit on `exit_code != 0` until every failure is fixed or escalated to triage. Copy the verifier summary line into the commit body verbatim. See step 7 of the greenfield flow for the full catalogue of CRITICAL findings (`phase-7a-self-attestation`, `phase-7a-incomplete-coverage`, `phase-7a-pipeline-inversion`, `phase-7a-tooling-bypass`, `phase-7a-evidence-missing`).
 
-**Spec side (downstream of Phase 7a).** Invoke `spec-enforce` with `scope=all`. Always-runs rows (the 20-row manifest):
-- CQ-SOURCE — Source-anchor truth-check (row 16): consumes the Phase 7a verifier JSON (`.verify-anchors.json`). HIGH `cq-source-anchor-orphaned` and `cq-source-value-drift` findings are surfaced from `failures[]` already, so this row is mechanically aggregating Phase 7a output rather than re-deriving. NEVER gated by `enforce_tdd` or transition state.
-- CQ-1, CQ-2, CQ-3 (row 17): REQ-test truth-check, vendor drift, content-preservation.
+**Spec side (downstream of Phase 7a).** Invoke `spec-enforce` with `scope=all`. Always-runs rows (the 23-row manifest):
+- CQ-SOURCE — Source-anchor truth-check (row 17): consumes the Phase 7a verifier JSON (`.verify-anchors.json`). HIGH `cq-source-anchor-orphaned` and `cq-source-value-drift` findings are surfaced from `failures[]` already, so this row is mechanically aggregating Phase 7a output rather than re-deriving. NEVER gated by `enforce_tdd` or transition state.
+- CQ-1, CQ-2, CQ-3 (row 18): REQ-test truth-check, vendor drift, content-preservation.
 - Per-REQ structural rows 1-14: forbidden content, status drift, AC granularity, etc.
-- Backlog re-triage (row 18): walk existing triage entries; reclassify against current rules.
+- Backlog re-triage (row 22): walk existing triage entries; reclassify against current rules.
 
-**Doc side (downstream of Phase 7a).** Invoke `doc-enforce` with `scope=all`. Always-runs rows (the 15-row manifest):
+**Doc side (downstream of Phase 7a).** Invoke `doc-enforce` with `scope=all`. Always-runs rows (the 16-row manifest):
 - Pass 15 — Doc source-anchor truth-check: consumes the same Phase 7a verifier JSON (the verifier walks both `sdd/**/*.md` and `documentation/**/*.md` in one pass). Always runs, never gated.
 - Pass 8 — Verification truth-check, Pass 9 — Implements-vs-AC cross-walk, Pass 10 — Stale code-block detection, Pass 11 — Content-preservation on trim.
 - Pass 1, 13, 14 — per-element budgets, within-section semantic consistency, authoring quality.

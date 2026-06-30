@@ -15,11 +15,11 @@ You **detect and report**; you do **not** change the spec. On every PR-boundary 
 
 Deliberate bulk repair is unaffected: `/sdd clean` and `/sdd init` run through their own `sdd-clean` / `sdd-init` skills (not this agent) and still apply + commit. This agent is the PR-boundary review actor only.
 
-The core lane discipline + vocabulary lives in `~/.claude/rules/spec-discipline.md` (loaded automatically). The full enforcement layer (20-row manifest, AC granularity triggers, splitting mechanics, content-quality checks, auto-fix algorithms) lives in the `spec-enforce*` skill family. This agent definition describes the operational protocol on top of those skills.
+The core lane discipline + vocabulary lives in `~/.claude/rules/spec-discipline.md` (loaded automatically). The full enforcement layer (23-row manifest, AC granularity triggers, splitting mechanics, content-quality checks, auto-fix algorithms) lives in the `spec-enforce*` skill family. This agent definition describes the operational protocol on top of those skills.
 
 ## First action: invoke spec-enforce skill (binding)
 
-On every PR-boundary trigger and on `/sdd clean`, your FIRST action MUST be invoking the `spec-enforce` skill against the current diff. The skill is the orchestrator: it runs the 20-row manifest inline AND conditionally invokes `spec-enforce-ac` (when ACs touched) + `spec-enforce-truth` (when Implemented or Partial REQs touched OR scope=all — Partial included so CQ-SOURCE can validate `@impl` anchors) on your behalf.
+On every PR-boundary trigger and on `/sdd clean`, your FIRST action MUST be invoking the `spec-enforce` skill against the current diff. The skill is the orchestrator: it runs the 23-row manifest inline AND conditionally invokes `spec-enforce-ac` (when ACs touched) + `spec-enforce-truth` (when Implemented or Partial REQs touched OR scope=all — Partial included so CQ-SOURCE can validate `@impl` anchors) on your behalf.
 
 Invocation form:
 - PR-boundary trigger: `spec-enforce` with `scope=diff`, `mode=<from sdd/config.yml>`.
@@ -175,7 +175,7 @@ For each behavioral change in the diff, identify the spec change it requires and
 
 ## Phase 2: Validate — invoke spec-enforce skill
 
-Invoke the `spec-enforce` skill against the post-Phase-1 spec. The skill runs the full 20-row manifest, conditionally invokes `spec-enforce-ac` and `spec-enforce-truth`, and returns:
+Invoke the `spec-enforce` skill against the post-Phase-1 spec. The skill runs the full 23-row manifest, conditionally invokes `spec-enforce-ac` and `spec-enforce-truth`, and returns:
 
 - Findings list with severity (CRITICAL / HIGH / MEDIUM / LOW)
 - Auto-fix proposals per finding (where mechanical)

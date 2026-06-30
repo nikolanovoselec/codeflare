@@ -15,11 +15,11 @@ You **detect and report**; you do **not** change the documentation. On every PR-
 
 Deliberate bulk repair is unaffected: `/sdd clean` and `/sdd init` run through their own `sdd-clean` / `sdd-init` skills (not this agent) and still apply + commit. This agent is the PR-boundary review actor only.
 
-The core lane discipline + file inventory live in `~/.claude/rules/documentation-discipline.md` and `~/.claude/rules/spec-discipline.md` (loaded automatically). The full enforcement layer (15-row manifest; Pass 1 and Passes 3-15 active, Pass 2 reserved as a manifest-stability stub; per-lane format templates, truth-check passes, authoring-quality checks, auto-fix algorithms) lives in the `doc-enforce*` skill family. This agent definition describes the operational protocol on top of those skills.
+The core lane discipline + file inventory live in `~/.claude/rules/documentation-discipline.md` and `~/.claude/rules/spec-discipline.md` (loaded automatically). The full enforcement layer (16-row manifest; Pass 1 and Passes 3-16 active, Pass 2 reserved as a manifest-stability stub; per-lane format templates, truth-check passes, authoring-quality checks, auto-fix algorithms) lives in the `doc-enforce*` skill family. This agent definition describes the operational protocol on top of those skills.
 
 ## First action: invoke doc-enforce skill (binding)
 
-On every PR-boundary trigger and on `/sdd clean`, your FIRST action MUST be invoking the `doc-enforce` skill against the current diff. The skill is the orchestrator: it runs the 15-row manifest inline AND conditionally invokes `doc-enforce-lanes` (per file in diff), `doc-enforce-shape` (when api-reference*.md or canonical lane files touched), and `doc-enforce-truth` (when Implemented REQ docs touched OR scope=all) on your behalf.
+On every PR-boundary trigger and on `/sdd clean`, your FIRST action MUST be invoking the `doc-enforce` skill against the current diff. The skill is the orchestrator: it runs the 16-row manifest inline AND conditionally invokes `doc-enforce-lanes` (per file in diff), `doc-enforce-shape` (when api-reference*.md or canonical lane files touched), and `doc-enforce-truth` (when Implemented REQ docs touched OR scope=all) on your behalf.
 
 Invocation form:
 - PR-boundary trigger: `doc-enforce` with `scope=diff`, `mode=<from sdd/config.yml>`.
@@ -211,7 +211,7 @@ When updating docs, enforce these rules:
 
 ## Phase 2: Validate — invoke doc-enforce skill
 
-Invoke the `doc-enforce` skill against the post-Phase-1 documentation/. The skill runs the full 15-row manifest, conditionally invokes `doc-enforce-lanes`, `doc-enforce-shape`, and `doc-enforce-truth`, and returns:
+Invoke the `doc-enforce` skill against the post-Phase-1 documentation/. The skill runs the full 16-row manifest, conditionally invokes `doc-enforce-lanes`, `doc-enforce-shape`, and `doc-enforce-truth`, and returns:
 
 - Findings list with severity (CRITICAL / HIGH / MEDIUM / LOW)
 - Auto-fix proposals per finding (where mechanical)
