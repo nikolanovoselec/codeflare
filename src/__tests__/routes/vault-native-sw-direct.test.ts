@@ -53,7 +53,7 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     return fn([]); // [] == zero window clients == the flush trigger
   }
 
-  it('REQ-VAULT-024 AC4: the served worker retains the encryption key when no clients are connected (flush neutered)', () => {
+  it('REQ-VAULT-024 AC4 / REQ-VAULT-025 AC4: the served worker retains the encryption key when no clients are connected (flush neutered)', () => {
     expect(runNoClientFlush(VAULT_NATIVE_SERVICE_WORKER_JS)).toBe('AES-KEY');
   });
 
