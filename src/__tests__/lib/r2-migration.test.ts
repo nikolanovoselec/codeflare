@@ -596,6 +596,7 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
     expect(final.status).toBe('migrating'); // halted, never falsely flipped to ready
     expect(final.stuckCount).toBeGreaterThanOrEqual(3);
     expect(final.lastError).toMatch(/halting/);
+    expect(final.halted).toBe(true); // retry-ceiling is the other halt trigger the dashboard suppresses the progress % on (parity with the key-rotation path)
   });
 
   it('halts with a clear error when the SSE-C key rotated mid-migration (keyMd5 mismatch, detect-only)', async () => {
