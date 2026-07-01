@@ -19,7 +19,7 @@
     "@solidjs/router": "^0.16.1",
     "@thisbeyond/solid-dnd": "^0.7.5",
     "@xterm/addon-fit": "^0.11.0",
-    "@xterm/xterm": "^6.0.0",
+    "@xterm/xterm": "6.1.0-beta.288",
     "solid-js": "^1.9.12",
     "zod": "^4.4.3"
   },
