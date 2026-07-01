@@ -67,6 +67,10 @@ const MIGRATION_CONCURRENCY = 6;
 /** Objects requested per ListObjectsV2. Large: a poll's work is bounded per-SLICE by the wall-clock
  * deadline below, NOT by page size, so a single list call can feed an entire small bucket in one poll. */
 const LIST_PAGE_SIZE = 1_000;
+/** Max list pages the one-time progress-% object count will scan (≈ COUNT_LIST_CAP × LIST_PAGE_SIZE objects).
+ * A bucket larger than this reports no % (the migration still runs); keeps the count cheap for realistic
+ * hundreds-to-low-thousands buckets while capping the one-time cost on a pathologically large one. */
+const COUNT_LIST_CAP = 50;
 /** Per-op R2 timeouts (fetchWithTimeout also AbortController-cancels a timed-out op so its connection
  * frees immediately). Sized for the tiny objects this migrates — generous but realistic. */
 const LIST_TIMEOUT_MS = 2_000;
@@ -338,6 +342,36 @@ async function migrateChunk(
   return { migrated, skipped, oversized, failed, processed, lastKey, done };
 }
 
+/** Count every object via list-only ListObjectsV2 pages (no per-object ops) — the denominator for the
+ * migration progress %. Cheap: one request per LIST_PAGE_SIZE keys. Bounded to `maxPages`; a larger bucket
+ * (or a failed list) returns `total: null` so the caller shows no % rather than burning the invocation
+ * budget. `pages` is returned so the caller can charge the subrequests against its budget. */
+async function countObjects(
+  env: MigrateR2Env,
+  bucketName: string,
+  endpoint: string,
+  maxPages: number,
+): Promise<{ total: number | null; pages: number }> {
+  const client = createR2Client(env);
+  let cursor: string | null = null;
+  let total = 0;
+  let pages = 0;
+  do {
+    const listUrl = new URL(getR2Url(endpoint, bucketName));
+    listUrl.searchParams.set('list-type', '2');
+    listUrl.searchParams.set('max-keys', String(LIST_PAGE_SIZE));
+    if (cursor) listUrl.searchParams.set('start-after', cursor);
+    const res = await fetchWithTimeout(client, listUrl.toString(), { method: 'GET' }, LIST_TIMEOUT_MS, 'countObjects list');
+    pages++;
+    if (!res.ok) return { total: null, pages };
+    const parsed = parseListObjectsXml(await res.text());
+    total += parsed.objects.length;
+    if (!parsed.isTruncated) return { total, pages };
+    cursor = parsed.objects.length ? parsed.objects[parsed.objects.length - 1].key : null;
+  } while (cursor && pages < maxPages);
+  return { total: null, pages }; // exceeded maxPages ⇒ no %
+}
+
 /** One verification page from `startAfter`: every object must read 200 under the TARGET regime's
  *  headers. Slice-gated like migrateChunk; returns the resume key and `done` (whole bucket verified). */
 async function verifyChunk(
@@ -559,11 +593,22 @@ export async function advanceMigration(
       return true;
     };
 
-    // Persist the one-time drain durably BEFORE the first page, so a kill during or after the first
-    // page can never re-trigger the (R2-op-heavy) drain on the next poll — it sees drained=true and
-    // goes straight to pages. Combined with the bounded+concurrent abort above, the drain can neither
-    // strand the lease nor loop. (commit re-checks the lease; bail if we lost it.)
-    if (!state.drained && !(await commit({ ...state, drained: true }, true))) return;
+    let usedSubreq = 0;
+    // Persist the one-time drain durably BEFORE the first page, so a kill during or after the first page
+    // can never re-trigger the (R2-op-heavy) drain on the next poll — it sees drained=true and goes
+    // straight to pages. In the SAME one-time write we record `total`, an object count for the progress %
+    // (list-only scan, ~1 request per 1,000 keys); a bucket larger than COUNT_LIST_CAP pages stores
+    // `total: 0` ("counted, no %") so it never re-counts. (commit re-checks the lease; bail if we lost it.)
+    let total = state.total;
+    if (!state.drained) {
+      if (total === undefined) {
+        const counted = await countObjects(env, bucketName, endpoint, COUNT_LIST_CAP);
+        usedSubreq += counted.pages;
+        total = counted.total ?? 0;
+      }
+      if (!(await commit({ ...state, drained: true, total }, true))) return;
+    }
+    total = total ?? 0;
 
     // Scan the bucket in concurrency-sized slices, checkpointing the start-after key after each chunk.
     // Each invocation STOPS VOLUNTARILY before the ~30s waitUntil force-kill — once another list+slice
@@ -571,7 +616,6 @@ export async function advanceMigration(
     // lease so the next poll resumes from the cursor. A force-kill is not catchable and would leave the
     // lease held; the deadline (+ the unconditional first slice in processSlices) is what prevents that.
     const deadline = now + WORK_DEADLINE_MS;
-    let usedSubreq = 0;
     const opsPerObject = (p: 'migrate' | 'verify') => (p === 'migrate' ? 2 : 1);
     const sliceMs = (p: 'migrate' | 'verify') => (p === 'migrate' ? MIGRATE_SLICE_MS : VERIFY_SLICE_MS);
     // Objects this chunk may process before the subrequest backstop — the time gate is usually binding.
@@ -581,12 +625,14 @@ export async function advanceMigration(
       Date.now() + LIST_TIMEOUT_MS + sliceMs(p) <= deadline && usedSubreq + 1 + MIGRATION_CONCURRENCY * opsPerObject(p) <= MAX_SUBREQUESTS;
     let curPhase = phase;
     let cursor = state.cursor ?? null;
+    let processed = state.processed ?? 0;
     let lastError = state.lastError;
 
     for (;;) {
       if (curPhase === 'migrate') {
         const r = await migrateChunk(env, bucketName, endpoint, from, to, cursor, { deadline, maxObjects: objBudget('migrate') });
         usedSubreq += 1 + r.processed * opsPerObject('migrate');
+        processed += r.processed;
         const notes = [
           r.oversized.length ? `oversized skipped (need UploadPartCopy): ${r.oversized.join(', ')}` : '',
           r.failed.length ? `failed to re-encrypt: ${r.failed.join(', ')}` : '',
@@ -596,13 +642,13 @@ export async function advanceMigration(
           // Migrate pass complete → verify (continue in this invocation if budget remains).
           curPhase = 'verify';
           cursor = null;
-          const s: RegimeState = { ...state, drained, phase: 'verify', cursor: null, ...(lastError ? { lastError } : {}) };
+          const s: RegimeState = { ...state, drained, total, processed, phase: 'verify', cursor: null, ...(lastError ? { lastError } : {}) };
           if (!canStartChunk('verify')) { await commit(s, false); return; }
           if (!(await commit(s, true))) return;
           continue;
         }
         cursor = r.lastKey;
-        const s: RegimeState = { ...state, drained, phase: 'migrate', cursor, ...(lastError ? { lastError } : {}) };
+        const s: RegimeState = { ...state, drained, total, processed, phase: 'migrate', cursor, ...(lastError ? { lastError } : {}) };
         if (canStartChunk('migrate')) { if (!(await commit(s, true))) return; continue; }
         await commit(s, false);
         return;
@@ -610,13 +656,14 @@ export async function advanceMigration(
 
       const r = await verifyChunk(env, bucketName, endpoint, to, cursor, { deadline, maxObjects: objBudget('verify') });
       usedSubreq += 1 + r.processed * opsPerObject('verify');
+      processed += r.processed;
       if (!r.ok) {
         // A stray object is not in the target regime — re-run a migrate pass to heal it, but BOUND
         // the bounces (MAX_VERIFY_RETRIES): an un-fixable poison/corrupt object must not loop forever.
         // Per-key: only accumulate while the SAME object keeps failing; a different key resets it.
         const stuckCount = (state.lastFailedKey === r.failedKey ? (state.stuckCount ?? 0) : 0) + 1;
         await commit({
-          ...state, drained, stuckCount, lastFailedKey: r.failedKey, phase: 'migrate', cursor: null,
+          ...state, drained, total, processed, stuckCount, lastFailedKey: r.failedKey, phase: 'migrate', cursor: null,
           lastError: stuckCount >= MAX_VERIFY_RETRIES
             ? `verify failed at ${r.failedKey} after ${stuckCount} attempts; halting (un-migratable object — admin review)`
             : `verify failed at ${r.failedKey}; re-migrating`,
@@ -635,7 +682,7 @@ export async function advanceMigration(
         return;
       }
       cursor = r.lastKey;
-      const s: RegimeState = { ...state, drained, phase: 'verify', cursor, ...(lastError ? { lastError } : {}) };
+      const s: RegimeState = { ...state, drained, total, processed, phase: 'verify', cursor, ...(lastError ? { lastError } : {}) };
       if (canStartChunk('verify')) { if (!(await commit(s, true))) return; continue; }
       await commit(s, false);
       return;

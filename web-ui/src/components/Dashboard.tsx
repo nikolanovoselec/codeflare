@@ -397,7 +397,9 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     }
                   }}
                 >
-                  {sessionStore.bucketMigrating ? 'Migrating' : sessionStore.preseedUpgrading ? 'Upgrading' : '+ New Session'}
+                  {sessionStore.bucketMigrating
+                    ? (sessionStore.bucketMigrationPercent != null ? `Migrating ${sessionStore.bucketMigrationPercent}%` : 'Migrating')
+                    : sessionStore.preseedUpgrading ? 'Upgrading' : '+ New Session'}
                 </button>
                 <Show when={multiViewWorkspace()}>
                   <button

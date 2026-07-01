@@ -48,6 +48,12 @@ export interface RegimeState {
   drained?: boolean;
   /** Two-stage pass: re-encrypt every object (`migrate`), then HEAD-scan every object under the target regime (`verify`) before flipping to ready. */
   phase?: 'migrate' | 'verify';
+  /** Object count for the migration progress %, counted once (list-only) at drain time — the denominator.
+   * `0` ⇒ counted but no % (empty bucket, or larger than the count cap). Absent ⇒ not yet counted. */
+  total?: number;
+  /** Objects processed so far across BOTH passes (migrate then verify), so processed/(2·total) is a smooth
+   * 0→100% progress. Persisted per page; dropped when the migration flips to ready. */
+  processed?: number;
   lastError?: string;
 }
 

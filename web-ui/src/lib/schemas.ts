@@ -182,6 +182,8 @@ export const BatchSessionStatusResponseSchema = z.object({
   // REQ-ENTERPRISE-018: Governed Mode regime migration flags.
   bucketMigrating: z.boolean().optional(),
   bucketMigrationPending: z.boolean().optional(),
+  // REQ-ENTERPRISE-018: 0–99 re-encrypt progress % for the Migrating button (absent until known).
+  bucketMigrationPercent: z.number().optional(),
 });
 
 // Setup API schemas - moved from client.ts (strict versions)

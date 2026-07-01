@@ -460,6 +460,24 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
     expect([...store.values()].every((o) => o.regime === 'plain')).toBe(true);
   });
 
+  it('counts the object total once and accumulates processed for the progress % (persisted mid-pass)', async () => {
+    const objs: Record<string, { regime: R2SseRegime }> = {};
+    for (let i = 0; i < 4; i++) objs[`k${i}.md`] = { regime: 'sse-c' };
+    makeR2(objs, { pageSize: 2 }); // 2 migrate pages
+    const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false }) });
+
+    // Force a voluntary mid-pass exit after the first migrate page (same clock trick as the budget test),
+    // so the state is inspected WHILE migrating (a completed migration drops total/processed on ready).
+    const T0 = 1_000_000;
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValueOnce(T0).mockReturnValue(T0 + 16_000);
+    await advanceMigration(driverEnv(kv), 'bkt', drainNoop);
+    nowSpy.mockRestore();
+
+    const mid = await getRegimeState({ KV: kv } as unknown as Env, 'bkt');
+    expect(mid.total).toBe(4);     // whole bucket counted once, up front (the % denominator)
+    expect(mid.processed).toBe(2); // first page (2 objects) counted toward progress so far
+  });
+
   it('does nothing while another chunk holds a live lease (in-flight lock)', async () => {
     const { puts } = makeR2({ 'a.md': { regime: 'sse-c' } });
     const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false, leaseExpiresAt: Date.now() + 60_000 }) });

@@ -131,6 +131,8 @@ export interface SessionState {
   bucketMigrating: boolean;
   /** REQ-ENTERPRISE-018: a Governed Mode flip is wanted but deferred until the user's running sessions stop (D1: no force-kill). */
   bucketMigrationPending: boolean;
+  /** REQ-ENTERPRISE-018: 0–99 re-encrypt progress % for the Migrating button; null until the backend knows it. */
+  bucketMigrationPercent: number | null;
   enterpriseMode: boolean;
   saasMode: boolean;
 }
@@ -150,6 +152,7 @@ const [state, setState] = createStore<SessionState>({
   preseedUpgrading: false,
   bucketMigrating: false,
   bucketMigrationPending: false,
+  bucketMigrationPercent: null,
   enterpriseMode: false,
   saasMode: false,
 });
@@ -261,6 +264,7 @@ async function loadSessions(): Promise<void> {
     // batch-status poll while migrating also advances a chunk server-side, so keep polling.
     setState('bucketMigrating', 'bucketMigrating' in batchResponse && batchResponse.bucketMigrating === true);
     setState('bucketMigrationPending', 'bucketMigrationPending' in batchResponse && batchResponse.bucketMigrationPending === true);
+    setState('bucketMigrationPercent', typeof batchResponse.bucketMigrationPercent === 'number' ? batchResponse.bucketMigrationPercent : null);
 
     if (thisGen !== loadSessionsGeneration) return;
 
@@ -641,6 +645,7 @@ export const sessionStore = {
   get preseedUpgrading() { return state.preseedUpgrading; },
   get bucketMigrating() { return state.bucketMigrating; },
   get bucketMigrationPending() { return state.bucketMigrationPending; },
+  get bucketMigrationPercent() { return state.bucketMigrationPercent; },
   get enterpriseMode() { return state.enterpriseMode; },
   setEnterpriseMode: (value: boolean) => setState('enterpriseMode', value),
   get saasMode() { return state.saasMode; },

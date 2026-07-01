@@ -409,6 +409,40 @@ describe('Session Store', () => {
     });
   });
 
+  // REQ-ENTERPRISE-018 AC8: the 5s BACKGROUND poll (refreshSessionStatuses), not just the full
+  // loadSessions, must mirror the migration flags — otherwise a migration that finishes between full
+  // loads leaves the New Session button stuck on "Migrating" until a manual page reload.
+  describe('background poll migration flags (REQ-ENTERPRISE-018 AC8)', () => {
+    it('clears bucketMigrating on completion via the background poll — no full reload', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: true });
+      await sessionStore.loadSessions();
+      expect(sessionStore.bucketMigrating).toBe(true);
+
+      // migration finishes; only a background poll runs (NOT loadSessions)
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: false });
+      await sessionStore.refreshSessionStatuses();
+
+      expect(sessionStore.bucketMigrating).toBe(false);
+    });
+
+    it('mirrors the migration percent from the background poll for the button label', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: true, bucketMigrationPercent: 42 });
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.bucketMigrating).toBe(true);
+      expect(sessionStore.bucketMigrationPercent).toBe(42);
+    });
+
+    it('resets the percent to null when the background poll no longer reports one', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: true, bucketMigrationPercent: 60 });
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.bucketMigrationPercent).toBe(60);
+
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: false });
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.bucketMigrationPercent).toBeNull();
+    });
+  });
+
   describe('createSession', () => {
     it('should create session and add to state', async () => {
       const newSession = {

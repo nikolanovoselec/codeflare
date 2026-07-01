@@ -447,6 +447,27 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(res.status).toBe(200);
       expect(advanceMigration).not.toHaveBeenCalled();
     });
+
+    it('reports a 0–99 progress % computed across both passes from the reconcile state', async () => {
+      // migrate done (processed 100 == total) then halfway through verify (processed 150):
+      // 150 / (2·100) = 75%.
+      vi.mocked(planRegimeReconcile).mockResolvedValue({ state: { total: 100, processed: 150 } as any, migrating: true, pending: false });
+      const app = createApp();
+      const { ctx } = makeExecCtx();
+      const res = await app.request('/sessions/batch-status', undefined, undefined, ctx as any);
+      const body = await res.json() as { bucketMigrating: boolean; bucketMigrationPercent?: number };
+      expect(body.bucketMigrating).toBe(true);
+      expect(body.bucketMigrationPercent).toBe(75);
+    });
+
+    it('omits the progress % until the object total is counted', async () => {
+      vi.mocked(planRegimeReconcile).mockResolvedValue({ state: { processed: 3 } as any, migrating: true, pending: false });
+      const app = createApp();
+      const { ctx } = makeExecCtx();
+      const res = await app.request('/sessions/batch-status', undefined, undefined, ctx as any);
+      const body = await res.json() as { bucketMigrationPercent?: number };
+      expect(body.bucketMigrationPercent).toBeUndefined();
+    });
   });
 
   // CF-041 // CF-071
