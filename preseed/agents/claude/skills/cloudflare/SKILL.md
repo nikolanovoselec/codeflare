@@ -1,6 +1,6 @@
 ---
 name: cloudflare
-description: Cloudflare platform reference — Workers, Pages, KV/D1/R2, AI/Vectorize/Agents SDK, networking, WAF/DDoS, Terraform/Pulumi. Implementation reference (retrieval-first), NOT the new-project entry point: for a preference-less "build me X" request start with the `cloudflare-stack` playbook, and to ship/deploy use the `ship` skill. Use this for Cloudflare platform/API details while building or reviewing.
+description: "Cloudflare platform reference — Workers, Pages, KV/D1/R2, AI/Vectorize/Agents SDK, networking, WAF/DDoS, Terraform/Pulumi. Implementation reference (retrieval-first), NOT the new-project entry point: for a preference-less \"build me X\" request start with the `cloudflare-stack` playbook, and to ship/deploy use the `ship` skill. Use this for Cloudflare platform/API details while building or reviewing."
 ---
 
 # Cloudflare Platform Skill

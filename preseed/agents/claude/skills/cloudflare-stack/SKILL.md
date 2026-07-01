@@ -1,6 +1,6 @@
 ---
 name: cloudflare-stack
-description: The default new-project playbook — use whenever the user wants to build something from scratch and has NOT committed to a specific tech stack: "build something", "create a website", "make an app", "start a new project", "I have an idea", "build me a...", "I want to create...", "make me a...", "let's build...", "new project", or any idea described from scratch. When there is no stated technology preference, this skill picks the default stack and targets Cloudflare Workers for deployment; if the user has already pinned a non-Cloudflare stack, respect that. Use it proactively before writing any code. For Cloudflare platform/API details while implementing use the `cloudflare` reference skill; to ship/deploy use the `ship` skill.
+description: "The default new-project playbook — use whenever the user wants to build something from scratch and has NOT committed to a specific tech stack: \"build something\", \"create a website\", \"make an app\", \"start a new project\", \"I have an idea\", \"build me a...\", \"I want to create...\", \"make me a...\", \"let's build...\", \"new project\", or any idea described from scratch. When there is no stated technology preference, this skill picks the default stack and targets Cloudflare Workers for deployment; if the user has already pinned a non-Cloudflare stack, respect that. Use it proactively before writing any code. For Cloudflare platform/API details while implementing use the `cloudflare` reference skill; to ship/deploy use the `ship` skill."
 version: 1.1.0
 ---
 
