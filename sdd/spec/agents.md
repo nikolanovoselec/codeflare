@@ -2093,24 +2093,25 @@ None.
 
 ---
 
-### REQ-AGENT-074: Pi Visible Review and CI Monitor Handoff
+### REQ-AGENT-074: Pi Visible Review Monitor Handoff
 
-**Intent:** After a PR-boundary review starts, the main Pi session must own visible background monitor tasks for both review delivery and CI so failures can be seen and restarted.
+**Intent:** After a PR-boundary review starts, the main Pi session must own the visible background `review-monitor` task so review results can be seen, reported, and restarted. CI monitoring is owned separately by the `ci-monitoring` route ([REQ-AGENT-068](#req-agent-068-ci-monitoring-background-agent-policy)); the handoff never bundles a CI monitor, so it cannot spawn a duplicate that collides with the CI monitor the main session already starts after a CI-producing push (a collision Pi surfaces as "Agent is already processing a prompt", killing the first CI monitor).
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. Review startup sends a main-session follow-up containing exact-head `review-monitor` and CI monitor requests. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendVisibleMonitorHandoff --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::visibleMonitorHandoffRequest --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (visible monitor handoff requests review and CI monitors for the exact head) -->
+1. Review startup sends a main-session follow-up containing an exact-head `review-monitor` request and no CI monitor request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendVisibleMonitorHandoff --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::visibleMonitorHandoffRequest --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (visible monitor handoff requests only the review-monitor, never a CI monitor) -->
 2. If the visible handoff cannot be sent, Pi may start one hidden fallback monitor without creating duplicate durable claims. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::BACKGROUND_SUBAGENT_SPAWN --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorSpawnDecision --> <!-- coverage-gap: fallback ordering depends on Pi extension runtime availability of sendUserMessage vs the optional subagents service; verified by live smoke review. -->
-3. After a main/master SDD PR opens or syncs, the main session obeys the handoff by spawning missing exact-head monitors. <!-- @impl: preseed/agents/pi/skills/pr-workflow/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/git-review-pipeline/SKILL.md --> <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- coverage-gap: AC3 is a main-session skill-prompt workflow; no automated behavioral test -->
-4. The main session reports visible monitor agent IDs for the exact head after spawning them. <!-- @impl: preseed/agents/pi/skills/pr-workflow/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/git-review-pipeline/SKILL.md --> <!-- coverage-gap: AC4 is a main-session response to Pi background-task UI notifications; verified by live PR-boundary smoke review. -->
-5. The main session restarts any CI/review monitor task that stops or completes without `CI_RESULT`/`REVIEW_RESULT`. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- coverage-gap: AC5 is a main-session workflow over Pi background-task UI notifications; verified by live PR-boundary smoke review. -->
+3. After a main/master SDD PR opens or syncs, the main session obeys the handoff by spawning the missing exact-head `review-monitor`. <!-- @impl: preseed/agents/pi/skills/pr-workflow/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/git-review-pipeline/SKILL.md --> <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- coverage-gap: AC3 is a main-session skill-prompt workflow; no automated behavioral test -->
+4. The main session reports the visible `review-monitor` agent ID for the exact head after spawning it. <!-- @impl: preseed/agents/pi/skills/pr-workflow/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/git-review-pipeline/SKILL.md --> <!-- coverage-gap: AC4 is a main-session response to Pi background-task UI notifications; verified by live PR-boundary smoke review. -->
+5. The main session restarts the `review-monitor` task that stops or completes without `REVIEW_RESULT`; CI-monitor restart is owned by [REQ-AGENT-068](#req-agent-068-ci-monitoring-background-agent-policy). <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- coverage-gap: AC5 is a main-session workflow over Pi background-task UI notifications; verified by live PR-boundary smoke review. -->
 
 **Constraints:**
 
 - Visible monitor handoff is review result delivery, not reviewer lane spawning.
 - Durable monitor claims remain the duplicate-suppression source of truth.
+- The handoff carries only the review-monitor; CI monitoring is owned by the `ci-monitoring` route ([REQ-AGENT-068](#req-agent-068-ci-monitoring-background-agent-policy)) so the handoff cannot spawn a duplicate CI monitor that collides with it.
 
 **Priority:** P1
 

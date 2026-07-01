@@ -481,7 +481,7 @@ All preseed content is deployed via the manifest pipeline:
   background agent/subagent, not an extension. When a PR-boundary trigger creates
   an active review window, the Pi extension records durable lane state and sends
   the main session a visible monitor handoff for the exact head. That visible
-  handoff is specified by [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-visible-review-and-ci-monitor-handoff).
+  handoff is specified by [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-visible-review-monitor-handoff).
 
   If the visible follow-up cannot be sent, Pi falls back to direct service-spawning of
   `review-monitor`. The monitor waits for lane results and `summary.md`, writes
@@ -546,7 +546,7 @@ All preseed content is deployed via the manifest pipeline:
   The Pi extension owns the durable claim/completion files; the monitor agent owns
   waiting and returning `REVIEW_RESULT`. Malformed or stale monitor claim files are
   reclaimed, so a partial `monitor.json` cannot block delivery forever. Visible
-  main-session monitor spawning and restart behavior live in [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-visible-review-and-ci-monitor-handoff).
+  main-session monitor spawning and restart behavior live in [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-visible-review-monitor-handoff).
 
   The monitor waits for every lane result file and `summary.md`; if lane files
   exist but `summary.md` is missing, it writes a concise merged summary from those
@@ -604,7 +604,7 @@ All preseed content is deployed via the manifest pipeline:
 
   The main-session visible handoff and restart rule is documented in `pr-workflow`,
   `git-review-pipeline`, and `git-workflow`; that workflow implements
-  [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-visible-review-and-ci-monitor-handoff).
+  [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-visible-review-monitor-handoff).
 
   Timed-out or failed durable lanes are recorded as failed and do not produce
   the required result file. The PR head remains unacked until a later review run

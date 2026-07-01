@@ -1605,7 +1605,7 @@ export default function (pi: ExtensionAPI) {
     try {
       sendUserMessage.call(pi, request.message, { deliverAs: "followUp" });
       writeReviewMonitorStarted(state, "main-session-visible-handoff", reason);
-      appendReviewEvent(state.repo, { event: "visible_monitor_handoff_sent", head: state.head, reason, ci: request.ciMonitor.description, review: request.reviewMonitor.description });
+      appendReviewEvent(state.repo, { event: "visible_monitor_handoff_sent", head: state.head, reason, review: request.reviewMonitor.description });
       return true;
     } catch (error) {
       appendReviewEvent(state.repo, { event: "visible_monitor_handoff_failed", head: state.head, reason, error: String(error) });

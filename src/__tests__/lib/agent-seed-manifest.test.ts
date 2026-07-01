@@ -1432,7 +1432,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(reviewMonitorSpawnDecision({ completed: false, startedAt: undefined, now: 1000, ttlMs: 500 })).toBe('spawn');
   });
 
-  it('REQ-AGENT-074: visible monitor handoff requests review and CI monitors for the exact head', () => {
+  it('REQ-AGENT-074: visible monitor handoff requests only the review-monitor, never a CI monitor', () => {
     const request = visibleMonitorHandoffRequest({
       repo: '/repo/codeflare',
       head: 'abcdef1234567890',
@@ -1445,10 +1445,12 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(request.details).toEqual({ repo: '/repo/codeflare', head: 'abcdef1234567890', reason: 'review window started: test', branch: 'develop', prNumber: 571 });
     expect(request.reviewMonitor).toMatchObject({ subagentType: 'review-monitor', description: 'Monitor review abcdef123456', runInBackground: true, maxTurns: 40 });
     expect(request.reviewMonitor.prompt).toBe('Run the Codeflare PR-boundary review-monitor contract.\nHead: abcdef1234567890');
-    expect(request.ciMonitor).toMatchObject({ subagentType: 'general-purpose', description: 'Monitor CI abcdef123456', runInBackground: true });
-    expect(request.ciMonitor.prompt).toContain('Exact monitored head: abcdef1234567890');
-    expect(request.ciMonitor.prompt).toContain('CI_RESULT timeout superseded head=abcdef1234567890');
-    expect(request.ciMonitor.prompt).toContain('CI_RESULT success');
+    // CI monitoring is owned solely by the ci-monitoring route (REQ-AGENT-068); the handoff must NOT
+    // bundle a CI monitor spawn, or a duplicate collides with the main session's own CI monitor.
+    // Gut-check: re-adding the ciMonitor object or its spawn block fails these.
+    expect(request).not.toHaveProperty('ciMonitor');
+    expect(request.message).not.toContain('Call the subagent tool for CI monitoring');
+    expect(request.message).not.toContain('CI_RESULT');
   });
 
   it('REQ-AGENT-062: reload refresh can ack a completed durable review even when pending.json is gone', () => {

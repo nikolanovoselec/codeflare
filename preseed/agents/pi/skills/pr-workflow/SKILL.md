@@ -19,7 +19,7 @@ After `gh pr create`, do **not** call `Agent` for `code-reviewer`, `spec-reviewe
 
 If SDD review enforcement is required, the hook/enforcement system owns reviewer lane spawning. Do not confuse that with the background **review-monitor**: once a review job exists, the main session must verify or start the monitor for the exact head.
 
-After creating any PR that can produce CI, start CI monitoring unless the user explicitly says to skip it. For SDD PRs targeting `main`/`master`, obey any `codeflare-visible-monitor-handoff` follow-up immediately: spawn the visible CI monitor and visible `review-monitor` for the exact head, then report both agent IDs. If no handoff appears but `.git/codeflare-review-jobs/<head>/` exists, verify `monitor.json` is live or start `review-monitor` immediately. If either monitor task stops, errors, or completes without its contract line (`CI_RESULT` or `REVIEW_RESULT`), restart it for the same exact head instead of waiting for the full TTL.
+After creating any PR that can produce CI, start CI monitoring unless the user explicitly says to skip it. For SDD PRs targeting `main`/`master`, obey any `codeflare-visible-monitor-handoff` follow-up immediately: spawn the visible `review-monitor` for the exact head, then report its agent ID (the handoff carries only the review-monitor; CI monitoring is the separate step above). If no handoff appears but `.git/codeflare-review-jobs/<head>/` exists, verify `monitor.json` is live or start `review-monitor` immediately. If the `review-monitor` stops, errors, or completes without `REVIEW_RESULT`, restart it for the same exact head instead of waiting for the full TTL; restart a CI monitor that stops without `CI_RESULT` per the CI-monitoring step above.
 
 ## Steps
 
@@ -46,8 +46,8 @@ After creating any PR that can produce CI, start CI monitoring unless the user e
 
 7. Create the PR.
 8. Report the PR URL.
-9. If a `codeflare-visible-monitor-handoff` follow-up appears, spawn the requested visible CI monitor and visible `review-monitor` for the exact head, then report both agent IDs.
-10. If no handoff appears and the PR can produce CI, start one background CI monitor for the exact head unless the user explicitly skipped CI monitoring.
+9. If a `codeflare-visible-monitor-handoff` follow-up appears, spawn the requested visible `review-monitor` for the exact head, then report its agent ID (the handoff no longer carries a CI monitor).
+10. If the PR can produce CI, start one background CI monitor for the exact head unless the user explicitly skipped CI monitoring (CI monitoring is owned by the CI-monitoring step, independent of the review handoff).
 11. If this is an SDD `main`/`master` PR and `.git/codeflare-review-jobs/<head>/job.json` exists, verify or start `review-monitor` for the exact head. Do not stop while `monitor.json` is missing, stale, or tied to a stopped/no-output monitor.
 
 ## Body template
@@ -75,7 +75,7 @@ Allowed and required without asking:
 - print the branch/base
 - summarize what changed
 - start background CI monitoring for CI-producing PRs unless explicitly skipped
-- obey `codeflare-visible-monitor-handoff` follow-ups by spawning visible CI/review monitors for the exact head
+- obey `codeflare-visible-monitor-handoff` follow-ups by spawning the visible `review-monitor` for the exact head
 - verify/start or restart `review-monitor` when a PR-boundary review job exists for the exact head
 
 Not allowed unless explicitly requested:

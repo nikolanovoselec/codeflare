@@ -22,7 +22,7 @@ Reviewer spawning is owned by PR-boundary enforcement hooks. The assistant must 
 1. The user explicitly says to run/spawn review agents.
 2. A hook/enforcement message in the current turn explicitly instructs the assistant to launch specific review agents.
 
-If neither is true: create/push/open the PR, report the URL, start any required CI monitor, and obey any `codeflare-visible-monitor-handoff` follow-up by spawning visible CI/review monitors for the exact head. Do not spawn reviewer lane agents.
+If neither is true: create/push/open the PR, report the URL, start any required CI monitor, and obey any `codeflare-visible-monitor-handoff` follow-up by spawning the visible `review-monitor` for the exact head. Do not spawn reviewer lane agents.
 
 ## PR-boundary policy
 
@@ -52,7 +52,7 @@ This order is reference material only. It is not permission to launch agents pro
 2. Mention that PR-boundary enforcement may run separately if required.
 3. Start CI monitoring when the push or PR creation can produce CI, unless the user explicitly skips it.
 4. Do not start reviewer agents unless the user explicitly asks or a hook explicitly instructs it.
-5. If the extension sends a `codeflare-visible-monitor-handoff` follow-up, the **main session must spawn the requested visible `review-monitor` and CI monitor immediately** and report both agent IDs. This is not reviewer spawning.
+5. If the extension sends a `codeflare-visible-monitor-handoff` follow-up, the **main session must spawn the requested visible `review-monitor` immediately** and report its agent ID. The handoff carries only the review-monitor; CI monitoring is the separate step 3 above. This is not reviewer spawning.
 6. If a review job/window exists for the exact HEAD but no handoff appears, the main session must start or verify `review-monitor` immediately. Required invariant: `.git/codeflare-review-jobs/<head>/monitor.json` exists for the same HEAD before the assistant claims review is running or stops for handoff.
 7. `monitor.json` alone is not enough when the background task stops or completes without a `REVIEW_RESULT`. If that happens, restart `review-monitor` from the existing job prompt/result paths immediately; do not wait for the full monitor TTL. If a CI monitor task stops/errors without `CI_RESULT`, restart an exact-head CI monitor unless the head was superseded or the user skipped CI.
 
