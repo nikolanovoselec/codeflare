@@ -601,10 +601,10 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
     });
   });
 
-  // REQ-ENTERPRISE-020: every write path is gated 409 while the bucket's encryption regime is
+  // REQ-ENTERPRISE-021: every write path is gated 409 while the bucket's encryption regime is
   // migrating, so no object can land in the wrong (pre-flip) regime. The gate short-circuits
   // before any R2 call.
-  describe('Governed Mode write gate (REQ-ENTERPRISE-020)', () => {
+  describe('Governed Mode write gate (REQ-ENTERPRISE-021)', () => {
     function migratingApp() {
       mockKV._set('r2-regime:test-bucket', { status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0 });
       return createApp();

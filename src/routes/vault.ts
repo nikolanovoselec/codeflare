@@ -337,7 +337,7 @@ export async function handleVaultRequest(
       }
     }
 
-    // REQ-VAULT-008 AC6: on the SB shell paths (`/` and `/index.html`),
+    // REQ-VAULT-008 AC7: on the SB shell paths (`/` and `/index.html`),
     // redirect to the bootstrap-hop when the per-session bootstrap cookie
     // is absent. The hop sets the cookie before redirecting back here, so
     // subsequent shell-path requests fall straight through to the proxy.

@@ -1,5 +1,6 @@
-// Verifies REQ-AGENT-076 AC1 (createRequire shim, codeflare#309) and AC4
-// (context-mode npm update-check notice disabled at image build) by exercising the
+// Verifies the createRequire shim (AD49, codeflare#309 -- no dedicated AC) and
+// REQ-AGENT-076 AC4 (context-mode npm update-check notice disabled at image
+// build) by exercising the
 // REAL patch function the Dockerfile build runs — imported from
 // scripts/patch-context-mode-bundles.mjs, the same module the Dockerfile invokes.
 // Importing the shared function (rather than re-extracting and executing a
@@ -31,7 +32,7 @@ const ctxPluginVer = JSON.parse(
 const bodyWithProbe = (url, n) =>
   Array.from({ length: n }, (_, i) => `function probe${i}(){return get(${JSON.stringify(url)})}`).join('\n') + '\n';
 
-describe('Dockerfile context-mode patch (REQ-AGENT-076 AC1 shim + AC4 update-check disable)', () => {
+describe('Dockerfile context-mode patch (createRequire shim + REQ-AGENT-076 AC4 update-check disable)', () => {
   it('AC4: neutralizes the npm update-check probe in both bundles', () => {
     // Every probe occurrence repointed to the refused local address, and the shim
     // prepended — asserted by exact equality, so a partial or skipped replace fails.
@@ -48,7 +49,7 @@ describe('Dockerfile context-mode patch (REQ-AGENT-076 AC1 shim + AC4 update-che
     assert.equal(new URL(DISABLED_PROBE_URL).hostname, '127.0.0.1');
   });
 
-  it('AC1: prepends the createRequire shim, preserving a shebang line', () => {
+  it('prepends the createRequire shim, preserving a shebang line', () => {
     assert.equal(patchContextModeBundle('var a=1;\n'), SHIM + 'var a=1;\n');
     const shebang = '#!/usr/bin/env node\nvar a=1;\n';
     assert.equal(patchContextModeBundle(shebang), '#!/usr/bin/env node\n' + SHIM + 'var a=1;\n');

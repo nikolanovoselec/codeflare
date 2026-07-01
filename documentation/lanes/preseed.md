@@ -53,7 +53,7 @@ deployed on Recreate or new bucket creation.
 
 The Custom-tier column reflects the extra Claude Code delivery surface for users on the `unlimited` subscription tier in Advanced mode. Pi starts with context-mode **enabled** by default (its `ctx_*` tools and the bash-curl-redirect hook are active without `/ctx on`); the Codeflare Pi extension provides `/ctx status`, `/ctx on`, and `/ctx off` for per-session control. The next Codeflare container start resets Pi back to enabled. `entrypoint.sh` and the Pi-native `context-mode-runtime.ts` extension set `CONTEXT_MODE_BRIDGE_IDLE_MS=0` at session start so context-mode helper processes do not emit idle-release notices into the TUI.
 
-The five Pi tool extensions are installed in the settings `required` set, so they load in every Pi session independently of the context-mode toggle. `@juicesharp/rpiv-advisor` adds the user-invoked `advisor` tool and user-only `/advisor` configuration command; Codeflare overrides the package's prompt guidance at startup so assistants must not call `advisor`, run `/advisor`, or suggest `/advisor` unless the user's current message explicitly asks for advisor. `pi-web-access` adds `web_search`/`fetch_content`; both authenticate through Pi's own model registry / zero-config Exa MCP, so neither needs a per-user API key. `web_search` defaults to the `auto-summary` workflow via a preseeded, create-if-missing `~/.pi/web-search.json` (`{"workflow": "auto-summary"}`) — a user who edits that file to opt back into the interactive `summary-review` workflow has their choice respected on later boots. This is a deliberate workaround for an upstream `pi-web-access` bug (`openCuratorBrowser` references `sendCuratorFallbackUpdate` outside its declaring scope) that crashes the whole `pi` process whenever the interactive browser-curator fallback tries to open a browser — which it cannot do in this headless container — so `auto-summary` is the only workflow that never reaches that path. Implements [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) AC1/AC3/AC5; source: `entrypoint.sh::warm_pi_npm_dependencies`, `preseed/agents/pi/skills/advisor/SKILL.md`, and `preseed/agents/pi/package.json`.
+The five Pi tool extensions are installed in the settings `required` set, so they load in every Pi session independently of the context-mode toggle. `@juicesharp/rpiv-advisor` adds the user-invoked `advisor` tool and user-only `/advisor` configuration command; Codeflare overrides the package's prompt guidance at startup so assistants must not call `advisor`, run `/advisor`, or suggest `/advisor` unless the user's current message explicitly asks for advisor. `pi-web-access` adds `web_search`/`fetch_content`; both authenticate through Pi's own model registry / zero-config Exa MCP, so neither needs a per-user API key. `web_search` defaults to the `auto-summary` workflow via a preseeded, create-if-missing `~/.pi/web-search.json` (`{"workflow": "auto-summary"}`) — a user who edits that file to opt back into the interactive `summary-review` workflow has their choice respected on later boots. This is a deliberate workaround for an upstream `pi-web-access` bug (`openCuratorBrowser` references `sendCuratorFallbackUpdate` outside its declaring scope) that crashes the whole `pi` process whenever the interactive browser-curator fallback tries to open a browser — which it cannot do in this headless container — so `auto-summary` is the only workflow that never reaches that path. Implements [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) AC1/AC3/AC5; source: `entrypoint.sh::warm_pi_npm_dependencies` (tool extensions, AC3), `entrypoint.sh` main-execution web-search default block (AC5), `preseed/agents/pi/skills/advisor/SKILL.md`, and `preseed/agents/pi/package.json`.
 
 **Storage**: `sessionMode?: 'default' | 'advanced'` in
 `UserPreferences` (KV). Undefined = `'default'`.
@@ -868,6 +868,17 @@ native Bash, WebFetch, and grep-class tools are not blocked by a
 context-mode routing hook. Entrypoint reconciliation prunes stale copies
 of the old deny-gate from managed hook settings so restored containers do
 not retain obsolete hard-routing behavior.
+
+context-mode's npm update-check probe (`registry.npmjs.org/context-mode/latest`)
+is neutralized at image-build time in both installs it loads from: the
+Claude global install (resolved via `npm root -g`) and the Pi runtime's
+own prewarmed copy at `/opt/codeflare/pi-agent/npm/node_modules/context-mode`,
+which Pi loads as `npm:context-mode@<ver>` through a runtime symlink to
+that prewarm tree. `scripts/patch-context-mode-bundles.mjs` repoints the
+probe URL to a refused local address in both bundles, so the version
+resolves to `"unknown"`, no "Update available ... ctx_upgrade" notice
+ever renders, and no outbound npm registry traffic is generated.
+Implements [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) AC4.
 
 context-mode is licensed under [Elastic License 2.0](https://github.com/mksglu/context-mode/blob/main/LICENSE).
 The integration is sized to stay within ELv2's permitted-use envelope.

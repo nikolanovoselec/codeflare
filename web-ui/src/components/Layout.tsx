@@ -371,7 +371,7 @@ const Layout: Component<LayoutProps> = (props) => {
     // reload-skip from a prior session) open immediately via the bootstrap-hop. The hop
     // re-posts the AES key to the service worker and waits for activation before
     // redirecting to the editor, and the worker no longer flushes the key mid-transition
-    // (REQ-VAULT-008 AC7), so opening directly never races a wiped key into a `.auth`
+    // (REQ-VAULT-008 AC8), so opening directly never races a wiped key into a `.auth`
     // bounce. Opening synchronously inside the click gesture also avoids the pop-up
     // blocker. (Previously the pw==='ready' branch re-verified local readiness + key
     // recoverability and, on a false-negative, dropped into a full ~10s on-demand

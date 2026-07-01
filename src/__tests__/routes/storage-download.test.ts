@@ -14,7 +14,7 @@ const { mockGetR2Url, mockFetchObjectWithRegimeFallback, mockMarkMixedRecovery }
 }));
 
 // download.ts builds the object URL with getR2Url, then reads via fetchObjectWithRegimeFallback
-// (REQ-ENTERPRISE-020 dual-regime read). The regime-fallback logic itself is covered in
+// (REQ-ENTERPRISE-021 dual-regime read). The regime-fallback logic itself is covered in
 // r2-migration.test.ts; here we control the returned R2 Response to exercise download behavior.
 vi.mock('../../lib/r2-client', () => ({ getR2Url: mockGetR2Url }));
 vi.mock('../../lib/r2-config', () => ({

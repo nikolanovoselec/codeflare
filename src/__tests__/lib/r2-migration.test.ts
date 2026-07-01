@@ -1,6 +1,6 @@
 /**
- * REQ-ENTERPRISE-018 / REQ-ENTERPRISE-020 (Governed Mode): per-bucket R2 encryption-regime state + the lossless,
- * chunked, self-verifying re-encrypt migration engine + driver.
+ * REQ-ENTERPRISE-018 / REQ-ENTERPRISE-020 / REQ-ENTERPRISE-021 (Governed Mode): per-bucket R2 encryption-regime
+ * state + the lossless, chunked, self-verifying re-encrypt migration engine + driver + safety boundary.
  *
  * The fetch layer is a SIMULATED R2 store keyed by per-object regime: a HEAD succeeds only
  * with the matching regime's SSE headers; a copy (PUT) flips the object to the destination

@@ -624,7 +624,7 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
 }
 
 /**
- * REQ-VAULT-022 AC4 (open-path safety net): a one-time controlled reload for the real,
+ * REQ-VAULT-022 AC5 (open-path safety net): a one-time controlled reload for the real,
  * top-level vault tab. When an already-warmed vault is opened, the browser can load
  * this navigation BEFORE the vault-scoped service worker controls the client
  * (`navigator.serviceWorker.controller` is null on first paint), so SilverBullet
@@ -701,7 +701,7 @@ export function injectVaultControlledReload(html: string): string {
  *     the registration GET only; the SW's get-encryption-key message
  *     handler returns the key only to same-origin `event.source` clients.
  *
- * Implements REQ-VAULT-008 AC5.
+ * Implements REQ-VAULT-008 AC5/AC6.
  */
 export const VAULT_BOOTSTRAP_COOKIE = 'codeflare_vault_bootstrap';
 export const VAULT_SW_ACTIVATION_TIMEOUT_MS = 10_000;

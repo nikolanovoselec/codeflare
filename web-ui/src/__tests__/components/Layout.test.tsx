@@ -424,7 +424,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
     });
 
-    it('REQ-VAULT-008 AC8: the open click navigates the new tab to the bootstrap-hop URL, not the bare shell', async () => {
+    it('REQ-VAULT-008 AC10: the open click navigates the new tab to the bootstrap-hop URL, not the bare shell', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
@@ -451,7 +451,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
     });
 
-    it('REQ-VAULT-022 AC5: stays green (armed) after the open click and on subsequent opens — ready means green, always', async () => {
+    it('REQ-VAULT-022 AC6: stays green (armed) after the open click and on subsequent opens — ready means green, always', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
@@ -504,7 +504,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect((window as any).__headerProps.vaultReady).toBe(true);
     });
 
-    it('REQ-VAULT-022 AC2: a reload with local DBs/SW but no full prewarm proof stays available until click', async () => {
+    it('REQ-VAULT-022 AC3: a reload with local DBs/SW but no full prewarm proof stays available until click', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
@@ -526,7 +526,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect((window as any).__headerProps.vaultStatus).toBe('preparing');
     });
 
-    it('REQ-VAULT-022 AC2: a reload-skip probe that never settles leaves the button available (no auto-mount)', async () => {
+    it('REQ-VAULT-022 AC3: a reload-skip probe that never settles leaves the button available (no auto-mount)', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
