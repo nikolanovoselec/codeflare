@@ -18,6 +18,7 @@ graphify-out/.cache/
 graphify-out/.chunks/
 graphify-out/manifest.json
 graphify-out/obsidian/
+graphify-out/cost.json
 # Working-tree intermediates - cleaned by the build's Step 9,
 # gitignored as the safety net for runs interrupted before cleanup:
 .graphify_ast.json
