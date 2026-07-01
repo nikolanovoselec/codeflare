@@ -10,7 +10,7 @@
  * every cold load (issue #445). Decision recorded in AD69
  * (documentation/decisions/README.md).
  *
- * KEY-RECOVERY + FLUSH-NEUTER GRAFT (AD69, REQ-VAULT-024 AC4/AC5; REQ-VAULT-017 AC6).
+ * KEY-RECOVERY + FLUSH-NEUTER GRAFT (AD69, REQ-VAULT-024 AC4/AC5; REQ-VAULT-025 AC4).
  * The native worker holds the per-session AES-CTR key in a module-local var `y`
  * with NO recovery, and upstream actively drops it: a `setInterval` flushes `y`
  * 5s after the last window client disconnects, and the browser can idle-terminate
@@ -111,7 +111,7 @@ const ANCHOR_SYNC_SPACE_ERROR = "console.error(\"Sync space error\",t.message)";
 // actually serving the real list the cycle proceeds and reconciles normally. A
 // genuinely empty vault (empty primary AND empty snapshot) stays a safe no-op. This is
 // "no blind deletion just because the server is momentarily unreachable" — the SW only
-// deletes once it has reached SB and SB has confirmed the file list. (REQ-VAULT-017 AC6,
+// deletes once it has reached SB and SB has confirmed the file list. (REQ-VAULT-025 AC2,
 // REQ-VAULT-023 AC2.)
 //
 // CRITICAL — `o` is one binding in a single `let s=...,o=...,r=...,l=...` declarator

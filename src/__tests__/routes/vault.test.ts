@@ -401,7 +401,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
     });
   });
 
-  describe('isServiceWorkerContextFetch / REQ-VAULT-017 AC4 (SW precache vs navigation)', () => {
+  describe('isServiceWorkerContextFetch / REQ-VAULT-017 AC4/AC5 (SW precache vs navigation)', () => {
     function req(headers: Record<string, string> = {}): Request {
       return new Request('https://codeflare.ch/api/vault/abcdef12/', {
         headers: new Headers(headers),
