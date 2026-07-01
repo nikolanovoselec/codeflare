@@ -550,7 +550,7 @@ export async function advanceMigration(
     // D3 detect-only: the SSE-C key rotated since the migration started — every copy/HEAD would
     // fail. Halt with a clear error rather than loop forever; old-key fallback is out of scope.
     if (state.keyMd5 && env.ENCRYPTION_KEY && state.keyMd5 !== computeKeyMd5(env.ENCRYPTION_KEY)) {
-      await setRegimeState(env, bucketName, release({ ...state, stuckCount: MAX_VERIFY_RETRIES, lastError: 'ENCRYPTION_KEY rotated mid-migration; halted (rotation is detect-only)' }));
+      await setRegimeState(env, bucketName, release({ ...state, stuckCount: MAX_VERIFY_RETRIES, halted: true, lastError: 'ENCRYPTION_KEY rotated mid-migration; halted (rotation is detect-only)' }));
       return;
     }
 

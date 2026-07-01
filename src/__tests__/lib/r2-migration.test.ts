@@ -608,6 +608,7 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
     const state = JSON.parse(store.get('r2-regime:bkt')!);
     expect(state.status).toBe('migrating'); // halted, stays gated for admin review
     expect(state.lastError).toMatch(/rotated/);
+    expect(state.halted).toBe(true); // dashboard suppresses the progress % on this terminal-halt path too
     expect(mockFetch).not.toHaveBeenCalled(); // never copied a single object with the wrong key
   });
 

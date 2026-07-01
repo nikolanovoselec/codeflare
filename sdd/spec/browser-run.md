@@ -246,7 +246,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Priority:** P2
 
-**Dependencies:** [REQ-BROWSER-007](#req-browser-007-enterprise-admin-configured-browser-rendering-token), [REQ-ENTERPRISE-004](enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-016](enterprise-mode.md#req-enterprise-016-strict-gateway-egress)
+**Dependencies:** [REQ-BROWSER-007](#req-browser-007-enterprise-admin-configured-browser-rendering-token), [REQ-ENTERPRISE-004](enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)
 
 **Verification:** [interceptor tests](../../src/__tests__/cloudflare-browser-interceptor.test.ts) (account-scoped REST + CDP WS injection, rest→Gateway, fail-closed) + [container placeholder](../../src/__tests__/container/container-env-llm.test.ts) + [worker-side resolver](../../src/__tests__/lib/browser-render-token.test.ts)
 
