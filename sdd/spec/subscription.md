@@ -63,16 +63,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-| Tier | Hours/Month | Max Sessions | Modes | Storage | canLogin |
-|------|-------------|-------------|-------|---------|----------|
-| blocked | 0 | 0 | none | 0 | false |
-| pending | 0 | 0 | none | 0 | true |
-| free | 4 | 1 | Standard | 250 MB | true |
-| trial | 5 | 2 | Standard | 500 MB | true |
-| standard | 40 | 1 | Standard, Pro | 500 MB | true |
-| advanced | 80 | 2 | Standard, Pro | 1 GB | true |
-| max | 160 | 3 | Standard, Pro | 2 GB | true |
-| unlimited | null (unlimited) | 5 | Standard, Pro | null (unlimited) | true |
+The concrete per-tier values (hours/month, max sessions, modes, storage, canLogin) are defined in `getDefaultTiers()` (`src/lib/subscription.ts`) and documented in [Subscription Tiers](../../documentation/lanes/billing.md#subscription-tiers).
 
 1. An unset monthly compute allotment means unlimited compute. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-002 describe -> exact monthlySeconds + maxSessions + sessionModes + maxStorageBytes per tier from AC table) --> <!-- @test: src/__tests__/lib/subscription.test.ts (SubscriptionTierConfig interface + getDefaultTiers describes) -->
 2. An unset storage cap means unlimited storage. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-002 describe -> exact monthlySeconds + maxSessions + sessionModes + maxStorageBytes per tier from AC table) --> <!-- @test: src/__tests__/lib/subscription.test.ts (SubscriptionTierConfig interface + getDefaultTiers describes) -->

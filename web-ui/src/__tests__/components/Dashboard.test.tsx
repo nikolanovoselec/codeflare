@@ -943,7 +943,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     cleanup();
   });
 
-  // REQ-ENTERPRISE-018 AC8: Governed Mode migrating-button label
+  // REQ-ENTERPRISE-020 AC4: Governed Mode migrating-button label
   it('disables the button and shows "Migrating" when migrating with no percent known yet', () => {
     (sessionStore as any)._setBucketMigrating(true);
     (sessionStore as any)._setBucketMigrationPercent(null);

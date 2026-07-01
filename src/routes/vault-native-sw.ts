@@ -112,7 +112,7 @@ const ANCHOR_SYNC_SPACE_ERROR = "console.error(\"Sync space error\",t.message)";
 // genuinely empty vault (empty primary AND empty snapshot) stays a safe no-op. This is
 // "no blind deletion just because the server is momentarily unreachable" — the SW only
 // deletes once it has reached SB and SB has confirmed the file list. (REQ-VAULT-017 AC6,
-// REQ-VAULT-021 AC8.)
+// REQ-VAULT-023 AC2.)
 //
 // CRITICAL — `o` is one binding in a single `let s=...,o=...,r=...,l=...` declarator
 // list (the minified sync-cycle declaration). The guard MUST wrap the `o=`

@@ -508,7 +508,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Priority:** P2
 
-**Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-ENTERPRISE-018](enterprise-mode.md#req-enterprise-018-governed-mode-r2-sse-c-disable-toggle--lossless-re-encrypt-migration)
+**Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-ENTERPRISE-018](enterprise-mode.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface)
 
 **Verification:** [Bisync server-modtime + lay-down/compare-flag + managed-extension relay + background-init deprioritization test](../../host/__tests__/entrypoint-governed-sync.test.js) (AC1, AC3, AC4, AC5); [bake byte-identity test](../../src/__tests__/lib/agent-seed-bake.test.ts) (AC2)
 

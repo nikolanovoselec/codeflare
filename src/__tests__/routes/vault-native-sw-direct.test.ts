@@ -73,7 +73,7 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(VAULT_NATIVE_SERVICE_WORKER_JS).not.toBe(VAULT_NATIVE_SW_VERBATIM);
   });
 
-  // REQ-VAULT-017 AC6 / REQ-VAULT-021 AC8: the graft GUARDS the remote
+  // REQ-VAULT-017 AC6 / REQ-VAULT-023 AC2: the graft GUARDS the remote
   // `fetchFileList()` result. It normalizes a non-array (transient proxy error or a
   // stray CF Access 302 HTML body) to [], then ABORTS the sync cycle (throws) when the
   // remote list is empty while the persistent local store or snapshot is non-empty —
@@ -155,7 +155,7 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('a.length===0&&(s.length>0||t.files.size>0)');
   });
 
-  // REQ-VAULT-021 AC8: a 2nd-session start has a POPULATED persistent local store, but
+  // REQ-VAULT-023 AC2: a 2nd-session start has a POPULATED persistent local store, but
   // the in-container SilverBullet server is still warming up (~1-2 min) and its
   // `fetchFileList()` returns empty/garbage. The reconciler must NOT treat that as
   // "every file deleted on secondary" and wipe the store — the cycle aborts before any

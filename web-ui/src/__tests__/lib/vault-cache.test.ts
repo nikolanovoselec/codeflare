@@ -1,8 +1,8 @@
-// REQ-VAULT-015 AC3+AC4 (as reconciled by REQ-VAULT-021): vault-cache removes
+// REQ-VAULT-015 AC3+AC4 (as reconciled by REQ-VAULT-023): vault-cache removes
 // the per-session localStorage markers on session DELETE and orphan sweep, and
 // MUST NOT delete the bucket-stable SilverBullet IndexedDB stores or unregister
 // the bucket-stable service worker — those persist across sessions by design
-// (REQ-VAULT-021), so tearing them down on a per-session event would erase the
+// (REQ-VAULT-023), so tearing them down on a per-session event would erase the
 // next session's vault and force a full re-index.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -46,11 +46,11 @@ function clearGlobals() {
   delete (globalThis as { indexedDB?: unknown }).indexedDB;
 }
 
-describe('cleanupSessionVaultCache (REQ-VAULT-015 AC3 / REQ-VAULT-021)', () => {
+describe('cleanupSessionVaultCache (REQ-VAULT-015 AC3 / REQ-VAULT-023)', () => {
   beforeEach(() => { vi.restoreAllMocks(); });
   afterEach(() => { clearGlobals(); });
 
-  // REQ-VAULT-021: the IndexedDB store is bucket-stable and shared across all of
+  // REQ-VAULT-023: the IndexedDB store is bucket-stable and shared across all of
   // a user's sessions; per-session DELETE must NOT delete it.
   it('does NOT delete the recorded sb_ IndexedDB stores (bucket-stable persistence)', async () => {
     const sid = 'abcdef12';
@@ -62,7 +62,7 @@ describe('cleanupSessionVaultCache (REQ-VAULT-015 AC3 / REQ-VAULT-021)', () => {
     expect(deleteDatabase).not.toHaveBeenCalled();
   });
 
-  // REQ-VAULT-021: the vault SW is bucket-stable; per-session DELETE must NOT
+  // REQ-VAULT-023: the vault SW is bucket-stable; per-session DELETE must NOT
   // unregister it (the next session reuses it for a fast open).
   it('does NOT unregister the vault service worker', async () => {
     const sid = 'abcdef12';
@@ -104,7 +104,7 @@ describe('cleanupSessionVaultCache (REQ-VAULT-015 AC3 / REQ-VAULT-021)', () => {
   });
 });
 
-describe('sweepOrphanVaultCaches (REQ-VAULT-015 AC4 / REQ-VAULT-021)', () => {
+describe('sweepOrphanVaultCaches (REQ-VAULT-015 AC4 / REQ-VAULT-023)', () => {
   beforeEach(() => { vi.restoreAllMocks(); });
   afterEach(() => { clearGlobals(); });
 
@@ -148,12 +148,12 @@ describe('sweepOrphanVaultCaches (REQ-VAULT-015 AC4 / REQ-VAULT-021)', () => {
   });
 });
 
-// REQ-VAULT-018 AC8: the durable full-prewarm marker lets a reload skip remounting
+// REQ-VAULT-022 AC2: the durable full-prewarm marker lets a reload skip remounting
 // the bootstrap iframe. It lives under the same `vault-session-*` namespace the
 // cache sweep manages, so the sweep MUST treat `<sid>-prewarmed` as belonging to
 // `<sid>` (preserve it for active sessions, drop it for orphans/deletes) instead
 // of mistaking it for a bogus orphan session and erasing it on every Layout mount.
-describe('REQ-VAULT-018 AC8: full-prewarm marker (vault-session-<sid>-prewarmed) lifecycle', () => {
+describe('REQ-VAULT-022 AC2: full-prewarm marker (vault-session-<sid>-prewarmed) lifecycle', () => {
   beforeEach(() => { vi.restoreAllMocks(); });
   afterEach(() => { clearGlobals(); });
 

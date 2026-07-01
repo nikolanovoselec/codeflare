@@ -310,7 +310,7 @@ export function injectVaultBootScript(html: string, config: VaultBootConfig): st
  * bucket token - REQ-VAULT-021). The dashboard's `checkVaultLocalReadiness`
  * reads that array to confirm the SB stores exist before opening.
  *
- * NOTE (REQ-VAULT-021): the recorded names are NO LONGER used to delete IDBs.
+ * NOTE (REQ-VAULT-023): the recorded names are NO LONGER used to delete IDBs.
  * The SB stores are now bucket-stable (one set per user, shared across
  * sessions), so `cleanupSessionVaultCache` / `sweepOrphanVaultCaches` remove
  * only the localStorage markers and never call `indexedDB.deleteDatabase` -
@@ -624,7 +624,7 @@ export function injectVaultPrewarmBridge(html: string, prewarmId?: string): stri
 }
 
 /**
- * REQ-VAULT-018 (open-path safety net): a one-time controlled reload for the real,
+ * REQ-VAULT-022 AC4 (open-path safety net): a one-time controlled reload for the real,
  * top-level vault tab. When an already-warmed vault is opened, the browser can load
  * this navigation BEFORE the vault-scoped service worker controls the client
  * (`navigator.serviceWorker.controller` is null on first paint), so SilverBullet

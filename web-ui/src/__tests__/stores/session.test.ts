@@ -409,10 +409,10 @@ describe('Session Store', () => {
     });
   });
 
-  // REQ-ENTERPRISE-018 AC8: the 5s BACKGROUND poll (refreshSessionStatuses), not just the full
+  // REQ-ENTERPRISE-020 AC4: the 5s BACKGROUND poll (refreshSessionStatuses), not just the full
   // loadSessions, must mirror the migration flags — otherwise a migration that finishes between full
   // loads leaves the New Session button stuck on "Migrating" until a manual page reload.
-  describe('background poll migration flags (REQ-ENTERPRISE-018 AC8)', () => {
+  describe('background poll migration flags (REQ-ENTERPRISE-020 AC4)', () => {
     it('clears bucketMigrating on completion via the background poll — no full reload', async () => {
       mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: true });
       await sessionStore.loadSessions();

@@ -391,7 +391,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
   // REQ-ENTERPRISE-018: every batch-status poll synchronously decides the Governed Mode regime
   // (so the same response reports bucketMigrating) and, while migrating, advances one re-encrypt
   // chunk in the background — off the container-start path so it can never block session creation.
-  describe('REQ-ENTERPRISE-018: Governed Mode reconcile + chunk advance on batch-status', () => {
+  describe('REQ-ENTERPRISE-020: Governed Mode reconcile + chunk advance on batch-status', () => {
     beforeEach(() => {
       vi.mocked(planRegimeReconcile).mockReset().mockResolvedValue({ state: {} as any, migrating: false, pending: false });
       vi.mocked(advanceMigration).mockReset().mockResolvedValue(undefined);
