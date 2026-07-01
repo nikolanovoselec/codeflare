@@ -1928,13 +1928,13 @@ None.
 
 ### REQ-AGENT-068: CI Monitoring Background-Agent Policy
 
-**Intent:** Pi agents must monitor CI after pushes without blocking the main session or turning the monitor into an implementation worker, while Claude keeps its baseline git workflow rule.
+**Intent:** Pi agents must monitor CI whenever a PR to `main`/`master` is open — the CI monitor is spawned together with the `review-monitor` from the PR-boundary handoff (one shared trigger), so no second per-push CI monitor is started and the two can never collide — without blocking the main session or turning the monitor into an implementation worker. A push with no open main-bound PR is not CI-monitored. Claude keeps its baseline (on-demand, per-push) git workflow rule.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. Every Pi CI-producing push or PR creation keeps an exact-head CI monitor active until `CI_RESULT`, unless skipped or superseded. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-ci-route --> <!-- @impl: preseed/agents/pi/skills/pr-workflow/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/git-review-pipeline/SKILL.md --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::visibleMonitorHandoffRequest --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (visible monitor handoff requests review and CI monitors for the exact head) --> <!-- coverage-gap: stopped/no-output monitor restart is a main-session response to Pi background-task UI notifications; verified by live PR-boundary smoke review. -->
+1. When a Pi push or PR opens or syncs a PR to `main`/`master`, an exact-head CI monitor is spawned together with the `review-monitor` from the PR-boundary handoff and kept active until `CI_RESULT`, unless skipped or superseded; a push with no open main-bound PR starts no CI monitor. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-ci-route --> <!-- @impl: preseed/agents/pi/skills/pr-workflow/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/git-review-pipeline/SKILL.md --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::visibleMonitorHandoffRequest --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (visible monitor handoff requests review and CI monitors for the exact head) --> <!-- coverage-gap: the PR-boundary trigger and stopped/no-output monitor restart are main-session responses to Pi background-task UI notifications; verified by live PR-boundary smoke review. -->
 2. The CI monitor reports success only after every workflow row for the monitored HEAD is complete and the workflow/run-id fingerprint is stable. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (ci monitor waits for a stable workflow/run set before success) -->
 3. If the local branch ref no longer points at the monitored HEAD before any terminal success/failure, the monitor reports `CI_RESULT timeout superseded` instead of success/failure for the stale head. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (ci monitor stops as superseded before polling, terminal success, and terminal failure) -->
 4. CI failures are report-only: the background agent reports the failed workflow/run/log pointer and never fixes, commits, or pushes. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (ci monitor reports failed workflow rows) -->
@@ -1944,7 +1944,8 @@ None.
 
 **Constraints:**
 
-- For Pi, an explicit user skip instruction is the only reason to skip CI monitoring after a CI-producing push or PR creation.
+- For Pi, when a main-bound PR is open, an explicit user skip instruction is the only reason to skip CI monitoring; a push with no open main-bound PR is intentionally not monitored.
+- Pi CI monitoring shares the PR-boundary trigger with the `review-monitor` ([REQ-AGENT-074](#req-agent-074-pi-visible-review-and-ci-monitor-handoff)): it is spawned together with it from the handoff and not per-push, so there is never a second CI monitor to collide with the handoff's.
 - Pi receives native `git-workflow` and `ci-monitoring` files from the Pi manifest in every mode; it does not inherit the Claude git-workflow or Claude-transformed CI skill. <!-- @impl: preseed/agents/pi/manifest.json::rules/git-workflow.md --> <!-- @impl: preseed/agents/pi/manifest.json::skills/ci-monitoring/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi gets native CI workflow files while Claude git-workflow remains baseline) -->
 - The main session owns any fix, commit, or push after a reported CI failure.
 
@@ -2095,13 +2096,13 @@ None.
 
 ### REQ-AGENT-074: Pi Visible Review and CI Monitor Handoff
 
-**Intent:** After a PR-boundary review starts, the main Pi session must own visible background monitor tasks for both review delivery and CI so failures can be seen and restarted.
+**Intent:** After a PR-boundary review starts, the main Pi session must own visible background monitor tasks for both review delivery and CI so failures can be seen and restarted. The handoff is the **single** trigger for both monitors, so CI is not also spawned per-push — the previous double-spawn (git-workflow per-push CI plus the handoff's CI) collided as "Agent is already processing a prompt" and killed the first CI monitor.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. Review startup sends a main-session follow-up containing exact-head `review-monitor` and CI monitor requests. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendVisibleMonitorHandoff --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::visibleMonitorHandoffRequest --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (visible monitor handoff requests review and CI monitors for the exact head) -->
+1. Review startup sends a main-session follow-up containing exact-head `review-monitor` and CI monitor requests; this handoff is the single spawn trigger for both. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendVisibleMonitorHandoff --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::visibleMonitorHandoffRequest --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (visible monitor handoff requests review and CI monitors for the exact head) -->
 2. If the visible handoff cannot be sent, Pi may start one hidden fallback monitor without creating duplicate durable claims. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::BACKGROUND_SUBAGENT_SPAWN --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorSpawnDecision --> <!-- coverage-gap: fallback ordering depends on Pi extension runtime availability of sendUserMessage vs the optional subagents service; verified by live smoke review. -->
 3. After a main/master SDD PR opens or syncs, the main session obeys the handoff by spawning missing exact-head monitors. <!-- @impl: preseed/agents/pi/skills/pr-workflow/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/git-review-pipeline/SKILL.md --> <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- coverage-gap: AC3 is a main-session skill-prompt workflow; no automated behavioral test -->
 4. The main session reports visible monitor agent IDs for the exact head after spawning them. <!-- @impl: preseed/agents/pi/skills/pr-workflow/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/git-review-pipeline/SKILL.md --> <!-- coverage-gap: AC4 is a main-session response to Pi background-task UI notifications; verified by live PR-boundary smoke review. -->
@@ -2111,6 +2112,7 @@ None.
 
 - Visible monitor handoff is review result delivery, not reviewer lane spawning.
 - Durable monitor claims remain the duplicate-suppression source of truth.
+- The handoff is the sole trigger for the CI monitor as well as the `review-monitor`; no separate per-push CI monitor is started ([REQ-AGENT-068](#req-agent-068-ci-monitoring-background-agent-policy)), so the two never collide.
 
 **Priority:** P1
 

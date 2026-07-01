@@ -170,12 +170,15 @@ Pi gets its own native `preseed/agents/pi/rules/git-workflow.md` from the Pi man
 which delegates branched mechanics to `ci-monitoring`, `git-review-pipeline`,
 `pr-workflow`, and `deploy-credentials`.
 
-Pi CI monitoring is background-agent owned. After any CI-producing push or PR
-creation, Pi agents start CI monitoring unless the user explicitly skips that
-push/PR. For PR-boundary review heads, the review extension can include the exact
-CI-monitor request in its visible main-session handoff so the monitor appears in
-the same background-agent UI as `review-monitor`. The backgrounded CI monitor
-reports success/failure/timeout and never fixes, commits, or pushes
+Pi CI monitoring is background-agent owned and shares the review trigger. When a
+push or PR opens or syncs a PR to `main`/`master`, the review extension's visible
+main-session handoff spawns **both** the CI monitor and `review-monitor` for the
+exact head (one trigger; the CI monitor appears in the same background-agent UI as
+`review-monitor`), unless the user explicitly skips CI monitoring. Pi does not
+start a separate per-push CI monitor — that duplicate collided with the handoff's
+CI monitor — and a head with no open main-bound PR is not CI-monitored. The
+backgrounded CI monitor reports success/failure/timeout and never fixes, commits,
+or pushes
 ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
 AC1/AC4).
 
