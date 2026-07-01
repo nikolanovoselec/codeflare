@@ -478,6 +478,24 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
     expect(mid.processed).toBe(2); // first page (2 objects) counted toward progress so far
   });
 
+  it('skips the object count (no %) when the work budget is already spent, without stranding the drain commit', async () => {
+    const objs: Record<string, { regime: R2SseRegime }> = {};
+    for (let i = 0; i < 4; i++) objs[`k${i}.md`] = { regime: 'sse-c' };
+    makeR2(objs, { pageSize: 2 });
+    const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false }) });
+
+    // Deadline anchor = T0; every later Date.now() is far past T0+WORK_DEADLINE_MS, so countObjects bails
+    // immediately (total stays 0 ⇒ no %) yet the drain still commits and the first migrate slice still runs.
+    const T0 = 1_000_000;
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValueOnce(T0).mockReturnValue(T0 + 10_000_000);
+    await advanceMigration(driverEnv(kv), 'bkt', drainNoop);
+    nowSpy.mockRestore();
+
+    const mid = await getRegimeState({ KV: kv } as unknown as Env, 'bkt');
+    expect(mid.drained).toBe(true);   // drain committed — not stranded (guards against a re-drain loop)
+    expect(mid.total ?? 0).toBe(0);   // count bailed on the exhausted budget ⇒ no %
+  });
+
   it('does nothing while another chunk holds a live lease (in-flight lock)', async () => {
     const { puts } = makeR2({ 'a.md': { regime: 'sse-c' } });
     const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false, leaseExpiresAt: Date.now() + 60_000 }) });

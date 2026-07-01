@@ -54,6 +54,9 @@ export interface RegimeState {
   /** Objects processed so far across BOTH passes (migrate then verify), so processed/(2·total) is a smooth
    * 0→100% progress. Persisted per page; dropped when the migration flips to ready. */
   processed?: number;
+  /** Set once the migration halts at the verify-retry ceiling (an un-migratable object). The dashboard
+   * suppresses the progress % when true so a wedged migration doesn't read a misleading "99%". */
+  halted?: boolean;
   lastError?: string;
 }
 

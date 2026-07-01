@@ -264,7 +264,7 @@ async function loadSessions(): Promise<void> {
     // batch-status poll while migrating also advances a chunk server-side, so keep polling.
     setState('bucketMigrating', 'bucketMigrating' in batchResponse && batchResponse.bucketMigrating === true);
     setState('bucketMigrationPending', 'bucketMigrationPending' in batchResponse && batchResponse.bucketMigrationPending === true);
-    setState('bucketMigrationPercent', typeof batchResponse.bucketMigrationPercent === 'number' ? batchResponse.bucketMigrationPercent : null);
+    setState('bucketMigrationPercent', 'bucketMigrationPercent' in batchResponse && typeof batchResponse.bucketMigrationPercent === 'number' ? batchResponse.bucketMigrationPercent : null);
 
     if (thisGen !== loadSessionsGeneration) return;
 

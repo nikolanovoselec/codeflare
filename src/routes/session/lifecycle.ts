@@ -188,9 +188,10 @@ app.get('/batch-status', async (c) => {
   );
   // REQ-ENTERPRISE-018: a 0–99 progress % for the Migrating button, computed across BOTH passes
   // (migrate then verify) as processed/(2·total). Undefined until `total` is counted (first poll shows a
-  // plain "Migrating") or when total is 0 (empty/too-large bucket ⇒ no %).
+  // plain "Migrating"), when total is 0 (empty/too-large bucket ⇒ no %), or when the migration has halted
+  // (wedged on an un-migratable object — a % there would misleadingly read "99%").
   const migrationTotal = regimeState.total ?? 0;
-  const bucketMigrationPercent = bucketMigrating && migrationTotal > 0 && regimeState.processed != null
+  const bucketMigrationPercent = bucketMigrating && !regimeState.halted && migrationTotal > 0 && regimeState.processed != null
     ? Math.min(99, Math.max(0, Math.round((regimeState.processed / (2 * migrationTotal)) * 100)))
     : undefined;
   if (bucketMigrating) {

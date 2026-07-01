@@ -344,19 +344,25 @@ async function migrateChunk(
 
 /** Count every object via list-only ListObjectsV2 pages (no per-object ops) — the denominator for the
  * migration progress %. Cheap: one request per LIST_PAGE_SIZE keys. Bounded to `maxPages`; a larger bucket
- * (or a failed list) returns `total: null` so the caller shows no % rather than burning the invocation
- * budget. `pages` is returned so the caller can charge the subrequests against its budget. */
+ * (or a failed list, or running out of the wall-clock `deadline`) returns `total: null` so the caller
+ * shows no % rather than burning the invocation budget. `pages` is returned so the caller can charge the
+ * subrequests against its budget. */
 async function countObjects(
   env: MigrateR2Env,
   bucketName: string,
   endpoint: string,
   maxPages: number,
+  deadline: number,
 ): Promise<{ total: number | null; pages: number }> {
   const client = createR2Client(env);
   let cursor: string | null = null;
   let total = 0;
   let pages = 0;
   do {
+    // Runs BEFORE the one-time drained-commit, so it must not consume the whole ~30s waitUntil window
+    // (which would strand that commit → the drain re-triggers next poll). Bail to `total: null` (⇒ no %)
+    // once another list would not finish within the shared work deadline.
+    if (Date.now() + LIST_TIMEOUT_MS > deadline) return { total: null, pages };
     const listUrl = new URL(getR2Url(endpoint, bucketName));
     listUrl.searchParams.set('list-type', '2');
     listUrl.searchParams.set('max-keys', String(LIST_PAGE_SIZE));
@@ -594,15 +600,17 @@ export async function advanceMigration(
     };
 
     let usedSubreq = 0;
+    const deadline = now + WORK_DEADLINE_MS;
     // Persist the one-time drain durably BEFORE the first page, so a kill during or after the first page
     // can never re-trigger the (R2-op-heavy) drain on the next poll — it sees drained=true and goes
     // straight to pages. In the SAME one-time write we record `total`, an object count for the progress %
-    // (list-only scan, ~1 request per 1,000 keys); a bucket larger than COUNT_LIST_CAP pages stores
-    // `total: 0` ("counted, no %") so it never re-counts. (commit re-checks the lease; bail if we lost it.)
+    // (list-only scan under the SAME work deadline so it can't strand this commit); a bucket larger than
+    // COUNT_LIST_CAP pages (or a count that runs out of budget) stores `total: 0` ("counted, no %") so it
+    // never re-counts. (commit re-checks the lease; bail if we lost it.)
     let total = state.total;
     if (!state.drained) {
       if (total === undefined) {
-        const counted = await countObjects(env, bucketName, endpoint, COUNT_LIST_CAP);
+        const counted = await countObjects(env, bucketName, endpoint, COUNT_LIST_CAP, deadline);
         usedSubreq += counted.pages;
         total = counted.total ?? 0;
       }
@@ -615,7 +623,6 @@ export async function advanceMigration(
     // would not finish before WORK_DEADLINE_MS, or the subrequest backstop is near — and RELEASES the
     // lease so the next poll resumes from the cursor. A force-kill is not catchable and would leave the
     // lease held; the deadline (+ the unconditional first slice in processSlices) is what prevents that.
-    const deadline = now + WORK_DEADLINE_MS;
     const opsPerObject = (p: 'migrate' | 'verify') => (p === 'migrate' ? 2 : 1);
     const sliceMs = (p: 'migrate' | 'verify') => (p === 'migrate' ? MIGRATE_SLICE_MS : VERIFY_SLICE_MS);
     // Objects this chunk may process before the subrequest backstop — the time gate is usually binding.
@@ -664,6 +671,9 @@ export async function advanceMigration(
         const stuckCount = (state.lastFailedKey === r.failedKey ? (state.stuckCount ?? 0) : 0) + 1;
         await commit({
           ...state, drained, total, processed, stuckCount, lastFailedKey: r.failedKey, phase: 'migrate', cursor: null,
+          // Mark halted at the retry ceiling so the dashboard suppresses the progress % — a wedged
+          // migration must not read a misleading "99%" (the H2 backstop then stops advancing until admin).
+          ...(stuckCount >= MAX_VERIFY_RETRIES ? { halted: true } : {}),
           lastError: stuckCount >= MAX_VERIFY_RETRIES
             ? `verify failed at ${r.failedKey} after ${stuckCount} attempts; halting (un-migratable object — admin review)`
             : `verify failed at ${r.failedKey}; re-migrating`,

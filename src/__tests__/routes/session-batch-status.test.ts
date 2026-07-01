@@ -468,6 +468,18 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       const body = await res.json() as { bucketMigrationPercent?: number };
       expect(body.bucketMigrationPercent).toBeUndefined();
     });
+
+    it('suppresses the progress % when the migration has halted so the button never reads a misleading 99%', async () => {
+      // A wedged migration's re-heal passes push processed past 2·total; without the halted guard the
+      // clamp would pin the label at "99%" forever.
+      vi.mocked(planRegimeReconcile).mockResolvedValue({ state: { total: 100, processed: 250, halted: true } as any, migrating: true, pending: false });
+      const app = createApp();
+      const { ctx } = makeExecCtx();
+      const res = await app.request('/sessions/batch-status', undefined, undefined, ctx as any);
+      const body = await res.json() as { bucketMigrating: boolean; bucketMigrationPercent?: number };
+      expect(body.bucketMigrating).toBe(true);
+      expect(body.bucketMigrationPercent).toBeUndefined();
+    });
   });
 
   // CF-041 // CF-071
