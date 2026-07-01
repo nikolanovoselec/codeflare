@@ -424,7 +424,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
     });
 
-    it('REQ-VAULT-008 AC10: the open click navigates the new tab to the bootstrap-hop URL, not the bare shell', async () => {
+    it('REQ-VAULT-024 AC6: the open click navigates the new tab to the bootstrap-hop URL, not the bare shell', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };

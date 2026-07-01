@@ -353,7 +353,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
     }
 
-    it('T1: serves the native SilverBullet worker with the key-recovery graft', () => {
+    it('REQ-VAULT-024 AC5 / T1: serves the native SilverBullet worker with the key-recovery graft', () => {
       // The native worker carries SB's sync engine + offline precache, which
       // is what restores the persistent sb_files_* store (#445); asserting the
       // served bytes contain `precache`/`addAll` fails the moment serving is
@@ -364,7 +364,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       // Cold-boot encryption rides the native worker's own key handlers.
       expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('set-encryption-key');
       expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('get-encryption-key');
-      // REQ-VAULT-008 AC9: the served worker carries the codeflare recovery
+      // REQ-VAULT-024 AC5: the served worker carries the codeflare recovery
       // graft (the verbatim upstream worker does NOT) - without it the key is
       // lost between the bootstrap-hop and shell boot and SB bounces to .auth.
       expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('.vault-key');
@@ -394,7 +394,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
     it('T10: graftVaultKeyRecovery throws if the upstream get-encryption-key anchor moves', () => {
       // The graft is anchored on an exact minified substring. If SB changes it,
       // the transform must fail loud (forcing a re-vendor + re-verify) rather
-      // than silently serve an un-grafted worker that re-breaks REQ-VAULT-008 AC8/AC9.
+      // than silently serve an un-grafted worker that re-breaks REQ-VAULT-024 AC4/AC5.
       expect(() => graftVaultKeyRecovery('definitely not the silverbullet worker')).toThrow();
       // It is idempotent-safe on the real verbatim worker (produces the served bytes).
       expect(graftVaultKeyRecovery(VAULT_NATIVE_SW_VERBATIM)).toBe(VAULT_NATIVE_SERVICE_WORKER_JS);
@@ -565,7 +565,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
     });
   });
 
-  describe('injectVaultBootstrapHopHtml (REQ-VAULT-008 AC5/AC6)', () => {
+  describe('injectVaultBootstrapHopHtml (REQ-VAULT-024 AC1/AC2)', () => {
     it('produces an HTML page that registers the SW, posts the key, sets the cookie, then redirects', () => {
       const out = injectVaultBootstrapHopHtml('abcdef12', 'AAAA-base64-key-AAAA');
       // Page shape
@@ -602,7 +602,7 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
       expect(out).toContain('; Secure');
     });
 
-    it('guards cookie+redirect inside the SW-success branch -- failure must NOT proceed (REQ-VAULT-008 AC6 fail-loud)', () => {
+    it('guards cookie+redirect inside the SW-success branch -- failure must NOT proceed (REQ-VAULT-024 AC2 fail-loud)', () => {
       // The function's own docstring promises "never silently degrades
       // to plaintext IDB". The earlier implementation set the cookie
       // and called location.replace unconditionally; the followup
@@ -723,8 +723,8 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
     });
   });
 
-  // REQ-VAULT-008 AC7 (codeflare_vault_bootstrap cookie selector: subsequent shell-path requests bypass the hop via the cookie)
-  describe('hasVaultBootstrapCookie', () => {
+  // REQ-VAULT-024 AC3 (codeflare_vault_bootstrap cookie selector: subsequent shell-path requests bypass the hop via the cookie)
+  describe('hasVaultBootstrapCookie (REQ-VAULT-024 AC3)', () => {
     function reqWithCookie(value: string | undefined): Request {
       const headers = new Headers();
       if (value !== undefined) headers.set('Cookie', value);

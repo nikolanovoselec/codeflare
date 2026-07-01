@@ -35,7 +35,7 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('console.warn("Sync space error",t.message)');
   });
 
-  // REQ-VAULT-008 AC8 / REQ-VAULT-017 AC6: the graft NEUTERS the upstream proactive
+  // REQ-VAULT-024 AC4 / REQ-VAULT-017 AC6: the graft NEUTERS the upstream proactive
   // 5s "no window clients" key flush so the in-memory AES key `y` is retained while
   // the worker lives. Upstream wiped `y` during the bootstrap-hop -> editor 0-client
   // transition, racing cold opens into a `.auth` 403. These slice the ACTUAL no-client
@@ -53,7 +53,7 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     return fn([]); // [] == zero window clients == the flush trigger
   }
 
-  it('the served worker retains the encryption key when no clients are connected (flush neutered)', () => {
+  it('REQ-VAULT-024 AC4: the served worker retains the encryption key when no clients are connected (flush neutered)', () => {
     expect(runNoClientFlush(VAULT_NATIVE_SERVICE_WORKER_JS)).toBe('AES-KEY');
   });
 
