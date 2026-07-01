@@ -1,5 +1,5 @@
 /**
- * Governed Mode (REQ-ENTERPRISE-018) per-bucket R2 encryption-regime STATE — the
+ * Governed Mode (REQ-ENTERPRISE-018 / REQ-ENTERPRISE-020) per-bucket R2 encryption-regime STATE — the
  * single source of truth that replaces both the old boolean
  * `UserPreferences.r2SseRegime` marker AND the standalone `r2-migration-lock:` key.
  *
@@ -109,7 +109,7 @@ export async function getBucketR2Regime(env: MigrationEnv, bucketName: string): 
 }
 
 /**
- * REQ-ENTERPRISE-018 backend gate: a bucket whose status is not `ready` (migrating or
+ * REQ-ENTERPRISE-020 backend gate: a bucket whose status is not `ready` (migrating or
  * mixed-recovery) blocks every writer with 409 so no client or stale container can write the
  * wrong encryption regime mid-migration. Throw BucketMigratingError at each writer entry.
  */

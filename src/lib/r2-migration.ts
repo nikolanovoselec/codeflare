@@ -1,5 +1,5 @@
 /**
- * Governed Mode (REQ-ENTERPRISE-018) lossless R2 encryption-regime migration engine.
+ * Governed Mode (REQ-ENTERPRISE-020) lossless R2 encryption-regime migration engine.
  *
  * The regime decision + state live in src/lib/r2-regime-state.ts (the `r2-regime:<bucket>`
  * state object). THIS module is the copy engine + the chunked, resumable, self-verifying

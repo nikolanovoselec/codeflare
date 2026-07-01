@@ -533,7 +533,7 @@ app.get('/:sessionId/status', async (c) => {
     throw new NotFoundError('Session');
   }
 
-  // REQ-ENTERPRISE-018: while the bucket's encryption regime is migrating the container is
+  // REQ-ENTERPRISE-020: while the bucket's encryption regime is migrating the container is
   // drained and the vault is served from a re-encrypting bucket — report not-ready with an
   // explicit reason instead of probing a torn-down container.
   if (await isBucketMigrating(c.env, bucketName)) {

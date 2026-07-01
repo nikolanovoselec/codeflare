@@ -118,7 +118,7 @@ export class CircuitBreakerOpenError extends AppError {
 }
 
 /**
- * REQ-ENTERPRISE-018: a bucket is mid-migration (Governed Mode regime flip). Every writer
+ * REQ-ENTERPRISE-020: a bucket is mid-migration (Governed Mode regime flip). Every writer
  * path throws this so no client or stale container can write the wrong encryption regime
  * while objects are being re-encrypted. The `BUCKET_MIGRATING` code lets the frontend reuse
  * the Upgrading affordance.

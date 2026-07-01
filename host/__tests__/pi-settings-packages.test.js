@@ -114,7 +114,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     assert.deepEqual(twice.extensions, ['user-ext.ts']);
   });
 
-  it('REQ-AGENT-005: overrides advisor guidance as user-invoked only without clearing the selected model', () => {
+  it('REQ-AGENT-076: overrides advisor guidance as user-invoked only without clearing the selected model', () => {
     const config = runAdvisorGuidanceMerge(JSON.stringify({ modelKey: 'provider/model', effort: 'medium' }));
     assert.equal(config.modelKey, 'provider/model');
     assert.equal(config.effort, 'medium');

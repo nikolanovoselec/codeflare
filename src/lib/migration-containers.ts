@@ -1,5 +1,5 @@
 /**
- * Governed Mode (REQ-ENTERPRISE-018) container coordination for the R2 regime migration.
+ * Governed Mode (REQ-ENTERPRISE-020) container coordination for the R2 regime migration.
  *
  * The in-container rclone bisync daemon writes R2 directly with its baked SSE-C regime, so
  * the Worker cannot header-gate it. Before a migration re-encrypts a bucket, every running

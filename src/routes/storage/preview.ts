@@ -50,7 +50,7 @@ app.get('/', async (c) => {
   const { endpoint } = await getR2Config(c.env);
   const objectUrl = getR2Url(endpoint, bucketName, validatedKey);
 
-  // REQ-ENTERPRISE-018: HEAD in the bucket's committed regime, falling back to the opposite
+  // REQ-ENTERPRISE-020: HEAD in the bucket's committed regime, falling back to the opposite
   // regime once on an SSE-mismatch (see download.ts). `sseDisabled` is the regime that worked,
   // reused for the GET below so it never re-probes. A fallback hit on a ready bucket self-heals.
   const { response: headResponse, stray, sseDisabled } = await fetchObjectWithRegimeFallback(c.env, bucketName, objectUrl, { method: 'HEAD' });

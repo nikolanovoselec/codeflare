@@ -253,7 +253,7 @@ export function buildEnvVars(
     // Encryption key for rclone SSE-C. Omitted in Governed Mode (R2_SSE_DISABLED, REQ-ENTERPRISE-018):
     // SSE-C is off there, so rclone never uses it (entrypoint.sh skips the sse_customer_key block) and
     // this high-power shared key (also the vault HKDF master + secret-at-rest key) must not sit unused
-    // in the container. Consequence (REQ-ENTERPRISE-016/018): under strict egress + Governed Mode the
+    // in the container. Consequence (REQ-ENTERPRISE-016/020): under strict egress + Governed Mode the
     // container carries NO real secret except the DO-issued CONTAINER_AUTH_TOKEN — R2/GitHub/Cloudflare
     // creds are all non-secret placeholders. Non-Governed (SSE-C on) still emits it: rclone needs it.
     ...(state._encryptionKey && !state._r2SseDisabled && { ENCRYPTION_KEY: state._encryptionKey }),

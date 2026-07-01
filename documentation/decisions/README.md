@@ -747,7 +747,7 @@ The MCP layer is what users observe as "context-mode is always available"; the p
 
 A future contributor who adds a SessionStart-style ctx_* nudge, a context-mode skill, an `Implements ctx_*` rule, or any other automation that pushes commercial users toward context-mode functionality must update this ADR before merging.
 
-**Related requirements:** [REQ-AGENT-005](../../sdd/spec/agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) (Pro mode skills/rules/agents/MCP, now also covers tier-gated context-mode delivery)
+**Related requirements:** [REQ-AGENT-005](../../sdd/spec/agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) (Pro mode skills/rules/agents/MCP) and [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) (tier-gated context-mode delivery, Pi tool-extension defaults)
 
 **Implementation references:**
 

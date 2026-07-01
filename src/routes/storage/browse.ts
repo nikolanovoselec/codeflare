@@ -76,7 +76,7 @@ app.get('/', async (c) => {
         throw new ContainerError('create-bucket', result.error || 'Failed to create storage bucket');
       }
       if (result.created) {
-        // REQ-ENTERPRISE-018: a new bucket adopts the deployment's Governed Mode policy;
+        // REQ-ENTERPRISE-020: a new bucket adopts the deployment's Governed Mode policy;
         // stamp its regime marker and seed in that regime so reads/writes stay consistent.
         const r2SseDisabled = await resolveBucketSseOnEnsure(c.env, bucketName, true);
         try {

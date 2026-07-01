@@ -30,7 +30,7 @@ app.use('*', storageSeedRateLimiter);
  */
 app.post('/getting-started', async (c) => {
   const bucketName = c.get('bucketName');
-  // REQ-ENTERPRISE-018: block reseed while the bucket's encryption regime is migrating.
+  // REQ-ENTERPRISE-020: block reseed while the bucket's encryption regime is migrating.
   if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
   const { accountId, endpoint } = await getR2Config(c.env);
 
@@ -39,7 +39,7 @@ app.post('/getting-started', async (c) => {
     throw new ContainerError('seed-documentation', bucketResult.error || 'Failed to create storage bucket');
   }
 
-  // REQ-ENTERPRISE-018: write the starter docs in the bucket's current regime so
+  // REQ-ENTERPRISE-020: write the starter docs in the bucket's current regime so
   // they are readable (new bucket adopts policy; existing keeps its marker).
   const r2SseDisabled = await resolveBucketSseOnEnsure(c.env, bucketName, bucketResult.created === true);
 
@@ -74,7 +74,7 @@ app.post('/getting-started', async (c) => {
  */
 app.post('/agent-configs', async (c) => {
   const bucketName = c.get('bucketName');
-  // REQ-ENTERPRISE-018: block reseed while the bucket's encryption regime is migrating.
+  // REQ-ENTERPRISE-020: block reseed while the bucket's encryption regime is migrating.
   if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
   const { accountId, endpoint } = await getR2Config(c.env);
 
@@ -83,7 +83,7 @@ app.post('/agent-configs', async (c) => {
     throw new ContainerError('seed-agent-configs', bucketResult.error || 'Failed to create storage bucket');
   }
 
-  // REQ-ENTERPRISE-018: reconcile in the bucket's current regime (see getting-started above).
+  // REQ-ENTERPRISE-020: reconcile in the bucket's current regime (see getting-started above).
   const r2SseDisabled = await resolveBucketSseOnEnsure(c.env, bucketName, bucketResult.created === true);
 
   try {

@@ -174,7 +174,7 @@ app.get('/batch-status', async (c) => {
     preseedNeedsUpgrade = prefs?.lastPreseedHash !== PRESEED_CONTENT_HASH;
   }
 
-  // REQ-ENTERPRISE-018: Governed Mode regime reconcile. Decide synchronously so THIS
+  // REQ-ENTERPRISE-020: Governed Mode regime reconcile. Decide synchronously so THIS
   // response reports `bucketMigrating` (the New Session button reuses the Upgrading gate);
   // a no-op when the bucket already matches the deployment policy. The lossless re-encrypt
   // runs one bounded chunk per poll in the BACKGROUND so it never blocks this response or
@@ -186,7 +186,7 @@ app.get('/batch-status', async (c) => {
     bucketName,
     () => hasHealthyContainer(c.env, bucketName),
   );
-  // REQ-ENTERPRISE-018: a 0–99 progress % for the Migrating button, computed across BOTH passes
+  // REQ-ENTERPRISE-020: a 0–99 progress % for the Migrating button, computed across BOTH passes
   // (migrate then verify) as processed/(2·total). Undefined until `total` is counted (first poll shows a
   // plain "Migrating"), when total is 0 (empty/too-large bucket ⇒ no %), or when the migration has halted
   // (wedged on an un-migratable object — a % there would misleadingly read "99%").

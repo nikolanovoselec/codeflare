@@ -155,7 +155,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const bucketName = c.get('bucketName');
     const sessionId = getSessionIdFromQuery(c);
 
-    // REQ-ENTERPRISE-018: refuse to start a container while the bucket is migrating its
+    // REQ-ENTERPRISE-020: refuse to start a container while the bucket is migrating its
     // encryption regime. A container bakes the bucket's SSE-C regime at boot and its rclone
     // daemon writes R2 directly; starting one mid-flip would write the wrong regime. 409
     // until the migration verifies + flips status back to ready (reuses the Upgrading UX).

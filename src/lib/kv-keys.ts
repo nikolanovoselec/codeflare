@@ -176,7 +176,7 @@ export function getPreferencesKey(bucketName: string): string {
 }
 
 /**
- * REQ-ENTERPRISE-018: per-bucket Governed Mode migration state object. The single
+ * REQ-ENTERPRISE-020: per-bucket Governed Mode migration state object. The single
  * source of truth for a bucket's R2 encryption regime + any in-flight migration
  * (replaces the old boolean UserPreferences.r2SseRegime marker AND the standalone
  * `r2-migration-lock:` key). See src/lib/r2-regime-state.ts.

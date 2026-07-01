@@ -2060,8 +2060,10 @@ configure_consult_llm || echo "[entrypoint] WARNING: consult-llm configuration f
 # buggy path is never reached -- and this is strictly correct for this environment
 # regardless of the bug, since a browser-approval UI could never functionally work
 # here anyway. pi-web-access resolves its OWN config dir independently of Pi's core
-# ~/.pi/agent/* (PI_CODING_AGENT_DIR is unset here), defaulting to bare ~/.pi --
-# verified against the installed package's actual path-resolution logic, not assumed.
+# ~/.pi/agent/* -- its getWebSearchConfigDir() checks PI_CODING_AGENT_DIR first, then
+# XDG_CONFIG_HOME, defaulting to bare ~/.pi when neither is set (neither is set
+# here) -- verified against the installed package's actual path-resolution logic,
+# not assumed.
 # Create-if-missing: respects a user's own workflow choice if they've set one.
 PI_WEB_SEARCH_JSON="$USER_HOME/.pi/web-search.json"
 if [ ! -f "$PI_WEB_SEARCH_JSON" ]; then

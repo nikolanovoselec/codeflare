@@ -1,4 +1,4 @@
-// Verifies REQ-AGENT-005 AC5 (createRequire shim, codeflare#309) and AC8
+// Verifies REQ-AGENT-076 AC1 (createRequire shim, codeflare#309) and AC4
 // (context-mode npm update-check notice disabled at image build) by exercising the
 // REAL patch function the Dockerfile build runs — imported from
 // scripts/patch-context-mode-bundles.mjs, the same module the Dockerfile invokes.
@@ -31,8 +31,8 @@ const ctxPluginVer = JSON.parse(
 const bodyWithProbe = (url, n) =>
   Array.from({ length: n }, (_, i) => `function probe${i}(){return get(${JSON.stringify(url)})}`).join('\n') + '\n';
 
-describe('Dockerfile context-mode patch (REQ-AGENT-005 AC5 shim + AC8 update-check disable)', () => {
-  it('AC8: neutralizes the npm update-check probe in both bundles', () => {
+describe('Dockerfile context-mode patch (REQ-AGENT-076 AC1 shim + AC4 update-check disable)', () => {
+  it('AC4: neutralizes the npm update-check probe in both bundles', () => {
     // Every probe occurrence repointed to the refused local address, and the shim
     // prepended — asserted by exact equality, so a partial or skipped replace fails.
     const raw = 'var a=1;\n' + bodyWithProbe(UPDATE_PROBE_URL, 2);
@@ -42,13 +42,13 @@ describe('Dockerfile context-mode patch (REQ-AGENT-005 AC5 shim + AC8 update-che
     const rawServer = 'var b=2;\n' + bodyWithProbe(UPDATE_PROBE_URL, 1);
     const expectedServer = SHIM + 'var b=2;\n' + bodyWithProbe(DISABLED_PROBE_URL, 1);
     assert.equal(patchContextModeBundle(rawServer), expectedServer);
-    // AC8 safety contract: the disabled target must be a loopback host so the probe
+    // AC4 safety contract: the disabled target must be a loopback host so the probe
     // generates no outbound traffic. Parse + check the host (not a substring match)
     // so a future edit to a routable URL fails here.
     assert.equal(new URL(DISABLED_PROBE_URL).hostname, '127.0.0.1');
   });
 
-  it('AC5: prepends the createRequire shim, preserving a shebang line', () => {
+  it('AC1: prepends the createRequire shim, preserving a shebang line', () => {
     assert.equal(patchContextModeBundle('var a=1;\n'), SHIM + 'var a=1;\n');
     const shebang = '#!/usr/bin/env node\nvar a=1;\n';
     assert.equal(patchContextModeBundle(shebang), '#!/usr/bin/env node\n' + SHIM + 'var a=1;\n');

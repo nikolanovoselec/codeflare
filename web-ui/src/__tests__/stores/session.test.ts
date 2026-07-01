@@ -380,7 +380,7 @@ describe('Session Store', () => {
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
     });
 
-    // REQ-ENTERPRISE-018: mirror the backend Governed Mode migration flag so the New Session
+    // REQ-ENTERPRISE-020: mirror the backend Governed Mode migration flag so the New Session
     // button can disable (reusing the Upgrading affordance) while the bucket re-encrypts.
     it('reflects bucketMigrating=true from batch-status', async () => {
       mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: true });
@@ -409,10 +409,10 @@ describe('Session Store', () => {
     });
   });
 
-  // REQ-ENTERPRISE-020 AC4: the 5s BACKGROUND poll (refreshSessionStatuses), not just the full
+  // REQ-ENTERPRISE-020 AC7: the 5s BACKGROUND poll (refreshSessionStatuses), not just the full
   // loadSessions, must mirror the migration flags — otherwise a migration that finishes between full
   // loads leaves the New Session button stuck on "Migrating" until a manual page reload.
-  describe('background poll migration flags (REQ-ENTERPRISE-020 AC4)', () => {
+  describe('background poll migration flags (REQ-ENTERPRISE-020 AC7)', () => {
     it('clears bucketMigrating on completion via the background poll — no full reload', async () => {
       mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: true });
       await sessionStore.loadSessions();

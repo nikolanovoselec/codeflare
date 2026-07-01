@@ -42,7 +42,7 @@ app.post('/', async (c) => {
   const validatedPrefixes = prefixes.map(prefix => validateKey(prefix, 'prefix'));
 
   const bucketName = c.get('bucketName');
-  // REQ-ENTERPRISE-018: block deletes while the bucket's encryption regime is migrating so a delete
+  // REQ-ENTERPRISE-020: block deletes while the bucket's encryption regime is migrating so a delete
   // can't race a re-encrypt chunk (404 the copy-source) and so writers stay uniformly gated.
   if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
   const r2Client = createR2Client(c.env);

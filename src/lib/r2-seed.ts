@@ -160,7 +160,7 @@ export async function seedGettingStartedDocs(
 /**
  * Tier-gated preseed key prefix. Files under this prefix are only deployed
  * to user buckets when contextModeEnabled is true (Pro tier + Pro session
- * mode). See REQ-AGENT-005 and the context-mode preseed plugin README.
+ * mode). See REQ-AGENT-076 and the context-mode preseed plugin README.
  */
 const CONTEXT_MODE_KEY_PREFIX = '.claude/plugins/context-mode/';
 const PI_CONTEXT_MODE_EXTENSION_KEY = '.pi/agent/extensions/context-mode-enforcement.ts';

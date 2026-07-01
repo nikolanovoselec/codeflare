@@ -179,10 +179,10 @@ export const BatchSessionStatusResponseSchema = z.object({
     tier: z.string(),
   }).optional(),
   preseedNeedsUpgrade: z.boolean().optional(),
-  // REQ-ENTERPRISE-018: Governed Mode regime migration flags.
+  // REQ-ENTERPRISE-020: Governed Mode regime migration flags.
   bucketMigrating: z.boolean().optional(),
   bucketMigrationPending: z.boolean().optional(),
-  // REQ-ENTERPRISE-018: 0–99 re-encrypt progress % for the Migrating button (absent until known).
+  // REQ-ENTERPRISE-020: 0–99 re-encrypt progress % for the Migrating button (absent until known).
   bucketMigrationPercent: z.number().optional(),
 });
 

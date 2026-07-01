@@ -49,7 +49,7 @@ export async function fanOutBisyncTrigger(
   env: Pick<Env, 'KV' | 'CONTAINER'>,
   bucketName: string
 ): Promise<SyncSessionResult[]> {
-  // REQ-ENTERPRISE-018: never trigger bisync while the bucket's regime is migrating — a
+  // REQ-ENTERPRISE-020: never trigger bisync while the bucket's regime is migrating — a
   // container's rclone daemon would push its local FS in the pre-flip regime. Containers are
   // drained on migration start; this guards any stale/racing container.
   if (await isBucketMigrating(env, bucketName)) return [];
