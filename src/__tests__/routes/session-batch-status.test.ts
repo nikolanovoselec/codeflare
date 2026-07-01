@@ -42,7 +42,7 @@ vi.mock('@cloudflare/containers', () => ({
     destroy: vi.fn().mockResolvedValue(undefined),
   })),
 }));
-// REQ-ENTERPRISE-018: stub the Governed Mode reconcile + driver so the wiring test can assert
+// REQ-ENTERPRISE-020: stub the Governed Mode reconcile + driver so the wiring test can assert
 // the synchronous decision + backgrounded chunk advance without running a real migration.
 vi.mock('../../lib/r2-migration', () => ({
   planRegimeReconcile: vi.fn(async () => ({ state: {}, migrating: false, pending: false })),
@@ -61,7 +61,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
 
   beforeEach(() => {
     mockKV = createMockKV();
-    // REQ-ENTERPRISE-018: every test starts with a not-migrating bucket so unrelated batch-status
+    // REQ-ENTERPRISE-020: every test starts with a not-migrating bucket so unrelated batch-status
     // assertions are unaffected; the Governed Mode block overrides these per test.
     vi.mocked(planRegimeReconcile).mockResolvedValue({ state: {} as never, migrating: false, pending: false });
     vi.mocked(advanceMigration).mockResolvedValue(undefined);
@@ -388,7 +388,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     });
   });
 
-  // REQ-ENTERPRISE-018: every batch-status poll synchronously decides the Governed Mode regime
+  // REQ-ENTERPRISE-020: every batch-status poll synchronously decides the Governed Mode regime
   // (so the same response reports bucketMigrating) and, while migrating, advances one re-encrypt
   // chunk in the background — off the container-start path so it can never block session creation.
   describe('REQ-ENTERPRISE-020: Governed Mode reconcile + chunk advance on batch-status', () => {
