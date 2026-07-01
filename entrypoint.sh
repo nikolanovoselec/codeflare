@@ -2049,6 +2049,27 @@ configure_consult_llm() {
 }
 configure_consult_llm || echo "[entrypoint] WARNING: consult-llm configuration failed; continuing startup"
 
+# Pi web-search workflow: skip the interactive browser-curator fallback.
+# pi-web-access's openCuratorBrowser has an upstream bug -- sendCuratorFallbackUpdate
+# is declared inside the try{} block but referenced from the sibling catch{} block
+# (github.com/nicobailon/pi-web-access issue #103; fix in PR #114, not yet released
+# to npm) -- so any web_search call crashes the WHOLE pi process with an uncaught
+# ReferenceError whenever the browser fails to open, which it always does here (no
+# GUI browser in a headless container; xdg-open exits non-zero). "auto-summary"
+# generates a synthesized answer directly without ever opening a browser, so the
+# buggy path is never reached -- and this is strictly correct for this environment
+# regardless of the bug, since a browser-approval UI could never functionally work
+# here anyway. pi-web-access resolves its OWN config dir independently of Pi's core
+# ~/.pi/agent/* (PI_CODING_AGENT_DIR is unset here), defaulting to bare ~/.pi --
+# verified against the installed package's actual path-resolution logic, not assumed.
+# Create-if-missing: respects a user's own workflow choice if they've set one.
+PI_WEB_SEARCH_JSON="$USER_HOME/.pi/web-search.json"
+if [ ! -f "$PI_WEB_SEARCH_JSON" ]; then
+    mkdir -p "$(dirname "$PI_WEB_SEARCH_JSON")"
+    printf '{\n  "workflow": "auto-summary"\n}\n' > "$PI_WEB_SEARCH_JSON"
+    echo "[entrypoint] Pi web-search workflow set to auto-summary (avoids upstream pi-web-access curator crash)"
+fi
+
 # ---------------------------------------------------------------------------
 # Enterprise Mode agent routing. (Implements REQ-ENTERPRISE-004 / 005)
 #
