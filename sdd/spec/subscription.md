@@ -63,11 +63,11 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-The concrete per-tier values (hours/month, max sessions, modes, storage, canLogin) are defined in `getDefaultTiers()` (`src/lib/subscription.ts`) and documented in [Subscription Tiers](../../documentation/lanes/billing.md#subscription-tiers).
-
 1. An unset monthly compute allotment means unlimited compute. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-002 describe -> exact monthlySeconds + maxSessions + sessionModes + maxStorageBytes per tier from AC table) --> <!-- @test: src/__tests__/lib/subscription.test.ts (SubscriptionTierConfig interface + getDefaultTiers describes) -->
 2. An unset storage cap means unlimited storage. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-002 describe -> exact monthlySeconds + maxSessions + sessionModes + maxStorageBytes per tier from AC table) --> <!-- @test: src/__tests__/lib/subscription.test.ts (SubscriptionTierConfig interface + getDefaultTiers describes) -->
 3. The allowed session-modes field is a list of mode identifiers drawn from the supported set. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-002 describe -> exact monthlySeconds + maxSessions + sessionModes + maxStorageBytes per tier from AC table) --> <!-- @test: src/__tests__/lib/subscription.test.ts (SubscriptionTierConfig interface + getDefaultTiers describes) -->
+
+**Notes:** Concrete per-tier values (hours/month, max sessions, modes, storage, canLogin) are documented in [Subscription Tiers](../../documentation/lanes/billing.md#subscription-tiers).
 
 **Constraints:**
 

@@ -493,7 +493,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption), [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-VAULT-023](#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap)
+**Dependencies:** [REQ-VAULT-008](#req-vault-008-zero-ui-vault-encryption), [REQ-VAULT-005](#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor)
 
 **Verification:** [Route test](../../src/__tests__/routes/vault.test.ts), [cache helper test](../../web-ui/src/__tests__/lib/vault-cache.test.ts), [session store test](../../web-ui/src/__tests__/stores/session.test.ts), [dashboard mount test](../../web-ui/src/__tests__/components/Dashboard.test.tsx)
 

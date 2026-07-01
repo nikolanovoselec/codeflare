@@ -1600,7 +1600,7 @@ init_user_vault() {
         # SilverBullet server reports an identical lastModified for these pages across
         # every session. Without this, a force-overwrite cp (or bisync) gives a
         # byte-identical page a fresh boot mtime; on a 2nd session that diverges from
-        # the REQ-VAULT-021 persisted client sync snapshot, so SilverBullet's sync
+        # the REQ-VAULT-023 persisted client sync snapshot, so SilverBullet's sync
         # engine sees the page "changed on secondary" on every ~3s editor watch-poll,
         # re-enqueues an index op each cycle, and delays the prewarm readiness gate. A
         # deterministic mtime keeps the persisted snapshot in agreement so the spurious
