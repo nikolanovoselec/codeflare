@@ -110,7 +110,7 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
   const key = getPreferencesKey(bucketName);
   const existing = await c.env.KV.get<UserPreferences>(key, 'json') || {};
 
-  // REQ-ENTERPRISE-018: a sessionMode change triggers an R2 agent-config reconcile below;
+  // REQ-ENTERPRISE-020: a sessionMode change triggers an R2 agent-config reconcile below;
   // refuse it while the bucket's encryption regime is migrating so configs are never written
   // in the wrong (pre-flip) regime. Non-R2 preference changes are unaffected.
   if (body.sessionMode && body.sessionMode !== existing.sessionMode && await isBucketMigrating(c.env, bucketName)) {
@@ -129,7 +129,7 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
       const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
       const contextModeEnabled = effectiveTier === 'unlimited' && body.sessionMode === 'advanced';
       const { endpoint } = await getR2Config(c.env);
-      // REQ-ENTERPRISE-018: reconcile in the bucket's current regime so a Governed Mode
+      // REQ-ENTERPRISE-020: reconcile in the bucket's current regime so a Governed Mode
       // (plain) bucket gets plaintext configs, not unreadable SSE-C ones.
       const r2SseDisabled = await isR2SseDisabledForBucket(c.env, bucketName);
       const result = await reconcileAgentConfigs(c.env, bucketName, endpoint, body.sessionMode, {

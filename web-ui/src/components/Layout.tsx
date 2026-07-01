@@ -91,7 +91,7 @@ const Layout: Component<LayoutProps> = (props) => {
   const [vaultReadyBySession, setVaultReadyBySession] = createSignal<Record<string, boolean>>({});
   const [vaultPrewarmBySession, setVaultPrewarmBySession] = createSignal<Record<string, VaultPrewarmStatus>>({});
   const [vaultPrewarmRetryBySession, setVaultPrewarmRetryBySession] = createSignal<Record<string, number>>({});
-  // Click-guard open intent (REQ-VAULT-018): 'preparing' = key not yet
+  // Click-guard open intent (REQ-VAULT-018 / REQ-VAULT-022): 'preparing' = key not yet
   // recoverable (button breathes accent), 'armed' = key recoverable (button
   // breathes green, next click opens). Absent = no pending open.
   const [vaultOpenIntentBySession, setVaultOpenIntentBySession] = createSignal<Record<string, 'preparing' | 'armed'>>({});
@@ -225,7 +225,7 @@ const Layout: Component<LayoutProps> = (props) => {
     }
   });
 
-  // Reload-skip (REQ-VAULT-018 AC8): a browser that already completed the full
+  // Reload-skip (REQ-VAULT-022 AC2): a browser that already completed the full
   // prewarm proof for this session AND still has live local stores resolves
   // straight to ready — the button shows green WITHOUT a click and WITHOUT
   // remounting the bootstrap iframe (no focus contention with the terminal). A
@@ -371,12 +371,12 @@ const Layout: Component<LayoutProps> = (props) => {
     // reload-skip from a prior session) open immediately via the bootstrap-hop. The hop
     // re-posts the AES key to the service worker and waits for activation before
     // redirecting to the editor, and the worker no longer flushes the key mid-transition
-    // (REQ-VAULT-008 AC7), so opening directly never races a wiped key into a `.auth`
+    // (REQ-VAULT-024 AC4), so opening directly never races a wiped key into a `.auth`
     // bounce. Opening synchronously inside the click gesture also avoids the pop-up
     // blocker. (Previously the pw==='ready' branch re-verified local readiness + key
     // recoverability and, on a false-negative, dropped into a full ~10s on-demand
     // re-prewarm — making every in-session reopen of the green button "re-index" before
-    // opening even though the persisted store was healthy: REQ-VAULT-018 AC7.)
+    // opening even though the persisted store was healthy: REQ-VAULT-022 AC1.)
     if (intent === 'armed' || untrack(vaultPrewarmBySession)[sid] === 'ready') {
       openVaultTab(sid);
       return;

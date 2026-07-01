@@ -3,7 +3,7 @@ import { mdiChartGantt } from '@mdi/js';
 import Icon from './Icon';
 import type { VaultPrewarmStatus } from '../lib/vault-prewarm';
 
-// On-demand 2-click model (REQ-VAULT-018): once the SB server is ready the button is
+// On-demand 2-click model (REQ-VAULT-018 / REQ-VAULT-022): once the SB server is ready the button is
 // `available` (clickable, no breathing). The FIRST click starts the prewarm and the
 // button breathes in the accent colour (`preparing`, with a focus-loss warning
 // tooltip); when indexing completes it breathes green (`armed`, "ready" tooltip) and

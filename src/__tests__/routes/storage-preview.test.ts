@@ -4,7 +4,7 @@ import { createMockR2Config } from '../helpers/mock-factories';
 import { createTestApp } from '../helpers/test-app';
 
 // Track mock state for assertions - vi.hoisted() ensures these are available when vi.mock() factory runs.
-// preview.ts (REQ-ENTERPRISE-018) HEADs via fetchObjectWithRegimeFallback (dual-regime read) and
+// preview.ts (REQ-ENTERPRISE-021) HEADs via fetchObjectWithRegimeFallback (dual-regime read) and
 // reuses the proven regime for the text GET via r2Client.fetch. The regime-fallback logic itself is
 // covered in r2-migration.test.ts; here we control the HEAD response and the GET body.
 const { mockFetch, mockGetR2Url, mockFetchObjectWithRegimeFallback, mockMarkMixedRecovery } = vi.hoisted(() => ({

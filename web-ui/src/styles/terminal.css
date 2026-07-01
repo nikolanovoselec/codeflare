@@ -111,18 +111,6 @@
           overscroll-behavior: contain;
         }
 
-        /* Remove xterm 6.0's overlay scrollbar widget (the VS Code ScrollableElement
-           `.scrollbar` container + its `.slider` thumb — NOT the native viewport
-           scrollbar, which the rule above already kills). The widget fades in/out and
-           its thumb resizes on every render as scrollback grows, which reads as a
-           constant flicker during streaming output. All scrolling here is JS-driven
-           (SmoothScrollableElement: wheel scrollableElement.ts, plus keyboard/touch),
-           so removing the widget keeps every scroll path working — it only drops the
-           draggable thumb + visual position indicator. */
-        .xterm .xterm-scrollable-element > .scrollbar {
-          display: none !important;
-        }
-
         /* Contain overflow from xterm helper elements */
         .xterm .xterm-helpers {
           overflow: hidden !important;

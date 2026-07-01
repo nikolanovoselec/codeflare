@@ -113,10 +113,10 @@ export async function deleteSession(id: string): Promise<void> {
  * Get status for all sessions in a single batch call
  * Returns statuses map, maxSessions limit, and optional storageStats
  */
-export async function getBatchSessionStatus(options?: { includePreseedCheck?: boolean }): Promise<{ statuses: Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>; maxSessions: number; storageStats?: { totalFiles: number; totalFolders: number; totalSizeBytes: number }; usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string }; preseedNeedsUpgrade?: boolean; bucketMigrating?: boolean; bucketMigrationPending?: boolean }> {
+export async function getBatchSessionStatus(options?: { includePreseedCheck?: boolean }): Promise<{ statuses: Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>; maxSessions: number; storageStats?: { totalFiles: number; totalFolders: number; totalSizeBytes: number }; usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string }; preseedNeedsUpgrade?: boolean; bucketMigrating?: boolean; bucketMigrationPending?: boolean; bucketMigrationPercent?: number }> {
   const path = options?.includePreseedCheck ? '/sessions/batch-status?includePreseedCheck=true' : '/sessions/batch-status';
   const response = await fetchApi(path, {}, BatchSessionStatusResponseSchema);
-  return { statuses: response.statuses, maxSessions: response.maxSessions, storageStats: response.storageStats, usage: response.usage, preseedNeedsUpgrade: response.preseedNeedsUpgrade, bucketMigrating: response.bucketMigrating, bucketMigrationPending: response.bucketMigrationPending };
+  return { statuses: response.statuses, maxSessions: response.maxSessions, storageStats: response.storageStats, usage: response.usage, preseedNeedsUpgrade: response.preseedNeedsUpgrade, bucketMigrating: response.bucketMigrating, bucketMigrationPending: response.bucketMigrationPending, bucketMigrationPercent: response.bucketMigrationPercent };
 }
 
 // Get container startup status (polling endpoint)

@@ -53,7 +53,7 @@ export function getSseHeaders(
  * Generate SSE-C copy-source headers for S3 CopyObject operations.
  * Required when copying an SSE-C encrypted source object — the primitive the
  * Governed Mode re-encrypt migration uses to decrypt the source on a server-side
- * copy (REQ-ENTERPRISE-018, src/lib/r2-migration.ts). `r2SseDisabled` suppresses
+ * copy (REQ-ENTERPRISE-020, src/lib/r2-migration.ts). `r2SseDisabled` suppresses
  * them for the same reason as getSseHeaders.
  */
 export function getSseCopyHeaders(

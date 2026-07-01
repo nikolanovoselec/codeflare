@@ -104,6 +104,8 @@ vi.mock('../../stores/session', () => {
   let _maxSessions = 3;
   let _r2Ready = true;
   let _preseedUpgrading = false;
+  let _bucketMigrating = false;
+  let _bucketMigrationPercent: number | null = null;
   let _enterpriseMode = false;
   let _sessionMode = 'advanced';
   return {
@@ -112,6 +114,8 @@ vi.mock('../../stores/session', () => {
       get maxSessions() { return _maxSessions; },
       get r2Ready() { return _r2Ready; },
       get preseedUpgrading() { return _preseedUpgrading; },
+      get bucketMigrating() { return _bucketMigrating; },
+      get bucketMigrationPercent() { return _bucketMigrationPercent; },
       get enterpriseMode() { return _enterpriseMode; },
       get preferences() { return { sessionMode: _sessionMode }; },
       isAtSessionLimit: () => _isAtLimit,
@@ -123,6 +127,8 @@ vi.mock('../../stores/session', () => {
       },
       _setR2Ready: (ready: boolean) => { _r2Ready = ready; },
       _setPreseedUpgrading: (upgrading: boolean) => { _preseedUpgrading = upgrading; },
+      _setBucketMigrating: (v: boolean) => { _bucketMigrating = v; },
+      _setBucketMigrationPercent: (v: number | null) => { _bucketMigrationPercent = v; },
       _setEnterpriseMode: (v: boolean) => { _enterpriseMode = v; },
     },
     isAtUsageQuota: () => false,
@@ -935,6 +941,34 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(btn.textContent).toBe('+ New Session');
 
     cleanup();
+  });
+
+  // REQ-ENTERPRISE-021 AC3: Governed Mode migrating-button label
+  it('REQ-ENTERPRISE-021 AC3: disables the button and shows "Migrating" when migrating with no percent known yet', () => {
+    (sessionStore as any)._setBucketMigrating(true);
+    (sessionStore as any)._setBucketMigrationPercent(null);
+    render(() => <Dashboard {...defaultProps} />);
+
+    const btn = screen.getByTestId('dashboard-new-session');
+    expect(btn).toBeDisabled();
+    expect(btn.textContent).not.toMatch(/\d/); // migrating, but no percent rendered yet
+
+    cleanup();
+    (sessionStore as any)._setBucketMigrating(false);
+  });
+
+  it('shows "Migrating N%" when a re-encrypt progress percent is available', () => {
+    (sessionStore as any)._setBucketMigrating(true);
+    (sessionStore as any)._setBucketMigrationPercent(42);
+    render(() => <Dashboard {...defaultProps} />);
+
+    const btn = screen.getByTestId('dashboard-new-session');
+    expect(btn).toBeDisabled();
+    expect(btn.textContent).toContain('42%'); // the derived progress value is the contract, not the wording
+
+    cleanup();
+    (sessionStore as any)._setBucketMigrating(false);
+    (sessionStore as any)._setBucketMigrationPercent(null);
   });
 
 });

@@ -1,20 +1,22 @@
 #!/usr/bin/env node
 // Patches the installed context-mode esbuild bundles (cli.bundle.mjs +
-// server.bundle.mjs) at image-build time. Implements REQ-AGENT-005 AC5 + AC8.
-// See codeflare#309 for the original shim bug report.
+// server.bundle.mjs) at image-build time. Implements REQ-AGENT-076 AC4
+// (update-check disable); the createRequire shim below has no dedicated AC,
+// see AD49 in documentation/decisions/README.md and codeflare#309 for the
+// original shim bug report.
 //
 // Shared by the Dockerfile build step and
 // host/__tests__/dockerfile-context-mode-patch.test.js so the patch logic and
 // its test cannot drift, and so the test verifies the REAL patch function
 // (imported) instead of re-extracting and executing a Dockerfile heredoc.
 //
-// (1) createRequire shim (AC5 / issue #309): context-mode ships an esbuild
+// (1) createRequire shim (AD49 / issue #309): context-mode ships an esbuild
 //     --format=esm bundle whose CJS-require shim throws on every dynamic
 //     require('node:*') because esbuild injects no createRequire polyfill, so
 //     ctx_execute / ctx_batch_execute fail with "Dynamic require of node:fs is
 //     not supported" in both Node and Bun ESM. Prepend a 2-line createRequire
 //     shim. Load-bearing.
-// (2) update-check disable (AC8): context-mode unconditionally GETs
+// (2) update-check disable (REQ-AGENT-076 AC4): context-mode unconditionally GETs
 //     registry.npmjs.org/context-mode/latest (MCP server on boot + hourly; CLI
 //     on each ctx_stats/ctx_insight render) and prints an "Update available ...
 //     ctx_upgrade" notice whenever the fetched version differs. It exposes no env

@@ -1,5 +1,8 @@
-// Verifies REQ-AGENT-005 AC5/AC6/AC7: context-mode MCP server registration
-// in ~/.claude.json and PLUGINS_CONFIG enabledPlugins gating.
+// Verifies REQ-AGENT-005 AC4 (Pi stays functional regardless of context-mode)
+// and REQ-AGENT-076 AC1/AC2/AC3 (Pi context-mode default enablement,
+// Custom-tier tier-gating, and tool-extension gating): context-mode MCP
+// server registration in ~/.claude.json and PLUGINS_CONFIG enabledPlugins
+// gating.
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
@@ -76,7 +79,7 @@ echo "PLUGINS_CONFIG=$PLUGINS_CONFIG"
   return { claudeJson, pluginsConfig, manifestPath: join(userHome, '.claude', 'plugins', 'context-mode', '.claude-plugin', 'plugin.json') };
 }
 
-describe('entrypoint context-mode preseed gate / REQ-AGENT-005 (context-mode MCP registration)', () => {
+describe('entrypoint context-mode preseed gate / REQ-AGENT-005 + REQ-AGENT-076 (context-mode MCP registration)', () => {
   let baseTmp;
   before(() => {
     baseTmp = mkdtempSync(join(tmpdir(), 'cm-gate-'));

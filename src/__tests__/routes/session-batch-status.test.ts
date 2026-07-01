@@ -42,7 +42,7 @@ vi.mock('@cloudflare/containers', () => ({
     destroy: vi.fn().mockResolvedValue(undefined),
   })),
 }));
-// REQ-ENTERPRISE-018: stub the Governed Mode reconcile + driver so the wiring test can assert
+// REQ-ENTERPRISE-020: stub the Governed Mode reconcile + driver so the wiring test can assert
 // the synchronous decision + backgrounded chunk advance without running a real migration.
 vi.mock('../../lib/r2-migration', () => ({
   planRegimeReconcile: vi.fn(async () => ({ state: {}, migrating: false, pending: false })),
@@ -61,7 +61,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
 
   beforeEach(() => {
     mockKV = createMockKV();
-    // REQ-ENTERPRISE-018: every test starts with a not-migrating bucket so unrelated batch-status
+    // REQ-ENTERPRISE-020: every test starts with a not-migrating bucket so unrelated batch-status
     // assertions are unaffected; the Governed Mode block overrides these per test.
     vi.mocked(planRegimeReconcile).mockResolvedValue({ state: {} as never, migrating: false, pending: false });
     vi.mocked(advanceMigration).mockResolvedValue(undefined);
@@ -388,10 +388,10 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     });
   });
 
-  // REQ-ENTERPRISE-018: every batch-status poll synchronously decides the Governed Mode regime
+  // REQ-ENTERPRISE-020: every batch-status poll synchronously decides the Governed Mode regime
   // (so the same response reports bucketMigrating) and, while migrating, advances one re-encrypt
   // chunk in the background — off the container-start path so it can never block session creation.
-  describe('REQ-ENTERPRISE-018: Governed Mode reconcile + chunk advance on batch-status', () => {
+  describe('REQ-ENTERPRISE-020: Governed Mode reconcile + chunk advance on batch-status', () => {
     beforeEach(() => {
       vi.mocked(planRegimeReconcile).mockReset().mockResolvedValue({ state: {} as any, migrating: false, pending: false });
       vi.mocked(advanceMigration).mockReset().mockResolvedValue(undefined);
@@ -446,6 +446,39 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       const res = await app.request('/sessions/batch-status?includePreseedCheck=true');
       expect(res.status).toBe(200);
       expect(advanceMigration).not.toHaveBeenCalled();
+    });
+
+    it('reports a 0–99 progress % computed across both passes from the reconcile state', async () => {
+      // migrate done (processed 100 == total) then halfway through verify (processed 150):
+      // 150 / (2·100) = 75%.
+      vi.mocked(planRegimeReconcile).mockResolvedValue({ state: { total: 100, processed: 150 } as any, migrating: true, pending: false });
+      const app = createApp();
+      const { ctx } = makeExecCtx();
+      const res = await app.request('/sessions/batch-status', undefined, undefined, ctx as any);
+      const body = await res.json() as { bucketMigrating: boolean; bucketMigrationPercent?: number };
+      expect(body.bucketMigrating).toBe(true);
+      expect(body.bucketMigrationPercent).toBe(75);
+    });
+
+    it('omits the progress % until the object total is counted', async () => {
+      vi.mocked(planRegimeReconcile).mockResolvedValue({ state: { processed: 3 } as any, migrating: true, pending: false });
+      const app = createApp();
+      const { ctx } = makeExecCtx();
+      const res = await app.request('/sessions/batch-status', undefined, undefined, ctx as any);
+      const body = await res.json() as { bucketMigrationPercent?: number };
+      expect(body.bucketMigrationPercent).toBeUndefined();
+    });
+
+    it('suppresses the progress % when the migration has halted so the button never reads a misleading 99%', async () => {
+      // A wedged migration's re-heal passes push processed past 2·total; without the halted guard the
+      // clamp would pin the label at "99%" forever.
+      vi.mocked(planRegimeReconcile).mockResolvedValue({ state: { total: 100, processed: 250, halted: true } as any, migrating: true, pending: false });
+      const app = createApp();
+      const { ctx } = makeExecCtx();
+      const res = await app.request('/sessions/batch-status', undefined, undefined, ctx as any);
+      const body = await res.json() as { bucketMigrating: boolean; bucketMigrationPercent?: number };
+      expect(body.bucketMigrating).toBe(true);
+      expect(body.bucketMigrationPercent).toBeUndefined();
     });
   });
 

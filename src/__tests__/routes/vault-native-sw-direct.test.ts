@@ -28,14 +28,14 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     );
   });
 
-  it('REQ-VAULT-017: served worker drops no-client info spam and downgrades expected auth/sync startup noise', () => {
+  it('REQ-VAULT-025: served worker drops no-client info spam and downgrades expected auth/sync startup noise', () => {
     expect(VAULT_NATIVE_SW_VERBATIM).toContain('No clients are listening for messages, dropping message');
     expect(VAULT_NATIVE_SERVICE_WORKER_JS).not.toContain('No clients are listening for messages, dropping message');
     expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('console.info("[service proxy auth]",c)');
     expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('console.warn("Sync space error",t.message)');
   });
 
-  // REQ-VAULT-008 AC7 / REQ-VAULT-017 AC6: the graft NEUTERS the upstream proactive
+  // REQ-VAULT-024 AC4 / REQ-VAULT-025 AC4: the graft NEUTERS the upstream proactive
   // 5s "no window clients" key flush so the in-memory AES key `y` is retained while
   // the worker lives. Upstream wiped `y` during the bootstrap-hop -> editor 0-client
   // transition, racing cold opens into a `.auth` 403. These slice the ACTUAL no-client
@@ -53,7 +53,7 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     return fn([]); // [] == zero window clients == the flush trigger
   }
 
-  it('the served worker retains the encryption key when no clients are connected (flush neutered)', () => {
+  it('REQ-VAULT-024 AC4 / REQ-VAULT-025 AC4: the served worker retains the encryption key when no clients are connected (flush neutered)', () => {
     expect(runNoClientFlush(VAULT_NATIVE_SERVICE_WORKER_JS)).toBe('AES-KEY');
   });
 
@@ -73,7 +73,7 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(VAULT_NATIVE_SERVICE_WORKER_JS).not.toBe(VAULT_NATIVE_SW_VERBATIM);
   });
 
-  // REQ-VAULT-017 AC6 / REQ-VAULT-021 AC8: the graft GUARDS the remote
+  // REQ-VAULT-025 AC2 / REQ-VAULT-023 AC2: the graft GUARDS the remote
   // `fetchFileList()` result. It normalizes a non-array (transient proxy error or a
   // stray CF Access 302 HTML body) to [], then ABORTS the sync cycle (throws) when the
   // remote list is empty while the persistent local store or snapshot is non-empty —
@@ -155,7 +155,7 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(VAULT_NATIVE_SERVICE_WORKER_JS).toContain('a.length===0&&(s.length>0||t.files.size>0)');
   });
 
-  // REQ-VAULT-021 AC8: a 2nd-session start has a POPULATED persistent local store, but
+  // REQ-VAULT-023 AC2: a 2nd-session start has a POPULATED persistent local store, but
   // the in-container SilverBullet server is still warming up (~1-2 min) and its
   // `fetchFileList()` returns empty/garbage. The reconciler must NOT treat that as
   // "every file deleted on secondary" and wipe the store — the cycle aborts before any
@@ -209,7 +209,7 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(result.remoteMapCount).toBe(0);
   });
 
-  // REQ-VAULT-017 AC6: the coercion must keep the served worker syntactically
+  // REQ-VAULT-025 AC3: the coercion must keep the served worker syntactically
   // valid. `o` is one binding in a single `let s=...,o=...,r=...` declarator list,
   // so coercing by ADDING a second `o=` declarator is a duplicate lexical binding
   // (`Identifier 'o' has already been declared`) that makes the WHOLE worker fail

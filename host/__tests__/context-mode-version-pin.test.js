@@ -1,4 +1,4 @@
-// REQ-AGENT-005 / REQ-AGENT-023 sentinel: context-mode plugin.json must
+// REQ-AGENT-076 / REQ-AGENT-023 sentinel: context-mode plugin.json must
 // stay pinned at v1.0.151 or newer. v1.0.151 is the first release that
 // carries the upstream issue #671 fix (synchronous better-sqlite3 calls
 // blocking the Node event loop and burning a whole vCPU on long-lived

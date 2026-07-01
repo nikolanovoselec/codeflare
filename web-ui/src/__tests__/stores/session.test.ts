@@ -380,7 +380,7 @@ describe('Session Store', () => {
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
     });
 
-    // REQ-ENTERPRISE-018: mirror the backend Governed Mode migration flag so the New Session
+    // REQ-ENTERPRISE-020: mirror the backend Governed Mode migration flag so the New Session
     // button can disable (reusing the Upgrading affordance) while the bucket re-encrypts.
     it('reflects bucketMigrating=true from batch-status', async () => {
       mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: true });
@@ -406,6 +406,40 @@ describe('Session Store', () => {
       mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
       await sessionStore.loadSessions();
       expect(sessionStore.bucketMigrationPending).toBe(false);
+    });
+  });
+
+  // REQ-ENTERPRISE-021 AC3: the 5s BACKGROUND poll (refreshSessionStatuses), not just the full
+  // loadSessions, must mirror the migration flags — otherwise a migration that finishes between full
+  // loads leaves the New Session button stuck on "Migrating" until a manual page reload.
+  describe('background poll migration flags (REQ-ENTERPRISE-021 AC3)', () => {
+    it('clears bucketMigrating on completion via the background poll — no full reload', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: true });
+      await sessionStore.loadSessions();
+      expect(sessionStore.bucketMigrating).toBe(true);
+
+      // migration finishes; only a background poll runs (NOT loadSessions)
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: false });
+      await sessionStore.refreshSessionStatuses();
+
+      expect(sessionStore.bucketMigrating).toBe(false);
+    });
+
+    it('mirrors the migration percent from the background poll for the button label', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: true, bucketMigrationPercent: 42 });
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.bucketMigrating).toBe(true);
+      expect(sessionStore.bucketMigrationPercent).toBe(42);
+    });
+
+    it('resets the percent to null when the background poll no longer reports one', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: true, bucketMigrationPercent: 60 });
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.bucketMigrationPercent).toBe(60);
+
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: false });
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.bucketMigrationPercent).toBeNull();
     });
   });
 

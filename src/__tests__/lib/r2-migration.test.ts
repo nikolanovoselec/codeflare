@@ -1,6 +1,6 @@
 /**
- * REQ-ENTERPRISE-018 (Governed Mode): per-bucket R2 encryption-regime state + the lossless,
- * chunked, self-verifying re-encrypt migration engine + driver.
+ * REQ-ENTERPRISE-018 / REQ-ENTERPRISE-020 / REQ-ENTERPRISE-021 (Governed Mode): per-bucket R2 encryption-regime
+ * state + the lossless, chunked, self-verifying re-encrypt migration engine + driver + safety boundary.
  *
  * The fetch layer is a SIMULATED R2 store keyed by per-object regime: a HEAD succeeds only
  * with the matching regime's SSE headers; a copy (PUT) flips the object to the destination
@@ -460,6 +460,42 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
     expect([...store.values()].every((o) => o.regime === 'plain')).toBe(true);
   });
 
+  it('counts the object total once and accumulates processed for the progress % (persisted mid-pass)', async () => {
+    const objs: Record<string, { regime: R2SseRegime }> = {};
+    for (let i = 0; i < 4; i++) objs[`k${i}.md`] = { regime: 'sse-c' };
+    makeR2(objs, { pageSize: 2 }); // 2 migrate pages
+    const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false }) });
+
+    // Force a voluntary mid-pass exit after the first migrate page (same clock trick as the budget test),
+    // so the state is inspected WHILE migrating (a completed migration drops total/processed on ready).
+    const T0 = 1_000_000;
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValueOnce(T0).mockReturnValue(T0 + 16_000);
+    await advanceMigration(driverEnv(kv), 'bkt', drainNoop);
+    nowSpy.mockRestore();
+
+    const mid = await getRegimeState({ KV: kv } as unknown as Env, 'bkt');
+    expect(mid.total).toBe(4);     // whole bucket counted once, up front (the % denominator)
+    expect(mid.processed).toBe(2); // first page (2 objects) counted toward progress so far
+  });
+
+  it('skips the object count (no %) when the work budget is already spent, without stranding the drain commit', async () => {
+    const objs: Record<string, { regime: R2SseRegime }> = {};
+    for (let i = 0; i < 4; i++) objs[`k${i}.md`] = { regime: 'sse-c' };
+    makeR2(objs, { pageSize: 2 });
+    const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false }) });
+
+    // Deadline anchor = T0; every later Date.now() is far past T0+WORK_DEADLINE_MS, so countObjects bails
+    // immediately (total stays 0 ⇒ no %) yet the drain still commits and the first migrate slice still runs.
+    const T0 = 1_000_000;
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValueOnce(T0).mockReturnValue(T0 + 10_000_000);
+    await advanceMigration(driverEnv(kv), 'bkt', drainNoop);
+    nowSpy.mockRestore();
+
+    const mid = await getRegimeState({ KV: kv } as unknown as Env, 'bkt');
+    expect(mid.drained).toBe(true);   // drain committed — not stranded (guards against a re-drain loop)
+    expect(mid.total ?? 0).toBe(0);   // count bailed on the exhausted budget ⇒ no %
+  });
+
   it('does nothing while another chunk holds a live lease (in-flight lock)', async () => {
     const { puts } = makeR2({ 'a.md': { regime: 'sse-c' } });
     const { kv } = makeKV({ 'r2-regime:bkt': JSON.stringify({ status: 'migrating', regime: 'sse-c', from: 'sse-c', to: 'plain', generation: 0, phase: 'migrate', drained: false, leaseExpiresAt: Date.now() + 60_000 }) });
@@ -560,6 +596,7 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
     expect(final.status).toBe('migrating'); // halted, never falsely flipped to ready
     expect(final.stuckCount).toBeGreaterThanOrEqual(3);
     expect(final.lastError).toMatch(/halting/);
+    expect(final.halted).toBe(true); // retry-ceiling is the other halt trigger the dashboard suppresses the progress % on (parity with the key-rotation path)
   });
 
   it('halts with a clear error when the SSE-C key rotated mid-migration (keyMd5 mismatch, detect-only)', async () => {
@@ -572,6 +609,7 @@ describe('advanceMigration (chunked, verified, self-healing)', () => {
     const state = JSON.parse(store.get('r2-regime:bkt')!);
     expect(state.status).toBe('migrating'); // halted, stays gated for admin review
     expect(state.lastError).toMatch(/rotated/);
+    expect(state.halted).toBe(true); // dashboard suppresses the progress % on this terminal-halt path too
     expect(mockFetch).not.toHaveBeenCalled(); // never copied a single object with the wrong key
   });
 

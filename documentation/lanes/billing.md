@@ -23,16 +23,16 @@ Codeflare uses a multi-tier subscription system that controls monthly compute ho
 
 **Default tier configuration** (from `getDefaultTiers()` in `src/lib/subscription.ts`):
 
-| ID | Display Name | Hours/Month | Sessions | Modes | Storage |
-|----|-------------|-------------|----------|-------|---------|
-| `blocked` | Blocked | 0 | 0 | - | 0 |
-| `pending` | Pending | 0 | 0 | - | 0 |
-| `free` | Free | 4h | 1 | Standard | 250 MB |
-| `trial` | Trial | 5h | 2 | Standard | 500 MB |
-| `standard` | Starter | 40h | 1 | Standard, Pro | 500 MB |
-| `advanced` | Advanced | 80h | 2 | Standard, Pro | 1 GB |
-| `max` | Max | 160h | 3 | Standard, Pro | 2 GB |
-| `unlimited` | Custom | Unlimited | 5 | Standard, Pro | Unlimited |
+| ID | Display Name | Hours/Month | Sessions | Modes | Storage | canLogin |
+|----|-------------|-------------|----------|-------|---------|----------|
+| `blocked` | Blocked | 0 | 0 | - | 0 | false |
+| `pending` | Pending | 0 | 0 | - | 0 | true |
+| `free` | Free | 4h | 1 | Standard | 250 MB | true |
+| `trial` | Trial | 5h | 2 | Standard | 500 MB | true |
+| `standard` | Starter | 40h | 1 | Standard, Pro | 500 MB | true |
+| `advanced` | Advanced | 80h | 2 | Standard, Pro | 1 GB | true |
+| `max` | Max | 160h | 3 | Standard, Pro | 2 GB | true |
+| `unlimited` | Custom | Unlimited | 5 | Standard, Pro | Unlimited | true |
 
 Prices, trial hours, and other parameters are configurable per deployment via the admin Subscription Management panel. Prices come from Stripe via admin-configured price slots per tier: `stripePriceId` (Standard mode) and `stripeAdvancedPriceId` (Pro mode) (CF-027). The mode-on-plan-change reconcile (below) reverse-looks-up these slots when the price carries no `mode` metadata.
 

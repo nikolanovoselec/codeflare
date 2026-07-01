@@ -64,7 +64,7 @@ app.post('/', async (c) => {
   const sanitizedKey = validateKey(body.key);
 
   const bucketName = c.get('bucketName');
-  // REQ-ENTERPRISE-018: block writes while the bucket's encryption regime is migrating so a
+  // REQ-ENTERPRISE-020: block writes while the bucket's encryption regime is migrating so a
   // new object can't land in the wrong (pre-flip) regime. 409 BUCKET_MIGRATING until ready.
   if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
   const r2Client = createR2Client(c.env);
@@ -111,7 +111,7 @@ app.post('/initiate', async (c) => {
   const sanitizedKey = validateKey(body.key);
 
   const bucketName = c.get('bucketName');
-  // REQ-ENTERPRISE-018: block new multipart uploads during a regime migration (see simple upload).
+  // REQ-ENTERPRISE-020: block new multipart uploads during a regime migration (see simple upload).
   if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
   const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
@@ -140,7 +140,7 @@ app.post('/part', async (c) => {
   const sanitizedKey = validateKey(body.key);
 
   const bucketName = c.get('bucketName');
-  // REQ-ENTERPRISE-018: block part writes during a regime migration (see simple upload).
+  // REQ-ENTERPRISE-020: block part writes during a regime migration (see simple upload).
   if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
   const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
@@ -178,7 +178,7 @@ app.post('/complete', async (c) => {
   const sanitizedKey = validateKey(body.key);
 
   const bucketName = c.get('bucketName');
-  // REQ-ENTERPRISE-018: block completion during a regime migration — its parts were written
+  // REQ-ENTERPRISE-020: block completion during a regime migration — its parts were written
   // in the pre-flip regime and would assemble a stray object. (Guard only; SSE-C omission on
   // /complete per the S3 contract is unchanged.) In-flight uploads are aborted on drain.
   if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();

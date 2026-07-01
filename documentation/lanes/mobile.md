@@ -170,6 +170,12 @@ The mobile terminal input system uses several techniques to work around browser/
 
 ### Root Cause
 
+_(The fix-log analysis below was performed against xterm 6.0.0's exact source. `@xterm/xterm`
+is currently pinned to `6.1.0-beta.288` as an unconfirmed Pi-flicker mitigation — see
+[Troubleshooting: Pi Terminal Flicker](troubleshooting.md#pi-terminal-flicker-investigation-ongoing).
+The beta's viewport-DOM-sync change does not appear to alter the mechanisms described
+here, but this has not been independently re-verified against the beta.)_
+
 xterm 6.0.0 replaced `.xterm-viewport` (native `overflow-y: scroll` with a scroll-area div) with VS Code's `SmoothScrollableElement` (JS-based scrolling via transforms). Despite this, the terminal would jump to the top of scrollback during burst output (git: Fix 8). Root cause was a vicious cycle between two performance hacks:
 
 **`_syncTextArea` freeze + scroll guard vicious cycle:**

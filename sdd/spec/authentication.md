@@ -512,7 +512,7 @@ None.
 
 **Constraints:**
 
-- Tier mutation (`PATCH /api/users/:email`) is the access-approval mechanism in the app-owned OIDC modes only: it is gated on `isSessionOidcMode` (`SAAS_MODE` active OR `ONBOARDING_LANDING_PAGE` active). Enterprise mode is already 403'd by the user-management router middleware (REQ-ENTERPRISE-009), and default (CF Access) mode has no tier-gated access, so PATCH returns 400 there.
+- Tier mutation (`PATCH /api/users/:email`) is the access-approval mechanism in the app-owned OIDC modes only: it is gated on `isSessionOidcMode` (`SAAS_MODE` active OR `ONBOARDING_LANDING_PAGE` active). Enterprise mode is already 403'd by the user-management router middleware ([REQ-ENTERPRISE-009](enterprise-mode.md#req-enterprise-009-enterprise-backend-route-hardening)), and default (CF Access) mode has no tier-gated access, so PATCH returns 400 there.
 
 **Priority:** P1
 

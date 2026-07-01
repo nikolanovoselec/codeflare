@@ -262,7 +262,7 @@ describe('entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync 
   // Deterministic preseed-page mtimes — the warm 2nd-start "stuck preparing"
   // fix for the force-overwritten authoritative config pages (CONFIG/README/
   // STYLES). The SW sync engine keys "changed on secondary" off lastModified; a
-  // fresh boot mtime on a byte-identical page diverges from the REQ-VAULT-021
+  // fresh boot mtime on a byte-identical page diverges from the REQ-VAULT-023
   // persisted sync snapshot and re-enqueues an index op every watch-poll.
   // init_user_vault must stamp these pages with the immutable preseed source
   // mtime on EVERY boot (even when cmp-skip leaves content untouched). Index.md

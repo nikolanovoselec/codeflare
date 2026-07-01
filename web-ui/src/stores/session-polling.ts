@@ -138,6 +138,13 @@ export async function refreshSessionStatuses(): Promise<void> {
       setUsageState(batchResponse.usage.monthlySeconds, batchResponse.usage.monthlyQuotaSeconds);
     }
 
+    // REQ-ENTERPRISE-020: mirror the Governed Mode migration flags on EVERY background poll (not just the
+    // full loadSessions). Without this, a migration that completes between full loads leaves the New Session
+    // button stuck on "Migrating" until a manual page reload; mirroring here clears it within one 5s poll.
+    setStateRaw('bucketMigrating', batchResponse.bucketMigrating === true);
+    setStateRaw('bucketMigrationPending', batchResponse.bucketMigrationPending === true);
+    setStateRaw('bucketMigrationPercent', typeof batchResponse.bucketMigrationPercent === 'number' ? batchResponse.bucketMigrationPercent : null);
+
     // Consecutive-miss tracking: only remove sessions after REMOVAL_THRESHOLD misses.
     // Skip initializing sessions - they may not appear in batch status yet.
     const removedIds: string[] = [];

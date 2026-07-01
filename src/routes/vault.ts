@@ -287,7 +287,7 @@ export async function handleVaultRequest(
       }
     })().catch((err) => logger.warn('Failed to update lastAccessedAt', { error: toErrorMessage(err) })));
 
-    // REQ-VAULT-008 AC5: the codeflare bootstrap-hop short-circuit. This
+    // REQ-VAULT-024 AC1: the codeflare bootstrap-hop short-circuit. This
     // route is auth-gated by the chain above but never reaches the
     // container - we render the hop HTML with the encryption key embedded
     // and return it directly. The hop registers the key-shim service
@@ -337,12 +337,12 @@ export async function handleVaultRequest(
       }
     }
 
-    // REQ-VAULT-008 AC6: on the SB shell paths (`/` and `/index.html`),
+    // REQ-VAULT-024 AC3: on the SB shell paths (`/` and `/index.html`),
     // redirect to the bootstrap-hop when the per-session bootstrap cookie
     // is absent. The hop sets the cookie before redirecting back here, so
     // subsequent shell-path requests fall straight through to the proxy.
     // Without this redirect SB boots, finds no SW key, and silently runs
-    // unencrypted -- the exact regression REQ-VAULT-008 AC5 forbids.
+    // unencrypted -- the exact regression REQ-VAULT-024 AC1 forbids.
     //
     // REQ-VAULT-013 AC9: the native SW precaches the shell `/` via
     // cache.addAll during install, BEFORE the hop sets the bootstrap cookie.
@@ -533,7 +533,7 @@ app.get('/:sessionId/status', async (c) => {
     throw new NotFoundError('Session');
   }
 
-  // REQ-ENTERPRISE-018: while the bucket's encryption regime is migrating the container is
+  // REQ-ENTERPRISE-020: while the bucket's encryption regime is migrating the container is
   // drained and the vault is served from a re-encrypting bucket — report not-ready with an
   // explicit reason instead of probing a torn-down container.
   if (await isBucketMigrating(c.env, bucketName)) {

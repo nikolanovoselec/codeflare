@@ -273,7 +273,7 @@ export interface UserPreferences {
   /** REQ-AGENT-049: hash of last applied preseed content, for auto-upgrade detection. */
   lastPreseedHash?: string;
   /**
-   * REQ-ENTERPRISE-018: DEPRECATED legacy per-bucket R2 encryption regime marker.
+   * REQ-ENTERPRISE-020: DEPRECATED legacy per-bucket R2 encryption regime marker.
    * Superseded by the `r2-regime:<bucket>` state object (src/lib/r2-regime-state.ts), which a
    * single boolean cannot replace (it cannot describe a partially in-place-migrated bucket).
    * Still READ as a one-way fallback: a pre-state-object bucket that was migrated under this

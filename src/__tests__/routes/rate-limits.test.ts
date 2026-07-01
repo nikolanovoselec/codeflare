@@ -187,7 +187,7 @@ describe('Rate limit coverage', () => {
         mockKV,
         envOverrides: storageEnv(),
       });
-      // REQ-ENTERPRISE-018: download now reads via fetchObjectWithRegimeFallback →
+      // REQ-ENTERPRISE-021: download now reads via fetchObjectWithRegimeFallback →
       // createR2Client(env).fetch (mockR2Fetch), not AwsClient.sign() + global fetch.
       // mockImplementation (not mockResolvedValue) so each of the 120 calls gets a FRESH
       // Response — the handler consumes the body stream (matches preview/browse/stats here).

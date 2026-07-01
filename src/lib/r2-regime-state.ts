@@ -1,5 +1,5 @@
 /**
- * Governed Mode (REQ-ENTERPRISE-018) per-bucket R2 encryption-regime STATE — the
+ * Governed Mode (REQ-ENTERPRISE-018 / REQ-ENTERPRISE-020) per-bucket R2 encryption-regime STATE — the
  * single source of truth that replaces both the old boolean
  * `UserPreferences.r2SseRegime` marker AND the standalone `r2-migration-lock:` key.
  *
@@ -48,6 +48,15 @@ export interface RegimeState {
   drained?: boolean;
   /** Two-stage pass: re-encrypt every object (`migrate`), then HEAD-scan every object under the target regime (`verify`) before flipping to ready. */
   phase?: 'migrate' | 'verify';
+  /** Object count for the migration progress %, counted once (list-only) at drain time — the denominator.
+   * `0` ⇒ counted but no % (empty bucket, or larger than the count cap). Absent ⇒ not yet counted. */
+  total?: number;
+  /** Objects processed so far across BOTH passes (migrate then verify), so processed/(2·total) is a smooth
+   * 0→100% progress. Persisted per page; dropped when the migration flips to ready. */
+  processed?: number;
+  /** Set once the migration halts at the verify-retry ceiling (an un-migratable object). The dashboard
+   * suppresses the progress % when true so a wedged migration doesn't read a misleading "99%". */
+  halted?: boolean;
   lastError?: string;
 }
 
@@ -100,7 +109,7 @@ export async function getBucketR2Regime(env: MigrationEnv, bucketName: string): 
 }
 
 /**
- * REQ-ENTERPRISE-018 backend gate: a bucket whose status is not `ready` (migrating or
+ * REQ-ENTERPRISE-020 backend gate: a bucket whose status is not `ready` (migrating or
  * mixed-recovery) blocks every writer with 409 so no client or stale container can write the
  * wrong encryption regime mid-migration. Throw BucketMigratingError at each writer entry.
  */

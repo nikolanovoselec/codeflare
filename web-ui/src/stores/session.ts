@@ -127,10 +127,12 @@ export interface SessionState {
   preferences: UserPreferences;
   maxSessions: number;
   preseedUpgrading: boolean;
-  /** REQ-ENTERPRISE-018: the bucket's encryption regime is migrating (Governed Mode flip). Reuses the Upgrading affordance to disable New Session. */
+  /** REQ-ENTERPRISE-020: the bucket's encryption regime is migrating (Governed Mode flip). Reuses the Upgrading affordance to disable New Session. */
   bucketMigrating: boolean;
-  /** REQ-ENTERPRISE-018: a Governed Mode flip is wanted but deferred until the user's running sessions stop (D1: no force-kill). */
+  /** REQ-ENTERPRISE-020: a Governed Mode flip is wanted but deferred until the user's running sessions stop (D1: no force-kill). */
   bucketMigrationPending: boolean;
+  /** REQ-ENTERPRISE-020: 0–99 re-encrypt progress % for the Migrating button; null until the backend knows it. */
+  bucketMigrationPercent: number | null;
   enterpriseMode: boolean;
   saasMode: boolean;
 }
@@ -150,6 +152,7 @@ const [state, setState] = createStore<SessionState>({
   preseedUpgrading: false,
   bucketMigrating: false,
   bucketMigrationPending: false,
+  bucketMigrationPercent: null,
   enterpriseMode: false,
   saasMode: false,
 });
@@ -256,11 +259,12 @@ async function loadSessions(): Promise<void> {
         .finally(() => setState('preseedUpgrading', false));
     }
 
-    // REQ-ENTERPRISE-018: mirror the backend Governed Mode migration flag so the New Session
+    // REQ-ENTERPRISE-020: mirror the backend Governed Mode migration flag so the New Session
     // button disables (reusing the Upgrading affordance) while the bucket re-encrypts. Every
     // batch-status poll while migrating also advances a chunk server-side, so keep polling.
     setState('bucketMigrating', 'bucketMigrating' in batchResponse && batchResponse.bucketMigrating === true);
     setState('bucketMigrationPending', 'bucketMigrationPending' in batchResponse && batchResponse.bucketMigrationPending === true);
+    setState('bucketMigrationPercent', 'bucketMigrationPercent' in batchResponse && typeof batchResponse.bucketMigrationPercent === 'number' ? batchResponse.bucketMigrationPercent : null);
 
     if (thisGen !== loadSessionsGeneration) return;
 
@@ -641,6 +645,7 @@ export const sessionStore = {
   get preseedUpgrading() { return state.preseedUpgrading; },
   get bucketMigrating() { return state.bucketMigrating; },
   get bucketMigrationPending() { return state.bucketMigrationPending; },
+  get bucketMigrationPercent() { return state.bucketMigrationPercent; },
   get enterpriseMode() { return state.enterpriseMode; },
   setEnterpriseMode: (value: boolean) => setState('enterpriseMode', value),
   get saasMode() { return state.saasMode; },

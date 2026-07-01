@@ -151,7 +151,7 @@ export async function ensureBucketAndSeed(params: {
   }
   logger.info('Bucket ready', { bucketName, created: bucketResult.created });
 
-  // REQ-ENTERPRISE-018 (Governed Mode): resolve this bucket's CURRENT R2 encryption
+  // REQ-ENTERPRISE-020 (Governed Mode): resolve this bucket's CURRENT R2 encryption
   // regime — a new bucket adopts the deployment policy (state stamped ready here), an existing
   // bucket keeps its committed regime. This NEVER migrates on the container-start path (a slow
   // re-encrypt would block session creation); the lossless re-encrypt runs chunked in the

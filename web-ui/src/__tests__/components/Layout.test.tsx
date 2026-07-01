@@ -424,7 +424,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
     });
 
-    it('REQ-VAULT-008 AC8: the open click navigates the new tab to the bootstrap-hop URL, not the bare shell', async () => {
+    it('REQ-VAULT-024 AC6: the open click navigates the new tab to the bootstrap-hop URL, not the bare shell', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
@@ -451,7 +451,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
     });
 
-    it('REQ-VAULT-018: stays green (armed) after the open click and on subsequent opens — ready means green, always', async () => {
+    it('REQ-VAULT-022 AC6: stays green (armed) after the open click and on subsequent opens — ready means green, always', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
@@ -485,7 +485,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
     });
 
-    it('REQ-VAULT-018 AC8: shows armed without a click (no iframe) when the vault is already warm on this device (reload)', async () => {
+    it('REQ-VAULT-022 AC2: shows armed without a click (no iframe) when the vault is already warm on this device (reload)', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
@@ -504,7 +504,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect((window as any).__headerProps.vaultReady).toBe(true);
     });
 
-    it('REQ-VAULT-018: a reload with local DBs/SW but no full prewarm proof stays available until click', async () => {
+    it('REQ-VAULT-022 AC3: a reload with local DBs/SW but no full prewarm proof stays available until click', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
@@ -526,7 +526,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect((window as any).__headerProps.vaultStatus).toBe('preparing');
     });
 
-    it('REQ-VAULT-018 AC8: a reload-skip probe that never settles leaves the button available (no auto-mount)', async () => {
+    it('REQ-VAULT-022 AC3: a reload-skip probe that never settles leaves the button available (no auto-mount)', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
@@ -568,7 +568,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect((window as any).__headerProps.vaultStatus).toBe('preparing');
     });
 
-    it('REQ-VAULT-018 AC7: a reload-armed (green) click opens directly — no readiness/key re-verify', async () => {
+    it('REQ-VAULT-022 AC1: a reload-armed (green) click opens directly — no readiness/key re-verify', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
@@ -599,7 +599,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       }
     });
 
-    it('REQ-VAULT-018 AC7: a green click opens directly even when local readiness reports not-ready (no re-index)', async () => {
+    it('REQ-VAULT-022 AC1: a green click opens directly even when local readiness reports not-ready (no re-index)', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };

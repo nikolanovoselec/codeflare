@@ -16,7 +16,7 @@ export function toApiSession(session: Session) {
  * REQ-STOR-014). Uses the list-metadata fast path, falling back to a full KV.get for
  * pre-migration keys; every id is validated against SESSION_ID_PATTERN so a malformed key
  * can never flow downstream into getContainerId(). Shared by the sync fan-out
- * (REQ-STOR-015) and the Governed Mode migration drain (REQ-ENTERPRISE-018).
+ * (REQ-STOR-015) and the Governed Mode migration drain (REQ-ENTERPRISE-020).
  */
 export async function listRunningSessionIds(
   env: Pick<Env, 'KV'>,

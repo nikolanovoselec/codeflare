@@ -202,7 +202,7 @@ describe('REQ-VAULT-019: checkVaultKeyRecoverable', () => {
   });
 });
 
-describe('REQ-VAULT-018 AC8: full-prewarm marker', () => {
+describe('REQ-VAULT-022 AC2: full-prewarm marker', () => {
   it('records and reports the per-session full-prewarm marker', () => {
     const storage = createStorage();
     expect(hasVaultFullyPrewarmed('session-1', storage)).toBe(false);

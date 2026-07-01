@@ -174,18 +174,26 @@ app.get('/batch-status', async (c) => {
     preseedNeedsUpgrade = prefs?.lastPreseedHash !== PRESEED_CONTENT_HASH;
   }
 
-  // REQ-ENTERPRISE-018: Governed Mode regime reconcile. Decide synchronously so THIS
+  // REQ-ENTERPRISE-020: Governed Mode regime reconcile. Decide synchronously so THIS
   // response reports `bucketMigrating` (the New Session button reuses the Upgrading gate);
   // a no-op when the bucket already matches the deployment policy. The lossless re-encrypt
   // runs one bounded chunk per poll in the BACKGROUND so it never blocks this response or
   // session creation; running on every batch-status poll (not just initial load) is what
   // advances the chunked pass to completion. D1: a pending flip waits for running sessions
   // to stop (no force-kill).
-  const { migrating: bucketMigrating, pending: bucketMigrationPending } = await planRegimeReconcile(
+  const { state: regimeState, migrating: bucketMigrating, pending: bucketMigrationPending } = await planRegimeReconcile(
     c.env,
     bucketName,
     () => hasHealthyContainer(c.env, bucketName),
   );
+  // REQ-ENTERPRISE-020: a 0–99 progress % for the Migrating button, computed across BOTH passes
+  // (migrate then verify) as processed/(2·total). Undefined until `total` is counted (first poll shows a
+  // plain "Migrating"), when total is 0 (empty/too-large bucket ⇒ no %), or when the migration has halted
+  // (wedged on an un-migratable object — a % there would misleadingly read "99%").
+  const migrationTotal = regimeState.total ?? 0;
+  const bucketMigrationPercent = bucketMigrating && !regimeState.halted && migrationTotal > 0 && regimeState.processed != null
+    ? Math.min(99, Math.max(0, Math.round((regimeState.processed / (2 * migrationTotal)) * 100)))
+    : undefined;
   if (bucketMigrating) {
     // waitUntil so the chunk never delays this response; a synthetic request with no
     // execution context (unit tests) simply skips the background advance.
@@ -201,7 +209,7 @@ app.get('/batch-status', async (c) => {
     }
   }
 
-  return c.json({ statuses, maxSessions, storageStats, usage, preseedNeedsUpgrade, bucketMigrating, bucketMigrationPending });
+  return c.json({ statuses, maxSessions, storageStats, usage, preseedNeedsUpgrade, bucketMigrating, bucketMigrationPending, bucketMigrationPercent });
 });
 
 /**

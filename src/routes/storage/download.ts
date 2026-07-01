@@ -114,7 +114,7 @@ app.get('/', async (c) => {
   const { endpoint } = await getR2Config(c.env);
   const objectUrl = getR2Url(endpoint, bucketName, sanitizedKey);
 
-  // REQ-ENTERPRISE-018: read in the bucket's committed regime, falling back to the opposite
+  // REQ-ENTERPRISE-020: read in the bucket's committed regime, falling back to the opposite
   // regime once on an SSE-mismatch so a partially-migrated (or stray-outlier) bucket stays
   // readable. The helper signs + streams the response through the worker (a 302 to a presigned
   // R2 URL caused cross-origin CORS failures). A fallback hit on a ready bucket self-heals via

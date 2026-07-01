@@ -167,7 +167,7 @@ describe('container secret hygiene: no AWS_* anywhere, CF token placeholder-only
     expect(buildEnvVars(sseOn, { ENTERPRISE_MODE: 'active' } as Env).ENCRYPTION_KEY).toBe('enc-master-key');
   });
 
-  it('REQ-ENTERPRISE-016/018: strict egress + Governed Mode leaves CONTAINER_AUTH_TOKEN as the ONLY real secret', () => {
+  it('REQ-ENTERPRISE-016/021: strict egress + Governed Mode leaves CONTAINER_AUTH_TOKEN as the ONLY real secret', () => {
     // Capstone invariant: every credential is a non-secret placeholder or absent except the
     // DO-issued container auth token. Gut-check: un-placeholder any cred (R2/GH/CF), or re-emit
     // ENCRYPTION_KEY / AWS_* / the LLM keys, and this fails.
