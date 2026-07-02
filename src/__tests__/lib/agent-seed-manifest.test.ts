@@ -13,7 +13,7 @@ import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructio
 import { restoreActiveRepoFromPersistedFiles, shouldHandleClonePrompt } from '../../../preseed/agents/pi/extensions/codeflare-pi';
 import { sddCommandDecision, type SddRepoState } from '../../../preseed/agents/pi/extensions/sdd-helpers';
 import localStatuslineExtension from '../../../preseed/agents/pi/extensions/local-statusline';
-import { contextModeBridgeEnv } from '../../../preseed/agents/pi/extensions/context-mode-runtime';
+import contextModeRuntime from '../../../preseed/agents/pi/extensions/context-mode-runtime';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -602,12 +602,16 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('Pi context-mode runtime extension disables bridge-child idle reaping without mutating the input env', () => {
-    const input = { PATH: '/bin', CONTEXT_MODE_BRIDGE_IDLE_MS: '180000' };
-    const configured = contextModeBridgeEnv(input);
-
-    expect(configured).toEqual({ PATH: '/bin', CONTEXT_MODE_BRIDGE_IDLE_MS: '0' });
-    expect(input).toEqual({ PATH: '/bin', CONTEXT_MODE_BRIDGE_IDLE_MS: '180000' });
+  it('REQ-AGENT-076 AC6: Pi context-mode runtime extension clears an inherited bridge-idle override so context-mode governs per-session', () => {
+    const prev = process.env.CONTEXT_MODE_BRIDGE_IDLE_MS;
+    try {
+      process.env.CONTEXT_MODE_BRIDGE_IDLE_MS = '0';
+      contextModeRuntime();
+      expect(process.env.CONTEXT_MODE_BRIDGE_IDLE_MS).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env.CONTEXT_MODE_BRIDGE_IDLE_MS;
+      else process.env.CONTEXT_MODE_BRIDGE_IDLE_MS = prev;
+    }
   });
 
   it('Pi agents use Pi-native tool names and keep declared context-mode tools (not stripped, never mcp-prefixed)', () => {

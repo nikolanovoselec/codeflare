@@ -108,12 +108,12 @@ else
     echo "[entrypoint] Timezone defaulting to UTC (USER_TIMEZONE='${USER_TIMEZONE:-unset}')"
 fi
 
-# Configure context-mode runtime defaults for every Pi session.
-# Context-mode bridge children emit a noisy idle-release notice after 180s by
-# default. Codeflare runs inside a memory-constrained container, but the parent
-# process/session cleanup already reaps these helpers, so disable the idle path
-# and keep the footer/input area quiet.
-export CONTEXT_MODE_BRIDGE_IDLE_MS=0
+# Context-mode bridge idle-reaper is intentionally NOT globally disabled here.
+# context-mode's own foreground/subagent split (upstream #868) keeps the interactive bridge quiet
+# (it sets CONTEXT_MODE_BRIDGE_IDLE_MS=0 for the foreground child itself) while non-foreground /
+# subagent bridge helpers keep the default ~3-min idle reaper so they self-release. A global
+# `export CONTEXT_MODE_BRIDGE_IDLE_MS=0` would re-disable that reaper for subagent children and
+# pile up bun/node server.bundle.mjs helpers across a long session — do not re-add it.
 
 # Force HTML visualization generation regardless of graph size.
 # Default graphify limit is 5000 nodes; codeflare repos routinely exceed this.
