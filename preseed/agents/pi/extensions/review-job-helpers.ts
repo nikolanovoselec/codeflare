@@ -241,6 +241,38 @@ export function reviewMonitorSpawnDecision(input: ReviewMonitorSpawnDecisionInpu
   return "spawn";
 }
 
+export type ReviewMonitorLiveness = "running" | "terminal" | "unknown";
+
+// Classify a subagents-service record's status into the three states the review reaper cares
+// about. queued/running/steered = still working; completed/aborted/stopped/error = terminal (the
+// agent will do no more work); no record = unknown — e.g. after a Pi reload the fresh service has
+// no memory of a prior monitor, which must NOT read as terminal.
+export function reviewMonitorLiveness(record: { status?: unknown } | undefined | null): ReviewMonitorLiveness {
+  if (!record) return "unknown";
+  switch (String((record as { status?: unknown }).status || "")) {
+    case "queued":
+    case "running":
+    case "steered":
+      return "running";
+    case "completed":
+    case "aborted":
+    case "stopped":
+    case "error":
+      return "terminal";
+    default:
+      return "unknown";
+  }
+}
+
+// Ground-truth early reclaim: reclaim a monitor claim before its TTL only when the tracked agent
+// is provably terminal AND no valid completion latched — so a dead (or finished-but-unmarked)
+// monitor is re-spawned within a reaper tick instead of after the full TTL. "unknown" liveness
+// never triggers early reclaim (a fresh post-reload service would otherwise storm-reclaim live
+// claims); delivery stays with the re-spawned monitor, the reaper only reclaims durable state.
+export function reviewMonitorClaimReclaimEarly(input: { liveness: ReviewMonitorLiveness; completionReady: boolean }): boolean {
+  return input.liveness === "terminal" && !input.completionReady;
+}
+
 export type ReviewMonitorCompletionRecord = {
   repo?: unknown;
   head?: unknown;

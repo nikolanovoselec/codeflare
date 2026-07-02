@@ -5,6 +5,8 @@ import {
   reviewDeliveryGiveUp,
   reviewMonitorCompletionRejectReason,
   reviewMonitorCompletionRecordReady,
+  reviewMonitorLiveness,
+  reviewMonitorClaimReclaimEarly,
 } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 
 /**
@@ -119,5 +121,44 @@ describe('reviewMonitorCompletionRejectReason (R3: diagnostic completion validat
     const stale = { ...valid, record: { ...valid.record, completedAt: 1000 }, latestInputMtime: 5000 };
     expect(reviewMonitorCompletionRejectReason(stale)).toBe('stale_completed_at');
     expect(reviewMonitorCompletionRecordReady(stale)).toBe(false);
+  });
+});
+
+// REQ-AGENT-062 AC8: ground-truth monitor liveness drives early reclaim -> prompt re-spawn.
+// Gut either helper's rule and a case here fails.
+describe('reviewMonitorLiveness (classifies a subagents-service record into running/terminal/unknown)', () => {
+  it('treats queued/running/steered as still-running work (never early-reclaimed)', () => {
+    for (const status of ['queued', 'running', 'steered']) {
+      expect(reviewMonitorLiveness({ status })).toBe('running');
+    }
+  });
+
+  it('treats every terminal SubagentStatus as terminal (agent will do no more work)', () => {
+    for (const status of ['completed', 'aborted', 'stopped', 'error']) {
+      expect(reviewMonitorLiveness({ status })).toBe('terminal');
+    }
+  });
+
+  it('treats a missing record or unrecognized status as unknown, so a post-reload fresh service never reads as terminal', () => {
+    expect(reviewMonitorLiveness(undefined)).toBe('unknown');
+    expect(reviewMonitorLiveness(null)).toBe('unknown');
+    expect(reviewMonitorLiveness({})).toBe('unknown');
+    expect(reviewMonitorLiveness({ status: 'mystery' })).toBe('unknown');
+  });
+});
+
+describe('reviewMonitorClaimReclaimEarly (reclaim before TTL only on provable death with no completion)', () => {
+  it('reclaims early when the monitor is terminal and no completion latched', () => {
+    expect(reviewMonitorClaimReclaimEarly({ liveness: 'terminal', completionReady: false })).toBe(true);
+  });
+
+  it('does not reclaim a terminal monitor whose completion already latched (nothing to re-spawn for)', () => {
+    expect(reviewMonitorClaimReclaimEarly({ liveness: 'terminal', completionReady: true })).toBe(false);
+  });
+
+  it('never early-reclaims a running monitor (no re-spawn storm) or an unknown record (post-reload safety)', () => {
+    expect(reviewMonitorClaimReclaimEarly({ liveness: 'running', completionReady: false })).toBe(false);
+    expect(reviewMonitorClaimReclaimEarly({ liveness: 'unknown', completionReady: false })).toBe(false);
+    expect(reviewMonitorClaimReclaimEarly({ liveness: 'unknown', completionReady: true })).toBe(false);
   });
 });

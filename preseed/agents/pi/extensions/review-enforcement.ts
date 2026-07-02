@@ -58,7 +58,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, boundaryFallbackHead, boundaryTriggerCommandEntries, bypassAckHeadForStatus, canMainSessionConsumeReviewBypass, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, commandTextsFromEvent, completeTranscriptDelta, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, gitPushCommandTarget, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prCreateCommandTarget, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, prUrlFromText, reusablePendingReview, reviewBypassConsumeDecision, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewBoundaryStartDecision, reviewMonitorCompletionRejectReason, resolveSpawnedAgentId, reviewDeliveryGiveUp, reviewMonitorStartupFailureMessage, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, reviewWindowStartDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, visibleMonitorHandoffRequest, type DurableReviewSummaryRecord } from "./review-job-helpers";
+import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewBoundaryStartDecision, reviewMonitorCompletionRejectReason, resolveSpawnedAgentId, reviewDeliveryGiveUp, reviewMonitorStartupFailureMessage, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, reviewWindowStartDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, reviewMonitorLiveness, reviewMonitorClaimReclaimEarly, visibleMonitorHandoffRequest, type DurableReviewSummaryRecord } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -1461,11 +1461,34 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  function reviewMonitorAgentId(state: PendingReview): string | undefined {
+    try {
+      const parsed = JSON.parse(readFileSync(reviewMonitorPath(state), "utf8")) as { agentId?: unknown };
+      return typeof parsed.agentId === "string" && parsed.agentId ? parsed.agentId : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   function reclaimStaleReviewMonitorClaim(state: PendingReview, now = Date.now()): void {
     const path = reviewMonitorPath(state);
     if (!existsSync(path)) return;
     const startedAt = reviewMonitorStartedAt(state);
     if (startedAt !== undefined) {
+      // Ground-truth early reclaim: a claim whose captured agent is provably terminal
+      // (crashed/aborted/finished) and left no latched completion is dead — reclaim it now so the
+      // next active-run reaper re-spawns a fresh monitor (which delivers + writes the marker)
+      // within a tick, instead of waiting the full REVIEW_MONITOR_TTL_MS. Delivery stays with the
+      // re-spawned monitor; the reaper only writes durable state here. A running agent, a valid
+      // completion, or an unknown record (e.g. after a Pi reload) all fall through to the TTL.
+      const agentId = reviewMonitorAgentId(state);
+      if (agentId && reviewMonitorClaimReclaimEarly({
+        liveness: reviewMonitorLiveness(subagentsService()?.getRecord?.(agentId)),
+        completionReady: reviewMonitorCompletionReady(state),
+      })) {
+        try { unlinkSync(path); } catch { /* best effort early reclaim */ }
+        return;
+      }
       if (now - startedAt >= REVIEW_MONITOR_TTL_MS) {
         try { unlinkSync(path); } catch { /* best effort stale reclaim */ }
       }
