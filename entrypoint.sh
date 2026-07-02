@@ -1032,12 +1032,18 @@ start_sync_daemon() {
 # same files (eventual consistency, no work lost).
 #
 # Excluded paths: Raw/Sessions/ (agent-owned, written by capture hook
-# which already merges), graphify-out/ (derived), .silverbullet/ (config
-# + cache, no semantic content), and the four preseed-managed root
-# pages Index.md, README.md, CONFIG.md, STYLES.md (codeflare-
-# authoritative per REQ-VAULT-001 AC7 - agent-side cp from preseed
-# must not count as a user edit, or every container boot would re-
-# trigger extraction for boilerplate content).
+# which already merges), Raw/Graphs/ (the served viz copy the extractor
+# itself re-renders in its final step - detecting it re-triggers the
+# extractor on its own output whenever a mid-contract failure leaves the
+# marker stale), graphify-out/ (derived), .silverbullet/ (config
+# + cache, no semantic content), Library/Codeflare/ (boot-preseeded
+# SilverBullet plug bundles, vendored not user content), and the four
+# preseed-managed root pages Index.md, README.md, CONFIG.md, STYLES.md
+# (codeflare-authoritative per REQ-VAULT-001 AC7 - agent-side cp from
+# preseed must not count as a user edit, or every container boot would
+# re-trigger extraction for boilerplate content). This list mirrors the
+# Pi-side VAULT_GENERATED_PREFIXES in memory-vault-helpers.ts - keep
+# the two in sync.
 # ============================================================================
 start_vault_monitor_daemon() {
     local VAULT_ROOT="$HOME/Vault"
@@ -1079,7 +1085,9 @@ start_vault_monitor_daemon() {
         local CHANGED
         CHANGED=$(find "$VAULT_ROOT" \
             \( -path "$VAULT_ROOT/Raw/Sessions" -o \
+               -path "$VAULT_ROOT/Raw/Graphs" -o \
                -path "$VAULT_ROOT/graphify-out" -o \
+               -path "$VAULT_ROOT/Library/Codeflare" -o \
                -path "$VAULT_ROOT/.silverbullet" \) -prune -o \
             -type f \
             -not -path "$VAULT_ROOT/Index.md" \

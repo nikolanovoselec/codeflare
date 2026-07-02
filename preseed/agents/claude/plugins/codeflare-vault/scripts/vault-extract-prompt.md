@@ -60,7 +60,9 @@ step 7.
 ```bash
 find /home/user/Vault \
     \( -path /home/user/Vault/Raw/Sessions -o \
+       -path /home/user/Vault/Raw/Graphs -o \
        -path /home/user/Vault/graphify-out -o \
+       -path /home/user/Vault/Library/Codeflare -o \
        -path /home/user/Vault/.silverbullet \) -prune -o \
     -type f \
     -not -path /home/user/Vault/Index.md \
