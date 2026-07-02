@@ -2566,10 +2566,9 @@ describe('Reviewer agents can invoke their enforce skills (Skill tool grant vs P
     expect(piTools.toLowerCase()).not.toContain('skill'); // no Skill tool on Pi
     expect(piCr!.content).toContain('skills: true'); // access granted via the flag instead
     const gemCr = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.gemini/agents/code-reviewer.md');
-    if (gemCr) {
-      const gemTools = gemCr.content.match(/^tools:.*$/m)?.[0] ?? '';
-      expect(gemTools).not.toContain('Skill');
-    }
+    expect(gemCr, '.gemini/agents/code-reviewer.md should be seeded').toBeTruthy();
+    const gemTools = gemCr!.content.match(/^tools:.*$/m)?.[0] ?? '';
+    expect(gemTools).not.toContain('Skill');
   });
 });
 
