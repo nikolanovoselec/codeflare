@@ -12,10 +12,12 @@
 //
 // AC3 covers two fast-exit conditions and the emit-and-arm path:
 //   * trigger marker (vault-extract.vars) absent  -> exit 0, no output, no sentinel
-//   * in-flight sentinel present and younger than 5 min -> exit 0, no output
+//   * in-flight sentinel present and younger than 30 min -> exit 0, no output
+//     (real extraction runs measured at ~18 min; the previous 5-min TTL
+//     expired mid-run and dispatched a second concurrent agent)
 //   * neither exit condition -> create the in-flight sentinel + emit the
 //     dispatch directive
-//   * in-flight sentinel older than the 5-min TTL -> stale sentinel is
+//   * in-flight sentinel older than the 30-min TTL -> stale sentinel is
 //     replaced and the hook proceeds to emit
 //
 // Mirrors the run-the-real-script-and-assert-side-effects harness in
@@ -70,7 +72,7 @@ function ageFile(path, secondsAgo) {
   utimesSync(path, when, when);
 }
 
-describe('vault-monitor-hook.sh behavior (real) / REQ-VAULT-003 AC3 (hook fast-exit + 5-min in-flight sentinel TTL)', () => {
+describe('vault-monitor-hook.sh behavior (real) / REQ-VAULT-003 AC3 (hook fast-exit + 30-min in-flight sentinel TTL)', () => {
   it('fast-exits with no directive and arms no sentinel when the trigger marker is absent', () => {
     // Idle prompt: >99% of prompts. No vault-extract.vars exists.
     const home = mkHome();
@@ -122,14 +124,17 @@ describe('vault-monitor-hook.sh behavior (real) / REQ-VAULT-003 AC3 (hook fast-e
     );
   });
 
-  it('fast-exits with no directive when a fresh in-flight sentinel (< 5 min) is present', () => {
+  it('fast-exits with no directive when a fresh in-flight sentinel (< 30 min) is present', () => {
     const home = mkHome();
     writeFileSync(join(home, LAST_REL), '');
     ageFile(join(home, LAST_REL), 10);
     writeFileSync(join(home, VARS_REL), 'CHANGED=Notes/foo.md\n'); // would otherwise emit
-    // Extraction already in flight, sentinel only 30s old (< 300s TTL).
+    // Extraction already in flight for 17 min — a real measured run duration.
+    // Under the old 300s TTL this sentinel counted as stale and a second
+    // concurrent agent was dispatched mid-run (the chunk-file race); this
+    // case fails on that implementation.
     writeFileSync(join(home, IN_FLIGHT_REL), '');
-    ageFile(join(home, IN_FLIGHT_REL), 30);
+    ageFile(join(home, IN_FLIGHT_REL), 1020);
 
     const res = runHook(home);
     assert.equal(res.status, 0, `hook must exit 0; stderr: ${res.stderr}`);
@@ -145,14 +150,14 @@ describe('vault-monitor-hook.sh behavior (real) / REQ-VAULT-003 AC3 (hook fast-e
     );
   });
 
-  it('treats an in-flight sentinel older than the 5-min TTL as stale: replaces it and emits', () => {
+  it('treats an in-flight sentinel older than the 30-min TTL as stale: replaces it and emits', () => {
     const home = mkHome();
     writeFileSync(join(home, LAST_REL), '');
     ageFile(join(home, LAST_REL), 10);
     writeFileSync(join(home, VARS_REL), 'CHANGED=Notes/foo.md\n');
-    // Stale sentinel: 6 minutes old (> 300s TTL) -> crashed/abandoned run.
+    // Stale sentinel: 31 minutes old (> 1800s TTL) -> crashed/abandoned run.
     writeFileSync(join(home, IN_FLIGHT_REL), '');
-    ageFile(join(home, IN_FLIGHT_REL), 360);
+    ageFile(join(home, IN_FLIGHT_REL), 1860);
     const staleMtime = statSync(join(home, IN_FLIGHT_REL)).mtimeMs;
 
     const res = runHook(home);

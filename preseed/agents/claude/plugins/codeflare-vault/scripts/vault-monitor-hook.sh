@@ -61,11 +61,16 @@ fi
 
 # In-flight guard: prevent re-emitting while an extraction agent is
 # already running. Created here, deleted by the agent in step 7.
-# 5-minute TTL covers the longest reasonable extraction run.
+# 30-minute TTL: real extraction runs measured at ~18 min on large change
+# sets (30+ files); the previous 5-minute TTL expired mid-run, so the hook
+# treated a live run as crashed and dispatched a second concurrent agent
+# that raced the first on the shared chunk file. A genuinely crashed run
+# now delays re-extraction by up to 30 min; the daemon's high-water-mark
+# re-detection makes that eventual, not lost.
 IN_FLIGHT="$HOOK_CACHE/vault-extract.in-flight"
 if [ -f "$IN_FLIGHT" ]; then
     IN_FLIGHT_AGE=$(($(date +%s) - $(stat -c %Y "$IN_FLIGHT" 2>/dev/null || echo 0)))
-    if [ "$IN_FLIGHT_AGE" -lt 300 ]; then
+    if [ "$IN_FLIGHT_AGE" -lt 1800 ]; then
         exit 0
     fi
     rm -f "$IN_FLIGHT"
