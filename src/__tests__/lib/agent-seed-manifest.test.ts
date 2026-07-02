@@ -2033,6 +2033,19 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(mv?.content).toContain('STYLES.md');
   });
 
+  it('REQ-MEM-001/REQ-VAULT-003: memory-vault handlers are inert inside subagent child sessions', () => {
+    const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
+    // pi-subagents children always load the parent's extensions; without the guard,
+    // the sendUserMessage("Agent(...)") fallback lands in a monitor child's transcript
+    // and becomes that task's visible output. Every lifecycle handler must bail on
+    // child sessions before doing any capture/extract/merge work.
+    const guardCalls = mv?.content.match(/if \(isChildSession\(ctx\)\) return;/g) ?? [];
+    expect(guardCalls.length).toBeGreaterThanOrEqual(3); // session_start, before_agent_start, agent_end
+    // The detection prongs come from the pure helpers (Workers-pool testable).
+    expect(mv?.content).toContain('isChildSessionHeader');
+    expect(mv?.content).toContain('isChildSessionFirstLine');
+  });
+
   it('REQ-MEM-002 AC3/AC4: shouldCapture matches Claude delta threshold semantics', () => {
     expect(MEMORY_EVERY_N_PROMPTS).toBe(15);
     expect(shouldCapture(14)).toBe(false);

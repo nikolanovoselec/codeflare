@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { MEMORY_CAPTURE_PENDING_TTL_MS, buildSpawnOptions, captureTimestamp, compactMessages as compactMessagesHelper, isFirstMessage, isResumedSession, isVaultExcludedPath as isVaultExcludedRel, parseSessionMessages as parseSessionMessagesHelper, realUserPromptCount, sessionId as sessionIdHelper, shouldCapture, withCurrentPrompt } from "./memory-vault-helpers";
+import { MEMORY_CAPTURE_PENDING_TTL_MS, buildSpawnOptions, captureTimestamp, compactMessages as compactMessagesHelper, isChildSessionFirstLine, isChildSessionHeader, isFirstMessage, isResumedSession, isVaultExcludedPath as isVaultExcludedRel, parseSessionMessages as parseSessionMessagesHelper, realUserPromptCount, sessionId as sessionIdHelper, shouldCapture, withCurrentPrompt } from "./memory-vault-helpers";
 
 const USER_HOME = "/home/user";
 const VAULT_ROOT = join(USER_HOME, "Vault");
@@ -32,7 +32,10 @@ const VAULT_MARKER_FILE = join(CACHE_DIR, "vault-extract.last");
 const VAULT_VARS_FILE = join(CACHE_DIR, "vault-extract.pi.vars");
 const VAULT_INFLIGHT = join(CACHE_DIR, "vault-extract.pi.in-flight");
 const GLOBAL_GRAPH_LOCK = "/tmp/graphify-global.lock";
-const VAULT_EXTRACT_INFLIGHT_TTL_MS = 5 * 60 * 1000;
+// 30 min, matching MEMORY_CAPTURE_PENDING_TTL_MS and the Claude-side hook TTL:
+// real extraction runs measured at ~18 min on large change sets; a 5-min TTL
+// expired mid-run and re-dispatched a second concurrent extraction agent.
+const VAULT_EXTRACT_INFLIGHT_TTL_MS = 30 * 60 * 1000;
 // Append-only trigger audit. Had this existed, the Raw/Graphs self-trigger loop would
 // have been one grep away: a repeated vault_extract_spawned row naming the same file.
 const VAULT_EVENTS_LOG = join(CACHE_DIR, "vault-extract.pi.events.jsonl");
@@ -68,6 +71,24 @@ function spawn(type: string, prompt: string, description: string, model?: string
     return typeof id === "string" ? id : undefined;
   } catch {
     return undefined;
+  }
+}
+
+// Subagent child sessions (review-monitor, CI monitors, memory-capture, vault-extract)
+// load this extension too; every handler bails there so capture/extract triggers and
+// their sendUserMessage("Agent(...)") fallbacks never land in a child transcript.
+// Prong 1: the live in-memory header. Prong 2: the persisted session-file header line
+// (covers a sessionManager that does not expose getHeader). Fail-open to root behavior.
+function isChildSession(ctx: any): boolean {
+  try {
+    if (isChildSessionHeader(ctx?.sessionManager?.getHeader?.())) return true;
+  } catch { /* fall through to the on-disk header */ }
+  try {
+    const file = ctx?.sessionManager?.getSessionFile?.();
+    if (!file || !existsSync(file)) return false;
+    return isChildSessionFirstLine(readFileSync(file, "utf8").split("\n", 1)[0]);
+  } catch {
+    return false;
   }
 }
 
@@ -222,7 +243,8 @@ function vaultExtractionInFlight(): boolean {
 export default function (pi: ExtensionAPI) {
   let lastMessages: any[] = [];
 
-  pi.on("session_start", () => {
+  pi.on("session_start", (_event: any, ctx: any) => {
+    if (isChildSession(ctx)) return;
     ensureDirs();
     bestEffortMergeGraphs();
     // Claude's entrypoint seeds vault-extract.last with a plain `touch` so
@@ -231,6 +253,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("before_agent_start", (event: any, ctx: any) => {
+    if (isChildSession(ctx)) return;
     ensureDirs();
     const prompt = String(event?.prompt ?? "");
     if (prompt.startsWith("Agent(") || prompt.startsWith("PROMPT_FILE=") || prompt.includes('"directive"') || prompt.includes("subagent_type") || prompt.startsWith("[silent]") || prompt.trim().startsWith("<")) return;
@@ -272,6 +295,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("agent_end", (event: any, ctx: any) => {
+    if (isChildSession(ctx)) return;
     lastMessages = Array.isArray(event?.messages) ? event.messages : lastMessages;
     ensureDirs();
 
