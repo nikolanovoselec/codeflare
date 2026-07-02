@@ -614,3 +614,16 @@ CVE-2026-48959
 # CVE-2026-42504 above; lazygit and silverbullet upstream have not rebuilt with the
 # patched Go.
 CVE-2026-27145
+
+# sigstore 4.1.0 vendored inside the globally-installed npm CLI in the Node base
+# image (usr/local/lib/node_modules/npm/node_modules/sigstore): CVE-2026-48815 -
+# sigstore's certificateOIDs verification constraints are not fully enforced, so a
+# crafted signing certificate could bypass an intended OID match during Sigstore
+# bundle verification. Impact: NONE - npm only exercises sigstore at publish/audit
+# time (npm publish provenance, npm audit signatures) against the trusted public
+# registry; the container installs from trusted registries at build time and the
+# deployed worker never runs npm to verify attacker-controlled Sigstore bundles at
+# runtime. Fix: sigstore 4.1.1, which arrives when the pinned Node base image
+# bundles a newer npm - not independently upgradable without bumping node/npm. Same
+# "fixed upstream but a vendored CLI hasn't rebuilt" profile as the entries above.
+CVE-2026-48815
