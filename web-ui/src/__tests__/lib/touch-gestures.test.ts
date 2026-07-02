@@ -82,6 +82,54 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
       });
     });
 
+    describe('xterm Gesture shield (mobile keyboard regression, xterm >=6.1)', () => {
+      // xterm >=6.1 installs a document-level Gesture singleton that
+      // preventDefault()s any touch starting inside .xterm-screen, which
+      // suppresses the synthesized click that opens the virtual keyboard.
+      // The shield must stop terminal touches from ever reaching document.
+      it('should stop terminal touches from reaching document-level listeners while attached', () => {
+        (window as any).ontouchstart = null;
+        const { terminal } = createMockTerminal();
+        const cleanup = attachSwipeGestures(container, terminal)!;
+
+        const documentListener = vi.fn();
+        document.addEventListener('touchstart', documentListener);
+        document.addEventListener('touchmove', documentListener);
+        document.addEventListener('touchend', documentListener);
+
+        container.dispatchEvent(makeTouchEvent('touchstart', 100, 100));
+        container.dispatchEvent(makeTouchEvent('touchmove', 100, 105));
+        container.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }));
+
+        expect(documentListener).not.toHaveBeenCalled();
+
+        document.removeEventListener('touchstart', documentListener);
+        document.removeEventListener('touchmove', documentListener);
+        document.removeEventListener('touchend', documentListener);
+        cleanup();
+      });
+
+      it('should not block touches outside the container, and none after cleanup', () => {
+        (window as any).ontouchstart = null;
+        const { terminal } = createMockTerminal();
+        const cleanup = attachSwipeGestures(container, terminal)!;
+
+        const documentListener = vi.fn();
+        document.addEventListener('touchstart', documentListener);
+
+        // A touch outside the terminal container still reaches the document
+        document.body.dispatchEvent(makeTouchEvent('touchstart', 5, 5));
+        expect(documentListener).toHaveBeenCalledTimes(1);
+
+        // After cleanup the shield is gone: container touches propagate again
+        cleanup();
+        container.dispatchEvent(makeTouchEvent('touchstart', 100, 100));
+        expect(documentListener).toHaveBeenCalledTimes(2);
+
+        document.removeEventListener('touchstart', documentListener);
+      });
+    });
+
     describe('horizontal swipe', () => {
       it('should send left arrow on leftward swipe exceeding threshold', () => {
         (window as any).ontouchstart = null;

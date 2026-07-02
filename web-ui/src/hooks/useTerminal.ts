@@ -118,6 +118,13 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       allowProposedApi: true,
       convertEol: true,
       scrollback: 1000,
+      // xterm >=6.1 answers CSI ?996n and (after the app enables DECSET 2031)
+      // pushes CSI ?997;1n color-scheme reports on every theme change.
+      // applyCursorVisibility() below reassigns options.theme on each DECTCEM
+      // toggle, so a 2031-enabled TUI (Claude Code) gets flooded with reports
+      // it echoes at the prompt (anthropics/claude-code#41570). Disable the
+      // extension to restore xterm 6.0.0 behavior (no ?997 bytes emitted).
+      vtExtensions: { colorSchemeQuery: false },
     });
 
     fitAddon = new FitAddon();

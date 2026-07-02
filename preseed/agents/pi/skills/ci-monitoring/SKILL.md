@@ -1,16 +1,18 @@
 ---
 name: ci-monitoring
-description: Pi-native background CI monitoring after every CI-producing push unless the user explicitly skips it; never blocks the main session. Includes a post-push launch guard (main session verifies registered runs before spawning; prefer a known-run verifier) to avoid the startup race.
-version: 1.1.0
+description: Pi-native background CI monitoring spawned ONLY from the PR-boundary visible-monitor-handoff (together with review-monitor) or on an explicit user request — never automatically per-push; never blocks the main session. Includes a known-run launch guard to avoid the startup race.
+version: 1.2.0
 ---
 
 # Pi Background CI Monitoring
 
-After any push that can produce CI, the main session must start exactly one backgrounded subagent to monitor the pushed HEAD unless the user explicitly says to skip CI monitoring for that push.
+CI monitoring has exactly one automatic trigger: the PR-boundary `codeflare-visible-monitor-handoff`, which starts the CI monitor **together with** `review-monitor` for the exact head. The only other way to start one is an **explicit user request** to monitor CI. There is no per-push trigger.
 
-## Post-push launch guard (avoid the startup race)
+**Never start a CI monitor automatically after a push.** A per-push monitor started before the handoff arrives is exactly what the handoff then gets injected into — hijacking that child session so it stops being a CI monitor and fails with "Agent is already processing a prompt", which killed the original monitor. A push with no open main-bound PR is not CI-monitored at all. When the handoff fires (or the user asks), start exactly one backgrounded subagent for the pushed HEAD unless the user explicitly skipped it.
 
-Do NOT spawn the monitor in the same beat as the post-push hook — the subagent can start before GitHub has registered any runs for the new HEAD (and before the push/review hooks settle), which is the startup race. First, in the MAIN session, query the exact head once:
+## Launch guard (avoid the startup race)
+
+When the trigger fires, do NOT spawn the monitor in the same beat as the post-push/handoff hook — the subagent can start before GitHub has registered any runs for the new HEAD (and before the hooks settle), which is the startup race. First, in the MAIN session, query the exact head once:
 
 ```bash
 gh run list --commit "$HEAD" --limit 20 --json databaseId,name,status,conclusion,url,event
@@ -128,3 +130,7 @@ The background monitor final result must start with exactly one of:
 A superseded monitor reports `CI_RESULT timeout superseded head=<old> current_head=<new> branch=<branch>` and must not report success or failure for the old head. Include the monitored head and log path every time. For failures, include workflow name, run id, URL, and `cd <repo> && gh run view <id> --log-failed`.
 
 The main session's first response after receiving `CI_RESULT` must print the CI summary before analysis, tool calls, todo updates, fixes, deploys, or pushes.
+
+## Binding invocation rule
+
+Start a CI monitor for exactly two triggers, never any other: (1) the PR-boundary `codeflare-visible-monitor-handoff` (spawned together with `review-monitor`), or (2) an explicit user request to monitor CI. Starting a CI monitor on any other signal — a bare push, a deploy step, "it would be prudent", a self-decided prudence check — is the bug this skill exists to prevent: it recreates the startup race where the handoff lands in the just-started CI child and crashes it. If a handoff-spawned or user-requested monitor stops without a `CI_RESULT` for the current head, restart it from the same trigger's job/prompt paths; do not invent a fresh per-push monitor.

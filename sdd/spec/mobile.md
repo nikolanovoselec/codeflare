@@ -67,11 +67,13 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 5. An isolated compositor context prevents the Android IME native caret from appearing outside the terminal bounds. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- coverage-gap: compositor-isolation iframe is a device/visual concern, no genuine unit test -->
 6. Autocorrect is suppressed at the OS level on mobile. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- coverage-gap: OS-level autocorrect suppression is a device/IME concern, no genuine unit test -->
 7. Focus state detection uses a live browser query rather than a cached value. <!-- @impl: web-ui/src/lib/mobile.ts::isFocusOnTerminalInput --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (isFocusOnTerminalInput is a live focus query, not a cached value) -->
+8. Touch events originating inside the terminal container are stopped from propagating to document-level listeners, so the emulator's internal gesture system (xterm ≥6.1 document-level Gesture singleton) cannot cancel the browser's synthesized click that triggers keyboard focus. Touches outside the container are unaffected, and the shield is removed on terminal cleanup. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (shield stops terminal touches from reaching document-level listeners while attached) --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (touches outside the container unaffected; container touches propagate again after cleanup) -->
 
 **Constraints:**
 
 - The overlay mode is only re-stamped on genuine state changes; redundant no-op toggles must not restart the stale-event ignore window.
 - The stale-event ignore window applies only to genuine toggles.
+- The touch-propagation shield must run in bubble phase so the capture-phase swipe/scroll handlers ([REQ-MOB-005](#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll)) always execute first; `stopPropagation` (never `preventDefault`) is required so the browser's tap→click synthesis keeps working.
 
 **Priority:** P0
 

@@ -18,6 +18,31 @@ export const VAULT_GENERATED_PREFIXES = [
 // codeflare-authoritative root pages: regenerated from preseed on boot, never user-authored.
 export const VAULT_PRESEED_ROOT_FILES = new Set(["Index.md", "README.md", "CONFIG.md", "STYLES.md"]);
 
+// Child sessions (@gotgenes/pi-subagents spawns: review-monitor, CI monitors,
+// memory-capture, vault-extract, ...) always load the parent's extensions, so
+// memory-vault runs inside them too. Its capture/extract triggers must be inert
+// there: a sendUserMessage("Agent(...)") fallback injected into a monitor child's
+// transcript becomes that task's last visible output (observed as a review-monitor
+// "result" showing vault extraction instead of REVIEW_RESULT). Children are
+// identified by the parentSession pointer pi-subagents passes to newSession(),
+// exposed via sessionManager.getHeader() and persisted as the session JSONL's
+// first line. Pure predicates (no node:fs) so the Workers-pool test exercises them.
+export function isChildSessionHeader(header: unknown): boolean {
+  if (!header || typeof header !== "object") return false;
+  const parent = (header as { parentSession?: unknown }).parentSession;
+  return typeof parent === "string" && parent.length > 0;
+}
+
+export function isChildSessionFirstLine(firstLine: string | undefined): boolean {
+  if (!firstLine) return false;
+  try {
+    const parsed = JSON.parse(firstLine);
+    return parsed?.type === "session" && isChildSessionHeader(parsed);
+  } catch {
+    return false;
+  }
+}
+
 // Pure predicate (no node:fs) so the Workers-pool test can exercise it directly. A vault
 // path is excluded from change-detection when it is generated, agent-owned,
 // codeflare-authoritative, or resolves outside the vault root entirely.

@@ -2033,6 +2033,19 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(mv?.content).toContain('STYLES.md');
   });
 
+  it('REQ-MEM-001/REQ-VAULT-003: memory-vault handlers are inert inside subagent child sessions', () => {
+    const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
+    // pi-subagents children always load the parent's extensions; without the guard,
+    // the sendUserMessage("Agent(...)") fallback lands in a monitor child's transcript
+    // and becomes that task's visible output. Every lifecycle handler must bail on
+    // child sessions before doing any capture/extract/merge work.
+    const guardCalls = mv?.content.match(/if \(isChildSession\(ctx\)\) return;/g) ?? [];
+    expect(guardCalls.length).toBeGreaterThanOrEqual(3); // session_start, before_agent_start, agent_end
+    // The detection prongs come from the pure helpers (Workers-pool testable).
+    expect(mv?.content).toContain('isChildSessionHeader');
+    expect(mv?.content).toContain('isChildSessionFirstLine');
+  });
+
   it('REQ-MEM-002 AC3/AC4: shouldCapture matches Claude delta threshold semantics', () => {
     expect(MEMORY_EVERY_N_PROMPTS).toBe(15);
     expect(shouldCapture(14)).toBe(false);
@@ -2525,6 +2538,37 @@ describe('Incremental review scope confinement / REQ-AGENT-040 AC8 (reviewer def
         expect(doc.content, `${doc.key} should keep the full-diff default`).toMatch(/origin\/main\.\.\.HEAD|full change set/i);
       }
     }
+  });
+});
+
+describe('Reviewer agents can invoke their enforce skills (Skill tool grant vs Pi skills flag)', () => {
+  // The reviewer/guide agent bodies bind them to invoke spec-enforce / doc-enforce /
+  // tdd-enforce as their first action. On Claude that requires the Skill tool in the
+  // agent's tools array (without it the agent physically cannot invoke the skill and
+  // self-reports enforcement-skill-not-invoked). On Pi there is no Skill tool — access
+  // is granted by the `skills: true` frontmatter flag — so a transformed agent must NOT
+  // carry a (nonexistent) Skill tool. These fail if either grant regresses.
+  const CLAUDE_REVIEWERS = ['spec-reviewer', 'doc-updater', 'code-reviewer', 'tdd-guide'];
+
+  it('every Claude reviewer/guide agent grants the Skill tool so its enforce skill is invocable', () => {
+    for (const name of CLAUDE_REVIEWERS) {
+      const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === `.claude/agents/${name}.md`);
+      expect(doc, `.claude/agents/${name}.md should be seeded`).toBeTruthy();
+      const toolsLine = doc!.content.match(/^tools:.*$/m)?.[0] ?? '';
+      expect(toolsLine, `${name} must list the Skill tool`).toContain('"Skill"');
+    }
+  });
+
+  it('transformed runtimes never inherit the Claude-only Skill tool (Pi uses skills: true instead)', () => {
+    const piCr = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
+    expect(piCr).toBeTruthy();
+    const piTools = piCr!.content.match(/^tools:.*$/m)?.[0] ?? '';
+    expect(piTools.toLowerCase()).not.toContain('skill'); // no Skill tool on Pi
+    expect(piCr!.content).toContain('skills: true'); // access granted via the flag instead
+    const gemCr = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.gemini/agents/code-reviewer.md');
+    expect(gemCr, '.gemini/agents/code-reviewer.md should be seeded').toBeTruthy();
+    const gemTools = gemCr!.content.match(/^tools:.*$/m)?.[0] ?? '';
+    expect(gemTools).not.toContain('Skill');
   });
 });
 

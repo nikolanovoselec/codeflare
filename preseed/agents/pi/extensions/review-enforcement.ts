@@ -58,7 +58,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, boundaryFallbackHead, boundaryTriggerCommandEntries, bypassAckHeadForStatus, canMainSessionConsumeReviewBypass, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, commandTextsFromEvent, completeTranscriptDelta, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, gitPushCommandTarget, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prCreateCommandTarget, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, prUrlFromText, reusablePendingReview, reviewBypassConsumeDecision, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewBoundaryStartDecision, reviewMonitorCompletionRejectReason, resolveSpawnedAgentId, reviewDeliveryGiveUp, reviewMonitorStartupFailureMessage, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, reviewWindowStartDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, visibleMonitorHandoffRequest, type DurableReviewSummaryRecord } from "./review-job-helpers";
+import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewBoundaryStartDecision, reviewMonitorCompletionRejectReason, resolveSpawnedAgentId, reviewDeliveryGiveUp, reviewMonitorStartupFailureMessage, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, reviewWindowStartDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, reviewMonitorLiveness, reviewMonitorClaimReclaimEarly, visibleMonitorHandoffRequest, type DurableReviewSummaryRecord, type ReviewMonitorLiveness } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -1461,11 +1461,45 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  function reviewMonitorAgentId(state: PendingReview): string | undefined {
+    try {
+      const parsed = JSON.parse(readFileSync(reviewMonitorPath(state), "utf8")) as { agentId?: unknown };
+      return typeof parsed.agentId === "string" && parsed.agentId ? parsed.agentId : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  // Probe the subagents service for the tracked monitor agent's liveness, tolerating a throwing
+  // accessor the same way the sibling claim reads do — a service whose getRecord throws on an
+  // unknown id must degrade to "unknown" (fall through to TTL), never abort the reap/spawn path.
+  function reviewMonitorLivenessFor(agentId: string): ReviewMonitorLiveness {
+    try {
+      return reviewMonitorLiveness(subagentsService()?.getRecord?.(agentId));
+    } catch {
+      return "unknown";
+    }
+  }
+
   function reclaimStaleReviewMonitorClaim(state: PendingReview, now = Date.now()): void {
     const path = reviewMonitorPath(state);
     if (!existsSync(path)) return;
     const startedAt = reviewMonitorStartedAt(state);
     if (startedAt !== undefined) {
+      // Ground-truth early reclaim: a claim whose captured agent is provably terminal
+      // (crashed/aborted/finished) and left no latched completion is dead — reclaim it now so the
+      // next active-run reaper re-spawns a fresh monitor (which delivers + writes the marker)
+      // within a tick, instead of waiting the full REVIEW_MONITOR_TTL_MS. Delivery stays with the
+      // re-spawned monitor; the reaper only writes durable state here. A running agent, a valid
+      // completion, or an unknown record (e.g. after a Pi reload) all fall through to the TTL.
+      const agentId = reviewMonitorAgentId(state);
+      if (agentId && reviewMonitorClaimReclaimEarly({
+        liveness: reviewMonitorLivenessFor(agentId),
+        completionReady: reviewMonitorCompletionReady(state),
+      })) {
+        try { unlinkSync(path); } catch { /* best effort early reclaim */ }
+        return;
+      }
       if (now - startedAt >= REVIEW_MONITOR_TTL_MS) {
         try { unlinkSync(path); } catch { /* best effort stale reclaim */ }
       }
@@ -1555,7 +1589,7 @@ export default function (pi: ExtensionAPI) {
       "- Background monitor only. Do not edit source, documentation, or spec files.",
       "- Do not run tests, builds, typechecks, linters, dev servers, CI watches, or deploy commands.",
       "- Poll the listed lane result files and summary.md for up to 30 minutes, stopping sooner only when they all exist or a required lane marker explicitly has status=failed in .git/codeflare-review-jobs/<head>/lanes/.",
-      "- Use one shell polling loop or another low-turn strategy; do not burn one subagent turn per poll.",
+      "- Use one shell polling loop on a tight fixed cadence: sleep 10 seconds between checks (a single `while` loop with `sleep 10`), never a coarse multi-minute sleep, so completion is detected and reported within ~10s of the lanes finishing — not minutes later. Do not burn one subagent turn per poll.",
       "- Missing result files are expected while any required lane marker is still running; keep waiting in that state.",
       "- If a required lane marker explicitly has status=failed before every lane result and summary.md exist: do not write the completion marker, remove the monitor request marker, and return REVIEW_RESULT failed.",
       "- If every lane result exists but summary.md is missing, write summary.md by combining the lane reports with a severity table and ranked findings. Do not write the review ack; the extension owns exact-head gate state.",

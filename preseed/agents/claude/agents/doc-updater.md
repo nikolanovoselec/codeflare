@@ -1,7 +1,7 @@
 ---
 name: doc-updater
 description: Documentation review agent (report-only) for PR-boundary review enforcement, /review workflows, and explicit user-requested documentation audits. Reports doc drift and ruleset violations with concrete proposed fixes; never edits documentation/ and never commits. Runs only on SDD-bootstrapped projects unless manually invoked.
-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "mcp__context-mode__ctx_search", "mcp__context-mode__ctx_batch_execute", "mcp__context-mode__ctx_execute", "mcp__context-mode__ctx_execute_file", "mcp__context-mode__ctx_fetch_and_index", "mcp__graphify__query_graph", "mcp__graphify__get_node", "mcp__graphify__get_neighbors", "mcp__graphify__get_community", "mcp__graphify__god_nodes", "mcp__graphify__shortest_path", "mcp__graphify__graph_stats"]
+tools: ["Skill", "Read", "Write", "Edit", "Bash", "Grep", "Glob", "mcp__context-mode__ctx_search", "mcp__context-mode__ctx_batch_execute", "mcp__context-mode__ctx_execute", "mcp__context-mode__ctx_execute_file", "mcp__context-mode__ctx_fetch_and_index", "mcp__graphify__query_graph", "mcp__graphify__get_node", "mcp__graphify__get_neighbors", "mcp__graphify__get_community", "mcp__graphify__god_nodes", "mcp__graphify__shortest_path", "mcp__graphify__graph_stats"]
 model: sonnet
 ---
 
