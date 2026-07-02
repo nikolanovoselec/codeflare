@@ -9,7 +9,7 @@ type SeedDocument = {
   modes: ('default' | 'advanced')[];
 };
 
-export const PRESEED_CONTENT_HASH = 'c8100c68261a474b';
+export const PRESEED_CONTENT_HASH = '05f96cbf1aefe3ea';
 
 export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
@@ -2520,7 +2520,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
     "key": ".pi/agent/extensions/context-mode-runtime.ts",
     "contentType": "text/typescript; charset=utf-8",
-    "content": "const DISABLED_BRIDGE_IDLE_MS = \"0\";\n\ntype RuntimeEnv = Record<string, string | undefined>;\n\nexport function contextModeBridgeEnv<T extends RuntimeEnv>(\n  env: T,\n): T & { CONTEXT_MODE_BRIDGE_IDLE_MS: string } {\n  return { ...env, CONTEXT_MODE_BRIDGE_IDLE_MS: DISABLED_BRIDGE_IDLE_MS };\n}\n\nexport default function () {\n  process.env.CONTEXT_MODE_BRIDGE_IDLE_MS = DISABLED_BRIDGE_IDLE_MS;\n}\n",
+    "content": "// Keep context-mode's bridge idle-reaper governed per-session by context-mode itself (its\n// foreground/subagent split, upstream #868) rather than disabling it globally. A global\n// CONTEXT_MODE_BRIDGE_IDLE_MS=0 (previously forced here and in entrypoint.sh) also disabled the\n// reaper for non-foreground/subagent bridge children, so they never self-released and piled up —\n// bun/node server.bundle.mjs helpers accumulating across a long, subagent-heavy session. Clearing\n// any inherited override lets context-mode keep the foreground bridge quiet (it sets IDLE_MS=0 for\n// the foreground child itself) while subagent/non-interactive children keep the default ~3-min\n// idle reaper and self-release. The extension is retained (not deleted) so the managed-extension\n// relay overwrites any stale `set-0` copy already synced into a user bucket.\nexport default function () {\n  delete process.env.CONTEXT_MODE_BRIDGE_IDLE_MS;\n}\n",
     "modes": [
       "default",
       "advanced"
