@@ -602,7 +602,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('Pi context-mode runtime extension clears an inherited global bridge-idle override so context-mode governs per-session', () => {
+  it('REQ-AGENT-076 AC6: Pi context-mode runtime extension clears an inherited bridge-idle override so context-mode governs per-session', () => {
     const prev = process.env.CONTEXT_MODE_BRIDGE_IDLE_MS;
     try {
       process.env.CONTEXT_MODE_BRIDGE_IDLE_MS = '0';
