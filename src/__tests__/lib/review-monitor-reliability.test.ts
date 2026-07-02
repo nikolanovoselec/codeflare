@@ -5,6 +5,7 @@ import {
   reviewDeliveryGiveUp,
   reviewMonitorCompletionRejectReason,
   reviewMonitorCompletionRecordReady,
+  reviewCompletionResultFromCounts,
 } from '../../../preseed/agents/pi/extensions/review-job-helpers';
 
 /**
@@ -119,5 +120,26 @@ describe('reviewMonitorCompletionRejectReason (R3: diagnostic completion validat
     const stale = { ...valid, record: { ...valid.record, completedAt: 1000 }, latestInputMtime: 5000 };
     expect(reviewMonitorCompletionRejectReason(stale)).toBe('stale_completed_at');
     expect(reviewMonitorCompletionRecordReady(stale)).toBe(false);
+  });
+});
+
+// REQ-AGENT-062 AC8: the extension's last-resort self-reap derives the completion record's
+// `result` from the on-disk lane counts. Gut the actionable-severity rule and a case fails.
+describe('reviewCompletionResultFromCounts (self-reap result derivation)', () => {
+  const zero = { critical: 0, high: 0, medium: 0, low: 0 };
+  it('is "findings" when any lane carries an actionable (CRITICAL/HIGH/MEDIUM) count', () => {
+    expect(reviewCompletionResultFromCounts([{ ...zero, high: 1 }])).toBe('findings');
+    expect(reviewCompletionResultFromCounts([{ ...zero }, { ...zero, medium: 2 }])).toBe('findings');
+    expect(reviewCompletionResultFromCounts([{ ...zero, critical: 1 }])).toBe('findings');
+  });
+  it('is "clean" for no findings or low-only findings (low is not actionable)', () => {
+    expect(reviewCompletionResultFromCounts([{ ...zero }, { ...zero }])).toBe('clean');
+    expect(reviewCompletionResultFromCounts([{ ...zero, low: 5 }])).toBe('clean');
+    expect(reviewCompletionResultFromCounts([])).toBe('clean');
+  });
+  it('produces a value accepted by the completion-record validator (clean|findings only)', () => {
+    for (const counts of [[{ ...zero, high: 1 }], [{ ...zero, low: 1 }], []]) {
+      expect(['clean', 'findings']).toContain(reviewCompletionResultFromCounts(counts));
+    }
   });
 });

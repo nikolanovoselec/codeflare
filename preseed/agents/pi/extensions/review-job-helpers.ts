@@ -651,6 +651,16 @@ export function durableReviewRecommendation(counts: ReviewSeverityCounts): Durab
   return "none";
 }
 
+// The `result` value ("clean" | "findings") for a monitor.completed record derived from the
+// on-disk lane counts. Used when the extension writes the completion marker itself as a
+// last-resort reap (a monitor delivered the result but never wrote the marker). "findings"
+// only when an actionable (CRITICAL/HIGH/MEDIUM) count exists — a low-only review is "clean",
+// matching the actionable-severity convention used everywhere else (durableReviewSummaryModel).
+export function reviewCompletionResultFromCounts(counts: ReviewSeverityCounts[]): "clean" | "findings" {
+  const actionable = counts.reduce((total, c) => total + c.critical + c.high + c.medium, 0);
+  return actionable > 0 ? "findings" : "clean";
+}
+
 export function durableReviewSummaryModel(rows: DurableReviewSummaryRow[]): DurableReviewSummaryModel {
   const actionable = rows.reduce((total, row) => total + actionableReviewCount(row.counts), 0);
   return {
