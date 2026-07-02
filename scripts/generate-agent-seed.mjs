@@ -160,10 +160,17 @@ function adaptPaths(content, agentId) {
   return content.replaceAll('~/.claude/', `${config.homePath}/`);
 }
 
+// Claude-Code-only tools that have no equivalent in any transformed runtime and must be
+// dropped from every transform. `Skill` invokes a Claude skill via the Skill tool; Pi
+// grants skill access through the `skills: true` frontmatter flag instead (added below),
+// and codex/gemini/copilot/opencode have no skill-invocation tool at all — so leaving
+// `Skill` in a transformed tools array would declare a tool that does not exist there.
+const CLAUDE_ONLY_TOOLS = new Set(['Skill']);
+
 /** Remap a Claude tools array to the target agent's tool names. Deduplicates. */
 function remapTools(toolsArray, agentId) {
   const map = TOOL_MAP[agentId];
-  const mapped = toolsArray.map((t) => map[t] || t);
+  const mapped = toolsArray.filter((t) => !CLAUDE_ONLY_TOOLS.has(t)).map((t) => map[t] || t);
   return [...new Set(mapped)];
 }
 

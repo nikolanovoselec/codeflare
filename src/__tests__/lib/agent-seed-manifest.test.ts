@@ -2541,6 +2541,38 @@ describe('Incremental review scope confinement / REQ-AGENT-040 AC8 (reviewer def
   });
 });
 
+describe('Reviewer agents can invoke their enforce skills (Skill tool grant vs Pi skills flag)', () => {
+  // The reviewer/guide agent bodies bind them to invoke spec-enforce / doc-enforce /
+  // tdd-enforce as their first action. On Claude that requires the Skill tool in the
+  // agent's tools array (without it the agent physically cannot invoke the skill and
+  // self-reports enforcement-skill-not-invoked). On Pi there is no Skill tool — access
+  // is granted by the `skills: true` frontmatter flag — so a transformed agent must NOT
+  // carry a (nonexistent) Skill tool. These fail if either grant regresses.
+  const CLAUDE_REVIEWERS = ['spec-reviewer', 'doc-updater', 'code-reviewer', 'tdd-guide'];
+
+  it('every Claude reviewer/guide agent grants the Skill tool so its enforce skill is invocable', () => {
+    for (const name of CLAUDE_REVIEWERS) {
+      const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === `.claude/agents/${name}.md`);
+      expect(doc, `.claude/agents/${name}.md should be seeded`).toBeTruthy();
+      const toolsLine = doc!.content.match(/^tools:.*$/m)?.[0] ?? '';
+      expect(toolsLine, `${name} must list the Skill tool`).toContain('"Skill"');
+    }
+  });
+
+  it('transformed runtimes never inherit the Claude-only Skill tool (Pi uses skills: true instead)', () => {
+    const piCr = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
+    expect(piCr).toBeTruthy();
+    const piTools = piCr!.content.match(/^tools:.*$/m)?.[0] ?? '';
+    expect(piTools.toLowerCase()).not.toContain('skill'); // no Skill tool on Pi
+    expect(piCr!.content).toContain('skills: true'); // access granted via the flag instead
+    const gemCr = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.gemini/agents/code-reviewer.md');
+    if (gemCr) {
+      const gemTools = gemCr.content.match(/^tools:.*$/m)?.[0] ?? '';
+      expect(gemTools).not.toContain('Skill');
+    }
+  });
+});
+
 describe('Pi memory model-fidelity lever / REQ-MEM-014 AC5/AC6 (buildSpawnOptions applies the model only when set; no hardcoded model)', () => {
   it('applies the model option only when a model argument is provided', () => {
     expect(buildSpawnOptions('Capture session memory', 'higher-fidelity-model').model).toBe('higher-fidelity-model');

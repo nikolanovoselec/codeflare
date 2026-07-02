@@ -81,7 +81,11 @@ function spawn(type: string, prompt: string, description: string, model?: string
 // (covers a sessionManager that does not expose getHeader). Fail-open to root behavior.
 function isChildSession(ctx: any): boolean {
   try {
-    if (isChildSessionHeader(ctx?.sessionManager?.getHeader?.())) return true;
+    // A present header is authoritative (root OR child) — decide from it and never touch disk.
+    // Only fall to the on-disk header when getHeader is genuinely unavailable; otherwise a long
+    // root session would re-read its whole growing session JSONL every handler, every turn.
+    const header = ctx?.sessionManager?.getHeader?.();
+    if (header) return isChildSessionHeader(header);
   } catch { /* fall through to the on-disk header */ }
   try {
     const file = ctx?.sessionManager?.getSessionFile?.();
