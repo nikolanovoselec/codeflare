@@ -304,6 +304,25 @@ export function attachSwipeGestures(
   container.addEventListener('touchend', onTouchEnd, { capture: true, passive: true });
   container.addEventListener('touchcancel', onTouchCancel, { capture: true, passive: true });
 
+  // --- xterm >=6.1 Gesture shield ---
+  // xterm 6.1 (6.1.0-beta.288) registers a DOCUMENT-level Gesture singleton
+  // (vendored VS Code touch.ts, via MouseService Gesture.addTarget on
+  // .xterm-screen) that claims every touch starting inside the terminal and
+  // calls preventDefault() on the native touchstart/touchend. preventDefault
+  // on those events suppresses the browser's synthesized click — the ONLY
+  // trigger that opens the mobile virtual keyboard (Terminal.tsx on:click) —
+  // and its gesture scrolling double-drives our scrollLines() path. This app
+  // owns all touch handling on the terminal container, so stop touch events
+  // here (bubble phase, i.e. after our capture handlers above) before they
+  // reach xterm's document-level listeners. stopPropagation() does not affect
+  // browser defaults, so tap -> click synthesis keeps working.
+  function shieldFromXtermGesture(e: TouchEvent) {
+    e.stopPropagation();
+  }
+  container.addEventListener('touchstart', shieldFromXtermGesture);
+  container.addEventListener('touchmove', shieldFromXtermGesture);
+  container.addEventListener('touchend', shieldFromXtermGesture);
+
   return () => {
     resetState();
     cancelInertia();
@@ -311,5 +330,8 @@ export function attachSwipeGestures(
     container.removeEventListener('touchmove', onTouchMove, { capture: true } as EventListenerOptions);
     container.removeEventListener('touchend', onTouchEnd, { capture: true } as EventListenerOptions);
     container.removeEventListener('touchcancel', onTouchCancel, { capture: true } as EventListenerOptions);
+    container.removeEventListener('touchstart', shieldFromXtermGesture);
+    container.removeEventListener('touchmove', shieldFromXtermGesture);
+    container.removeEventListener('touchend', shieldFromXtermGesture);
   };
 }

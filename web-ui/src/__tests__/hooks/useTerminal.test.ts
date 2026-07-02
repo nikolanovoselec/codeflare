@@ -126,6 +126,7 @@ vi.mock('../../lib/settings', () => ({
 }));
 
 import { useTerminal, type UseTerminalOptions, DECTCEM_CURSOR_PARAM, KEYBOARD_REFIT_DEBOUNCE_MS } from '../../hooks/useTerminal';
+import { Terminal as XTerm } from '@xterm/xterm';
 import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
 import { isTouchDevice, getKeyboardHeight, isVirtualKeyboardOpen, forceResetKeyboardState, disableVirtualKeyboardOverlay } from '../../lib/mobile';
@@ -254,6 +255,28 @@ describe('useTerminal hook', () => {
         defaultProps.sessionId,
         defaultProps.terminalId
       );
+    });
+  });
+
+  describe('xterm constructor contract', () => {
+    it('should disable xterm color-scheme reporting so no CSI ?997 report can reach the PTY', () => {
+      // xterm >=6.1 answers CSI ?996n / DECSET 2031 with CSI ?997;x n by
+      // default (vtExtensions.colorSchemeQuery defaults to true). Claude Code
+      // echoes the async report at the prompt (anthropics/claude-code#41570),
+      // so the option must stay off (restores xterm 6.0.0 behavior).
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      expect(vi.mocked(XTerm)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          vtExtensions: expect.objectContaining({ colorSchemeQuery: false }),
+        })
+      );
+
+      dispose();
     });
   });
 
