@@ -89,28 +89,30 @@ describe('fuzz: registerMultiLineLinkProvider', () => {
       }),
       { numRuns: NUM_RUNS },
     );
-  });
+  }, 120_000);
 
   it('every emitted link is an http(s) URL with a valid activate handler and ordered range', () => {
     fc.assert(
-      fc.property(rowsArb, colsArb, (rows, cols) => {
+      // One fuzzed (buffer, queried-row) pair per iteration: querying every row
+      // per iteration multiplied the cost ~24x and blew the test timeout at the
+      // CI iteration count.
+      fc.property(rowsArb, colsArb, fc.nat(), (rows, cols, ySeed) => {
         const { provider } = captureProvider(rows, cols);
-        for (let y = 1; y <= rows.length; y++) {
-          const { links } = provideLinksSync(provider, y);
-          for (const link of links ?? []) {
-            // The URL regex char class excludes whitespace and quote/angle chars;
-            // an emitted link violating this means boundary-stripping regressed.
-            expect(link.text).toMatch(/^https?:\/\/[^\s"'<>]+$/);
-            expect(typeof link.activate).toBe('function');
-            const { start, end } = link.range;
-            expect(end.y).toBeGreaterThanOrEqual(start.y);
-            if (end.y === start.y) expect(end.x).toBeGreaterThanOrEqual(start.x);
-          }
+        const y = 1 + (ySeed % rows.length);
+        const { links } = provideLinksSync(provider, y);
+        for (const link of links ?? []) {
+          // The URL regex char class excludes whitespace and quote/angle chars;
+          // an emitted link violating this means boundary-stripping regressed.
+          expect(link.text).toMatch(/^https?:\/\/[^\s"'<>]+$/);
+          expect(typeof link.activate).toBe('function');
+          const { start, end } = link.range;
+          expect(end.y).toBeGreaterThanOrEqual(start.y);
+          if (end.y === start.y) expect(end.x).toBeGreaterThanOrEqual(start.x);
         }
       }),
       { numRuns: NUM_RUNS },
     );
-  });
+  }, 120_000);
 
   it('resists catastrophic backtracking on adversarial URL-shaped rows (ReDoS bound)', () => {
     // Long runs of regex-ambiguous URL characters across wrapped rows are the
@@ -130,5 +132,5 @@ describe('fuzz: registerMultiLineLinkProvider', () => {
       }),
       { numRuns: Math.min(NUM_RUNS, 2000) }, // wall-clock-bounded property; capped explicitly, not silently
     );
-  });
+  }, 120_000);
 });

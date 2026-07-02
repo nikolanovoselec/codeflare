@@ -293,13 +293,11 @@ describe('Fuzz: parseSessionMessages', () => {
         const jsonl = entries
           .map((e) => (typeof e === 'string' ? e : JSON.stringify(e)))
           .join('\n');
-        const expected = entries.filter(
-          (e): e is { type: 'message'; message: { role: string } } =>
-            typeof e !== 'string' && e.type === 'message',
+        const expectedRoles = entries.flatMap((e) =>
+          typeof e !== 'string' && e.type === 'message' ? [e.message.role] : [],
         );
         const messages = parseSessionMessages(jsonl);
-        expect(messages).toHaveLength(expected.length);
-        expect(messages.map((m) => m.role)).toEqual(expected.map((e) => e.message.role));
+        expect(messages.map((m) => m.role)).toEqual(expectedRoles);
       }),
       { numRuns: NUM_RUNS },
     );
