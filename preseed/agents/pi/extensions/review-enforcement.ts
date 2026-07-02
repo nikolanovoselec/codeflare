@@ -1555,7 +1555,7 @@ export default function (pi: ExtensionAPI) {
       "- Background monitor only. Do not edit source, documentation, or spec files.",
       "- Do not run tests, builds, typechecks, linters, dev servers, CI watches, or deploy commands.",
       "- Poll the listed lane result files and summary.md for up to 30 minutes, stopping sooner only when they all exist or a required lane marker explicitly has status=failed in .git/codeflare-review-jobs/<head>/lanes/.",
-      "- Use one shell polling loop or another low-turn strategy; do not burn one subagent turn per poll.",
+      "- Use one shell polling loop on a tight fixed cadence: sleep 10 seconds between checks (a single `while` loop with `sleep 10`), never a coarse multi-minute sleep, so completion is detected and reported within ~10s of the lanes finishing — not minutes later. Do not burn one subagent turn per poll.",
       "- Missing result files are expected while any required lane marker is still running; keep waiting in that state.",
       "- If a required lane marker explicitly has status=failed before every lane result and summary.md exist: do not write the completion marker, remove the monitor request marker, and return REVIEW_RESULT failed.",
       "- If every lane result exists but summary.md is missing, write summary.md by combining the lane reports with a severity table and ranked findings. Do not write the review ack; the extension owns exact-head gate state.",

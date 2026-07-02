@@ -2104,6 +2104,7 @@ None.
 - Visible monitor handoff is review result delivery, not reviewer lane spawning.
 - Durable monitor claims remain the duplicate-suppression source of truth.
 - The handoff is the sole trigger for the CI monitor as well as the `review-monitor`; no separate per-push CI monitor is started ([REQ-AGENT-068](#req-agent-068-ci-monitoring-background-agent-policy)), so the two never collide.
+- The `review-monitor` polling loop uses a tight fixed cadence (≈10s between checks, never a coarse multi-minute sleep) so a completed review is delivered to the main session within ~10s of the lanes finishing, not minutes later. Both monitor-prompt sources (the extension's inline `reviewMonitorPrompt` and the `review-monitor` agent file) pin this cadence so the subagent cannot pick an arbitrarily coarse interval. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- coverage-gap: the poll cadence is subagent-executed shell in a spawned monitor; verified by live PR-boundary review latency, no isolatable unit -->
 
 **Priority:** P1
 
