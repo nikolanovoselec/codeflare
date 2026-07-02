@@ -12,7 +12,7 @@ Technical reference for the mobile terminal implementation covering keyboard han
 - [Cursor Visibility](#cursor-visibility)
 - [Keyboard Management](#keyboard-management)
 - [Touch Input](#touch-input)
-- [xterm 6.1 Color-Scheme Report Suppression](#xterm-61-color-scheme-report-suppression-git-fix-21)
+- [xterm 6.1 Color-Scheme Report Suppression (git: Fix 21)](#xterm-61-color-scheme-report-suppression-git-fix-21)
 - [Scroll Stability](#scroll-stability)
 - [WebSocket Recovery](#websocket-recovery)
 - [Scroll-Stability Integration Test Plan](#scroll-stability-integration-test-plan)
@@ -171,7 +171,9 @@ The mobile terminal input system uses several techniques to work around browser/
 
 ## xterm 6.1 Color-Scheme Report Suppression (git: Fix 21)
 
-Not touch-related — filed here as a sibling xterm-6.1 regression (backed by `REQ-TERM-002` AC8, fixed in `useTerminal.ts`, not `touch-gestures.ts`). xterm 6.1's default-on color-scheme reporting (upstream PR #5628) answers `CSI ?996n` and pushes `CSI ?997;1n` on every theme change once a TUI enables DECSET 2031. `applyCursorVisibility()` reassigns `options.theme` on every DECTCEM (cursor show/hide) toggle, so a 2031-enabled TUI (Claude Code, which toggles the cursor constantly and has a known echo gap — anthropics/claude-code#41570) gets flooded with `?997` reports it echoes at the prompt (visible as a literal `^[[?997;1n` and a corrupted status line). Fix: `vtExtensions: { colorSchemeQuery: false }` passed to the `Terminal` constructor in `useTerminal.ts` — a public typed xterm option that gates both the `996` reply and the `2031` push, restoring exact 6.0.0 byte behavior. Covered by `useTerminal.test.ts` (constructor contract: `vtExtensions.colorSchemeQuery === false`). ([REQ-TERM-002](../../sdd/spec/terminal.md#req-term-002-websocket-connection-to-container-pty) AC8)
+Not touch-related — filed here as a sibling xterm-6.1 regression (backed by `REQ-TERM-002` AC8, fixed in `useTerminal.ts`, not `touch-gestures.ts`).
+
+xterm 6.1's default-on color-scheme reporting (upstream PR #5628) answers `CSI ?996n` and pushes `CSI ?997;1n` on every theme change once a TUI enables DECSET 2031. `applyCursorVisibility()` reassigns `options.theme` on every DECTCEM (cursor show/hide) toggle, so a 2031-enabled TUI (Claude Code, which toggles the cursor constantly and has a known echo gap — anthropics/claude-code#41570) gets flooded with `?997` reports it echoes at the prompt (visible as a literal `^[[?997;1n` and a corrupted status line). Fix: `vtExtensions: { colorSchemeQuery: false }` passed to the `Terminal` constructor in `useTerminal.ts` — a public typed xterm option that gates both the `996` reply and the `2031` push, restoring exact 6.0.0 byte behavior. Covered by `useTerminal.test.ts` (constructor contract: `vtExtensions.colorSchemeQuery === false`). ([REQ-TERM-002](../../sdd/spec/terminal.md#req-term-002-websocket-connection-to-container-pty) AC8)
 
 ## Scroll Stability
 
