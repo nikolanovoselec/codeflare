@@ -496,6 +496,14 @@ All preseed content is deployed via the manifest pipeline:
   explicit required-lane `status: "failed"` produces `REVIEW_RESULT failed` without
   a completion marker, so a later retry can deliver the final summary.
 
+  The monitor's polling loop is pinned to a tight fixed cadence (`sleep 10` between
+  checks, never a coarse multi-minute sleep) so a completed review is delivered to the
+  main session within ~10s of the lanes finishing. Both monitor-prompt sources (the
+  extension's inline `reviewMonitorPrompt` and the `review-monitor` agent file) pin
+  this so the subagent cannot pick an arbitrarily coarse interval — an earlier unpinned
+  cadence let it choose multi-minute sleeps, surfacing as review results landing in the
+  main session up to ~15 minutes late.
+
   Pi keeps the pending review window unacked until a valid `monitor.completed`
   exists, and it does not resurrect old acked jobs after pending state is cleared.
   `/review-results` remains the manual fallback for saved exact-head summaries.
