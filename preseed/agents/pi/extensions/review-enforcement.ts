@@ -58,7 +58,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { ALL_REVIEW_LANES, boundaryFallbackHead, boundaryTriggerCommandEntries, bypassAckHeadForStatus, canMainSessionConsumeReviewBypass, classifyReviewFiles, classifyReviewHead, commandTextFromEvent, commandTextsFromEvent, completeTranscriptDelta, createBoundedOnceTracker, createReadyOnceTracker, cwdFromBoundaryCommand, enforcedHeadDecision, extractBackgroundAgentId, gitPushCommandTarget, isFailedToolExecution, isGhPrMergeCommand, isGitPushOnlyCommand, isPrBoundaryTrigger, mergeCommandTarget, postCommandReconcileDecision, prBoundaryCommandBase, prCreateCommandTarget, prEditCommandTarget, prEnforcedForPush, prUpdateBranchCommandTarget, prUrlFromText, reusablePendingReview, reviewBypassConsumeDecision, selectReviewBase, startedBoundaryCommandForToolEnd, type ReviewHeadStatus, type ReviewSpawnRequest } from "./review-helpers";
-import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewBoundaryStartDecision, reviewMonitorCompletionRejectReason, resolveSpawnedAgentId, reviewDeliveryGiveUp, reviewCompletionResultFromCounts, reviewMonitorStartupFailureMessage, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, reviewWindowStartDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, visibleMonitorHandoffRequest, type DurableReviewSummaryRecord } from "./review-job-helpers";
+import { agentHeadAdvanceRequiresReview, compactDurableReviewStatus, countReviewSeverities, durableReviewAckReady, durableReviewEligibleLanes, durableReviewInitialLanes, durableReviewRecommendation, formatMergedReviewSummary, isAgentSpawnerToolEvent, isTaskSessionFile, mergeGateDecision, registerReviewRefreshLifecycleHooks, reviewBoundaryStartDecision, reviewMonitorCompletionRejectReason, resolveSpawnedAgentId, reviewDeliveryGiveUp, reviewMonitorStartupFailureMessage, reviewResultsSummaryMessage, shouldCheckOpenPrReconciliation, shouldReconcileOpenPr, reconcileBoundaryAction, reviewInSessionContinuation, reviewWindowStartDecision, resolveReviewRepo, rememberReviewRepo, recallReviewRepo, recallReviewRepos, recallActiveRepo, rememberActiveRepo, reviewMonitorSpawnDecision, visibleMonitorHandoffRequest, type DurableReviewSummaryRecord } from "./review-job-helpers";
 import { abandonDurableReviewLanes, appendReviewEvent, completedDurableReviewLanes, failedDurableReviewLanes, readDurableReviewJob, reapDurableReviewLanes, reviewJobDir, reviewResultPath, reviewResultsDir, runningDurableReviewLanes, safeWriteText, startDurableReviewLanes } from "./review-jobs";
 
 const REVIEW_BYPASS = "/tmp/review-bypass";
@@ -1537,26 +1537,6 @@ export default function (pi: ExtensionAPI) {
     return (globalThis as Record<symbol, unknown>)[Symbol.for("@gotgenes/pi-subagents:service")];
   }
 
-  // Write the monitor.completed marker from the on-disk lane results, in the exact shape the
-  // review-monitor agent writes (repo/head/summaryPath/completedAt/result). Used only by the
-  // last-resort self-reap below, when a review is complete + summary.md exists but no monitor
-  // ever latched a valid completion (it died, or a non-contract deliverer reported the result
-  // without marking). Idempotent: no-op if a valid completion already exists.
-  function writeReviewMonitorCompletionFromDisk(state: PendingReview): void {
-    if (reviewMonitorCompletionReady(state)) return;
-    const summaryPath = join(reviewResultsDir(state.repo, state.head), "summary.md");
-    if (!existsSync(summaryPath)) return;
-    const counts = reviewSummaryRecordsFromDisk(state).map((r) => r.counts);
-    const record = {
-      repo: state.repo,
-      head: state.head,
-      summaryPath,
-      completedAt: Date.now(),
-      result: reviewCompletionResultFromCounts(counts),
-    };
-    safeWriteText(reviewMonitorCompletedPath(state), JSON.stringify(record));
-  }
-
   function reviewMonitorPrompt(state: PendingReview): string {
     const summaryPath = join(reviewResultsDir(state.repo, state.head), "summary.md");
     const lanes = state.lanes.map((lane) => ({ lane, resultPath: reviewResultPath(state.repo, state.head, lane) }));
@@ -1697,32 +1677,6 @@ export default function (pi: ExtensionAPI) {
       return;
     }
     if (reviewDeliveryGiveUp({ completionReady: false, now: Date.now(), reviewStartedAt: state.reviewStartedAt, monitorStartedAt: reviewMonitorStartedAt(state), laneBudgetMs: MAX_REVIEW_AGE_MS, monitorTtlMs: REVIEW_MONITOR_TTL_MS })) {
-      // Last-resort self-reap: all lanes are complete and summary.md was just written (above),
-      // but no monitor latched a valid completion within the TTL — the monitor died, or a
-      // non-contract deliverer (e.g. a hand-started watcher) reported the result to chat
-      // without writing the durable marker, leaving the head stuck pending. Rather than
-      // dead-end the merge gate, the extension delivers the summary itself and THEN reaps
-      // (write marker + ack): delivery still precedes ack. If delivery itself fails, fall
-      // through to the original blocked give-up so the ack never runs undelivered.
-      const summaryPath = join(reviewResultsDir(state.repo, state.head), "summary.md");
-      let delivered = false;
-      if (existsSync(summaryPath)) {
-        try {
-          pi.sendMessage(reviewResultsSummaryMessage({ repo: state.repo, head: state.head, content: readFileSync(summaryPath, "utf8") }));
-          delivered = true;
-        } catch { /* delivery failed — fall through to the blocked give-up below */ }
-      }
-      if (delivered) {
-        writeReviewMonitorCompletionFromDisk(state);
-        appendReviewEvent(state.repo, { event: "review_self_delivered_and_acked", head: state.head, lanes: state.lanes });
-        writeAck(state.repo, state.head);
-        resetBlockCount(state.repo);
-        clearBreaker(state.repo);
-        clearPending(state.repo);
-        pending = undefined;
-        if (ctx) clearReviewStatus(ctx);
-        return;
-      }
       openBreaker(state.repo, state.head);
       appendReviewEvent(state.repo, { event: "review_delivery_gave_up", head: state.head, lanes: state.lanes });
       clearPending(state.repo);
