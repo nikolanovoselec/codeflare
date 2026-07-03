@@ -268,7 +268,7 @@ describe('Fuzz: getRegimeState KV hardening', () => {
 
 // ---------------------------------------------------------------------------
 // Pi session-JSONL helpers — parse untrusted session-file content
-// (REQ-MEM-001 AC7/AC8, REQ-VAULT-003 AC7).
+// (REQ-MEM-015 AC1/AC2, REQ-VAULT-003 AC7).
 // ---------------------------------------------------------------------------
 describe('Fuzz: parseSessionMessages', () => {
   it('never throws on arbitrary content and returns only message payloads', () => {

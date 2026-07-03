@@ -1,5 +1,5 @@
 /**
- * REQ-GITHUB-003: GitHubInterceptor — the security core of enterprise GitHub auth.
+ * REQ-GITHUB-003 / REQ-ENTERPRISE-024: GitHubInterceptor — the security core of enterprise GitHub auth.
  *
  * A WorkerEntrypoint the container DO wires into container egress for the GitHub
  * hosts. It resolves the per-user token from the deploy-keys KV entry (keyed by the

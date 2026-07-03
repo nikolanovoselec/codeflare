@@ -8,7 +8,7 @@
  *   REQ-MOB-001 AC1 - terminal renders on real mobile viewport (Playwright + Android emulator)
  *   REQ-MOB-001 AC2 - touch input / command execution identical to desktop (Playwright E2E)
  *   REQ-MOB-001 AC3 - e2e-ui-mobile CI job passes (CI job, not a unit test)
- *   REQ-MOB-002 AC5 - iframe compositor jail (not exported; Playwright + Android IME)
+ *   REQ-MOB-016 AC1 - iframe compositor jail (not exported; Playwright + Android IME)
  *   REQ-MOB-002 AC7 - isFocused via iframe.contentDocument.hasFocus() (not exported; Playwright)
  *   REQ-MOB-004 AC1 - .xterm-viewport overflow:hidden CSS rule (visual / Playwright)
  *   REQ-MOB-004 AC2 - _syncTextArea not frozen (xterm internal; Playwright)
@@ -301,7 +301,7 @@ describe('REQ-MOB-002: Virtual keyboard opens reliably on tap', () => {
     expect(height).toBeGreaterThan(0);
   });
 
-  // REQ-MOB-002 AC6 (the document.createElement monkey-patch that swaps xterm's
+  // REQ-MOB-016 AC2 (the document.createElement monkey-patch that swaps xterm's
   // textarea for a password input during terminal.open(), then restores it) is
   // covered by a GENUINE behavioral test that mounts the hook on a touch device
   // and drives a textarea creation through the patch, in

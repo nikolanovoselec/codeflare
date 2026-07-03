@@ -1,5 +1,5 @@
 /**
- * REQ-ENTERPRISE-004: LlmInterceptor — the security core of enterprise LLM routing.
+ * REQ-ENTERPRISE-004 / REQ-ENTERPRISE-024: LlmInterceptor — the security core of enterprise LLM routing.
  *
  * A WorkerEntrypoint the container DO wires into container egress. It holds the
  * AI Gateway secrets, maps the intercepted OpenAI host onto the AI Gateway REST

@@ -124,7 +124,7 @@ describe('reviewMonitorCompletionRejectReason (R3: diagnostic completion validat
   });
 });
 
-// REQ-AGENT-062 AC8: ground-truth monitor liveness drives early reclaim -> prompt re-spawn.
+// REQ-AGENT-077 AC2: ground-truth monitor liveness drives early reclaim -> prompt re-spawn.
 // Gut either helper's rule and a case here fails.
 describe('reviewMonitorLiveness (classifies a subagents-service record into running/terminal/unknown)', () => {
   it('treats queued/running/steered as still-running work (never early-reclaimed)', () => {

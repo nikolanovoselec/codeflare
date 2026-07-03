@@ -86,7 +86,7 @@ function makeKey(sessionId: string, terminalId: string): string {
 }
 
 /**
- * Equal-jitter exponential backoff for WebSocket reconnect (REQ-TERM-003 AC8).
+ * Equal-jitter exponential backoff for WebSocket reconnect (REQ-TERM-020 AC3).
  * raw = min(MAX, BASE * 2^(attempt-1)); returns raw scaled to 50–100% (jitter)
  * so multiple panes de-correlate. `attempt` is 1-based; `rand` is injectable for
  * deterministic tests. Worst-case settles at the MAX cap (~4 attempts/min),
@@ -380,7 +380,7 @@ function connect(
     // Connect-timeout: a socket frozen in CONNECTING (network re-establishing
     // after a mobile app-switch) emits no close/error event and would otherwise
     // strand the terminal on "Connecting". Force-close it and schedule the
-    // backoff retry (REQ-TERM-003 AC8).
+    // backoff retry (REQ-TERM-020 AC2).
     clearConnectTimer(key);
     connectTimers.set(key, setTimeout(() => {
       if (signal.aborted || !ownsConnection()) return;
@@ -541,7 +541,7 @@ function connect(
       // superseding connect) surfaces here as an error event. The disconnect has
       // already aborted the signal and released ownership, so this is expected
       // churn, not a real failure — stay silent (mirrors the onclose guard) so it
-      // does not spam the console with "[Terminal …] WS ERROR" (REQ-TERM-003 AC7).
+      // does not spam the console with "[Terminal …] WS ERROR" (REQ-TERM-020 AC1).
       if (signal.aborted || !ownsConnection()) return;
       logger.error(`[Terminal ${key}] WS ERROR`, event);
     };
@@ -551,7 +551,7 @@ function connect(
     connections.set(key, ws);
   }
 
-  // Schedule a backoff reconnect for the NEXT attempt (REQ-TERM-003 AC8/AC9).
+  // Schedule a backoff reconnect for the NEXT attempt (REQ-TERM-020 AC2/AC3).
   // Paused while the tab is hidden — the visibility-return handler restarts at
   // attempt 1 on foreground, so background tabs burn no battery/connect budget.
   function scheduleReconnect(attemptNumber: number): void {
@@ -567,7 +567,7 @@ function connect(
     // reconnectOnVisibilityReturn only revives 'disconnected'/'connecting' panes, so without
     // this a pane that drops while backgrounded strands as a dead 'connected' socket
     // (typing silently dropped, needs a reload) — the exact mobile app-switch failure this
-    // feature exists to cure (REQ-TERM-003 AC8/AC9).
+    // feature exists to cure (REQ-TERM-020 AC2/AC3).
     setConnectionState(sessionId, terminalId, 'connecting');
     if (typeof document !== 'undefined' && document.hidden) {
       logger.debug(`[Terminal ${key}] tab hidden — deferring reconnect to visibility return`);
@@ -646,7 +646,7 @@ function disconnect(sessionId: string, terminalId: string): void {
     // the console noise seen on rapid enter/exit. The signal was aborted and
     // ownership released above, so the connect() handlers close the socket
     // cleanly once the handshake resolves (onopen) and stay silent on failure.
-    // Force-close only a socket that has actually opened (REQ-TERM-003 AC7).
+    // Force-close only a socket that has actually opened (REQ-TERM-020 AC1).
     if (ws.readyState !== WebSocket.CONNECTING) {
       ws.close();
     }

@@ -58,8 +58,6 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
----
-
 ### REQ-AGENT-002: Agent Selection at Session Creation
 
 **Intent:** Users must be able to choose which AI agent to use when creating a session.
@@ -87,8 +85,6 @@ Multi-agent support, preseed system, and session modes.
 **Verification:** [Automated test](../../src/__tests__/lib/agent-config.test.ts), [Beta-badge UI test](../../web-ui/src/__tests__/components/CreateSessionDialog.test.tsx)
 
 **Status:** Implemented
-
----
 
 ---
 
@@ -123,8 +119,6 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
----
-
 ### REQ-AGENT-004: Two Session Modes: Standard and Pro
 
 **Intent:** Users must be able to choose between a Standard mode (essential configs) and a Pro (Advanced) mode (full agent enhancement suite).
@@ -152,8 +146,6 @@ Multi-agent support, preseed system, and session modes.
 **Verification:** [Automated test](../../src/__tests__/lib/session-mode.test.ts)
 
 **Status:** Implemented
-
----
 
 ---
 
@@ -243,8 +235,6 @@ Multi-agent support, preseed system, and session modes.
 **Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
 **Status:** Implemented
-
----
 
 ---
 
@@ -430,8 +420,6 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
----
-
 ### REQ-AGENT-014: Manifest-Driven Preseed Pipeline
 
 **Intent:** The preseed system must use a declarative manifest to control which files are included, their mode assignments, and their target agents, ensuring auditable and reproducible builds.
@@ -493,8 +481,6 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
----
-
 ### REQ-AGENT-017: Bubblewrap sandbox for Codex
 
 **Intent:** Codex agent runs in a bubblewrap sandbox for additional isolation within the container.
@@ -517,8 +503,6 @@ None.
 **Verification:** [Automated test](../../host/__tests__/dockerfile-graphify.test.js)
 
 **Status:** Implemented
-
----
 
 ---
 
@@ -573,8 +557,6 @@ None.
 **Verification:** [Automated test](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx)
 
 **Status:** Implemented
-
----
 
 ---
 
@@ -1190,6 +1172,7 @@ None.
 **Verification:** [Lane classifier tests](../../host/__tests__/lane-classifier.test.js), [Stop-hook behavioral tests](../../host/__tests__/enforce-review-spawn.test.js), [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
 **Status:** Implemented
+
 ---
 
 ### REQ-AGENT-041: PR-Boundary Review Bypass Surfaces
@@ -1709,6 +1692,7 @@ None.
 **Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
 **Status:** Implemented
+
 ---
 
 ### REQ-AGENT-061: Pi Idle Durable Review Reaper
@@ -1752,11 +1736,9 @@ None.
 1. Creating an active PR-boundary review window records at most one monitor claim per `(repo, head)` using durable claims and completion markers. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ensureReviewWindow --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::claimReviewMonitorStart --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorCompletionReady --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorSpawnDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (review monitor dedupes spawn with TTL/completion marker, waits for lane files + summary, handles failures, fallback message carries the monitor prompt, and manual review-results display does not claim acknowledgement) -->
 2. The monitor waits while any required lane marker is `running` or any required lane result file is missing. <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (review monitor waits for every required lane file and summary.md before reporting ready) --> <!-- @test: src/__tests__/lib/review-state.test.ts (monitor decision requires complete lane results + summary before autofix_required) -->
 3. If every required lane result exists but `summary.md` is missing, the monitor writes the merged summary before reporting. <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatMergedReviewSummary --> <!-- coverage-gap: summary write is performed by the background monitor agent runtime; verified by live PR-boundary smoke review. -->
-4. After complete lane results and `summary.md` exist, the monitor writes `monitor.completed` JSON containing `repo`, `head`, `summaryPath`, `completedAt`, and result `clean` or `findings`. <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorCompletionReady --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorCompletionRecordReady -->
+4. After complete lane results and `summary.md` exist, the monitor writes `monitor.completed` JSON containing `repo`, `head`, `summaryPath`, `completedAt`, and result `clean` or `findings`. <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorCompletionReady --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorCompletionRecordReady --> <!-- @test: src/__tests__/lib/review-monitor-reliability.test.ts (reviewMonitorCompletionRejectReason (R3: diagnostic completion validation)) -->
 5. A completion record with mismatched repo/head/summaryPath, invalid `result`, or stale/missing `completedAt` is rejected, deleted for retry, and only a valid record latches. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorCompletionReady --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorCompletionRejectReason --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorCompletionRecordReady --> <!-- @test: src/__tests__/lib/review-monitor-reliability.test.ts (reviewMonitorCompletionRejectReason names repo/head/summary-path/result/missing-completedAt/stale-completedAt rejection reasons; reviewMonitorCompletionRecordReady gates latch on a valid record) -->
 6. Only an explicit required-lane `failed` marker can produce `REVIEW_RESULT failed` before completion. <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (review monitor decision returns wait, not failed, when result files are missing and failedLanes is empty) --> <!-- coverage-gap: AC6's actual REVIEW_RESULT failed emission is the background review-monitor's runtime output path; verified by live smoke/adversarial review. -->
-7. `/review-results` remains a manual fallback that displays the saved `summary.md` for the current exact head without mutating delivery state, relying on nonce/announcement records, or claiming the head was acknowledged. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewResultsSummaryMessage --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatMergedReviewSummary --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (manual review-results display does not claim acknowledgement) -->
-8. When a monitor claim's tracked agent is terminal (per the subagents service) with no completion latched, the extension reclaims the claim before its TTL so the next active-run reaper re-spawns a fresh monitor rather than the review staying stuck until the TTL elapses. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reclaimStaleReviewMonitorClaim --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorLiveness --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorClaimReclaimEarly --> <!-- @test: src/__tests__/lib/review-monitor-reliability.test.ts (classifies a subagents-service record into running/terminal/unknown) --> <!-- @test: src/__tests__/lib/review-monitor-reliability.test.ts (reclaim before TTL only on provable death with no completion) --> <!-- coverage-gap: AC8's fs/service wiring in reclaimStaleReviewMonitorClaim (reading the claim agentId, the subagents-service getRecord probe, and the unlink) is Pi extension runtime not exercised by an automated test; only the pure reviewMonitorLiveness classification and reviewMonitorClaimReclaimEarly decision are unit-tested. Verified by live smoke/adversarial review. -->
 
 **Constraints:**
 
@@ -1770,6 +1752,33 @@ None.
 **Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts); [review-state tests](../../src/__tests__/lib/review-state.test.ts); [review-monitor reliability tests](../../src/__tests__/lib/review-monitor-reliability.test.ts). The background subagent completion notification and main-session autofix handoff are Pi runtime integration paths verified by load-check plus live smoke/adversarial review.
 
 **Status:** Implemented
+
+---
+
+### REQ-AGENT-077: Pi PR-Boundary Review Fallback and Claim Recovery
+
+**Intent:** Manual result fallback and dead-monitor reclaim must preserve PR-boundary review delivery when the visible monitor path cannot complete.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `/review-results` remains a manual fallback that displays the saved `summary.md` for the current exact head without mutating delivery state, relying on nonce/announcement records, or claiming the head was acknowledged. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewResultsSummaryMessage --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatMergedReviewSummary --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (manual review-results display does not claim acknowledgement) -->
+2. When a monitor claim's tracked agent is terminal (per the subagents service) with no completion latched, the extension reclaims the claim before its TTL so the next active-run reaper re-spawns a fresh monitor rather than the review staying stuck until the TTL elapses. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reclaimStaleReviewMonitorClaim --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorLiveness --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorClaimReclaimEarly --> <!-- @test: src/__tests__/lib/review-monitor-reliability.test.ts (classifies a subagents-service record into running/terminal/unknown) --> <!-- @test: src/__tests__/lib/review-monitor-reliability.test.ts (reclaim before TTL only on provable death with no completion) --> <!-- coverage-gap: AC2's fs/service wiring in reclaimStaleReviewMonitorClaim (reading the claim agentId, the subagents-service getRecord probe, and the unlink) is Pi extension runtime not exercised by an automated test; only the pure reviewMonitorLiveness classification and reviewMonitorClaimReclaimEarly decision are unit-tested. Verified by live smoke/adversarial review. -->
+
+**Constraints:**
+
+- The fallback remains read-only and never mutates monitor delivery state.
+- A monitor claim is reclaimed early only when the tracked agent is provably terminal and no valid completion has latched.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-062](#req-agent-062-pi-pr-boundary-review-result-delivery)
+
+**Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts); [review-monitor reliability tests](../../src/__tests__/lib/review-monitor-reliability.test.ts). Runtime fallback/reclaim wiring is verified by live smoke/adversarial review.
+
+**Status:** Implemented
+
 ---
 
 ### REQ-AGENT-063: PR-Boundary Command Parsing
@@ -2004,6 +2013,8 @@ None.
 **Verification:** [Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [CI monitoring skill tests](../../host/__tests__/ci-monitoring-skill.test.js)
 
 **Status:** Implemented
+
+---
 
 ### REQ-AGENT-071: PR-Boundary Review Agent Dispatch
 

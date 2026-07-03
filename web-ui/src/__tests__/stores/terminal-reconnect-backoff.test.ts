@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { reconnectBackoffMs } from '../../stores/terminal';
 
-// REQ-TERM-003 AC9: equal-jitter exponential backoff. Pure function — exercised
+// REQ-TERM-020 AC3: equal-jitter exponential backoff. Pure function — exercised
 // directly with an injected `rand` so the contract values (floor at 50% of the
 // raw delay, ceil at 100%, doubling per attempt, 15000ms cap) are deterministic.
-describe('reconnectBackoffMs (REQ-TERM-003 AC9): equal-jitter exponential backoff', () => {
+describe('reconnectBackoffMs (REQ-TERM-020 AC3): equal-jitter exponential backoff', () => {
   it('floors each attempt at 50% of the raw exponential delay (rand=0), capped at 7500ms', () => {
     const floor = (attempt: number) => reconnectBackoffMs(attempt, () => 0);
     expect([1, 2, 3, 4, 5, 6, 7].map(floor)).toEqual([250, 500, 1000, 2000, 4000, 7500, 7500]);

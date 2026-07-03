@@ -68,10 +68,6 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 2. The Worker upgrades the HTTP request to a WebSocket and forwards it through the Container DO to the in-container terminal server. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal.test.ts (validateWebSocketRoute upgrade forwarding) -->
 3. The terminal server spawns a login shell PTY with full-color terminal emulation so interactive TUI applications render correctly. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-wire-protocol.test.js (imports the compiled Session, mock.module's node-pty, runs the real start() spawn path and asserts buildPtyEnv() returns TERM=xterm-256color + COLORTERM=truecolor, that the captured pty.spawn opts.name==='xterm-256color', and that the '-l' login-shell flag and configured terminalArgs reach the spawned argv) -->
 4. Raw terminal data flows over the WebSocket without JSON wrapping so binary-clean PTY output is preserved. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-wire-protocol.test.js (drives the real onData broadcast wiring installed by start(): fires a PTY data frame through the captured node-pty listener and asserts the OPEN client receives the bytes verbatim (frame===raw, not JSON-wrapped) while a CLOSED client receives nothing) -->
-5. Out-of-band control messages (resize, process-name, restore, and client-requested PTY termination) are encoded as JSON objects identifiable by a leading type-discriminator field. <!-- @impl: host/src/session.ts::Session --> <!-- @impl: host/src/server.ts::wss --> <!-- @impl: web-ui/src/stores/terminal.ts::dispose --> <!-- @test: host/__tests__/session-wire-protocol.test.js (covers the host-emitted control-frame half: after seeding real PTY output into the @xterm/headless buffer, attach() emits a JSON.parse-able {type:'restore', state:<non-empty>} frame and emitProcessNameIfChanged() emits {type:'process-name', processName, terminalId} on a foreground-process change) --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (client kill control frame) -->
-6. Unknown control-message types are silently ignored so the wire protocol can grow without breaking older clients or servers. <!-- @impl: host/src/session.ts::Session --> <!-- coverage-gap: the unknown-control-type forward-compat guard lives inline in server.ts's wss.on('connection') message closure interwoven with the resize/focus/data/kill branches; it is not on Session and is not cleanly extractable, and host/__tests__/ws-input-classification.test.js already re-implements the logic locally (would stay green if server.ts were gutted), so a second copy would be theater. Genuine coverage needs a real in-container WebSocket server -->
-7. No application-level ping/pong is implemented; the transport layer handles WebSocket keepalive on its own. <!-- @impl: host/src/session.ts::Session --> <!-- coverage-gap: protocol-level keepalive is `ws.ping()` on a setInterval inside server.ts's wss.on('connection') closure (per-connection pingInterval/lastPongAt/pong handler); verifying ping vs the absence of any JSON {type:'ping'} frame requires a real WebSocket pair observing wire frames over time, which node:test cannot do -->
-8. The terminal emulator's optional VT extensions that inject emulator-generated reports into the PTY input stream (xterm ≥6.1 color-scheme reporting, `CSI ?997;x n`) are disabled at construction, so agent TUIs never receive asynchronous reports they do not consume. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (constructor disables xterm color-scheme reporting so no CSI ?997 report can reach the PTY) -->
 
 **Constraints:**
 
@@ -88,6 +84,34 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 ---
 
+### REQ-TERM-019: Terminal WebSocket Control Frames and Protocol Guards
+
+**Intent:** The terminal WebSocket protocol must separate raw PTY bytes from out-of-band control behavior while avoiding client-side protocol noise that agent TUIs do not consume.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Out-of-band control messages (resize, process-name, restore, and client-requested PTY termination) are encoded as JSON objects identifiable by a leading type-discriminator field. <!-- @impl: host/src/session.ts::Session --> <!-- @impl: host/src/server.ts::wss --> <!-- @impl: web-ui/src/stores/terminal.ts::dispose --> <!-- @test: host/__tests__/session-wire-protocol.test.js (covers the host-emitted control-frame half: after seeding real PTY output into the @xterm/headless buffer, attach() emits a JSON.parse-able {type:'restore', state:<non-empty>} frame and emitProcessNameIfChanged() emits {type:'process-name', processName, terminalId} on a foreground-process change) --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (client kill control frame) -->
+2. Unknown control-message types are silently ignored so the wire protocol can grow without breaking older clients or servers. <!-- @impl: host/src/session.ts::Session --> <!-- coverage-gap: the unknown-control-type forward-compat guard lives inline in server.ts's wss.on('connection') message closure interwoven with the resize/focus/data/kill branches; it is not on Session and is not cleanly extractable, and host/__tests__/ws-input-classification.test.js already re-implements the logic locally (would stay green if server.ts were gutted), so a second copy would be theater. Genuine coverage needs a real in-container WebSocket server -->
+3. No application-level ping/pong is implemented; the transport layer handles WebSocket keepalive on its own. <!-- @impl: host/src/session.ts::Session --> <!-- coverage-gap: protocol-level keepalive is `ws.ping()` on a setInterval inside server.ts's wss.on('connection') closure (per-connection pingInterval/lastPongAt/pong handler); verifying ping vs the absence of any JSON {type:'ping'} frame requires a real WebSocket pair observing wire frames over time, which node:test cannot do -->
+4. The terminal emulator's optional VT extensions that inject emulator-generated reports into the PTY input stream (xterm ≥6.1 color-scheme reporting, `CSI ?997;x n`) are disabled at construction, so agent TUIs never receive asynchronous reports they do not consume. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (constructor disables xterm color-scheme reporting so no CSI ?997 report can reach the PTY) -->
+
+**Constraints:**
+
+- Control messages are JSON-framed out-of-band data; PTY output remains raw bytes.
+- Protocol keepalive and browser/emulator guard behavior may require integration/manual verification when no genuine unit-test seam exists.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
+
+**Verification:** [host wire-protocol tests](../../host/__tests__/session-wire-protocol.test.js), [client kill control-frame test](../../web-ui/src/__tests__/stores/terminal.test.ts), and [xterm VT-extension guard](../../web-ui/src/__tests__/hooks/useTerminal.test.ts).
+
+**Status:** Implemented
+
+---
+
 ### REQ-TERM-003: Automatic WebSocket reconnection on transient failures
 
 
@@ -98,14 +122,11 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 **Acceptance Criteria:**
 
 1. The retryable close-code set covers the standard WebSocket "transient" codes: going-away, abnormal-closure, unexpected-condition, service-restart, and try-again-later. <!-- @impl: web-ui/src/lib/constants.ts::WS_RETRYABLE_CLOSE_CODES --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (retryable code set + AbortController cancellation + inputDisposable lifecycle) -->
-2. Reconnection uses a backoff delay between attempts (see AC9) and retries indefinitely while close codes remain in the retryable set. <!-- @impl: web-ui/src/lib/constants.ts::WS_RECONNECT_BASE_MS --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (WS retryable close codes) -->
+2. Reconnection uses a backoff delay between attempts (see [REQ-TERM-020](#req-term-020-terminal-reconnect-teardown-timeout-and-backoff-timing) AC3) and retries indefinitely while close codes remain in the retryable set. <!-- @impl: web-ui/src/lib/constants.ts::WS_RECONNECT_BASE_MS --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (WS retryable close codes) -->
 3. On reconnection, the terminal buffer state is restored by serializing the in-memory xterm buffer and replaying it into the new connection. <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (retryable code set + AbortController cancellation + inputDisposable lifecycle) -->
 4. The input handler subscription is owned outside the connect routine and disposed before a replacement handler is attached so reconnect cannot duplicate keystrokes. <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (retryable code set + AbortController cancellation + inputDisposable lifecycle) -->
 5. Reconnection attempts are cancellable so parallel retry loops cannot accumulate across rapid disconnect-reconnect cycles. <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (retryable code set + AbortController cancellation + inputDisposable lifecycle) -->
 6. Dead-container state is never inferred from a retry-failure counter; only the server-authoritative container-stopped close code stops retries. <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (retryable code set + AbortController cancellation + inputDisposable lifecycle) -->
-7. Tearing down a connection whose WebSocket is still mid-handshake (CONNECTING) neither force-closes the socket nor surfaces an error: the already-aborted connect handlers close it cleanly once it resolves, so the rapid disconnect-reconnect cycles of dashboard enter/exit produce no "closed before the connection is established" browser warning or spurious WS-error log. An already-open socket is still closed on teardown. <!-- @impl: web-ui/src/stores/terminal.ts::disconnect --> <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-003 AC7: quiet teardown of in-flight connections) -->
-8. A socket that stays in CONNECTING past `WS_CONNECT_TIMEOUT_MS` (the network is still re-establishing right after a mobile app-switch and the socket emits no close or error event) is force-closed and a backoff reconnect is scheduled, so the terminal is no longer stranded mid-handshake. <!-- @impl: web-ui/src/stores/terminal.ts --> <!-- @test: web-ui/src/__tests__/stores/terminal-connect-timeout.test.ts (force-closes a socket stuck in CONNECTING) -->
-9. Reconnection delay is an equal-jitter exponential backoff (`reconnectBackoffMs`, base 500ms, doubling per attempt, capped at 15000ms, scaled to 50–100% so multiple panes de-correlate); the backoff resets to attempt 1 on a successful open and on visibility return, and is paused while `document.hidden` (the visibility-return handler restarts it at attempt 1). <!-- @impl: web-ui/src/stores/terminal.ts::reconnectBackoffMs --> <!-- @test: web-ui/src/__tests__/stores/terminal-reconnect-backoff.test.ts (equal-jitter exponential backoff) -->
 
 **Constraints:**
 
@@ -117,6 +138,33 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
 
 **Verification:** [Automated test](../../web-ui/src/__tests__/stores/terminal.test.ts), [connect-timeout test](../../web-ui/src/__tests__/stores/terminal-connect-timeout.test.ts), [backoff test](../../web-ui/src/__tests__/stores/terminal-reconnect-backoff.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-020: Terminal Reconnect Teardown, Timeout, and Backoff Timing
+
+**Intent:** Terminal reconnection must handle in-flight sockets, stalled handshakes, and retry timing without noisy browser errors or parallel retry loops.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Tearing down a connection whose WebSocket is still mid-handshake (CONNECTING) neither force-closes the socket nor surfaces an error: the already-aborted connect handlers close it cleanly once it resolves, so the rapid disconnect-reconnect cycles of dashboard enter/exit produce no "closed before the connection is established" browser warning or spurious WS-error log. An already-open socket is still closed on teardown. <!-- @impl: web-ui/src/stores/terminal.ts::disconnect --> <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-020 AC1: quiet teardown of in-flight connections) -->
+2. A socket that stays in CONNECTING past `WS_CONNECT_TIMEOUT_MS` (the network is still re-establishing right after a mobile app-switch and the socket emits no close or error event) is force-closed and a backoff reconnect is scheduled, so the terminal is no longer stranded mid-handshake. <!-- @impl: web-ui/src/stores/terminal.ts --> <!-- @test: web-ui/src/__tests__/stores/terminal-connect-timeout.test.ts (Terminal Store / REQ-TERM-020 AC2: connect-timeout force-close & AC3 pause-while-hidden) -->
+3. Reconnection delay is an equal-jitter exponential backoff (`reconnectBackoffMs`, base 500ms, doubling per attempt, capped at 15000ms, scaled to 50–100% so multiple panes de-correlate); the backoff resets to attempt 1 on a successful open and on visibility return, and is paused while `document.hidden` (the visibility-return handler restarts it at attempt 1). <!-- @impl: web-ui/src/stores/terminal.ts::reconnectBackoffMs --> <!-- @test: web-ui/src/__tests__/stores/terminal-reconnect-backoff.test.ts (reconnectBackoffMs (REQ-TERM-020 AC3): equal-jitter exponential backoff) -->
+
+**Constraints:**
+
+- Retry timing resets on successful open and visibility return, and pauses while the document is hidden.
+- CONNECTING-socket teardown avoids force-closing until the already-aborted handlers can close cleanly.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-003](#req-term-003-automatic-websocket-reconnection-on-transient-failures)
+
+**Verification:** [quiet teardown](../../web-ui/src/__tests__/stores/terminal.test.ts), [connect-timeout test](../../web-ui/src/__tests__/stores/terminal-connect-timeout.test.ts), and [backoff test](../../web-ui/src/__tests__/stores/terminal-reconnect-backoff.test.ts).
 
 **Status:** Implemented
 
@@ -362,6 +410,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 **Verification:** [Automated tests](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [Hook tests](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [Terminal store tests](../../web-ui/src/__tests__/stores/terminal.test.ts), [Layout tests](../../web-ui/src/__tests__/components/Layout.test.tsx)
 
 **Status:** Implemented
+
 ---
 
 ### REQ-TERM-012: MultiView virtual session workspace
@@ -390,6 +439,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 **Verification:** [Workspace store tests](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts) + [TerminalArea tests](../../web-ui/src/__tests__/components/TerminalArea.test.tsx) + [TerminalGrid tests](../../web-ui/src/__tests__/components/TerminalGrid.test.tsx) + [Dashboard tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx) + [Floating button tests](../../web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx)
 
 **Status:** Implemented
+
 ---
 
 ### REQ-TERM-013: MultiView selection flow
@@ -419,6 +469,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 **Verification:** [Automated tests](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [Session switcher tests](../../web-ui/src/__tests__/components/SessionSwitcher.test.tsx)
 
 **Status:** Implemented
+
 ---
 
 ### REQ-TERM-014: Terminal scroll anchoring under scrollback trimming
@@ -475,6 +526,8 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 **Verification:** [Hook tests](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [URL detection tests](../../web-ui/src/__tests__/stores/terminal-url-detection.test.ts)
 
 **Status:** Implemented
+
+---
 
 ### REQ-TERM-016: Terminal Pane Reconnect and Resize Authority
 

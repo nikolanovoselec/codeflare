@@ -8,6 +8,7 @@ import { cfApiCB } from '../../lib/circuit-breakers';
 import { resetAuthConfigCache } from '../../lib/access';
 import { createMockKV } from '../helpers/mock-kv';
 
+// REQ-ENTERPRISE-022: per-route context windows persist, validate, and round-trip through setup.
 // URL-based mock fetch factory - routes requests by URL pattern (and optionally method)
 // instead of fragile positional mockResolvedValueOnce chaining.
 //

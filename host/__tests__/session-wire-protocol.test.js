@@ -164,9 +164,9 @@ describe('REQ-TERM-002 AC4: raw PTY output reaches clients without JSON wrapping
   });
 });
 
-// ── REQ-TERM-002 AC5: host control messages are JSON with a `type` field ────
+// ── REQ-TERM-019 AC1: host control messages are JSON with a `type` field ────
 
-describe('REQ-TERM-002 AC5: host-originated control frames are typed JSON', () => {
+describe('REQ-TERM-019 AC1: host-originated control frames are typed JSON', () => {
   it('attach() sends a restore frame as JSON carrying type="restore" once buffer has state', async () => {
     const session = new Session('sess-7', 'Terminal');
     const first = createWs();

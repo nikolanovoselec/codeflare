@@ -3,7 +3,7 @@
  *
  * Replaces the text-matching audits in `host/__audits__/terminal-compound-key.audit.js`
  * for the parts that the Worker can exercise directly (REQ-TERM-001 AC2/3/6 routing,
- * REQ-TERM-002 AC1 URL pattern). Host-side PTY env wiring (REQ-TERM-002 AC3..AC7)
+ * REQ-TERM-002 AC1 URL pattern). Host-side PTY env wiring (REQ-TERM-002 AC3/AC4)
  * lives inside the container process and is covered by container-process audits
  * separately; this file replaces the route-parsing portion with real Request calls.
  *
