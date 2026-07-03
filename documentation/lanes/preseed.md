@@ -55,7 +55,11 @@ The Custom-tier column reflects the extra Claude Code delivery surface for users
 
 The five Pi tool extensions are installed in the settings `required` set, so they load in every Pi session independently of the context-mode toggle. `@juicesharp/rpiv-advisor` adds the user-invoked `advisor` tool and user-only `/advisor` configuration command; Codeflare overrides the package's prompt guidance at startup so assistants must not call `advisor`, run `/advisor`, or suggest `/advisor` unless the user's current message explicitly asks for advisor. `pi-web-access` adds `web_search`/`fetch_content`; both authenticate through Pi's own model registry / zero-config Exa MCP, so neither needs a per-user API key.
 
-`web_search` defaults to the `auto-summary` workflow via a preseeded, create-if-missing `~/.pi/web-search.json` (`{"workflow": "auto-summary"}`) — a user who edits that file to opt back into the interactive `summary-review` workflow has their choice respected on later boots. This is a deliberate workaround for an upstream `pi-web-access` bug (`openCuratorBrowser` references `sendCuratorFallbackUpdate` outside its declaring scope) that crashes the whole `pi` process whenever the interactive browser-curator fallback tries to open a browser — which it cannot do in this headless container — so `auto-summary` is the only workflow that never reaches that path. Implements [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) AC1/AC3/AC5; source: `entrypoint.sh::warm_pi_npm_dependencies` (tool extensions, AC3), `entrypoint.sh` main-execution web-search default block (AC5), `preseed/agents/pi/skills/advisor/SKILL.md`, and `preseed/agents/pi/package.json`.
+`web_search` defaults to the `auto-summary` workflow via a preseeded, create-if-missing `~/.pi/web-search.json` (`{"workflow": "auto-summary"}`). A user who edits that file to opt back into the interactive `summary-review` workflow has their choice respected on later boots.
+
+This is a deliberate workaround for an upstream `pi-web-access` bug: `openCuratorBrowser` references `sendCuratorFallbackUpdate` outside its declaring scope and crashes the whole `pi` process whenever the interactive browser-curator fallback tries to open a browser. The container is headless, so `auto-summary` is the only workflow that never reaches that path.
+
+Implements [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) AC1/AC3/AC5; source: `entrypoint.sh::warm_pi_npm_dependencies` (tool extensions, AC3), `entrypoint.sh` main-execution web-search default block (AC5), `preseed/agents/pi/skills/advisor/SKILL.md`, and `preseed/agents/pi/package.json`.
 
 **Storage**: `sessionMode?: 'default' | 'advanced'` in
 `UserPreferences` (KV). Undefined = `'default'`.
@@ -264,114 +268,128 @@ All preseed content is deployed via the manifest pipeline:
 5. On "Recreate skills & rules" button:
    `reconcileAgentConfigs(mode, { overwrite: true, cleanup: true })`
    overwrites in R2 and deletes files not in current mode
-6. On first dashboard load after a release:
-   `GET /api/sessions/batch-status?includePreseedCheck=true` compares
-   `PRESEED_CONTENT_HASH` against `lastPreseedHash` in
-   `UserPreferences` KV. If they differ, the frontend fires
-   `recreateAgentConfigs()` in the background. The "+ New Session"
-   button and stopped-session cards are disabled during the upgrade.
-   On completion, `lastPreseedHash` is updated. Failure is
-   non-fatal; a page refresh retries. Implements
-   [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release)
+6. On first dashboard load after a release, the frontend compares the baked
+   seed hash with the user's stored seed hash.
 7. Bisync pulls from R2 to container config directories
    (`~/.claude/`, `~/.codex/`, `~/.gemini/` (Antigravity), `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
 
+The release auto-upgrade check uses
+`GET /api/sessions/batch-status?includePreseedCheck=true` to compare
+`PRESEED_CONTENT_HASH` with `lastPreseedHash` in `UserPreferences` KV. If they
+differ, the frontend fires `recreateAgentConfigs()` in the background. The "+ New
+Session" button and stopped-session cards are disabled during the upgrade. On
+completion, `lastPreseedHash` is updated. Failure is non-fatal; a page refresh
+retries. Implements
+[REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release).
+
 **Manifest structure** (Claude configs plus Pi-native assets; exact counts live in the manifests, not here):
-- `rules/`: core (both modes: cloudflare-environment,
-  no-local-builds, git-workflow; advanced-only top-level: memory,
-  spec-discipline, documentation-discipline, tdd-discipline,
-  graph-first, karpathy, frontend-components, engineering-constitution,
-  vault-note-capture), common (coding-style;
-  per-language security rules stand alone), typescript, python,
-  golang, swift
-- `agents/`: architect, build-error-resolver, code-reviewer,
-  deep-reviewer, doc-updater, memory-capture, refactor-cleaner,
-  security-reviewer, spec-reviewer, tdd-guide, vault-extract
-  (advanced only)
-- `commands/`: brainstorm, debug, deploy, review, sdd
-  (advanced only)
-- `skills/`: cloudflare-stack, ship (+
-  refs), ci-monitoring, pr-workflow, deploy-credentials (the
-  default+advanced skills), consult-llm, api-design,
-  backend-patterns, content-hash-cache-pattern, database-migrations,
-  deployment-patterns, frontend-patterns, iterative-retrieval,
-  search-first, spec-driven-development (+ reference templates
-  for /sdd init scaffolding), sdd-init, sdd-clean (sub-command
-  skills), vault-operations, vault-note-capture, spec-enforce,
-  spec-enforce-ac, spec-enforce-truth, doc-enforce, doc-enforce-lanes,
-  doc-enforce-shape, doc-enforce-truth, tdd-enforce,
-  git-review-pipeline, graphify, browser-run + browser-e2e (advanced only, both agents),
-  emil-design-eng, design-taste-frontend (design prose, all agents),
-  impeccable (design skill + offline detector, advanced only, Claude + Pi
-  only — Pi gets a dedicated verbatim copy, not the prose-transformed lane)
-- `plugins/`: known_marketplaces.json (default+advanced),
-  codeflare-memory plugin (advanced only: plugin.json,
-  memory-capture.sh, memory-capture-block.sh, memory-agent-prompt.md,
-  prefilter-transcript.sh, assert-iso-ts.sh, memory-context-inject.sh),
-  codeflare-vault plugin (advanced only: plugin.json,
-  vault-monitor-hook.sh, vault-extract-prompt.md, merge-vault-graph.py),
-  codeflare-hooks plugin (advanced only: plugin.json,
-  block-attributed-commits.sh, block-local-builds.sh,
-  git-push-review-reminder.sh, enforce-review-spawn.sh,
-  scripts/lib/gh-pr-state.sh - shared gh CLI invocation sourced by
-  both PR-aware hooks, scripts/lib/lane-classifier.sh - shared diff-
-  classification helper sourced by both PR-aware hooks so the in-turn
-  nudge and the turn-end gate agree on which lanes a push requires),
-  context-mode plugin (advanced only:
-  README.md - MCP/indexing registration only; stale deny-gates are pruned),
-  graphify plugin (default+advanced for plugin.json + README
-  + graphify-mcp-lazy.py; advanced-only for graphify-active-repo.sh,
-  graphify-session-start.sh, graphify-clone-prompt.sh,
-  graph-first-nudge.sh, safe-graphify-update.sh,
-  local-graphify-labels.sh)
-- Pi-native runtime assets include package config and package lock. (Graphify
-  tools ship as the native extension `extensions/graphify-native.ts` rather than
-  through the MCP adapter — a Pi-native first-class choice. Pi DOES consume MCP
-  servers via the `pi-mcp-adapter`: it reaches `consult-llm` and `chrome-devtools`
-  through the `mcp` proxy, wired into `~/.pi/agent/mcp.json` by `entrypoint.sh`.)
+- `rules/`: core, common, and language-specific rule documents.
+- `agents/`: advanced-only specialist agent definitions.
+- `commands/`: advanced-only slash command definitions.
+- `skills/`: default skills, advanced skills, design skills, and enforcement skill families.
+- `plugins/`: marketplace, memory, vault, hooks, context-mode, and graphify plugin payloads.
+- Pi-native runtime assets include package config and package lock.
 
-  Extension files deploy Pi-specific runtime behavior:
-  `codeflare-commands.ts` provides `/debug`, `/deploy`, and `/brainstorm`;
-  durable review-job helpers enforce PR-boundary review; `startup-header.ts`
-  replaces Pi's startup header; `local-statusline.ts` preserves extension
-  status rows in default and advanced modes; `browser-run.ts` + its pure
-  `browser-run-helpers.ts` (advanced only) register native `browser_markdown`,
-  `browser_content`, and `browser_scrape` tools that call the Cloudflare Browser
-  Run REST Quick Actions (the cheap one-shot READ surface), self-gated on
-  `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Browser Run has two surfaces
-  and both agents have both: the READ surface above (Pi native tools; for Claude
-  Code a sibling `browser-run` MCP server built from
-  `preseed/agents/claude/browser-run-mcp/`, registered in `~/.claude.json`) and the
-  INTERACTIVE `chrome-devtools` surface (navigate / click / screenshot / viewport —
-  for Claude a registered MCP server, for Pi bridged in via the `pi-mcp-adapter`).
-  The `browser-run` skill (both agents) frames the cost/context decision (cheap
-  markdown read first, the interactive browser only when a page must be driven),
-  and `browser-e2e` (both agents) drives the interactive surface to verify a
-  deployed app by judgment, including from a mobile viewport. Every file under
-  `preseed/agents/pi/extensions/` is loaded by the Pi extension scanner and must
-  export a default factory function; pure helper modules (e.g.
-  `browser-run-helpers.ts`, `graphify-helpers.ts`) therefore export a no-op
-  default factory alongside their named exports, or Pi aborts startup with
-  `Extension does not export a valid factory function`.
+The `rules/` tree includes core rules for both modes: cloudflare-environment,
+no-local-builds, and git-workflow. Advanced mode adds memory, spec-discipline,
+documentation-discipline, tdd-discipline, graph-first, karpathy,
+frontend-components, engineering-constitution, and vault-note-capture. It also
+includes common coding-style rules plus standalone language security rules for
+TypeScript, Python, Go, and Swift.
 
-  Native skill overrides include graphify
-  ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch)
-  AC7) and `review`.
+The `agents/` tree is advanced-only: architect, build-error-resolver,
+code-reviewer, deep-reviewer, doc-updater, memory-capture, refactor-cleaner,
+security-reviewer, spec-reviewer, tdd-guide, and vault-extract.
 
-  Capture-contract prompts include `memory-agent-prompt.md` and
-  `vault-extract-prompt.md`.
+The `commands/` tree is advanced-only: brainstorm, debug, deploy, review, and sdd.
 
-  Pi graphify scripts include `build-graphify-architecture.sh`,
-  `build-graphify-ast.sh`, `safe-graphify-update.sh`, and
-  `local-graphify-labels.sh`.
+The `skills/` tree includes cloudflare-stack, ship (+ refs), ci-monitoring,
+pr-workflow, and deploy-credentials as default+advanced skills. Advanced skills
+include consult-llm, api-design, backend-patterns, content-hash-cache-pattern,
+database-migrations, deployment-patterns, frontend-patterns, iterative-retrieval,
+search-first, spec-driven-development (+ reference templates for /sdd init
+scaffolding), sdd-init, sdd-clean, vault-operations, vault-note-capture,
+spec-enforce, spec-enforce-ac, spec-enforce-truth, doc-enforce,
+doc-enforce-lanes, doc-enforce-shape, doc-enforce-truth, tdd-enforce,
+git-review-pipeline, graphify, and browser-run + browser-e2e for both agents.
 
-  The generator maps each manifest key by directory prefix:
-  `extensions/` -> `.pi/agent/extensions/`, `skills/` -> `.pi/agent/skills/`,
-  `scripts/` -> `.pi/agent/scripts/`, `prompts/` -> `.pi/agent/prompts/`,
-  and `agents/` -> `.pi/agent/agents/`.
-  The `agents/` prefix maps both to `.pi/agent/agents/` (session-local overrides for `@gotgenes/pi-subagents`) and to `~/.pi/agent/agents/` (persistent user-level overrides). `preseed/agents/pi/agents/Explore.md` is the first native Pi agent override shipped via this path.
-  Package files deploy under `.pi/agent/npm/`.
+The design skills are emil-design-eng and design-taste-frontend for all agents,
+plus impeccable for Claude + Pi only. Impeccable ships the design skill and offline
+detector in advanced mode; Pi gets a dedicated verbatim copy, not the
+prose-transformed lane.
+
+The `plugins/` tree includes known_marketplaces.json for default+advanced mode.
+Advanced-only plugins are codeflare-memory (plugin.json, memory-capture.sh,
+memory-capture-block.sh, memory-agent-prompt.md, prefilter-transcript.sh,
+assert-iso-ts.sh, memory-context-inject.sh), codeflare-vault (plugin.json,
+vault-monitor-hook.sh, vault-extract-prompt.md, merge-vault-graph.py), and
+codeflare-hooks (plugin.json, block-attributed-commits.sh, block-local-builds.sh,
+git-push-review-reminder.sh, enforce-review-spawn.sh).
+
+The hooks plugin also carries `scripts/lib/gh-pr-state.sh`, the shared gh CLI
+helper sourced by both PR-aware hooks, and `scripts/lib/lane-classifier.sh`, the
+shared diff-classification helper sourced by both PR-aware hooks so the in-turn
+nudge and the turn-end gate agree on which lanes a push requires. The advanced
+context-mode plugin keeps only `README.md` for MCP/indexing registration and prunes
+stale deny-gates. The graphify plugin includes plugin.json, README, and
+graphify-mcp-lazy.py in default+advanced mode; advanced mode adds
+graphify-active-repo.sh, graphify-session-start.sh, graphify-clone-prompt.sh,
+graph-first-nudge.sh, safe-graphify-update.sh, and local-graphify-labels.sh.
+
+Graphify tools ship as the native extension `extensions/graphify-native.ts` rather
+than through the MCP adapter — a Pi-native first-class choice. Pi still consumes
+MCP servers through the `pi-mcp-adapter`: it reaches `consult-llm` and
+`chrome-devtools` through the `mcp` proxy, wired into `~/.pi/agent/mcp.json` by
+`entrypoint.sh`.
+
+Extension files deploy Pi-specific runtime behavior. `codeflare-commands.ts`
+provides `/debug`, `/deploy`, and `/brainstorm`; durable review-job helpers
+enforce PR-boundary review; `startup-header.ts` replaces Pi's startup header; and
+`local-statusline.ts` preserves extension status rows in default and advanced modes.
+
+`browser-run.ts` plus pure `browser-run-helpers.ts` (advanced only) register native
+`browser_markdown`, `browser_content`, and `browser_scrape` tools that call the
+Cloudflare Browser Run REST Quick Actions. That cheap one-shot READ surface is
+self-gated on `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+
+Browser Run has two surfaces and both agents have both. The READ surface above is
+Pi-native; Claude Code gets a sibling `browser-run` MCP server built from
+`preseed/agents/claude/browser-run-mcp/` and registered in `~/.claude.json`. The
+INTERACTIVE `chrome-devtools` surface supports navigate / click / screenshot /
+viewport; Claude receives it as a registered MCP server, while Pi reaches it through
+the `pi-mcp-adapter`. The `browser-run` skill for both agents frames the
+cost/context decision: cheap markdown read first, interactive browser only when a
+page must be driven.
+
+`browser-e2e` for both agents drives the interactive surface to verify a deployed
+app by judgment, including from a mobile viewport. Every file under
+`preseed/agents/pi/extensions/` is loaded by the Pi extension scanner and must
+export a default factory function. Pure helper modules such as
+`browser-run-helpers.ts` and `graphify-helpers.ts` therefore export a no-op default
+factory alongside their named exports, or Pi aborts startup with
+`Extension does not export a valid factory function`.
+
+Native skill overrides include graphify
+([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch)
+AC7) and `review`.
+
+Capture-contract prompts include `memory-agent-prompt.md` and
+`vault-extract-prompt.md`.
+
+Pi graphify scripts include `build-graphify-architecture.sh`,
+`build-graphify-ast.sh`, `safe-graphify-update.sh`, and
+`local-graphify-labels.sh`.
+
+The generator maps each manifest key by directory prefix: `extensions/` to
+`.pi/agent/extensions/`, `skills/` to `.pi/agent/skills/`, `scripts/` to
+`.pi/agent/scripts/`, `prompts/` to `.pi/agent/prompts/`, and `agents/` to
+`.pi/agent/agents/`.
+
+The `agents/` prefix maps both to `.pi/agent/agents/` for session-local overrides
+for `@gotgenes/pi-subagents` and to `~/.pi/agent/agents/` for persistent user-level
+overrides. `preseed/agents/pi/agents/Explore.md` is the first native Pi agent
+override shipped via this path. Package files deploy under `.pi/agent/npm/`.
 
   These assets adapt runtime behavior to Pi primitives while rules and
   skills still come from the Claude source tree. `/review` is deliberately
@@ -444,26 +462,32 @@ All preseed content is deployed via the manifest pipeline:
 
   The merge gate is **report-only and defended in depth** ([AD80](../decisions/README.md#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth)).
   It blocks a merge until the reviewed head is **acked** — i.e. until the required
-  reviewers RAN — never on findings severity; the review lanes only report, they
-  never veto, so a clean merge is gated on coverage existing, not on a verdict. The
-  blocking logic is a pure, unit-tested decision (`mergeGateDecision` in
+  reviewers RAN — never on findings severity. The review lanes only report; they
+  never veto, so a clean merge is gated on coverage existing, not on a verdict.
+
+  The blocking logic is a pure, unit-tested decision (`mergeGateDecision` in
   `review-job-helpers.ts`: allow / bypass / block) with the `onAgentStart` handler
   reduced to thin wiring. The decision evaluates the PR the merge command **actually
-  targets**, not just the cwd branch: `mergeCommandTarget` (`review-helpers.ts`)
-  pulls a PR number, a `/pull/N` URL, a branch, or a `--repo`/`-R` slug out of the
-  command (the args are tokenized quote-aware, so a quoted multi-word flag value is
-  never mistaken for the selector, and value-flag arguments are skipped) so `gh pr
-  merge 123` is gated against PR 123, while a `gh pr merge --repo OTHER/REPO` naming a
-  foreign repository is skipped by both the gate and the retroactive audit (the gate
-  governs only this SDD repo's PRs). It fails CLOSED when that PR is readable-but-malformed (OPEN with an empty
+  targets**, not just the cwd branch.
+
+  `mergeCommandTarget` (`review-helpers.ts`) pulls a PR number, a `/pull/N` URL, a
+  branch, or a `--repo`/`-R` slug out of the command. The args are tokenized
+  quote-aware, so a quoted multi-word flag value is never mistaken for the selector,
+  and value-flag arguments are skipped. `gh pr merge 123` is gated against PR 123,
+  while `gh pr merge --repo OTHER/REPO` naming a foreign repository is skipped by
+  both the gate and the retroactive audit because the gate governs only this SDD
+  repo's PRs.
+
+  The gate fails CLOSED when that PR is readable-but-malformed (OPEN with an empty
   `baseRefName`/`headRefOid`) or when `gh` is transiently unreadable while any
-  unacked merge-blocking head exists (a pending review, a latched circuit breaker,
-  or an outstanding offer), and it blocks `--auto` on an enforced unacked PR (which
-  would otherwise merge server-side after checks without re-consulting the gate).
+  unacked merge-blocking head exists: a pending review, a latched circuit breaker,
+  or an outstanding offer. It also blocks `--auto` on an enforced unacked PR, which
+  would otherwise merge server-side after checks without re-consulting the gate.
+
   Because the `onAgentStart` pre-block cannot intercept every wrapper form (`bash -c`,
   `xargs`, or a server-side `--auto` that completes later), a **retroactive backstop**
   in `onToolEnd` emits a durable `merge_completed_unreviewed` audit event plus a toast
-  whenever a PR is observed MERGED while its head was never acked — so an evasion is
+  whenever a PR is observed MERGED while its head was never acked. An evasion is
   always recorded even when it could not be stopped. The pre-block is the primary
   defense; the retroactive audit is the truth layer behind it.
 
@@ -521,22 +545,26 @@ All preseed content is deployed via the manifest pipeline:
 
   After the first acknowledged review, subsequent re-reviews are scoped to the
   incremental window between the last acked clean head and the current head
-  (`last-acked-head..current-head`), not the full PR diff, so a re-review
-  inspects only the new commits instead of re-flagging the whole PR each round.
+  (`last-acked-head..current-head`), not the full PR diff. A re-review inspects only
+  the new commits instead of re-flagging the whole PR each round.
+
   `spawnDurableLane` carries that window into each durable lane subprocess by
   exporting `CODEFLARE_REVIEW_BASE` (last acked head), `CODEFLARE_REVIEW_HEAD`
   (current head), and `CODEFLARE_REVIEW_BASE_REF` (base branch ref) when a prior
-  clean head was acked; on a first review none are set and the lane reviews the
-  full PR diff. The scope limitation deliberately lives in the dispatch runtime,
-  never in the shared reviewer agent definitions or enforce skills (which Claude
-  and other CLIs also inherit): those are scope-agnostic, reviewing exactly the
-  window the caller provides and defaulting to the full change set only when no
-  window is given. The `reviewScopeBlockReason` guard (`review-lane-guards.ts`)
-  makes the window binding: when `CODEFLARE_REVIEW_BASE` is set it blocks full-PR
-  diff commands (`gh pr diff`; a `git diff` ranging two- or three-dot against the
-  base branch — `origin/<ref>`, the base ref itself, or `main`/`master`/`develop`)
-  while allowing the window forms (`git diff <base> <head>`, a bare `<base>..<head>`
-  SHA range, `--name-only`, `-- <path>`). Implements
+  clean head was acked. On a first review none are set and the lane reviews the full
+  PR diff.
+
+  The scope limitation deliberately lives in the dispatch runtime, never in the
+  shared reviewer agent definitions or enforce skills, which Claude and other CLIs
+  also inherit. Those definitions are scope-agnostic: they review exactly the window
+  the caller provides and default to the full change set only when no window is given.
+
+  The `reviewScopeBlockReason` guard (`review-lane-guards.ts`) makes the window
+  binding. When `CODEFLARE_REVIEW_BASE` is set it blocks full-PR diff commands (`gh
+  pr diff`; a `git diff` ranging two- or three-dot against the base branch —
+  `origin/<ref>`, the base ref itself, or `main`/`master`/`develop`) while allowing
+  the window forms (`git diff <base> <head>`, a bare `<base>..<head>` SHA range,
+  `--name-only`, `-- <path>`). Implements
   [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
   AC8 and
   [REQ-AGENT-060](../../sdd/spec/agents.md#req-agent-060-pi-durable-review-lane-tool-surface)
@@ -576,12 +604,14 @@ All preseed content is deployed via the manifest pipeline:
   The monitor is the delivery wakeup. Before successful exit after complete lane
   results and `summary.md`, it writes
   `.git/codeflare-review-jobs/<head>/monitor.completed` as JSON containing `repo`,
-  `head`, `summaryPath`, `completedAt`, and result `clean` or `findings`; if a lane
-  explicitly reports failed before that complete set exists, it returns
+  `head`, `summaryPath`, `completedAt`, and result `clean` or `findings`.
+
+  If a lane explicitly reports failed before that complete set exists, it returns
   `REVIEW_RESULT failed` without that marker; missing result files while a lane is
   still running never trigger failure. Before a completion marker latches, Pi
   rejects and deletes records whose repo/head/summaryPath/result/completedAt no
   longer match the lane inputs, so the monitor can retry with a valid marker.
+
   Implements
   [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
   AC4/AC5/AC6; source: `preseed/agents/pi/agents/review-monitor.md`,
@@ -592,14 +622,16 @@ All preseed content is deployed via the manifest pipeline:
 
   Partial lane results, failed required lanes, or a missing `summary.md` cannot
   trigger autofix. If actionable MEDIUM/HIGH/CRITICAL findings remain after the
-  complete exact-head summary, the monitor result includes a detailed overview
-  (result line, severity counts, lane status, ranked findings, summary path,
-  monitor transcript path when available, and next action) and tells the main
-  session to print that overview first, then read `summary.md`, verify each
-  finding, and fix only legitimate findings by default. If the latest user instruction says not
-  to autofix, wait for approval, or do not push, the monitor tells the main session
-  to stop for approval instead. There is no hidden `autofix.requested` marker and
-  no custom summary announcement channel. Implements
+  complete exact-head summary, the monitor result includes a detailed overview:
+  result line, severity counts, lane status, ranked findings, summary path,
+  monitor transcript path when available, and next action.
+
+  The monitor tells the main session to print that overview first, then read
+  `summary.md`, verify each finding, and fix only legitimate findings by default.
+  If the latest user instruction says not to autofix, wait for approval, or do not
+  push, the monitor tells the main session to stop for approval instead. There is
+  no hidden `autofix.requested` marker and no custom summary announcement channel.
+  Implements
   [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-durable-review-fix-loop).
 
   Task/subagent contexts may reap lane children and write durable state, but they
@@ -696,60 +728,82 @@ AC7 and [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-const
 | Grep | grep | search_file_content | search | search | grep |
 | Glob | glob | glob | search | glob | find |
 
-**What each agent gets:** Claude Code and Pi both receive the full capability set - Claude Code through its native rules/agents/commands/skills/hooks/plugins, and Pi through adapted rules/skills/agents plus native TypeScript extensions that reimplement the CC-only surfaces (slash commands, hooks, memory capture, review enforcement) on Pi primitives. Codex, Copilot, OpenCode, and Antigravity receive a reduced, runtime-appropriate subset: adapted rules and - where the runtime supports them - skills and agents, but none of the CC-only surfaces. Antigravity (`agy`) is seeded into the Gemini CLI global config tree (`~/.gemini/`), which it reads natively; the `.gemini` -> `.agents` rename in Antigravity applies only to per-workspace config, not the home directory codeflare seeds. The exact per-agent document counts are emitted by `scripts/generate-agent-seed.mjs` from `manifest.json` - read the generated output, not a hardcoded total here.
+**What each agent gets:** Claude Code and Pi both receive the full capability set.
+Claude Code uses its native rules/agents/commands/skills/hooks/plugins. Pi uses
+adapted rules/skills/agents plus native TypeScript extensions that reimplement the
+CC-only surfaces: slash commands, hooks, memory capture, and review enforcement.
 
-**Excluded from non-CC transformed assets**: hooks (CC hook system),
-commands (CC slash commands), plugins (CC plugin system, including
-codeflare-memory and codeflare-vault), `preseed/agents/claude/rules/memory.md` (references
-CC-specific `mcp__graphify__*` tools and the vault hook system; the
-vault trigger/route content lives in that preseed rule as folded subsections,
-not a separate rules/vault.md), `preseed/agents/claude/rules/git-workflow.md`
-for Pi only (Pi gets `preseed/agents/pi/rules/git-workflow.md` instead), and
-`consult-llm` skill (depends on the consult-llm MCP tool, so it is excluded from
-the codex/opencode/antigravity transform lane — but Pi gets a native
-`consult-llm` skill + MCP server via `~/.pi/agent/mcp.json`, see
-[REQ-AGENT-031](../../sdd/spec/agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)).
-Pi receives native TypeScript extensions for the
-runtime behaviors that cannot be represented as transformed prose:
-`/sdd`, `/graphify`, `/vault`, `/note`, `/debug`, `/deploy`, `/brainstorm`, graphify
-active-repo/global-graph maintenance and clone triage, automatic memory capture,
-Vault graph extraction/global-graph merge, local-build blocking,
-and AI-attribution blocking. Graphify build/update runbooks for both Claude and
-Pi pass the scanned repo root to Graphify's manifest writer, keeping
-`graphify-out/manifest.json` portable after a repo move. Pi receives a dedicated
-native graphify skill that uses local AST extraction plus Pi `Agent` subagents instead of the
-Claude/MCP-specific transformed skill. The Pi runtime also registers first-party native
-`graphify_query` / `graphify_path` / `graphify_explain` tools through
-`graphify-native.ts`. Each query shells the upstream Graphify CLI and resolves
-the cwd repo graph first, then the active-repo sentinel graph, then the merged
-global graph. The active repo identity injected into Pi context includes
-repository basename, checked-out branch, and HEAD prefix. Pi receives a separate
-`review-command.ts` for the user-invoked `/review` UX and
-`review-enforcement.ts` for PR-boundary review enforcement.
+Codex, Copilot, OpenCode, and Antigravity receive a reduced, runtime-appropriate
+subset: adapted rules and, where the runtime supports them, skills and agents. They
+receive none of the CC-only surfaces.
 
-**Adaptation pipeline**: For each non-CC agent, the generator: (1)
-concatenates applicable rules into a single instructions file, (2)
-remaps tool names in agent definition frontmatter, (3) removes
-`model` field from frontmatter for runtimes that do not support it while preserving Pi subagent model pins, (4) replaces `~/.claude/` path
-references with agent-specific config paths, (5) uses correct file
-extensions (e.g., `.agent.md` for Copilot agents). Pi additionally
-loads `preseed/agents/pi/manifest.json`, emits native runtime files
-to `.pi/agent/extensions/`, `.pi/agent/scripts/`,
-`.pi/agent/npm/package.json`, `.pi/agent/npm/package-lock.json`,
-capture-contract prompts to `.pi/agent/prompts/`, native Pi skill overrides under
-`~/.pi/agent/skills/`, and native Pi agent overrides under `~/.pi/agent/agents/`,
-and adapts Claude agent definitions into `.pi/agent/agents/*.md` for
+Antigravity (`agy`) is seeded into the Gemini CLI global config tree (`~/.gemini/`),
+which it reads natively. The `.gemini` -> `.agents` rename in Antigravity applies
+only to per-workspace config, not the home directory codeflare seeds. The exact
+per-agent document counts are emitted by `scripts/generate-agent-seed.mjs` from
+`manifest.json` - read the generated output, not a hardcoded total here.
+
+**Excluded from non-CC transformed assets**: hooks (CC hook system), commands
+(CC slash commands), plugins (CC plugin system, including codeflare-memory and
+codeflare-vault), and `preseed/agents/claude/rules/memory.md`.
+
+The memory rule references CC-specific `mcp__graphify__*` tools and the vault hook
+system. The vault trigger/route content lives in that preseed rule as folded
+subsections, not a separate rules/vault.md.
+
+`preseed/agents/claude/rules/git-workflow.md` is excluded for Pi only; Pi gets
+`preseed/agents/pi/rules/git-workflow.md` instead. The `consult-llm` skill depends
+on the consult-llm MCP tool, so it is excluded from the codex/opencode/antigravity
+transform lane. Pi still gets a native `consult-llm` skill + MCP server via
+`~/.pi/agent/mcp.json`, see
+[REQ-AGENT-031](../../sdd/spec/agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity).
+
+Pi receives native TypeScript extensions for runtime behaviors that cannot be
+represented as transformed prose: `/sdd`, `/graphify`, `/vault`, `/note`, `/debug`,
+`/deploy`, `/brainstorm`, graphify active-repo/global-graph maintenance and clone
+triage, automatic memory capture, Vault graph extraction/global-graph merge,
+local-build blocking, and AI-attribution blocking.
+
+Graphify build/update runbooks for both Claude and Pi pass the scanned repo root to
+Graphify's manifest writer, keeping `graphify-out/manifest.json` portable after a
+repo move. Pi receives a dedicated native graphify skill that uses local AST
+extraction plus Pi `Agent` subagents instead of the Claude/MCP-specific transformed
+skill.
+
+The Pi runtime also registers first-party native `graphify_query` /
+`graphify_path` / `graphify_explain` tools through `graphify-native.ts`. Each query
+shells the upstream Graphify CLI and resolves the cwd repo graph first, then the
+active-repo sentinel graph, then the merged global graph. The active repo identity
+injected into Pi context includes repository basename, checked-out branch, and HEAD
+prefix. Pi receives a separate `review-command.ts` for the user-invoked `/review`
+UX and `review-enforcement.ts` for PR-boundary review enforcement.
+
+**Adaptation pipeline**: For each non-CC agent, the generator concatenates
+applicable rules into a single instructions file, remaps tool names in agent
+definition frontmatter, removes the `model` field for runtimes that do not support
+it while preserving Pi subagent model pins, replaces `~/.claude/` path references
+with agent-specific config paths, and uses correct file extensions such as
+`.agent.md` for Copilot agents.
+
+Pi additionally loads `preseed/agents/pi/manifest.json`, emits native runtime files
+to `.pi/agent/extensions/`, `.pi/agent/scripts/`, `.pi/agent/npm/package.json`,
+and `.pi/agent/npm/package-lock.json`, emits capture-contract prompts to
+`.pi/agent/prompts/`, emits native Pi skill overrides under `~/.pi/agent/skills/`,
+and emits native Pi agent overrides under `~/.pi/agent/agents/`.
+
+Pi adapts Claude agent definitions into `.pi/agent/agents/*.md` for
 `@gotgenes/pi-subagents`. Pi's generated agent frontmatter and body text use
 Pi-native tool names: Graphify MCP references become `graphify_query` /
 `graphify_path` / `graphify_explain`, and context-mode MCP references become
-`ctx_*` tool names so subagents never try unavailable Claude MCP tools. Durable
-PR-boundary review lanes are not `@gotgenes/pi-subagents` and not in-process
-`createAgentSession` calls: `spawnDurableLane` launches detached headless `pi`
-child processes with a bounded inspection tool allowlist, `--no-extensions`,
-and explicit `-e` loading for `graphify-native.ts`, `review-lane-guards.ts`,
-plus settings-enabled context-mode. Bash remains available for git/gh diff
-inspection; `review-lane-guards.ts` blocks local build, test, lint, and dev-server
-commands in the headless lane.
+`ctx_*` tool names so subagents never try unavailable Claude MCP tools.
+
+Durable PR-boundary review lanes are not `@gotgenes/pi-subagents` and not
+in-process `createAgentSession` calls. `spawnDurableLane` launches detached
+headless `pi` child processes with a bounded inspection tool allowlist,
+`--no-extensions`, and explicit `-e` loading for `graphify-native.ts`,
+`review-lane-guards.ts`, plus settings-enabled context-mode. Bash remains
+available for git/gh diff inspection; `review-lane-guards.ts` blocks local build,
+test, lint, and dev-server commands in the headless lane.
 
 **Per-mode seeding**: Default mode seeds the core rules plus the
 universal skills; advanced mode seeds the full set (memory, ECC
@@ -817,11 +871,12 @@ is done via `settings.json` (see above).
 
 - **codeflare-memory**: Two UserPromptSubmit hooks registered in
   settings.json, scripts delivered via plugin.
-  `memory-context-inject.sh` fires on the first prompt of each
-  session: extracts keywords, queries the unified graphify graph,
-  and injects matched nodes as additionalContext before the agent
-  responds ([REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt)).
-  `memory-capture.sh` handles the ongoing 15-prompt capture cadence
+
+`memory-context-inject.sh` fires on the first prompt of each session: extracts
+keywords, queries the unified graphify graph, and injects matched nodes as
+additionalContext before the agent responds
+([REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt)).
+`memory-capture.sh` handles the ongoing 15-prompt capture cadence.
 - **codeflare-hooks**: Scripts for commit attribution blocking,
   git-push review reminders, and SDD review-agent enforcement.
 
