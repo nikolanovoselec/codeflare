@@ -197,6 +197,8 @@ const mockSessions: SessionWithStatus[] = [
 ];
 
 // REQ-ENTERPRISE-015: Enterprise-mode admin and dropdown suppressions
+// REQ-VAULT-015: Vault IDB lifecycle and listing filters
+
 describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
   const defaultProps = {
     sessions: mockSessions,

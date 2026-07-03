@@ -6,6 +6,9 @@ import { decidePanelLayoutMode } from '../../lib/panel-allocation';
 // `height` is the right column's own height (too-short check). The decision must
 // NOT use the right column's measured width — capped small by the layout, it
 // wrongly flipped every tablet/laptop (the regression these cases pin).
+// REQ-GITHUB-009: GitHub repository list viewport and empty states
+// REQ-GITHUB-010: Mobile GitHub and storage face switching
+
 describe('decidePanelLayoutMode', () => {
   it('flips when the viewport is narrower than the mobile breakpoint', () => {
     expect(decidePanelLayoutMode({ width: 599, height: 1000 })).toBe('flip');

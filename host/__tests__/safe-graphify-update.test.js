@@ -63,6 +63,8 @@ function runWrapper({ args = ['.'], env = {} } = {}) {
   }
 }
 
+// REQ-AGENT-023: Knowledge-Graph Capability (Graphify)
+
 test('safe-graphify-update.sh: defaults set GRAPHIFY_MAX_WORKERS=1 and ulimit -v=1500000', () => {
   const r = runWrapper({ args: ['.'] });
   assert.equal(r.status, 0, `wrapper exit ${r.status}: ${r.stderr}`);

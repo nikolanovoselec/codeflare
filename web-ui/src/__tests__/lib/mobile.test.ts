@@ -12,6 +12,8 @@ import { loadSettings } from '../../lib/settings';
 // We need to control module-level state, so we use vi.resetModules() per describe block
 // and re-import. For tests that don't need module reset, we import once here.
 
+// REQ-MOB-009: Visibility return recovers keyboard state
+
 describe('mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ-MOB-001 (mobile detection + visualViewport handling) / REQ-MOB-010 (visualViewport resize triggers terminal refit cadence)', () => {
   describe('resetKeyboardStateIfStale', () => {
     // REQ-MOB-001 AC4: resetKeyboardStateIfStale re-syncs layout state on terminal re-entry

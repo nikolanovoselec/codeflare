@@ -64,10 +64,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 2. The overlay mode is disabled on terminal exit so other inputs receive normal browser resizing. <!-- @impl: web-ui/src/lib/mobile.ts::disableVirtualKeyboardOverlay --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (disableVirtualKeyboardOverlay restores normal resizing on exit) -->
 3. Keyboard height changes are detected via the browser's VirtualKeyboard geometry change event. <!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (visualViewport fallback detects keyboard height) -->
 4. Terminal height is reduced by the keyboard height so content is not obscured. <!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (baselineInnerHeight stays stable so keyboard height stays consistent) -->
-5. An isolated compositor context prevents the Android IME native caret from appearing outside the terminal bounds. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- coverage-gap: compositor-isolation iframe is a device/visual concern, no genuine unit test -->
-6. Autocorrect is suppressed at the OS level on mobile. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- coverage-gap: OS-level autocorrect suppression is a device/IME concern, no genuine unit test -->
-7. Focus state detection uses a live browser query rather than a cached value. <!-- @impl: web-ui/src/lib/mobile.ts::isFocusOnTerminalInput --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (isFocusOnTerminalInput is a live focus query, not a cached value) -->
-8. Touch events originating inside the terminal container are stopped from propagating to document-level listeners, so the emulator's internal gesture system (xterm ≥6.1 document-level Gesture singleton) cannot cancel the browser's synthesized click that triggers keyboard focus. Touches outside the container are unaffected, and the shield is removed on terminal cleanup. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (shield stops terminal touches from reaching document-level listeners while attached) --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (touches outside the container unaffected; container touches propagate again after cleanup) -->
+5. Focus state detection uses a live browser query rather than a cached value. <!-- @impl: web-ui/src/lib/mobile.ts::isFocusOnTerminalInput --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (isFocusOnTerminalInput is a live focus query, not a cached value) -->
+6. Touch events originating inside the terminal container are stopped from propagating to document-level listeners, so the emulator's internal gesture system (xterm ≥6.1 document-level Gesture singleton) cannot cancel the browser's synthesized click that triggers keyboard focus. Touches outside the container are unaffected, and the shield is removed on terminal cleanup. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (shield stops terminal touches from reaching document-level listeners while attached) --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (touches outside the container unaffected; container touches propagate again after cleanup) -->
 
 **Constraints:**
 
@@ -80,6 +78,31 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 **Dependencies:** [REQ-MOB-001](#req-mob-001-terminal-fully-usable-on-mobile-devices)
 
 **Verification:** [Integration test](../../web-ui/src/__tests__/lib/mobile.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-MOB-016: Mobile Terminal Input Compositor and Autocorrect Controls
+
+**Intent:** Mobile terminal input must suppress native browser/IME behaviours that interfere with terminal typing while preserving the terminal's own gesture handling.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. An isolated compositor context prevents the Android IME native caret from appearing outside the terminal bounds. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- coverage-gap: compositor-isolation iframe is a device/visual concern, no genuine unit test -->
+2. Autocorrect is suppressed at the OS level on mobile. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-016 AC2: swaps a textarea created during terminal.open() for a password input and restores createElement afterward) -->
+
+**Constraints:**
+
+- The compositor isolation and autocorrect suppression are device/IME behaviours; visual/device verification is valid when no genuine unit-test seam exists.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap)
+
+**Verification:** [useTerminal input-swap test](../../web-ui/src/__tests__/hooks/useTerminal.test.ts); device/visual verification for compositor isolation.
 
 **Status:** Implemented
 

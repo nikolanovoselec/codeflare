@@ -68,6 +68,8 @@ function run({ mode = 'advanced', token = 'tok_abc', account = 'acct123', claude
   };
 }
 
+// REQ-BROWSER-007: Enterprise admin-configured Browser Rendering token
+
 describe('entrypoint Browser Run MCP wiring', () => {
   it('advanced + token: registers chrome-devtools for Claude pointed at the CDP endpoint with a bearer header', () => {
     const { claude } = run({});

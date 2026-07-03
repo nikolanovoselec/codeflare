@@ -63,6 +63,9 @@ function runHarness({ tabConfig, env = {} } = {}) {
   };
 }
 
+// REQ-TERM-005: Tab 1 auto-starts the configured agent
+// REQ-TERM-006: User-created tabs start with plain bash
+
 describe('entrypoint.sh configure_tab_autostart / REQ-AGENT-003 (Agent CLI auto-started in tab 1)', () => {
   // REQ-AGENT-003 AC1: tab 1 launch command written into .bashrc.
   // REQ-AGENT-003 AC2: claude is launched with --dangerously-skip-permissions

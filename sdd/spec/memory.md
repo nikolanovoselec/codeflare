@@ -41,8 +41,6 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 4. Capture-file timestamps reflect the user's local timezone, resolved per [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC4. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh --> <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (assert-iso-ts.sh resolves capture timezone from USER_TIMEZONE/TZ/etc and stamps the matching local offset) -->
 5. The capture file uses a YAML frontmatter template with session, capture-time, and capture-range fields followed by Context / Decisions / Observations / References sections. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md --> <!-- coverage-gap: the capture-file YAML frontmatter + Context/Decisions/Observations/References template lives in the LLM capture prompt (memory-agent-prompt.md); the rendered shape is produced by the capture agent, not extractable code; the rendered template has no importable symbol or jsdom-observable side effect, and asserting the prompt strings would be banned text-matching -->
 6. Graph nodes and edges are extracted from the rendered capture into a chunk, folded into the cumulative `vault-graph.json` via the shared `merge-vault-graph.py` (per [REQ-MEM-009](#req-mem-009-vault-graph-accumulates-monotonically-across-extractions)), and that cumulative graph is merged into the unified global graph under `user_vault`; the merge is serialised and atomic, so the new content is queryable on the same turn it is written. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md --> <!-- coverage-gap: the merge-vault-graph.py fold IS behaviorally tested under REQ-MEM-009 (host/__tests__/vault-extract-merge.test.js runs the real Python and asserts the cumulative graph, nx.compose dedup, and corrupt-file reset); only the prompt-driven same-turn flock-serialised `graphify global add --as user_vault` ordering is non-behaviorally-testable (it lives in the LLM prompt, with no importable symbol or jsdom-observable side effect in the test pool) -->
-7. The capture sources the conversation from the durable on-disk session transcript that each runtime already persists for session resume, never from a volatile in-memory buffer. A capture triggered immediately after a reload or resume therefore sees the full conversation; if the resolved transcript is empty the capture is skipped rather than writing a placeholder "no substantive content" note. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::default --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault reads the durable session file via getSessionFile/parseSessionMessages/readSessionMessages and skips capture when the resolved transcript is empty) -->
-8. Pi capture triggers are inert inside subagent child sessions — sessions whose header carries a parent-session pointer (review monitors, CI monitors, capture/extract subagents themselves, which always load the parent's extensions) — so a background task's transcript never receives an injected capture follow-up as its visible output. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::isChildSession --> <!-- @test: src/__tests__/lib/pi-child-session-guard.test.ts (child-session predicates: parent-session header detected, root header / non-header lines / garbage rejected) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (memory-vault handlers are inert inside subagent child sessions) -->
 
 **Constraints:**
 
@@ -58,6 +56,32 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown), [REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)
 
 **Verification:** [Integration test](../../host/__tests__/memory-capture-hook.test.js), [Pi behavioral tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-MEM-015: Pi Memory Capture Transcript Source and Child-Session Guard
+
+**Intent:** Pi memory capture must read the durable session transcript and stay inert inside child subagent sessions so captures survive reloads without polluting monitor or capture transcripts.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The capture sources the conversation from the durable on-disk session transcript that each runtime already persists for session resume, never from a volatile in-memory buffer. A capture triggered immediately after a reload or resume therefore sees the full conversation; if the resolved transcript is empty the capture is skipped rather than writing a placeholder "no substantive content" note. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::default --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault reads the durable session file via getSessionFile/parseSessionMessages/readSessionMessages and skips capture when the resolved transcript is empty) -->
+2. Pi capture triggers are inert inside subagent child sessions — sessions whose header carries a parent-session pointer (review monitors, CI monitors, capture/extract subagents themselves, which always load the parent's extensions) — so a background task's transcript never receives an injected capture follow-up as its visible output. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::isChildSession --> <!-- @test: src/__tests__/lib/pi-child-session-guard.test.ts (child-session predicates: parent-session header detected, root header / non-header lines / garbage rejected) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (memory-vault handlers are inert inside subagent child sessions) -->
+
+**Constraints:**
+
+- Pi reads its persisted session file via `getSessionFile()` and skips capture when the resolved transcript is empty.
+- Child-session detection is header-based and applies to review monitors, CI monitors, capture subagents, and extract subagents.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing)
+
+**Verification:** [Pi behavioral tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [child-session guard tests](../../src/__tests__/lib/pi-child-session-guard.test.ts), and [session JSONL fuzz coverage](../../src/__tests__/fuzz/vault-migration.fuzz.test.ts).
 
 **Status:** Implemented
 

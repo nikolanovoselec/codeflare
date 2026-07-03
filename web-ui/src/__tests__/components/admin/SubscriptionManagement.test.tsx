@@ -26,6 +26,8 @@ const MOCK_TIERS = [
 
 const noop = () => {};
 
+// REQ-SUB-009: Admin-Configurable Tiers via Management Panel
+
 describe('SubscriptionManagement (Admin)', () => {
   beforeEach(() => {
     vi.clearAllMocks();

@@ -82,6 +82,11 @@ function runHookWithInput(cwd, payload, binDir) {
   });
 }
 
+// REQ-AGENT-036: PR-Boundary Review Trigger Conditions
+// REQ-AGENT-044: Review-Agent Discipline Enforcement
+// REQ-AGENT-045: Import-Mode Triage Queue and Transition State
+// REQ-AGENT-047: Resume Mode closure and review-pipeline gate
+
 describe('git-push-review-reminder.sh — pre-filter', () => {
   it('exits 0 silently on non-push commands', () => {
     const cwd = makeFixture();

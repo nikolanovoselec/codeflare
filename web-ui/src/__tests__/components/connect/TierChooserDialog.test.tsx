@@ -16,6 +16,9 @@ const base = {
   onPick: () => {},
 };
 
+// REQ-AGENT-028: Deploy Credential Token-Creation UX
+// REQ-GITHUB-007: Broaden the panel gate beyond enterprise
+
 describe('TierChooserDialog', () => {
   it('renders nothing while closed', () => {
     render(() => <TierChooserDialog {...base} open={false} />);

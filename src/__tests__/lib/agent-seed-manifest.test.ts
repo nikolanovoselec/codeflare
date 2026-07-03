@@ -64,6 +64,10 @@ function frontmatter(content: string): Record<string, string> {
   );
 }
 
+// REQ-AGENT-026: Knowledge-Graph Persistence via Git
+// REQ-AGENT-063: PR-Boundary Command Parsing
+// REQ-BROWSER-003: Pi Native Browser Run Wrapper
+
 describe('agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)', () => {
   it('generated configs array is non-empty', () => {
     expect(AGENTS_SEEDED_CONFIGS.length).toBeGreaterThan(0);
@@ -1242,7 +1246,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(escapedSummary).toContain('Replace x\\|y\\\\z safely.');
   });
 
-  it('REQ-AGENT-062 AC5: manual review-results display does not claim acknowledgement', () => {
+  it('REQ-AGENT-077 AC1: manual review-results display does not claim acknowledgement', () => {
     const legacyManualDisplay = reviewResultsSummaryMessage({
       repo: '/repo',
       head: '6769bca06f843a50e2d991563afc58498fd7cf81',
@@ -1965,7 +1969,7 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     });
   });
 
-  it('REQ-MEM-001 AC7: memory-vault.ts uses flock for global graph merge', () => {
+  it('REQ-MEM-015 AC1: memory-vault.ts uses flock for global graph merge', () => {
     const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
     expect(mv?.content).toContain('flock');
     expect(mv?.content).toContain('graphify-global.lock');
@@ -1975,7 +1979,7 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
   // parseSessionMessages reads Pi's durable on-disk session JSONL (the file Pi persists for
   // /resume) into the message objects compactMessages expects. This is the source that replaces
   // the volatile in-memory buffer that produced empty captures after a reload.
-  describe('REQ-MEM-001: parseSessionMessages durable transcript source', () => {
+  describe('REQ-MEM-015: parseSessionMessages durable transcript source', () => {
     it('extracts message-entry payloads and drops session header / compaction / custom entries', () => {
       const jsonl = [
         JSON.stringify({ type: 'session', id: 'abc', cwd: '/x', timestamp: 't' }),

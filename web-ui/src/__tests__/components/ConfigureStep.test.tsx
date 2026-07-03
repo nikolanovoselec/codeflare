@@ -123,6 +123,8 @@ vi.mock('../../components/Icon', () => ({
 }));
 
 // REQ-ENTERPRISE-015: Enterprise-mode admin and dropdown suppressions
+// REQ-ENTERPRISE-022: Per-Route Context Windows for Dynamic Routes
+
 describe('ConfigureStep', () => {
   beforeEach(() => {
     vi.clearAllMocks();

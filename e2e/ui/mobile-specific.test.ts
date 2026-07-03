@@ -31,6 +31,8 @@ describe.skipIf(!isSetup || !IS_MOBILE)('Mobile-specific UI', () => {
     await browser?.close();
   });
 
+// REQ-MOB-001: Terminal fully usable on mobile devices
+
   it('session switcher renders mobile icon instead of name', async () => {
     const switcher = await page.$('[data-testid="session-switcher"]');
     expect(switcher).toBeTruthy();

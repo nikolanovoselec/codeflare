@@ -85,6 +85,8 @@ Object.defineProperty(window, 'localStorage', {
   value: localStorageMock,
 });
 
+// REQ-MOB-011: Samsung Internet keyboard state recovery
+
 describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => {
   const mockRecreateGettingStartedDocs = vi.mocked(storageApi.recreateGettingStartedDocs);
 

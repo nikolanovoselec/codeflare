@@ -1,5 +1,5 @@
 /**
- * REQ-ENTERPRISE-016: EgressController — strict Gateway egress proxy.
+ * REQ-ENTERPRISE-016 / REQ-ENTERPRISE-023: EgressController — strict Gateway egress proxy.
  *
  * A WorkerEntrypoint the container DO wires as a catch-all when the strict-egress toggle is
  * ON (the DO passes `{ accountId, strict }` via ctx.props, resolved once at wiring). For most

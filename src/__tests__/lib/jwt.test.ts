@@ -88,6 +88,8 @@ const TEST_AUTH_DOMAIN = 'test-team.cloudflareaccess.com';
 const TEST_AUD = 'test-audience-tag-12345';
 const TEST_EMAIL = 'user@example.com';
 
+// REQ-AUTH-001: Two authentication modes
+
 describe('JWT verification / REQ-AUTH-003 (CF Access JWT validation + JWKS caching)', () => {
   let testKeyPair: TestKeyPair;
   let originalFetch: typeof globalThis.fetch;

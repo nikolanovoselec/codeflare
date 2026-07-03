@@ -114,6 +114,8 @@ function runBash(script) {
   return spawnSync('bash', ['-c', script], { encoding: 'utf8' });
 }
 
+// REQ-VAULT-010: Codeflare-authoritative files preseeded into the vault on every boot
+
 describe('entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)', () => {
   // -------------------------------------------------------------------------
   // REQ-MEM-004 AC2 — establish_bisync_baseline runs BEFORE init_user_vault.

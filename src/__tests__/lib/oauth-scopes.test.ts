@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { normalizeScopeTier, githubScopeForTier, cloudflareScopeForTier } from '../../lib/oauth-scopes';
 
+// REQ-AGENT-028: Deploy Credential Token-Creation UX
+// REQ-GITHUB-007: Broaden the panel gate beyond enterprise
+
 describe('normalizeScopeTier', () => {
   it('passes through known tiers and defaults unknown/missing to recommended', () => {
     expect(normalizeScopeTier('minimal')).toBe('minimal');

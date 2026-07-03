@@ -6,6 +6,8 @@ import SetupSection from '../../components/setup/SetupSection';
 // product copy), so asserting them verifies slot routing, not prose. The point of the
 // component is "title + optional description + a body slot for fields", and these tests
 // fail if any of those routings break.
+// REQ-ENTERPRISE-017: AI Gateway Configured in the Setup Wizard
+
 describe('SetupSection', () => {
   afterEach(() => cleanup());
 

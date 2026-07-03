@@ -3,6 +3,9 @@ import { createSignal } from 'solid-js';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
 import VaultButton, { type VaultButtonStatus } from '../../components/VaultButton';
 
+// REQ-VAULT-019: Vault key-recoverable open gate
+// REQ-VAULT-022: Vault armed-state open flow and persistence
+
 describe('VaultButton', () => {
   afterEach(() => cleanup());
 

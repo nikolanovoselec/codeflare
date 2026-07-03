@@ -78,6 +78,11 @@ const mockSendInputToTerminal = vi.mocked(terminal.sendInputToTerminal);
 const mockCleanupSessionVaultCache = vi.mocked(vaultCache.cleanupSessionVaultCache);
 const mockSweepOrphanVaultCaches = vi.mocked(vaultCache.sweepOrphanVaultCaches);
 
+// REQ-SESSION-006: User can stop, restart, and delete sessions
+// REQ-SESSION-010: Session status observable from dashboard
+// REQ-SESSION-012: Wake-loop prevention
+// REQ-VAULT-015: Vault IDB lifecycle and listing filters
+
 describe('Session Store', () => {
   beforeEach(() => {
     vi.clearAllMocks();

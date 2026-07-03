@@ -102,6 +102,9 @@ async function assertRateLimited(
 
 // ── Tests ────────────────────────────────────────────────────────────
 
+// REQ-AUTH-019: User identity and account-status API
+// REQ-STOR-009: Getting-Started Docs Auto-Seeded on First Session
+
 describe('Rate limit coverage', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 

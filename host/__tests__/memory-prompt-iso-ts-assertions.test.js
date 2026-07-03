@@ -24,6 +24,8 @@ function run(env) {
   });
 }
 
+// REQ-MEM-001: Conversation context automatically captured to vault
+
 describe('assert-iso-ts.sh / REQ-MEM-010 AC5+AC6+AC7', () => {
   it('AC5 happy path UTC: prints valid ISO_TS=... and exits 0', () => {
     const r = run({ TZ: 'UTC', USER_TIMEZONE: '', ASSERT_ISO_TS_OVERRIDE: '' });

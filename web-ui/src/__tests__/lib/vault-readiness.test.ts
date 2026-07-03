@@ -43,6 +43,8 @@ function createTestScheduler() {
 // rather than HEAD-ing the SB proxy root (which 502s while SB warms up and spams
 // the console). These pin the mapping: ready only when the endpoint says so, and
 // any failure/non-2xx/malformed body is treated as "not ready" (keep warming).
+// REQ-VAULT-018: Vault control gating and on-demand prewarm trigger
+
 describe('probeVaultReady', () => {
   const jsonResponse = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });

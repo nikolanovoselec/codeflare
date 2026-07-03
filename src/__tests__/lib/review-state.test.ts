@@ -23,6 +23,13 @@ const base: ComputeReviewStateInput = {
   monitorCompleted: false,
 };
 
+// REQ-AGENT-036: PR-Boundary Review Trigger Conditions
+// REQ-AGENT-053: Pi Durable Review Status and Result Formatting
+// REQ-AGENT-055: Pi PR-Boundary Review Window Advancement
+// REQ-AGENT-056: Pi Local Statusline Footer
+// REQ-AGENT-059: Pi Durable Review Fix Loop
+// REQ-AGENT-062: Pi PR-Boundary Review Result Delivery
+
 describe('computeReviewStateFrom (REQ-AGENT-057 AC1)', () => {
   it('reports all lanes pending when nothing has happened', () => {
     const s = computeReviewStateFrom({ ...base });

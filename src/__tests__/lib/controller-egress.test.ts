@@ -34,6 +34,8 @@ function makeEnv(overrides: Partial<Env> & { __kv?: Record<string, string> } = {
   } as unknown as Env;
 }
 
+// REQ-ENTERPRISE-023: Strict Gateway Egress Controller Transport
+
 describe('REQ-ENTERPRISE-016: hasStrictGatewayEgress', () => {
   it('is true only when enterprise mode AND the KV toggle is active', async () => {
     expect(await hasStrictGatewayEgress(makeEnv({ __kv: { [STRICT_KEY]: 'active' } }))).toBe(true);

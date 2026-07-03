@@ -160,6 +160,10 @@ const DONE_LINE = (toolUseId) =>
 
 const SPEC_DONE_LINE = (toolUseId = 'toolu_sr1') => DONE_LINE(toolUseId);
 
+// REQ-AGENT-036: PR-Boundary Review Trigger Conditions
+// REQ-AGENT-040: PR-Boundary Lane Classification and Agent Dispatch
+// REQ-AGENT-041: PR-Boundary Review Bypass Surfaces
+
 describe('enforce-review-spawn.sh — vibe-coding gate', () => {
   it('exits 0 silently when sdd/ is missing', () => {
     const cwd = makeFixture();

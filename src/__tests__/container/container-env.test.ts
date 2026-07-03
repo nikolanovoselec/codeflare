@@ -43,6 +43,11 @@ function baseState(): ContainerEnvState {
 
 const baseEnv: Env = {} as Env;
 
+// REQ-AGENT-012: Fast CLI Start (Configurable)
+// REQ-AGENT-018: Push & Deploy credential management UI
+// REQ-ENTERPRISE-023: Strict Gateway Egress Controller Transport
+// REQ-GITHUB-007: Broaden the panel gate beyond enterprise
+
 describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)', () => {
   it('emits USER_TIMEZONE when _userTimezone is set', () => {
     const state = baseState();

@@ -32,6 +32,9 @@ const LINES: TranscriptLine[] = [
   { tone: 'dim', text: 'fourth' },
 ];
 
+// REQ-AUTH-020: Onboarding-mode landing-integrated login shell
+// REQ-LANDING-001: Mode-aware public landing serving
+
 describe('HeroKicker', () => {
   it('renders one active capability word plus the queued vertical stack from the content model', async () => {
     const kicker = dom(await container.renderToString(HeroKicker)).querySelector('[data-hero-kicker]')!;

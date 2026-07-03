@@ -20,6 +20,9 @@ vi.mock('../../../api/cloudflare', () => ({
   cloudflareConnectUrl: () => '/api/cloudflare/connect',
 }));
 
+// REQ-AGENT-018: Push & Deploy credential management UI
+// REQ-AGENT-028: Deploy Credential Token-Creation UX
+
 describe('DeployKeysSection (OAuth connect surface)', () => {
   beforeEach(() => {
     vi.clearAllMocks();

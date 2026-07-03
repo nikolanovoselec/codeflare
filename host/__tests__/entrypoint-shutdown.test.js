@@ -30,6 +30,8 @@ const dockerfile = readFileSync(resolve(repoRoot, 'Dockerfile'), 'utf8');
 // REQ-OPS-010: Graceful container shutdown preserves data
 // ---------------------------------------------------------------------------
 
+// REQ-SESSION-011: Graceful shutdown with final sync
+
 describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
   it('REQ-OPS-010 AC1: the container image declares STOPSIGNAL SIGINT', () => {
     assert.ok(

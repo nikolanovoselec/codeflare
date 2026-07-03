@@ -35,6 +35,8 @@ function createServiceWorker(active = true) {
   } as unknown as ServiceWorkerContainer;
 }
 
+// REQ-VAULT-018: Vault control gating and on-demand prewarm trigger
+
 describe('checkVaultLocalReadiness', () => {
   it('reports ready when this browser has recorded sb_data/sb_files DBs and an active service worker', async () => {
     const storage = createStorage({

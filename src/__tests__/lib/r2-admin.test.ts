@@ -30,6 +30,8 @@ const mockParseCfResponse = parseCfResponse as ReturnType<typeof vi.fn>;
 const mockR2AdminCB = r2AdminCB as unknown as { execute: ReturnType<typeof vi.fn> };
 const mockFetch = vi.fn();
 
+// REQ-SEC-002: API tokens never enter containers
+
 describe('r2-admin / REQ-SEC-003 (per-user R2 tokens scoped to user bucket) / REQ-SESSION-003 (R2 bucket mounted and synced on start) / REQ-STOR-001 AC4/AC5 (createBucketIfNotExists is idempotent and races safe)', () => {
   const originalFetch = globalThis.fetch;
 

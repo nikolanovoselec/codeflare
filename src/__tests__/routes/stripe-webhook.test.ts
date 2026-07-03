@@ -127,6 +127,9 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 // checkout.session.completed - CF-011: email preference, CF-023: existing sub check
 // ---------------------------------------------------------------------------
+// REQ-SUB-004: Paid Tiers Integrate with Stripe Checkout
+// REQ-SUB-016: Customer Portal and Plan Switching
+
 describe('handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscription state) / REQ-SUB-015 (webhook handlers for updated/deleted/canceled)', () => {
   it('uses metadata.email when both metadata.email and customer_email are present', async () => {
     vi.mocked(fetchSubscription).mockResolvedValue(mockSubscriptionSnapshot({

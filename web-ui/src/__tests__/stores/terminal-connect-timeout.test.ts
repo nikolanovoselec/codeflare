@@ -42,8 +42,8 @@ const createMockTerminal = (): Terminal =>
     buffer: { active: { viewportY: 100, baseY: 100 } },
   }) as unknown as Terminal;
 
-// REQ-TERM-003 AC8/AC9: connect-timeout force-close + pause-while-hidden.
-describe('Terminal Store / REQ-TERM-003 AC8: connect-timeout force-close & AC9 pause-while-hidden', () => {
+// REQ-TERM-020 AC2/AC3: connect-timeout force-close + pause-while-hidden.
+describe('Terminal Store / REQ-TERM-020 AC2: connect-timeout force-close & AC3 pause-while-hidden', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();

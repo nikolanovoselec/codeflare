@@ -40,6 +40,8 @@ const REPO = {
   updated_at: '2026-01-01T00:00:00Z',
 };
 
+// REQ-GITHUB-004: Clone a repository into a session
+
 describe('RepoRow Clone button', () => {
   beforeEach(() => {
     vi.clearAllMocks();

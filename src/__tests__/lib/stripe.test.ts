@@ -22,6 +22,10 @@ function makeTiers(): SubscriptionTierConfig[] {
   ];
 }
 
+// REQ-SUB-004: Paid Tiers Integrate with Stripe Checkout
+// REQ-SUB-005: Trial Is Compute-Based, Not Time-Based
+// REQ-SUB-016: Customer Portal and Plan Switching
+
 describe('getStripePriceId', () => {
   const tiers = makeTiers();
 

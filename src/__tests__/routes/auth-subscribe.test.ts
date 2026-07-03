@@ -25,6 +25,8 @@ vi.mock('../../lib/access', () => ({
 // Import after mock
 import authRoutes from '../../routes/auth';
 
+// REQ-SUB-004: Paid Tiers Integrate with Stripe Checkout
+
 describe('POST /auth/subscribe', () => {
   let mockKV: ReturnType<typeof createMockKV>;
   let originalFetch: typeof globalThis.fetch;

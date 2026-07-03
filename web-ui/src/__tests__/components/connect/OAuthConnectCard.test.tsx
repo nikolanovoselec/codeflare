@@ -14,6 +14,10 @@ const base = {
   onDisconnect: () => {},
 };
 
+// REQ-AGENT-018: Push & Deploy credential management UI
+// REQ-AGENT-028: Deploy Credential Token-Creation UX
+// REQ-GITHUB-007: Broaden the panel gate beyond enterprise
+
 describe('OAuthConnectCard', () => {
   describe('disconnected', () => {
     it('renders the connect button with the connect URL as its navigation contract', () => {

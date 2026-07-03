@@ -134,6 +134,9 @@ import * as mobileModule from '../../lib/mobile';
 import { loadSettings } from '../../lib/settings';
 
 // REQ-TERM-016: Terminal Pane Reconnect and Resize Authority
+// REQ-MOB-010: FitAddon fit calls are coordinated
+// REQ-TERM-019: Terminal WebSocket Control Frames and Protocol Guards
+
 describe('useTerminal hook', () => {
   const defaultProps: UseTerminalOptions = {
     sessionId: 'test-session-123',
@@ -920,7 +923,7 @@ describe('useTerminal hook', () => {
       dispose();
     });
 
-    it('REQ-MOB-002 AC6: swaps a textarea created during terminal.open() for a password input and restores createElement afterward', () => {
+    it('REQ-MOB-016 AC2: swaps a textarea created during terminal.open() for a password input and restores createElement afterward', () => {
       vi.mocked(isTouchDevice).mockReturnValue(true);
 
       const origCreateElement = document.createElement.bind(document);

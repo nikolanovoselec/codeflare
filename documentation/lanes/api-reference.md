@@ -182,7 +182,9 @@ Per-user "Connect to Cloudflare" OAuth (non-enterprise only). Mounted at `/api/c
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/auth/cloudflare/connect/callback` | Session cookie | [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) | Connect-Cloudflare callback: re-derives identity from the live session, verifies the bucket-bound single-use OAuth state, exchanges the code, persists the token + auto-selects the account when exactly one is accessible (else redirects to a picker); never mints a session cookie. The OAuth client registers this exact URL. Redirects with `?cloudflare=connected\|select-account\|denied\|expired\|unavailable\|error`. |
+| GET | `/auth/cloudflare/connect/callback` | Session cookie | [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) | Connect-Cloudflare callback; redirects with `?cloudflare=connected\|select-account\|denied\|expired\|unavailable\|error`. |
+
+The Connect-Cloudflare callback re-derives identity from the live session, verifies the bucket-bound single-use OAuth state, exchanges the code, persists the token, and auto-selects the account when exactly one is accessible; otherwise it redirects to a picker. It never mints a session cookie. The OAuth client registers this exact URL.
 
 ### Public (Unauthenticated)
 
@@ -526,7 +528,22 @@ GET `/api/presets`, POST `/api/presets`, PATCH `/api/presets/:id` (rename), DELE
 
 GET `/api/preferences`, PATCH `/api/preferences`
 
-`UserPreferences` fields: `lastAgentType` (AgentType, optional - last selected agent), `lastPresetId` (string, optional - last used preset), `workspaceSyncEnabled` (boolean, default: `false` - workspace sync toggle, disabled by default), `fastStartEnabled` (boolean, default: `true` - fast CLI start toggle), `sessionMode` (SessionMode, optional - default/advanced), `sleepAfter` (SleepAfterOption, optional - auto-sleep duration, see [Auto-sleep](container.md#auto-sleep-configurable-sleepafter)), `userTimezone` (string, optional - valid IANA timezone, max 64 chars; validated via `Intl.DateTimeFormat` round-trip, invalid zones return `ValidationError`; persisted to DO storage and forwarded to the container as `USER_TIMEZONE` env var so memory-capture filenames reflect the user's local time; takes effect on next session start - see [REQ-SESSION-016](../../sdd/spec/session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env) and [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) AC9). The `fastStartEnabled` preference maps to `FAST_CLI_START` env var in the container DO -- see [Fast Start](container.md#fast-start). **Side effect:** when `sessionMode` changes, `PATCH /api/preferences` calls `reconcileAgentConfigs(overwrite: true, cleanup: true)` to seed the correct preseed set for the new mode. Non-fatal - failure does not block the preference save. Implements [REQ-AGENT-004](../../sdd/spec/agents.md#req-agent-004-two-session-modes-standard-and-pro) AC4-AC5. `lastPreseedHash` (string, optional - SHA-256 prefix of preseed content at last successful reconcile; compared against the build-time preseed content hash on dashboard load to detect release upgrades; see [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release)).
+`UserPreferences` fields:
+
+| Field | Contract |
+|---|---|
+| `lastAgentType` | Optional `AgentType`; last selected agent. |
+| `lastPresetId` | Optional string; last used preset. |
+| `workspaceSyncEnabled` | Boolean, default `false`; workspace sync toggle. |
+| `fastStartEnabled` | Boolean, default `true`; maps to `FAST_CLI_START` in the container DO. See [Fast Start](container.md#fast-start). |
+| `sessionMode` | Optional `SessionMode`; default or advanced. Changes trigger `reconcileAgentConfigs(overwrite: true, cleanup: true)`. |
+| `sleepAfter` | Optional `SleepAfterOption`; auto-sleep duration. See [Auto-sleep](container.md#auto-sleep-configurable-sleepafter). |
+| `userTimezone` | Optional valid IANA timezone, max 64 chars; invalid zones return `ValidationError`. |
+| `lastPreseedHash` | Optional SHA-256 prefix of preseed content at last successful reconcile; compared on dashboard load to detect release upgrades. |
+
+`userTimezone` is validated by `Intl.DateTimeFormat` round-trip, persisted to DO storage, and forwarded to the container as `USER_TIMEZONE`; it takes effect on the next session start so memory-capture filenames reflect the user's local time. See [REQ-SESSION-016](../../sdd/spec/session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env) and [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) AC4.
+
+When `sessionMode` changes, `PATCH /api/preferences` seeds the correct preseed set for the new mode. Reconcile failure is non-fatal and does not block the preference save. Implements [REQ-AGENT-004](../../sdd/spec/agents.md#req-agent-004-two-session-modes-standard-and-pro) AC4-AC5. `lastPreseedHash` supports release-upgrade detection; see [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release).
 
 ### LLM API Keys
 

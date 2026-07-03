@@ -33,6 +33,8 @@ vi.mock('../../lib/r2-config', () => ({
 
 import preferencesRoutes from '../../routes/preferences';
 
+// REQ-OPS-017: sleepAfter fail-safe invariants
+
 describe('REQ-SESSION-014: User-configurable auto-sleep timeout in Settings', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 

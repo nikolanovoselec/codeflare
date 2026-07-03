@@ -5,6 +5,8 @@ import ClonePickerOptionRow from '../../components/github/ClonePickerOptionRow';
 
 afterEach(() => cleanup());
 
+// REQ-GITHUB-004: Clone a repository into a session
+
 describe('ClonePickerOptionRow', () => {
   it('routes icon, label and description into their slots', () => {
     render(() => (

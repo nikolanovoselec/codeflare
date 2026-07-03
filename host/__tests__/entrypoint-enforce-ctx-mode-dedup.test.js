@@ -141,6 +141,8 @@ function strictHookEntries(merged) {
   return strict?.hooks ?? [];
 }
 
+// REQ-AGENT-027: Context-Mode Interoperability
+
 describe('entrypoint settings.json hook merge - enforce-ctx-mode.sh dedup', () => {
   it('advanced re-apply: 4× duplicated strict hook entries collapse to exactly 1', () => {
     const merged = runJqMerge(accumulatedSettingsFixture(), advancedContextModeSettingsConfig());

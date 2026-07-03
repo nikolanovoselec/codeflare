@@ -5,6 +5,8 @@ import {
   getHeroKickerPosition,
 } from '../lib/hero-kicker';
 
+// REQ-LANDING-001: Mode-aware public landing serving
+
 describe('hero kicker rotation model', () => {
   it('keeps the active word on the baseline and wraps the previous word to the top of the stack', () => {
     expect([0, 1, 2, 3].map((index) => getHeroKickerPosition(index, 1, 4))).toEqual([3, 0, 1, 2]);

@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { stageOrder } from '../../lib/stages';
 
+// REQ-TERM-005: Tab 1 auto-starts the configured agent
+
 describe('stages', () => {
   describe('stageOrder', () => {
     it('defines ordering for all init stages', () => {

@@ -41,6 +41,8 @@ const _MockWebSocket = globalThis.WebSocket as unknown as {
 };
 
 // REQ-TERM-016: Terminal Pane Reconnect and Resize Authority
+// REQ-TERM-019: Terminal WebSocket Control Frames and Protocol Guards
+
 describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)', () => {
   const sessionId = 'test-session-123';
   const terminalId = '1';
@@ -227,11 +229,11 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
     });
   });
 
-  // REQ-TERM-003 AC7: quiet teardown — tearing down an in-flight (CONNECTING)
+  // REQ-TERM-020 AC1: quiet teardown — tearing down an in-flight (CONNECTING)
   // connection during rapid enter/exit must not force-close the socket (which
   // makes the browser log "WebSocket is closed before the connection is
   // established") nor surface a spurious onerror. An open socket is still closed.
-  describe('REQ-TERM-003 AC7: quiet teardown of in-flight connections', () => {
+  describe('REQ-TERM-020 AC1: quiet teardown of in-flight connections', () => {
     function stubControllableWebSocket(sockets: Array<{ readyState: number; close: ReturnType<typeof vi.fn>; onopen: (() => void) | null; onerror: ((e: Event) => void) | null; onclose: ((e: CloseEvent) => void) | null }>, autoOpen: boolean) {
       vi.stubGlobal('WebSocket', class {
         static CONNECTING = 0;

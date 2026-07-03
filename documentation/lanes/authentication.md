@@ -235,28 +235,19 @@ When `SAAS_MODE=active`, Codeflare replaces the Cloudflare Access interstitial w
 
 ```mermaid
 flowchart TD
-    A["Visitor arrives at domain"] --> B["CF Access intercepts request"]
-    B --> D["Redirect to GitHub OAuth"]
-    D --> E["User completes GitHub login"]
-    E --> F["CF Access mints JWT"]
-    F --> G["Redirect to /app/"]
-    G --> H["Worker verifies JWT via JWKS"]
-    H --> J["Extract user email"]
-    J --> K{"User in KV?"}
-    K -->|no| L["JIT Provision: new record with pending tier"]
-    K -->|yes| M["Load existing subscription tier"]
-    L --> N["requireActiveUser check"]
-    M --> N
-    N -->|tier=pending| O["Redirect to /app/subscribe"]
-    N -->|active tier| P["Allow IDE access"]
-    N -->|tier=blocked| Q["Show blocked message"]
-    O --> S["User selects tier + completes Turnstile"]
-    S --> T["POST /api/auth/subscribe"]
-    T --> V["Write subscriptionTier to KV"]
-    V --> W{"First time?"}
-    W -->|yes| X["Redirect to /app/onboarding"]
-    X --> P
-    W -->|no| P
+    A["Visitor"] --> B["CF Access OAuth"]
+    B --> C["Access JWT"]
+    C --> D["Worker verifies JWT"]
+    D --> E{"User in KV?"}
+    E -->|no| F["JIT pending tier"]
+    E -->|yes| G["Load tier"]
+    F --> H["requireActiveUser"]
+    G --> H
+    H -->|pending| I["/app/subscribe"]
+    H -->|active| J["IDE access"]
+    H -->|blocked| K["blocked"]
+    I --> L["POST /api/auth/subscribe"]
+    L --> J
 ```
 
 **Key architectural choice:** CF Access handles authentication (identity), while the Worker handles authorization (access control).
@@ -265,7 +256,9 @@ flowchart TD
 
 SaaS mode uses a layered middleware stack on every request to protected routes (`src/middleware/auth.ts`):
 
-1. **`requireIdentity`** - Resolves the user from whichever credential the mode issues (the `codeflare_session` cookie in SaaS/onboarding OIDC mode, the CF Access JWT in default/enterprise mode). If the user is not in KV, auto-provisions them with `pending` tier. Sets `c.get('user')`. Used for endpoints like `/api/auth/status` and `/api/auth/subscribe`.
+1. **`requireIdentity`**
+
+     Resolves the user from whichever credential the mode issues (the `codeflare_session` cookie in SaaS/onboarding OIDC mode, the CF Access JWT in default/enterprise mode). If the user is not in KV, auto-provisions them with `pending` tier. Sets `c.get('user')`. Used for endpoints like `/api/auth/status` and `/api/auth/subscribe`.
 
 2. **`requireActiveUser`** - Authenticates then checks `subscriptionTier ?? accessTier` is an active tier via `isActiveTier()`. Pending users get 403 `{ code: 'PENDING' }` - frontend redirects to `/app/subscribe`. Blocked users get 403 `{ code: 'BLOCKED' }`. In non-SaaS mode, behaves identically to `requireIdentity`.
 
@@ -276,7 +269,9 @@ SaaS mode uses a layered middleware stack on every request to protected routes (
 Admin authorization has two sources:
 
 - **Admin-by-email (durable):** a KV `user:<email>` record with `role: 'admin'`, seeded from the Setup wizard's Admin Users list. `requireAdmin` passes immediately when the resolved user is already `admin`.
-- **Admin-by-group (enterprise, live):** in enterprise mode, if the user is not already admin, `requireAdmin` calls `resolveAdminAccessGroup()` to test the user's Cloudflare Access group membership (a single get-identity call) against the Setup-configured `setup:enterprise_admin_access_group`. A match elevates the user to `admin` for that request only (set on the Hono context — no KV record written), so removing them from the group revokes admin access on the next request. The check is confined to `requireAdmin` (never the hot `authenticateRequest` path), is a no-op outside enterprise mode or when no admin groups are configured, and fails closed on any get-identity error. See [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) and [Configuration — Admin Access Group Configuration](configuration.md#admin-access-group-configuration).
+- **Admin-by-group (enterprise, live):**
+
+    in enterprise mode, if the user is not already admin, `requireAdmin` calls `resolveAdminAccessGroup()` to test the user's Cloudflare Access group membership (a single get-identity call) against the Setup-configured `setup:enterprise_admin_access_group`. A match elevates the user to `admin` for that request only (set on the Hono context — no KV record written), so removing them from the group revokes admin access on the next request. The check is confined to `requireAdmin` (never the hot `authenticateRequest` path), is a no-op outside enterprise mode or when no admin groups are configured, and fails closed on any get-identity error. See [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) and [Configuration — Admin Access Group Configuration](configuration.md#admin-access-group-configuration).
 
 Admin groups also widen the JIT entry gate (union of user-access + admin groups) so an admin in no user-access group is not locked out; see [User Provisioning](user-provisioning.md#enterprise-mode-provisioning).
 

@@ -27,7 +27,7 @@ export const WS_RECONNECT_MAX_MS = 15_000;
  *  reconnect backoff is scheduled. Cures a socket frozen at CONNECTING (e.g. the
  *  network is still re-establishing right after a mobile app-switch), which emits
  *  no close/error event and would otherwise strand the terminal on "Connecting"
- *  (REQ-TERM-003 AC8). */
+ *  (REQ-TERM-020 AC2). */
 export const WS_CONNECT_TIMEOUT_MS = 10_000;
 
 // =============================================================================

@@ -19,6 +19,8 @@ const base = {
   onOauthClientSecretChange: () => {},
 };
 
+// REQ-GITHUB-008: Enterprise GitHub provider configuration via Setup
+
 describe('GitHubProviderChooser', () => {
   it('reveals the App id + secret pair when providerType is app', () => {
     render(() => <GitHubProviderChooser {...base} providerType="app" />);

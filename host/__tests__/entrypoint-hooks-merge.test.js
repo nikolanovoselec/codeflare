@@ -20,6 +20,9 @@ function extractMainExecution() {
 // ============================================================================
 // Test: settings.json configuration in entrypoint.sh
 // ============================================================================
+// REQ-AGENT-008: Preseed Deployed to Container on Start
+// REQ-MEM-008: Memory prompt files preseeded via manifest pipeline
+
 describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => {
   it('configures settings.json with skipDangerousModePermissionPrompt', () => {
     assert.ok(

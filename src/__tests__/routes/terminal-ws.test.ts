@@ -52,6 +52,9 @@ vi.mock('@cloudflare/containers', () => ({
   })),
 }));
 
+// REQ-SESSION-012: Wake-loop prevention
+// REQ-SESSION-015: Container Port-Readiness Gating with Pre-Warm Pre-Condition
+
 describe('handleWebSocketUpgrade', () => {
   let mockKV: ReturnType<typeof createMockKV>;
   let mockEnv: Env;

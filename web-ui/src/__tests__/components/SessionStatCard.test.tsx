@@ -42,6 +42,9 @@ function createSession(overrides: Partial<SessionWithStatus> = {}): SessionWithS
   };
 }
 
+// REQ-SESSION-010: Session status observable from dashboard
+// REQ-SESSION-013: Sleep timer countdown UI
+
 describe('SessionStatCard', () => {
   const defaultProps = {
     session: createSession(),

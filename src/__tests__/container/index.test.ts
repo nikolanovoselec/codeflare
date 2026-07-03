@@ -82,6 +82,13 @@ vi.mock('@cloudflare/containers', () => ({
 import { container as ContainerClass, validateBucketNameInput } from '../../container/index';
 
 // REQ-SESSION-019: Final-sync drain endpoint authentication
+// REQ-ENTERPRISE-017: AI Gateway Configured in the Setup Wizard
+// REQ-ENTERPRISE-023: Strict Gateway Egress Controller Transport
+// REQ-OPS-010: Graceful container shutdown preserves data
+// REQ-OPS-016: sleepAfter preference persistence and lifecycle
+// REQ-SESSION-006: User can stop, restart, and delete sessions
+// REQ-SESSION-008: Container restart preserves R2 bucket
+
 describe('container DO class / REQ-SESSION-002 (one container per session)', () => {
   let mockStorage: {
     get: ReturnType<typeof vi.fn>;

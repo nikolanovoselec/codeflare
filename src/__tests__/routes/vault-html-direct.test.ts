@@ -26,6 +26,8 @@ import {
   VAULT_CONTROLLED_RELOAD_MARKER,
 } from '../../routes/vault-html';
 
+// REQ-VAULT-022: Vault armed-state open flow and persistence
+
 describe('CF-045: vault-html direct unit tests', () => {
   // REQ-VAULT-015 AC1: graphify-out artifacts are stripped from the SB listing
   describe('filterVaultFsListing', () => {

@@ -156,24 +156,42 @@ Horizontal swipe gestures (left/right arrow key simulation) use a `setInterval` 
 
 **Solution:** Register `touchend`/`touchcancel` in capture phase (`{ capture: true }`) matching `touchstart`/`touchmove`. Our handler now fires before xterm's, guaranteeing the repeat timer is always cleared.
 
-**xterm 6.1 Gesture shield (git: Fix 20).** xterm 6.1 (`6.1.0-beta.288`) vendored VS Code's touch-scroll rewrite (upstream PR #5377, absent from 6.0.0), which registers a document-level `Gesture` singleton via `MouseService` → `Gesture.addTarget(.xterm-screen)` and calls `preventDefault()` on any `touchstart`/`touchend` starting inside the terminal. Per the Touch Events spec that cancels the browser's synthesized `click` — codeflare's ONLY mobile-keyboard-open trigger (`Terminal.tsx` `on:click`) — so upgrading past 6.0.0 silently broke tap-to-open-keyboard on mobile (the keyboard never appeared; scrolling still worked). Fix: a bubble-phase `stopPropagation` "Gesture shield" for `touchstart`/`touchmove`/`touchend` on the terminal container in `attachSwipeGestures()` (`web-ui/src/lib/touch-gestures.ts`) — codeflare's own capture-phase handlers still run first, `stopPropagation()` (never `preventDefault`) does not affect browser click synthesis, and xterm's document-level Gesture singleton never sees a terminal-container touch. Removed on terminal cleanup. Covered by `touch-gestures.test.ts` (shield blocks container-origin touches from reaching document-level listeners; outside-container touches unaffected; cleanup removes the shield). Kept on top of the beta pin rather than reverting it — pinning an intermediate build is impossible (both breaking commits are ancestors of #5770's branch, the Pi-flicker mitigation this repo needs; see [Pi Terminal Flicker](troubleshooting.md#pi-terminal-flicker-investigation-ongoing)). ([REQ-MOB-002](../../sdd/spec/mobile.md#req-mob-002-virtual-keyboard-opens-reliably-on-tap) AC8)
+**xterm 6.1 Gesture shield (git: Fix 20).** xterm 6.1 (`6.1.0-beta.288`) vendored VS Code's touch-scroll rewrite (upstream PR #5377, absent from 6.0.0), which registers a document-level `Gesture` singleton via `MouseService` → `Gesture.addTarget(.xterm-screen)` and calls `preventDefault()` on any `touchstart`/`touchend` starting inside the terminal. Per the Touch Events spec that cancels the browser's synthesized `click` — codeflare's ONLY mobile-keyboard-open trigger (`Terminal.tsx` `on:click`) — so upgrading past 6.0.0 silently broke tap-to-open-keyboard on mobile (the keyboard never appeared; scrolling still worked).
+
+Fix: a bubble-phase `stopPropagation` "Gesture shield" for `touchstart`/`touchmove`/`touchend` on the terminal container in `attachSwipeGestures()` (`web-ui/src/lib/touch-gestures.ts`) — codeflare's own capture-phase handlers still run first, `stopPropagation()` (never `preventDefault`) does not affect browser click synthesis, and xterm's document-level Gesture singleton never sees a terminal-container touch. Removed on terminal cleanup. Covered by `touch-gestures.test.ts` (shield blocks container-origin touches from reaching document-level listeners; outside-container touches unaffected; cleanup removes the shield). Kept on top of the beta pin rather than reverting it — pinning an intermediate build is impossible (both breaking commits are ancestors of #5770's branch, the Pi-flicker mitigation this repo needs; see [Pi Terminal Flicker](troubleshooting.md#pi-terminal-flicker-investigation-ongoing)). ([REQ-MOB-002](../../sdd/spec/mobile.md#req-mob-002-virtual-keyboard-opens-reliably-on-tap) AC6)
 
 ### Input Architecture
 
 The mobile terminal input system uses several techniques to work around browser/OS limitations:
 
 1. **Iframe compositor jail** -- Separate compositor context for Android IME caret containment
-2. **`_syncTextArea` (NOT frozen)** -- xterm repositions its hidden textarea to the cursor on every render. This must remain active so the browser's focus-scroll targets the cursor position (bottom of terminal) rather than `(0,0)`. Freezing it was a premature optimization (~30 style recalcs/sec on a single hidden element) that caused the scroll-to-top bug (git: Fix 8). Note: on mobile, CSS `!important` overrides `_syncTextArea`'s positioning (textarea stays at 0,0 for the compositor jail), so additional guards are needed (git: Fix 9).
-3. **`createElement` monkey-patch** -- Uses `input[type=password]` instead of textarea (scoped to `terminal.open()`) to suppress autocorrect at OS level. Voice input is handled separately via the Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition`) in `speech-input.ts` -- completely decoupled from the keyboard/iframe input system. On mobile, the floating microphone button starts recognition. On desktop, a small mic icon in the bottom-right corner and `Ctrl+Space` keyboard shortcut toggle voice input. Final transcribed text is sent directly to `terminal.input()`. `continuous=false` and `interimResults=false` for reliability -- each tap/shortcut is one utterance (tap, speak, pause, text sent, auto-deactivates). Hidden on browsers that don't support the API. **Permission prompt handling:** On first use, the browser shows a microphone permission prompt. On mobile this appears behind the virtual keyboard. The mic button checks `navigator.permissions.query({name: 'microphone'})` -- if state is `'prompt'`, it blurs the iframe input (dismissing the keyboard) before calling `recognition.start()` so the user sees the prompt. Same pattern for clipboard paste (`clipboard-read` permission). Composition events (`compositionstart`/`compositionend`) buffer swipe typing text until the IME commits.
+2. **`_syncTextArea` (NOT frozen)**
+
+   xterm repositions its hidden textarea to the cursor on every render. This must remain active so the browser's focus-scroll targets the cursor position at the bottom of the terminal, not `(0,0)`.
+
+   Freezing it was a premature optimization (~30 style recalcs/sec on one hidden element) that caused the scroll-to-top bug (git: Fix 8). On mobile, CSS `!important` overrides `_syncTextArea` positioning for the compositor jail, so additional guards are needed (git: Fix 9).
+3. **`createElement` monkey-patch**
+
+   Uses `input[type=password]` instead of textarea, scoped to `terminal.open()`, to suppress autocorrect at OS level. Voice input is handled separately via the Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition`) in `speech-input.ts`, completely decoupled from the keyboard/iframe input system.
+
+   The floating microphone button starts recognition on mobile. On desktop, a small mic icon in the bottom-right corner and `Ctrl+Space` toggle voice input. Final transcribed text is sent directly to `terminal.input()`. For reliability, `continuous=false` and `interimResults=false` make each tap/shortcut one utterance: tap, speak, pause, send text, auto-deactivates.
+
+   Browsers without the API hide the feature. On first use, the browser shows a microphone permission prompt.
+
+   On mobile this appears behind the virtual keyboard. The mic button checks `navigator.permissions.query({name: 'microphone'})`; if state is `'prompt'`, it blurs the iframe input, dismissing the keyboard before `recognition.start()`. The same pattern handles clipboard paste (`clipboard-read` permission). Composition events (`compositionstart`/`compositionend`) buffer swipe typing text until the IME commits.
 4. **`isFocused` getter override** -- Live reference via `iframe.contentDocument?.hasFocus()` avoids stale state
 5. **VK API toggle** -- `overlaysContent` must be enabled BEFORE focus to beat the keyboard/layout race
-6. **Touch scroll via `terminal.scrollLines()`** -- When keyboard is closed, vertical swipes in `touch-gestures.ts` scroll the terminal buffer directly via `terminal.scrollLines()`. xterm 6.0.0's `SmoothScrollableElement` uses JS-based scrolling that doesn't support native touch; `.xterm-viewport` no longer has scrollable content. The gesture handler accumulates pixel deltas and converts to line-granularity scroll, with sensitivity derived from terminal font metrics (`fontSize * lineHeight`)
+6. **Touch scroll via `terminal.scrollLines()`**
+
+   When keyboard is closed, vertical swipes in `touch-gestures.ts` scroll the terminal buffer directly via `terminal.scrollLines()`.
+
+   xterm 6.0.0's `SmoothScrollableElement` uses JS-based scrolling that does not support native touch; `.xterm-viewport` no longer has scrollable content. The gesture handler accumulates pixel deltas and converts to line-granularity scroll, with sensitivity derived from terminal font metrics (`fontSize * lineHeight`).
 
 ## xterm 6.1 Color-Scheme Report Suppression (git: Fix 21)
 
-Not touch-related — filed here as a sibling xterm-6.1 regression (backed by `REQ-TERM-002` AC8, fixed in `useTerminal.ts`, not `touch-gestures.ts`).
+Not touch-related — filed here as a sibling xterm-6.1 regression (backed by `REQ-TERM-019` AC2, fixed in `useTerminal.ts`, not `touch-gestures.ts`).
 
-xterm 6.1's default-on color-scheme reporting (upstream PR #5628) answers `CSI ?996n` and pushes `CSI ?997;1n` on every theme change once a TUI enables DECSET 2031. `applyCursorVisibility()` reassigns `options.theme` on every DECTCEM (cursor show/hide) toggle, so a 2031-enabled TUI (Claude Code, which toggles the cursor constantly and has a known echo gap — anthropics/claude-code#41570) gets flooded with `?997` reports it echoes at the prompt (visible as a literal `^[[?997;1n` and a corrupted status line). Fix: `vtExtensions: { colorSchemeQuery: false }` passed to the `Terminal` constructor in `useTerminal.ts` — a public typed xterm option that gates both the `996` reply and the `2031` push, restoring exact 6.0.0 byte behavior. Covered by `useTerminal.test.ts` (constructor contract: `vtExtensions.colorSchemeQuery === false`). ([REQ-TERM-002](../../sdd/spec/terminal.md#req-term-002-websocket-connection-to-container-pty) AC8)
+xterm 6.1's default-on color-scheme reporting (upstream PR #5628) answers `CSI ?996n` and pushes `CSI ?997;1n` on every theme change once a TUI enables DECSET 2031. `applyCursorVisibility()` reassigns `options.theme` on every DECTCEM (cursor show/hide) toggle, so a 2031-enabled TUI (Claude Code, which toggles the cursor constantly and has a known echo gap — anthropics/claude-code#41570) gets flooded with `?997` reports it echoes at the prompt (visible as a literal `^[[?997;1n` and a corrupted status line). Fix: `vtExtensions: { colorSchemeQuery: false }` passed to the `Terminal` constructor in `useTerminal.ts` — a public typed xterm option that gates both the `996` reply and the `2031` push, restoring exact 6.0.0 byte behavior. Covered by `useTerminal.test.ts` (constructor contract: `vtExtensions.colorSchemeQuery === false`). ([REQ-TERM-019](../../sdd/spec/terminal.md#req-term-019-terminal-websocket-control-frames-and-protocol-guards) AC2)
 
 ## Scroll Stability
 
@@ -195,7 +213,9 @@ xterm 6.0.0 replaced `.xterm-viewport` (native `overflow-y: scroll` with a scrol
 
 3. A capture-phase "scroll guard" was added to counteract this -- intercepting native scroll events on `.xterm-viewport`, `.xterm-screen`, `.xterm-scrollable-element`, and `.xterm`, forcing `scrollTop/scrollLeft` back to `0`.
 
-4. **The scroll guard was the actual bug.** xterm 6.0.0's `SmoothScrollableElement` still uses `.xterm-viewport`'s native `scrollTop` as the synchronization mechanism between the scrollbar and `viewportY`. Forcing `scrollTop = 0` on viewport scroll events told xterm the user scrolled to the absolute top of the buffer, setting `viewportY = 0`.
+4. **The scroll guard was the actual bug.**
+
+     xterm 6.0.0's `SmoothScrollableElement` still uses `.xterm-viewport`'s native `scrollTop` as the synchronization mechanism between the scrollbar and `viewportY`. Forcing `scrollTop = 0` on viewport scroll events told xterm the user scrolled to the absolute top of the buffer, setting `viewportY = 0`.
 
 **Solution:** Remove both hacks. `_syncTextArea` stays active so the textarea follows the cursor -- the browser's focus-scroll then targets the cursor position (bottom of terminal), not `(0,0)`. The scroll guard is no longer needed because the focus-scroll no longer causes a snap to top. The ~30 style recalcs/sec on a single hidden element is negligible compared to the scroll corruption it was preventing.
 
@@ -205,7 +225,11 @@ xterm 6.0.0 replaced `.xterm-viewport` (native `overflow-y: scroll` with a scrol
 
 2. **Synchronous post-write scroll guard** -- `flushWriteBuffer()` checks `viewportY < baseY` both synchronously (inside the write callback) AND in `requestAnimationFrame`. The synchronous check catches resets that happen during the write/render cycle, before the browser paints the wrong frame.
 
-3. **Scroll-drop detector** -- `useTerminal` subscribes to xterm's `onScroll` event and monitors for sudden ydisp drops to 0 when ybase is high. If detected, immediately corrects via `queueMicrotask(() => scrollToBottom())`. This catches resets from ANY source (write path, resize, keyboard, browser focus-validation) regardless of the triggering mechanism.
+3. **Scroll-drop detector**
+
+   `useTerminal` subscribes to xterm's `onScroll` event and monitors for sudden ydisp drops to 0 when ybase is high. If detected, it immediately corrects via `queueMicrotask(() => scrollToBottom())`.
+
+   This catches resets from any source: write path, resize, keyboard, or browser focus-validation.
 
 **Verification (git: Fix 10):** Deep analysis of xterm 6.0.0 source confirmed that `.xterm-viewport` is genuinely empty (`CoreBrowserTerminal.ts` creates a bare `<div>` with no children), no xterm code reads/writes `_viewportElement.scrollTop`, mouse wheel is handled by `SmoothScrollableElement` JS (`scrollableElement.ts`), and the visible scrollbar is the overlay widget (`.xterm-scrollable-element > .scrollbar`). `overflow: hidden` on an empty element has zero functional impact on xterm.
 
