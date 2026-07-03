@@ -9,7 +9,7 @@
  *   REQ-MOB-001 AC2 - touch input / command execution identical to desktop (Playwright E2E)
  *   REQ-MOB-001 AC3 - e2e-ui-mobile CI job passes (CI job, not a unit test)
  *   REQ-MOB-016 AC1 - iframe compositor jail (not exported; Playwright + Android IME)
- *   REQ-MOB-002 AC7 - isFocused via iframe.contentDocument.hasFocus() (not exported; Playwright)
+ *   REQ-MOB-016 AC1 - iframe focus check via iframe.contentDocument.hasFocus() (not exported; Playwright)
  *   REQ-MOB-004 AC1 - .xterm-viewport overflow:hidden CSS rule (visual / Playwright)
  *   REQ-MOB-004 AC2 - _syncTextArea not frozen (xterm internal; Playwright)
  */

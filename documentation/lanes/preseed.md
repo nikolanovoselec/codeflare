@@ -909,22 +909,11 @@ Hooks registered in settings.json, scripts delivered via plugin.
 
 ## Third-party plugin: context-mode
 
-[context-mode](https://github.com/mksglu/context-mode) is registered
-as a Claude Code MCP server (`ctx_*` helper tools) where that runtime
-enables it. Pi loads context-mode by default (in the settings `required` set);
-`/ctx off` disables the package for the current running Pi session and reloads
-resources, while `/ctx on` re-enables it, and the next Codeflare container start
-resets Pi back to enabled. Durable PR-boundary review lanes inherit `/ctx on` only when
-`spawnDurableLane` adds the settings-enabled context-mode package as an explicit
-`-e` argument. With `/ctx on`, the lane can expose `ctx_search`; with it off,
-the lane runs without ctx tools. `graphify-native.ts` and `review-lane-guards.ts`
-are loaded separately.
-The npm package is fetched by the user's own container from the npm
-registry on first invocation; Codeflare does not redistribute the
-source. Commercial users receive only the MCP server registration:
-no skill, rule, hook, or system-prompt nudge in our preseed
-instructs Claude to invoke `ctx_*` tools. The agent's tool-selection
-is its own, identical to how it picks any other listed MCP tool.
+[context-mode](https://github.com/mksglu/context-mode) is registered as a Claude Code MCP server (`ctx_*` helper tools) where that runtime enables it. Pi loads context-mode by default in the settings `required` set. `/ctx off` disables the package for the current running Pi session and reloads resources; `/ctx on` re-enables it. The next Codeflare container start resets Pi back to enabled.
+
+Durable PR-boundary review lanes inherit `/ctx on` only when `spawnDurableLane` adds the settings-enabled context-mode package as an explicit `-e` argument. With `/ctx on`, the lane can expose `ctx_search`; with it off, the lane runs without ctx tools. `graphify-native.ts` and `review-lane-guards.ts` are loaded separately.
+
+The npm package is fetched by the user's own container from the npm registry on first invocation; Codeflare does not redistribute the source. Commercial users receive only the MCP server registration: no skill, rule, hook, or system-prompt nudge in our preseed instructs Claude to invoke `ctx_*` tools. The agent's tool-selection is its own.
 
 Codeflare no longer ships the former Bash/WebFetch/Grep deny-gate
 (`enforce-ctx-mode.sh`) in the context-mode plugin. Context-mode is
@@ -935,14 +924,17 @@ of the old deny-gate from managed hook settings so restored containers do
 not retain obsolete hard-routing behavior.
 
 context-mode's npm update-check probe (`registry.npmjs.org/context-mode/latest`)
-is neutralized at image-build time in both installs it loads from: the
-Claude global install (resolved via `npm root -g`) and the Pi runtime's
-own prewarmed copy at `/opt/codeflare/pi-agent/npm/node_modules/context-mode`,
-which Pi loads as `npm:context-mode@<ver>` through a runtime symlink to
-that prewarm tree. `scripts/patch-context-mode-bundles.mjs` repoints the
-probe URL to a refused local address in both bundles, so the version
-resolves to `"unknown"`, no "Update available ... ctx_upgrade" notice
-ever renders, and no outbound npm registry traffic is generated.
+is neutralized at image-build time in both installs it loads from:
+
+- The Claude global install, resolved via `npm root -g`.
+- The Pi runtime's prewarmed copy at `/opt/codeflare/pi-agent/npm/node_modules/context-mode`.
+
+Pi loads that prewarm tree as `npm:context-mode@<ver>` through a runtime symlink.
+`scripts/patch-context-mode-bundles.mjs` repoints the probe URL to a refused
+local address in both bundles. The version resolves to `"unknown"`, no "Update
+available ... ctx_upgrade" notice renders, and no outbound npm registry traffic
+is generated.
+
 Implements [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) AC4.
 
 context-mode is licensed under [Elastic License 2.0](https://github.com/mksglu/context-mode/blob/main/LICENSE).
@@ -963,7 +955,21 @@ All tiers append tool guidance (pointing at `mcp__graphify__query_graph`, `mcp__
 
 ### Post-clone graph triage ([REQ-AGENT-025](../../sdd/spec/agents.md#req-agent-025-post-clone-graph-triage))
 
-In advanced session mode, clone triage detects real `git clone` / `gh repo clone` operations and resolves the destination from the tool result (`Cloning into '...'`) before falling back to command parsing. If no repo graph exists, the agent asks the user which graph action to take before doing any graph work: Full repo AST-only, Full repo semantic, or no graph action. Claude's clone hook injects a directive that tells the agent to compare `graphify-out/graph.json` `built_at_commit` with `git rev-parse HEAD`; Pi performs that freshness comparison natively in its lifecycle extension. Fresh graphs produce an information message only. A stale graph (built at a commit other than `git HEAD`) makes the directive open with an explicit STALE warning before presenting choices; an unknown-freshness graph asks without the stale flag. Both offer existing-graph-as-is, Full repo AST-only update, or Full repo semantic refresh, and freshness plus on-disk existence are resolved at clone-event time via `exists`/`freshness` callbacks. The AST-only update uses the bounded upstream-update wrapper only after the user chooses it. Full semantic build/refresh records clone-time intent only: after corpus detection, the graphify skill must show actual uncached file/subagent counts and get confirmation before dispatching semantic subagents. Pi mirrors the same behavior through native lifecycle events and suppresses clone triage inside durable PR-boundary review lanes. Clone detection is scoped to shell-only command text — Bash `.command` fields, `ctx_execute` blocks with `language: "shell"`, and `ctx_batch_execute` `.commands[].command` entries; non-shell `ctx_execute` bodies are excluded so a source literal containing `git clone` cannot trigger the prompt. The detection regex also tolerates a leading env-var prefix (`BROWSER="" gh repo clone`, `GIT_TERMINAL_PROMPT=0 git clone`, `env BROWSER="" gh repo clone`).
+In advanced session mode, clone triage detects real `git clone` / `gh repo clone` operations and resolves the destination from the tool result (`Cloning into '...'`) before falling back to command parsing.
+
+If no repo graph exists, the agent asks the user which graph action to take before doing graph work: Full repo AST-only, Full repo semantic, or no graph action.
+
+Claude's clone hook injects a directive that tells the agent to compare `graphify-out/graph.json` `built_at_commit` with `git rev-parse HEAD`. Pi performs that freshness comparison natively in its lifecycle extension.
+
+Fresh graphs produce an information message only. A stale graph opens with an explicit STALE warning before presenting choices; an unknown-freshness graph asks without the stale flag. Both offer existing-graph-as-is, Full repo AST-only update, or Full repo semantic refresh.
+
+Freshness plus on-disk existence are resolved at clone-event time via `exists`/`freshness` callbacks. The AST-only update uses the bounded upstream-update wrapper only after the user chooses it.
+
+Full semantic build/refresh records clone-time intent only: after corpus detection, the graphify skill must show actual uncached file/subagent counts and get confirmation before dispatching semantic subagents. Pi mirrors the same behavior through native lifecycle events and suppresses clone triage inside durable PR-boundary review lanes.
+
+Clone detection is scoped to shell-only command text: Bash `.command` fields, `ctx_execute` blocks with `language: "shell"`, and `ctx_batch_execute` `.commands[].command` entries. Non-shell `ctx_execute` bodies are excluded so a source literal containing `git clone` cannot trigger the prompt.
+
+The detection regex also tolerates a leading env-var prefix (`BROWSER="" gh repo clone`, `GIT_TERMINAL_PROMPT=0 git clone`, `env BROWSER="" gh repo clone`).
 
 ### Pi native graphify tools ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) AC4-AC5)
 
@@ -981,7 +987,38 @@ and clone triage; it no longer acts as the primary query retry shim.
 
 ### Build model choice ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch))
 
-The Claude `/graphify` skill and the dedicated Pi graphify skill both dispatch semantic-extraction subagents for non-code files (docs, papers, images) when the user chooses Full mode. The Pi skill deliberately avoids headless semantic extraction for uncached docs/images: subagents read chunks and write Graphify-schema JSON, Graphify's cache helpers persist those chunks, and local Graphify module flows merge/build/cluster/report output. Community names are written by the active agent session to `.graphify_labels.json`; Pi applies them by regenerating the final user-facing report/html from the graph's existing community assignments, never `graphify label` or provider backends. Pi's graph refresh menu offers Architecture graph, Full repo AST-only, Full repo semantic, and an explicit no-graph option. Architecture graph uses the local module-graph script to filter tests/docs/generated/config noise and project Graphify's symbol graph into file/module dependencies; full AST initial build uses the local first-build script built from Graphify's own modules; AST-only refresh uses the bounded upstream-update wrapper. Full semantic merge starts from a freshly recreated AST-only baseline and adds cached/new semantic chunks without passing those source files as `prune_sources`, because Graphify prunes after adding. Pi's local build/merge wrappers pass the scanned repo root into Graphify's manifest writer, so `graphify-out/manifest.json` stays portable if a repo is moved or recloned. Final `graphify-out/graph.html` and `graphify-out/callflow.html` are generated after labels are applied, and durable graph commits include both.
+The Claude `/graphify` skill and the dedicated Pi graphify skill both dispatch
+semantic-extraction subagents for non-code files when the user chooses Full mode.
+That includes docs, papers, and images.
+
+The Pi skill deliberately avoids headless semantic extraction for uncached
+docs/images:
+
+- Subagents read chunks and write Graphify-schema JSON.
+- Graphify's cache helpers persist those chunks.
+- Local Graphify module flows merge, build, cluster, and report output.
+
+Community names are written by the active agent session to `.graphify_labels.json`.
+Pi applies them by regenerating the final user-facing report/html from the graph's
+existing community assignments, never `graphify label` or provider backends.
+
+Pi's graph refresh menu offers Architecture graph, Full repo AST-only, Full repo
+semantic, and an explicit no-graph option.
+
+- Architecture graph uses the local module-graph script to filter tests, docs,
+  generated files, and config noise, then projects Graphify's symbol graph into
+  file/module dependencies.
+- Full AST initial build uses the local first-build script built from Graphify's
+  own modules.
+- AST-only refresh uses the bounded upstream-update wrapper.
+- Full semantic merge starts from a freshly recreated AST-only baseline and adds
+  cached/new semantic chunks without passing those source files as `prune_sources`,
+  because Graphify prunes after adding.
+
+Pi's local build/merge wrappers pass the scanned repo root into Graphify's manifest
+writer, so `graphify-out/manifest.json` stays portable if a repo is moved or
+recloned. Final `graphify-out/graph.html` and `graphify-out/callflow.html` are
+generated after labels are applied, and durable graph commits include both.
 
 Model selection is runtime-specific. Claude Code's graphify skill pins its own reliable extraction model and never escalates to Opus from this workflow. Pi does not name or pin provider-specific models: Pi `Agent` semantic subagents omit a `model` override and inherit whatever model the main Pi session is using unless the user explicitly asks for a different model.
 
@@ -989,36 +1026,112 @@ Subagents are dispatched in bounded waves to avoid flooding agent concurrency. E
 
 ### Git persistence ([REQ-AGENT-026](../../sdd/spec/agents.md#req-agent-026-knowledge-graph-persistence-via-git))
 
-Graphify repo outputs persist in git when the user can push to the repository. The durable committed surface is:
+Graphify repo outputs persist in git when the user can push to the repository.
+The durable committed surface is:
 
 - `graphify-out/graph.json` — queryable graph data, with `.gitattributes` wiring `graphify-out/graph.json merge=graphify`
 - `graphify-out/GRAPH_REPORT.md` — human-readable graph report
 - `graphify-out/graph.html` — interactive visualization, generated after `.graphify_labels.json` is applied so users see named communities
 - optional `graphify-out/wiki/` if the user requests a wiki export
 
-The Pi graphify skill mirrors the Claude skill's persistence rule: never blanket-ignore `graphify-out/`. Repo ignore rules must ignore only regenerable build outputs such as `graphify-out/cache/`, `graphify-out/.chunks/`, `graphify-out/manifest.json`, `graphify-out/.graphify_*`, and root `.graphify_*` intermediates. During `/sdd init`, a graph built for enrichment is still a repo artifact; the scaffold or same-turn graph commit must include the durable graph files and the ignore/merge wiring rather than leaving them as local-only files.
+The Pi graphify skill mirrors the Claude skill's persistence rule: never
+blanket-ignore `graphify-out/`.
+
+Repo ignore rules must ignore only regenerable build outputs:
+
+- `graphify-out/cache/`
+- `graphify-out/.chunks/`
+- `graphify-out/manifest.json`
+- `graphify-out/.graphify_*`
+- root `.graphify_*` intermediates
+
+During `/sdd init`, a graph built for enrichment is still a repo artifact. The
+scaffold or same-turn graph commit must include the durable graph files and the
+ignore/merge wiring rather than leaving them as local-only files.
 
 ## /sdd init Modes
 
 `/sdd init` is the single entry point for bootstrapping SDD on a project. It detects one of three scenarios from project state and dispatches automatically:
 
 - **Greenfield** - empty project. Agent drafts vision / actors / domains / requirements from the user's prose and writes scaffolding.
-- **Import** - substantive existing code, no `sdd/` yet. Two-output model: behavior clearly determinable from source / tests / comments / commits / PRs becomes official REQs in `sdd/{domain}.md`; everything unclear (magic numbers, retry policies, ambiguous contracts, orphan code) becomes triage entries in `sdd/.init-triage.md` with the agent's `**Context:**` (file:line, git author, commit refs, related tests/PRs) and `**Recommendation:**` (best-guess answer with one-line `**Rationale:**`) populated up front. Status default for CLEAR REQs honours `enforce_tdd`. Import Mode defaults `enforce_tdd: false` - CLEAR REQs whose source implements the AC land as `Status: Implemented` unconditionally (imported code predates REQ-ID test conventions; demoting everything to `Partial` would falsely brand the spec as incomplete). When `enforce_tdd: false`, each domain file receives a `_Verification: code-only (no automated coverage)._` footnote at the bottom; per-REQ `Notes:` fields are not used for this signal. Switch to `enforce_tdd: true` manually (in `sdd/config.yml`) once REQ-ID references have been added to test names.
-- **Resume** - `sdd/` exists and `sdd/.init-triage.md` has at least one `**Status:** open` item. Agent surfaces one item at a time with refreshed Context. Five decisions: `accept` (use the recommendation as-is, fold into REQ), `correct` (free-form prose describing what the thing is for and how it works; agent folds purpose into Intent and behavior into ACs), `lost` (one-line Reason required, no spec write), `skip` (stays open, no spec write), `quit`. Only `accept` and `correct` promote anything into the official spec.
+- **Import** - substantive existing code, no `sdd/` yet; uses a two-output model.
+  - Clearly determinable behavior from source, tests, comments, commits, or PRs becomes official REQs in `sdd/{domain}.md`.
+  - Unclear behavior becomes triage entries in `sdd/.init-triage.md`.
 
-**Interaction flow.** Both Greenfield and Import Mode run as a lean two-confirm flow: the agent asks one vision question (or accepts inline `$ARGUMENTS`), drafts the entire spec in memory (actors, domains, design principles, REQs in canonical shape, CON-* constraints, founding ADRs, glossary terms), presents the full draft as one review surface, and applies edits in place until the user accepts. The 10-15-turn one-domain-at-a-time confirmation chain is not used.
+  Examples include magic numbers, retry policies, ambiguous contracts, and orphan code.
+  Each triage entry carries `**Context:**` (file:line, git author, commit refs, related tests/PRs) and a populated `**Recommendation:**`: the best-guess answer with a one-line `**Rationale:**`, up front.
+  - Status defaults for CLEAR REQs honour `enforce_tdd`.
+  - Import Mode defaults `enforce_tdd: false`; CLEAR REQs whose source implements the AC land as `Status: Implemented` unconditionally.
+  - The code-only default avoids demoting everything to `Partial` only because imported code predates REQ-ID test conventions.
+  - When `enforce_tdd: false`, each domain file receives a `_Verification: code-only (no automated coverage)._` footnote; per-REQ `Notes:` fields do not carry this signal.
+  - Switch to `enforce_tdd: true` manually in `sdd/config.yml` once REQ-ID references have been added to test names.
+- **Resume** - `sdd/` exists and `sdd/.init-triage.md` has at least one `**Status:** open` item.
+  - The agent surfaces one item at a time with refreshed Context.
+  - Five decisions are available: `accept`, `correct`, `lost`, `skip`, and `quit`.
+  - `accept` uses the recommendation as-is and folds it into a REQ.
+  - `correct` takes free-form prose describing purpose and behavior; the agent folds purpose into Intent and behavior into ACs.
+  - `lost` requires a one-line Reason and writes no spec.
+  - `skip` leaves the item open and writes no spec.
+  - Only `accept` and `correct` promote anything into the official spec.
 
-**Enrichment pass.** After the draft is accepted, before any files are written, three passes run automatically in one in-memory cycle. All three query the project's `graphify-out/graph.json` for structural inputs; the post-clone PostToolUse hook ([REQ-AGENT-025](../../sdd/spec/agents.md#req-agent-025-post-clone-graph-triage)) prompts the user to build a graph immediately after `git clone`, so the graph is normally already in place by the time `/sdd init` runs:
+**Interaction flow.** Both Greenfield and Import Mode run as a lean two-confirm
+flow. The agent asks one vision question or accepts inline `$ARGUMENTS`, then
+drafts the entire spec in memory.
 
-- **Cross-link pass** - `mcp__graphify__get_neighbors` returns every node that shares an edge with a referenced REQ / CON / concept; every drafted REQ that names another REQ in its body also gains it in `Dependencies:` as an anchor link `[REQ-X-NNN](#req-x-nnn-title-slug)`.
-- **ADR-seed pass** - `mcp__graphify__god_nodes(top_n=20)` returns the most-connected nodes (architectural pillars). 3-8 surviving candidates (tech stack, framework, deployment target, auth pattern, data store, key middleware) become founding ADRs in `documentation/decisions/README.md` with an index table and per-ADR sections. Candidates that fail the "What is NOT an ADR" test (no real alternative considered) are dropped.
+That draft includes actors, domains, design principles, REQs in canonical shape,
+CON-* constraints, founding ADRs, and glossary terms. The agent presents the full
+draft as one review surface and applies edits in place until the user accepts.
+The 10-15-turn one-domain-at-a-time confirmation chain is not used.
+
+**Enrichment pass.** After the draft is accepted, before any files are written,
+three passes run automatically in one in-memory cycle. All three query the
+project's `graphify-out/graph.json` for structural inputs.
+
+The post-clone PostToolUse hook ([REQ-AGENT-025](../../sdd/spec/agents.md#req-agent-025-post-clone-graph-triage))
+prompts the user to build a graph immediately after `git clone`. The graph is
+therefore normally already in place by the time `/sdd init` runs:
+
+- **Cross-link pass** - `mcp__graphify__get_neighbors` returns every node that shares an edge with a referenced REQ, CON, or concept.
+  - Every drafted REQ that names another REQ in its body also gains it in `Dependencies:` as an anchor link `[REQ-X-NNN](#req-x-nnn-title-slug)`.
+- **ADR-seed pass** - `mcp__graphify__god_nodes(top_n=20)` returns the most-connected nodes (architectural pillars).
+  - 3-8 surviving candidates become founding ADRs in `documentation/decisions/README.md` with an index table and per-ADR sections.
+  - Candidate types include tech stack, framework, deployment target, auth pattern, data store, and key middleware.
+  - Candidates that fail the "What is NOT an ADR" test (no real alternative considered) are dropped.
 - **Glossary-seed pass** - `mcp__graphify__query_graph` for concept-tagged nodes (graphify emits these with `source_file: null`); each becomes a one-line glossary entry in `sdd/glossary.md`. Synonym clusters land in `documentation/README.md`'s synonym glossary slot.
 
 No additional user prompts during the enrichment cycle. When the graphify graph is missing at enrichment time (rare - the post-clone hook offered to build one), `/sdd init` prompts the user once for `/graphify cluster-only` (AST-only, free); on decline, enrichment falls back to an in-memory heuristic (literal-string matching across the draft) with a one-line notice in `sdd/changes.md` recording reduced cross-link density. The `mcp__graphify__*` MCP tools are tool-agnostic and work identically under both Bash and context-mode (`mcp__context-mode__ctx_*`) environments.
 
-**Phase 7a - source-anchor truth-check (CRITICAL gate).** Before scaffold commit, `/sdd init` runs `verify-source-anchors.py` (`skills/sdd-init/references/verify-source-anchors.py`) against every `<!-- @impl: <path>::<symbol>[ = <value>] -->` anchor in the drafted `sdd/**/*.md` and `documentation/**/*.md`. The verifier resolves each anchor's path on disk, confirms word-bounded symbol presence in source, validates literal value patterns within the symbol's local region, counts malformed `@impl`-shaped comments, and counts unreadable files. It emits a JSON report to `.verify-anchors.json` with shape `{parsed, resolved, orphaned, drifted, malformed, unreadable, failures, malformed_entries, unreadable_entries, exit_code}` - the three detail arrays carry per-anchor failure context that CQ-SOURCE and Pass 15 consume. The `[sdd-init]` commit body MUST include the summary line verbatim: `Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N malformed=N unreadable=N exit_code=0|1`. A non-zero exit blocks the commit until every failure is fixed in source or escalated to `sdd/spec/.review-queue.md`. Substituting an agent self-attestation, a sampled audit, or a structural sanity check for the verifier output is CRITICAL - five named failure modes: `phase-7a-self-attestation`, `phase-7a-incomplete-coverage`, `phase-7a-pipeline-inversion`, `phase-7a-tooling-bypass`, `phase-7a-evidence-missing`. All caught by the next PR-boundary review. Steady-state CQ-SOURCE and Pass 15 consume the same JSON when present rather than re-deriving.
+**Phase 7a - source-anchor truth-check (CRITICAL gate).** Before scaffold commit, `/sdd init` runs `verify-source-anchors.py` (`skills/sdd-init/references/verify-source-anchors.py`) against every `<!-- @impl: <path>::<symbol>[ = <value>] -->` anchor in drafted `sdd/**/*.md` and `documentation/**/*.md`.
 
-**Phase 7b - enumeration-coverage verification (CRITICAL gate).** After Phase 7a and before iterate-to-clean, `/sdd init` runs `verify-enumeration-coverage.py` (`skills/sdd-init/references/verify-enumeration-coverage.py`) as the symmetric counterpart. Where Phase 7a verifies every claim the agent wrote is anchored, Phase 7b verifies the agent did not silently drop entire source files from the enumeration. The verifier walks the working tree (with `os.walk` in-place pruning to skip `node_modules`, `dist`, `.git`, `sdd/`, `documentation/`, etc.), identifies load-bearing source files via project-shape-agnostic heuristic (lives under `services/`, `handlers/`, `controllers/`, `providers/`, `models/`, `domain/`, `core/`, `commands/`, `usecases/`, `workers/` OR has >= 100 source lines), and checks each file's repo-relative path against (a) the `<path>` portion of every `@impl` anchor in the drafted spec + docs, AND (b) literal mentions in the layout-appropriate triage queue (nested: `sdd/spec/.init-triage.md` + `sdd/spec/.review-queue.md`; flat-layout legacy: `sdd/.init-triage.md` + `sdd/.review-needed.md`). Output JSON to `.phase-7b.json` with shape `{enumerated, accounted, unaccounted, coverage_pct, accounted_via, unaccounted_entries, exit_code}`. The `[sdd-init]` step-10 commit body MUST include the summary line verbatim alongside Phase 7a's: `Phase 7b enum verifier: enumerated=N accounted=N unaccounted=N coverage_pct=P exit_code=0|1`. The two gates close the Validation-Equals-Generation gap: an Import-Mode agent using anchorability as the generation predicate ends up with a clean Phase 7a + an empty triage queue + a spec that elides every ambiguity. Phase 7b detects this. Failure modes (all CRITICAL): `phase-7b-self-attestation`, `phase-7b-incomplete-coverage`, `phase-7b-pipeline-inversion`, `phase-7b-evidence-missing`, `import-mode-narrowed-scope` (`unaccounted > 0` with an empty triage queue), `import-mode-empty-triage-implausible` (Phase 4 enumeration-review companion), `phase-4-enumeration-skipped`. Per-project waiver: `sdd/spec/.phase-7b-waiver.txt` (one repo-relative path per line, `#` comments allowed) excludes specific framework-boilerplate files from the coverage check; entries require a one-line justification. Phase 7b is advisory for greenfield (`enumerated=0` and `coverage_pct=100.0` are the expected outcome with no source on disk yet; the commit body line is still required so the audit-trail format stays uniform across modes). Implements [REQ-AGENT-035](../../sdd/spec/agents.md#req-agent-035-sdd-init-phase-7a-source-anchor-verifier-gate) AC2.
+The verifier resolves each anchor's path on disk, confirms word-bounded symbol presence in source, validates literal value patterns within the symbol's local region, counts malformed `@impl`-shaped comments, and counts unreadable files.
+
+It emits `.verify-anchors.json` with shape `{parsed, resolved, orphaned, drifted, malformed, unreadable, failures, malformed_entries, unreadable_entries, exit_code}`. The three detail arrays carry per-anchor failure context that CQ-SOURCE and Pass 15 consume.
+
+The `[sdd-init]` commit body MUST include this summary line verbatim: `Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N malformed=N unreadable=N exit_code=0|1`.
+
+A non-zero exit blocks the commit until every failure is fixed in source or escalated to `sdd/spec/.review-queue.md`. Substituting self-attestation, a sampled audit, or a structural sanity check for verifier output is CRITICAL. Named failure modes: `phase-7a-self-attestation`, `phase-7a-incomplete-coverage`, `phase-7a-pipeline-inversion`, `phase-7a-tooling-bypass`, `phase-7a-evidence-missing`.
+
+The next PR-boundary review catches those failures. Steady-state CQ-SOURCE and Pass 15 consume the same JSON when present rather than re-deriving.
+
+**Phase 7b - enumeration-coverage verification (CRITICAL gate).** After Phase 7a and before iterate-to-clean, `/sdd init` runs `verify-enumeration-coverage.py` (`skills/sdd-init/references/verify-enumeration-coverage.py`) as the symmetric counterpart.
+
+Where Phase 7a verifies every claim the agent wrote is anchored, Phase 7b verifies the agent did not silently drop entire source files from the enumeration.
+
+The verifier walks the working tree with `os.walk` in-place pruning for `node_modules`, `dist`, `.git`, `sdd/`, `documentation/`, and similar directories. It identifies load-bearing source files by project-shape-agnostic heuristic: files under `services/`, `handlers/`, `controllers/`, `providers/`, `models/`, `domain/`, `core/`, `commands/`, `usecases/`, or `workers/`, plus files with at least 100 source lines.
+
+Each file's repo-relative path is checked against the `<path>` portion of every `@impl` anchor in the drafted spec/docs and against literal mentions in the layout-appropriate triage queue. Nested layout uses `sdd/spec/.init-triage.md` + `sdd/spec/.review-queue.md`; flat-layout legacy uses `sdd/.init-triage.md` + `sdd/.review-needed.md`.
+
+Output goes to `.phase-7b.json` with shape `{enumerated, accounted, unaccounted, coverage_pct, accounted_via, unaccounted_entries, exit_code}`.
+
+The `[sdd-init]` step-10 commit body MUST include this summary line beside Phase 7a's: `Phase 7b enum verifier: enumerated=N accounted=N unaccounted=N coverage_pct=P exit_code=0|1`.
+
+The two gates close the Validation-Equals-Generation gap: an Import-Mode agent using anchorability as the generation predicate can produce a clean Phase 7a, an empty triage queue, and a spec that elides every ambiguity. Phase 7b detects this.
+
+Failure modes are CRITICAL: `phase-7b-self-attestation`, `phase-7b-incomplete-coverage`, `phase-7b-pipeline-inversion`, `phase-7b-evidence-missing`, `import-mode-narrowed-scope`, `import-mode-empty-triage-implausible` (Phase 4 enumeration-review companion), and `phase-4-enumeration-skipped`.
+
+Per-project waiver: `sdd/spec/.phase-7b-waiver.txt` excludes specific framework-boilerplate files from the coverage check. Use one repo-relative path per line; `#` comments are allowed and entries require a one-line justification.
+
+Phase 7b is advisory for greenfield. `enumerated=0` and `coverage_pct=100.0` are the expected outcome with no source on disk yet, but the commit body line is still required so the audit-trail format stays uniform. Implements [REQ-AGENT-035](../../sdd/spec/agents.md#req-agent-035-sdd-init-phase-7a-source-anchor-verifier-gate) AC2.
 
 **Tool surface compatibility.** Every `/sdd` sub-command (`init`, `edit`, `add`, `clean`, `mode`) works under both Bash and the context-mode MCP tool family (`mcp__context-mode__ctx_execute`, `mcp__context-mode__ctx_batch_execute`, `mcp__context-mode__ctx_search`). Discovery commands that produce more than 20 lines of output (`gh pr list --state all`, `git log --follow`, `npm view <pkg> peerDependencies`, full-tree scans, scaffold-only `npm install --package-lock-only`) route through `ctx_execute` / `ctx_batch_execute` in context-mode environments and through Bash in plain environments.
 
@@ -1045,16 +1158,36 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 ### Common Issues
 
-- **Attribution blocking not working**: Check `~/.claude/settings.json` has `PreToolUse` hook entries pointing to `block-attributed-commits.sh` on two matcher entries covering three tool names: a `Bash` matcher (with `"if": "Bash(git *)"` and `"if": "Bash(gh *)"` predicates) AND a pipe-alternated MCP matcher `"matcher": "mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute"`. Verify the script exists at `~/.claude/plugins/codeflare-hooks/scripts/block-attributed-commits.sh`. If attribution appears via `gh pr create` in a context-mode session, the MCP matcher entry is missing - re-run the entrypoint or check the `SETTINGS_CONFIG` merge in `entrypoint.sh`.
+- **Attribution blocking not working**:
+  - Check `~/.claude/settings.json` has `PreToolUse` hook entries pointing to `block-attributed-commits.sh`.
+  - Confirm two matcher entries cover three tool names: a `Bash` matcher and a pipe-alternated MCP matcher.
+  - The `Bash` matcher uses `"if": "Bash(git *)"` and `"if": "Bash(gh *)"` predicates.
+  - The MCP matcher is `"matcher": "mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute"`.
+  - Verify the script exists at `~/.claude/plugins/codeflare-hooks/scripts/block-attributed-commits.sh`.
+  - If attribution appears via `gh pr create` in a context-mode session, re-run the entrypoint or check the `SETTINGS_CONFIG` merge in `entrypoint.sh`.
 
 - **Review-spawn enforcement not firing on push**: see [Resetting Review-Spawn Checkpoints](#resetting-review-spawn-checkpoints) below.
 
 - **Default mode has hooks**: If `settings.json` has hook entries in default mode, the entrypoint `SESSION_MODE` gating may have failed. Remove them:
   `jq 'del(.hooks)' ~/.claude/settings.json > /tmp/s.json && mv /tmp/s.json ~/.claude/settings.json`.
 
-- **`/dev/fd/63: No such file or directory` from a custom hook**: a bash hook using process substitution (`done < <(...)`) is being invoked in a runner where `/proc/self/fd` is not available, so the kernel cannot resolve the `/dev/fd/<N>` symlink the shell created. Most codeflare hooks default to here-strings (`done <<< "$STR"`) for this reason: here-strings stage through a real temp file and work in every runner. The one documented exception is `enforce-review-spawn.sh`'s `compute_required_lanes` which uses process substitution `done < <(git diff -z ...)` because bash strips NUL bytes from command substitution captures and the `-z`/`read -d ''` pair needs the NUL delimiter preserved; this hook is container-runtime-aware. If you author a custom hook that hits the `/dev/fd/63` error in a different runner, switch the read loop's redirection to a here-string (and accept the NUL-stripping tradeoff if you also need `-z`).
+- **`/dev/fd/63: No such file or directory` from a custom hook**:
+  - A bash hook using process substitution (`done < <(...)`) is running where `/proc/self/fd` is unavailable.
+  - The kernel cannot resolve the `/dev/fd/<N>` symlink the shell created.
+  - Most codeflare hooks default to here-strings (`done <<< "$STR"`) because they stage through a real temp file and work in every runner.
+  - The documented exception is `enforce-review-spawn.sh`'s `compute_required_lanes`, which uses `done < <(git diff -z ...)`.
+  - That exception preserves the NUL delimiter needed by the `-z`/`read -d ''` pair, because bash strips NUL bytes from command substitution captures.
+  - If a custom hook hits this error in another runner, switch the read loop to a here-string and accept the NUL-stripping tradeoff if you also need `-z`.
 
-- **Stop hook spawns all three review agents even on a doc-only push (partially-deployed install)**: `enforce-review-spawn.sh` and `git-push-review-reminder.sh` both source `scripts/lib/lane-classifier.sh` (path is relative to the hooks plugin root; in source it lives at `preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh`) to determine which lanes a diff requires. If the helper is missing or fails to source, both hooks fail-closed to the legacy all-three-lanes posture (`code-reviewer spec-reviewer doc-updater`) rather than skipping enforcement, so a partially-synced plugin set never disables review. To diagnose, check `ls ~/.claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh`; if absent, re-run `entrypoint.sh` or trigger a full R2 sync to restore the complete plugin payload.
+- **Stop hook spawns all three review agents even on a doc-only push (partially-deployed install)**:
+  - `enforce-review-spawn.sh` and `git-push-review-reminder.sh` both source `scripts/lib/lane-classifier.sh`.
+  - The path is relative to the hooks plugin root.
+  - In source it lives at `preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh`.
+  - The helper determines which lanes a diff requires.
+  - If the helper is missing or fails to source, both hooks fail-closed to the legacy all-three-lanes posture: `code-reviewer spec-reviewer doc-updater`.
+  - This keeps a partially-synced plugin set from disabling review.
+  - To diagnose, check `ls ~/.claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh`.
+  - If absent, re-run `entrypoint.sh` or trigger a full R2 sync to restore the complete plugin payload.
 
 ### Resetting Review-Spawn Checkpoints
 
@@ -1155,9 +1288,21 @@ To inspect enforcement state without reading `.git/` by hand, Pi exposes a read-
 
 In addition to seeding the agent config into R2 at session start, the container image **bakes** the same seed as an on-disk file tree so a [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable) container can avoid re-downloading it every boot (REQ-STOR-017, [AD90](../decisions/README.md#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync)).
 
-- **Build (in-image).** The Dockerfile runs `scripts/materialize-agent-seed.mjs` against the committed, freshness-enforced `src/lib/agent-seed.generated.ts`, writing `getConfigsForMode('default'/'advanced', false)` to `/opt/codeflare/agent-seed-bake/<mode>/<key>`. Because `getConfigsForMode` is a pure filter (no content transform), the baked tree is **byte-identical** to what is seeded to R2 — the precondition for the checksum skip, guarded by the `agent-seed-bake` byte-identity test. The tier-gated context-mode subtree is excluded (it delta-syncs from R2). Generating in-image needs no host build ordering and cannot drift from the seed.
-- **Runtime (Governed Mode only).** Before the initial R2 sync, `entrypoint.sh::lay_down_agent_seed_preseed` copies the mode's baked tree into the user home (mirroring the R2 key layout, so one copy lands every agent home) and `chmod +x`'s the hooks. The initial sync then compares by `--checksum` (usable MD5 ETags, available only when SSE-C is off), so the unchanged ~627 seed files are skipped and only user deltas transfer.
-- **Gated.** Both the lay-down and `--checksum` activate only when `R2_SSE_DISABLED=true`; under SSE-C (the default) the path is byte-identical to before (no lay-down, `--size-only`), because `--size-only` could not detect a same-size edit to a seed file and the bake might otherwise overwrite an in-container edit.
+- **Build (in-image).** The Dockerfile runs `scripts/materialize-agent-seed.mjs` against the committed, freshness-enforced `src/lib/agent-seed.generated.ts`.
+  - It writes `getConfigsForMode('default'/'advanced', false)` to `/opt/codeflare/agent-seed-bake/<mode>/<key>`.
+  - Because `getConfigsForMode` is a pure filter, the baked tree is **byte-identical** to what is seeded to R2.
+  - That byte identity is the precondition for the checksum skip and is guarded by the `agent-seed-bake` byte-identity test.
+  - The tier-gated context-mode subtree is excluded because it delta-syncs from R2.
+  - Generating in-image needs no host build ordering and cannot drift from the seed.
+- **Runtime (Governed Mode only).** Before the initial R2 sync, `entrypoint.sh::lay_down_agent_seed_preseed` copies the mode's baked tree into the user home.
+  - The copy mirrors the R2 key layout, so one copy lands every agent home.
+  - It also `chmod +x`'s the hooks.
+  - The initial sync then compares by `--checksum`, using MD5 ETags available only when SSE-C is off.
+  - Unchanged seed files are skipped and only user deltas transfer.
+- **Gated.** Both the lay-down and `--checksum` activate only when `R2_SSE_DISABLED=true`.
+  - Under SSE-C, the default path remains byte-identical to before: no lay-down and `--size-only`.
+  - This avoids relying on `--size-only`, which could not detect a same-size edit to a seed file.
+  - It also prevents the bake from overwriting an in-container edit.
 
 ## Related Documentation
 

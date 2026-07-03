@@ -81,8 +81,12 @@ When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanc
 1. Resolves email from customer ID (KV lookup with Stripe API fallback)
 2. Calls `fetchSubscription()` - fetches latest subscription state from Stripe
 3. Timestamp guard: skips write if KV's `lastSyncedAt` > now (prevents stale webhook overwriting newer state)
-4. Writes via `updateUserRecord()` (preserves existing KV fields). `subscribedMode` is resolved from `price.metadata.mode` when present; otherwise the price ID is matched against the tier config's `stripePriceId` / `stripeAdvancedPriceId` slots (`resolveTierFromPriceId`), so a Standard<->Pro plan change always flips the mode even when prices are wired via tier slots rather than per-price metadata.
-5. **Auto-reconcile on mode change:** `reconcileAgentConfigs()` runs on upgrade/downgrade and subscription termination, recreating the new mode's skills and removing the previous mode's, and flips the `sessionMode` preference. Lazy: a running session is unaffected until next start. Implements [REQ-SUB-015](../../sdd/spec/subscription.md#req-sub-015-stripe-webhook-signal-and-sync-pattern) AC6-AC7.
+4. Writes via `updateUserRecord()` (preserves existing KV fields).
+
+     `subscribedMode` is resolved from `price.metadata.mode` when present; otherwise the price ID is matched against the tier config's `stripePriceId` / `stripeAdvancedPriceId` slots (`resolveTierFromPriceId`), so a Standard<->Pro plan change always flips the mode even when prices are wired via tier slots rather than per-price metadata.
+5. **Auto-reconcile on mode change:** `reconcileAgentConfigs()` runs on upgrade/downgrade and subscription termination, recreating the new mode's skills and removing the previous mode's.
+
+   It also flips the `sessionMode` preference. Lazy: a running session is unaffected until next start. Implements [REQ-SUB-015](../../sdd/spec/subscription.md#req-sub-015-stripe-webhook-signal-and-sync-pattern) AC6-AC7.
 
 **Security:**
 - Webhook at `/public/stripe/webhook` bypasses CF Access (same as `/public/auth/providers`)
