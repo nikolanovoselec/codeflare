@@ -5,6 +5,8 @@ import { createMockKV } from '../helpers/mock-kv';
 
 import authRedirectRoutes from '../../routes/auth-redirects';
 
+// REQ-AUTH-001: Two authentication modes
+
 describe('Auth redirect routes', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 

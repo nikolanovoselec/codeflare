@@ -19,6 +19,8 @@ vi.mock('../routes/public/index', () => ({ default: new Hono() }));
 
 import { redirectWithHeaders } from '../index';
 
+// REQ-SEC-021: HSTS coverage on redirect response paths
+
 describe('redirectWithHeaders', () => {
   it('returns a redirect response with correct status', () => {
     const res = redirectWithHeaders('/setup', 302);

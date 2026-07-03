@@ -5,6 +5,8 @@ import IconButton from '../../components/ui/IconButton';
 
 afterEach(() => cleanup());
 
+// REQ-GITHUB-002: GitHub panel and repository listing
+
 describe('IconButton', () => {
   it('renders the given icon path', () => {
     render(() => <IconButton icon={mdiSync} label="Refresh" onClick={() => {}} testId="ib" />);

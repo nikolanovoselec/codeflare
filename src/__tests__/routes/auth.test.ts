@@ -35,6 +35,8 @@ vi.mock('../../lib/stripe', async (importOriginal) => {
 // Import after mock
 import authRoutes from '../../routes/auth';
 
+// REQ-SUB-003: Free Tier Requires No Payment
+
 describe('Auth routes / REQ-SEC-015 (auth-bypass prevention on public endpoints)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { sendEmail, sendWelcomeEmail, sendSubscriptionEmail, sendSubscriptionAdminNotification, getModeLabel, buildPlanChangeRows, buildSubscriptionDetailRows } from '../../lib/email';
 
+// REQ-AUTH-012: Welcome email on first login
+
 describe('getModeLabel', () => {
   it('returns "Pro" for "advanced" mode', () => {
     expect(getModeLabel('advanced')).toBe('Pro');

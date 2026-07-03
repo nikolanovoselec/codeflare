@@ -73,6 +73,9 @@ function makeDoc(key: string, modes: ('default' | 'advanced')[]) {
 
 // ─── REQ-AGENT-005 + REQ-AGENT-014: getConfigsForMode ────────────────────────
 
+// REQ-AGENT-008: Preseed Deployed to Container on Start
+// REQ-AGENT-011: Agent Skills & Rules Manually Recreatable from Settings
+
 describe('REQ-AGENT-005 + REQ-AGENT-014: getConfigsForMode', () => {
   beforeEach(() => {
     vi.clearAllMocks();

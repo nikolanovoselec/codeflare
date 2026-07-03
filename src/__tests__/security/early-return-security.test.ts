@@ -74,6 +74,8 @@ function createBaseEnv() {
   };
 }
 
+// REQ-SEC-008: Security headers on every response
+
 describe('CF-001: security headers on pre-Hono early-return responses', () => {
   beforeEach(() => {
     vi.clearAllMocks();

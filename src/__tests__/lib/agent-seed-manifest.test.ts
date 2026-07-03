@@ -64,6 +64,10 @@ function frontmatter(content: string): Record<string, string> {
   );
 }
 
+// REQ-AGENT-026: Knowledge-Graph Persistence via Git
+// REQ-AGENT-063: PR-Boundary Command Parsing
+// REQ-BROWSER-003: Pi Native Browser Run Wrapper
+
 describe('agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)', () => {
   it('generated configs array is non-empty', () => {
     expect(AGENTS_SEEDED_CONFIGS.length).toBeGreaterThan(0);

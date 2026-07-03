@@ -41,6 +41,8 @@ const _MockWebSocket = globalThis.WebSocket as unknown as {
 };
 
 // REQ-TERM-016: Terminal Pane Reconnect and Resize Authority
+// REQ-TERM-019: Terminal WebSocket Control Frames and Protocol Guards
+
 describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)', () => {
   const sessionId = 'test-session-123';
   const terminalId = '1';

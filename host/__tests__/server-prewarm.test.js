@@ -10,6 +10,9 @@ import assert from 'node:assert/strict';
 
 import { getPrewarmConfig } from '../dist/prewarm-config.js';
 
+// REQ-SESSION-015: Container Port-Readiness Gating with Pre-Warm Pre-Condition
+// REQ-TERM-005: Tab 1 auto-starts the configured agent
+
 describe('getPrewarmConfig (server integration)', () => {
   it('returns command: null when tabConfig is undefined', () => {
     const cfg = getPrewarmConfig(undefined);

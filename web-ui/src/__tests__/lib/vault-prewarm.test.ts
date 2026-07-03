@@ -29,6 +29,8 @@ const localOnlyProof = {
   hasIndexedDbDatabasesApi: true,
 };
 
+// REQ-VAULT-018: Vault control gating and on-demand prewarm trigger
+
 describe('REQ-MOB-014 / REQ-VAULT-020: vault browser prewarm protocol', () => {
   beforeEach(() => {
     vi.useFakeTimers();

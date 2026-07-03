@@ -50,6 +50,8 @@ function pingRequest(body: Record<string, unknown>): Request {
   });
 }
 
+// REQ-SUB-005: Trial Is Compute-Based, Not Time-Based
+
 describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)', () => {
   beforeEach(() => {
     vi.clearAllMocks();

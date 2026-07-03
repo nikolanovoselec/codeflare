@@ -87,6 +87,8 @@ function buildValidTiers() {
 // ---------------------------------------------------------------------------
 // GET /admin/tiers
 // ---------------------------------------------------------------------------
+// REQ-SUB-005: Trial Is Compute-Based, Not Time-Based
+
 describe('GET /admin/tiers — REQ-SUB-009', () => {
   beforeEach(() => {
     vi.clearAllMocks();

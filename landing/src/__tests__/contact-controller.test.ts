@@ -10,6 +10,8 @@ function formDataFrom(entries: Record<string, string>): FormData {
   return data;
 }
 
+// REQ-AUTH-021: Onboarding-mode sign-in choices and access-request flow
+
 describe('contact-controller (REQ-LANDING-002)', () => {
   describe('buildContactPayload', () => {
     it('builds a payload from form fields plus the turnstile token', () => {

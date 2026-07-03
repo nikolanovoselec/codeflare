@@ -228,6 +228,10 @@ function killHarness(child, daemonPid) {
 
 const daemonBody = extractDaemonBody();
 
+// REQ-AGENT-008: Preseed Deployed to Container on Start
+// REQ-SEC-005: R2 files encrypted at rest with SSE-C when operator configures an encryption key
+// REQ-SESSION-008: Container restart preserves R2 bucket
+
 describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persistence) / REQ-STOR-004 (initial sync) / REQ-STOR-005 (graceful shutdown final sync) / REQ-SESSION-003 AC3 (entrypoint initial rclone sync) + AC4 (bisync daemon + SIGUSR1) / REQ-SESSION-011 (graceful shutdown with final sync) / REQ-VAULT-006 (shutdown bisync vault writes) / REQ-OPS-010 (graceful container shutdown) / REQ-MEM-004 (memory dirs in bisync filter)', () => {
   // REQ-MEM-004 AC4: bisync fires on three triggers - cadence (this test),
   // SIGUSR1 from Sync-now button (next test), and final shutdown bisync

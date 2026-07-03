@@ -134,6 +134,9 @@ import * as mobileModule from '../../lib/mobile';
 import { loadSettings } from '../../lib/settings';
 
 // REQ-TERM-016: Terminal Pane Reconnect and Resize Authority
+// REQ-MOB-010: FitAddon fit calls are coordinated
+// REQ-TERM-019: Terminal WebSocket Control Frames and Protocol Guards
+
 describe('useTerminal hook', () => {
   const defaultProps: UseTerminalOptions = {
     sessionId: 'test-session-123',

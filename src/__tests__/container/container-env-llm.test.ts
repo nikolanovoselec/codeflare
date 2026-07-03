@@ -59,6 +59,9 @@ function baseState(): ContainerEnvState {
   } as unknown as ContainerEnvState;
 }
 
+// REQ-BROWSER-007: Enterprise admin-configured Browser Rendering token
+// REQ-ENTERPRISE-021: Governed Mode Migration Safety and Access Boundary
+
 describe('REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)', () => {
   it('emits ENTERPRISE_MODE=active when the Worker deploy var is active', () => {
     const vars = buildEnvVars(baseState(), { ENTERPRISE_MODE: 'active' } as Env);

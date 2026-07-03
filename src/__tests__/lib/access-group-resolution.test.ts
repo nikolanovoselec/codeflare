@@ -22,6 +22,8 @@ function mockGetIdentity(groups: unknown): void {
 
 afterEach(() => vi.restoreAllMocks());
 
+// REQ-ENTERPRISE-012: Setup-Configured Dynamic-Route Catalog and Access-Group List
+
 describe('parseAccessGroups', () => {
   it('returns [] for null / undefined / blank', () => {
     expect(parseAccessGroups(null)).toEqual([]);

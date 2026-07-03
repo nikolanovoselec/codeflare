@@ -22,6 +22,8 @@ const { mockReconcileAgentConfigs } = vi.hoisted(() => ({
 vi.mock('../../lib/r2-seed', () => ({ reconcileAgentConfigs: mockReconcileAgentConfigs }));
 vi.mock('../../lib/r2-config', () => ({ getR2Config: vi.fn(async () => ({ accountId: 'test-account', endpoint: 'https://r2.test' })) }));
 
+// REQ-AGENT-012: Fast CLI Start (Configurable)
+
 describe('Preferences Routes', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 

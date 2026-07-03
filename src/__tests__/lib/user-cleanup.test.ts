@@ -51,6 +51,9 @@ const mockGetContainer = vi.mocked(getContainer);
 const mockContainerDestroy = containerState.destroy;
 const mockFetch = vi.fn();
 
+// REQ-AUTH-018: User management admin panel
+// REQ-SEC-003: Per-user R2 tokens scoped to user bucket
+
 describe('cleanupUserData', () => {
   let mockKV: ReturnType<typeof createMockKV>;
   const originalFetch = globalThis.fetch;

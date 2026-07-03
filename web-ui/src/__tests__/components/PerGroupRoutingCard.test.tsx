@@ -18,6 +18,8 @@ const base = {
 
 const applyBtn = () => document.querySelector('.group-routing-card-header button');
 
+// REQ-ENTERPRISE-013: Per-group dynamic routing
+
 describe('PerGroupRoutingCard', () => {
   it('renders a route pill per available route', () => {
     render(() => <PerGroupRoutingCard {...base} />);

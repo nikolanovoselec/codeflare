@@ -42,6 +42,8 @@ beforeEach(() => {
   testState.agentSeedResult = { written: ['.claude/rules/cloudflare-environment.md', '.claude/skills/ship/SKILL.md'], skipped: [] };
 });
 
+// REQ-STOR-009: Getting-Started Docs Auto-Seeded on First Session
+
 describe('Storage Seed Routes / REQ-AGENT-032 (starter docs manually recreatable)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 

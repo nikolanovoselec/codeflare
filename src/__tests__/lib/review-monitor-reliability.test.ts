@@ -15,6 +15,8 @@ import {
  */
 
 // REQ-AGENT-073: Pi Review Monitor Delivery Reliability
+// REQ-AGENT-062: Pi PR-Boundary Review Result Delivery
+
 describe('resolveSpawnedAgentId (R1: untyped subagents-service spawn return)', () => {
   it('returns a non-empty string id verbatim', () => {
     expect(resolveSpawnedAgentId('agent-123')).toBe('agent-123');

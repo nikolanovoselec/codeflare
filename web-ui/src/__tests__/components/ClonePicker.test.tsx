@@ -56,6 +56,8 @@ function renderPicker(onClose = () => {}) {
   return render(() => <ClonePicker repo={REPO} onClose={onClose} />);
 }
 
+// REQ-GITHUB-004: Clone a repository into a session
+
 describe('ClonePicker', () => {
   beforeEach(() => {
     vi.clearAllMocks();

@@ -15,6 +15,8 @@ import { isChildSessionHeader, isChildSessionFirstLine } from '../../../preseed/
  * These tests fail if the child-detection predicates regress (e.g. accepting a
  * root header, or trusting a non-header JSONL line).
  */
+// REQ-MEM-015: Pi Memory Capture Transcript Source and Child-Session Guard
+
 describe('isChildSessionHeader', () => {
   it('detects a child session from a header carrying a parent-session pointer', () => {
     expect(isChildSessionHeader({ type: 'session', id: 'c1', parentSession: '/sessions/parent.jsonl' })).toBe(true);

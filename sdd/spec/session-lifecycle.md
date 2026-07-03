@@ -37,7 +37,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 2. A unique alphanumeric session ID (8-24 lowercase chars) is generated for each new session. <!-- @impl: src/lib/constants.ts::SESSION_ID_PATTERN --> <!-- @test: src/__tests__/routes/session-creation.test.ts (SESSION_ID_PATTERN) -->
 3. The session record is persisted durably and retrievable by the user. <!-- @impl: src/lib/kv-keys.ts::putSessionWithMetadata --> <!-- @test: src/__tests__/routes/session-creation.test.ts (KV write) -->
 4. The response returns the new session object with status 201. <!-- @impl: src/routes/session/crud.ts --> <!-- @test: src/__tests__/routes/session-creation.test.ts (201 response) -->
-5. Session creation is rate-limited (10/min per user). <!-- @impl: src/routes/session/crud.ts::sessionCreateRateLimiter = 10/60_000ms --> <!-- @test: src/__tests__/routes/session-creation.test.ts (429 rate limit + 10/60_000 config) -->
+5. Session creation is rate-limited (10/min per user). <!-- @impl: src/routes/session/crud.ts::sessionCreateRateLimiter = maxRequests: 10 --> <!-- @test: src/__tests__/routes/session-creation.test.ts (429 rate limit + 10/60_000 config) -->
 
 **Constraints:**
 

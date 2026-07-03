@@ -74,6 +74,8 @@ vi.mock('../../lib/speech-input', () => ({
 }));
 
 // REQ-TERM-017: MultiView Pane Focus and Input Routing
+// REQ-MOB-007: Voice input via Web Speech API
+
 describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
   beforeEach(() => {
     vi.useFakeTimers();

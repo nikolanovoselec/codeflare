@@ -10,6 +10,8 @@ vi.mock('../../../lib/circuit-breakers', () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
+// REQ-AGENT-029: Deploy Credential Propagation to Container
+
 describe('Setup Account', () => {
   beforeEach(() => {
     vi.clearAllMocks();

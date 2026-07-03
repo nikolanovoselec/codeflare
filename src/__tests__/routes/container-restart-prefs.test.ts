@@ -56,6 +56,9 @@ function makeStorage() {
   return { writes, storage };
 }
 
+// REQ-AGENT-012: Fast CLI Start (Configurable)
+// REQ-OPS-016: sleepAfter preference persistence and lifecycle
+
 describe('REQ-SESSION-008: Container restart preserves R2 bucket', () => {
   // AC2 (onStart collectMetrics schedule + containerStartedAt + updateEnvVars):
   //   covered behaviorally by src/__tests__/container/index.test.ts

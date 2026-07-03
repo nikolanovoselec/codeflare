@@ -24,6 +24,8 @@ import { authenticateRequest } from '../../lib/access';
 
 const mockedAuth = vi.mocked(authenticateRequest);
 
+// REQ-AUTH-007: JIT user provisioning in SaaS mode
+
 describe('Three-tier auth middleware (SaaS mode) / REQ-AUTH-005 (requireIdentity + requireActiveUser + requireAdmin layered stack)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 

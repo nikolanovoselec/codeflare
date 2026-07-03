@@ -18,6 +18,10 @@ function ndjsonResponse(...lines: Record<string, unknown>[]): Response {
   });
 }
 
+// REQ-ENTERPRISE-013: Per-group dynamic routing
+// REQ-ENTERPRISE-022: Per-Route Context Windows for Dynamic Routes
+// REQ-SETUP-011: Setup stream completion payload contract
+
 describe('Setup Store', () => {
   beforeEach(() => {
     mockFetch.mockReset();

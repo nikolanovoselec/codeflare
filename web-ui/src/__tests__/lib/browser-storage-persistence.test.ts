@@ -7,6 +7,8 @@ function storageManager(overrides: Partial<TestStorageManager> = {}): TestStorag
   return overrides as TestStorageManager;
 }
 
+// REQ-VAULT-018: Vault control gating and on-demand prewarm trigger
+
 describe('requestBrowserStoragePersistence', () => {
   it('reports unsupported when the browser has no storage manager', async () => {
     await expect(requestBrowserStoragePersistence(undefined)).resolves.toEqual({ supported: false });

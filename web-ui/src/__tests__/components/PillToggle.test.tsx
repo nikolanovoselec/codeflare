@@ -4,6 +4,8 @@ import PillToggle from '../../components/ui/PillToggle';
 
 afterEach(() => cleanup());
 
+// REQ-ENTERPRISE-013: Per-group dynamic routing
+
 describe('PillToggle', () => {
   it('renders a pill per item', () => {
     render(() => <PillToggle items={['a', 'b', 'c']} selected={[]} onToggle={() => {}} />);

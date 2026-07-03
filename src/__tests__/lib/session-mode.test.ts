@@ -3,6 +3,8 @@ import { resolveSessionMode, clampSessionModeToTier } from '../../lib/session-mo
 import { getAllowedSessionModes } from '../../lib/subscription';
 import type { SubscriptionTierConfig } from '../../types';
 
+// REQ-MEM-011: Session-mode storage, resolution, and propagation
+
 describe('resolveSessionMode / REQ-AGENT-004 (two session modes: default and advanced; default when prefs unset; honors persisted sessionMode)', () => {
   it('returns "default" when prefs is null', () => {
     expect(resolveSessionMode(null)).toBe('default');

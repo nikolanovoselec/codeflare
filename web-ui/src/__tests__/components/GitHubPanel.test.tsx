@@ -40,6 +40,8 @@ function makeRepo(overrides: Record<string, unknown> = {}) {
   };
 }
 
+// REQ-GITHUB-007: Broaden the panel gate beyond enterprise
+
 describe('GitHubPanel Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();

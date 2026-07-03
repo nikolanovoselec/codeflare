@@ -44,6 +44,9 @@ mock.module('../dist/session.js', {
 // Import *after* mock is registered so the mock takes effect
 const { SessionManager, PREWARM_SESSION_ID } = await import('../dist/session-manager.js');
 
+// REQ-TERM-001: Up to 6 terminal tabs per session
+// REQ-TERM-005: Tab 1 auto-starts the configured agent
+
 describe('SessionManager', () => {
   let mgr;
 

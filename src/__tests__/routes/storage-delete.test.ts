@@ -24,6 +24,8 @@ vi.mock('../../lib/r2-config', () => ({
   }),
 }));
 
+// REQ-STOR-007: Web File Browser
+
 describe('Storage Delete Route', () => {
   let app: Hono<{ Bindings: Env; Variables: AuthVariables }>;
   let deleteRoute: typeof import('../../routes/storage/delete').default;

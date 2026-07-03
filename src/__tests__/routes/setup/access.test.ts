@@ -25,6 +25,8 @@ function cfError(message: string, code = 0) {
 }
 
 // REQ-ENTERPRISE-006: Deploy-Time AIG Secrets and ENTERPRISE_MODE Var
+// REQ-AUTH-003: CF Access mode for all other deployments
+
 describe('Setup Access', () => {
   let mockKV: { get: ReturnType<typeof vi.fn>; put: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
 

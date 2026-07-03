@@ -29,6 +29,8 @@ vi.mock('../../lib/r2-migration', () => ({
 // Import after mocks are set up
 import previewRoutes from '../../routes/storage/preview';
 
+// REQ-STOR-007: Web File Browser
+
 describe('Storage Preview Routes', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 

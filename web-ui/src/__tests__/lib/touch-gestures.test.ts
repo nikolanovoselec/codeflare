@@ -34,6 +34,8 @@ function makeTouchEvent(
   return event;
 }
 
+// REQ-MOB-002: Virtual keyboard opens reliably on tap
+
 describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () => {
   let container: HTMLDivElement;
 

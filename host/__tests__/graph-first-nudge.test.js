@@ -44,6 +44,9 @@ function makeRepoNoGraph(baseTmp) {
   return mkdtempSync(join(baseTmp, 'repo-no-graph-'));
 }
 
+// REQ-AGENT-024: Advanced-Session-Mode Graph-First Discipline
+// REQ-AGENT-027: Context-Mode Interoperability
+
 describe('graph-first-nudge.sh', () => {
   let baseTmp;
   before(() => { baseTmp = mkdtempSync(join(tmpdir(), 'gf-nudge-')); });

@@ -20,6 +20,8 @@ import {
   deleteLlmKeys,
 } from '../../api/client';
 
+// REQ-AUTH-014: Auth expiry detection mid-session
+
 describe('API Client', () => {
   beforeEach(() => {
     vi.resetAllMocks();

@@ -83,6 +83,8 @@ const env = {
 const endpoint = 'https://test.r2.cloudflarestorage.com';
 const bucket = 'test-bucket';
 
+// REQ-STOR-010: Agent Configs Auto-Seeded Based on Session Mode
+
 describe('getConfigsForMode', () => {
   it('returns only default-mode documents for "default"', () => {
     const docs = getConfigsForMode('default');

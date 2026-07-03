@@ -7,6 +7,8 @@ import { boundaryFallbackHead, boundaryTriggerCommands, commandTextFromEvent, co
  * merge gate) while it IS still a low-level boundary word — these tests fail if that
  * distinction regresses, or if the main/master base gate on `gh pr create` is dropped.
  */
+// REQ-AGENT-055: Pi PR-Boundary Review Window Advancement
+
 describe('isPrBoundaryTrigger', () => {
   it('treats git push as a boundary', () => {
     expect(isPrBoundaryTrigger('git push origin develop')).toBe(true);

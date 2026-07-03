@@ -1,3 +1,5 @@
+# REQ-MOB-001: Terminal fully usable on mobile devices
+
 name: E2E Tests
 on:
   workflow_dispatch:
