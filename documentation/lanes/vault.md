@@ -503,22 +503,25 @@ The `memory-capture.sh` script runs as a **UserPromptSubmit hook**.
      graphify-query nudge, exit without capture.
    - **`CURRENT_COUNT > 1`** (resumed session per [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages) AC6): the
      container was recycled but the transcript was restored on disk, so
-     prior-session prompts are still there. Force-fire a capture covering
-     the transcript from line 1 (flushing any tail from the prior session
-     that never reached the 15-prompt boundary), AND re-emit the
-     graphify-query directive because the agent's in-context recall of
-     prior decisions is gone after the recycle.
+     prior-session prompts are still there.
+
+     Force-fires a capture covering the transcript from line 1 (flushing any tail
+     from the prior session that never reached the 15-prompt boundary), and
+     re-emits the graphify-query directive because the agent's in-context recall
+     of prior decisions is gone after the recycle.
 4. **Vars file** - writes transcript path, offsets, date, counts, and
    counter path to `/tmp/.memory-counter/{session_id}.vars` as JSON.
 5. **Counter update** - writes current count + total lines back to the
    counter before emitting so subsequent invocations see delta `< 15`.
-6. **JSON output** - emits `{hookSpecificOutput:{...,additionalContext}}`
-   with a mandatory directive: the main agent MUST spawn the **memory-capture**
-   subagent (Task tool, `subagent_type="memory-capture"`, `run_in_background=true`)
-   before any other work. The companion `memory-capture-block.sh` PreToolUse hook
-   hard-blocks all tool calls until the subagent is spawned. The subagent's
-   frontmatter pins `model: sonnet` ([AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)); the main agent must not pass a model
-   override.
+6. **JSON output** - emits `{hookSpecificOutput:{...,additionalContext}}` with a
+   mandatory directive: the main agent MUST spawn the **memory-capture** subagent
+   (Task tool, `subagent_type="memory-capture"`, `run_in_background=true`) before
+   any other work.
+
+   The companion `memory-capture-block.sh` PreToolUse hook hard-blocks all tool
+   calls until the subagent is spawned. The subagent's frontmatter pins
+   `model: sonnet` ([AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad));
+   the main agent must not pass a model override.
 
 The capture agent deletes the `.vars` file as its first step (dedup
 gate), runs `prefilter-transcript.sh` (jq filter that strips tool I/O,
