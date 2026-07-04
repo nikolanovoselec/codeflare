@@ -77,7 +77,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Priority:** P2
 
-**Dependencies:** [REQ-AGENT-010](agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token)
+**Dependencies:** [REQ-AGENT-010](agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token), [REQ-AGENT-079](agents.md#req-agent-079-advanced-cloudflare-oauth-tier-scope-catalog)
 
 **Verification:** Automated test
 
