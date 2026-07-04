@@ -221,7 +221,7 @@ export class CloudflareBrowserInterceptor extends WorkerEntrypoint<Env> {
     const headers = new Headers(request.headers);
     headers.delete('host');
     headers.delete('content-length');
-    if (url.hostname.trim().toLowerCase().replace(/\.$/, '') === AI_GATEWAY_HOST) {
+    if (url.hostname.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '') === AI_GATEWAY_HOST) {
       // Interceptor-owned control header: strip any container-supplied value, then stamp fresh.
       headers.delete('cf-aig-authorization');
       headers.set('cf-aig-authorization', `Bearer ${token}`);
