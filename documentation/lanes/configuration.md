@@ -328,31 +328,59 @@ Cloudflare API tokens do not expire by default but can be set to expire during c
 
 Users connect their Cloudflare account by creating an API token. Codeflare offers three scope tiers -- choose based on what you build:
 
-| Scope | Minimal | Recommended | Advanced | Why |
-|---|---|---|---|---|
-| **Workers Scripts: Edit** | yes | yes | yes | Deploy Workers and manage secrets |
-| **Workers KV Storage: Edit** | yes | yes | yes | KV namespace management |
-| **Workers R2 Storage: Edit** | yes | yes | yes | Object storage for user data |
-| **D1: Edit** | yes | yes | yes | SQL database management |
-| **Workers Routes: Edit** | yes | yes | yes | Route traffic to Workers |
-| **Account Settings: Read** | yes | yes | yes | Account ID discovery |
-| **Zone: Read** | yes | yes | yes | Zone ID resolution |
-| **DNS: Edit** | - | yes | yes | Manage DNS records for custom domains |
-| **Access: Apps and Policies: Edit** | - | yes | yes | Cloudflare Access applications |
-| **Access: Orgs, IdPs, and Groups: Edit** | - | yes | yes | Access groups and identity providers |
-| **Cloudflare Pages: Edit** | - | - | yes | Deploy static sites and full-stack apps |
-| **Containers: Edit** | - | - | yes | Container lifecycle management |
-| **API Tokens: Edit** | - | - | yes | Create/revoke scoped tokens programmatically |
-| **Queues: Edit** | - | - | yes | Message queue management |
-| **Workers AI: Edit** | - | - | yes | Inference and model management |
-| **Workers AI: Read** | - | - | yes | Read-only inference access |
-| **Vectorize: Edit** | - | - | yes | Vector database for AI embeddings |
-| **Turnstile: Edit** | - | - | yes | CAPTCHA widget management |
-| **Workers Builds Configuration: Edit** | - | - | yes | CI/CD build pipeline configuration |
-| **Workers Observability: Edit** | - | - | yes | Logs, traces, and monitoring |
-| **Workers R2 Data Catalog: Edit** | - | - | yes | R2 bucket metadata and catalog |
-| **Workers Agents Configuration: Edit** | - | - | yes | Cloudflare Agents configuration |
-| **Browser Rendering: Edit** | - | - | yes | Browser Run, two surfaces for both agents. |
+| Scope | Scope ID | Minimal | Recommended | Advanced | Why |
+|---|---|---|---|---|---|
+| **Workers Scripts: Edit** | `workers-scripts.write` | yes | yes | yes | Deploy Workers and manage secrets |
+| **Workers KV Storage: Edit** | `workers-kv-storage.write` | yes | yes | yes | KV namespace management |
+| **Workers R2 Storage: Edit** | `workers-r2.write` | yes | yes | yes | Object storage for user data |
+| **D1: Edit** | `d1.write` | yes | yes | yes | SQL database management |
+| **Workers Routes: Edit** | `workers-routes.write` | yes | yes | yes | Route traffic to Workers |
+| **Account Settings: Read** | `account-settings.read` | yes | yes | yes | Account ID discovery |
+| **User Details: Read** | `user-details.read` | yes | yes | yes | Resolve the connecting account |
+| **Zone: Read** | `zone.read` | yes | yes | yes | Zone ID resolution |
+| **DNS: Edit** | `dns.write` | - | yes | yes | Manage DNS records for custom domains |
+| **Access: Apps and Policies: Edit** | `zone-access.write` | - | yes | - | Cloudflare Access apps (combined; advanced uses the granular scopes below) |
+| **Access: Orgs, IdPs, and Groups: Edit** | `access-acct.write` | - | yes | - | Access identity (combined; advanced uses the granular scopes below) |
+| **Cloudflare Pages: Edit** | `page.write` | - | - | yes | Deploy static sites and full-stack apps |
+| **Containers: Edit** | `containers.write` | - | - | yes | Container lifecycle management |
+| **Queues: Edit** | `queues.write` | - | - | yes | Message queue management |
+| **Workers Pipelines: Edit** | `pipelines.write` | - | - | yes | Streaming ETL pipelines |
+| **Workers R2 Data Catalog: Edit** | `r2-catalog.write` | - | - | yes | R2 bucket metadata and catalog |
+| **Workers Builds Configuration: Edit** | `workers-ci.write` | - | - | yes | CI/CD build pipeline configuration |
+| **Workers Observability: Edit** | `workers-observability.write` | - | - | yes | Logs, traces, and monitoring |
+| **Workers Tail: Read** | `workers-tail.read` | - | - | yes | Live-tail Worker logs |
+| **Workers Agents Configuration: Edit** | `cf-agents.write` | - | - | yes | Cloudflare Agents configuration |
+| **Secrets Store: Edit** | `secrets-store.write` | - | - | yes | Account-level secrets store |
+| **Workers AI: Edit** | `ai.write` | - | - | yes | Inference and model management |
+| **Workers AI: Read** | `ai.read` | - | - | yes | Read-only inference access |
+| **AI Gateway: Edit** | `agw.write` | - | - | yes | AI Gateway routing and config |
+| **Vectorize: Edit** | `vectorize.write` | - | - | yes | Vector database for AI embeddings |
+| **Browser Rendering: Edit** | `browser-rendering.write` | - | - | yes | Browser Run (REST + CDP), both agents |
+| **Turnstile: Edit** | `challenge-widgets.write` | - | - | yes | CAPTCHA widget management |
+| **Zero Trust: Edit** | `teams.write` | - | - | yes | Cloudflare Zero Trust |
+| **Access: Organizations: Edit** | `access-org.write` | - | - | yes | Access organization config |
+| **Access: Identity Providers: Edit** | `access-idp.write` | - | - | yes | Access IdP config |
+| **Access: Groups: Edit** | `access-group.write` | - | - | yes | Access group config |
+| **Access: Apps: Edit** | `access-app.write` | - | - | yes | Access application config |
+| **Access: Policies: Edit** | `access-policy.write` | - | - | yes | Access policy config |
+| **Access: Audit Logs: Read** | `access-audit-log.read` | - | - | yes | Access audit log read |
+| **Access: Device Posture: Edit** | `access-device-posture.write` | - | - | yes | Device posture config |
+| **Access: Service Tokens: Edit** | `access-service-token.write` | - | - | yes | Access service tokens |
+| **Cloudflare One Connectors: Edit** | `teams-connectors.write` | - | - | yes | Cloudflare One connectors |
+| **Cloudflare One Networks: Edit** | `teams-networks.write` | - | - | yes | Cloudflare One networks |
+| **Cloudflare Tunnel: Edit** | `argotunnel.write` | - | - | yes | Named tunnels (cloudflared) |
+| **Cloudflare WAN: Edit** | `magic-wan.write` | - | - | yes | Magic WAN configuration |
+| **Connectivity Directory: Admin** | `connectivity-directory.admin` | - | - | yes | Connectivity directory admin |
+| **Firewall (Magic): Edit** | `magic-firewall.write` | - | - | yes | Magic Firewall policy |
+| **Firewall Policy Packet Captures: Edit** | `pcaps-api.write` | - | - | yes | Packet capture management |
+| **Logs: Edit** | `logs.write` | - | - | yes | Logpush / logs configuration |
+| **MCP Portals: Edit** | `mcp-portals.write` | - | - | yes | MCP portal management |
+| **Account Firewall Access Rules: Edit** | `account-firewall-access-rules.write` | - | - | yes | Account firewall access rules |
+| **Account WAF: Edit** | `account-waf.write` | - | - | yes | Account-level WAF |
+| **SSL and Certificates: Edit** | `account-ssl-and-certificates.write` | - | - | yes | SSL/TLS certificate management |
+| **Zone WAF: Edit** | `zone-waf.write` | - | - | yes | Zone-level WAF |
+
+**Operator setup.** The OAuth client must be registered with the full **Advanced superset** above — a per-connect request can only narrow within the client's registered scopes ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)). Three requested capabilities have **no OAuth scope** and are intentionally omitted (they need a classic API token): **OAuth Clients: Edit**, **API Tokens: Edit**, **Network flow: Admin**. `Logs: Edit` resolves to `logs.write` (the account-scoped `account-logs.write` is rejected by the authorize flow); `Firewall (Magic): Edit` uses `magic-firewall.write`. Advanced uses the granular Access scopes; Recommended keeps the two combined ones.
 
 Additional details:
 

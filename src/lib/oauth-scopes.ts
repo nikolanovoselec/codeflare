@@ -47,18 +47,61 @@ const CF_MINIMAL = [
   'zone.read',
 ];
 const CF_RECOMMENDED = [...CF_MINIMAL, 'dns.write', 'zone-access.write', 'access-acct.write'];
+// Advanced tier = the operator-finalized full capability set, verified against Cloudflare's
+// live consent screen (every scope below was accepted by the OAuth authorize flow with the
+// operator client registered for the superset). Built from CF_MINIMAL, NOT CF_RECOMMENDED,
+// because the finalized Access scopes are the GRANULAR ids (access-app/access-policy/
+// access-org/access-idp/access-group), not the combined zone-access.write/access-acct.write
+// that CF_RECOMMENDED still uses. `Logs: Edit` resolved to `logs.write` (account-logs.write
+// was rejected). Three requested permissions have no OAuth scope and are intentionally absent
+// (OAuth Clients: Edit, API Tokens: Edit, Network flow: Admin — classic API token only).
 const CF_ADVANCED = [
-  ...CF_RECOMMENDED,
+  ...CF_MINIMAL,
+  // Zone / DNS
+  'dns.write',
+  'zone-waf.write',
+  // Workers platform
   'page.write',
   'containers.write',
   'queues.write',
-  'ai.write',
-  'browser-rendering.write',
-  'vectorize.write',
+  'pipelines.write',
+  'r2-catalog.write',
   'workers-ci.write',
   'workers-observability.write',
-  'r2-catalog.write',
+  'workers-tail.read',
+  'cf-agents.write',
+  'secrets-store.write',
+  // AI
+  'ai.write',
+  'ai.read',
   'agw.write',
+  'vectorize.write',
+  'browser-rendering.write',
+  'challenge-widgets.write',
+  // Access / Zero Trust
+  'teams.write',
+  'access-org.write',
+  'access-idp.write',
+  'access-group.write',
+  'access-app.write',
+  'access-policy.write',
+  'access-audit-log.read',
+  'access-device-posture.write',
+  'access-service-token.write',
+  // Cloudflare One / networking
+  'teams-connectors.write',
+  'teams-networks.write',
+  'argotunnel.write',
+  'magic-wan.write',
+  'connectivity-directory.admin',
+  'magic-firewall.write',
+  'pcaps-api.write',
+  'logs.write',
+  'mcp-portals.write',
+  // Account security
+  'account-firewall-access-rules.write',
+  'account-waf.write',
+  'account-ssl-and-certificates.write',
 ];
 
 const CLOUDFLARE_OAUTH_SCOPES: Record<ScopeTier, string[]> = {
