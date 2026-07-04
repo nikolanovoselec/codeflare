@@ -103,7 +103,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD90](#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync) | Governed Mode preseed bake + checksum delta initial sync | Storage |
 | [AD91](#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) | Governed Mode migration is a verified, gated, chunked state machine (REPLACE copy), not a boolean-marker lazy reconcile | Storage |
 | [AD92](#ad92-bundle-the-official-cloudflare-skills-into-the-advanced-seed-slimmed-references-webfetch-retrieval) | Bundle the official Cloudflare skills into the advanced seed (slimmed references, WebFetch retrieval) | Agents |
-| [AD93](#ad93-key-the-vault-reload-skip-to-the-container-start-so-resumed-sessions-re-initialize-cleanly) | Key the vault reload-skip to the container start so resumed sessions re-initialize cleanly | Vault |
+| [AD93](#ad93-key-the-vault-reload-skip-to-the-container-start-so-resumed-sessions-re-initialize-cleanly) | Key the vault reload-skip to the container start so resumed sessions re-initialize cleanly | Architecture |
 
 ---
 
@@ -2224,7 +2224,7 @@ Exclude the upstream `.mcp.json` (5 remote MCP servers — strict-egress-blocked
 
 ### AD93: Key the vault reload-skip to the container start so resumed sessions re-initialize cleanly
 
-**Category:** Vault
+**Category:** Architecture
 
 **Status:** Accepted (2026-07-04).
 

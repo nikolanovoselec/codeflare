@@ -234,6 +234,10 @@ describe('REQ-VAULT-022 AC2: full-prewarm marker keyed to the container start', 
     expect(hasVaultFullyPrewarmed('session-1', null, storage)).toBe(false);
     expect(hasVaultFullyPrewarmed('session-1', undefined, storage)).toBe(false);
     expect(hasVaultFullyPrewarmed('session-1', '', storage)).toBe(false);
+    // Read-guard against an EMPTY store: without `!startedAt`, getItem()->null === null
+    // (null start) would be a false-positive "warm" on a fresh session before
+    // lastStartedAt has polled — a live path via Layout's reload-skip check.
+    expect(hasVaultFullyPrewarmed('session-1', null, createStorage())).toBe(false);
   });
 
   it('scopes the marker per session so another session is not falsely reported warm', () => {
