@@ -54,10 +54,11 @@ test_globs:
 # layout, so the built-in defaults (src/**, lib/**, app/**, etc.) cover
 # the Worker code. host/src is the in-container Node code. The root-level
 # container-build / CI files (entrypoint.sh, Dockerfile, wrangler.toml,
-# .github/workflows) are @impl targets too (e.g. REQ-AGENT-078 AC6,
-# REQ-ENTERPRISE-005/016), added 2026-07-05 so their anchors auto-trigger
-# source-anchor re-validation. The larger landing/preseed/scripts backlog
-# is deferred to /sdd clean per its volume.
+# .github/workflows) are @impl targets too (e.g. REQ-AGENT-078 AC6 anchors
+# entrypoint.sh; REQ-ENTERPRISE-006 anchors wrangler.toml/.github/workflows;
+# Dockerfile is anchored across many REQs), added 2026-07-05 so their anchors
+# auto-trigger source-anchor re-validation. The larger landing/preseed/scripts
+# backlog is deferred to /sdd clean per its volume.
 src_globs:
   - "src/**"
   - "host/src/**"
