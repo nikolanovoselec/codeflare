@@ -71,10 +71,25 @@ const CF_ADVANCED = [
   'workers-tail.read',
   'cf-agents.write',
   'secrets-store.write',
-  // AI
+  // AI — Workers AI, AI Gateway, Agents Gateway, AI Search, AI Audit, Firewall for AI, Websearch
+  // (the full AI scope set exposed by Cloudflare's OAuth client; `aig.*` = AI Gateway,
+  // `agw.*` = Agents Gateway — distinct products). `aig.run` authenticates the AI Gateway
+  // data-plane (cf-aig-authorization), `aig.write` its management.
   'ai.write',
   'ai.read',
+  'aig.write',
+  'aig.run',
   'agw.write',
+  'agw.read',
+  'agw.run',
+  'ai-search.index',
+  'ai-search.run',
+  'ai-search.write',
+  'aiaudit.read',
+  'aiaudit.write',
+  'firewall-for-ai.read',
+  'firewall-for-ai.write',
+  'websearch.run',
   'vectorize.write',
   'browser-rendering.write',
   'challenge-widgets.write',

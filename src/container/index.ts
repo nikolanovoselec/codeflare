@@ -34,7 +34,7 @@ import { isEnterpriseMode } from '../lib/subscription';
 import { hasStrictGatewayEgress } from '../lib/controller-egress';
 import { INTERCEPTED_LLM_HOSTS } from '../llm-interceptor';
 import { interceptedGithubHosts } from '../github-interceptor';
-import { INTERCEPTED_CF_BROWSER_HOSTS } from '../cloudflare-browser-interceptor';
+import { INTERCEPTED_CF_BROWSER_HOSTS, INTERCEPTED_CF_OAUTH_HOSTS } from '../cloudflare-browser-interceptor';
 import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER } from '../lib/constants';
 import { getEnterpriseBrowserCreds } from '../lib/browser-render-token';
 import { getOrImportKey } from '../lib/kv-crypto';
@@ -513,10 +513,10 @@ export class container extends Container<Env> implements ContainerEnvState {
         container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
       };
       const interceptor = cctx.exports.CloudflareBrowserInterceptor({ props: { bucket } });
-      for (const host of INTERCEPTED_CF_BROWSER_HOSTS) {
+      for (const host of INTERCEPTED_CF_OAUTH_HOSTS) {
         cctx.container?.interceptOutboundHttps(host, interceptor);
       }
-      this.logger.info('Cloudflare OAuth API interception wired', { hostCount: INTERCEPTED_CF_BROWSER_HOSTS.length });
+      this.logger.info('Cloudflare OAuth API interception wired', { hostCount: INTERCEPTED_CF_OAUTH_HOSTS.length });
     } catch (err) {
       this.logger.error('Failed to wire Cloudflare OAuth API interception', toError(err));
     }

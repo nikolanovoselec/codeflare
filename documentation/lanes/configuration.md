@@ -39,7 +39,7 @@ Codeflare runs in four deployment modes. **Default mode** is self-contained — 
 | `MAX_USERS` | **Removed** - replaced by KV key `setup:max_users` (admin-configurable via User Management page). | - | no | - | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel), [REQ-SUB-003](../../sdd/spec/subscription.md#req-sub-003-free-tier-requires-no-payment) |
 | `SERVICE_AUTH_SECRET` | Worker secret for E2E/CLI service auth (`X-Service-Auth` header) | - | no | Worker secret (optional) | [REQ-AUTH-003](../../sdd/spec/authentication.md#req-auth-003-cf-access-mode-for-all-other-deployments), [REQ-SETUP-003](../../sdd/spec/setup.md#req-setup-003-three-deployment-modes) |
 | `STRESS_TEST_MODE` | `"active"` disables all rate limits (integration only) | inactive | no | Worker env var | [REQ-OPS-007](../../sdd/spec/operations.md#req-ops-007-container-specs-configurable-per-environment), [REQ-SEC-019](../../sdd/spec/security.md#req-sec-019-per-endpoint-rate-limit-policy) |
-| `ENCRYPTION_KEY` | AES-256-GCM encryption key for `llm-keys:*`, `deploy-keys:*`, and `r2token:*` KV entries; R2 SSE-C key; and the HKDF master input from which the per-bucket vault client-side encryption key is derived (`HKDF-SHA256(ENCRYPTION_KEY, info=bucketName)` — vault bootstrap fails 500 if absent, see [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)) | - | yes | Wrangler secret (optional) | [REQ-SEC-002](../../sdd/spec/security.md#req-sec-002-api-tokens-never-enter-containers), [REQ-SEC-005](../../sdd/spec/security.md#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key), [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) |
+| `ENCRYPTION_KEY` | AES-256-GCM key for `llm-keys:*`/`deploy-keys:*`/`r2token:*` KV entries and the R2 SSE-C key; also the HKDF master input for the per-bucket vault key (`HKDF-SHA256(ENCRYPTION_KEY, info=bucketName)`; vault bootstrap fails 500 if absent). | - | yes | Wrangler secret (optional) | [REQ-SEC-002](../../sdd/spec/security.md#req-sec-002-api-tokens-never-enter-containers), [REQ-SEC-005](../../sdd/spec/security.md#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key), [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) |
 
 ### Container Environment
 
@@ -220,7 +220,9 @@ No environment variable governs the discoverability documents ([REQ-LANDING-003]
 
     the `robots.txt` / `sitemap.xml` / `llms.txt` served by the Worker, and the JSON-LD + canonical/OG tags emitted by the landing, all use the origin **hardcoded** to `https://codeflare.ch` (`CANONICAL_ORIGIN` in `src/lib/seo.ts`, mirrored in `landing/src/layouts/BaseLayout.astro`). This is intentional: an integration/staging host must not advertise itself as canonical or get indexed as duplicate content. A fork that deploys to a different root domain must update this constant before shipping.
 - **OG / social-share image** — served as a static asset from `web-ui/public/og.png` (1200x630) at `/og.png`, with the editable source at `web-ui/public/og.svg`. Replace these to customise the social-share card.
-- **Mode gating** — the root documents are served only when the public marketing landing is active (SaaS or onboarding mode); default/enterprise (private app) deployments return a disallow-all `robots.txt` and 404 the sitemap/llms, so a private deployment is never advertised to crawlers.
+- **Mode gating** — the root documents are served only when the public marketing landing is active (SaaS or onboarding mode).
+
+    Default/enterprise (private app) deployments return a disallow-all `robots.txt` and 404 the sitemap/llms, so a private deployment is never advertised to crawlers.
 
 ## SaaS mode
 
@@ -383,7 +385,19 @@ Users connect their Cloudflare account by creating an API token. Codeflare offer
 | **Secrets Store: Edit** | `secrets-store.write` | - | - | yes | Account-level secrets store |
 | **Workers AI: Edit** | `ai.write` | - | - | yes | Inference and model management |
 | **Workers AI: Read** | `ai.read` | - | - | yes | Read-only inference access |
-| **AI Gateway: Edit** | `agw.write` | - | - | yes | AI Gateway routing and config |
+| **AI Gateway: Write** | `aig.write` | - | - | yes | AI Gateway management |
+| **AI Gateway: Run** | `aig.run` | - | - | yes | AI Gateway data-plane auth (`cf-aig-authorization`) |
+| **Agents Gateway: Write** | `agw.write` | - | - | yes | Agents Gateway configuration |
+| **Agents Gateway: Read** | `agw.read` | - | - | yes | Agents Gateway read |
+| **Agents Gateway: Run** | `agw.run` | - | - | yes | Agents Gateway run |
+| **AI Search: Index Engine** | `ai-search.index` | - | - | yes | AI Search index engine |
+| **AI Search: Run** | `ai-search.run` | - | - | yes | AI Search query |
+| **AI Search: Write** | `ai-search.write` | - | - | yes | AI Search configuration |
+| **AI Audit: Read** | `aiaudit.read` | - | - | yes | AI audit log read |
+| **AI Audit: Write** | `aiaudit.write` | - | - | yes | AI audit configuration |
+| **Firewall for AI: Read** | `firewall-for-ai.read` | - | - | yes | Firewall for AI read |
+| **Firewall for AI: Write** | `firewall-for-ai.write` | - | - | yes | Firewall for AI configuration |
+| **Websearch: Run** | `websearch.run` | - | - | yes | Websearch run |
 | **Vectorize: Edit** | `vectorize.write` | - | - | yes | Vector database for AI embeddings |
 | **Browser Rendering: Edit** | `browser-rendering.write` | - | - | yes | Browser Run (REST + CDP), both agents |
 | **Turnstile: Edit** | `challenge-widgets.write` | - | - | yes | CAPTCHA widget management |
@@ -410,7 +424,7 @@ Users connect their Cloudflare account by creating an API token. Codeflare offer
 | **SSL and Certificates: Edit** | `account-ssl-and-certificates.write` | - | - | yes | SSL/TLS certificate management |
 | **Zone WAF: Edit** | `zone-waf.write` | - | - | yes | Zone-level WAF |
 
-**Operator setup.** The OAuth client must be registered with the full **Advanced superset** above — a per-connect request can only narrow within the client's registered scopes ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)). Three requested capabilities have **no OAuth scope** and are intentionally omitted (they need a classic API token): **OAuth Clients: Edit**, **API Tokens: Edit**, **Network flow: Admin**. `Logs: Edit` resolves to `logs.write` (the account-scoped `account-logs.write` is rejected by the authorize flow); `Firewall (Magic): Edit` uses `magic-firewall.write`. Advanced is a superset of Recommended: it keeps the two combined Access scopes (`zone-access.write`/`access-acct.write`) and adds the granular ones.
+**Operator setup.** The OAuth client must be registered with the full **Advanced superset** above — a per-connect request can only narrow within the client's registered scopes ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)). Three requested capabilities have **no OAuth scope** and are intentionally omitted (they need a classic API token): **OAuth Clients: Edit**, **API Tokens: Edit**, **Network flow: Admin**. `Logs: Edit` resolves to `logs.write` (the account-scoped `account-logs.write` is rejected by the authorize flow); `Firewall (Magic): Edit` uses `magic-firewall.write`. Advanced is a superset of Recommended: it keeps the two combined Access scopes (`zone-access.write`/`access-acct.write`) and adds the granular ones. See [REQ-AGENT-079](../../sdd/spec/agents.md#req-agent-079-advanced-cloudflare-oauth-tier-scope-catalog) for the authoritative catalog.
 
 Additional details:
 
@@ -507,6 +521,7 @@ Additional details:
 - [REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport) - Other-mode container transport (GH_TOKEN via the deploy-keys path)
 - [REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup) - GitHub provider configuration via Setup, admin-gated any mode (setup:github_*, KV-first resolution)
 - [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) - Cloudflare Connect (OAuth): operator client (setup:cloudflare_oauth_client_*) + per-user token, tier->scope
+- [REQ-AGENT-079](../../sdd/spec/agents.md#req-agent-079-advanced-cloudflare-oauth-tier-scope-catalog) - Advanced Cloudflare OAuth tier scope catalog (the user-token Advanced tier above)
 - [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) - Broaden the panel gate beyond enterprise (connect decoupled from panel gate; advanced-session entitlement moved to dashboard frontend)
 - [REQ-OPS-012](../../sdd/spec/operations.md#req-ops-012-per-environment-container-concurrency-limit) - Per-environment container concurrency limit
 - [REQ-SETUP-004](../../sdd/spec/setup.md#req-setup-004-setup-is-idempotent) - Setup is idempotent

@@ -12,7 +12,12 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../types';
-import { CloudflareBrowserInterceptor, isBrowserRenderingPath } from '../cloudflare-browser-interceptor';
+import {
+  CloudflareBrowserInterceptor,
+  isBrowserRenderingPath,
+  INTERCEPTED_CF_BROWSER_HOSTS,
+  INTERCEPTED_CF_OAUTH_HOSTS,
+} from '../cloudflare-browser-interceptor';
 import { getValidCloudflareToken } from '../lib/cloudflare-token';
 
 vi.mock('../lib/cloudflare-token', () => ({ getValidCloudflareToken: vi.fn() }));
@@ -276,6 +281,77 @@ describe('REQ-AGENT-078: CloudflareBrowserInterceptor OAuth mode (non-enterprise
     }));
     expect(res.status).toBe(502);
     fetchSpy.mockRestore();
+  });
+});
+
+describe('REQ-AGENT-078: OAuth mode — AI Gateway data-plane (gateway.ai.cloudflare.com)', () => {
+  beforeEach(() => { mockGetValidToken.mockReset(); });
+
+  it('stamps the FRESH token as cf-aig-authorization (gateway auth), NOT as Authorization', async () => {
+    mockGetValidToken.mockResolvedValue(FRESH_TOKEN);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok', { status: 200 }));
+    const interceptor = makeOAuthInterceptor('session-bucket');
+    await interceptor.fetch(new Request(
+      'https://gateway.ai.cloudflare.com/v1/acct/codeflare-enterprise/compat/chat/completions',
+      { method: 'POST', headers: { authorization: 'Bearer provider-key' }, body: '{}' },
+    ));
+    expect(mockGetValidToken).toHaveBeenCalledWith(expect.anything(), 'session-bucket');
+    const fwd = fetchSpy.mock.calls[0][0] as Request;
+    // Gateway auth rides cf-aig-authorization with the refreshed token (the aig.run scope) — fails if
+    // a static/placeholder token were used, or if it were stamped on Authorization instead.
+    expect(fwd.headers.get('cf-aig-authorization')).toBe(`Bearer ${FRESH_TOKEN}`);
+    fetchSpy.mockRestore();
+  });
+
+  it('leaves the caller Authorization (upstream provider / BYOK key) untouched on the gateway host', async () => {
+    mockGetValidToken.mockResolvedValue(FRESH_TOKEN);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok'));
+    const interceptor = makeOAuthInterceptor();
+    await interceptor.fetch(new Request(
+      'https://gateway.ai.cloudflare.com/v1/acct/gw/compat/chat/completions',
+      { method: 'POST', headers: { authorization: 'Bearer provider-key' }, body: '{}' },
+    ));
+    const fwd = fetchSpy.mock.calls[0][0] as Request;
+    expect(fwd.headers.get('authorization')).toBe('Bearer provider-key');
+    fetchSpy.mockRestore();
+  });
+
+  it('strips a container-supplied cf-aig-authorization placeholder before stamping the fresh token', async () => {
+    mockGetValidToken.mockResolvedValue(FRESH_TOKEN);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok'));
+    const interceptor = makeOAuthInterceptor();
+    await interceptor.fetch(new Request(
+      'https://gateway.ai.cloudflare.com/v1/acct/gw/compat/chat/completions',
+      { method: 'POST', headers: { 'cf-aig-authorization': `Bearer ${OAUTH_PLACEHOLDER}` }, body: '{}' },
+    ));
+    const fwd = fetchSpy.mock.calls[0][0] as Request;
+    expect(fwd.headers.get('cf-aig-authorization')).toBe(`Bearer ${FRESH_TOKEN}`);
+    expect(fwd.headers.get('cf-aig-authorization')).not.toContain(OAUTH_PLACEHOLDER);
+    fetchSpy.mockRestore();
+  });
+
+  it('fails closed 401 with NO upstream on the gateway host when no valid token can be minted', async () => {
+    mockGetValidToken.mockResolvedValue(null);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const interceptor = makeOAuthInterceptor();
+    const res = await interceptor.fetch(new Request(
+      'https://gateway.ai.cloudflare.com/v1/acct/gw/compat/chat/completions', { method: 'POST', body: '{}' },
+    ));
+    expect(res.status).toBe(401);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+});
+
+describe('REQ-AGENT-078: enterprise isolation — the AI Gateway host is OAuth-mode only', () => {
+  it('has gateway.ai.cloudflare.com in the OAuth host list but NEVER in the enterprise browser host list', () => {
+    // Enterprise wiring (wireCloudflareBrowserInterception) iterates INTERCEPTED_CF_BROWSER_HOSTS;
+    // OAuth wiring (wireCloudflareApiInterception) iterates INTERCEPTED_CF_OAUTH_HOSTS. If the gateway
+    // host ever leaked into the enterprise list, enterprise would intercept its own LlmInterceptor
+    // gateway rewrites and break LLM routing — this pins the separation.
+    expect(INTERCEPTED_CF_BROWSER_HOSTS).not.toContain('gateway.ai.cloudflare.com');
+    expect(INTERCEPTED_CF_OAUTH_HOSTS).toContain('gateway.ai.cloudflare.com');
+    expect(INTERCEPTED_CF_OAUTH_HOSTS).toContain('api.cloudflare.com');
   });
 });
 

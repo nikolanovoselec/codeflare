@@ -2,8 +2,12 @@
  * CloudflareBrowserInterceptor — outbound `api.cloudflare.com` credential injection, two modes:
  *   (1) enterprise Browser Rendering admin-token injection (REQ-BROWSER-008);
  *   (2) non-enterprise OAuth mode (REQ-AGENT-078) — stamps a freshly-refreshed per-user Cloudflare
- *       OAuth token on EVERY api.cloudflare.com request so `wrangler` + browser-run survive past the
- *       short OAuth access-token lifetime, with the real token never entering the container.
+ *       OAuth token on EVERY api.cloudflare.com request (as `Authorization`) AND on the AI Gateway
+ *       data-plane `gateway.ai.cloudflare.com` (as `cf-aig-authorization`, the token's aig.run scope),
+ *       so `wrangler`, browser-run, and AI Gateway all survive past the short OAuth access-token
+ *       lifetime, with the real token never entering the container. The gateway host is OAuth-mode
+ *       ONLY (INTERCEPTED_CF_OAUTH_HOSTS) — enterprise never wires it, so the enterprise LlmInterceptor
+ *       keeps emitting its own gateway rewrites direct.
  * Only ONE interceptor can bind a host, so a single class serves both (the DO picks the mode via
  * props: `bucket` ⇒ OAuth mode; `browserAccountId`/`browserToken` ⇒ enterprise mode).
  *
@@ -50,6 +54,18 @@ const logger = createLogger('cf-browser-interceptor');
 
 /** The single CF API host the container reaches for Browser Rendering (browser-run + CDP). */
 export const INTERCEPTED_CF_BROWSER_HOSTS: readonly string[] = ['api.cloudflare.com'];
+
+/** The AI Gateway data-plane host, intercepted ONLY in non-enterprise OAuth mode. */
+const AI_GATEWAY_HOST = 'gateway.ai.cloudflare.com';
+
+/**
+ * Hosts intercepted in NON-enterprise OAuth mode (REQ-AGENT-078). Superset of the enterprise
+ * browser host: adds `gateway.ai.cloudflare.com` so a connected user's AI Gateway data-plane
+ * (compat) requests are stamped with the OAuth token's AI-Gateway-Run auth (cf-aig-authorization).
+ * ENTERPRISE MUST NOT wire this list — the enterprise `LlmInterceptor` already emits gateway
+ * calls that egress DIRECT, and intercepting them here would break enterprise LLM routing.
+ */
+export const INTERCEPTED_CF_OAUTH_HOSTS: readonly string[] = ['api.cloudflare.com', AI_GATEWAY_HOST];
 
 /** Per-session props attached when the DO instantiates this entrypoint (bound at wiring). */
 interface BrowserInterceptorProps {
@@ -195,12 +211,24 @@ export class CloudflareBrowserInterceptor extends WorkerEntrypoint<Env> {
       return jsonError(401, 'CF_NOT_CONNECTED', 'Cloudflare not connected');
     }
 
-    // Strip the container placeholder + recomputed headers (WS handshake headers preserved),
-    // then stamp the fresh token. Own-account API ⇒ egress DIRECT.
+    // Recompute host/content-length, then stamp the fresh token. Own-account API ⇒ egress DIRECT.
+    // Two auth transports, mirroring the enterprise LlmInterceptor: the AI Gateway data-plane
+    // (gateway.ai.cloudflare.com) authenticates via `cf-aig-authorization` (the OAuth token's
+    // AI-Gateway-Run scope), leaving the caller's `Authorization` (upstream provider / BYOK key)
+    // untouched; api.cloudflare.com authenticates via standard `Authorization` (the placeholder
+    // is stripped and replaced). WS handshake headers are preserved on both.
     const isWs = request.headers.get('Upgrade')?.toLowerCase() === 'websocket';
     const headers = new Headers(request.headers);
-    for (const h of STRIPPED_REQUEST_HEADERS) headers.delete(h);
-    headers.set('authorization', `Bearer ${token}`);
+    headers.delete('host');
+    headers.delete('content-length');
+    if (url.hostname.trim().toLowerCase().replace(/\.$/, '') === AI_GATEWAY_HOST) {
+      // Interceptor-owned control header: strip any container-supplied value, then stamp fresh.
+      headers.delete('cf-aig-authorization');
+      headers.set('cf-aig-authorization', `Bearer ${token}`);
+    } else {
+      headers.delete('authorization');
+      headers.set('authorization', `Bearer ${token}`);
+    }
 
     const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
     let upstream: Response;
