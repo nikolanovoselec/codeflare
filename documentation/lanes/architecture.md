@@ -115,6 +115,8 @@ The same `WorkerEntrypoint` that injects the enterprise Browser Rendering token 
 
 Both the REST surface (`wrangler`) and the CDP WebSocket upgrade (browser-run) ride the interceptor's existing `relay()`/`bridge()` transport, so a session outlives the access-token TTL. The token is resolved solely from the session-bound `props.bucket` (never a request header) and the interceptor fails closed `401` with no upstream when no valid token can be minted.
 
+The platform TLS-terminates these intercepted calls with a mounted intercept CA (`/etc/cloudflare/certs/cloudflare-containers-ca.crt`); `entrypoint.sh` trusts it for the container's agent runtimes (Node/wrangler/curl) in a non-enterprise-only block gated on `ENTERPRISE_MODE != active` + CA-presence ([REQ-AGENT-078](../../sdd/spec/agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary) AC6), separate from the enterprise CA-trust.
+
 `wireCloudflareApiInterception` is double-guarded — it acts only when `!isEnterpriseMode(env)` **and** the container's `CLOUDFLARE_API_TOKEN` equals the OAuth placeholder (distinct from the enterprise `codeflare-enterprise` value) — so it can never wire or collide on `api.cloudflare.com` in enterprise, and the enterprise branch above is unchanged. The GitHub interceptor is not involved: non-enterprise git stays direct (GitHub tokens are long-lived). See [AD94](../decisions/README.md#ad94-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor).
 
 ### GitHub Integration

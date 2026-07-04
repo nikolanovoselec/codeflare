@@ -2393,6 +2393,55 @@ COPILOT_BYOK_EOF
     echo "[entrypoint] Enterprise Mode: cleared Pi auth.json (routes-only model picker)"
 fi
 
+# --- TLS: trust the Cloudflare containers CA for NON-ENTERPRISE OAuth sessions ---
+# REQ-AGENT-078: in a non-enterprise "Connect to Cloudflare" OAuth session the
+# Container DO wires interceptOutboundHttps for api.cloudflare.com /
+# gateway.ai.cloudflare.com, so the platform mounts its intercept CA under
+# /etc/cloudflare/certs/ and TLS-terminates those calls with a cert signed by it.
+# The enterprise CA-trust block above (gated on ENTERPRISE_MODE=active) is left
+# deliberately UNTOUCHED; this sibling block does the equivalent trust ONLY for the
+# non-enterprise case, so wrangler/Pi/curl validate the intercepted connection
+# instead of failing with SELF_SIGNED_CERT_IN_CHAIN. Gated on the CA file's
+# presence AND non-enterprise: a plain deploy with no interception (no CA file) is
+# byte-identical to before, and enterprise never enters this branch (it uses its
+# own block). Distinct var names + heredoc delimiter keep it isolated.
+CF_OAUTH_CA_SRC="/etc/cloudflare/certs/cloudflare-containers-ca.crt"
+if [ "${ENTERPRISE_MODE:-}" != "active" ] && [ -f "$CF_OAUTH_CA_SRC" ]; then
+    cp "$CF_OAUTH_CA_SRC" /usr/local/share/ca-certificates/cloudflare-containers-ca.crt 2>/dev/null \
+        && update-ca-certificates >/dev/null 2>&1 \
+        && echo "[entrypoint] OAuth Mode: Cloudflare containers CA installed into system trust store" \
+        || echo "[entrypoint] WARNING: could not install Cloudflare containers CA; intercepted api.cloudflare.com TLS may fail"
+    export NODE_EXTRA_CA_CERTS="$CF_OAUTH_CA_SRC"
+    export SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
+    export REQUESTS_CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt"
+
+    # Persist into .bashrc so the AGENT PTYs (spawned after init; they source
+    # .bashrc and do NOT inherit entrypoint's env) trust the CA — otherwise Node
+    # falls back to its bundled CA list, which lacks the ephemeral containers CA,
+    # and the intercepted TLS handshake fails before the request reaches the
+    # interceptor. PREPENDED because the terminal-autostart block already in
+    # .bashrc launches the agent inline and blocks anything after it.
+    BASHRC_FILE="$USER_HOME/.bashrc"
+    if ! grep -q "# cf-ca-trust" "$BASHRC_FILE" 2>/dev/null; then
+        touch "$BASHRC_FILE"
+        CF_OAUTH_CA_TMP=$(mktemp)
+        cat > "$CF_OAUTH_CA_TMP" << CF_OAUTH_CA_EOF
+# cf-ca-trust
+# Trust the Cloudflare containers CA in agent runtimes (Node/Python) so the
+# intercepted non-enterprise api.cloudflare.com / gateway.ai.cloudflare.com TLS
+# validates. Set before terminal-autostart launches an agent.
+export NODE_EXTRA_CA_CERTS="$CF_OAUTH_CA_SRC"
+export SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
+export REQUESTS_CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt"
+
+CF_OAUTH_CA_EOF
+        cat "$BASHRC_FILE" >> "$CF_OAUTH_CA_TMP"
+        mv "$CF_OAUTH_CA_TMP" "$BASHRC_FILE"
+        chmod 644 "$BASHRC_FILE"
+        echo "[entrypoint] OAuth Mode: Cloudflare containers CA-trust env prepended to .bashrc (agent PTYs inherit NODE_EXTRA_CA_CERTS)"
+    fi
+fi
+
 # Configure context-mode MCP server. (Implements REQ-AGENT-005)
 # context-mode (https://github.com/mksglu/context-mode) ships in two layers:
 #   1. MCP server (ctx_* tools) - registered for ALL users on every session
