@@ -197,7 +197,7 @@ A random shared secret is generated per DO lifecycle and proxied requests from t
 
 **Threat model -- silent Unauthorized after DO wake (AC5/AC6):** Without lifecycle-scoped persistence, every DO wake from hibernation regenerates a fresh token while the container process retains the original value, breaking every subsequent proxied request with `{"error":"Unauthorized"}` until the user manually recreates the session. The terminal, vault, and every other in-container HTTP surface go silently unreachable.
 
-**Mitigation:** The token is scoped to one DO lifecycle and survives hibernate/wake within that lifecycle; on `destroy()` it is cleared so the next session under the same DO ID starts fresh. Persistence mechanics (DO storage key, restore site, hibernate-window pinning, cleanup hook) live in [architecture.md](./architecture.md#container-do-container). The env-var name (`CONTAINER_AUTH_TOKEN`) is catalogued in [configuration.md](./configuration.md#environment-variables).
+**Mitigation:** The token is scoped to one DO lifecycle and survives hibernate/wake within that lifecycle; on `destroy()` it is cleared so the next session under the same DO ID starts fresh. Persistence mechanics (DO storage key, restore site, hibernate-window pinning, cleanup hook) live in [architecture.md](./architecture.md#container-do-container). The env-var name (`CONTAINER_AUTH_TOKEN`) is catalogued in [configuration.md](./configuration.md#container-environment).
 
 ## Dual R2 Credential Architecture
 
@@ -264,7 +264,7 @@ HSTS is also applied to all redirect responses via `redirectWithHeaders()` helpe
 
 The exemption covers the pre-Hono vault proxy path only: route-validation errors and the `/api/vault/<sid>/status` JSON endpoint still receive the full default set including CSP and `X-Frame-Options: DENY`. Implemented via `withSecurityHeaders(response, { csp: false, frame: 'sameorigin' })` in `src/index.ts`; see [REQ-SEC-008](../../sdd/spec/security.md#req-sec-008-security-headers-on-every-response).
 
-**Cloudflare Web Analytics CSP allowance:** The default CSP permits the Web Analytics beacon with two narrow additions in `src/index.ts`: `static.cloudflareinsights.com` in `script-src` (the beacon loader `beacon.min.js`) and `cloudflareinsights.com` in `connect-src` (the beacon's telemetry POST endpoint). The beacon is injected as a manually-authored `<script src=...>` tag (gated on `PUBLIC_CF_BEACON_TOKEN`, see [configuration.md](./configuration.md#environment-variables)) specifically so the CSP does not have to be weakened with `'unsafe-inline'`: a script element with an allowlisted host is the strict-CSP-compatible alternative to Cloudflare's auto-injected inline snippet.
+**Cloudflare Web Analytics CSP allowance:** The default CSP permits the Web Analytics beacon with two narrow additions in `src/index.ts`: `static.cloudflareinsights.com` in `script-src` (the beacon loader `beacon.min.js`) and `cloudflareinsights.com` in `connect-src` (the beacon's telemetry POST endpoint). The beacon is injected as a manually-authored `<script src=...>` tag (gated on `PUBLIC_CF_BEACON_TOKEN`, see [configuration.md](./configuration.md#onboarding-variables-and-secrets)) specifically so the CSP does not have to be weakened with `'unsafe-inline'`: a script element with an allowlisted host is the strict-CSP-compatible alternative to Cloudflare's auto-injected inline snippet.
 
 Both allowances are unconditional — they remain in the header even when `PUBLIC_CF_BEACON_TOKEN` is unset and no beacon is emitted — so the CSP shape does not vary between builds.
 
