@@ -747,10 +747,10 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.stopCalls).toBe(1);
     });
 
-    it('respects 4h pref - 3h idle does NOT trigger stop (4h is an accepted value, not the 2h fallback)', async () => {
-      // Storage holds '4h'. Container idle 3h. If 4h were NOT in the accept
-      // regex it would fall back to the 2h class-field default, and 3h > 2h
-      // would stop the container — so stopCalls===0 proves 4h is honored.
+    it('respects 4h pref - 3h idle does NOT trigger stop', async () => {
+      // Storage holds '4h' (a valid option). Container idle 3h < 4h, so the
+      // idle-stop must NOT fire — stopCalls===0. Paired with the 5h-idle case
+      // below (which DOES stop), this pins the 4h boundary behaviourally.
       testState.storedSleepAfter = '4h';
       testState.activityResult = {
         hasActiveConnections: true,
@@ -797,7 +797,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     it('ignores invalid stored sleepAfter values and uses class-field fallback', async () => {
       // Someone wrote a malformed value into storage. The collectMetrics
       // refresh validates against the regex and ignores invalid values,
-      // falling back to the class-field default ('2h').
+      // falling back to the class-field default ('4h').
       testState.storedSleepAfter = 'GARBAGE';
       testState.activityResult = {
         hasActiveConnections: true,

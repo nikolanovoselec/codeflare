@@ -159,14 +159,14 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(instance.sleepAfter).toBe('24h');
     });
 
-    it('initializes with idleTimeoutPref 2h (fail-safe default per REQ-OPS-006 AC8)', () => {
-      // The class-field default is the MAXIMUM supported value (2h), not the
+    it('initializes with idleTimeoutPref 4h (fail-safe default per REQ-OPS-006 AC8)', () => {
+      // The class-field default is the MAXIMUM supported value (4h), not the
       // minimum. A short fallback would kill the container before storage
       // reads / user-pref writes complete; a long fallback only lets the
       // container live longer than expected. See REQ-OPS-006 AC8 + AD/issue
       // codeflare#294 context.
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      expect(instance.idleTimeoutPref).toBe('2h');
+      expect(instance.idleTimeoutPref).toBe('4h');
     });
 
     it('calls blockConcurrencyWhile in constructor', () => {
@@ -1848,9 +1848,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
     // The wire + storage names are intentionally preserved so existing clients
     // and persisted DOs keep working across the refactor.
 
-    it('defaults to 2h when not in storage (fail-safe per REQ-OPS-006 AC8)', () => {
+    it('defaults to 4h when not in storage (fail-safe per REQ-OPS-006 AC8)', () => {
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      expect(instance.idleTimeoutPref).toBe('2h');
+      expect(instance.idleTimeoutPref).toBe('4h');
     });
 
     it('loads from DO storage on construction (storage key: sleepAfter)', async () => {
@@ -1865,7 +1865,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       });
     });
 
-    it('rejects invalid values from storage and falls back to fail-safe 2h default', async () => {
+    it('rejects invalid values from storage and falls back to fail-safe 4h default', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'sleepAfter') return 'invalid';
         return null;
@@ -1875,7 +1875,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       await vi.waitFor(() => {
         expect(mockCtx.blockConcurrencyWhile).toHaveBeenCalled();
       });
-      expect(instance.idleTimeoutPref).toBe('2h');
+      expect(instance.idleTimeoutPref).toBe('4h');
     });
 
     it('persists to DO storage on initial setBucketName', async () => {
@@ -1946,9 +1946,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
         (c: unknown[]) => c[0] === 'sleepAfter'
       );
       expect(sleepAfterPuts).toHaveLength(0);
-      // Class-field default is now 2h (fail-safe per REQ-OPS-006 AC8) - the
+      // Class-field default is now 4h (fail-safe per REQ-OPS-006 AC8) - the
       // invalid input was correctly rejected and the default preserved.
-      expect(instance.idleTimeoutPref).toBe('2h');
+      expect(instance.idleTimeoutPref).toBe('4h');
     });
 
     it('SDK.sleepAfter stays pinned to 24h regardless of user preference', async () => {
@@ -2170,7 +2170,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
 
     it('stops with SIGTERM when lastInputAt exceeds idleTimeoutPref', async () => {
       const instance = await createRunningInstance();
-      // Set pref to 5m explicitly (class-field default is now 2h fail-safe per
+      // Set pref to 5m explicitly (class-field default is now 4h fail-safe per
       // REQ-OPS-006 AC8 - so just an idle duration won't do, we need to set
       // the user-configured pref low to exercise the boundary).
       instance.idleTimeoutPref = '5m';
@@ -2192,7 +2192,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
 
     it('stops with SIGTERM when lastInputAt is null and containerStartedAt is old', async () => {
       const instance = await createRunningInstance();
-      instance.idleTimeoutPref = '5m'; // explicit short pref, otherwise 2h default never trips
+      instance.idleTimeoutPref = '5m'; // explicit short pref, otherwise 4h default never trips
 
       // Manually age the container's started-at so the fallback reference
       // time pushes idleMs past the 5m configured threshold.
@@ -2274,7 +2274,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       // Properties set by the class
       expect(instance.defaultPort).toBe(8080);
       expect(instance.sleepAfter).toBe('24h');
-      expect(instance.idleTimeoutPref).toBe('2h');
+      expect(instance.idleTimeoutPref).toBe('4h');
     });
   });
 });
