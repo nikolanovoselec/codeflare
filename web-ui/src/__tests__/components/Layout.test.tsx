@@ -394,7 +394,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect((window as any).__headerProps.vaultReady).toBe(true);
       // A full prewarm proof records the durable per-browser marker that lets a
       // later reload skip remounting the bootstrap iframe.
-      expect(vaultLocalReadinessMock.markFullyPrewarmed).toHaveBeenCalledWith('sess1');
+      expect(vaultLocalReadinessMock.markFullyPrewarmed).toHaveBeenCalledWith('sess1', null);
     });
 
     it('REQ-VAULT-019: a cold-path armed click opens the vault tab synchronously', async () => {
