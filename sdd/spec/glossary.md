@@ -25,7 +25,7 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | Per-group dynamic routing | An optional enterprise mapping of each Cloudflare Access group to its active dynamic routes + default route + reasoning (`SETUP_KEYS.GROUP_ROUTING`). A session resolves the first of its matched groups (in configured order) with an entry; with none configured, the global catalog applies unchanged ([REQ-ENTERPRISE-013](enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing)). |
 | Admin Access Group | An enterprise Setup-configured Cloudflare Access group (`SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP`) whose members are granted admin (= Setup / user-administration) access, parallel to the email-based Admin Users list. Resolved live per-request in `requireAdmin` (never the hot auth path); elevation lives only on the request context. Distinct from the user-access groups — admin groups never participate in per-group routing ([REQ-ENTERPRISE-014](enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups)). |
 | Bisync | rclone's bidirectional sync mode - keeps container local files and R2 bucket in sync. |
-| sleepAfter | Configurable idle timeout (5m-2h) before a container is stopped. Input-based detection. |
+| sleepAfter | Configurable idle timeout (15m-4h) before a container is stopped. Input-based detection. |
 | PTY | Pseudo-terminal - the terminal server multiplexes up to 6 PTY sessions per container. |
 | Tiling | Multi-terminal layout modes: tabbed (default), 2-split, 3-split, 4-grid. |
 | CF Access | Cloudflare Access - external auth service used in default/onboarding modes. |

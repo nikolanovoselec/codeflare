@@ -44,17 +44,19 @@ export interface MetricsCallbacks {
 // parseSleepAfterMs
 // ---------------------------------------------------------------------------
 
-/** Parse sleepAfter string ('5m', '30m', '1h', '2h') to milliseconds.
+/** Parse sleepAfter string ('15m', '30m', '1h', '2h', '4h') to milliseconds.
  *
  * Fail-safe direction: an unrecognized or malformed string returns the maximum
- * supported timeout (2h) rather than the minimum. A short fallback would cause
+ * supported timeout (4h) rather than the minimum. A short fallback would cause
  * the container to die early when the pref is missing/corrupted; a long
  * fallback only causes the container to live slightly longer than the user
  * expected. Errs on the side of preserving user work over saving compute.
  *
- * The validated regex `/^(5m|15m|30m|1h|2h)$/` at the storage write site means
+ * The validated regex `/^(5m|15m|30m|1h|2h|4h)$/` at the storage write site means
  * this fallback should only ever fire on truly broken input. Log it loudly
- * (caller logs).
+ * (caller logs). NOTE: '5m' is retired from the settable picker
+ * (REQ-SESSION-014) but stays in the accept-set so a pre-existing 5m pref keeps
+ * its short timeout instead of resetting to the 2h fallback.
  *
  */
 // DO-storage key holding the wall-clock ms at which the container first read
@@ -107,7 +109,7 @@ export async function openNotRunningConfirmation(ctx: DurableObjectState): Promi
   }
 }
 
-export const SLEEP_AFTER_FALLBACK_MS = 7_200_000; // 2h
+export const SLEEP_AFTER_FALLBACK_MS = 14_400_000; // 4h (the maximum supported sleepAfter option)
 export function parseSleepAfterMs(s: string): number {
   if (s.endsWith('h')) {
     const h = parseInt(s, 10);
@@ -323,7 +325,7 @@ export async function collectMetrics(
   let idleTimeoutPref = callbacks.idleTimeoutPref;
   try {
     const stored = await ctx.storage.get<string>('sleepAfter');
-    if (stored && /^(5m|15m|30m|1h|2h)$/.test(stored)) {
+    if (stored && /^(5m|15m|30m|1h|2h|4h)$/.test(stored)) {
       if (stored !== idleTimeoutPref) {
         logger.info('collectMetrics: refreshing idleTimeoutPref from storage', {
           cached: idleTimeoutPref, stored,

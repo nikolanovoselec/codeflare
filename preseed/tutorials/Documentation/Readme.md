@@ -41,7 +41,7 @@ Pro-mode features (knowledge graph, curated skills, advanced workflows, automati
 - **Persistent vault (SilverBullet).** An Obsidian-compatible markdown editor running inside the container at `~/Vault/`, accessible from the header. Notes, journal entries, pasted screenshots, and an automatic 15-prompt session capture so a future agent can look up what a prior conversation decided.
 - **User management.** Email-based allowlists and role-based permissions (admin and user). Invite users or revoke them when they get too creative.
 - **Setup wizard.** First-time deployment walks you through DNS, auth, and storage config. Takes a few minutes, only happens once.
-- **Configurable auto-sleep.** 5m / 15m / 30m / 1h / 2h. Input-aware: typing keeps the session alive, background polls do not. Free tier is locked to 15m.
+- **Configurable auto-sleep.** 15m / 30m / 1h / 2h / 4h. Input-aware: typing keeps the session alive, background polls do not. Free tier is locked to 15m.
 - **Usage dashboard.** Daily and monthly compute hours with quota tracking. Per-user Timekeeper Durable Object flushes to KV every 5 minutes.
 - **Dashboard with live metrics.** CPU, memory, disk, uptime, and sync status at a glance. Three-color session status: green (active), yellow (idle but alive), gray (stopped).
 

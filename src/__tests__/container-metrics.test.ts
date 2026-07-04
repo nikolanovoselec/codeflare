@@ -646,10 +646,10 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
   });
 
   describe('idle timeout resolution (REQ-OPS-006 AC8/AC9) / REQ-OPS-017 (sleepAfter fail-safe invariants)', () => {
-    it('uses fail-safe 2h default when storage has no sleepAfter', async () => {
+    it('uses fail-safe 4h default when storage has no sleepAfter', async () => {
       // Storage returns undefined for 'sleepAfter'.
-      // Class-field default is '2h' (max safe). Container has been idle for 1 hour.
-      // 1h < 2h → container should NOT be stopped.
+      // Class-field default is '4h' (max safe). Container has been idle for 1 hour.
+      // 1h < 4h → container should NOT be stopped.
       testState.storedSleepAfter = undefined;
       testState.activityResult = {
         hasActiveConnections: true,
@@ -747,6 +747,53 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.stopCalls).toBe(1);
     });
 
+    it('respects 4h pref - 3h idle does NOT trigger stop (4h is an accepted value, not the 2h fallback)', async () => {
+      // Storage holds '4h'. Container idle 3h. If 4h were NOT in the accept
+      // regex it would fall back to the 2h class-field default, and 3h > 2h
+      // would stop the container — so stopCalls===0 proves 4h is honored.
+      testState.storedSleepAfter = '4h';
+      testState.activityResult = {
+        hasActiveConnections: true,
+        connectedClients: 1,
+        lastInputAt: Date.now() - (180 * 60 * 1000), // 3h ago
+      };
+      const session: Session = {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      };
+      mockKV._set('session:test-bucket:testsession123456', session);
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.stopCalls).toBe(0);
+    });
+
+    it('respects 4h pref - 5h idle DOES trigger stop', async () => {
+      testState.storedSleepAfter = '4h';
+      testState.activityResult = {
+        hasActiveConnections: true,
+        connectedClients: 1,
+        lastInputAt: Date.now() - (300 * 60 * 1000), // 5h ago, > 4h
+      };
+      const session: Session = {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        status: 'running',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      };
+      mockKV._set('session:test-bucket:testsession123456', session);
+
+      await containerInstance.collectMetrics();
+
+      expect(testState.stopCalls).toBe(1);
+    });
+
     it('ignores invalid stored sleepAfter values and uses class-field fallback', async () => {
       // Someone wrote a malformed value into storage. The collectMetrics
       // refresh validates against the regex and ignores invalid values,
@@ -769,7 +816,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       await containerInstance.collectMetrics();
 
-      // 30m < 2h fallback → no stop
+      // 30m < 4h fallback → no stop
       expect(testState.stopCalls).toBe(0);
     });
   });

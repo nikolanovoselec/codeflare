@@ -175,7 +175,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
 
       // Update idle timeout on restart. Storage key is 'sleepAfter' for
       // backwards compat; the SDK's sleepAfter property is pinned to 24h.
-      if (sleepAfterPref && /^(5m|15m|30m|1h|2h)$/.test(sleepAfterPref)) {
+      if (sleepAfterPref && /^(5m|15m|30m|1h|2h|4h)$/.test(sleepAfterPref)) {
         host.idleTimeoutPref = sleepAfterPref;
         await host.ctx.storage.put('sleepAfter', sleepAfterPref);
       }
@@ -276,9 +276,9 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       gitCloneRef,
     });
 
-    // Apply user-configurable idle timeout (validated values: 5m, 15m, 30m, 1h, 2h).
+    // Apply user-configurable idle timeout (settable values: 15m, 30m, 1h, 2h, 4h; legacy 5m still tolerated).
     // Storage key is 'sleepAfter' for backwards compat with existing sessions.
-    if (sleepAfterPref && /^(5m|15m|30m|1h|2h)$/.test(sleepAfterPref)) {
+    if (sleepAfterPref && /^(5m|15m|30m|1h|2h|4h)$/.test(sleepAfterPref)) {
       host.idleTimeoutPref = sleepAfterPref;
       await host.ctx.storage.put('sleepAfter', sleepAfterPref);
       host.logger.info('idle timeout set from user preference', { idleTimeout: sleepAfterPref });

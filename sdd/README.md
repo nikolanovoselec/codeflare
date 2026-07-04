@@ -12,7 +12,7 @@ Codeflare is the enterprise agentic engine: it runs autonomous AI coding agents 
 
 4. **Mobile-first** -- Strongly optimized for phone and tablet use. Touch input, virtual keyboard handling, swipe gestures for arrow key navigation, scroll stability fixes for Samsung/Android quirks. The best commits happen from places without desks.
 
-5. **Scale to zero** -- Containers hibernate after configurable idle timeout (5m-2h, input-aware). No sessions means no bill. Cost scales linearly with actual compute usage, not provisioned capacity.
+5. **Scale to zero** -- Containers hibernate after configurable idle timeout (15m-4h, input-aware). No sessions means no bill. Cost scales linearly with actual compute usage, not provisioned capacity.
 
 6. **Agent-agnostic, Claude-optimized** -- Multiple agents supported with identical container infrastructure. Pro mode features (knowledge graph memory, curated skills, advanced workflows) are designed for Claude Code; other agents receive rules and definitions but may not support all capabilities.
 

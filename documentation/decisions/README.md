@@ -671,6 +671,8 @@ The original justification considered was per-PTY RAM cleanup when one tab in a 
 
 **Decision:** Keep the per-PTY reaper but reframe its role as a pure **safety net** for the case where `lastInputAt` tracking gets stuck (terminal server bug, stuck activity polling, broken `/activity` endpoint), and raise the floor to 120 minutes (equal to the maximum user-configurable `sleepAfter`). Concretely, change `PTY_KEEPALIVE_MS` default from `2700000` (45 min) to `7200000` (120 min) in `host/src/server.ts` and `host/src/session.ts`.
 
+**Amendment (2026-07-04, [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings)):** a `4h` idle option was added, raising the maximum user-configurable `sleepAfter` from 2h to 4h. To preserve this decision's core invariant — the reaper floor must equal the maximum `sleepAfter` so it can never fire before the authoritative idle-stop — `PTY_KEEPALIVE_MS` was raised from `7200000` (120 min) to `14400000` (240 min) in the same two files. References to "120 min" / "2h" below describe the original decision; the current floor is **240 min (4h)**. The parallel `SLEEP_AFTER_FALLBACK_MS` / `idleTimeoutPref` fail-safe defaults were likewise raised 2h → 4h ([REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants)) so "fail-safe = the maximum supported value" also stays true.
+
 **Alternatives considered:**
 
 1. **Remove the reaper entirely.** Rejected: leaves no recourse if `collectMetrics` ever silently fails to stop a container with a stuck `lastInputAt`. The cost of keeping the reaper is one `setTimeout` per orphaned session.
@@ -686,7 +688,7 @@ Rejected: arbitrary midpoint with no principled basis. 120 min has a clear justi
 
 **Rationale:**
 
-- The user-facing idle contract is [REQ-SESSION-004](../../sdd/spec/session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout)'s `sleepAfter` (5m / 15m / 30m / 1h / 2h).
+- The user-facing idle contract is [REQ-SESSION-004](../../sdd/spec/session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout)'s `sleepAfter` (15m / 30m / 1h / 2h / 4h).
 
 The PTY reaper sits *below* that contract and must never undercut it. Setting the floor at the maximum `sleepAfter` ensures it cannot fire before the authoritative policy.
 - The reaper's value is purely defensive:

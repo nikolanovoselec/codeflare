@@ -119,7 +119,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. The idle timeout is user-configurable with allowed values: 5m, 15m, 30m, 1h, 2h. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/index.ts --> <!-- @test: src/__tests__/container-metrics.test.ts (sleepAfter enforcement + 24h sentinel) -->
+1. The idle timeout is user-configurable with allowed values: 15m, 30m, 1h, 2h, 4h. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/index.ts --> <!-- @test: src/__tests__/container-metrics.test.ts (sleepAfter enforcement + 24h sentinel) -->
 2. Default is 30m for paying users; free-tier users are locked to 15m regardless of stored preference. <!-- @impl: src/routes/container/lifecycle-validation.ts::resolveEffectiveSleepAfter --> <!-- @test: src/__tests__/container-metrics.test.ts (free-tier lock) -->
 3. The idle timer resets only when new user input is detected (not on heartbeats, reconnections, or protocol chatter). <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (sleepAfter enforcement) -->
 4. The container is stopped once the user-configured idle threshold is exceeded; the host-side per-PTY keepalive is a separate safety net floor-clamped at the maximum idle timeout (see [AD47](../../documentation/decisions/README.md#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy)). <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/server.ts --> <!-- @test: src/__tests__/container-metrics.test.ts (sleepAfter enforcement) -->
@@ -420,7 +420,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Settings dropdown with 5 options (5m, 15m, 30m, 1h, 2h). <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (SleepAfterOptions exactly [5m,15m,30m,1h,2h] + all 5 accepted + invalid rejected) -->
+1. Settings dropdown with 5 options (15m, 30m, 1h, 2h, 4h). <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (SleepAfterOptions exactly [15m,30m,1h,2h,4h] + all 5 accepted + invalid rejected) -->
 2. Free tier locked to 15m with upgrade hint. <!-- @impl: src/routes/container/lifecycle.ts::resolveEffectiveSleepAfter --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (resolveEffectiveSleepAfter free->15m, paid/admin/unlimited honor stored, default 30m) -->
 3. Admins and paying users can change. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (PATCH /preferences for admins/paying users) -->
 4. Value saved to KV preferences and applied on next session start. <!-- @impl: src/routes/container/lifecycle.ts::resolveEffectiveSleepAfter --> <!-- @impl: src/routes/preferences.ts --> <!-- @impl: src/container/index.ts --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (KV persist + GET/PATCH round-trip) --> <!-- @test: src/__tests__/routes/preferences.test.ts (GET /preferences KV preference contract) -->

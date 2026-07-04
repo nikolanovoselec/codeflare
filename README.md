@@ -69,7 +69,7 @@ Every session comes pre-loaded with your choice of agent:
 - Set your API key once; it syncs across sessions.
 - Live per-session CPU/memory/disk metrics and a three-color status (active / idle / stopped).
 - Usage dashboard — daily and monthly compute hours and quota remaining, tracked by a per-user Timekeeper Durable Object.
-- Configurable auto-sleep — containers stop after inactivity (5m / 15m / 30m / 1h / 2h). The timer is input-aware: it resets only on real terminal input, not reconnects or background polls.
+- Configurable auto-sleep — containers stop after inactivity (15m / 30m / 1h / 2h / 4h). The timer is input-aware: it resets only on real terminal input, not reconnects or background polls.
 - CPU cost scales to zero when idle — you pay for what you use.
 
 **For your agent (Pro mode).**

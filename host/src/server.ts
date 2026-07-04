@@ -65,7 +65,7 @@ const WORKSPACE_DEFAULT = process.env.WORKSPACE ?? '/home/user/workspace';
 // PTY persistence settings - safety-net floor only. The authoritative idle
 // policy lives in collectMetrics (container DO) keyed off `lastInputAt`. This
 // reaper only fires if that policy gets stuck. See AD47.
-const PTY_KEEPALIVE_MS = parseInt(process.env.PTY_KEEPALIVE_MS ?? '7200000', 10); // 120 minutes
+const PTY_KEEPALIVE_MS = parseInt(process.env.PTY_KEEPALIVE_MS ?? '14400000', 10); // 240 minutes (4h; == max sleepAfter, see AD47)
 const PTY_CLEANUP_INTERVAL_MS = parseInt(process.env.PTY_CLEANUP_INTERVAL_MS ?? '60000', 10); // Check every minute
 
 // Named constants for magic numbers

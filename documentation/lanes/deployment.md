@@ -128,7 +128,7 @@ Notes:
 - R2: First 10 GB free, $0.015/GB/month after
 - Pricing: [Cloudflare Containers Pricing](https://developers.cloudflare.com/containers/pricing/)
 
-Cost scales per ACTIVE SESSION (each session = one container; a session has up to 6 terminal tabs sharing a single container). Idle containers hibernate after `sleepAfter` (default 30m, configurable 5m - 2h) of no user input. Hibernated containers = zero cost.
+Cost scales per ACTIVE SESSION (each session = one container; a session has up to 6 terminal tabs sharing a single container). Idle containers hibernate after `sleepAfter` (default 30m, configurable 15m - 4h) of no user input. Hibernated containers = zero cost.
 
 ---
 
