@@ -32,7 +32,7 @@ describe('githubScopeForTier', () => {
 // REQ-AGENT-079: Advanced Cloudflare OAuth tier scope catalog. The recommended-⊆-advanced
 // superset assertion here, together with the exact-set assertion in the REQ-BROWSER-002 AC3
 // test below, are the catalog's regression guard.
-describe('cloudflareScopeForTier', () => {
+describe('REQ-AGENT-079: cloudflareScopeForTier advanced-tier scope catalog', () => {
   it('always requests offline_access and escalates capability with tier', () => {
     const minimal = cloudflareScopeForTier('minimal');
     const recommended = cloudflareScopeForTier('recommended');
