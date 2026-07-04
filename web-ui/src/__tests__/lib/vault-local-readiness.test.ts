@@ -204,22 +204,39 @@ describe('REQ-VAULT-019: checkVaultKeyRecoverable', () => {
   });
 });
 
-describe('REQ-VAULT-022 AC2: full-prewarm marker', () => {
-  it('records and reports the per-session full-prewarm marker', () => {
+describe('REQ-VAULT-022 AC2: full-prewarm marker keyed to the container start', () => {
+  it('reports warm only for the same container start that recorded the marker (a page reload)', () => {
     const storage = createStorage();
-    expect(hasVaultFullyPrewarmed('session-1', storage)).toBe(false);
-    markVaultFullyPrewarmed('session-1', storage);
-    expect(hasVaultFullyPrewarmed('session-1', storage)).toBe(true);
+    expect(hasVaultFullyPrewarmed('session-1', 'start-1', storage)).toBe(false);
+    markVaultFullyPrewarmed('session-1', 'start-1', storage);
+    expect(hasVaultFullyPrewarmed('session-1', 'start-1', storage)).toBe(true);
+  });
+
+  it('reports NOT warm when the container start advanced, forcing a clean re-init on a resumed session', () => {
+    const storage = createStorage();
+    markVaultFullyPrewarmed('session-1', 'start-1', storage);
+    // The container was stopped and resumed: lastStartedAt advanced, so the persisted
+    // marker no longer counts as warm and the vault re-initializes like a fresh session.
+    expect(hasVaultFullyPrewarmed('session-1', 'start-2', storage)).toBe(false);
+  });
+
+  it('never reports warm and never records a marker when the current container start is unknown', () => {
+    const storage = createStorage();
+    markVaultFullyPrewarmed('session-1', null, storage);
+    expect(hasVaultFullyPrewarmed('session-1', 'start-1', storage)).toBe(false);
+    markVaultFullyPrewarmed('session-1', 'start-1', storage);
+    expect(hasVaultFullyPrewarmed('session-1', null, storage)).toBe(false);
+    expect(hasVaultFullyPrewarmed('session-1', undefined, storage)).toBe(false);
   });
 
   it('scopes the marker per session so another session is not falsely reported warm', () => {
     const storage = createStorage();
-    markVaultFullyPrewarmed('session-1', storage);
-    expect(hasVaultFullyPrewarmed('session-2', storage)).toBe(false);
+    markVaultFullyPrewarmed('session-1', 'start-1', storage);
+    expect(hasVaultFullyPrewarmed('session-2', 'start-1', storage)).toBe(false);
   });
 
   it('reports not-prewarmed and swallows write errors when storage is unavailable', () => {
-    expect(hasVaultFullyPrewarmed('session-1', null)).toBe(false);
-    expect(() => markVaultFullyPrewarmed('session-1', null)).not.toThrow();
+    expect(hasVaultFullyPrewarmed('session-1', 'start-1', null)).toBe(false);
+    expect(() => markVaultFullyPrewarmed('session-1', 'start-1', null)).not.toThrow();
   });
 });

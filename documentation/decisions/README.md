@@ -2221,6 +2221,24 @@ Exclude the upstream `.mcp.json` (5 remote MCP servers — strict-egress-blocked
 
 ---
 
+### AD93: Key the vault reload-skip to the container start so resumed sessions re-initialize cleanly
+
+**Category:** Vault
+
+**Status:** Accepted (2026-07-04).
+
+**Context:** The vault's full-prewarm marker and SilverBullet IndexedDB stores are bucket-stable and persist in the browser across a container stop ([REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)/[REQ-VAULT-023](../../sdd/spec/vault.md#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap)). The reload-skip ([REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence) AC2) armed the green control and served the local store the instant `hasVaultFullyPrewarmed(sid)` + live local readiness held — with no notion of container lifecycle. A stopped-then-resumed session therefore reused the persisted marker and opened the pre-stop snapshot: the control flashed green immediately on stale content while the service worker's ~20s background sync slowly pulled the R2-restored data (edits made elsewhere while stopped). Fresh sessions (no marker) initialized cleanly; resumed sessions did not — inconsistent behavior the user asked to make uniform.
+
+**Decision:** Stamp the full-prewarm marker with the container's current start timestamp (`lastStartedAt`, already written by the Durable Object on every `onStart` and already polled by the dashboard) and gate the reload-skip on an exact match. A same-container page reload (unchanged `lastStartedAt`) still arms instantly — the optimization REQ-VAULT-022 exists for is preserved. A resumed session's container restarts, advancing `lastStartedAt`, so its marker no longer matches: the reload-skip is refused and the vault runs the normal on-demand click → prewarm → green path, identical to a fresh session. No new container code, boot-config, or service-worker change — the container already emits the signal; the browser just had to check it. The on-demand prewarm budget was also raised 5→10 min (`DEFAULT_VAULT_PREWARM_TIMEOUT_MS`) so a slow cold start does not time the control out before its first full sync completes.
+
+**Rejected — a dedicated DO incarnation counter threaded through `VaultBootConfig`:** more plumbing for no gain over the existing `lastStartedAt`. **Rejected — reaping the marker on container shutdown:** impossible — the container cannot reach the browser's localStorage/IndexedDB (different trust domain); the invalidation must be a browser-side check of a container-provided value, which `lastStartedAt` already is. **Rejected — dropping the reload-skip entirely:** regresses instant reload for a live session.
+
+**Consequences:** One benign one-time re-init after deploy for already-warm sessions (the old `'1'` marker value never matches a real `lastStartedAt`, so the next open re-prewarms once and re-stamps). A falsy `startedAt` (start not polled yet) never counts as warm and never records a marker, so an incomplete read can only under-skip (harmlessly re-prewarm), never over-skip onto a stale store.
+
+**Related:** [REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence), [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key), [REQ-VAULT-018](../../sdd/spec/vault.md#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger), [AD84](#ad84-retain-the-vault-sw-encryption-key-in-memory-neuter-the-proactive-flush-and-open-a-green-vault-button-directly).
+
+---
+
 ## Related Documentation
 
 - [Architecture - System Components](../lanes/architecture.md#system-components) - Component overview

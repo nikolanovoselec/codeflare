@@ -109,6 +109,13 @@ const Layout: Component<LayoutProps> = (props) => {
     if (sessionStore.preferences.sessionMode !== 'advanced') return null;
     return s && s.status === 'running' ? sid : null;
   });
+  // The container's current start timestamp for a session (REQ-VAULT-022 AC2). The
+  // reload-skip fast-path and the full-prewarm marker are keyed on this, so a
+  // RESTARTED container (a resumed session, whose lastStartedAt advanced) re-inits
+  // the vault cleanly like a fresh session while a same-container reload still skips
+  // instantly. Not polled yet -> null -> never skip.
+  const sessionStartedAt = (sid: string): string | null =>
+    sessionStore.sessions.find((x) => x.id === sid)?.lastStartedAt ?? null;
   // The active-running sid as of the last effect run. When the user leaves to the
   // dashboard, sessionStore.activeSessionId is already null, so we can't read the
   // departed sid from it — remember it here to clean up the departed session's latches.
@@ -172,8 +179,8 @@ const Layout: Component<LayoutProps> = (props) => {
   // Race a full local-readiness proof against a short timeout, so a hung local
   // query (e.g. a wedged indexedDB.databases()) falls back to "not ready" instead
   // of stalling the reload-skip decision.
-  const eligibleToSkipPrewarm = async (sid: string): Promise<boolean> => {
-    if (!hasVaultFullyPrewarmed(sid)) return false;
+  const eligibleToSkipPrewarm = async (sid: string, startedAt: string | null): Promise<boolean> => {
+    if (!hasVaultFullyPrewarmed(sid, startedAt)) return false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       return await Promise.race([
@@ -233,10 +240,13 @@ const Layout: Component<LayoutProps> = (props) => {
   createEffect(() => {
     const sid = activeRunningSid();
     if (!sid || vaultReadyBySession()[sid] !== true) return;
-    if (untrack(vaultPrewarmBySession)[sid]) return; // already has a status
-    if (!hasVaultFullyPrewarmed(sid)) return;        // never prewarmed here -> needs click 1
+    // Tracked read: re-run when the container restarts (lastStartedAt advances) so a
+    // resume drops the reload-skip instead of arming green on the pre-stop store.
+    const startedAt = sessionStartedAt(sid);
+    if (untrack(vaultPrewarmBySession)[sid]) return;     // already has a status
+    if (!hasVaultFullyPrewarmed(sid, startedAt)) return; // never/other-start prewarm -> needs click 1
     let cancelled = false;
-    void eligibleToSkipPrewarm(sid).then((skip) => {
+    void eligibleToSkipPrewarm(sid, startedAt).then((skip) => {
       if (cancelled || untrack(vaultPrewarmBySession)[sid]) return;
       if (skip) setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' }));
     });
@@ -252,6 +262,9 @@ const Layout: Component<LayoutProps> = (props) => {
     const sid = activeRunningSid();
     if (!sid || vaultReadyBySession()[sid] !== true) return;
     if (vaultOpenIntentBySession()[sid] !== 'preparing') return; // wait for click 1
+    // Stamp the marker with the current container start so a later reload-skip is
+    // valid only for this start (REQ-VAULT-022 AC2). Tracked read.
+    const startedAt = sessionStartedAt(sid);
     const retryNonce = vaultPrewarmRetryBySession()[sid] ?? 0;
     void retryNonce;
     const current = untrack(vaultPrewarmBySession)[sid];
@@ -273,7 +286,7 @@ const Layout: Component<LayoutProps> = (props) => {
           }
           // Record that THIS browser completed the full prewarm proof (runtime +
           // space sync + index + file listing), so a later reload skips the iframe.
-          markVaultFullyPrewarmed(sid);
+          markVaultFullyPrewarmed(sid, startedAt);
           setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' }));
         },
         onError: (status) => setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: status })),
@@ -282,7 +295,7 @@ const Layout: Component<LayoutProps> = (props) => {
     // Even on an explicit request, skip the iframe if this browser is already fully
     // warm with live stores — opening will be instant and a remount only churns the
     // terminal focus. Otherwise mount it to build the index.
-    void eligibleToSkipPrewarm(sid).then((skip) => {
+    void eligibleToSkipPrewarm(sid, startedAt).then((skip) => {
       if (cancelled) return;
       if (skip) {
         setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' }));

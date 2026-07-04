@@ -3,7 +3,12 @@ import type { VaultLocalReadinessResult } from './vault-local-readiness';
 export const VAULT_PREWARM_QUERY = 'codeflarePrewarm';
 export const VAULT_PREWARM_ID_QUERY = 'prewarmId';
 export const VAULT_PREWARM_SOURCE = 'codeflare-vault-prewarm';
-export const DEFAULT_VAULT_PREWARM_TIMEOUT_MS = 300_000;
+// Vault cold start can be slow on a fresh OR resumed container: the in-container
+// SilverBullet server only begins serving after the R2 restore and the
+// deprioritized bisync baseline, so the browser's first full space-sync + object
+// index can take several minutes. Budget generously (10 min) so a slow-but-healthy
+// startup arms the control instead of timing out into a manual reload.
+export const DEFAULT_VAULT_PREWARM_TIMEOUT_MS = 600_000;
 // Cadence for the parent-side focus-reclaim poll. This is the reliable backstop:
 // when focus moves into a SAME-ORIGIN child iframe the document never fires
 // `focusin`, and window `blur` is unreliable (it fires in some Chromium builds /

@@ -57,7 +57,7 @@ const vaultPrewarmMock = vi.hoisted(() => ({
 }));
 
 vi.mock('../../lib/vault-prewarm', () => ({
-  DEFAULT_VAULT_PREWARM_TIMEOUT_MS: 300000,
+  DEFAULT_VAULT_PREWARM_TIMEOUT_MS: 600000,
   startVaultPrewarm: (opts: any) => {
     vaultPrewarmMock.latestOptions = opts;
     vaultPrewarmMock.start(opts);
@@ -68,15 +68,15 @@ vi.mock('../../lib/vault-prewarm', () => ({
 const vaultLocalReadinessMock = vi.hoisted(() => ({
   check: vi.fn(async (_sessionId?: string) => ({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true } as any)),
   keyRecoverable: vi.fn(async (_sessionId?: string) => true),
-  hasFullyPrewarmed: vi.fn((_sessionId?: string) => false),
-  markFullyPrewarmed: vi.fn((_sessionId?: string) => {}),
+  hasFullyPrewarmed: vi.fn((_sessionId?: string, _startedAt?: string | null) => false),
+  markFullyPrewarmed: vi.fn((_sessionId?: string, _startedAt?: string | null) => {}),
 }));
 
 vi.mock('../../lib/vault-local-readiness', () => ({
   checkVaultLocalReadiness: (sessionId: string) => vaultLocalReadinessMock.check(sessionId),
   checkVaultKeyRecoverable: (sessionId: string) => vaultLocalReadinessMock.keyRecoverable(sessionId),
-  hasVaultFullyPrewarmed: (sessionId: string) => vaultLocalReadinessMock.hasFullyPrewarmed(sessionId),
-  markVaultFullyPrewarmed: (sessionId: string) => vaultLocalReadinessMock.markFullyPrewarmed(sessionId),
+  hasVaultFullyPrewarmed: (sessionId: string, startedAt?: string | null) => vaultLocalReadinessMock.hasFullyPrewarmed(sessionId, startedAt),
+  markVaultFullyPrewarmed: (sessionId: string, startedAt?: string | null) => vaultLocalReadinessMock.markFullyPrewarmed(sessionId, startedAt),
 }));
 
 const vaultPrewarmProof = {
@@ -502,6 +502,30 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
       expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
       expect((window as any).__headerProps.vaultReady).toBe(true);
+    });
+
+    it('REQ-VAULT-022 AC2: a resumed session whose lastStartedAt advanced is not reload-skipped and stays available until click', async () => {
+      mockSessions = [createMockSession({ status: 'running', lastStartedAt: 'start-2' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      // This browser recorded a full prewarm proof under the PRIOR container start
+      // ('start-1'); the session was stopped and resumed, so the container restarted
+      // and lastStartedAt advanced to 'start-2'. The persisted marker no longer matches
+      // the current start, so the reload-skip is ineligible and the vault initializes
+      // cleanly like a fresh session: the control stays 'available' until the user clicks.
+      vaultLocalReadinessMock.hasFullyPrewarmed.mockImplementation(
+        (_sid: string, startedAt?: string | null) => startedAt === 'start-1',
+      );
+      vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
+
+      render(() => <Layout />);
+      vaultProbeMock.latestOptions.setLatch();
+
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+      expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
+      // Layout threaded the CURRENT container start into the reload-skip gate (not the
+      // stale one the marker holds), so the skip is refused.
+      expect(vaultLocalReadinessMock.hasFullyPrewarmed).toHaveBeenCalledWith('sess1', 'start-2');
     });
 
     it('REQ-VAULT-022 AC3: a reload with local DBs/SW but no full prewarm proof stays available until click', async () => {

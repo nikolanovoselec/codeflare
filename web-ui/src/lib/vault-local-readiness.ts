@@ -79,20 +79,37 @@ function hasRecordedDb(recordedDbs: string[], prefix: string): boolean {
  * is set AND live local readiness (`checkVaultLocalReadiness`) still holds: the
  * recorded stores + active SW alone can be present mid-first-init before the
  * index finishes, and opening then would land on a slow indexing screen.
+ *
+ * The marker VALUE is the container's start timestamp (`lastStartedAt`) captured
+ * at proof time (REQ-VAULT-022 AC2). The reload-skip is eligible only when the
+ * current container start matches the recorded one, so a same-container page
+ * reload arms instantly while a RESUMED session — whose container restarted and
+ * whose `lastStartedAt` advanced — is not skipped and re-initializes the vault
+ * cleanly like a fresh session. A falsy `startedAt` (start not polled yet) never
+ * counts as warm and never records a marker, so an incomplete read can only
+ * under-skip (harmlessly re-prewarm), never over-skip onto a stale store.
  */
-export function markVaultFullyPrewarmed(sessionId: string, storage: Storage | null = getLocalStorage()): void {
-  if (!storage) return;
+export function markVaultFullyPrewarmed(
+  sessionId: string,
+  startedAt: string | null | undefined,
+  storage: Storage | null = getLocalStorage(),
+): void {
+  if (!storage || !startedAt) return;
   try {
-    storage.setItem(`${VAULT_MARKER_PREFIX}${sessionId}${VAULT_PREWARMED_SUFFIX}`, '1');
+    storage.setItem(`${VAULT_MARKER_PREFIX}${sessionId}${VAULT_PREWARMED_SUFFIX}`, startedAt);
   } catch {
     // Storage unavailable/full — the reload simply re-prewarms, which is safe.
   }
 }
 
-export function hasVaultFullyPrewarmed(sessionId: string, storage: Storage | null = getLocalStorage()): boolean {
-  if (!storage) return false;
+export function hasVaultFullyPrewarmed(
+  sessionId: string,
+  startedAt: string | null | undefined,
+  storage: Storage | null = getLocalStorage(),
+): boolean {
+  if (!storage || !startedAt) return false;
   try {
-    return storage.getItem(`${VAULT_MARKER_PREFIX}${sessionId}${VAULT_PREWARMED_SUFFIX}`) === '1';
+    return storage.getItem(`${VAULT_MARKER_PREFIX}${sessionId}${VAULT_PREWARMED_SUFFIX}`) === startedAt;
   } catch {
     return false;
   }
