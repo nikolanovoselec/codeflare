@@ -2277,4 +2277,59 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(instance.idleTimeoutPref).toBe('4h');
     });
   });
+
+  // REQ-AGENT-078: the DO-side wiring decision for the OAuth api.cloudflare.com
+  // interceptor. This pins the "never touch enterprise" invariant — the guard
+  // that decides WHETHER to wire the interceptor at all — so a future edit that
+  // weakens the enterprise early-return fails here.
+  describe('wireCloudflareApiInterception (OAuth-mode wiring guard, REQ-AGENT-078)', () => {
+    function makeWiringCtx() {
+      const interceptOutboundHttps = vi.fn();
+      const CloudflareBrowserInterceptor = vi.fn(() => ({ fetch: vi.fn() }));
+      const ctx = {
+        ...mockCtx,
+        exports: { CloudflareBrowserInterceptor },
+        container: { ...mockContainerRuntime, interceptOutboundHttps },
+      };
+      return { ctx, interceptOutboundHttps, CloudflareBrowserInterceptor };
+    }
+
+    it('wires api.cloudflare.com in OAuth mode: non-enterprise + placeholder token + bound bucket', () => {
+      const { ctx, interceptOutboundHttps, CloudflareBrowserInterceptor } = makeWiringCtx();
+      const instance = new ContainerClass(ctx as any, { ...mockEnv, ENTERPRISE_MODE: undefined });
+      (instance as any)._cloudflareApiToken = 'codeflare-oauth';
+      (instance as any)._bucketName = 'user-bucket';
+      (instance as any).wireCloudflareApiInterception();
+      // The interceptor is bound to the session bucket only (no request-supplied identity).
+      expect(CloudflareBrowserInterceptor).toHaveBeenCalledWith({ props: { bucket: 'user-bucket' } });
+      expect(interceptOutboundHttps).toHaveBeenCalledWith('api.cloudflare.com', expect.anything());
+    });
+
+    it('does NOT wire in enterprise mode even with an oauth placeholder + bucket (never claims the enterprise host)', () => {
+      const { ctx, interceptOutboundHttps } = makeWiringCtx();
+      const instance = new ContainerClass(ctx as any, { ...mockEnv, ENTERPRISE_MODE: 'active' });
+      (instance as any)._cloudflareApiToken = 'codeflare-oauth';
+      (instance as any)._bucketName = 'user-bucket';
+      (instance as any).wireCloudflareApiInterception();
+      expect(interceptOutboundHttps).not.toHaveBeenCalled();
+    });
+
+    it('does NOT wire when the container token is not the OAuth placeholder (PAT / real-token session)', () => {
+      const { ctx, interceptOutboundHttps } = makeWiringCtx();
+      const instance = new ContainerClass(ctx as any, { ...mockEnv, ENTERPRISE_MODE: undefined });
+      (instance as any)._cloudflareApiToken = 'a-real-pat-deploy-token';
+      (instance as any)._bucketName = 'user-bucket';
+      (instance as any).wireCloudflareApiInterception();
+      expect(interceptOutboundHttps).not.toHaveBeenCalled();
+    });
+
+    it('does NOT wire when no bucket is bound (cannot resolve a token)', () => {
+      const { ctx, interceptOutboundHttps } = makeWiringCtx();
+      const instance = new ContainerClass(ctx as any, { ...mockEnv, ENTERPRISE_MODE: undefined });
+      (instance as any)._cloudflareApiToken = 'codeflare-oauth';
+      (instance as any)._bucketName = null;
+      (instance as any).wireCloudflareApiInterception();
+      expect(interceptOutboundHttps).not.toHaveBeenCalled();
+    });
+  });
 });

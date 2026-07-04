@@ -256,6 +256,27 @@ describe('REQ-AGENT-078: CloudflareBrowserInterceptor OAuth mode (non-enterprise
     expect(mockGetValidToken).not.toHaveBeenCalledWith(expect.anything(), 'attacker-bucket');
     fetchSpy.mockRestore();
   });
+
+  it('fails closed 502 with NO upstream when the token lookup THROWS (not just null)', async () => {
+    mockGetValidToken.mockRejectedValue(new Error('kv decrypt boom'));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const interceptor = makeOAuthInterceptor();
+    const res = await interceptor.fetch(new Request('https://api.cloudflare.com/client/v4/user'));
+    expect(res.status).toBe(502);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('returns 502 when the upstream fetch throws after a token is minted', async () => {
+    mockGetValidToken.mockResolvedValue(FRESH_TOKEN);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network down'));
+    const interceptor = makeOAuthInterceptor();
+    const res = await interceptor.fetch(new Request('https://api.cloudflare.com/client/v4/user', {
+      headers: { authorization: `Bearer ${OAUTH_PLACEHOLDER}` },
+    }));
+    expect(res.status).toBe(502);
+    fetchSpy.mockRestore();
+  });
 });
 
 describe('REQ-AGENT-078: CloudflareBrowserInterceptor OAuth mode — CDP WebSocket', () => {
