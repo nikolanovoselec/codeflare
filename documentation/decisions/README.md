@@ -104,7 +104,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD91](#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) | Governed Mode migration is a verified, gated, chunked state machine (REPLACE copy), not a boolean-marker lazy reconcile | Storage |
 | [AD92](#ad92-bundle-the-official-cloudflare-skills-into-the-advanced-seed-slimmed-references-webfetch-retrieval) | Bundle the official Cloudflare skills into the advanced seed (slimmed references, WebFetch retrieval) | Agents |
 | [AD93](#ad93-key-the-vault-reload-skip-to-the-container-start-so-resumed-sessions-re-initialize-cleanly) | Key the vault reload-skip to the container start so resumed sessions re-initialize cleanly | Architecture |
-| [AD94](#ad94-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor) | Refresh the non-enterprise Cloudflare OAuth token at the api.cloudflare.com boundary, reusing the browser interceptor | Architecture / Security |
+| [AD94](#ad94-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor) | Refresh the non-enterprise Cloudflare OAuth token at the api.cloudflare.com boundary, reusing the browser interceptor | Architecture, Security |
 
 ---
 
@@ -2247,7 +2247,7 @@ The on-demand prewarm budget was also raised 5→10 min (`DEFAULT_VAULT_PREWARM_
 
 ### AD94: Refresh the non-enterprise Cloudflare OAuth token at the `api.cloudflare.com` boundary, reusing the browser interceptor
 
-**Category:** Architecture / Security
+**Category:** Architecture, Security
 
 **Status:** Accepted (2026-07-04).
 
