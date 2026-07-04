@@ -11,23 +11,11 @@ Codeflare runs in four deployment modes. **Default mode** is self-contained — 
 ## Contents
 
 - [Default mode](#default-mode)
-  - [Worker Environment](#worker-environment)
-  - [Container Environment](#container-environment)
-  - [Secrets](#secrets)
-  - [CORS](#cors)
-  - [Container Specs](#container-specs)
-  - [Cloudflare API Token (Operator)](#cloudflare-api-token-operator)
-  - [Cloudflare Connect (OAuth)](#cloudflare-connect-oauth)
-  - [GitHub Integration](#github-integration)
 - [Onboarding mode](#onboarding-mode)
 - [SaaS mode](#saas-mode)
 - [Enterprise mode](#enterprise-mode)
-  - [Enterprise Mode Secrets (optional)](#enterprise-mode-secrets-optional)
-  - [Enterprise Mode Runtime Configuration](#enterprise-mode-runtime-configuration)
-  - [Enterprise Access Group Configuration](#enterprise-access-group-configuration)
-  - [Admin Access Group Configuration](#admin-access-group-configuration)
-  - [Governed Mode (R2 SSE-C disable)](#governed-mode-r2-sse-c-disable)
 - [Reference](#reference)
+- [Related Documentation](#related-documentation)
 
 ---
 
