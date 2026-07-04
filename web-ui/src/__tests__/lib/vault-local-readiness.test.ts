@@ -220,13 +220,20 @@ describe('REQ-VAULT-022 AC2: full-prewarm marker keyed to the container start', 
     expect(hasVaultFullyPrewarmed('session-1', 'start-2', storage)).toBe(false);
   });
 
-  it('never reports warm and never records a marker when the current container start is unknown', () => {
+  it('a falsy container start never records a marker nor clobbers an existing one, and never reads as warm', () => {
     const storage = createStorage();
-    markVaultFullyPrewarmed('session-1', null, storage);
-    expect(hasVaultFullyPrewarmed('session-1', 'start-1', storage)).toBe(false);
+    // A real marker recorded for start-1.
     markVaultFullyPrewarmed('session-1', 'start-1', storage);
+    // A falsy start must NOT write — neither create a marker nor overwrite the real one.
+    // (Pins the mark-guard: were it removed, these would clobber the marker and the
+    // assertion below would flip to false.)
+    markVaultFullyPrewarmed('session-1', null, storage);
+    markVaultFullyPrewarmed('session-1', '', storage);
+    expect(hasVaultFullyPrewarmed('session-1', 'start-1', storage)).toBe(true);
+    // And a falsy current start never reads as warm, even against the real marker.
     expect(hasVaultFullyPrewarmed('session-1', null, storage)).toBe(false);
     expect(hasVaultFullyPrewarmed('session-1', undefined, storage)).toBe(false);
+    expect(hasVaultFullyPrewarmed('session-1', '', storage)).toBe(false);
   });
 
   it('scopes the marker per session so another session is not falsely reported warm', () => {

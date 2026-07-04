@@ -240,8 +240,9 @@ const Layout: Component<LayoutProps> = (props) => {
   createEffect(() => {
     const sid = activeRunningSid();
     if (!sid || vaultReadyBySession()[sid] !== true) return;
-    // Tracked read: re-run when the container restarts (lastStartedAt advances) so a
-    // resume drops the reload-skip instead of arming green on the pre-stop store.
+    // Tracked read: re-run when the container restarts (lastStartedAt advances). A stop
+    // already dropped any prior green (the session left 'running'), so on the new start
+    // this refuses to re-skip from the stale marker -> the vault re-initializes on demand.
     const startedAt = sessionStartedAt(sid);
     if (untrack(vaultPrewarmBySession)[sid]) return;     // already has a status
     if (!hasVaultFullyPrewarmed(sid, startedAt)) return; // never/other-start prewarm -> needs click 1
