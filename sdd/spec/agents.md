@@ -1873,6 +1873,33 @@ None.
 
 ---
 
+### REQ-AGENT-079: Advanced Cloudflare OAuth Tier Scope Catalog
+
+**Intent:** The advanced Cloudflare OAuth tier requests the operator-finalized full-platform capability set, maintained as a single server-side catalog and pinned by a test so the connect flow, the tier tables, and the operator's registered client cannot silently drift — as they did when the catalog carried only 21 scopes while the docs described the full set and no test tied the two together.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `cloudflareScopeForTier('advanced')` requests exactly the finalized 46 operator-verified Cloudflare scopes plus `user-details.read` (needed to resolve the account), with `offline_access` always appended for the refresh token. The set is verified against Cloudflare's live consent screen; a scope absent from Cloudflare's OAuth catalog fails loudly at authorize time (`invalid_scope`), never silently. <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @impl: src/lib/oauth-scopes.ts::CF_ADVANCED --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (REQ-AGENT-079: the non-Browser-Rendering advanced set equals the finalized 46-scope catalog exactly) -->
+2. The advanced tier uses the granular Access scope ids (`access-app`/`access-policy`/`access-org`/`access-idp`/`access-group`), not the combined `zone-access.write`/`access-acct.write` that the recommended tier keeps; those two are the only recommended scopes absent from advanced, and every minimal scope is present in advanced. <!-- @impl: src/lib/oauth-scopes.ts::CF_ADVANCED --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (REQ-AGENT-079: recommended-minus-advanced is exactly the two combined Access scopes; minimal is a subset of advanced) -->
+3. `Logs: Edit` resolves to `logs.write` (the account-scoped `account-logs.write` is rejected by the authorize flow) and `Firewall (Magic): Edit` to `magic-firewall.write`; three requested capabilities have no OAuth scope and are intentionally absent (OAuth Clients: Edit, API Tokens: Edit, Network flow: Admin — classic API token only). <!-- @impl: src/lib/oauth-scopes.ts::CF_ADVANCED --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (REQ-AGENT-079: the finalized set pins logs.write and omits the no-OAuth-scope permissions) -->
+
+**Constraints:**
+
+- The operator's OAuth client must be registered with the full advanced superset; a per-connect request can only narrow within the registered scopes.
+- The server-side catalog is the single source of truth; the public ([Configuration](../../documentation/lanes/configuration.md)) and private tier tables mirror it.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth)
+
+**Verification:** [Automated test](../../src/__tests__/lib/oauth-scopes.test.ts)
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-065: Engineering Constitution Preseeded to All Agents
 
 **Intent:** One always-on engineering constitution is hardwired into every preseed-managed agent so its four mandates are applied to all planning and coding without being restated each task: (1) no overengineering, (2) behavioral tests only — no theater or text-matching, (3) reusable/composable components and best practices, (4) SDD + TDD enforced (failing behavioral test first, every change traces to a REQ, specs/anchors/docs move with the code, nothing left `Partial`). It also imposes a **plan gate** (every plan must restate the four mandates as concrete success criteria) and a **done gate** (confirm them before declaring work complete). The preseed is the single source of truth; the per-user `~/.claude` copy is a downstream seed artifact.

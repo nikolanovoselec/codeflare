@@ -29,6 +29,9 @@ describe('githubScopeForTier', () => {
   });
 });
 
+// REQ-AGENT-079: Advanced Cloudflare OAuth tier scope catalog. The tier-superset and
+// recommended-minus-advanced (granular vs combined Access) assertions here, together with the
+// exact-set assertion in the REQ-BROWSER-002 AC3 test below, are the catalog's regression guard.
 describe('cloudflareScopeForTier', () => {
   it('always requests offline_access and escalates capability with tier', () => {
     const minimal = cloudflareScopeForTier('minimal');
@@ -155,6 +158,9 @@ describe('REQ-BROWSER-002: Browser Rendering scope in the Cloudflare token templ
     }
   });
 
+  // REQ-AGENT-079 AC1/AC3: this exact-set assertion is the advanced-tier scope-catalog guard —
+  // the non-Browser-Rendering advanced set must equal the finalized 46-scope catalog exactly
+  // (pins logs.write, the granular Access ids, and the absence of the no-OAuth-scope permissions).
   it('AC3: backward-compat — non-Browser-Rendering scope set is exactly the known core set', () => {
     // Tokens created before the Browser Rendering scope was added still work for all
     // existing functionality: the set of non-Browser-Rendering scopes the template grants

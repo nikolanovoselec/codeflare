@@ -67,13 +67,13 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 **Acceptance Criteria:**
 
 1. The Cloudflare token template adds the `Browser Rendering - Edit` scope. <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (advanced tier grants browser-rendering.write; minimal does not) -->
-2. The addition is additive: every scope already present in the template remains unchanged. <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (additive: every core scope still present in advanced) -->
+2. Adding `browser-rendering.write` does not displace any other capability — it is present in the advanced tier and absent from minimal. The full advanced-tier catalog membership is owned by [REQ-AGENT-079](agents.md#req-agent-079-advanced-cloudflare-oauth-tier-scope-catalog). <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (advanced grants browser-rendering.write; the known-core advanced scopes are all present) -->
 3. Tokens created before this scope was added continue to work for all existing functionality (the scope is required only for Browser Run). <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (backward-compat: non-Browser-Rendering scope set unchanged) -->
 
 **Constraints:**
 
 - The scope is added to the existing Cloudflare OAuth scope catalog (the advanced tier), following the established scope-string shape.
-- No existing scope is removed or renamed.
+- The advanced catalog's full membership — including the granular-vs-combined Access choice — is owned by [REQ-AGENT-079](agents.md#req-agent-079-advanced-cloudflare-oauth-tier-scope-catalog); this REQ covers only the presence of `browser-rendering.write` within it.
 
 **Priority:** P2
 
