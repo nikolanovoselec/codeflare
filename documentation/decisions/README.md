@@ -693,14 +693,14 @@ Rejected: arbitrary midpoint with no principled basis. 120 min has a clear justi
 The PTY reaper sits *below* that contract and must never undercut it. Setting the floor at the maximum `sleepAfter` ensures it cannot fire before the authoritative policy.
 - The reaper's value is purely defensive:
 
-it prevents a single orphaned PTY from outliving its container forever in pathological scenarios (e.g., `lastInputAt` polling dies but the container DO doesn't notice). With a 120-min floor it still does that job; it just doesn't fire on the happy path.
+it prevents a single orphaned PTY from outliving its container forever in pathological scenarios (e.g., `lastInputAt` polling dies but the container DO doesn't notice). With the floor pinned to the maximum `sleepAfter` (now 240 min) it still does that job; it just doesn't fire on the happy path.
 - The change is one constant in two files; risk is bounded.
 
 **Trade-offs accepted:**
 
-- Users with `sleepAfter` < 2h will, in the rare case of stuck `lastInputAt`, see PTY orphans last up to 120 min instead of 45 min.
+- Users with `sleepAfter` < 4h will, in the rare case of stuck `lastInputAt`, see PTY orphans last up to 240 min instead of 45 min.
 
-The container would also be stuck (because `collectMetrics` is the trigger for both stop paths), so the practical impact is "container survives 75 extra minutes when something is broken". Acceptable because the user can manually stop the session from the dashboard.
+The container would also be stuck (because `collectMetrics` is the trigger for both stop paths), so the practical impact is "container survives extra minutes when something is broken". Acceptable because the user can manually stop the session from the dashboard.
 - The default is hardcoded; a future operator who hits memory pressure on a long-orphaned PTY can still override via `PTY_KEEPALIVE_MS` env var. No new user-facing setting is added.
 
 **Related requirements:**

@@ -119,7 +119,7 @@ export function parseSleepAfterMs(s: string): number {
     const m = parseInt(s, 10);
     if (!Number.isNaN(m) && m > 0) return m * 60_000;
   }
-  logger.warn('parseSleepAfterMs: unrecognized value, falling back to 2h', { input: s });
+  logger.warn('parseSleepAfterMs: unrecognized value, falling back to 4h', { input: s });
   return SLEEP_AFTER_FALLBACK_MS;
 }
 

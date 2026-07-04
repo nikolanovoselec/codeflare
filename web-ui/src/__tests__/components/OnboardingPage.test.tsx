@@ -127,4 +127,11 @@ describe('OnboardingPage / REQ-AUTH-015 (onboarding-mode public landing page)', 
       expect(section.textContent).toMatch(/at least one/i);
     });
   });
+
+  it('REQ-AUTH-015 AC2: the idle-timeout selector offers the paying 15m-4h options', async () => {
+    render(() => <OnboardingPage />);
+    const select = (await waitFor(() => screen.getByTestId('onboarding-timeout-select'))) as HTMLSelectElement;
+    const values = Array.from(select.querySelectorAll('option')).map((o) => (o as HTMLOptionElement).value);
+    expect(values).toEqual(['15m', '30m', '1h', '2h', '4h']);
+  });
 });

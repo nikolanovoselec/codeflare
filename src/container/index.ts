@@ -416,8 +416,8 @@ export class container extends Container<Env> implements ContainerEnvState {
    *
    * There is NO legacy 30-minute (or any other) hard idle timeout anywhere -
    * a recurring misconception. The only idle stops we own are collectMetrics'
-   * idle-stop at idleTimeoutPref (default 2h, logs "idle exceeded threshold")
-   * and the in-container PTY reaper (PTY_KEEPALIVE_MS, a 2h safety net). A
+   * idle-stop at idleTimeoutPref (default 4h, logs "idle exceeded threshold")
+   * and the in-container PTY reaper (PTY_KEEPALIVE_MS, a 4h safety net). A
    * container can still vanish well before any of those via onError
    * (deploy / platform reap), which is unrelated to any configured timeout.
    */
