@@ -14,6 +14,7 @@ import {
   disconnectCloudflare,
 } from '../../lib/cloudflare-token';
 import { SETUP_KEYS } from '../../lib/kv-keys';
+import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER } from '../../lib/constants';
 
 vi.mock('../../lib/logger', () => ({
   createLogger: () => ({ info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() }),
@@ -106,6 +107,40 @@ describe('cloudflare-token storage & status', () => {
     mockKV._set(KEY, { cloudflareApiToken: 'cf', cloudflareTokenSource: 'oauth' } satisfies DeployKeys);
     await clearCloudflareConnection(env(), BUCKET);
     expect(await mockKV.get(KEY)).toBeNull();
+  });
+});
+
+// ─── REQ-AGENT-078: applyCloudflareOAuthToken injects a placeholder ──────────
+
+describe('REQ-AGENT-078: applyCloudflareOAuthToken (placeholder, real token never in container)', () => {
+  it('replaces an oauth cloudflareApiToken with the placeholder, preserving the other fields', async () => {
+    await storeCloudflareConnection(env(), BUCKET, {
+      accessToken: 'cf_real_oauth', source: 'oauth', refreshToken: 'r', expiresAt: Date.now() + 3_600_000, accountId: 'acct-1',
+    });
+    const deployKeys: DeployKeys = {
+      cloudflareApiToken: 'cf_real_oauth', cloudflareTokenSource: 'oauth', cloudflareAccountId: 'acct-1', githubToken: 'gho',
+    };
+    const out = await applyCloudflareOAuthToken(env(), deployKeys, BUCKET);
+    // The real token is gone; only the placeholder rides into the container.
+    expect(out?.cloudflareApiToken).toBe(CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER);
+    expect(out?.cloudflareApiToken).not.toBe('cf_real_oauth');
+    // Non-secret account id + unrelated fields pass through untouched.
+    expect(out?.cloudflareAccountId).toBe('acct-1');
+    expect(out?.githubToken).toBe('gho');
+  });
+
+  it('injects null (unregistered) when the oauth connection cannot mint a token', async () => {
+    // No stored connection -> getValidCloudflareToken returns null -> no placeholder, no dead token.
+    const deployKeys: DeployKeys = { cloudflareApiToken: 'stale', cloudflareTokenSource: 'oauth' };
+    const out = await applyCloudflareOAuthToken(env(), deployKeys, BUCKET);
+    expect(out?.cloudflareApiToken).toBeNull();
+  });
+
+  it('passes a PAT source through untouched (long-lived token stays; not an OAuth session)', async () => {
+    const deployKeys: DeployKeys = { cloudflareApiToken: 'cf_pat', cloudflareTokenSource: 'pat' };
+    const out = await applyCloudflareOAuthToken(env(), deployKeys, BUCKET);
+    expect(out).toBe(deployKeys);
+    expect(out?.cloudflareApiToken).toBe('cf_pat');
   });
 });
 

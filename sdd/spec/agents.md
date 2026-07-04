@@ -1844,6 +1844,34 @@ None.
 
 ---
 
+### REQ-AGENT-078: Cloudflare OAuth token refreshed at the `api.cloudflare.com` boundary
+
+**Intent:** A Cloudflare-dashboard OAuth **access token** is short-lived by design (expires in hours), so baking it into the container as `CLOUDFLARE_API_TOKEN` at start left a running non-enterprise session broken after expiry — `wrangler` and browser-run both got `9109 Invalid access token`, with nothing refreshing the container's env var. Instead of baking the real token, inject a non-secret placeholder and intercept `api.cloudflare.com` at the container-egress boundary, stamping a **freshly refreshed** token per request. This reuses the enterprise Browser Rendering interceptor's transport ([REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)) — one interceptor per host, serving two modes — rather than adding a new class, a container-side refresher, or new storage.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. When the session's Cloudflare token source is `'oauth'`, the container receives only a non-secret placeholder (`CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER`) as `CLOUDFLARE_API_TOKEN` — the real access token never enters the container env. A non-oauth source (PAT / enterprise) is passed through untouched. <!-- @impl: src/lib/cloudflare-token.ts::applyCloudflareOAuthToken --> <!-- @impl: src/lib/constants.ts::CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (applyCloudflareOAuthToken replaces the oauth token with the placeholder preserving other fields, injects null when no valid token, passes a PAT through untouched) -->
+2. In OAuth sessions `api.cloudflare.com` is intercepted (non-enterprise, oauth source only) and every request is re-stamped with `getValidCloudflareToken(bucket)`, which refreshes within the skew window — so the forwarded credential is the refreshed token, not the baked placeholder. All `api.cloudflare.com` paths are trusted (the OAuth token is a full-scope API token — wrangler and browser-run alike), unlike the enterprise browser-rendering-path-only trust. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @impl: src/container/index.ts::wireCloudflareApiInterception --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (OAuth mode REST: stamps a fresh refreshed token on any api.cloudflare.com path, strips the container placeholder) -->
+3. Both the REST surface and the CDP WebSocket upgrade (browser-run) are stamped and forwarded via the shared `relay()` / `bridge()` transport, so a session survives past the access-token lifetime for wrangler **and** interactive browser-run. <!-- @impl: src/cloudflare-browser-interceptor.ts::bridge --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (OAuth mode CDP WebSocket: bridges the upgrade with the fresh token, returning a fresh client socket) -->
+4. The token is resolved **solely** from the session-bound bucket (`props.bucket`), never from any request-supplied header — no cross-user token spoofing — and the interceptor fails closed with `401` and no upstream call when no valid token can be minted. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (OAuth mode REST: resolves the token from the bound bucket only never the request, fails closed 401 with no upstream when no valid token) -->
+
+**Constraints:**
+
+- Enterprise is untouched: `wireCloudflareApiInterception` is double-guarded (`!isEnterpriseMode` **and** placeholder-value match), so it can never wire `api.cloudflare.com` in enterprise or collide with the enterprise `CloudflareBrowserInterceptor` on that host; the enterprise interception branch is unchanged. `CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER` must stay distinct from `ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER` — the placeholder value is itself the DO's OAuth-mode wiring signal.
+- The GitHub interceptor is not touched and non-enterprise git stays direct — GitHub tokens are long-lived, so there is no expiry bug and no reason to route git through the worker. `api.cloudflare.com` is the only host newly intercepted, and only for OAuth sessions.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-SEC-002](security.md#req-sec-002-api-tokens-never-enter-containers)
+
+**Verification:** [Interceptor test](../../src/__tests__/cloudflare-browser-interceptor.test.ts) + [Lib test](../../src/__tests__/lib/cloudflare-token.test.ts)
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-065: Engineering Constitution Preseeded to All Agents
 
 **Intent:** One always-on engineering constitution is hardwired into every preseed-managed agent so its four mandates are applied to all planning and coding without being restated each task: (1) no overengineering, (2) behavioral tests only — no theater or text-matching, (3) reusable/composable components and best practices, (4) SDD + TDD enforced (failing behavioral test first, every change traces to a REQ, specs/anchors/docs move with the code, nothing left `Partial`). It also imposes a **plan gate** (every plan must restate the four mandates as concrete success criteria) and a **done gate** (confirm them before declaring work complete). The preseed is the single source of truth; the per-user `~/.claude` copy is a downstream seed artifact.

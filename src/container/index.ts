@@ -35,6 +35,7 @@ import { hasStrictGatewayEgress } from '../lib/controller-egress';
 import { INTERCEPTED_LLM_HOSTS } from '../llm-interceptor';
 import { interceptedGithubHosts } from '../github-interceptor';
 import { INTERCEPTED_CF_BROWSER_HOSTS } from '../cloudflare-browser-interceptor';
+import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER } from '../lib/constants';
 import { getEnterpriseBrowserCreds } from '../lib/browser-render-token';
 import { getOrImportKey } from '../lib/kv-crypto';
 import {
@@ -440,12 +441,14 @@ export class container extends Container<Env> implements ContainerEnvState {
    * The SDK applies its own pre-start interception at this same point; all start
    * paths (explicit start + containerFetch auto-start) funnel through here.
    *
-   * No-op unless enterprise mode + gateway configured, so a non-enterprise
-   * container's start path is byte-identical to today.
+   * Enterprise interception is a no-op unless enterprise mode + gateway configured. The OAuth
+   * api.cloudflare.com interception (REQ-AGENT-078) is a no-op unless this is a non-enterprise
+   * "Connect to Cloudflare" session (detected by the injected OAuth placeholder).
    */
   override async startAndWaitForPorts(
     ...args: Parameters<Container<Env>['startAndWaitForPorts']>
   ): Promise<void> {
+    this.wireCloudflareApiInterception();
     await this.setupEnterpriseInterception();
     await super.startAndWaitForPorts(...args);
   }
@@ -488,6 +491,35 @@ export class container extends Container<Env> implements ContainerEnvState {
     this.wireGithubInterception(strict);
     await this.wireCloudflareBrowserInterception(strict);
     this.wireEgressInterception(strict);
+  }
+
+  /**
+   * Wire api.cloudflare.com -> the CloudflareBrowserInterceptor in OAuth mode (REQ-AGENT-078).
+   * NON-enterprise ONLY, and ONLY for OAuth "Connect to Cloudflare" sessions — detected by the
+   * injected OAuth placeholder (`applyCloudflareOAuthToken` sets it; a PAT session keeps its real
+   * long-lived token, a plain session has none). The `!isEnterpriseMode` guard means this can
+   * never wire the host the enterprise Browser Rendering interceptor owns, so the two never
+   * collide. The container holds only the placeholder; the interceptor stamps a fresh, refreshed
+   * token per request. Independently try/catch-guarded so a wiring failure never breaks start.
+   */
+  private wireCloudflareApiInterception(): void {
+    if (isEnterpriseMode(this.env)) return;
+    if (this._cloudflareApiToken !== CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER) return;
+    const bucket = this._bucketName;
+    if (!bucket) return;
+    try {
+      const cctx = this.ctx as unknown as {
+        exports: { CloudflareBrowserInterceptor(opts: { props: { bucket: string } }): Fetcher };
+        container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
+      };
+      const interceptor = cctx.exports.CloudflareBrowserInterceptor({ props: { bucket } });
+      for (const host of INTERCEPTED_CF_BROWSER_HOSTS) {
+        cctx.container?.interceptOutboundHttps(host, interceptor);
+      }
+      this.logger.info('Cloudflare OAuth API interception wired', { hostCount: INTERCEPTED_CF_BROWSER_HOSTS.length });
+    } catch (err) {
+      this.logger.error('Failed to wire Cloudflare OAuth API interception', toError(err));
+    }
   }
 
   /**
