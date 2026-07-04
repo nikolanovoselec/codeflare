@@ -369,8 +369,8 @@ Users connect their Cloudflare account by creating an API token. Codeflare offer
 | **User Details: Read** | `user-details.read` | yes | yes | yes | Resolve the connecting account |
 | **Zone: Read** | `zone.read` | yes | yes | yes | Zone ID resolution |
 | **DNS: Edit** | `dns.write` | - | yes | yes | Manage DNS records for custom domains |
-| **Access: Apps and Policies: Edit** | `zone-access.write` | - | yes | - | Cloudflare Access apps (combined; advanced uses the granular scopes below) |
-| **Access: Orgs, IdPs, and Groups: Edit** | `access-acct.write` | - | yes | - | Access identity (combined; advanced uses the granular scopes below) |
+| **Access: Apps and Policies: Edit** | `zone-access.write` | - | yes | yes | Cloudflare Access apps (combined; advanced also carries the granular scopes below) |
+| **Access: Orgs, IdPs, and Groups: Edit** | `access-acct.write` | - | yes | yes | Access identity (combined; advanced also carries the granular scopes below) |
 | **Cloudflare Pages: Edit** | `page.write` | - | - | yes | Deploy static sites and full-stack apps |
 | **Containers: Edit** | `containers.write` | - | - | yes | Container lifecycle management |
 | **Queues: Edit** | `queues.write` | - | - | yes | Message queue management |
@@ -410,7 +410,7 @@ Users connect their Cloudflare account by creating an API token. Codeflare offer
 | **SSL and Certificates: Edit** | `account-ssl-and-certificates.write` | - | - | yes | SSL/TLS certificate management |
 | **Zone WAF: Edit** | `zone-waf.write` | - | - | yes | Zone-level WAF |
 
-**Operator setup.** The OAuth client must be registered with the full **Advanced superset** above — a per-connect request can only narrow within the client's registered scopes ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)). Three requested capabilities have **no OAuth scope** and are intentionally omitted (they need a classic API token): **OAuth Clients: Edit**, **API Tokens: Edit**, **Network flow: Admin**. `Logs: Edit` resolves to `logs.write` (the account-scoped `account-logs.write` is rejected by the authorize flow); `Firewall (Magic): Edit` uses `magic-firewall.write`. Advanced uses the granular Access scopes; Recommended keeps the two combined ones.
+**Operator setup.** The OAuth client must be registered with the full **Advanced superset** above — a per-connect request can only narrow within the client's registered scopes ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)). Three requested capabilities have **no OAuth scope** and are intentionally omitted (they need a classic API token): **OAuth Clients: Edit**, **API Tokens: Edit**, **Network flow: Admin**. `Logs: Edit` resolves to `logs.write` (the account-scoped `account-logs.write` is rejected by the authorize flow); `Firewall (Magic): Edit` uses `magic-firewall.write`. Advanced is a superset of Recommended: it keeps the two combined Access scopes (`zone-access.write`/`access-acct.write`) and adds the granular ones.
 
 Additional details:
 

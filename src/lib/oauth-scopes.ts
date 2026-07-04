@@ -47,18 +47,18 @@ const CF_MINIMAL = [
   'zone.read',
 ];
 const CF_RECOMMENDED = [...CF_MINIMAL, 'dns.write', 'zone-access.write', 'access-acct.write'];
-// Advanced tier = the operator-finalized full capability set, verified against Cloudflare's
-// live consent screen (every scope below was accepted by the OAuth authorize flow with the
-// operator client registered for the superset). Built from CF_MINIMAL, NOT CF_RECOMMENDED,
-// because the finalized Access scopes are the GRANULAR ids (access-app/access-policy/
-// access-org/access-idp/access-group), not the combined zone-access.write/access-acct.write
-// that CF_RECOMMENDED still uses. `Logs: Edit` resolved to `logs.write` (account-logs.write
-// was rejected). Three requested permissions have no OAuth scope and are intentionally absent
-// (OAuth Clients: Edit, API Tokens: Edit, Network flow: Admin — classic API token only).
+// Advanced tier = a strict superset of Recommended (built from CF_RECOMMENDED) plus the full
+// operator-finalized capability set, verified against Cloudflare's live consent screen (every
+// scope below was accepted by the OAuth authorize flow with the operator client registered for
+// the superset). Advanced KEEPS Recommended's combined Access scopes
+// (zone-access.write/access-acct.write, inherited via CF_RECOMMENDED) AND adds the granular ids
+// (access-app/access-policy/access-org/access-idp/access-group). `Logs: Edit` resolved to
+// `logs.write` (account-logs.write was rejected). Three requested permissions have no OAuth
+// scope and are intentionally absent (OAuth Clients: Edit, API Tokens: Edit, Network flow: Admin
+// — classic API token only).
 const CF_ADVANCED = [
-  ...CF_MINIMAL,
+  ...CF_RECOMMENDED,
   // Zone / DNS
-  'dns.write',
   'zone-waf.write',
   // Workers platform
   'page.write',

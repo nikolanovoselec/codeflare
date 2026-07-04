@@ -29,9 +29,9 @@ describe('githubScopeForTier', () => {
   });
 });
 
-// REQ-AGENT-079: Advanced Cloudflare OAuth tier scope catalog. The tier-superset and
-// recommended-minus-advanced (granular vs combined Access) assertions here, together with the
-// exact-set assertion in the REQ-BROWSER-002 AC3 test below, are the catalog's regression guard.
+// REQ-AGENT-079: Advanced Cloudflare OAuth tier scope catalog. The recommended-⊆-advanced
+// superset assertion here, together with the exact-set assertion in the REQ-BROWSER-002 AC3
+// test below, are the catalog's regression guard.
 describe('cloudflareScopeForTier', () => {
   it('always requests offline_access and escalates capability with tier', () => {
     const minimal = cloudflareScopeForTier('minimal');
@@ -41,18 +41,16 @@ describe('cloudflareScopeForTier', () => {
     for (const s of [minimal, recommended, advanced]) {
       expect(s.split(' ')).toContain('offline_access'); // refresh-token grant
     }
-    // minimal ⊆ recommended and minimal ⊆ advanced (verified by containment, not length).
-    // Advanced intentionally diverges from recommended on the Access scopes: it uses the
-    // GRANULAR ids (access-app/access-policy/access-org/access-idp/access-group) instead of
-    // recommended's combined zone-access.write/access-acct.write, so those two — and only
-    // those two — are the recommended scopes NOT present in advanced.
+    // minimal ⊆ recommended ⊆ advanced (verified by containment, not length). Advanced is a
+    // strict superset of recommended: it keeps recommended's combined Access scopes
+    // (zone-access.write/access-acct.write) AND adds the granular ids
+    // (access-app/access-policy/access-org/access-idp/access-group), so NO recommended scope is
+    // absent from advanced.
     const recSet = new Set(recommended.split(' '));
     const advSet = new Set(advanced.split(' '));
     expect(minimal.split(' ').every((s) => recSet.has(s))).toBe(true);
     expect(minimal.split(' ').every((s) => advSet.has(s))).toBe(true);
-    expect([...recSet].filter((s) => !advSet.has(s)).sort()).toEqual(
-      ['access-acct.write', 'zone-access.write'],
-    );
+    expect([...recSet].filter((s) => !advSet.has(s))).toEqual([]);
     expect(recommended.split(' ').length).toBeGreaterThan(minimal.split(' ').length);
     expect(advanced.split(' ').length).toBeGreaterThan(recommended.split(' ').length);
     // Advanced unlocks AI; minimal does not.
@@ -77,9 +75,10 @@ describe('REQ-BROWSER-002: Browser Rendering scope in the Cloudflare token templ
 
   // The full non-Browser-Rendering advanced scope set (the operator-finalized capability
   // list, verified against Cloudflare's live consent screen). AC3 pins this exactly so a
-  // future edit that drops or renames a finalized scope fails the build. Advanced uses the
-  // GRANULAR Access ids (access-app/access-policy/access-org/access-idp/access-group), not
-  // recommended's combined zone-access.write/access-acct.write, so those two are absent here.
+  // future edit that drops or renames a finalized scope fails the build. Advanced is a superset
+  // of recommended: it carries BOTH the combined Access scopes (zone-access.write/access-acct.write,
+  // inherited from recommended) AND the granular ids (access-app/access-policy/access-org/
+  // access-idp/access-group).
   const KNOWN_CORE_SCOPES = [
     // minimal
     'workers-scripts.write',
@@ -90,8 +89,10 @@ describe('REQ-BROWSER-002: Browser Rendering scope in the Cloudflare token templ
     'account-settings.read',
     'user-details.read',
     'zone.read',
-    // zone / dns
+    // zone / dns + recommended's combined Access scopes (inherited from recommended)
     'dns.write',
+    'zone-access.write',
+    'access-acct.write',
     'zone-waf.write',
     // workers platform
     'page.write',
@@ -159,8 +160,9 @@ describe('REQ-BROWSER-002: Browser Rendering scope in the Cloudflare token templ
   });
 
   // REQ-AGENT-079 AC1/AC3: this exact-set assertion is the advanced-tier scope-catalog guard —
-  // the non-Browser-Rendering advanced set must equal the finalized 46-scope catalog exactly
-  // (pins logs.write, the granular Access ids, and the absence of the no-OAuth-scope permissions).
+  // the non-Browser-Rendering advanced set must equal the finalized catalog exactly (pins
+  // logs.write, both the combined and granular Access ids, and the absence of the
+  // no-OAuth-scope permissions).
   it('AC3: backward-compat — non-Browser-Rendering scope set is exactly the known core set', () => {
     // Tokens created before the Browser Rendering scope was added still work for all
     // existing functionality: the set of non-Browser-Rendering scopes the template grants
