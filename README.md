@@ -41,6 +41,7 @@ Every session comes pre-loaded with your choice of agent:
 - [Testing](#testing)
 - [CI/CD](#cicd)
 - [Documentation](#documentation)
+- [Related projects](#related-projects)
 - [License](#license)
 
 ---
@@ -252,6 +253,12 @@ On a Cloudflare Pro plan (or higher) with Managed Rulesets enabled, the WAF may 
 **Fix:** in your domain's **Security → Analytics → Events**, find the blocked request (Action taken: *Block*), open the rule that triggered it, and disable it.
 
 </details>
+
+---
+
+## Related projects
+
+- **[codeflare-inference-mesh](https://github.com/nikolanovoselec/codeflare-inference-mesh)** — the self-hosted inference layer of the Codeflare family. It pools the idle GPUs and CPUs across machines you already own into one private fabric and serves open LLMs on it — sharding a model too large for any single machine across several nodes and serving it as one — behind a single Gateway alias with automatic failover to external providers. The inference engine for your agents when you want prompts to stay on hardware you control.
 
 ---
 
