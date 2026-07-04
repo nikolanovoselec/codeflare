@@ -514,7 +514,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       // the current start, so the reload-skip is ineligible and the vault initializes
       // cleanly like a fresh session: the control stays 'available' until the user clicks.
       vaultLocalReadinessMock.hasFullyPrewarmed.mockImplementation(
-        (_sid: string, startedAt?: string | null) => startedAt === 'start-1',
+        (_sid: string, startedAt?: string | null): boolean => startedAt === 'start-1',
       );
       vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
 
