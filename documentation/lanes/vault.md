@@ -487,17 +487,9 @@ The `memory-capture.sh` script runs as a **UserPromptSubmit hook**.
    trailing `"`) and slash-command/task-notification wrappers (string
    content starting with `<`, excluded by `[^<]`).
 3. **Counter check** - reads `/tmp/.memory-counter/{session_id}` (line 1:
-   last count, line 2: last line offset). The counter lives under `/tmp`
-   on purpose: Cloudflare Containers guarantees an ephemeral disk on every
-   container start ("All disk is ephemeral. When a Container instance goes
-   to sleep, the next time it is started, it will have a fresh disk as
-   defined by its container image."), so in codeflare the counter's
-   presence/absence is the canonical "mid-session vs. fresh-container"
-   signal. The `MEMCAP_COUNTER_DIR` env var overrides the default for
-   hermetic tests; production never sets it. If the counter file exists
-   and the delta is `< 15`, exits silently. If the counter is missing,
-   the hook distinguishes two sub-cases by `CURRENT_COUNT` (real-user
-   prompts in the transcript):
+   last count, line 2: last line offset). If it exists and the delta is
+   `< 15`, exits silently; if missing, the hook branches on `CURRENT_COUNT`
+   (real-user prompts in the transcript) into two sub-cases:
    - **`CURRENT_COUNT == 1`** (brand-new session): baseline at the current
      transcript size, write the counter, emit the first-message
      graphify-query nudge, exit without capture.
@@ -509,6 +501,8 @@ The `memory-capture.sh` script runs as a **UserPromptSubmit hook**.
      from the prior session that never reached the 15-prompt boundary), and
      re-emits the graphify-query directive because the agent's in-context recall
      of prior decisions is gone after the recycle.
+
+   The counter lives under `/tmp` on purpose: Cloudflare Containers guarantees an ephemeral disk on every container start ("All disk is ephemeral. When a Container instance goes to sleep, the next time it is started, it will have a fresh disk as defined by its container image."), so in codeflare the counter's presence/absence is the canonical "mid-session vs. fresh-container" signal. The `MEMCAP_COUNTER_DIR` env var overrides the default for hermetic tests; production never sets it.
 4. **Vars file** - writes transcript path, offsets, date, counts, and
    counter path to `/tmp/.memory-counter/{session_id}.vars` as JSON.
 5. **Counter update** - writes current count + total lines back to the
