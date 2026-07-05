@@ -376,11 +376,13 @@ const Layout: Component<LayoutProps> = (props) => {
   // Diagnostic trace (REQ-VAULT-022): the vault button lifecycle is client-only
   // runtime state that unit tests mock, so surface every transition to the browser
   // console — a stuck 'preparing'/'available' state on integration is then visible
-  // (filter the console by "vault-button") instead of inferred.
+  // (filter the console by "vault-button"). Emitted at WARN so it survives the
+  // production `minLevel='warn'` gate (logger.info is dropped off localhost), i.e.
+  // it is actually visible on the deployed integration surface this diagnoses.
   createEffect(() => {
     const sid = sessionStore.activeSessionId;
     if (!sid) return;
-    logger.info('vault-button', {
+    logger.warn('vault-button', {
       status: vaultButtonStatus(),
       prewarm: vaultPrewarmBySession()[sid],
       intent: vaultOpenIntentBySession()[sid],

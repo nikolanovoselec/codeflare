@@ -436,6 +436,47 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(vaultLocalReadinessMock.markFullyPrewarmed).toHaveBeenCalledWith('sess1', 'start-1');
     });
 
+    it('REQ-VAULT-022 AC2: the container start polling in mid-prewarm (null -> real) does not tear down the in-flight iframe, and arms green stamping the real start', async () => {
+      // THE stuck-white-on-fresh-session bug (the one the prior fix missed for lack
+      // of a discriminating test): the user clicks BEFORE the first batch-status poll,
+      // so lastStartedAt is still absent (activeSessionStartedAt === null) when the
+      // prewarm iframe mounts; the poll THEN delivers lastStartedAt. When the prewarm
+      // effect read the start TRACKED, that null->real transition re-ran the effect and
+      // its onCleanup cancelled the in-flight prewarm, so it never reached 'ready' and
+      // the control stuck breathing 'preparing' (white). Reading the start UNTRACKED,
+      // at completion, keeps the in-flight prewarm alive AND records the real start.
+      // Gut-check: re-add a tracked activeSessionStartedAt() read to the prewarm effect
+      // and the "cancel not called" assertion below fails (this test discriminates the
+      // fix; the constant-lastStartedAt poll-tick test above does not).
+      mockSessions = [createMockSession({ status: 'running' })]; // no lastStartedAt yet
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+
+      render(() => <Layout />);
+      vaultProbeMock.latestOptions.setLatch();
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+
+      // Click 1 while the start is still null -> the prewarm iframe mounts once.
+      await (window as any).__headerProps.onVaultOpen();
+      await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(1));
+      expect(vaultPrewarmMock.cancel).not.toHaveBeenCalled();
+
+      // The batch-status poll now delivers lastStartedAt: null -> 'start-1'. The
+      // in-flight prewarm must survive: not cancelled, not remounted.
+      mockSessions = [createMockSession({ status: 'running', lastStartedAt: 'start-1' })];
+      bumpSessionStoreVersion();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(vaultPrewarmMock.cancel).not.toHaveBeenCalled();
+      expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(1);
+
+      // Completion arms green and stamps the marker with the REAL start that polled in
+      // during the prewarm (proving the completion-time untracked read, not the null
+      // captured at click time).
+      vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
+      expect(vaultLocalReadinessMock.markFullyPrewarmed).toHaveBeenCalledWith('sess1', 'start-1');
+    });
+
     it('REQ-VAULT-019: a cold-path armed click opens the vault tab synchronously', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
