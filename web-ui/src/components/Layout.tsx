@@ -258,11 +258,22 @@ const Layout: Component<LayoutProps> = (props) => {
     // Tracked read: re-run when the container start polls in / advances (a restart).
     const startedAt = activeSessionStartedAt();
     if (startedAt && marker !== startedAt) {
-      // Resumed container (lastStartedAt advanced): REVOKE any optimistic reload-skip
-      // green and drop to 'available' so the next click runs a normal prewarm, exactly
-      // like a fresh session. Only clears an armed green, never an in-flight prewarm.
+      // Resumed container (lastStartedAt advanced): REVOKE any green and drop to
+      // 'available' so the next click runs a normal prewarm, exactly like a fresh session.
+      // Clears BOTH greens: the optimistic reload-skip green (pw==='ready', no intent) AND
+      // a cold-path 'armed' open-intent (a prewarmed-but-never-opened session) — the status
+      // memo returns 'armed' on an 'armed' intent BEFORE it looks at pw, so leaving the
+      // intent would keep a cold-path green alive across a resume, violating AC2. Never
+      // touches an in-flight prewarm ('prewarming') or a 'preparing' intent (the on-demand
+      // effect owns those).
       setVaultPrewarmBySession((prev) => {
         if (prev[sid] !== 'ready') return prev;
+        const next = { ...prev };
+        delete next[sid];
+        return next;
+      });
+      setVaultOpenIntentBySession((prev) => {
+        if (prev[sid] !== 'armed') return prev;
         const next = { ...prev };
         delete next[sid];
         return next;
@@ -452,10 +463,11 @@ const Layout: Component<LayoutProps> = (props) => {
     setVaultOpenIntentBySession((prev) => ({ ...prev, [sid]: 'preparing' }));
   };
 
-  // While 'preparing', poll until the prewarm proof is ready AND the encryption key
-  // is recoverable, then arm (button breathes green, next click opens). The key fetch
-  // short-circuits behind the prewarm proof, so once the proof lands re-fetching
-  // `/.vault-key` each tick also keeps an idle container warm until the open.
+  // While 'preparing', poll until the prewarm proof is ready, then arm (button breathes
+  // green, next click opens). Arming greens on the prewarm proof ALONE; the encryption
+  // key is armed for real at open time by the bootstrap-hop + SW __cfRecover
+  // (REQ-VAULT-024), so `checkVaultKeyRecoverable` runs here only as a non-blocking
+  // diagnostic and there is no per-tick `/.vault-key` keep-warm poll.
   createEffect(() => {
     const sid = sessionStore.activeSessionId;
     if (!sid || vaultOpenIntentBySession()[sid] !== 'preparing') return;

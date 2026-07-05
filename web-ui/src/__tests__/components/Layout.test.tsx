@@ -403,6 +403,29 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(vaultLocalReadinessMock.markFullyPrewarmed).toHaveBeenCalledWith('sess1', null);
     });
 
+    it('REQ-VAULT-019: the arming poll greens on the prewarm proof even when the key check FAILS (key is a non-blocking diagnostic)', async () => {
+      mockSessions = [createMockSession({ status: 'running', lastStartedAt: 'start-1' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      // The pre-open /.vault-key probe reports the key NOT recoverable. Under the old
+      // gate that pinned the button at 'preparing' forever; now it is a diagnostic only
+      // (the key is armed for real at open by the bootstrap-hop), so the control MUST
+      // still arm green on the prewarm proof. Gut the change (re-gate green on the key)
+      // and this fails: the button stays 'preparing'.
+      vaultLocalReadinessMock.keyRecoverable.mockResolvedValue(false);
+
+      render(() => <Layout />);
+      vaultProbeMock.latestOptions.setLatch();
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+
+      await (window as any).__headerProps.onVaultOpen();
+      await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
+      vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
+
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
+      expect((window as any).__headerProps.vaultReady).toBe(true);
+    });
+
     it('REQ-VAULT-018 / REQ-VAULT-022 AC2: a batch-status poll tick mid-prewarm does not tear down the in-flight iframe (arms green despite session-store churn)', async () => {
       // Regression: keying the prewarm marker to lastStartedAt added an UNMEMOIZED
       // reactive read of sessionStore.sessions into the on-demand prewarm effect.
@@ -616,6 +639,33 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       bumpSessionStoreVersion();
       await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
       expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
+    });
+
+    it('REQ-VAULT-022 AC2: a resume revokes even a COLD-PATH armed green (prewarmed-but-never-opened), dropping to available', async () => {
+      // A cold-path green carries intent='armed' (not just pw==='ready'), and the status
+      // memo returns 'armed' on that intent BEFORE it looks at pw. So revoking only pw
+      // would leave the button green across a resume. This proves the revoke ALSO clears
+      // an 'armed' intent: gut that clear and the button stays 'armed' after the resume.
+      mockSessions = [createMockSession({ status: 'running', lastStartedAt: 'start-1' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+
+      render(() => <Layout />);
+      vaultProbeMock.latestOptions.setLatch();
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+
+      // Click 1 -> on-demand prewarm; the marker is stamped with the current start.
+      await (window as any).__headerProps.onVaultOpen();
+      await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalled());
+      vaultLocalReadinessMock.readMarker.mockReturnValue('start-1');
+      // Completion arms the cold-path green: intent='armed' AND pw='ready'.
+      vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
+
+      // Resume: the container restarts, lastStartedAt advances to 'start-2' != the marker.
+      mockSessions = [createMockSession({ status: 'running', lastStartedAt: 'start-2' })];
+      bumpSessionStoreVersion();
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
     });
 
     it('REQ-VAULT-022 AC2: a resumed session whose lastStartedAt advanced is not reload-skipped and stays available until click', async () => {
