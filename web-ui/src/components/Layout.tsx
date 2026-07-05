@@ -119,10 +119,11 @@ const Layout: Component<LayoutProps> = (props) => {
   // `sessionStore.sessions` directly inside an effect re-subscribes that effect to
   // EVERY batch-status poll tick (lastActiveAt/ptyActive/startupStage churn). In the
   // on-demand prewarm effect below a spurious re-run tears the in-flight bootstrap
-  // iframe down (onCleanup) and the 'prewarming' guard then blocks the restart, so
-  // the control breathes 'preparing' forever and never arms green — on a perfectly
-  // stable container. The memo only notifies when lastStartedAt actually changes
-  // (a real container restart), absorbing the poll churn.
+  // iframe down and clears its 'prewarming' status (onCleanup), so the effect
+  // re-mounts a fresh prewarm on every poll tick — each restart pre-empts the
+  // previous before it can complete, so the control never finishes prewarming and
+  // never arms green on a perfectly stable container. The memo only notifies when
+  // lastStartedAt actually changes (a real container restart), absorbing the churn.
   const activeSessionStartedAt = createMemo<string | null>(() => {
     const sid = activeRunningSid();
     if (!sid) return null;

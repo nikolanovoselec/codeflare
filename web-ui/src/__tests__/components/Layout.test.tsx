@@ -402,9 +402,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       // reactive read of sessionStore.sessions into the on-demand prewarm effect.
       // Every batch-status poll bumps the session store (lastActiveAt/ptyActive/
       // startupStage), which re-ran the effect; its onCleanup cancelled the in-flight
-      // prewarm and the 'prewarming' guard blocked the restart, so the control
-      // breathed 'preparing' forever and never armed green — on a perfectly stable
-      // container. The container-start read is now firewalled behind a memo, so a
+      // prewarm and cleared its 'prewarming' status, so the effect re-mounted a fresh
+      // prewarm every tick — each restart pre-empting the previous before it could
+      // complete, so it never armed green. The container-start read is firewalled, so a
       // poll that does NOT change lastStartedAt must leave the in-flight prewarm
       // untouched. Gut-check: reverting the memo re-runs the effect on the bump and
       // fails the "cancel not called" assertion below.
