@@ -31,17 +31,19 @@ build steps from graphify's internal Python API.
 - `VAULT_ROOT`: `/home/user/Vault`
 - `OUT_DIR`: `/home/user/Vault/graphify-out`
 - `VARS_FILE`: `~/.cache/codeflare-hooks/vault-extract.vars` (delete first)
-- `LAST_MARKER`: `~/.cache/codeflare-hooks/vault-extract.last` (high-water mark)
+- `MANIFEST`: `/home/user/Vault/graphify-out/vault-extract-manifest.json` (the durable content-hash high-water mark; survives R2 restart)
+- `MANIFEST_SCRIPT`: `~/.claude/plugins/codeflare-vault/scripts/vault-manifest.py` (`changed` / `commit` modes)
+- `LAST_MARKER`: `~/.cache/codeflare-hooks/vault-extract.last` (ephemeral dedup timestamp only — NOT change detection)
 - `LOCK`: `/tmp/graphify-global.lock` (serialises with capture agent + active-repo hook)
 - `GRAPHIFY_PY`: `/root/.local/share/uv/tools/graphifyy/bin/python`
 - `GRAPHIFY_BIN`: `/usr/local/bin/graphify` (or absolute uv path as fallback)
 
 ## Steps
 
-Execute IN ORDER. Step 7 is the marker advance and MUST be last - any
-failure between steps 1 and 6 leaves the high-water mark old, and the
-next vault-monitor daemon tick (60s) re-discovers the same files.
-Eventual consistency, no work lost.
+Execute IN ORDER. Step 7 is the manifest commit (high-water mark advance)
+and MUST be last - any failure between steps 1 and 6 leaves the manifest
+old, and the next vault-monitor daemon tick (60s) re-discovers the same
+files. Eventual consistency, no work lost.
 
 ### 1. Delete the trigger marker (dedup gate)
 
@@ -51,36 +53,31 @@ rm -f ~/.cache/codeflare-hooks/vault-extract.vars
 
 A concurrent UserPromptSubmit firing while this agent runs must not
 re-spawn another instance. Deleting the vars file immediately closes
-that window. The daemon will only rewrite the marker if its next tick
-finds files newer than `vault-extract.last`, which only advances in
-step 7.
+that window. The daemon will only rewrite the vars file if its next tick
+finds files whose content differs from the manifest, which only advances
+in step 7.
 
 ### 2. List files changed since last successful extraction
 
 ```bash
-find /home/user/Vault \
-    \( -path /home/user/Vault/Raw/Sessions -o \
-       -path /home/user/Vault/Raw/Graphs -o \
-       -path /home/user/Vault/graphify-out -o \
-       -path /home/user/Vault/Library/Codeflare -o \
-       -path /home/user/Vault/.silverbullet \) -prune -o \
-    -type f \
-    -not -path /home/user/Vault/Index.md \
-    -not -path /home/user/Vault/README.md \
-    -not -path /home/user/Vault/CONFIG.md \
-    -not -path /home/user/Vault/STYLES.md \
-    -newer ~/.cache/codeflare-hooks/vault-extract.last -print
+python3 ~/.claude/plugins/codeflare-vault/scripts/vault-manifest.py changed \
+    /home/user/Vault \
+    /home/user/Vault/graphify-out/vault-extract-manifest.json
 ```
 
-Exclusions:
+This prints the absolute path of every vault file whose CONTENT is new or
+changed since the last extraction (one per line). It compares the sha256 of
+the bytes against the manifest, NOT mtimes - so the R2 restore that resets
+every file's mtime to download-time does not make it re-report the whole
+vault (the old `find -newer` bug). The script owns the exclusion set:
 
 - `Raw/Sessions/` - agent-owned, already merged by the capture agent.
-- `graphify-out/` - derived output, would create a feedback loop.
-- `.silverbullet/` - editor config + plug cache, no semantic content.
+- `Raw/Graphs/`, `graphify-out/` - derived output, would create a feedback loop.
+- `Library/Codeflare/`, `.silverbullet/` - vendored plugs + editor config, no semantic content.
 - `Index.md`, `README.md`, `CONFIG.md`, `STYLES.md` - codeflare-authoritative preseed pages (REQ-VAULT-010 AC1); never user-edits.
 
-If the find returns zero files, skip to step 7 (touch the marker so we
-do not keep re-running on the same empty result).
+If it prints zero files, skip to step 7 (commit the manifest so we do not
+keep re-running on the same empty result).
 
 ### 3. Read files and emit a chunk JSON
 
@@ -301,22 +298,29 @@ stale viz HTML. The next successful extraction re-renders.
 
 ```bash
 if [ -z "${EXTRACT_FAILED:-}" ]; then
+    # Advance the durable content-hash high-water mark (the manifest). This is
+    # what makes "changed since last extraction" survive the R2 restart. Also
+    # refresh the ephemeral dedup timestamp so the hook's vars-staleness guard
+    # clears any vars written mid-run.
+    python3 ~/.claude/plugins/codeflare-vault/scripts/vault-manifest.py commit \
+        /home/user/Vault \
+        /home/user/Vault/graphify-out/vault-extract-manifest.json
     touch ~/.cache/codeflare-hooks/vault-extract.last
 else
-    echo "[vault-extract] step 4 or 5 failed; leaving high-water mark old for retry" >&2
+    echo "[vault-extract] step 4 or 5 failed; leaving manifest old for retry" >&2
 fi
 rm -f ~/.cache/codeflare-hooks/vault-extract.in-flight
 ```
 
 The `EXTRACT_FAILED` gate is the programmatic enforcement of "only
-touch on success": steps 4 and 5 set the flag on any non-zero exit
+commit on success": steps 4 and 5 set the flag on any non-zero exit
 (lock timeout, graphify CLI missing, malformed JSON). If the flag is
 unset, all extractions succeeded (or step 2 returned zero files, in
-which case advancing the marker is also correct - there is nothing to
+which case committing the manifest is also correct - there is nothing to
 retry). If set, the next 60s daemon tick will re-discover the same
 changed files and retry. Earlier versions of this prompt relied on the
 sonnet agent interpreting "only if steps 3-5 succeeded" prose, which
-allowed a silent failure to advance the marker and lose the change.
+allowed a silent failure to advance the manifest and lose the change.
 
 ## Done
 

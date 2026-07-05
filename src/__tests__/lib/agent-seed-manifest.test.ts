@@ -392,6 +392,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/review-lane-guards.ts',
       '.pi/agent/extensions/sdd-helpers.ts',
       '.pi/agent/extensions/startup-header.ts',
+      '.pi/agent/extensions/vault-manifest-fs.ts',
     ]);
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/Explore.md');
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/code-reviewer.md');
@@ -2027,11 +2028,17 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(mv?.content).toContain('if (!transcript.trim()) return');
   });
 
-  it('REQ-VAULT-003: Pi vault indexing shares Claude marker semantics and exclusions', () => {
+  it('REQ-VAULT-003 / REQ-VAULT-026: Pi vault indexing shares Claude content-hash detection + exclusions', () => {
     const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
+    // Shared ephemeral dedup marker (advancing it keeps the entrypoint daemon quiet).
     expect(mv?.content).toContain('vault-extract.last');
     expect(mv?.content).not.toContain('pi-vault-extract.last');
-    expect(mv?.content).toContain('statSync(VAULT_MARKER_FILE).mtimeMs');
+    // REQ-VAULT-026: change detection is the content-hash manifest, NOT mtimes —
+    // the bundled fs layer must be wired in so a restored vault is not re-extracted.
+    expect(mv?.content).toContain('vault-extract-manifest.json');
+    expect(mv?.content).toContain('changedVaultFilesIn');
+    expect(mv?.content).toContain('commitVaultManifestTo');
+    // Shared exclusion set (bundled from memory-vault-helpers).
     expect(mv?.content).toContain('Raw/Sessions');
     expect(mv?.content).toContain('graphify-out');
     expect(mv?.content).toContain('.silverbullet');

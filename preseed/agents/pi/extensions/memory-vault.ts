@@ -5,10 +5,11 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { MEMORY_CAPTURE_PENDING_TTL_MS, buildSpawnOptions, captureTimestamp, compactMessages as compactMessagesHelper, isChildSessionFirstLine, isChildSessionHeader, isFirstMessage, isResumedSession, isVaultExcludedPath as isVaultExcludedRel, parseSessionMessages as parseSessionMessagesHelper, realUserPromptCount, sessionId as sessionIdHelper, shouldCapture, withCurrentPrompt } from "./memory-vault-helpers";
+import { MEMORY_CAPTURE_PENDING_TTL_MS, buildSpawnOptions, captureTimestamp, compactMessages as compactMessagesHelper, isChildSessionFirstLine, isChildSessionHeader, isFirstMessage, isResumedSession, parseSessionMessages as parseSessionMessagesHelper, realUserPromptCount, sessionId as sessionIdHelper, shouldCapture, withCurrentPrompt } from "./memory-vault-helpers";
+import { changedVaultFilesIn, commitVaultManifestTo } from "./vault-manifest-fs";
 
 const USER_HOME = "/home/user";
 const VAULT_ROOT = join(USER_HOME, "Vault");
@@ -17,9 +18,17 @@ const MEMORY_COUNTER_DIR = "/tmp/.memory-counter";
 const PROMPTS_DIR = join(USER_HOME, ".pi", "agent", "prompts");
 const MEMORY_PROMPT_FILE = join(PROMPTS_DIR, "memory-agent-prompt.md");
 const VAULT_PROMPT_FILE = join(PROMPTS_DIR, "vault-extract-prompt.md");
-// Share Claude's high-water marker name and mtime semantics: the marker's mtime,
-// not file contents, is the source of truth for vault-change detection.
+// Ephemeral within-session dedup timestamp, shared with Claude. Its mtime is NO
+// LONGER the change-detection source of truth (an R2 restore resets mtimes, which
+// caused the full re-extraction); it only anchors the vars-staleness / in-flight
+// guards below, which compare sibling ephemeral files never crossing R2. Change
+// detection is the content-hash manifest (VAULT_MANIFEST_FILE).
 const VAULT_MARKER_FILE = join(CACHE_DIR, "vault-extract.last");
+// Durable content-hash high-water mark: {vault-relative path -> sha256}. Lives
+// next to vault-graph.json in graphify-out/ (R2-synced via an explicit allow-rule),
+// so "changed since last extraction" survives container restart. Immune to the R2
+// restore's mtime reset because detection compares bytes, not timestamps.
+const VAULT_MANIFEST_FILE = join(VAULT_ROOT, "graphify-out", "vault-extract-manifest.json");
 // Pi-namespaced sentinels. The Claude vault-monitor daemon (entrypoint.sh,
 // runs whenever SESSION_MODE=advanced, NOT runtime-gated) writes the
 // shared-namespace ~/.cache/codeflare-hooks/vault-extract.vars on any vault
@@ -125,38 +134,20 @@ function readSessionMessages(ctx: any, fallback: any[]): any[] {
   return fallback;
 }
 
-// VAULT_ROOT-bound wrapper over the pure predicate in memory-vault-helpers, so the
-// exclusion list lives in one testable place. Raw/Graphs (the served viz copy the
-// extractor re-renders every run) and Library/Codeflare are now covered there — the
-// former is what caused the self-trigger loop.
-function isVaultExcludedPath(path: string): boolean {
-  return isVaultExcludedRel(VAULT_ROOT, path);
-}
-
-function changedVaultFiles(since: number): string[] {
-  if (!existsSync(VAULT_ROOT)) return [];
-  const changed: string[] = [];
-  const stack = [VAULT_ROOT];
-  while (stack.length > 0) {
-    const dir = stack.pop();
-    if (!dir) continue;
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const path = join(dir, entry.name);
-      if (isVaultExcludedPath(path)) continue;
-      if (entry.isDirectory()) stack.push(path);
-      else if (entry.isFile() && statSync(path).mtimeMs > since) changed.push(path);
-    }
-  }
-  return changed.sort();
-}
-
-function readVaultMarker(): number {
-  try { return statSync(VAULT_MARKER_FILE).mtimeMs; } catch { return 0; }
+function changedVaultFiles(): string[] {
+  return changedVaultFilesIn(VAULT_ROOT, VAULT_MANIFEST_FILE);
 }
 
 function touchVaultMarker(): void {
   mkdirSync(CACHE_DIR, { recursive: true });
   writeFileSync(VAULT_MARKER_FILE, "", "utf8");
+}
+
+// Advance the durable content-hash high-water mark AND the ephemeral dedup
+// timestamp together, so the vars-staleness guard keeps working unchanged.
+function commitVaultManifest(): void {
+  commitVaultManifestTo(VAULT_ROOT, VAULT_MANIFEST_FILE);
+  touchVaultMarker();
 }
 
 // The durable cumulative vault graph. It is written ONLY by merge-vault-graph.py
@@ -251,9 +242,11 @@ export default function (pi: ExtensionAPI) {
     if (isChildSession(ctx)) return;
     ensureDirs();
     bestEffortMergeGraphs();
-    // Claude's entrypoint seeds vault-extract.last with a plain `touch` so
-    // restored Vault content is the baseline, not a change. Pi must do the same.
-    if (!existsSync(VAULT_MARKER_FILE)) touchVaultMarker();
+    // First boot only: record the restored/preseed vault as the baseline so it
+    // is not mistaken for user edits. On every later boot the manifest is present
+    // (restored from R2), so we do NOT re-baseline and genuine changes — including
+    // a prior session's unextracted files — are still detected.
+    if (!existsSync(VAULT_MANIFEST_FILE)) commitVaultManifest();
   });
 
   pi.on("before_agent_start", (event: any, ctx: any) => {
@@ -303,26 +296,26 @@ export default function (pi: ExtensionAPI) {
     lastMessages = Array.isArray(event?.messages) ? event.messages : lastMessages;
     ensureDirs();
 
-    if (!existsSync(VAULT_MARKER_FILE)) {
-      // Same baseline as Claude's boot-time touch: first Pi turn must not
-      // interpret restored Vault content as a user edit.
-      touchVaultMarker();
+    if (!existsSync(VAULT_MANIFEST_FILE)) {
+      // First boot only (see session_start): baseline the restored/preseed vault
+      // so it is not mistaken for a user edit. Persists in R2, so this fires once.
+      commitVaultManifest();
       return;
     }
 
     if (vaultVarsPending() || vaultExtractionInFlight()) return;
 
-    const previous = readVaultMarker();
-    const changed = changedVaultFiles(previous);
+    const changed = changedVaultFiles();
     if (changed.length === 0) return;
 
     try {
       // The subagent (spawned below) owns graph construction via the canonical
       // chunk -> merge-vault-graph.py -> vault-graph.json pipeline, exactly like
       // Claude. Here we only re-publish the existing cumulative vault graph and
-      // advance the marker; merge-vault-graph.py is the sole writer of vault-graph.json.
+      // advance the content-hash manifest; merge-vault-graph.py is the sole writer
+      // of vault-graph.json.
       bestEffortMergeGraphs();
-      touchVaultMarker();
+      commitVaultManifest();
     } catch {
       return;
     }
@@ -339,9 +332,9 @@ export default function (pi: ExtensionAPI) {
       inflightFile: VAULT_INFLIGHT,
     }, null, 2), "utf8");
 
-    const vaultPrompt = `PROMPT_FILE=${VAULT_PROMPT_FILE}\nVARS_FILE=${VAULT_VARS_FILE}\nChanged files:\n${changed.slice(0, 80).join("\n")}\nThe Pi extension already touched ${VAULT_MARKER_FILE}. Run the Pi vault-extract contract end to end: read the changed files, author a chunk, run merge-vault-graph.py to fold it into the cumulative vault-graph.json, publish that to the global graph, and re-render the viz. Do not update the marker (the extension owns it).`;
+    const vaultPrompt = `PROMPT_FILE=${VAULT_PROMPT_FILE}\nVARS_FILE=${VAULT_VARS_FILE}\nChanged files:\n${changed.slice(0, 80).join("\n")}\nThe Pi extension already advanced the content-hash manifest (${VAULT_MANIFEST_FILE}). Run the Pi vault-extract contract end to end: read the changed files, author a chunk, run merge-vault-graph.py to fold it into the cumulative vault-graph.json, publish that to the global graph, and re-render the viz. Do not touch the manifest (the extension owns it).`;
     const spawned = spawn("vault-extract", vaultPrompt, "Extract Vault graph changes", process.env.CODEFLARE_MEMORY_MODEL);
-    appendVaultEvent({ event: "vault_extract_spawned", changedFiles: changed.slice(0, 80), count: changed.length, spawned: Boolean(spawned), markerMtime: previous });
+    appendVaultEvent({ event: "vault_extract_spawned", changedFiles: changed.slice(0, 80), count: changed.length, spawned: Boolean(spawned) });
     if (!spawned) pi.sendUserMessage(`Agent({ subagent_type: "vault-extract", prompt: ${JSON.stringify(vaultPrompt)}, description: "Extract Vault graph changes", run_in_background: true })`, { deliverAs: "followUp" });
     bestEffortMergeGraphs();
   });

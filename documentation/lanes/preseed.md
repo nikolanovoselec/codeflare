@@ -683,8 +683,9 @@ override shipped via this path. Package files deploy under `.pi/agent/npm/`.
 
   A missing `/tmp` counter with more than one real user prompt force-fires
   resumed-session capture, matching Claude. Vault indexing uses the shared
-  `vault-extract.last` high-water marker
-  ([REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session))
+  content-hash manifest (`graphify-out/vault-extract-manifest.json`) as its
+  high-water mark
+  ([REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session), [REQ-VAULT-026](../../sdd/spec/vault.md#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest))
   and excludes `Raw/Sessions/`, `graphify-out/`, `.silverbullet/`, and the four
   preseed root pages, so it only runs after user-curated Vault changes.
 
