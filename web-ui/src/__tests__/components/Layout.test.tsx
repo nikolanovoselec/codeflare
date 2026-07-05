@@ -70,6 +70,7 @@ const vaultLocalReadinessMock = vi.hoisted(() => ({
   keyRecoverable: vi.fn(async (_sessionId?: string) => true),
   hasFullyPrewarmed: vi.fn((_sessionId?: string, _startedAt?: string | null) => false),
   markFullyPrewarmed: vi.fn((_sessionId?: string, _startedAt?: string | null) => {}),
+  readMarker: vi.fn((_sessionId?: string) => null as string | null),
 }));
 
 vi.mock('../../lib/vault-local-readiness', () => ({
@@ -77,6 +78,7 @@ vi.mock('../../lib/vault-local-readiness', () => ({
   checkVaultKeyRecoverable: (sessionId: string) => vaultLocalReadinessMock.keyRecoverable(sessionId),
   hasVaultFullyPrewarmed: (sessionId: string, startedAt?: string | null) => vaultLocalReadinessMock.hasFullyPrewarmed(sessionId, startedAt),
   markVaultFullyPrewarmed: (sessionId: string, startedAt?: string | null) => vaultLocalReadinessMock.markFullyPrewarmed(sessionId, startedAt),
+  readVaultPrewarmMarker: (sessionId: string) => vaultLocalReadinessMock.readMarker(sessionId),
 }));
 
 const vaultPrewarmProof = {
@@ -244,6 +246,10 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     // skip is ineligible and the button stays 'available' until the user clicks.
     vaultLocalReadinessMock.hasFullyPrewarmed.mockClear();
     vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(false);
+    // Default: no recorded marker -> the reload-skip is ineligible and the button
+    // stays 'available' until the user clicks. Reload/open tests override this.
+    vaultLocalReadinessMock.readMarker.mockClear();
+    vaultLocalReadinessMock.readMarker.mockReturnValue(null);
     vaultLocalReadinessMock.markFullyPrewarmed.mockClear();
     delete (window as any).__terminalAreaProps;
     delete (window as any).__headerProps;
@@ -573,6 +579,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       // marker is set AND recorded IDB stores + an active service worker are still
       // present, so the re-init iframe (SW re-register / space sync / index + focus
       // contention with the terminal) must NOT be mounted; the control is green.
+      vaultLocalReadinessMock.readMarker.mockReturnValue('start-1');
       vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(true);
       vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
 
@@ -584,6 +591,33 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect((window as any).__headerProps.vaultReady).toBe(true);
     });
 
+    it('REQ-VAULT-022 AC2: an optimistic reload-skip green is REVOKED when the polled-in start proves a resume', async () => {
+      // Marker present but the container start has NOT polled in yet, so the button
+      // arms green OPTIMISTICALLY (a same-container return re-greens instantly, without
+      // waiting for the batch poll). When the poll then delivers a start that DIFFERS
+      // from the marker, the container was actually resumed -> the optimistic green must
+      // be revoked and the button must drop to 'available' so the next click runs a
+      // normal prewarm, exactly like a fresh session. This is the discriminating proof
+      // of the revoke branch: gut it and the button stays 'armed' onto a stale store.
+      mockSessions = [createMockSession({ status: 'running' })]; // no lastStartedAt yet
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      vaultLocalReadinessMock.readMarker.mockReturnValue('start-1');
+      vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(true);
+      vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
+
+      render(() => <Layout />);
+      vaultProbeMock.latestOptions.setLatch();
+      // Optimistic green while the current start is still unknown.
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
+
+      // The poll delivers 'start-2' != the marker's 'start-1': the container was resumed.
+      mockSessions = [createMockSession({ status: 'running', lastStartedAt: 'start-2' })];
+      bumpSessionStoreVersion();
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+      expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
+    });
+
     it('REQ-VAULT-022 AC2: a resumed session whose lastStartedAt advanced is not reload-skipped and stays available until click', async () => {
       mockSessions = [createMockSession({ status: 'running', lastStartedAt: 'start-2' })];
       mockActiveSessionId = 'sess1';
@@ -593,9 +627,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       // and lastStartedAt advanced to 'start-2'. The persisted marker no longer matches
       // the current start, so the reload-skip is ineligible and the vault initializes
       // cleanly like a fresh session: the control stays 'available' until the user clicks.
-      vaultLocalReadinessMock.hasFullyPrewarmed.mockImplementation(
-        (_sid?: string, startedAt?: string | null): boolean => startedAt === 'start-1',
-      );
+      vaultLocalReadinessMock.readMarker.mockReturnValue('start-1');
       vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
 
       render(() => <Layout />);
@@ -603,9 +635,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
 
       await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
       expect(vaultPrewarmMock.start).not.toHaveBeenCalled();
-      // Layout threaded the CURRENT container start into the reload-skip gate (not the
-      // stale one the marker holds), so the skip is refused.
-      expect(vaultLocalReadinessMock.hasFullyPrewarmed).toHaveBeenCalledWith('sess1', 'start-2');
+      // The recorded marker ('start-1') no longer matches the CURRENT container start
+      // ('start-2'), so the reload-skip is revoked and the vault re-inits like fresh.
+      expect(vaultLocalReadinessMock.readMarker).toHaveBeenCalledWith('sess1');
     });
 
     it('REQ-VAULT-022 AC3: a reload with local DBs/SW but no full prewarm proof stays available until click', async () => {
@@ -634,6 +666,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
+      vaultLocalReadinessMock.readMarker.mockReturnValue('start-1');
       vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(true);
       // The local readiness probe never settles (e.g. a wedged indexedDB.databases()).
       vaultLocalReadinessMock.check.mockReturnValue(new Promise(() => {}) as any);
@@ -677,6 +710,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
       // Already warm on this device -> reload-skip presents the button green.
+      vaultLocalReadinessMock.readMarker.mockReturnValue('start-1');
       vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(true);
       vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true });
       const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
@@ -707,6 +741,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
+      vaultLocalReadinessMock.readMarker.mockReturnValue('start-1');
       vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(true);
       // Greens via the reload-skip probe (ready:true once), then local readiness goes
       // not-ready — the exact false-negative (session-id marker-key divergence) that used
@@ -1396,18 +1431,18 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       mockPreferences = { sessionMode: 'advanced' };
       mockActiveWorkspace = { kind: 'session', sessionId: 'sess1' };
       mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }];
-      // Local readiness holds but the encryption key is NOT recoverable, so the
-      // on-demand prepare never arms and the button parks at 'preparing'.
+      // Local readiness holds but the on-demand prewarm proof never lands (its
+      // onReady is never fired below), so the poll never arms and the button parks
+      // at 'preparing'.
       vaultLocalReadinessMock.check.mockResolvedValue({ ready: true, recordedDbs: ['sb_data_a'], hasIndexedDbDatabasesApi: true });
-      vaultLocalReadinessMock.keyRecoverable.mockResolvedValue(false);
 
       render(() => <Layout />);
       await waitFor(() => expect((window as any).__headerProps?.onVaultOpen).toBeTypeOf('function'));
       vaultProbeMock.latestOptions.setLatch();
       await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
 
-      // Click 1 starts the on-demand prepare; with the key unrecoverable the poll
-      // never arms, so the button reflects 'preparing'.
+      // Click 1 starts the on-demand prepare; with the prewarm proof never landing
+      // the poll never arms, so the button reflects 'preparing'.
       await (window as any).__headerProps.onVaultOpen();
       await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('preparing'));
 

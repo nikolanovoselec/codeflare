@@ -16,7 +16,7 @@ import type { TileLayout, AgentType, TabConfig } from '../types';
 import { VIEW_TRANSITION_DURATION_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS } from '../lib/constants';
 import { startVaultReadinessProbe, probeVaultReady } from '../lib/vault-readiness';
 import { DEFAULT_VAULT_PREWARM_TIMEOUT_MS, startVaultPrewarm, type VaultPrewarmStatus } from '../lib/vault-prewarm';
-import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed } from '../lib/vault-local-readiness';
+import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed, readVaultPrewarmMarker } from '../lib/vault-local-readiness';
 import type { VaultButtonStatus } from './VaultButton';
 import { requestBrowserStoragePersistence } from '../lib/browser-storage-persistence';
 
@@ -253,14 +253,30 @@ const Layout: Component<LayoutProps> = (props) => {
   createEffect(() => {
     const sid = activeRunningSid();
     if (!sid || vaultReadyBySession()[sid] !== true) return;
-    // Tracked read: re-run when the container restarts (lastStartedAt advances). A stop
-    // already dropped any prior green (the session left 'running'), so on the new start
-    // this refuses to re-skip from the stale marker -> the vault re-initializes on demand.
+    const marker = readVaultPrewarmMarker(sid);
+    if (!marker) return;                                  // never prewarmed here -> needs click 1
+    // Tracked read: re-run when the container start polls in / advances (a restart).
     const startedAt = activeSessionStartedAt();
-    if (untrack(vaultPrewarmBySession)[sid]) return;     // already has a status
-    if (!hasVaultFullyPrewarmed(sid, startedAt)) return; // never/other-start prewarm -> needs click 1
+    if (startedAt && marker !== startedAt) {
+      // Resumed container (lastStartedAt advanced): REVOKE any optimistic reload-skip
+      // green and drop to 'available' so the next click runs a normal prewarm, exactly
+      // like a fresh session. Only clears an armed green, never an in-flight prewarm.
+      setVaultPrewarmBySession((prev) => {
+        if (prev[sid] !== 'ready') return prev;
+        const next = { ...prev };
+        delete next[sid];
+        return next;
+      });
+      return;
+    }
+    // Same container, OR the current start has not polled in yet: arm green
+    // OPTIMISTICALLY once live local readiness holds — a same-container return re-greens
+    // instantly without waiting for the batch poll to re-deliver lastStartedAt (the
+    // strict wait is what dropped the button to white and forced a re-init every return).
+    // If the start later proves different (a resume), the branch above revokes it.
+    if (untrack(vaultPrewarmBySession)[sid]) return;      // already has a status
     let cancelled = false;
-    void eligibleToSkipPrewarm(sid, startedAt).then((skip) => {
+    void eligibleToSkipPrewarm(sid, marker).then((skip) => {
       if (cancelled || untrack(vaultPrewarmBySession)[sid]) return;
       if (skip) setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' }));
     });
@@ -448,12 +464,20 @@ const Layout: Component<LayoutProps> = (props) => {
     const prewarmReady = vaultPrewarmBySession()[sid] === 'ready';
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const tick = async () => {
+    const tick = () => {
       if (cancelled) return;
-      const ready = prewarmReady && (await checkVaultKeyRecoverable(sid));
-      if (cancelled) return;
-      if (ready) {
+      if (prewarmReady) {
+        // Arm green the moment the full prewarm proof is complete — consistent with the
+        // reload-skip path, which greens on the proof alone. The encryption key is
+        // (re-)armed at OPEN time by the bootstrap-hop + SW __cfRecover (REQ-VAULT-024),
+        // so a green button always opens safely; gating the green on a separate pre-open
+        // `/.vault-key` poll caused a false-negative that left a fresh session breathing
+        // accent forever, never green, even though the vault opened fine (REQ-VAULT-019
+        // amended: key recoverability is a diagnostic here, verified for real at open).
         setVaultOpenIntentBySession((prev) => (prev[sid] === 'preparing' ? { ...prev, [sid]: 'armed' } : prev));
+        void checkVaultKeyRecoverable(sid).then((ok) => {
+          if (!ok && !cancelled) logger.warn('vault-key not recoverable at arm time (opens via bootstrap-hop)', { sid });
+        });
         return;
       }
       timer = setTimeout(() => void tick(), VAULT_KEY_POLL_INTERVAL_MS);

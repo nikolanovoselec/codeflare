@@ -133,6 +133,27 @@ export function hasVaultFullyPrewarmed(
   }
 }
 
+/**
+ * The raw container start recorded in this session's full-prewarm marker (the value
+ * `markVaultFullyPrewarmed` stored), or null if this browser never proved a prewarm
+ * for the session. The reload-skip uses this to arm green OPTIMISTICALLY the instant a
+ * marker exists — without waiting for the current container start to poll in, so a
+ * same-container return re-greens immediately — and separately REVOKES that green once
+ * the polled-in start is known to differ (a resumed container). Keeps a same-container
+ * RETURN instant while a RESUME still re-initializes (REQ-VAULT-022 AC2).
+ */
+export function readVaultPrewarmMarker(
+  sessionId: string,
+  storage: Storage | null = getLocalStorage(),
+): string | null {
+  if (!storage) return null;
+  try {
+    return storage.getItem(`${VAULT_MARKER_PREFIX}${sessionId}${VAULT_PREWARMED_SUFFIX}`);
+  } catch {
+    return null;
+  }
+}
+
 async function findVaultServiceWorker(
   serviceWorker: ServiceWorkerContainer,
 ): Promise<ServiceWorkerRegistration | null> {

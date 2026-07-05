@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed } from '../../lib/vault-local-readiness';
+import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed, readVaultPrewarmMarker } from '../../lib/vault-local-readiness';
 
 function createStorage(entries: Record<string, string> = {}): Storage {
   const store = new Map(Object.entries(entries));
@@ -259,5 +259,30 @@ describe('REQ-VAULT-022 AC2: full-prewarm marker keyed to the container start', 
   it('reports not-prewarmed and swallows write errors when storage is unavailable', () => {
     expect(hasVaultFullyPrewarmed('session-1', 'start-1', null)).toBe(false);
     expect(() => markVaultFullyPrewarmed('session-1', 'start-1', null)).not.toThrow();
+  });
+});
+
+describe('REQ-VAULT-022 AC2: readVaultPrewarmMarker (raw recorded start for the optimistic reload-skip)', () => {
+  it('returns the exact container start that recorded the marker', () => {
+    const storage = createStorage();
+    markVaultFullyPrewarmed('session-1', 'start-1', storage);
+    // The reload-skip arms green OPTIMISTICALLY off this raw value the instant a marker
+    // exists (before the current start polls in), then revokes if the polled-in start
+    // proves different — so it must return the recorded start verbatim, not a boolean.
+    expect(readVaultPrewarmMarker('session-1', storage)).toBe('start-1');
+  });
+
+  it('returns null when this browser never prewarmed the session', () => {
+    expect(readVaultPrewarmMarker('session-1', createStorage())).toBeNull();
+  });
+
+  it('is scoped per session', () => {
+    const storage = createStorage();
+    markVaultFullyPrewarmed('session-1', 'start-1', storage);
+    expect(readVaultPrewarmMarker('session-2', storage)).toBeNull();
+  });
+
+  it('returns null when storage is unavailable', () => {
+    expect(readVaultPrewarmMarker('session-1', null)).toBeNull();
   });
 });
