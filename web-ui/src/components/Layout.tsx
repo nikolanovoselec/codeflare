@@ -253,10 +253,15 @@ const Layout: Component<LayoutProps> = (props) => {
   createEffect(() => {
     const sid = activeRunningSid();
     if (!sid || vaultReadyBySession()[sid] !== true) return;
+    // Tracked read FIRST — subscribe to the container start UNCONDITIONALLY so a resume
+    // (lastStartedAt advance) always re-runs this effect, even when the marker was written
+    // AFTER an earlier null-marker run. The cold path records the marker at prewarm
+    // COMPLETION, so this effect's prior run returned on a null marker before ever reading
+    // the start; without an unconditional subscription a later resume would never re-run it
+    // to revoke a cold-path 'armed' green (REQ-VAULT-022 AC2).
+    const startedAt = activeSessionStartedAt();
     const marker = readVaultPrewarmMarker(sid);
     if (!marker) return;                                  // never prewarmed here -> needs click 1
-    // Tracked read: re-run when the container start polls in / advances (a restart).
-    const startedAt = activeSessionStartedAt();
     if (startedAt && marker !== startedAt) {
       // Resumed container (lastStartedAt advanced): REVOKE any green and drop to
       // 'available' so the next click runs a normal prewarm, exactly like a fresh session.
