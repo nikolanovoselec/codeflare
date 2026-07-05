@@ -1,28 +1,9 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD96](#ad96-vault-reload-skip-optimistic-arm-with-revocation-green-on-prewarm-proof-key-check-diagnostic) throughout the codebase and documentation. Most ADRs carry active content; a few are fully superseded (see the **Superseded Decisions** table below) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD93](#ad93-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
-
----
-
-## Superseded Decisions
-
-Fully-superseded ADRs, retained as tombstones so inbound anchor references stay valid. Each links to the record that replaced it. Redirect / merged anchors (e.g. AD7, AD9, AD17) are marked inline in the Decision Index instead.
-
-| Superseded | Replaced by | Date | What changed |
-|---|---|---|---|
-| [AD4](#ad4-periodic-rclone-bisync) — Periodic rclone bisync | [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) | — | Split into a 15-minute bisync cadence and a 135-second final-bisync shutdown budget |
-| [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) — GitHub OIDC replaces CF Access in SaaS mode | [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token) | 2026-05-09 | `oauth_state` mechanism only replaced by an HMAC-signed stateless token; the broader GitHub-OIDC decision still holds |
-| [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) — User overrides recorded as ADRs, not skip-list | [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) | 2026-05-12 | Override-via-ADR mechanism ripped out; no per-rule override remains |
-| [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) — Unified ADR file with `doc-allow-large` exemption | [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) | 2026-05-12 | `doc-allow-large` hatch ripped out; unified ADR file kept for anchor stability |
-| [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) — Review lanes load extensions additively | [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) | 2026-06-08 | Durable review lanes now run as detached headless Pi processes |
-| [AD83](#ad83-vault-indexeddb-cannot-be-persisted-across-sessions-by-keying-the-encryption-key-to-the-r2-bucket) — Vault IndexedDB can't persist by bucket-keying the key | [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) | 2026-06-25 | Bucket-stable vault URL + bucket-derived key implemented; the SB IndexedDB now persists across sessions |
-| [AD93](#ad93-key-the-vault-reload-skip-to-the-container-start-so-resumed-sessions-re-initialize-cleanly) — Key the vault reload-skip to the container start | [AD95](#ad95-vault-reload-skip-strict-start-match-recorded-at-prewarm-completion) | 2026-07-05 | Container start read untracked and recorded at prewarm completion (fixed teardown + click-before-poll defects) |
-| [AD95](#ad95-vault-reload-skip-strict-start-match-recorded-at-prewarm-completion) — Vault reload-skip strict start match | [AD96](#ad96-vault-reload-skip-optimistic-arm-with-revocation-green-on-prewarm-proof-key-check-diagnostic) | 2026-07-05 | Optimistic arm + revocation (return re-greens instantly, resume revokes); green on the prewarm proof, key check demoted to a non-blocking diagnostic |
-
-**Partial supersession** (the ADR still stands, only a clause was replaced): [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored).
 
 ---
 
@@ -122,10 +103,7 @@ Fully-superseded ADRs, retained as tombstones so inbound anchor references stay 
 | [AD90](#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync) | Governed Mode preseed bake + checksum delta initial sync | Storage |
 | [AD91](#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) | Governed Mode migration is a verified, gated, chunked state machine (REPLACE copy), not a boolean-marker lazy reconcile | Storage |
 | [AD92](#ad92-bundle-the-official-cloudflare-skills-into-the-advanced-seed-slimmed-references-webfetch-retrieval) | Bundle the official Cloudflare skills into the advanced seed (slimmed references, WebFetch retrieval) | Agents |
-| [AD93](#ad93-key-the-vault-reload-skip-to-the-container-start-so-resumed-sessions-re-initialize-cleanly) | Key the vault reload-skip to the container start so resumed sessions re-initialize cleanly _(superseded by [AD95](#ad95-vault-reload-skip-strict-start-match-recorded-at-prewarm-completion))_ | Architecture |
-| [AD94](#ad94-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor) | Refresh the non-enterprise Cloudflare OAuth token at the api.cloudflare.com boundary, reusing the browser interceptor | Architecture, Security |
-| [AD95](#ad95-vault-reload-skip-strict-start-match-recorded-at-prewarm-completion) | Vault reload-skip strict start match recorded at prewarm completion _(superseded by [AD96](#ad96-vault-reload-skip-optimistic-arm-with-revocation-green-on-prewarm-proof-key-check-diagnostic))_ | Architecture |
-| [AD96](#ad96-vault-reload-skip-optimistic-arm-with-revocation-green-on-prewarm-proof-key-check-diagnostic) | Vault reload-skip optimistic arm with revocation; green on prewarm proof, key check diagnostic | Architecture |
+| [AD93](#ad93-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor) | Refresh the non-enterprise Cloudflare OAuth token at the api.cloudflare.com boundary, reusing the browser interceptor | Architecture, Security |
 
 ---
 
@@ -693,8 +671,6 @@ The original justification considered was per-PTY RAM cleanup when one tab in a 
 
 **Decision:** Keep the per-PTY reaper but reframe its role as a pure **safety net** for the case where `lastInputAt` tracking gets stuck (terminal server bug, stuck activity polling, broken `/activity` endpoint), and raise the floor to 120 minutes (equal to the maximum user-configurable `sleepAfter`). Concretely, change `PTY_KEEPALIVE_MS` default from `2700000` (45 min) to `7200000` (120 min) in `host/src/server.ts` and `host/src/session.ts`.
 
-**Amendment (2026-07-04, [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings)):** a `4h` idle option was added, raising the maximum user-configurable `sleepAfter` from 2h to 4h. To preserve this decision's core invariant — the reaper floor must equal the maximum `sleepAfter` so it can never fire before the authoritative idle-stop — `PTY_KEEPALIVE_MS` was raised from `7200000` (120 min) to `14400000` (240 min) in the same two files. References to "120 min" / "2h" below describe the original decision; the current floor is **240 min (4h)**. The parallel `SLEEP_AFTER_FALLBACK_MS` / `idleTimeoutPref` fail-safe defaults were likewise raised 2h → 4h ([REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants)) so "fail-safe = the maximum supported value" also stays true.
-
 **Alternatives considered:**
 
 1. **Remove the reaper entirely.** Rejected: leaves no recourse if `collectMetrics` ever silently fails to stop a container with a stuck `lastInputAt`. The cost of keeping the reaper is one `setTimeout` per orphaned session.
@@ -710,19 +686,19 @@ Rejected: arbitrary midpoint with no principled basis. 120 min has a clear justi
 
 **Rationale:**
 
-- The user-facing idle contract is [REQ-SESSION-004](../../sdd/spec/session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout)'s `sleepAfter` (15m / 30m / 1h / 2h / 4h).
+- The user-facing idle contract is [REQ-SESSION-004](../../sdd/spec/session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout)'s `sleepAfter` (5m / 15m / 30m / 1h / 2h).
 
 The PTY reaper sits *below* that contract and must never undercut it. Setting the floor at the maximum `sleepAfter` ensures it cannot fire before the authoritative policy.
 - The reaper's value is purely defensive:
 
-it prevents a single orphaned PTY from outliving its container forever in pathological scenarios (e.g., `lastInputAt` polling dies but the container DO doesn't notice). With the floor pinned to the maximum `sleepAfter` (now 240 min) it still does that job; it just doesn't fire on the happy path.
+it prevents a single orphaned PTY from outliving its container forever in pathological scenarios (e.g., `lastInputAt` polling dies but the container DO doesn't notice). With a 120-min floor it still does that job; it just doesn't fire on the happy path.
 - The change is one constant in two files; risk is bounded.
 
 **Trade-offs accepted:**
 
-- Users with `sleepAfter` < 4h will, in the rare case of stuck `lastInputAt`, see PTY orphans last up to 240 min instead of 45 min.
+- Users with `sleepAfter` < 2h will, in the rare case of stuck `lastInputAt`, see PTY orphans last up to 120 min instead of 45 min.
 
-The container would also be stuck (because `collectMetrics` is the trigger for both stop paths), so the practical impact is "container survives extra minutes when something is broken". Acceptable because the user can manually stop the session from the dashboard.
+The container would also be stuck (because `collectMetrics` is the trigger for both stop paths), so the practical impact is "container survives 75 extra minutes when something is broken". Acceptable because the user can manually stop the session from the dashboard.
 - The default is hardcoded; a future operator who hits memory pressure on a long-orphaned PTY can still override via `PTY_KEEPALIVE_MS` env var. No new user-facing setting is added.
 
 **Related requirements:**
@@ -1955,7 +1931,7 @@ Key `vault-session-*-idbs`/`-prewarmed` by the bucket token (like the bucket-sta
 
 the marker-key divergence still false-negatives the reload-skip auto-green, so a returning session's button does not auto-green and needs one on-demand click; the durable fix (bucket-key the marker) is deferred. The residual service-proxy-error `.auth` path is also unpatched (flagged residual-risk).
 
-**Related:** [AD69](#ad69-silverbullet-vault-runs-its-native-service-worker-for-persistent-encrypted-client-indexing), [AD59](#ad59-zero-ui-vault-encryption-with-per-session-do-storage-key), [AD83](#ad83-vault-indexeddb-cannot-be-persisted-across-sessions-by-keying-the-encryption-key-to-the-r2-bucket), [REQ-VAULT-024](../../sdd/spec/vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention), [REQ-VAULT-025](../../sdd/spec/vault.md#req-vault-025-silverbullet-native-service-worker-runtime-graft), [REQ-VAULT-018](../../sdd/spec/vault.md#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger), [REQ-VAULT-019](../../sdd/spec/vault.md#req-vault-019-vault-key-recoverable-open-diagnostic), [REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence), [Troubleshooting lane — vault rows](../lanes/troubleshooting.md).
+**Related:** [AD69](#ad69-silverbullet-vault-runs-its-native-service-worker-for-persistent-encrypted-client-indexing), [AD59](#ad59-zero-ui-vault-encryption-with-per-session-do-storage-key), [AD83](#ad83-vault-indexeddb-cannot-be-persisted-across-sessions-by-keying-the-encryption-key-to-the-r2-bucket), [REQ-VAULT-024](../../sdd/spec/vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention), [REQ-VAULT-025](../../sdd/spec/vault.md#req-vault-025-silverbullet-native-service-worker-runtime-graft), [REQ-VAULT-018](../../sdd/spec/vault.md#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger), [REQ-VAULT-019](../../sdd/spec/vault.md#req-vault-019-vault-key-recoverable-open-gate), [REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence), [Troubleshooting lane — vault rows](../lanes/troubleshooting.md).
 
 ---
 
@@ -2085,8 +2061,7 @@ AD87 kept the narrowly-scoped "Browser Rendering - Edit" token in the container,
 - The real R2 key is removed from the container's blast radius:
 
 a prompt-injected read now yields only a non-secret placeholder; R2 access is gated by the worker-held key the agent cannot reach. This is the actual containment the egress boundary needs for R2.
-- The redundant per-request `KV.get` is gone; a per-op diagnostic log (`{h, sc, tx, rs, fMs}`) is shipped to attribute the ~196ms/op R2 wall time on deploy and choose the speed lever from data.
-    - The diagnostic is temporary — removed once measured.
+- The redundant per-request `KV.get` is gone; a per-op diagnostic log (`{h, sc, tx, rs, fMs}`) is shipped to attribute the ~196ms/op R2 wall time on deploy and choose the speed lever from data (it is a temporary diagnostic, removed once measured).
 - The placeholder trips entrypoint.sh's non-fatal "R2_ACCESS_KEY_ID contains unexpected characters (expected hex)" warning in strict mode (the placeholder is not hex); this is expected and harmless (rclone signs with the placeholder; the controller re-signs) — documented in the troubleshooting lane.
 
 **Related:** [AD86](#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network) (refined by this), [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off), [AD81](#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) (placeholder-credential containment precedent for GitHub), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token), [Security — Strict Gateway Egress](../lanes/security.md#strict-gateway-egress-enterprise-mode), [Architecture — Strict Gateway Egress](../lanes/architecture.md#strict-gateway-egress), [Configuration — Container env vars](../lanes/configuration.md), [Troubleshooting — Strict Gateway Egress](../lanes/troubleshooting.md).
@@ -2247,27 +2222,7 @@ Exclude the upstream `.mcp.json` (5 remote MCP servers — strict-egress-blocked
 
 ---
 
-### AD93: Key the vault reload-skip to the container start so resumed sessions re-initialize cleanly
-
-**Category:** Architecture
-
-**Status:** Superseded by [AD95](#ad95-vault-reload-skip-strict-start-match-recorded-at-prewarm-completion) (2026-07-05) — the marker-keyed-to-`lastStartedAt` premise AND the exact-match gate comparison are both retained; only how `Layout.tsx` reads and records the container start (untracked, at prewarm completion, instead of tracked, at click time) is corrected.
-
-**Context:** The vault's full-prewarm marker and SilverBullet IndexedDB stores are bucket-stable and persist in the browser across a container stop ([REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)/[REQ-VAULT-023](../../sdd/spec/vault.md#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap)). The reload-skip ([REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence) AC2) armed the green control and served the local store the instant `hasVaultFullyPrewarmed(sid)` + live local readiness held — with no notion of container lifecycle. A stopped-then-resumed session therefore reused the persisted marker and opened the pre-stop snapshot: the control flashed green immediately on stale content while the service worker's ~20s background sync slowly pulled the R2-restored data (edits made elsewhere while stopped). Fresh sessions (no marker) initialized cleanly; resumed sessions did not — inconsistent behavior the user asked to make uniform.
-
-**Decision:** Stamp the full-prewarm marker with the container's current start timestamp (`lastStartedAt`, already written by the Durable Object on every `onStart` and already polled by the dashboard) and gate the reload-skip on an exact match. A same-container page reload (unchanged `lastStartedAt`) still arms instantly — the optimization REQ-VAULT-022 exists for is preserved. A resumed session's container restarts, advancing `lastStartedAt`, so its marker no longer matches: the reload-skip is refused and the vault runs the normal on-demand click → prewarm → green path, identical to a fresh session. No new container code, boot-config, or service-worker change — the container already emits the signal; the browser just had to check it.
-
-The on-demand prewarm budget was also raised 5→10 min (`DEFAULT_VAULT_PREWARM_TIMEOUT_MS`) so a slow cold start does not time the control out before its first full sync completes.
-
-**Rejected — a dedicated DO incarnation counter threaded through `VaultBootConfig`:** more plumbing for no gain over the existing `lastStartedAt`. **Rejected — reaping the marker on container shutdown:** impossible — the container cannot reach the browser's localStorage/IndexedDB (different trust domain); the invalidation must be a browser-side check of a container-provided value, which `lastStartedAt` already is. **Rejected — dropping the reload-skip entirely:** regresses instant reload for a live session.
-
-**Consequences:** One benign one-time re-init after deploy for already-warm sessions (the old `'1'` marker value never matches a real `lastStartedAt`, so the next open re-prewarms once and re-stamps). A falsy `startedAt` (start not polled yet) never counts as warm and never records a marker, so an incomplete read can only under-skip (harmlessly re-prewarm), never over-skip onto a stale store.
-
-**Related:** [REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence), [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key), [REQ-VAULT-018](../../sdd/spec/vault.md#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger), [AD84](#ad84-retain-the-vault-sw-encryption-key-in-memory-neuter-the-proactive-flush-and-open-a-green-vault-button-directly).
-
----
-
-### AD94: Refresh the non-enterprise Cloudflare OAuth token at the `api.cloudflare.com` boundary, reusing the browser interceptor
+### AD93: Refresh the non-enterprise Cloudflare OAuth token at the `api.cloudflare.com` boundary, reusing the browser interceptor
 
 **Category:** Architecture, Security
 
@@ -2294,52 +2249,6 @@ Wiring (`wireCloudflareApiInterception`) is double-guarded: `!isEnterpriseMode(e
 **Related:** [REQ-AGENT-078](../../sdd/spec/agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary), [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth), [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-SEC-002](../../sdd/spec/security.md#req-sec-002-api-tokens-never-enter-containers), [AD81](#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens).
 
 ---
-
-### AD95: Vault reload-skip strict start match recorded at prewarm completion
-
-**Category:** Architecture
-
-**Status:** Superseded by [AD96](#ad96-vault-reload-skip-optimistic-arm-with-revocation-green-on-prewarm-proof-key-check-diagnostic) (2026-07-05) — the marker-keyed-to-`lastStartedAt` premise and prewarm-completion recording are retained; the STRICT unknown-start→not-warm gate (which re-initialized on every return, since a return's current start has not re-polled at page-load) and the key-recoverability arming GATE (a false-negative kept fresh sessions breathing white) are both replaced.
-
-**Supersedes:** [AD93](#ad93-key-the-vault-reload-skip-to-the-container-start-so-resumed-sessions-re-initialize-cleanly).
-
-**Context:** AD93 keyed the reload-skip to `lastStartedAt` but had two defects. (1) `Layout.tsx` read the container start as a TRACKED value inside the on-demand prewarm effect, so a batch-status poll delivering `lastStartedAt` mid-prewarm re-ran it; `onCleanup` cancelled the in-flight bootstrap iframe and cleared its status, so a fresh session's prewarm never reached `ready` and the control stuck breathing `preparing` (white), never arming green. (2) The start was captured at click time, so a click before the first poll recorded no marker, and every return re-initialized. A first fix attempt (record a placeholder, treat unknown/placeholder as warm) traded these for a worse bug: a resumed session whose start had not re-polled read warm and skipped prewarm onto stale files.
-
-**Decision:** Keep the gate STRICT — the reload-skip is authorized only when the recorded start equals the container start running now; an unknown current start (not yet polled) or no real marker re-prewarms. Fix the two defects at their source in `Layout.tsx` rather than loosening the gate: read the container start **untracked** and at prewarm **completion**. Untracked, a poll delivering `lastStartedAt` mid-prewarm no longer re-runs the effect, so the fresh-session prewarm reaches `ready` and arms green. At completion, the marker records the real start even when the user clicked before the first poll, so a same-container return matches and re-arms green once the start polls in. A resumed session (advanced start) never matches → a forced, normal prewarm, like fresh.
-
-**Consequences:** No stale over-skip — an unverifiable container never skips. A same-container return shows `available` for the brief window until `lastStartedAt` polls in, then auto-arms green with no click or re-init. Resumed sessions always re-prewarm. A start-less prewarm (start not polled by completion — rare) records no marker and simply re-prewarms next time. The button lifecycle now emits a `vault-button` console trace to diagnose a stuck state. See `documentation/lanes/vault.md` § SilverBullet Editor and `web-ui/src/lib/vault-local-readiness.ts`.
-
-**Related:** [REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence).
-
----
-
-### AD96: Vault reload-skip optimistic arm with revocation; green on prewarm proof, key check diagnostic
-
-**Category:** Architecture
-
-**Status:** Accepted (2026-07-05).
-
-**Supersedes:** [AD95](#ad95-vault-reload-skip-strict-start-match-recorded-at-prewarm-completion).
-
-**Context:** AD95's STRICT gate fixed the resumed-session stale-skip but reintroduced the original hated bug: on a RETURN to a still-running session (page reload, or coming back from the vault tab), the in-memory prewarm status has reset and the container start has NOT re-polled yet at page-load, so `hasVaultFullyPrewarmed(sid, currentStart=null)` read NOT-warm and the control dropped to white — forcing a manual re-init on EVERY return, even though the container never restarted.
-
-The fundamental constraint: at page-load a RETURN (same container) and a RESUME (restarted container) look identical — the browser cannot know the container's live `lastStartedAt` until the batch-status poll delivers it. A strict "unknown ⇒ not-green" rule breaks return; a lenient "unknown ⇒ green" rule breaks resume (skips onto stale). Neither can distinguish them at that instant.
-
-Separately, the cold-path arming poll GATED the green on `checkVaultKeyRecoverable` (`/.vault-key`); that endpoint false-negatived while the vault still opened fine (the key is recovered at open by the bootstrap-hop + SW `__cfRecover`, [AD69](#ad69-silverbullet-vault-runs-its-native-service-worker-for-persistent-encrypted-client-indexing)/[REQ-VAULT-024](../../sdd/spec/vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention)), so a fresh session breathed accent forever and never armed green.
-
-**Decision:** Two coupled changes in `Layout.tsx`.
-
-**(1) Optimistic arm + revocation** — resolve the return/resume ambiguity by acting, then correcting. Read the marker's recorded start with a new pure accessor `readVaultPrewarmMarker(sid)` and arm green OPTIMISTICALLY the instant a marker exists and live local readiness (`checkVaultLocalReadiness`) holds, WITHOUT waiting for the current start to poll in. A same-container return therefore re-greens immediately: no click, no re-init.
-
-The reload-skip effect also tracks the container start; when it polls in and DIFFERS from the marker (a genuine resume), it REVOKES the optimistic green — deleting the `ready` prewarm state so the control drops to `available` and the next click runs a normal prewarm, like a fresh session. The trade-off is a brief green flicker on an actual resume, which never opens onto a stale store: the open is a fresh bootstrap-hop against live local readiness.
-
-**(2) Green on the prewarm proof alone; key check becomes a non-blocking diagnostic** — the cold-path arming poll arms green the moment `pw === 'ready'`, consistent with the reload-skip path. `checkVaultKeyRecoverable` still runs at arm time but only `logger.warn`s on a negative and no longer gates the green, because the key is armed for real at OPEN time by the bootstrap-hop + SW `__cfRecover`, so a green button always opens safely ([REQ-VAULT-019](../../sdd/spec/vault.md#req-vault-019-vault-key-recoverable-open-diagnostic) amended: gate → diagnostic).
-
-**Rejected — infer return-vs-resume at page-load without the poll:** impossible; the browser has no live container signal until the batch-status poll, which is exactly the ambiguity. Optimistic-then-revoke is the only way to keep return instant without ever permanently skipping onto a resumed stale store. **Rejected — keep gating green on `/.vault-key`:** a false-negative on a healthy vault is worse than a stale diagnostic log, because the real key arming already happens at open. **Rejected — a longer strict wait for the poll before deciding:** that IS AD95, and it re-inits every return.
-
-**Consequences:** A same-container return re-greens instantly with no re-init (the reported every-return re-init is fixed). A resumed session briefly flickers green then re-initializes cleanly (no stale open). A fresh session arms green on the prewarm proof and no longer sticks breathing accent on a `/.vault-key` false-negative. `hasVaultFullyPrewarmed` is retained (used by `eligibleToSkipPrewarm` to confirm the marker matches the readiness proof); `readVaultPrewarmMarker` is the new optimistic accessor. The Layout mocks the marker functions in tests, so the true proof is a live integration re-test via the `vault-button` console trace. See `documentation/lanes/vault.md` § SilverBullet Editor.
-
-**Related:** [REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence), [REQ-VAULT-019](../../sdd/spec/vault.md#req-vault-019-vault-key-recoverable-open-diagnostic), [REQ-VAULT-024](../../sdd/spec/vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention), [AD69](#ad69-silverbullet-vault-runs-its-native-service-worker-for-persistent-encrypted-client-indexing).
 
 ---
 
