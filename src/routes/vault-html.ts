@@ -828,9 +828,31 @@ export function hasVaultBootstrapCookie(request: Request): boolean {
  *
  * Implements REQ-VAULT-015 AC1.
  */
-function isFilteredVaultListingName(name: string): boolean {
+export function isFilteredVaultListingName(name: string): boolean {
   if (name.startsWith('graphify-out/')) return true;
+  // Machine-owned session-capture memory. The capture pipeline rewrites
+  // Raw/Sessions/ every ~15 messages; leaving it in the SB client listing made
+  // the browser perpetually re-sync + re-index hundreds of logs the user never
+  // opens, so a long session's IndexedDB went stale and was slow to refresh.
+  // The files stay on disk for R2 + the memory graph; they just never enter the
+  // client's space sync/index.
+  if (name.startsWith('Raw/Sessions/')) return true;
   return /^Raw\/Graphs\/[^/]+\.html$/i.test(name);
+}
+
+/**
+ * Guard for client-originated mutations to filtered (machine-owned) paths.
+ * Those paths are hidden from the client listing (isFilteredVaultListingName),
+ * so a client that stops seeing them on refresh could emit a sync-delete;
+ * rejecting mutating methods to them keeps the on-disk memory the capture
+ * pipeline owns safe. Reads (GET/HEAD) pass through untouched. The capture
+ * pipeline itself writes Raw/Sessions/ via the container filesystem, never
+ * through this proxy, so it is unaffected. Implements REQ-VAULT-015 AC1.
+ */
+export function isFilteredVaultMutation(method: string, remainingPath: string): boolean {
+  const m = method.toUpperCase();
+  if (m !== 'PUT' && m !== 'DELETE' && m !== 'PATCH' && m !== 'POST') return false;
+  return isFilteredVaultListingName(remainingPath.replace(/^\/+/, ''));
 }
 
 export function filterVaultFsListing(body: string): string {
