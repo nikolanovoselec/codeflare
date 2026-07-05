@@ -1023,17 +1023,21 @@ start_sync_daemon() {
 # The hook spawns a background sonnet that runs graphify extraction on
 # the changed files and merges them into the global graph.
 #
-# Two-marker design avoids the "daemon advances mtime before extractor
-# reads it" race:
-#   vault-monitor.tick   - heartbeat, touched every loop (diagnostics).
-#   vault-extract.last   - high-water mark, touched ONLY by the extract
-#                          sonnet after successful global-graph merge.
-#                          Daemon's find -newer compares against this.
-#   vault-extract.vars   - trigger file. Daemon writes when find returns
-#                          non-empty; hook deletes on pickup.
+# Content-hash change detection (REQ-VAULT-026): each tick hashes the
+# vault's files and compares them against a durable manifest, NOT file
+# mtimes — the R2 restore rewrites every mtime to download-time, so the
+# old `find -newer` matched the whole vault on the restore boot (the
+# ~200k-token full re-extraction). Markers:
+#   vault-monitor.tick          - heartbeat, touched every loop (diagnostics).
+#   vault-extract-manifest.json - persisted {path -> sha256} in graphify-out/
+#                          (R2-synced), committed by the extract sonnet after
+#                          a successful merge; a file is "changed" iff its
+#                          hash differs from it.
+#   vault-extract.vars   - trigger file. Daemon writes when the manifest
+#                          script reports changes; hook deletes on pickup.
 #
-# If extraction fails the marker stays old; next tick re-discovers the
-# same files (eventual consistency, no work lost).
+# If extraction fails the manifest is not committed; next tick re-discovers
+# the same files (eventual consistency, no work lost).
 #
 # Excluded paths: Raw/Sessions/ (agent-owned, written by capture hook
 # which already merges), Raw/Graphs/ (the served viz copy the extractor
@@ -1072,7 +1076,8 @@ start_vault_monitor_daemon() {
         [ -d "$VAULT_ROOT" ] || continue
 
         # Don't re-trigger while a previous extraction is still pending.
-        # Hook deletes vars on pickup; sonnet touches last on success.
+        # Hook deletes vars on pickup; the extract sonnet commits the manifest
+        # on success (the hook's in-flight sentinel guards concurrent runs).
         if [ -f "$VARS_FILE" ]; then
             continue
         fi
