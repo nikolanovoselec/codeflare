@@ -1865,7 +1865,7 @@ const required = [
   'npm:@juicesharp/rpiv-ask-user-question@1.20.0',
   'npm:@juicesharp/rpiv-todo@1.20.0',
   'npm:pi-web-access@0.13.0',
-  'npm:pi-mcp-adapter@2.10.0',
+  'npm:pi-mcp-adapter@2.11.0',
 ];
 const disabledPackageIds = new Set([]);
 const disabledPackages = [];
@@ -2626,7 +2626,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
     # server version (not @latest) so a session is reproducible and a bad upstream
     # release cannot silently change behaviour mid-deploy.
     BROWSER_MCP_CLAUDE=$(jq -n --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
-        '{mcpServers:{"chrome-devtools":{command:"npx",args:["-y","chrome-devtools-mcp@1.4.0",("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)]}}}')
+        '{mcpServers:{"chrome-devtools":{command:"npx",args:["-y","chrome-devtools-mcp@1.5.0",("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)]}}}')
     if [ -f "$USER_CLAUDE_JSON" ]; then
         TMP_JSON=$(mktemp)
         if jq --argjson mcp "$BROWSER_MCP_CLAUDE" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
@@ -2647,7 +2647,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
     # not hold a remote browser open. Pi keeps its native browser_* tools too (the
     # cheap one-shot REST read path); chrome-devtools adds the interactive flow.
     BROWSER_MCP_PI=$(jq -n --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
-        '{mcpServers:{"chrome-devtools":{command:"npx",args:["-y","chrome-devtools-mcp@1.4.0",("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)],lifecycle:"lazy"}}}')
+        '{mcpServers:{"chrome-devtools":{command:"npx",args:["-y","chrome-devtools-mcp@1.5.0",("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)],lifecycle:"lazy"}}}')
     PI_MCP_JSON="$USER_HOME/.pi/agent/mcp.json"
     mkdir -p "$USER_HOME/.pi/agent"
     if [ -f "$PI_MCP_JSON" ]; then

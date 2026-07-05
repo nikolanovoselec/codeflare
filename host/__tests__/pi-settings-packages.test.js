@@ -62,7 +62,7 @@ const REQUIRED = [
   'npm:@juicesharp/rpiv-ask-user-question@1.20.0',
   'npm:@juicesharp/rpiv-todo@1.20.0',
   'npm:pi-web-access@0.13.0',
-  'npm:pi-mcp-adapter@2.10.0',
+  'npm:pi-mcp-adapter@2.11.0',
 ];
 
 describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
