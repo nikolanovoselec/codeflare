@@ -51,29 +51,21 @@ describe('probeVaultReady', () => {
 
   it('hits the per-session status endpoint with no-store and reports ready only when vaultReady is true', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ vaultReady: true }));
-    await expect(probeVaultReady('sess-1', fetchMock as unknown as typeof fetch)).resolves.toEqual({ ready: true, lastStartedAt: null });
+    await expect(probeVaultReady('sess-1', fetchMock as unknown as typeof fetch)).resolves.toBe(true);
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/vault/sess-1/status',
       expect.objectContaining({ cache: 'no-store' }),
     );
   });
 
-  it('surfaces the container start (session.lastStartedAt) alongside the ready flag', async () => {
-    // Resume detection sources the container start from THIS probe (the one moment the
-    // current start is known for certain), not the laggy session-list poll.
-    const fetchMock = vi.fn(async () => jsonResponse({ vaultReady: true, session: { lastStartedAt: '2026-07-05T10:00:00.000Z' } }));
-    await expect(probeVaultReady('sess-1', fetchMock as unknown as typeof fetch))
-      .resolves.toEqual({ ready: true, lastStartedAt: '2026-07-05T10:00:00.000Z' });
-  });
-
   it('reports not-ready when SilverBullet is still warming (vaultReady false, clean 200)', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ vaultReady: false }));
-    await expect(probeVaultReady('sess-1', fetchMock as unknown as typeof fetch)).resolves.toEqual({ ready: false, lastStartedAt: null });
+    await expect(probeVaultReady('sess-1', fetchMock as unknown as typeof fetch)).resolves.toBe(false);
   });
 
   it('reports not-ready on a non-2xx response', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({}, 500));
-    await expect(probeVaultReady('sess-1', fetchMock as unknown as typeof fetch)).resolves.toEqual({ ready: false, lastStartedAt: null });
+    await expect(probeVaultReady('sess-1', fetchMock as unknown as typeof fetch)).resolves.toBe(false);
   });
 
   it('reports not-ready when a 200 response body is not valid JSON', async () => {
@@ -82,19 +74,19 @@ describe('probeVaultReady', () => {
     // "keep warming", not throw. Drives the documented malformed-body branch.
     const fetchMock = vi.fn(async () =>
       new Response('<!doctype html> not json', { status: 200, headers: { 'Content-Type': 'text/html' } }));
-    await expect(probeVaultReady('sess-1', fetchMock as unknown as typeof fetch)).resolves.toEqual({ ready: false, lastStartedAt: null });
+    await expect(probeVaultReady('sess-1', fetchMock as unknown as typeof fetch)).resolves.toBe(false);
   });
 
   it('reports not-ready (never throws) when the request fails', async () => {
     const fetchMock = vi.fn(async () => { throw new Error('network down'); });
-    await expect(probeVaultReady('sess-1', fetchMock as unknown as typeof fetch)).resolves.toEqual({ ready: false, lastStartedAt: null });
+    await expect(probeVaultReady('sess-1', fetchMock as unknown as typeof fetch)).resolves.toBe(false);
   });
 });
 
 describe('startVaultReadinessProbe', () => {
   it('retries forever past the old 60-attempt cap when probes keep failing (REQ-VAULT-012 AC5)', async () => {
     const scheduler = createTestScheduler();
-    const probe = vi.fn().mockResolvedValue({ ready: false, lastStartedAt: null });
+    const probe = vi.fn().mockResolvedValue(false);
     const setLatch = vi.fn();
     const clearLatch = vi.fn();
 
@@ -142,9 +134,9 @@ describe('startVaultReadinessProbe', () => {
   it('latches ready on first probe success and switches to steady cadence', async () => {
     const scheduler = createTestScheduler();
     const probe = vi.fn()
-      .mockResolvedValueOnce({ ready: false, lastStartedAt: null })
-      .mockResolvedValueOnce({ ready: false, lastStartedAt: null })
-      .mockResolvedValueOnce({ ready: true, lastStartedAt: null });
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
     const setLatch = vi.fn();
     const clearLatch = vi.fn();
 
@@ -177,8 +169,8 @@ describe('startVaultReadinessProbe', () => {
   it('clears latch and falls back to warmup when a steady probe fails (SB crash recovery)', async () => {
     const scheduler = createTestScheduler();
     const probe = vi.fn()
-      .mockResolvedValueOnce({ ready: false, lastStartedAt: null }) // steady probe -- fails (SB crashed)
-      .mockResolvedValueOnce({ ready: false, lastStartedAt: null }); // recovery warmup -- still failing
+      .mockResolvedValueOnce(false) // steady probe -- fails (SB crashed)
+      .mockResolvedValueOnce(false); // recovery warmup -- still failing
     const setLatch = vi.fn();
     const clearLatch = vi.fn();
 
@@ -213,7 +205,7 @@ describe('startVaultReadinessProbe', () => {
 
   it('cancel() stops the chain and prevents further probe scheduling', async () => {
     const scheduler = createTestScheduler();
-    const probe = vi.fn().mockResolvedValue({ ready: false, lastStartedAt: null });
+    const probe = vi.fn().mockResolvedValue(false);
     const setLatch = vi.fn();
     const clearLatch = vi.fn();
 
@@ -244,8 +236,8 @@ describe('startVaultReadinessProbe', () => {
 
   it('cancellation taken mid-probe prevents the resolved probe from latching', async () => {
     const scheduler = createTestScheduler();
-    let resolveProbe!: (value: { ready: boolean; lastStartedAt: string | null }) => void;
-    const probe = vi.fn(() => new Promise<{ ready: boolean; lastStartedAt: string | null }>((r) => { resolveProbe = r; }));
+    let resolveProbe!: (value: boolean) => void;
+    const probe = vi.fn(() => new Promise<boolean>((r) => { resolveProbe = r; }));
     const setLatch = vi.fn();
     const clearLatch = vi.fn();
 
@@ -269,7 +261,7 @@ describe('startVaultReadinessProbe', () => {
 
     // The in-flight probe resolves to true -- but the post-await
     // cancelled-guard must drop the result on the floor, NOT latch.
-    resolveProbe({ ready: true, lastStartedAt: null });
+    resolveProbe(true);
     await Promise.resolve(); await Promise.resolve();
 
     expect(setLatch).not.toHaveBeenCalled();

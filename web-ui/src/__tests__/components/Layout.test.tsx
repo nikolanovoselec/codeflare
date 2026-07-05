@@ -69,16 +69,14 @@ const vaultLocalReadinessMock = vi.hoisted(() => ({
   check: vi.fn(async (_sessionId?: string) => ({ ready: true, recordedDbs: ['sb_data_a', 'sb_files_b'], hasIndexedDbDatabasesApi: true } as any)),
   keyRecoverable: vi.fn(async (_sessionId?: string) => true),
   hasFullyPrewarmed: vi.fn((_sessionId?: string) => false),
-  markFullyPrewarmed: vi.fn((_sessionId?: string, _startedAt?: string | null) => {}),
-  invalidateStale: vi.fn((_sessionId?: string, _currentStart?: string | null) => false),
+  markFullyPrewarmed: vi.fn((_sessionId?: string) => {}),
 }));
 
 vi.mock('../../lib/vault-local-readiness', () => ({
   checkVaultLocalReadiness: (sessionId: string) => vaultLocalReadinessMock.check(sessionId),
   checkVaultKeyRecoverable: (sessionId: string) => vaultLocalReadinessMock.keyRecoverable(sessionId),
   hasVaultFullyPrewarmed: (sessionId: string) => vaultLocalReadinessMock.hasFullyPrewarmed(sessionId),
-  markVaultFullyPrewarmed: (sessionId: string, startedAt?: string | null) => vaultLocalReadinessMock.markFullyPrewarmed(sessionId, startedAt),
-  invalidateStalePrewarmMarker: (sessionId: string, currentStart?: string | null) => vaultLocalReadinessMock.invalidateStale(sessionId, currentStart),
+  markVaultFullyPrewarmed: (sessionId: string) => vaultLocalReadinessMock.markFullyPrewarmed(sessionId),
 }));
 
 const vaultPrewarmProof = {
@@ -247,8 +245,6 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     vaultLocalReadinessMock.hasFullyPrewarmed.mockClear();
     vaultLocalReadinessMock.hasFullyPrewarmed.mockReturnValue(false);
     vaultLocalReadinessMock.markFullyPrewarmed.mockClear();
-    vaultLocalReadinessMock.invalidateStale.mockClear();
-    vaultLocalReadinessMock.invalidateStale.mockReturnValue(false);
     delete (window as any).__terminalAreaProps;
     delete (window as any).__headerProps;
   });
@@ -396,10 +392,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
       await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
       expect((window as any).__headerProps.vaultReady).toBe(true);
-      // A full prewarm proof records the durable per-browser marker (stamped with the
-      // container start the probe reported, null here since the test latch passes none)
-      // that lets a later reload skip remounting the bootstrap iframe.
-      expect(vaultLocalReadinessMock.markFullyPrewarmed).toHaveBeenCalledWith('sess1', null);
+      // A full prewarm proof records the durable per-browser marker that lets a
+      // later reload skip remounting the bootstrap iframe.
+      expect(vaultLocalReadinessMock.markFullyPrewarmed).toHaveBeenCalledWith('sess1');
     });
 
     it('REQ-VAULT-019: a cold-path armed click opens the vault tab synchronously', async () => {

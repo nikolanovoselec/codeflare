@@ -16,7 +16,7 @@ import type { TileLayout, AgentType, TabConfig } from '../types';
 import { VIEW_TRANSITION_DURATION_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS } from '../lib/constants';
 import { startVaultReadinessProbe, probeVaultReady } from '../lib/vault-readiness';
 import { DEFAULT_VAULT_PREWARM_TIMEOUT_MS, startVaultPrewarm, type VaultPrewarmStatus } from '../lib/vault-prewarm';
-import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed, invalidateStalePrewarmMarker } from '../lib/vault-local-readiness';
+import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed } from '../lib/vault-local-readiness';
 import type { VaultButtonStatus } from './VaultButton';
 import { requestBrowserStoragePersistence } from '../lib/browser-storage-persistence';
 
@@ -113,11 +113,6 @@ const Layout: Component<LayoutProps> = (props) => {
   // dashboard, sessionStore.activeSessionId is already null, so we can't read the
   // departed sid from it — remember it here to clean up the departed session's latches.
   let lastVaultSid: string | null = null;
-  // The container start (`lastStartedAt`) the status probe reported when the vault
-  // last latched ready, per session. Non-reactive: read only at prewarm completion to
-  // stamp the reload-skip marker with the start it proved out under, so a later resume
-  // (advanced start) can be detected. Not a signal — no UI depends on it reactively.
-  const vaultReadyStartBySession = new Map<string, string | null>();
   createEffect(() => {
     const sid = activeRunningSid();
     if (!sid) {
@@ -143,22 +138,10 @@ const Layout: Component<LayoutProps> = (props) => {
     // parallel warmup chain via effect re-run).
     const cancel = startVaultReadinessProbe({
       probe: () => probeVaultReady(sid),
-      setLatch: (lastStartedAt) => {
-        // Resume detection: the status probe just reported the container's CURRENT
-        // start. If this browser's reload-skip marker was recorded under a different
-        // start, the container has RESTARTED (a stopped-then-resumed session) and the
-        // local SB store is a pre-stop snapshot — drop the marker so the reload-skip
-        // below refuses and the vault runs a normal prewarm, like a fresh session. A
-        // same-container return keeps its marker and re-greens instantly. This is the
-        // one moment the current start is known for certain, so the compare happens
-        // here rather than against the laggy session-list poll.
-        vaultReadyStartBySession.set(sid, lastStartedAt);
-        invalidateStalePrewarmMarker(sid, lastStartedAt);
-        setVaultReadyBySession((prev) => {
-          if (prev[sid] === true) return prev;
-          return { ...prev, [sid]: true };
-        });
-      },
+      setLatch: () => setVaultReadyBySession((prev) => {
+        if (prev[sid] === true) return prev;
+        return { ...prev, [sid]: true };
+      }),
       clearLatch: () => {
         setVaultReadyBySession((prev) => {
           if (prev[sid] !== true) return prev;
@@ -290,10 +273,7 @@ const Layout: Component<LayoutProps> = (props) => {
           }
           // Record that THIS browser completed the full prewarm proof (runtime +
           // space sync + index + file listing), so a later reload skips the iframe.
-          // Stamp it with the container start this prewarm proved out under (from the
-          // readiness probe), so a later resume (advanced start) invalidates it and
-          // re-prewarms instead of skipping onto the pre-stop snapshot.
-          markVaultFullyPrewarmed(sid, vaultReadyStartBySession.get(sid) ?? null);
+          markVaultFullyPrewarmed(sid);
           setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' }));
         },
         onError: (status) => setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: status })),
