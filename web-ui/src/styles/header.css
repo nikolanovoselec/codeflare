@@ -607,6 +607,16 @@
           animation: vault-button-breathe 3s ease-in-out infinite;
         }
 
+        /* Keep the armed green on hover. A tap on a touch device leaves the button in a
+           sticky :hover state, so the generic hover rule above (color: --color-text-primary,
+           near-white, specificity 0,3,0) painted over the armed green (0,1,0) — a ready
+           vault button then breathed WHITE instead of green after you tapped it, and only
+           went green again once hover cleared (e.g. returning from another tab). This
+           override matches that specificity and comes later, so armed stays green. */
+        .header-vault-button--armed:hover:not([aria-disabled="true"]) {
+          color: var(--color-success, #22c55e);
+        }
+
         @keyframes vault-button-breathe {
           0%, 100% { opacity: 1; transform: scale(1); }
           50% { opacity: 0.45; transform: scale(0.92); }
