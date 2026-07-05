@@ -8,8 +8,8 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { MEMORY_CAPTURE_PENDING_TTL_MS, buildSpawnOptions, captureTimestamp, compactMessages as compactMessagesHelper, isChildSessionFirstLine, isChildSessionHeader, isFirstMessage, isResumedSession, parseSessionMessages as parseSessionMessagesHelper, realUserPromptCount, sessionId as sessionIdHelper, shouldCapture, withCurrentPrompt } from "./memory-vault-helpers";
-import { changedVaultFilesIn, commitVaultManifestTo } from "./vault-manifest-fs";
+import { MEMORY_CAPTURE_PENDING_TTL_MS, buildSpawnOptions, captureTimestamp, compactMessages as compactMessagesHelper, isChildSessionFirstLine, isChildSessionHeader, isFirstMessage, isResumedSession, parseSessionMessages as parseSessionMessagesHelper, realUserPromptCount, sessionId as sessionIdHelper, shouldCapture, vaultManifestChanges, withCurrentPrompt } from "./memory-vault-helpers";
+import { collectVaultFileHashes, commitVaultManifestTo, readVaultManifest, writeVaultManifest } from "./vault-manifest-fs";
 
 const USER_HOME = "/home/user";
 const VAULT_ROOT = join(USER_HOME, "Vault");
@@ -132,10 +132,6 @@ function readSessionMessages(ctx: any, fallback: any[]): any[] {
     }
   } catch { /* fall through to the in-memory fallback */ }
   return fallback;
-}
-
-function changedVaultFiles(): string[] {
-  return changedVaultFilesIn(VAULT_ROOT, VAULT_MANIFEST_FILE);
 }
 
 function touchVaultMarker(): void {
@@ -305,17 +301,21 @@ export default function (pi: ExtensionAPI) {
 
     if (vaultVarsPending() || vaultExtractionInFlight()) return;
 
-    const changed = changedVaultFiles();
+    // Walk + hash the vault ONCE: derive the changed set and reuse the same
+    // snapshot to advance the manifest, so detect and commit cannot disagree.
+    const current = collectVaultFileHashes(VAULT_ROOT);
+    const changed = vaultManifestChanges(current, readVaultManifest(VAULT_MANIFEST_FILE)).map((rel) => join(VAULT_ROOT, rel));
     if (changed.length === 0) return;
 
     try {
       // The subagent (spawned below) owns graph construction via the canonical
       // chunk -> merge-vault-graph.py -> vault-graph.json pipeline, exactly like
       // Claude. Here we only re-publish the existing cumulative vault graph and
-      // advance the content-hash manifest; merge-vault-graph.py is the sole writer
-      // of vault-graph.json.
+      // advance the content-hash manifest (from the snapshot above);
+      // merge-vault-graph.py is the sole writer of vault-graph.json.
       bestEffortMergeGraphs();
-      commitVaultManifest();
+      writeVaultManifest(VAULT_MANIFEST_FILE, current);
+      touchVaultMarker();
     } catch {
       return;
     }

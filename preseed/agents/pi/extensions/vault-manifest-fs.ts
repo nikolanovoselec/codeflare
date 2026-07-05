@@ -15,7 +15,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { buildVaultManifest, isVaultExcludedPath, parseVaultManifest, vaultManifestChanges } from "./memory-vault-helpers";
+import { buildVaultManifest, isVaultExcludedPath, parseVaultManifest, vaultManifestChanges, type VaultManifest } from "./memory-vault-helpers";
 
 // Walk the vault and hash every non-excluded file's bytes.
 // Returns {vault-relative path -> sha256 hex}. Unreadable files are skipped
@@ -41,22 +41,35 @@ export function collectVaultFileHashes(vaultRoot: string): Record<string, string
   return out;
 }
 
-// Absolute paths of vault files whose bytes are new/changed vs the persisted
-// manifest. Purely content-based → an mtime reset (R2 restore) yields zero.
-export function changedVaultFilesIn(vaultRoot: string, manifestPath: string): string[] {
-  const current = collectVaultFileHashes(vaultRoot);
-  let manifestText: string | null = null;
-  try { manifestText = readFileSync(manifestPath, "utf8"); } catch { /* absent → all new */ }
-  return vaultManifestChanges(current, parseVaultManifest(manifestText))
-    .map((rel) => join(vaultRoot, rel))
-    .sort();
+// Read + parse the persisted manifest; an absent or corrupt file is an empty
+// manifest (every live file then reads as new).
+export function readVaultManifest(manifestPath: string): VaultManifest {
+  let text: string | null = null;
+  try { text = readFileSync(manifestPath, "utf8"); } catch { /* absent → all new */ }
+  return parseVaultManifest(text);
 }
 
-// Persist the current content map as the new high-water mark (atomic tmp+rename).
-export function commitVaultManifestTo(vaultRoot: string, manifestPath: string): void {
-  const manifest = buildVaultManifest(collectVaultFileHashes(vaultRoot));
+// Absolute paths of vault files whose bytes are new/changed vs the persisted
+// manifest. Purely content-based → an mtime reset (R2 restore) yields zero.
+// vaultManifestChanges already returns relpaths sorted, and prefixing vaultRoot
+// uniformly preserves that order, so no re-sort is needed.
+export function changedVaultFilesIn(vaultRoot: string, manifestPath: string): string[] {
+  const current = collectVaultFileHashes(vaultRoot);
+  return vaultManifestChanges(current, readVaultManifest(manifestPath)).map((rel) => join(vaultRoot, rel));
+}
+
+// Write a precomputed hash map as the manifest (atomic tmp+rename). Exported so a
+// caller that already walked the vault (the extension's single detect-then-commit)
+// does not have to re-hash every file a second time.
+export function writeVaultManifest(manifestPath: string, hashes: Record<string, string>): void {
+  const manifest = buildVaultManifest(hashes);
   mkdirSync(dirname(manifestPath), { recursive: true });
   const tmp = `${manifestPath}.tmp.${process.pid}`;
   writeFileSync(tmp, JSON.stringify(manifest, null, 2), "utf8");
   renameSync(tmp, manifestPath);
+}
+
+// Persist the current content map as the new high-water mark.
+export function commitVaultManifestTo(vaultRoot: string, manifestPath: string): void {
+  writeVaultManifest(manifestPath, collectVaultFileHashes(vaultRoot));
 }

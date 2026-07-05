@@ -179,6 +179,11 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-vault/scripts/vault-manifest.py": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/context-mode/.claude-plugin/plugin.json": {
     "modes": [
       "advanced"
