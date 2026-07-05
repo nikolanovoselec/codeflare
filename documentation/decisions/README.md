@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD94](#ad94-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD95](#ad95-refine-the-vault-reload-skip-gate-to-positively-detected-restarts-only) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored); [AD93](#ad93-key-the-vault-reload-skip-to-the-container-start-so-resumed-sessions-re-initialize-cleanly) by [AD95](#ad95-refine-the-vault-reload-skip-gate-to-positively-detected-restarts-only)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -103,8 +103,9 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD90](#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync) | Governed Mode preseed bake + checksum delta initial sync | Storage |
 | [AD91](#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) | Governed Mode migration is a verified, gated, chunked state machine (REPLACE copy), not a boolean-marker lazy reconcile | Storage |
 | [AD92](#ad92-bundle-the-official-cloudflare-skills-into-the-advanced-seed-slimmed-references-webfetch-retrieval) | Bundle the official Cloudflare skills into the advanced seed (slimmed references, WebFetch retrieval) | Agents |
-| [AD93](#ad93-key-the-vault-reload-skip-to-the-container-start-so-resumed-sessions-re-initialize-cleanly) | Key the vault reload-skip to the container start so resumed sessions re-initialize cleanly | Architecture |
+| [AD93](#ad93-key-the-vault-reload-skip-to-the-container-start-so-resumed-sessions-re-initialize-cleanly) | Key the vault reload-skip to the container start so resumed sessions re-initialize cleanly _(superseded by [AD95](#ad95-refine-the-vault-reload-skip-gate-to-positively-detected-restarts-only))_ | Architecture |
 | [AD94](#ad94-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor) | Refresh the non-enterprise Cloudflare OAuth token at the api.cloudflare.com boundary, reusing the browser interceptor | Architecture, Security |
+| [AD95](#ad95-refine-the-vault-reload-skip-gate-to-positively-detected-restarts-only) | Refine the vault reload-skip gate to positively-detected restarts only | Architecture |
 
 ---
 
@@ -2230,7 +2231,7 @@ Exclude the upstream `.mcp.json` (5 remote MCP servers — strict-egress-blocked
 
 **Category:** Architecture
 
-**Status:** Accepted (2026-07-04); amended 2026-07-05.
+**Status:** Superseded by [AD95](#ad95-refine-the-vault-reload-skip-gate-to-positively-detected-restarts-only).
 
 **Context:** The vault's full-prewarm marker and SilverBullet IndexedDB stores are bucket-stable and persist in the browser across a container stop ([REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)/[REQ-VAULT-023](../../sdd/spec/vault.md#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap)). The reload-skip ([REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence) AC2) armed the green control and served the local store the instant `hasVaultFullyPrewarmed(sid)` + live local readiness held — with no notion of container lifecycle. A stopped-then-resumed session therefore reused the persisted marker and opened the pre-stop snapshot: the control flashed green immediately on stale content while the service worker's ~20s background sync slowly pulled the R2-restored data (edits made elsewhere while stopped). Fresh sessions (no marker) initialized cleanly; resumed sessions did not — inconsistent behavior the user asked to make uniform.
 
@@ -2241,8 +2242,6 @@ The on-demand prewarm budget was also raised 5→10 min (`DEFAULT_VAULT_PREWARM_
 **Rejected — a dedicated DO incarnation counter threaded through `VaultBootConfig`:** more plumbing for no gain over the existing `lastStartedAt`. **Rejected — reaping the marker on container shutdown:** impossible — the container cannot reach the browser's localStorage/IndexedDB (different trust domain); the invalidation must be a browser-side check of a container-provided value, which `lastStartedAt` already is. **Rejected — dropping the reload-skip entirely:** regresses instant reload for a live session.
 
 **Consequences:** One benign one-time re-init after deploy for already-warm sessions (the old `'1'` marker value never matches a real `lastStartedAt`, so the next open re-prewarms once and re-stamps). A falsy `startedAt` (start not polled yet) never counts as warm and never records a marker, so an incomplete read can only under-skip (harmlessly re-prewarm), never over-skip onto a stale store.
-
-**Amended (2026-07-05):** The exact-match gate above over-corrected — it regressed ordinary same-container *returns* whenever `lastStartedAt` had not re-polled at the moment the marker was read or written (a mobile PWA reload on return from the vault tab racing the batch-status poll), misdetecting the same-container case this REQ optimizes for as a resume, so the control went white and forced a re-init on every return. The marker is now recorded **unconditionally** once prewarm proves out — a placeholder stands in for an unknown start and upgrades to the real value on the next mark, never downgrading — and the gate reports NOT-warm **only on a positively-detected restart**: a known current start that differs from a known recorded start. A missing current start or a placeholder marker no longer forces a re-init. Consciously accepted trade-off: a session that resumes before its placeholder was ever upgraded reads warm across that one resume (live local readiness still gates and SB space-sync reconciles) — strictly better than white-on-every-return. See `documentation/lanes/vault.md` § SilverBullet Editor and `web-ui/src/lib/vault-local-readiness.ts`.
 
 **Related:** [REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence), [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key), [REQ-VAULT-018](../../sdd/spec/vault.md#req-vault-018-vault-control-gating-and-on-demand-prewarm-trigger), [AD84](#ad84-retain-the-vault-sw-encryption-key-in-memory-neuter-the-proactive-flush-and-open-a-green-vault-button-directly).
 
@@ -2273,6 +2272,24 @@ Wiring (`wireCloudflareApiInterception`) is double-guarded: `!isEnterpriseMode(e
 **Consequences:** A non-enterprise OAuth session now survives indefinitely past the access-token TTL for both wrangler and interactive browser-run. The real OAuth access token never enters the (untrusted) container — the blast radius of a prompt-injected read is a non-secret placeholder — extending the [REQ-SEC-002](../../sdd/spec/security.md#req-sec-002-api-tokens-never-enter-containers) "tokens never enter containers" invariant to the per-user OAuth token. Enterprise is byte-identical: the enterprise interceptor branch and `applyEnterpriseBrowserToken` are unchanged, and the existing REQ-BROWSER-008 suite is the regression oracle. A **PAT**-source non-enterprise session is unchanged (its token is long-lived and still passes to the container). One added per-request worker hop on `api.cloudflare.com` for OAuth sessions — a low-frequency host — with `getValidCloudflareToken` short-circuiting when the cached token is still valid.
 
 **Related:** [REQ-AGENT-078](../../sdd/spec/agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary), [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth), [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-SEC-002](../../sdd/spec/security.md#req-sec-002-api-tokens-never-enter-containers), [AD81](#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens).
+
+---
+
+### AD95: Refine the vault reload-skip gate to positively-detected restarts only
+
+**Category:** Architecture
+
+**Status:** Accepted (2026-07-05).
+
+**Supersedes:** [AD93](#ad93-key-the-vault-reload-skip-to-the-container-start-so-resumed-sessions-re-initialize-cleanly).
+
+**Context:** AD93's exact-match gate over-corrected: it regressed ordinary same-container *returns* whenever `lastStartedAt` had not re-polled at the moment the marker was read or written (a mobile PWA reload on return from the vault tab racing the batch-status poll), misdetecting the same-container case REQ-VAULT-022 optimizes for as a resume, so the control went white and forced a re-init on every return. Production `main`'s constant `'1'` marker never had this — always recorded, always matching.
+
+**Decision:** Record the full-prewarm marker **unconditionally** once prewarm proves out — a `VAULT_PREWARM_SENTINEL` placeholder stands in for an unknown start and upgrades to the real value on the next mark, never downgrading. `hasVaultFullyPrewarmed` reports NOT-warm **only on a positively-detected restart**: a known current start that differs from a known recorded start. A missing current start (poll lag) or a placeholder marker no longer forces a re-init, so a same-container return re-arms green while a genuine resume (advanced `lastStartedAt`) still re-inits cleanly. AD93's marker-keyed-to-`lastStartedAt` premise is retained; only the gate comparison is loosened.
+
+**Consequences:** A session that resumes before its placeholder was ever upgraded reads warm across that one resume — a consciously accepted trade-off (live local readiness still gates and SB space-sync reconciles), strictly better than white-on-every-return. Confined to `web-ui/src/lib/vault-local-readiness.ts`; the Layout reload-skip effect and `checkVaultLocalReadiness` gate are unchanged. See `documentation/lanes/vault.md` § SilverBullet Editor.
+
+**Related:** [REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence), [AD93](#ad93-key-the-vault-reload-skip-to-the-container-start-so-resumed-sessions-re-initialize-cleanly).
 
 ---
 
