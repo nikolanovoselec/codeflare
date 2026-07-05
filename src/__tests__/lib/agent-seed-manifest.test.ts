@@ -464,6 +464,27 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
 
   });
 
+  it('REQ-AGENT-021: every Pi extension exports a default factory (Pi rejects a non-factory .ts at load)', () => {
+    // Pi's extension scanner loads EVERY .ts under .pi/agent/extensions/ and throws
+    // "Extension does not export a valid factory function" if a file has no default
+    // export — even helper-only modules, which therefore ship a no-op default factory.
+    // A named-export-only module (vault-manifest-fs.ts as first shipped) crashed Pi at
+    // startup ("Failed to load extension ... valid factory function"). This guard catches
+    // that before it ships; a syntax-only check (node --check) does NOT — it passed the
+    // broken file. Verified live against pi 0.80.3 (the no-default copy reproduces the
+    // error; adding the factory loads clean).
+    const piExtensions = AGENTS_SEEDED_CONFIGS.filter(
+      (d) => d.key.startsWith('.pi/agent/extensions/') && d.key.endsWith('.ts'),
+    );
+    expect(piExtensions.length).toBeGreaterThan(0);
+    for (const ext of piExtensions) {
+      expect(
+        ext.content,
+        `${ext.key} must export a default factory — Pi throws "does not export a valid factory function" otherwise`,
+      ).toMatch(/export default (function|async function|\(|[A-Za-z_$])/);
+    }
+  });
+
   it('REQ-AGENT-056: Pi local statusline renders model effort and preserves extension statuses', () => {
     const handlers = new Map<string, Function>();
     let footerFactory: Function | undefined;

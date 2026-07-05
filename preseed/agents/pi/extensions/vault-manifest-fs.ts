@@ -73,3 +73,7 @@ export function writeVaultManifest(manifestPath: string, hashes: Record<string, 
 export function commitVaultManifestTo(vaultRoot: string, manifestPath: string): void {
   writeVaultManifest(manifestPath, collectVaultFileHashes(vaultRoot));
 }
+
+export default function () {
+  // Helper module only; loaded by the Pi extension scanner as a no-op extension.
+}
