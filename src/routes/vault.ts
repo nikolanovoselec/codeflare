@@ -84,7 +84,6 @@ export {
   injectVaultBootstrapHopHtml,
   hasVaultBootstrapCookie,
   filterVaultFsListing,
-  isFilteredVaultMutation,
   inferOriginValidated,
   rewriteVaultBaseHref,
   rewriteVaultHtmlResponse,

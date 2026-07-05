@@ -828,7 +828,7 @@ export function hasVaultBootstrapCookie(request: Request): boolean {
  *
  * Implements REQ-VAULT-015 AC1.
  */
-export function isFilteredVaultListingName(name: string): boolean {
+function isFilteredVaultListingName(name: string): boolean {
   if (name.startsWith('graphify-out/')) return true;
   // Machine-owned session-capture memory. The capture pipeline rewrites
   // Raw/Sessions/ every ~15 messages; leaving it in the SB client listing made
