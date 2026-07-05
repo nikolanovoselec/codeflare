@@ -28,6 +28,12 @@ export interface VaultLocalReadinessOptions {
 const VAULT_MARKER_PREFIX = 'vault-session-';
 const VAULT_IDBS_SUFFIX = '-idbs';
 const VAULT_PREWARMED_SUFFIX = '-prewarmed';
+// Placeholder marker value recorded when a prewarm proves out before the
+// container start (`lastStartedAt`, an ISO timestamp) has polled in. It proves
+// THIS browser prewarmed — so a return/reload re-arms green — but carries no
+// start to compare, so it never triggers the resumed-session re-init. A real
+// `lastStartedAt` can never equal it.
+const VAULT_PREWARM_SENTINEL = '1';
 
 function getLocalStorage(): Storage | null {
   try {
@@ -81,22 +87,43 @@ function hasRecordedDb(recordedDbs: string[], prefix: string): boolean {
  * index finishes, and opening then would land on a slow indexing screen.
  *
  * The marker VALUE is the container's start timestamp (`lastStartedAt`) captured
- * at proof time (REQ-VAULT-022 AC2). The reload-skip is eligible only when the
- * current container start matches the recorded one, so a same-container page
- * reload arms instantly while a RESUMED session — whose container restarted and
- * whose `lastStartedAt` advanced — is not skipped and re-initializes the vault
- * cleanly like a fresh session. A falsy `startedAt` (start not polled yet) never
- * counts as warm and never records a marker, so an incomplete read can only
- * under-skip (harmlessly re-prewarm), never over-skip onto a stale store.
+ * at proof time (REQ-VAULT-022 AC2), which lets a RESUMED session — whose
+ * container restarted and whose `lastStartedAt` advanced — be detected and
+ * re-initialized cleanly like a fresh session. Two robustness rules keep a
+ * same-container RETURN (the common case) from being mistaken for a resume, so
+ * the button re-arms green on return instead of forcing a re-init every time:
+ *
+ *   1. The marker is ALWAYS recorded once prewarm proves out, even if the start
+ *      has not polled in yet — a `VAULT_PREWARM_SENTINEL` placeholder stands in
+ *      until a real start is known (and upgrades to it on the next mark). A known
+ *      start never downgrades back to the sentinel, so resume detection, once
+ *      armed, survives a later start-less mark.
+ *   2. `hasVaultFullyPrewarmed` reads warm whenever the marker exists, and reports
+ *      NOT warm only on a POSITIVELY-detected restart: both the recorded and the
+ *      current start are known real values AND they differ. A missing current
+ *      start (poll lag on a mobile reload) or a sentinel marker is no proof of a
+ *      restart, so it stays warm — the same-container return that a strict
+ *      start-equality check wrongly failed on every return.
+ *
+ * An empty store still never reads warm (no marker), so a fresh session before
+ * any prewarm can never over-skip onto a non-existent store.
  */
 export function markVaultFullyPrewarmed(
   sessionId: string,
   startedAt: string | null | undefined,
   storage: Storage | null = getLocalStorage(),
 ): void {
-  if (!storage || !startedAt) return;
+  if (!storage) return;
+  const key = `${VAULT_MARKER_PREFIX}${sessionId}${VAULT_PREWARMED_SUFFIX}`;
   try {
-    storage.setItem(`${VAULT_MARKER_PREFIX}${sessionId}${VAULT_PREWARMED_SUFFIX}`, startedAt);
+    if (startedAt) {
+      // Known container start — record it (upgrades a prior sentinel).
+      storage.setItem(key, startedAt);
+    } else if (!storage.getItem(key)) {
+      // Start not polled yet and no marker: record a sentinel so a return/reload
+      // can still re-arm green. Never overwrite an existing (possibly real) marker.
+      storage.setItem(key, VAULT_PREWARM_SENTINEL);
+    }
   } catch {
     // Storage unavailable/full — the reload simply re-prewarms, which is safe.
   }
@@ -107,9 +134,16 @@ export function hasVaultFullyPrewarmed(
   startedAt: string | null | undefined,
   storage: Storage | null = getLocalStorage(),
 ): boolean {
-  if (!storage || !startedAt) return false;
+  if (!storage) return false;
   try {
-    return storage.getItem(`${VAULT_MARKER_PREFIX}${sessionId}${VAULT_PREWARMED_SUFFIX}`) === startedAt;
+    const marker = storage.getItem(`${VAULT_MARKER_PREFIX}${sessionId}${VAULT_PREWARMED_SUFFIX}`);
+    if (!marker) return false; // never prewarmed here -> needs a fresh prewarm
+    // Report NOT warm only on a positively-detected container restart: a known
+    // current start that differs from a known recorded start (a resumed session
+    // -> clean re-init, REQ-VAULT-022 AC2). A falsy current start (poll lag) or a
+    // sentinel marker is not proof of a restart, so it stays warm.
+    if (startedAt && marker !== VAULT_PREWARM_SENTINEL && marker !== startedAt) return false;
+    return true;
   } catch {
     return false;
   }

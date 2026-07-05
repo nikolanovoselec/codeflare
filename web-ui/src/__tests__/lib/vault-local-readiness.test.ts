@@ -205,7 +205,7 @@ describe('REQ-VAULT-019: checkVaultKeyRecoverable', () => {
 });
 
 describe('REQ-VAULT-022 AC2: full-prewarm marker keyed to the container start', () => {
-  it('reports warm only for the same container start that recorded the marker (a page reload)', () => {
+  it('reports warm for the same container start that recorded the marker (a page reload)', () => {
     const storage = createStorage();
     expect(hasVaultFullyPrewarmed('session-1', 'start-1', storage)).toBe(false);
     markVaultFullyPrewarmed('session-1', 'start-1', storage);
@@ -220,24 +220,50 @@ describe('REQ-VAULT-022 AC2: full-prewarm marker keyed to the container start', 
     expect(hasVaultFullyPrewarmed('session-1', 'start-2', storage)).toBe(false);
   });
 
-  it('a falsy container start never records a marker nor clobbers an existing one, and never reads as warm', () => {
+  it('stays warm on return when the container start has not polled in yet', () => {
     const storage = createStorage();
-    // A real marker recorded for start-1.
+    // Same-container return from the vault tab: the batch-status poll has not
+    // re-delivered lastStartedAt yet (mobile PWA reload), so the current start is
+    // momentarily null. A recorded marker must still read warm — the strict
+    // start-equality check wrongly forced a re-init here on EVERY return.
     markVaultFullyPrewarmed('session-1', 'start-1', storage);
-    // A falsy start must NOT write — neither create a marker nor overwrite the real one.
-    // (Pins the mark-guard: were it removed, these would clobber the marker and the
-    // assertion below would flip to false.)
+    expect(hasVaultFullyPrewarmed('session-1', null, storage)).toBe(true);
+    expect(hasVaultFullyPrewarmed('session-1', undefined, storage)).toBe(true);
+  });
+
+  it('records a sentinel when prewarm proves out before the start polled, so a later return reads warm', () => {
+    const storage = createStorage();
+    // A fast prewarm completed before lastStartedAt was known: the marker must
+    // still be written (a sentinel) so the reload-skip can re-arm green — the
+    // old mark-guard dropped it entirely and the button went white on return.
+    markVaultFullyPrewarmed('session-1', null, storage);
+    expect(hasVaultFullyPrewarmed('session-1', null, storage)).toBe(true);
+    expect(hasVaultFullyPrewarmed('session-1', 'start-1', storage)).toBe(true);
+  });
+
+  it('upgrades a sentinel to the real start once polled, restoring resume detection', () => {
+    const storage = createStorage();
+    markVaultFullyPrewarmed('session-1', null, storage); // sentinel (start not yet known)
+    markVaultFullyPrewarmed('session-1', 'start-1', storage); // real start polled in -> upgrade
+    // Now a genuine resume (start advances) is detected again and forces re-init.
+    expect(hasVaultFullyPrewarmed('session-1', 'start-2', storage)).toBe(false);
+  });
+
+  it('a start-less mark never downgrades a recorded real start, so resume detection survives', () => {
+    const storage = createStorage();
+    markVaultFullyPrewarmed('session-1', 'start-1', storage);
+    // A later prewarm-mark with the start momentarily unknown must NOT clobber the
+    // real start back to a sentinel (which would blind resume detection).
     markVaultFullyPrewarmed('session-1', null, storage);
     markVaultFullyPrewarmed('session-1', '', storage);
-    expect(hasVaultFullyPrewarmed('session-1', 'start-1', storage)).toBe(true);
-    // And a falsy current start never reads as warm, even against the real marker.
-    expect(hasVaultFullyPrewarmed('session-1', null, storage)).toBe(false);
-    expect(hasVaultFullyPrewarmed('session-1', undefined, storage)).toBe(false);
-    expect(hasVaultFullyPrewarmed('session-1', '', storage)).toBe(false);
-    // Read-guard against an EMPTY store: without `!startedAt`, getItem()->null === null
-    // (null start) would be a false-positive "warm" on a fresh session before
-    // lastStartedAt has polled — a live path via Layout's reload-skip check.
+    expect(hasVaultFullyPrewarmed('session-1', 'start-2', storage)).toBe(false);
+  });
+
+  it('never reads warm against an empty store, even when the current start is unknown', () => {
+    // A fresh session before any prewarm: no marker exists, so it must never
+    // over-skip onto a non-existent store regardless of whether the start polled.
     expect(hasVaultFullyPrewarmed('session-1', null, createStorage())).toBe(false);
+    expect(hasVaultFullyPrewarmed('session-1', 'start-1', createStorage())).toBe(false);
   });
 
   it('scopes the marker per session so another session is not falsely reported warm', () => {
