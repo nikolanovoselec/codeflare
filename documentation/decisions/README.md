@@ -2231,7 +2231,7 @@ Exclude the upstream `.mcp.json` (5 remote MCP servers — strict-egress-blocked
 
 **Category:** Architecture
 
-**Status:** Superseded by [AD95](#ad95-refine-the-vault-reload-skip-gate-to-positively-detected-restarts-only).
+**Status:** Superseded by [AD95](#ad95-refine-the-vault-reload-skip-gate-to-positively-detected-restarts-only) (2026-07-05) — the marker-keyed-to-`lastStartedAt` premise is retained; only the exact-match gate comparison is replaced.
 
 **Context:** The vault's full-prewarm marker and SilverBullet IndexedDB stores are bucket-stable and persist in the browser across a container stop ([REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)/[REQ-VAULT-023](../../sdd/spec/vault.md#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap)). The reload-skip ([REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence) AC2) armed the green control and served the local store the instant `hasVaultFullyPrewarmed(sid)` + live local readiness held — with no notion of container lifecycle. A stopped-then-resumed session therefore reused the persisted marker and opened the pre-stop snapshot: the control flashed green immediately on stale content while the service worker's ~20s background sync slowly pulled the R2-restored data (edits made elsewhere while stopped). Fresh sessions (no marker) initialized cleanly; resumed sessions did not — inconsistent behavior the user asked to make uniform.
 
@@ -2289,7 +2289,7 @@ Wiring (`wireCloudflareApiInterception`) is double-guarded: `!isEnterpriseMode(e
 
 **Consequences:** A session that resumes before its placeholder was ever upgraded reads warm across that one resume — a consciously accepted trade-off (live local readiness still gates and SB space-sync reconciles), strictly better than white-on-every-return. Confined to `web-ui/src/lib/vault-local-readiness.ts`; the Layout reload-skip effect and `checkVaultLocalReadiness` gate are unchanged. See `documentation/lanes/vault.md` § SilverBullet Editor.
 
-**Related:** [REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence), [AD93](#ad93-key-the-vault-reload-skip-to-the-container-start-so-resumed-sessions-re-initialize-cleanly).
+**Related:** [REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence).
 
 ---
 
