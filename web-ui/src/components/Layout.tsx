@@ -276,9 +276,13 @@ const Layout: Component<LayoutProps> = (props) => {
     const sid = activeRunningSid();
     if (!sid || vaultReadyBySession()[sid] !== true) return;
     if (vaultOpenIntentBySession()[sid] !== 'preparing') return; // wait for click 1
-    // Stamp the marker with the current container start so a later reload-skip is
-    // valid only for this start (REQ-VAULT-022 AC2). Tracked read.
-    const startedAt = activeSessionStartedAt();
+    // The container start is read UNTRACKED at mark time below, NOT tracked here.
+    // A tracked read re-ran this effect when lastStartedAt polled in mid-prewarm;
+    // its onCleanup then cancelled the in-flight bootstrap iframe and cleared the
+    // 'prewarming' status, so the prewarm never reached 'ready' and the control
+    // stayed breathing 'preparing' (white), never arming green on a fresh session
+    // (REQ-VAULT-022 AC2). Reading it at COMPLETION also records the real start
+    // even when the user clicked before the first batch-status poll.
     const retryNonce = vaultPrewarmRetryBySession()[sid] ?? 0;
     void retryNonce;
     const current = untrack(vaultPrewarmBySession)[sid];
@@ -300,7 +304,9 @@ const Layout: Component<LayoutProps> = (props) => {
           }
           // Record that THIS browser completed the full prewarm proof (runtime +
           // space sync + index + file listing), so a later reload skips the iframe.
-          markVaultFullyPrewarmed(sid, startedAt);
+          // Untracked read of the CURRENT container start (polled in by now), so
+          // the marker carries the real start without re-running this effect.
+          markVaultFullyPrewarmed(sid, untrack(activeSessionStartedAt));
           setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' }));
         },
         onError: (status) => setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: status })),
@@ -309,7 +315,7 @@ const Layout: Component<LayoutProps> = (props) => {
     // Even on an explicit request, skip the iframe if this browser is already fully
     // warm with live stores — opening will be instant and a remount only churns the
     // terminal focus. Otherwise mount it to build the index.
-    void eligibleToSkipPrewarm(sid, startedAt).then((skip) => {
+    void eligibleToSkipPrewarm(sid, untrack(activeSessionStartedAt)).then((skip) => {
       if (cancelled) return;
       if (skip) {
         setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' }));
@@ -366,6 +372,21 @@ const Layout: Component<LayoutProps> = (props) => {
   });
 
   const vaultReady = createMemo(() => vaultButtonStatus() === 'armed');
+
+  // Diagnostic trace (REQ-VAULT-022): the vault button lifecycle is client-only
+  // runtime state that unit tests mock, so surface every transition to the browser
+  // console — a stuck 'preparing'/'available' state on integration is then visible
+  // (filter the console by "vault-button") instead of inferred.
+  createEffect(() => {
+    const sid = sessionStore.activeSessionId;
+    if (!sid) return;
+    logger.info('vault-button', {
+      status: vaultButtonStatus(),
+      prewarm: vaultPrewarmBySession()[sid],
+      intent: vaultOpenIntentBySession()[sid],
+      startedAt: activeSessionStartedAt(),
+    });
+  });
 
   const clearVaultOpenIntent = (sid: string) =>
     setVaultOpenIntentBySession((prev) => {
