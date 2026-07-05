@@ -397,6 +397,45 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(vaultLocalReadinessMock.markFullyPrewarmed).toHaveBeenCalledWith('sess1', null);
     });
 
+    it('REQ-VAULT-018 / REQ-VAULT-022 AC2: a batch-status poll tick mid-prewarm does not tear down the in-flight iframe (arms green despite session-store churn)', async () => {
+      // Regression: keying the prewarm marker to lastStartedAt added an UNMEMOIZED
+      // reactive read of sessionStore.sessions into the on-demand prewarm effect.
+      // Every batch-status poll bumps the session store (lastActiveAt/ptyActive/
+      // startupStage), which re-ran the effect; its onCleanup cancelled the in-flight
+      // prewarm and the 'prewarming' guard blocked the restart, so the control
+      // breathed 'preparing' forever and never armed green — on a perfectly stable
+      // container. The container-start read is now firewalled behind a memo, so a
+      // poll that does NOT change lastStartedAt must leave the in-flight prewarm
+      // untouched. Gut-check: reverting the memo re-runs the effect on the bump and
+      // fails the "cancel not called" assertion below.
+      mockSessions = [createMockSession({ status: 'running', lastStartedAt: 'start-1' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+
+      render(() => <Layout />);
+      vaultProbeMock.latestOptions.setLatch();
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('available'));
+
+      // Click 1 -> the on-demand prewarm iframe mounts exactly once.
+      await (window as any).__headerProps.onVaultOpen();
+      await waitFor(() => expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(1));
+      expect((window as any).__headerProps.vaultStatus).toBe('preparing');
+      expect(vaultPrewarmMock.cancel).not.toHaveBeenCalled();
+
+      // A batch-status poll tick churns the session store while lastStartedAt is
+      // unchanged. The in-flight prewarm must survive: not cancelled, not remounted.
+      bumpSessionStoreVersion();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(vaultPrewarmMock.cancel).not.toHaveBeenCalled();
+      expect(vaultPrewarmMock.start).toHaveBeenCalledTimes(1);
+
+      // The surviving prewarm completes and arms the control green, stamping the
+      // marker with the current container start.
+      vaultPrewarmMock.latestOptions.onReady(vaultPrewarmProof);
+      await waitFor(() => expect((window as any).__headerProps.vaultStatus).toBe('armed'));
+      expect(vaultLocalReadinessMock.markFullyPrewarmed).toHaveBeenCalledWith('sess1', 'start-1');
+    });
+
     it('REQ-VAULT-019: a cold-path armed click opens the vault tab synchronously', async () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';

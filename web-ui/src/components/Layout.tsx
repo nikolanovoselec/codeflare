@@ -109,13 +109,25 @@ const Layout: Component<LayoutProps> = (props) => {
     if (sessionStore.preferences.sessionMode !== 'advanced') return null;
     return s && s.status === 'running' ? sid : null;
   });
-  // The container's current start timestamp for a session (REQ-VAULT-022 AC2). The
+  // The active session's container-start timestamp (REQ-VAULT-022 AC2). The
   // reload-skip fast-path and the full-prewarm marker are keyed on this, so a
   // RESTARTED container (a resumed session, whose lastStartedAt advanced) re-inits
   // the vault cleanly like a fresh session while a same-container reload still skips
   // instantly. Not polled yet -> null -> never skip.
-  const sessionStartedAt = (sid: string): string | null =>
-    sessionStore.sessions.find((x) => x.id === sid)?.lastStartedAt ?? null;
+  //
+  // Firewalled behind a memo exactly like `activeRunningSid` above: reading
+  // `sessionStore.sessions` directly inside an effect re-subscribes that effect to
+  // EVERY batch-status poll tick (lastActiveAt/ptyActive/startupStage churn). In the
+  // on-demand prewarm effect below a spurious re-run tears the in-flight bootstrap
+  // iframe down (onCleanup) and the 'prewarming' guard then blocks the restart, so
+  // the control breathes 'preparing' forever and never arms green — on a perfectly
+  // stable container. The memo only notifies when lastStartedAt actually changes
+  // (a real container restart), absorbing the poll churn.
+  const activeSessionStartedAt = createMemo<string | null>(() => {
+    const sid = activeRunningSid();
+    if (!sid) return null;
+    return sessionStore.sessions.find((x) => x.id === sid)?.lastStartedAt ?? null;
+  });
   // The active-running sid as of the last effect run. When the user leaves to the
   // dashboard, sessionStore.activeSessionId is already null, so we can't read the
   // departed sid from it — remember it here to clean up the departed session's latches.
@@ -243,7 +255,7 @@ const Layout: Component<LayoutProps> = (props) => {
     // Tracked read: re-run when the container restarts (lastStartedAt advances). A stop
     // already dropped any prior green (the session left 'running'), so on the new start
     // this refuses to re-skip from the stale marker -> the vault re-initializes on demand.
-    const startedAt = sessionStartedAt(sid);
+    const startedAt = activeSessionStartedAt();
     if (untrack(vaultPrewarmBySession)[sid]) return;     // already has a status
     if (!hasVaultFullyPrewarmed(sid, startedAt)) return; // never/other-start prewarm -> needs click 1
     let cancelled = false;
@@ -265,7 +277,7 @@ const Layout: Component<LayoutProps> = (props) => {
     if (vaultOpenIntentBySession()[sid] !== 'preparing') return; // wait for click 1
     // Stamp the marker with the current container start so a later reload-skip is
     // valid only for this start (REQ-VAULT-022 AC2). Tracked read.
-    const startedAt = sessionStartedAt(sid);
+    const startedAt = activeSessionStartedAt();
     const retryNonce = vaultPrewarmRetryBySession()[sid] ?? 0;
     void retryNonce;
     const current = untrack(vaultPrewarmBySession)[sid];
