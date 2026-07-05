@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed, readVaultPrewarmMarker } from '../../lib/vault-local-readiness';
+import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed, invalidateStalePrewarmMarker } from '../../lib/vault-local-readiness';
 
 function createStorage(entries: Record<string, string> = {}): Storage {
   const store = new Map(Object.entries(entries));
@@ -204,85 +204,75 @@ describe('REQ-VAULT-019: checkVaultKeyRecoverable', () => {
   });
 });
 
-describe('REQ-VAULT-022 AC2: full-prewarm marker keyed to the container start', () => {
-  it('reports warm for the same container start that recorded the marker (a page reload)', () => {
+describe('REQ-VAULT-022 AC2: full-prewarm marker', () => {
+  it('records and reports the per-session full-prewarm marker (presence-only, unknown start)', () => {
     const storage = createStorage();
-    expect(hasVaultFullyPrewarmed('session-1', 'start-1', storage)).toBe(false);
-    markVaultFullyPrewarmed('session-1', 'start-1', storage);
-    expect(hasVaultFullyPrewarmed('session-1', 'start-1', storage)).toBe(true);
-  });
-
-  it('reports NOT warm when the container start advanced, forcing a clean re-init on a resumed session', () => {
-    const storage = createStorage();
-    markVaultFullyPrewarmed('session-1', 'start-1', storage);
-    // The container was stopped and resumed: lastStartedAt advanced, so the persisted
-    // marker no longer counts as warm and the vault re-initializes like a fresh session.
-    expect(hasVaultFullyPrewarmed('session-1', 'start-2', storage)).toBe(false);
-  });
-
-  it('reports NOT warm when the current container start has not polled in yet, so a resumed session never skips onto a stale store', () => {
-    const storage = createStorage();
-    // On a page reload/return the batch-status poll has not re-delivered
-    // lastStartedAt yet, so the current start is momentarily null. A null current
-    // start is NOT proof the container is the same one, so it must never authorize
-    // a reload-skip (that is exactly what let a RESUMED session flip green and skip
-    // prewarm onto stale files). The reload-skip effect re-runs and arms once the
-    // start polls in and matches.
-    markVaultFullyPrewarmed('session-1', 'start-1', storage);
-    expect(hasVaultFullyPrewarmed('session-1', null, storage)).toBe(false);
-    expect(hasVaultFullyPrewarmed('session-1', undefined, storage)).toBe(false);
-  });
-
-  it('a start-less prewarm records no marker, so it re-prewarms next time rather than over-skipping', () => {
-    const storage = createStorage();
-    // Prewarm proved out before lastStartedAt was known: with no real start to
-    // match against later, recording nothing is correct — the next visit re-prewarms
-    // (safe) instead of skipping onto a store whose container it cannot verify.
+    expect(hasVaultFullyPrewarmed('session-1', storage)).toBe(false);
     markVaultFullyPrewarmed('session-1', null, storage);
-    markVaultFullyPrewarmed('session-1', '', storage);
-    expect(hasVaultFullyPrewarmed('session-1', 'start-1', storage)).toBe(false);
+    // Presence is what greens the reload-skip — same as before resume detection.
+    expect(hasVaultFullyPrewarmed('session-1', storage)).toBe(true);
   });
 
-  it('never reads warm against an empty store', () => {
-    // A fresh session before any prewarm: no marker exists, so it must never
-    // over-skip onto a non-existent store.
-    expect(hasVaultFullyPrewarmed('session-1', 'start-1', createStorage())).toBe(false);
-    expect(hasVaultFullyPrewarmed('session-1', null, createStorage())).toBe(false);
+  it('records the container start as the marker value when known', () => {
+    const storage = createStorage();
+    markVaultFullyPrewarmed('session-1', '2026-07-05T10:00:00.000Z', storage);
+    expect(hasVaultFullyPrewarmed('session-1', storage)).toBe(true);
+    // The stored value is the start, so a later resume can compare against it.
+    expect(storage.getItem('vault-session-session-1-prewarmed')).toBe('2026-07-05T10:00:00.000Z');
   });
 
   it('scopes the marker per session so another session is not falsely reported warm', () => {
     const storage = createStorage();
-    markVaultFullyPrewarmed('session-1', 'start-1', storage);
-    expect(hasVaultFullyPrewarmed('session-2', 'start-1', storage)).toBe(false);
+    markVaultFullyPrewarmed('session-1', null, storage);
+    expect(hasVaultFullyPrewarmed('session-2', storage)).toBe(false);
   });
 
   it('reports not-prewarmed and swallows write errors when storage is unavailable', () => {
-    expect(hasVaultFullyPrewarmed('session-1', 'start-1', null)).toBe(false);
-    expect(() => markVaultFullyPrewarmed('session-1', 'start-1', null)).not.toThrow();
+    expect(hasVaultFullyPrewarmed('session-1', null)).toBe(false);
+    expect(() => markVaultFullyPrewarmed('session-1', null, null)).not.toThrow();
   });
 });
 
-describe('REQ-VAULT-022 AC2: readVaultPrewarmMarker (raw recorded start for the optimistic reload-skip)', () => {
-  it('returns the exact container start that recorded the marker', () => {
+describe('REQ-VAULT-022 AC2: invalidateStalePrewarmMarker (stopped-then-resumed detection)', () => {
+  const KEY = 'vault-session-session-1-prewarmed';
+
+  it('drops the marker and returns true when the container has RESTARTED (start advanced)', () => {
     const storage = createStorage();
-    markVaultFullyPrewarmed('session-1', 'start-1', storage);
-    // The reload-skip arms green OPTIMISTICALLY off this raw value the instant a marker
-    // exists (before the current start polls in), then revokes if the polled-in start
-    // proves different — so it must return the recorded start verbatim, not a boolean.
-    expect(readVaultPrewarmMarker('session-1', storage)).toBe('start-1');
+    markVaultFullyPrewarmed('session-1', 'start-A', storage);
+    // The status probe reports a NEW start: the container was stopped and resumed, so
+    // the local store is a pre-stop snapshot. The marker must be invalidated so the
+    // reload-skip refuses and a normal prewarm runs. Gut the invalidation and the marker
+    // survives -> the button greens onto stale data, which is exactly the bug.
+    expect(invalidateStalePrewarmMarker('session-1', 'start-B', storage)).toBe(true);
+    expect(hasVaultFullyPrewarmed('session-1', storage)).toBe(false);
   });
 
-  it('returns null when this browser never prewarmed the session', () => {
-    expect(readVaultPrewarmMarker('session-1', createStorage())).toBeNull();
-  });
-
-  it('is scoped per session', () => {
+  it('KEEPS the marker (returns false) when the start matches — a same-container return', () => {
     const storage = createStorage();
-    markVaultFullyPrewarmed('session-1', 'start-1', storage);
-    expect(readVaultPrewarmMarker('session-2', storage)).toBeNull();
+    markVaultFullyPrewarmed('session-1', 'start-A', storage);
+    // Same container: the return must re-green instantly, so the marker survives.
+    expect(invalidateStalePrewarmMarker('session-1', 'start-A', storage)).toBe(false);
+    expect(hasVaultFullyPrewarmed('session-1', storage)).toBe(true);
   });
 
-  it('returns null when storage is unavailable', () => {
-    expect(readVaultPrewarmMarker('session-1', null)).toBeNull();
+  it('KEEPS a legacy/unknown-start sentinel marker (cannot prove a restart)', () => {
+    const storage = createStorage();
+    markVaultFullyPrewarmed('session-1', null, storage); // stored as '1'
+    expect(storage.getItem(KEY)).toBe('1');
+    expect(invalidateStalePrewarmMarker('session-1', 'start-B', storage)).toBe(false);
+    expect(hasVaultFullyPrewarmed('session-1', storage)).toBe(true);
+  });
+
+  it('does nothing when the current start is unknown (null) — cannot prove a restart', () => {
+    const storage = createStorage();
+    markVaultFullyPrewarmed('session-1', 'start-A', storage);
+    expect(invalidateStalePrewarmMarker('session-1', null, storage)).toBe(false);
+    expect(hasVaultFullyPrewarmed('session-1', storage)).toBe(true);
+  });
+
+  it('does nothing when there is no marker, and is safe when storage is unavailable', () => {
+    const storage = createStorage();
+    expect(invalidateStalePrewarmMarker('session-1', 'start-B', storage)).toBe(false);
+    expect(() => invalidateStalePrewarmMarker('session-1', 'start-B', null)).not.toThrow();
   });
 });

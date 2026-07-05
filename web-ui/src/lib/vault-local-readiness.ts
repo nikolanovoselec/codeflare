@@ -80,77 +80,69 @@ function hasRecordedDb(recordedDbs: string[], prefix: string): boolean {
  * recorded stores + active SW alone can be present mid-first-init before the
  * index finishes, and opening then would land on a slow indexing screen.
  *
- * The marker VALUE is the container's start timestamp (`lastStartedAt`), recorded
- * at prewarm COMPLETION (REQ-VAULT-022 AC2). The reload-skip is authorized ONLY
- * when the recorded start equals the start running NOW — a STRICT match:
- *
- *   - RETURN (same container, page reload / vault-tab return): the current start
- *     equals the recorded one once it polls in, so the control re-arms green with
- *     no click and no re-init. The caller records at completion (not at click
- *     time), so the marker reliably carries the real start even when the user
- *     clicked before the first batch-status poll.
- *   - RESUME (container restarted, `lastStartedAt` advanced): the recorded start
- *     no longer matches, so the reload-skip is refused and the vault re-initializes
- *     like a fresh session — a forced, normal prewarm.
- *   - UNKNOWN current start (not polled yet): treated as NOT warm. Being unable to
- *     prove the container is the same one must never skip onto a possibly-resumed
- *     (stale) store. The reload-skip effect re-runs when the start polls in and
- *     arms then. A start-less prewarm records no marker (nothing to match against),
- *     so it simply re-prewarms next time — safe, never a stale over-skip.
+ * The marker VALUE is the container start (`lastStartedAt`) the prewarm proved
+ * out under — or `'1'` when that start is unknown, so it stays truthy and the
+ * presence-only reload-skip is unchanged. The recorded start lets
+ * `invalidateStalePrewarmMarker` drop the marker when the container has since
+ * RESTARTED (a stopped-then-resumed session), forcing a clean re-prewarm instead
+ * of skipping onto the pre-stop snapshot. A same-container return keeps its
+ * marker and re-greens instantly. The compare is done at readiness-latch time
+ * against the start the status probe just reported — the one moment the current
+ * container start is known for certain — not against the laggy session-list poll.
  */
 export function markVaultFullyPrewarmed(
   sessionId: string,
-  startedAt: string | null | undefined,
+  startedAt: string | null = null,
   storage: Storage | null = getLocalStorage(),
 ): void {
-  // Record ONLY with a known container start. A marker without a real start could
-  // never be matched against the current start below, and must never authorize a
-  // reload-skip onto a possibly-resumed container. The caller marks at prewarm
-  // completion, by which point lastStartedAt has almost always polled in.
-  if (!storage || !startedAt) return;
+  if (!storage) return;
   try {
-    storage.setItem(`${VAULT_MARKER_PREFIX}${sessionId}${VAULT_PREWARMED_SUFFIX}`, startedAt);
+    storage.setItem(`${VAULT_MARKER_PREFIX}${sessionId}${VAULT_PREWARMED_SUFFIX}`, startedAt || '1');
   } catch {
     // Storage unavailable/full — the reload simply re-prewarms, which is safe.
   }
 }
 
-export function hasVaultFullyPrewarmed(
-  sessionId: string,
-  startedAt: string | null | undefined,
-  storage: Storage | null = getLocalStorage(),
-): boolean {
-  // Warm ONLY when this browser's recorded marker was stamped with the SAME
-  // container start that is running now. A resumed session (advanced lastStartedAt)
-  // never matches -> re-inits. A not-yet-polled current start (null) is not proof
-  // of the same container, so it never skips (the effect re-runs and arms once the
-  // start polls in).
-  if (!storage || !startedAt) return false;
+export function hasVaultFullyPrewarmed(sessionId: string, storage: Storage | null = getLocalStorage()): boolean {
+  if (!storage) return false;
   try {
-    return storage.getItem(`${VAULT_MARKER_PREFIX}${sessionId}${VAULT_PREWARMED_SUFFIX}`) === startedAt;
+    // Presence check only — any recorded value means this browser proved a prewarm.
+    // Kept identical to the pre-resume-detection behavior so a same-container return
+    // still greens without a click.
+    return !!storage.getItem(`${VAULT_MARKER_PREFIX}${sessionId}${VAULT_PREWARMED_SUFFIX}`);
   } catch {
     return false;
   }
 }
 
 /**
- * The raw container start recorded in this session's full-prewarm marker (the value
- * `markVaultFullyPrewarmed` stored), or null if this browser never proved a prewarm
- * for the session. The reload-skip uses this to arm green OPTIMISTICALLY the instant a
- * marker exists — without waiting for the current container start to poll in, so a
- * same-container return re-greens immediately — and separately REVOKES that green once
- * the polled-in start is known to differ (a resumed container). Keeps a same-container
- * RETURN instant while a RESUME still re-initializes (REQ-VAULT-022 AC2).
+ * Drop the full-prewarm marker when the container has RESTARTED since the marker
+ * was recorded — i.e. a stopped-then-resumed session. `currentStart` is the
+ * container start (`lastStartedAt`) the readiness status probe just reported, which
+ * is the authoritative value at the instant the vault latches ready. If the marker's
+ * recorded start differs, the local SB store is a pre-stop snapshot, so we delete the
+ * marker: the reload-skip then refuses and the vault runs a normal prewarm exactly
+ * like a fresh session. Returns true when the marker was invalidated.
+ *
+ * Never invalidates when: there is no marker; the marker is the legacy/unknown-start
+ * sentinel (`'1'`); `currentStart` is unknown (null/empty — cannot prove a restart);
+ * or the recorded start equals `currentStart` (a same-container return — kept green).
  */
-export function readVaultPrewarmMarker(
+export function invalidateStalePrewarmMarker(
   sessionId: string,
+  currentStart: string | null | undefined,
   storage: Storage | null = getLocalStorage(),
-): string | null {
-  if (!storage) return null;
+): boolean {
+  if (!storage || !currentStart) return false;
   try {
-    return storage.getItem(`${VAULT_MARKER_PREFIX}${sessionId}${VAULT_PREWARMED_SUFFIX}`);
+    const key = `${VAULT_MARKER_PREFIX}${sessionId}${VAULT_PREWARMED_SUFFIX}`;
+    const recorded = storage.getItem(key);
+    if (!recorded || recorded === '1') return false; // no marker or unknown-start sentinel
+    if (recorded === currentStart) return false;      // same container -> keep green
+    storage.removeItem(key);                          // restarted container -> force re-prewarm
+    return true;
   } catch {
-    return null;
+    return false;
   }
 }
 

@@ -31,28 +31,47 @@
  * no console churn. Any non-2xx, malformed body, or network error resolves to
  * false (not ready), so the caller treats it as "keep warming".
  */
+export interface VaultReadyProbeResult {
+  ready: boolean;
+  /**
+   * The container's current start timestamp (`session.lastStartedAt`) as reported by
+   * the status endpoint at the moment of this probe. This is the AUTHORITATIVE current
+   * start — known for certain the instant the vault latches ready — used to detect a
+   * stopped-then-resumed container (advanced start) and force a clean re-prewarm.
+   * Null when not ready, absent, or on any error.
+   */
+  lastStartedAt: string | null;
+}
+
 export async function probeVaultReady(
   sessionId: string,
   fetchImpl: typeof fetch = fetch,
-): Promise<boolean> {
+): Promise<VaultReadyProbeResult> {
   try {
     const res = await fetchImpl(`/api/vault/${encodeURIComponent(sessionId)}/status`, {
       cache: 'no-store',
       signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) return false;
-    const data = (await res.json()) as { vaultReady?: boolean };
-    return data.vaultReady === true;
+    if (!res.ok) return { ready: false, lastStartedAt: null };
+    const data = (await res.json()) as { vaultReady?: boolean; session?: { lastStartedAt?: string | null } };
+    return {
+      ready: data.vaultReady === true,
+      lastStartedAt: data.session?.lastStartedAt ?? null,
+    };
   } catch {
-    return false;
+    return { ready: false, lastStartedAt: null };
   }
 }
 
 export interface VaultReadinessOptions {
-  /** Returns true if SB is reachable, false otherwise (already swallows errors). */
-  probe: () => Promise<boolean>;
-  /** Called when the probe first succeeds and on each successful steady re-probe. */
-  setLatch: () => void;
+  /** Resolves the readiness result (ready flag + the container start). Swallows errors. */
+  probe: () => Promise<VaultReadyProbeResult>;
+  /**
+   * Called when the probe first succeeds and on each successful steady re-probe.
+   * Receives the container start (`lastStartedAt`) the successful probe reported, so
+   * the caller can invalidate a stale reload-skip marker on a resumed container.
+   */
+  setLatch: (lastStartedAt: string | null) => void;
   /** Called when a steady re-probe fails (SB crashed mid-session). */
   clearLatch: () => void;
   /** Returns true if the prior session-scope already had a successful probe. */
@@ -79,10 +98,10 @@ export function startVaultReadinessProbe(opts: VaultReadinessOptions): () => voi
 
   const warmup = async (): Promise<void> => {
     if (cancelled) return;
-    const ok = await opts.probe();
+    const result = await opts.probe();
     if (cancelled) return;
-    if (ok) {
-      opts.setLatch();
+    if (result.ready) {
+      opts.setLatch(result.lastStartedAt);
       timer = schedule(steady, opts.steadyIntervalMs);
       return;
     }
@@ -91,9 +110,9 @@ export function startVaultReadinessProbe(opts: VaultReadinessOptions): () => voi
 
   const steady = async (): Promise<void> => {
     if (cancelled) return;
-    const ok = await opts.probe();
+    const result = await opts.probe();
     if (cancelled) return;
-    if (!ok) {
+    if (!result.ready) {
       opts.clearLatch();
       timer = schedule(warmup, opts.warmupIntervalMs);
       return;

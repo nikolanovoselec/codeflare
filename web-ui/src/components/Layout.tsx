@@ -16,7 +16,7 @@ import type { TileLayout, AgentType, TabConfig } from '../types';
 import { VIEW_TRANSITION_DURATION_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS } from '../lib/constants';
 import { startVaultReadinessProbe, probeVaultReady } from '../lib/vault-readiness';
 import { DEFAULT_VAULT_PREWARM_TIMEOUT_MS, startVaultPrewarm, type VaultPrewarmStatus } from '../lib/vault-prewarm';
-import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed, readVaultPrewarmMarker } from '../lib/vault-local-readiness';
+import { checkVaultLocalReadiness, checkVaultKeyRecoverable, markVaultFullyPrewarmed, hasVaultFullyPrewarmed, invalidateStalePrewarmMarker } from '../lib/vault-local-readiness';
 import type { VaultButtonStatus } from './VaultButton';
 import { requestBrowserStoragePersistence } from '../lib/browser-storage-persistence';
 
@@ -109,30 +109,15 @@ const Layout: Component<LayoutProps> = (props) => {
     if (sessionStore.preferences.sessionMode !== 'advanced') return null;
     return s && s.status === 'running' ? sid : null;
   });
-  // The active session's container-start timestamp (REQ-VAULT-022 AC2). The
-  // reload-skip fast-path and the full-prewarm marker are keyed on this, so a
-  // RESTARTED container (a resumed session, whose lastStartedAt advanced) re-inits
-  // the vault cleanly like a fresh session while a same-container reload still skips
-  // instantly. Not polled yet -> null -> never skip.
-  //
-  // Firewalled behind a memo exactly like `activeRunningSid` above: reading
-  // `sessionStore.sessions` directly inside an effect re-subscribes that effect to
-  // EVERY batch-status poll tick (lastActiveAt/ptyActive/startupStage churn). In the
-  // on-demand prewarm effect below a spurious re-run tears the in-flight bootstrap
-  // iframe down and clears its 'prewarming' status (onCleanup), so the effect
-  // re-mounts a fresh prewarm on every poll tick — each restart pre-empts the
-  // previous before it can complete, so the control never finishes prewarming and
-  // never arms green on a perfectly stable container. The memo only notifies when
-  // lastStartedAt actually changes (a real container restart), absorbing the churn.
-  const activeSessionStartedAt = createMemo<string | null>(() => {
-    const sid = activeRunningSid();
-    if (!sid) return null;
-    return sessionStore.sessions.find((x) => x.id === sid)?.lastStartedAt ?? null;
-  });
   // The active-running sid as of the last effect run. When the user leaves to the
   // dashboard, sessionStore.activeSessionId is already null, so we can't read the
   // departed sid from it — remember it here to clean up the departed session's latches.
   let lastVaultSid: string | null = null;
+  // The container start (`lastStartedAt`) the status probe reported when the vault
+  // last latched ready, per session. Non-reactive: read only at prewarm completion to
+  // stamp the reload-skip marker with the start it proved out under, so a later resume
+  // (advanced start) can be detected. Not a signal — no UI depends on it reactively.
+  const vaultReadyStartBySession = new Map<string, string | null>();
   createEffect(() => {
     const sid = activeRunningSid();
     if (!sid) {
@@ -158,10 +143,22 @@ const Layout: Component<LayoutProps> = (props) => {
     // parallel warmup chain via effect re-run).
     const cancel = startVaultReadinessProbe({
       probe: () => probeVaultReady(sid),
-      setLatch: () => setVaultReadyBySession((prev) => {
-        if (prev[sid] === true) return prev;
-        return { ...prev, [sid]: true };
-      }),
+      setLatch: (lastStartedAt) => {
+        // Resume detection: the status probe just reported the container's CURRENT
+        // start. If this browser's reload-skip marker was recorded under a different
+        // start, the container has RESTARTED (a stopped-then-resumed session) and the
+        // local SB store is a pre-stop snapshot — drop the marker so the reload-skip
+        // below refuses and the vault runs a normal prewarm, like a fresh session. A
+        // same-container return keeps its marker and re-greens instantly. This is the
+        // one moment the current start is known for certain, so the compare happens
+        // here rather than against the laggy session-list poll.
+        vaultReadyStartBySession.set(sid, lastStartedAt);
+        invalidateStalePrewarmMarker(sid, lastStartedAt);
+        setVaultReadyBySession((prev) => {
+          if (prev[sid] === true) return prev;
+          return { ...prev, [sid]: true };
+        });
+      },
       clearLatch: () => {
         setVaultReadyBySession((prev) => {
           if (prev[sid] !== true) return prev;
@@ -192,8 +189,8 @@ const Layout: Component<LayoutProps> = (props) => {
   // Race a full local-readiness proof against a short timeout, so a hung local
   // query (e.g. a wedged indexedDB.databases()) falls back to "not ready" instead
   // of stalling the reload-skip decision.
-  const eligibleToSkipPrewarm = async (sid: string, startedAt: string | null): Promise<boolean> => {
-    if (!hasVaultFullyPrewarmed(sid, startedAt)) return false;
+  const eligibleToSkipPrewarm = async (sid: string): Promise<boolean> => {
+    if (!hasVaultFullyPrewarmed(sid)) return false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       return await Promise.race([
@@ -253,46 +250,10 @@ const Layout: Component<LayoutProps> = (props) => {
   createEffect(() => {
     const sid = activeRunningSid();
     if (!sid || vaultReadyBySession()[sid] !== true) return;
-    // Tracked read FIRST — subscribe to the container start UNCONDITIONALLY so a resume
-    // (lastStartedAt advance) always re-runs this effect, even when the marker was written
-    // AFTER an earlier null-marker run. The cold path records the marker at prewarm
-    // COMPLETION, so this effect's prior run returned on a null marker before ever reading
-    // the start; without an unconditional subscription a later resume would never re-run it
-    // to revoke a cold-path 'armed' green (REQ-VAULT-022 AC2).
-    const startedAt = activeSessionStartedAt();
-    const marker = readVaultPrewarmMarker(sid);
-    if (!marker) return;                                  // never prewarmed here -> needs click 1
-    if (startedAt && marker !== startedAt) {
-      // Resumed container (lastStartedAt advanced): REVOKE any green and drop to
-      // 'available' so the next click runs a normal prewarm, exactly like a fresh session.
-      // Clears BOTH greens: the optimistic reload-skip green (pw==='ready', no intent) AND
-      // a cold-path 'armed' open-intent (a prewarmed-but-never-opened session) — the status
-      // memo returns 'armed' on an 'armed' intent BEFORE it looks at pw, so leaving the
-      // intent would keep a cold-path green alive across a resume, violating AC2. Never
-      // touches an in-flight prewarm ('prewarming') or a 'preparing' intent (the on-demand
-      // effect owns those).
-      setVaultPrewarmBySession((prev) => {
-        if (prev[sid] !== 'ready') return prev;
-        const next = { ...prev };
-        delete next[sid];
-        return next;
-      });
-      setVaultOpenIntentBySession((prev) => {
-        if (prev[sid] !== 'armed') return prev;
-        const next = { ...prev };
-        delete next[sid];
-        return next;
-      });
-      return;
-    }
-    // Same container, OR the current start has not polled in yet: arm green
-    // OPTIMISTICALLY once live local readiness holds — a same-container return re-greens
-    // instantly without waiting for the batch poll to re-deliver lastStartedAt (the
-    // strict wait is what dropped the button to white and forced a re-init every return).
-    // If the start later proves different (a resume), the branch above revokes it.
-    if (untrack(vaultPrewarmBySession)[sid]) return;      // already has a status
+    if (untrack(vaultPrewarmBySession)[sid]) return; // already has a status
+    if (!hasVaultFullyPrewarmed(sid)) return;        // never prewarmed here -> needs click 1
     let cancelled = false;
-    void eligibleToSkipPrewarm(sid, marker).then((skip) => {
+    void eligibleToSkipPrewarm(sid).then((skip) => {
       if (cancelled || untrack(vaultPrewarmBySession)[sid]) return;
       if (skip) setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' }));
     });
@@ -308,13 +269,6 @@ const Layout: Component<LayoutProps> = (props) => {
     const sid = activeRunningSid();
     if (!sid || vaultReadyBySession()[sid] !== true) return;
     if (vaultOpenIntentBySession()[sid] !== 'preparing') return; // wait for click 1
-    // The container start is read UNTRACKED at mark time below, NOT tracked here.
-    // A tracked read re-ran this effect when lastStartedAt polled in mid-prewarm;
-    // its onCleanup then cancelled the in-flight bootstrap iframe and cleared the
-    // 'prewarming' status, so the prewarm never reached 'ready' and the control
-    // stayed breathing 'preparing' (white), never arming green on a fresh session
-    // (REQ-VAULT-022 AC2). Reading it at COMPLETION also records the real start
-    // even when the user clicked before the first batch-status poll.
     const retryNonce = vaultPrewarmRetryBySession()[sid] ?? 0;
     void retryNonce;
     const current = untrack(vaultPrewarmBySession)[sid];
@@ -336,9 +290,10 @@ const Layout: Component<LayoutProps> = (props) => {
           }
           // Record that THIS browser completed the full prewarm proof (runtime +
           // space sync + index + file listing), so a later reload skips the iframe.
-          // Untracked read of the CURRENT container start (polled in by now), so
-          // the marker carries the real start without re-running this effect.
-          markVaultFullyPrewarmed(sid, untrack(activeSessionStartedAt));
+          // Stamp it with the container start this prewarm proved out under (from the
+          // readiness probe), so a later resume (advanced start) invalidates it and
+          // re-prewarms instead of skipping onto the pre-stop snapshot.
+          markVaultFullyPrewarmed(sid, vaultReadyStartBySession.get(sid) ?? null);
           setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' }));
         },
         onError: (status) => setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: status })),
@@ -347,7 +302,7 @@ const Layout: Component<LayoutProps> = (props) => {
     // Even on an explicit request, skip the iframe if this browser is already fully
     // warm with live stores — opening will be instant and a remount only churns the
     // terminal focus. Otherwise mount it to build the index.
-    void eligibleToSkipPrewarm(sid, untrack(activeSessionStartedAt)).then((skip) => {
+    void eligibleToSkipPrewarm(sid).then((skip) => {
       if (cancelled) return;
       if (skip) {
         setVaultPrewarmBySession((prev) => ({ ...prev, [sid]: 'ready' }));
@@ -405,23 +360,6 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const vaultReady = createMemo(() => vaultButtonStatus() === 'armed');
 
-  // Diagnostic trace (REQ-VAULT-022): the vault button lifecycle is client-only
-  // runtime state that unit tests mock, so surface every transition to the browser
-  // console — a stuck 'preparing'/'available' state on integration is then visible
-  // (filter the console by "vault-button"). Emitted at WARN so it survives the
-  // production `minLevel='warn'` gate (logger.info is dropped off localhost), i.e.
-  // it is actually visible on the deployed integration surface this diagnoses.
-  createEffect(() => {
-    const sid = sessionStore.activeSessionId;
-    if (!sid) return;
-    logger.warn('vault-button', {
-      status: vaultButtonStatus(),
-      prewarm: vaultPrewarmBySession()[sid],
-      intent: vaultOpenIntentBySession()[sid],
-      startedAt: activeSessionStartedAt(),
-    });
-  });
-
   const clearVaultOpenIntent = (sid: string) =>
     setVaultOpenIntentBySession((prev) => {
       if (prev[sid] === undefined) return prev;
@@ -468,11 +406,10 @@ const Layout: Component<LayoutProps> = (props) => {
     setVaultOpenIntentBySession((prev) => ({ ...prev, [sid]: 'preparing' }));
   };
 
-  // While 'preparing', poll until the prewarm proof is ready, then arm (button breathes
-  // green, next click opens). Arming greens on the prewarm proof ALONE; the encryption
-  // key is armed for real at open time by the bootstrap-hop + SW __cfRecover
-  // (REQ-VAULT-024), so `checkVaultKeyRecoverable` runs here only as a non-blocking
-  // diagnostic and there is no per-tick `/.vault-key` keep-warm poll.
+  // While 'preparing', poll until the prewarm proof is ready AND the encryption key
+  // is recoverable, then arm (button breathes green, next click opens). The key fetch
+  // short-circuits behind the prewarm proof, so once the proof lands re-fetching
+  // `/.vault-key` each tick also keeps an idle container warm until the open.
   createEffect(() => {
     const sid = sessionStore.activeSessionId;
     if (!sid || vaultOpenIntentBySession()[sid] !== 'preparing') return;
@@ -481,20 +418,12 @@ const Layout: Component<LayoutProps> = (props) => {
     const prewarmReady = vaultPrewarmBySession()[sid] === 'ready';
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const tick = () => {
+    const tick = async () => {
       if (cancelled) return;
-      if (prewarmReady) {
-        // Arm green the moment the full prewarm proof is complete — consistent with the
-        // reload-skip path, which greens on the proof alone. The encryption key is
-        // (re-)armed at OPEN time by the bootstrap-hop + SW __cfRecover (REQ-VAULT-024),
-        // so a green button always opens safely; gating the green on a separate pre-open
-        // `/.vault-key` poll caused a false-negative that left a fresh session breathing
-        // accent forever, never green, even though the vault opened fine (REQ-VAULT-019
-        // amended: key recoverability is a diagnostic here, verified for real at open).
+      const ready = prewarmReady && (await checkVaultKeyRecoverable(sid));
+      if (cancelled) return;
+      if (ready) {
         setVaultOpenIntentBySession((prev) => (prev[sid] === 'preparing' ? { ...prev, [sid]: 'armed' } : prev));
-        void checkVaultKeyRecoverable(sid).then((ok) => {
-          if (!ok && !cancelled) logger.warn('vault-key not recoverable at arm time (opens via bootstrap-hop)', { sid });
-        });
         return;
       }
       timer = setTimeout(() => void tick(), VAULT_KEY_POLL_INTERVAL_MS);
