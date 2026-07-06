@@ -333,6 +333,30 @@ RUN npm install -g consult-llm-mcp@2.13.4 && \
     rm -rf /root/.npm
 
 # ---------------------------------------------------------------------------
+# Browser Run interactive MCP server (chrome-devtools-mcp).
+# Claude Code does not support Pi's `lifecycle: "lazy"` process-start contract,
+# so a runtime `npx -y chrome-devtools-mcp@...` forces Claude sessions to pay a
+# cold npm resolve/download/extract path on first startup (npm cache is excluded
+# from R2 and purged at boot). Bake the pinned npx install into /opt/codeflare
+# and expose a stable bin path. The shadow-pin workflow updates ONLY
+# CHROME_DEVTOOLS_MCP_VERSION; the image rebuild then regenerates the matching
+# cache and smoke-tests the bin, so a future bump cannot ship a stale cache.
+ENV CHROME_DEVTOOLS_MCP_VERSION=1.5.0
+ENV CHROME_DEVTOOLS_MCP_NPX_CACHE=/opt/codeflare/chrome-devtools-mcp-npx-cache
+ENV CHROME_DEVTOOLS_MCP_BIN=/opt/codeflare/bin/chrome-devtools-mcp
+RUN mkdir -p "$CHROME_DEVTOOLS_MCP_NPX_CACHE" "$(dirname "$CHROME_DEVTOOLS_MCP_BIN")" && \
+    NPM_CONFIG_CACHE="$CHROME_DEVTOOLS_MCP_NPX_CACHE" \
+    NPM_CONFIG_UPDATE_NOTIFIER=false \
+    npx -y "chrome-devtools-mcp@$CHROME_DEVTOOLS_MCP_VERSION" --help >/dev/null && \
+    MCP_BIN_LINK="$(find "$CHROME_DEVTOOLS_MCP_NPX_CACHE/_npx" -path '*/node_modules/.bin/chrome-devtools-mcp' -print -quit)" && \
+    [ -n "$MCP_BIN_LINK" ] || { echo "[Dockerfile] FATAL: chrome-devtools-mcp bin missing from baked npx cache" >&2; exit 1; } && \
+    MCP_BIN="$(readlink -f "$MCP_BIN_LINK")" && \
+    [ -x "$MCP_BIN" ] || { echo "[Dockerfile] FATAL: chrome-devtools-mcp bin not executable in baked npx cache" >&2; exit 1; } && \
+    ln -sf "$MCP_BIN" "$CHROME_DEVTOOLS_MCP_BIN" && \
+    "$CHROME_DEVTOOLS_MCP_BIN" --help >/dev/null && \
+    rm -rf "$CHROME_DEVTOOLS_MCP_NPX_CACHE/_logs" /root/.npm
+
+# ---------------------------------------------------------------------------
 # Claude-side Browser Run MCP server (REQ-BROWSER-005). The analog of Pi's
 # native browser-run.ts extension: exposes the Cloudflare Browser Run REST Quick
 # Actions (markdown / content / scrape) as MCP tools so Claude has the same cheap

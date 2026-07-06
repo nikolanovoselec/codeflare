@@ -248,11 +248,12 @@ describe('shadow-pin bump workflow / REQ-OPS-020 (shadow-pin version bump automa
     assert.match(body, /npm view consult-llm-mcp version/, 'consult-llm-mcp job must check the npm registry');
   });
 
-  test('AC2: chrome-devtools-mcp npm package (entrypoint npx pin) is watched', () => {
+  test('AC2: chrome-devtools-mcp npm package (Dockerfile baked-cache pin) is watched', () => {
     const body = readWorkflow('bump-shadow-pins.yml');
     assert.match(body, /^\s+chrome-devtools-mcp:/m, 'bump-shadow-pins.yml must declare a `chrome-devtools-mcp:` job');
     assert.match(body, /npm view chrome-devtools-mcp version/, 'chrome-devtools-mcp job must check the npm registry');
-    assert.match(body, /chrome-devtools-mcp@\$\{cur\}/, 'chrome-devtools-mcp job must rewrite the entrypoint pin');
+    assert.match(body, /CHROME_DEVTOOLS_MCP_VERSION=/, 'chrome-devtools-mcp job must read and rewrite the Dockerfile version source of truth');
+    assert.match(body, /git add Dockerfile/, 'chrome-devtools-mcp job must commit the Dockerfile pin update so the next image bakes the new cache');
   });
 
   test('AC2: @modelcontextprotocol/sdk (browser-run-mcp package.json) is watched', () => {

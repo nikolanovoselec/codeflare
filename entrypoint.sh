@@ -2591,7 +2591,7 @@ echo "[entrypoint] graphify MCP server registered in .claude.json (version $GRAP
 # WebFetch fallback for bot-protection, login walls, redirect chains, and
 # JS-only pages. (Implements REQ-BROWSER-001 / REQ-BROWSER-003)
 #
-# Both coding agents get the SAME chrome-devtools-mcp server pointed at the
+# Both coding agents get the SAME image-baked chrome-devtools-mcp server pointed at the
 # Browser Run CDP /devtools WebSocket, so both have full interactive control
 # (navigate, click, fill, take_screenshot, take_snapshot, resize_page for a
 # mobile viewport) — the foundation the browser-e2e skill rests on:
@@ -2627,11 +2627,13 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
     # safely encoded, then pass it as a single --wsHeaders=<json> arg.
     CDP_WS_HEADERS=$(jq -nc --arg auth "Bearer $CLOUDFLARE_API_TOKEN" '{Authorization:$auth}')
 
-    # Claude Code (~/.claude.json) - mirror the graphify MCP merge. Pin the MCP
-    # server version (not @latest) so a session is reproducible and a bad upstream
-    # release cannot silently change behaviour mid-deploy.
-    BROWSER_MCP_CLAUDE=$(jq -n --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
-        '{mcpServers:{"chrome-devtools":{command:"npx",args:["-y","chrome-devtools-mcp@1.5.0",("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)]}}}')
+    # Claude Code (~/.claude.json) - mirror the graphify MCP merge. Use the
+    # Dockerfile-baked chrome-devtools-mcp bin so Claude startup never pays a
+    # runtime npx resolve/download/extract cost. The Dockerfile owns the version
+    # pin and the bump-shadow-pins workflow updates that single source of truth.
+    CDP_MCP_BIN="${CHROME_DEVTOOLS_MCP_BIN:-/opt/codeflare/bin/chrome-devtools-mcp}"
+    BROWSER_MCP_CLAUDE=$(jq -n --arg bin "$CDP_MCP_BIN" --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
+        '{mcpServers:{"chrome-devtools":{command:$bin,args:[("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)]}}}')
     if [ -f "$USER_CLAUDE_JSON" ]; then
         TMP_JSON=$(mktemp)
         if jq --argjson mcp "$BROWSER_MCP_CLAUDE" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
@@ -2651,8 +2653,8 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
     # connects on first use and disconnects on idle, so an idle Pi session does
     # not hold a remote browser open. Pi keeps its native browser_* tools too (the
     # cheap one-shot REST read path); chrome-devtools adds the interactive flow.
-    BROWSER_MCP_PI=$(jq -n --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
-        '{mcpServers:{"chrome-devtools":{command:"npx",args:["-y","chrome-devtools-mcp@1.5.0",("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)],lifecycle:"lazy"}}}')
+    BROWSER_MCP_PI=$(jq -n --arg bin "$CDP_MCP_BIN" --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
+        '{mcpServers:{"chrome-devtools":{command:$bin,args:[("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)],lifecycle:"lazy"}}}')
     PI_MCP_JSON="$USER_HOME/.pi/agent/mcp.json"
     mkdir -p "$USER_HOME/.pi/agent"
     if [ -f "$PI_MCP_JSON" ]; then
