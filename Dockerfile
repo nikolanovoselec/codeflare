@@ -91,8 +91,8 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o 
     && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
 
 # Install zoxide from GitHub releases (pinned version, not in Debian bookworm repos)
-RUN ZOXIDE_VERSION="0.9.9" && \
-    ZOXIDE_SHA256="4ff057d3c4d957946937274c2b8be7af2a9bbae7f90a1b5e9baaa7cb65a20caa" && \
+RUN ZOXIDE_VERSION="0.10.0" && \
+    ZOXIDE_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/ajeetdsouza/zoxide/releases/download/v${ZOXIDE_VERSION}/zoxide-${ZOXIDE_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o /tmp/zoxide.tar.gz && \
     echo "${ZOXIDE_SHA256}  /tmp/zoxide.tar.gz" | sha256sum -c - && \
     tar xzf /tmp/zoxide.tar.gz -C /usr/local/bin zoxide && \
