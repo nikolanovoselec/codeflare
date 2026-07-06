@@ -159,14 +159,14 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       expect(instance.sleepAfter).toBe('24h');
     });
 
-    it('initializes with idleTimeoutPref 2h (fail-safe default per REQ-OPS-006 AC8)', () => {
-      // The class-field default is the MAXIMUM supported value (2h), not the
+    it('initializes with idleTimeoutPref 4h (fail-safe default per REQ-OPS-006 AC8)', () => {
+      // The class-field default is the MAXIMUM supported value (4h), not the
       // minimum. A short fallback would kill the container before storage
       // reads / user-pref writes complete; a long fallback only lets the
       // container live longer than expected. See REQ-OPS-006 AC8 + AD/issue
       // codeflare#294 context.
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      expect(instance.idleTimeoutPref).toBe('2h');
+      expect(instance.idleTimeoutPref).toBe('4h');
     });
 
     it('calls blockConcurrencyWhile in constructor', () => {
@@ -1848,9 +1848,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
     // The wire + storage names are intentionally preserved so existing clients
     // and persisted DOs keep working across the refactor.
 
-    it('defaults to 2h when not in storage (fail-safe per REQ-OPS-006 AC8)', () => {
+    it('defaults to 4h when not in storage (fail-safe per REQ-OPS-006 AC8)', () => {
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      expect(instance.idleTimeoutPref).toBe('2h');
+      expect(instance.idleTimeoutPref).toBe('4h');
     });
 
     it('loads from DO storage on construction (storage key: sleepAfter)', async () => {
@@ -1865,7 +1865,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       });
     });
 
-    it('rejects invalid values from storage and falls back to fail-safe 2h default', async () => {
+    it('rejects invalid values from storage and falls back to fail-safe 4h default', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'sleepAfter') return 'invalid';
         return null;
@@ -1875,7 +1875,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       await vi.waitFor(() => {
         expect(mockCtx.blockConcurrencyWhile).toHaveBeenCalled();
       });
-      expect(instance.idleTimeoutPref).toBe('2h');
+      expect(instance.idleTimeoutPref).toBe('4h');
     });
 
     it('persists to DO storage on initial setBucketName', async () => {
@@ -1946,9 +1946,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
         (c: unknown[]) => c[0] === 'sleepAfter'
       );
       expect(sleepAfterPuts).toHaveLength(0);
-      // Class-field default is now 2h (fail-safe per REQ-OPS-006 AC8) - the
+      // Class-field default is now 4h (fail-safe per REQ-OPS-006 AC8) - the
       // invalid input was correctly rejected and the default preserved.
-      expect(instance.idleTimeoutPref).toBe('2h');
+      expect(instance.idleTimeoutPref).toBe('4h');
     });
 
     it('SDK.sleepAfter stays pinned to 24h regardless of user preference', async () => {
@@ -2170,7 +2170,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
 
     it('stops with SIGTERM when lastInputAt exceeds idleTimeoutPref', async () => {
       const instance = await createRunningInstance();
-      // Set pref to 5m explicitly (class-field default is now 2h fail-safe per
+      // Set pref to 5m explicitly (class-field default is now 4h fail-safe per
       // REQ-OPS-006 AC8 - so just an idle duration won't do, we need to set
       // the user-configured pref low to exercise the boundary).
       instance.idleTimeoutPref = '5m';
@@ -2192,7 +2192,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
 
     it('stops with SIGTERM when lastInputAt is null and containerStartedAt is old', async () => {
       const instance = await createRunningInstance();
-      instance.idleTimeoutPref = '5m'; // explicit short pref, otherwise 2h default never trips
+      instance.idleTimeoutPref = '5m'; // explicit short pref, otherwise 4h default never trips
 
       // Manually age the container's started-at so the fallback reference
       // time pushes idleMs past the 5m configured threshold.
@@ -2274,7 +2274,62 @@ describe('container DO class / REQ-SESSION-002 (one container per session)', () 
       // Properties set by the class
       expect(instance.defaultPort).toBe(8080);
       expect(instance.sleepAfter).toBe('24h');
-      expect(instance.idleTimeoutPref).toBe('2h');
+      expect(instance.idleTimeoutPref).toBe('4h');
+    });
+  });
+
+  // REQ-AGENT-078: the DO-side wiring decision for the OAuth api.cloudflare.com
+  // interceptor. This pins the "never touch enterprise" invariant — the guard
+  // that decides WHETHER to wire the interceptor at all — so a future edit that
+  // weakens the enterprise early-return fails here.
+  describe('wireCloudflareApiInterception (OAuth-mode wiring guard, REQ-AGENT-078)', () => {
+    function makeWiringCtx() {
+      const interceptOutboundHttps = vi.fn();
+      const CloudflareBrowserInterceptor = vi.fn(() => ({ fetch: vi.fn() }));
+      const ctx = {
+        ...mockCtx,
+        exports: { CloudflareBrowserInterceptor },
+        container: { ...mockContainerRuntime, interceptOutboundHttps },
+      };
+      return { ctx, interceptOutboundHttps, CloudflareBrowserInterceptor };
+    }
+
+    it('wires api.cloudflare.com in OAuth mode: non-enterprise + placeholder token + bound bucket', () => {
+      const { ctx, interceptOutboundHttps, CloudflareBrowserInterceptor } = makeWiringCtx();
+      const instance = new ContainerClass(ctx as any, { ...mockEnv, ENTERPRISE_MODE: undefined });
+      (instance as any)._cloudflareApiToken = 'codeflare-oauth';
+      (instance as any)._bucketName = 'user-bucket';
+      (instance as any).wireCloudflareApiInterception();
+      // The interceptor is bound to the session bucket only (no request-supplied identity).
+      expect(CloudflareBrowserInterceptor).toHaveBeenCalledWith({ props: { bucket: 'user-bucket' } });
+      expect(interceptOutboundHttps).toHaveBeenCalledWith('api.cloudflare.com', expect.anything());
+    });
+
+    it('does NOT wire in enterprise mode even with an oauth placeholder + bucket (never claims the enterprise host)', () => {
+      const { ctx, interceptOutboundHttps } = makeWiringCtx();
+      const instance = new ContainerClass(ctx as any, { ...mockEnv, ENTERPRISE_MODE: 'active' });
+      (instance as any)._cloudflareApiToken = 'codeflare-oauth';
+      (instance as any)._bucketName = 'user-bucket';
+      (instance as any).wireCloudflareApiInterception();
+      expect(interceptOutboundHttps).not.toHaveBeenCalled();
+    });
+
+    it('does NOT wire when the container token is not the OAuth placeholder (PAT / real-token session)', () => {
+      const { ctx, interceptOutboundHttps } = makeWiringCtx();
+      const instance = new ContainerClass(ctx as any, { ...mockEnv, ENTERPRISE_MODE: undefined });
+      (instance as any)._cloudflareApiToken = 'a-real-pat-deploy-token';
+      (instance as any)._bucketName = 'user-bucket';
+      (instance as any).wireCloudflareApiInterception();
+      expect(interceptOutboundHttps).not.toHaveBeenCalled();
+    });
+
+    it('does NOT wire when no bucket is bound (cannot resolve a token)', () => {
+      const { ctx, interceptOutboundHttps } = makeWiringCtx();
+      const instance = new ContainerClass(ctx as any, { ...mockEnv, ENTERPRISE_MODE: undefined });
+      (instance as any)._cloudflareApiToken = 'codeflare-oauth';
+      (instance as any)._bucketName = null;
+      (instance as any).wireCloudflareApiInterception();
+      expect(interceptOutboundHttps).not.toHaveBeenCalled();
     });
   });
 });

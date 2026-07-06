@@ -119,6 +119,18 @@ export const ENTERPRISE_R2_KEY_PLACEHOLDER = 'codeflare-enterprise';
 export const ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER = 'codeflare-enterprise';
 
 /**
+ * REQ-AGENT-078: placeholder Cloudflare API token emitted into the container as
+ * CLOUDFLARE_API_TOKEN for NON-enterprise "Connect to Cloudflare" (OAuth) sessions, so
+ * `wrangler` + browser-run run in authed mode but the real short-lived OAuth access token
+ * never enters the container. The CloudflareBrowserInterceptor (OAuth mode) strips this
+ * placeholder and stamps a freshly-refreshed token at the api.cloudflare.com boundary on
+ * EVERY request. Deliberately a DISTINCT value from the enterprise placeholders: the DO
+ * keys the OAuth-mode wiring off this exact value (`wireCloudflareApiInterception`), so it
+ * must not collide with `ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER`.
+ */
+export const CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER = 'codeflare-oauth';
+
+/**
  * REQ-ENTERPRISE-012: default per-route context window (tokens) for an enterprise
  * dynamic route. The Setup wizard prefills each route's context-window field with
  * this value and the admin can raise it (e.g. a 1M-context BYOK model) or reset back

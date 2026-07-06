@@ -186,11 +186,11 @@ const OnboardingPage: Component = () => {
                 onChange={(e) => handleSleepAfterChange(e.currentTarget.value)}
                 data-testid="onboarding-timeout-select"
               >
-                <option value="5m">5 minutes</option>
                 <option value="15m">15 minutes</option>
                 <option value="30m">30 minutes</option>
                 <option value="1h">1 hour</option>
                 <option value="2h">2 hours</option>
+                <option value="4h">4 hours</option>
               </select>
             </div>
             <span class="onboarding-section-hint">

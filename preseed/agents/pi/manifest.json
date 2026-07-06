@@ -107,6 +107,11 @@
       "advanced"
     ]
   },
+  "extensions/vault-manifest-fs.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/graphify/SKILL.md": {
     "modes": [
       "advanced"

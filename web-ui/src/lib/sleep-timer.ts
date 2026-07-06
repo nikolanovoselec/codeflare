@@ -7,11 +7,14 @@ export interface SleepTimerInfo {
 }
 
 const SLEEP_AFTER_MS: Record<string, number> = {
+  // '5m' retired from the picker but retained here so a legacy stored pref still
+  // renders a correct countdown rather than falling through to DEFAULT_MS.
   '5m': 300_000,
   '15m': 900_000,
   '30m': 1_800_000,
   '1h': 3_600_000,
   '2h': 7_200_000,
+  '4h': 14_400_000,
 };
 
 const DEFAULT_MS = 1_800_000; // 30m

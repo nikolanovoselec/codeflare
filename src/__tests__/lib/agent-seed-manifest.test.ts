@@ -392,6 +392,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/review-lane-guards.ts',
       '.pi/agent/extensions/sdd-helpers.ts',
       '.pi/agent/extensions/startup-header.ts',
+      '.pi/agent/extensions/vault-manifest-fs.ts',
     ]);
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/Explore.md');
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/code-reviewer.md');
@@ -461,6 +462,27 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(codeflarePi?.content).toContain('pi.registerCommand("ctx"');
     expect(codeflarePi?.content).toContain('context-mode is disabled');
 
+  });
+
+  it('REQ-AGENT-021: every Pi extension exports a default factory (Pi rejects a non-factory .ts at load)', () => {
+    // Pi's extension scanner loads EVERY .ts under .pi/agent/extensions/ and throws
+    // "Extension does not export a valid factory function" if a file has no default
+    // export — even helper-only modules, which therefore ship a no-op default factory.
+    // A named-export-only module (vault-manifest-fs.ts as first shipped) crashed Pi at
+    // startup ("Failed to load extension ... valid factory function"). This guard catches
+    // that before it ships; a syntax-only check (node --check) does NOT — it passed the
+    // broken file. Verified live against pi 0.80.3 (the no-default copy reproduces the
+    // error; adding the factory loads clean).
+    const piExtensions = AGENTS_SEEDED_CONFIGS.filter(
+      (d) => d.key.startsWith('.pi/agent/extensions/') && d.key.endsWith('.ts'),
+    );
+    expect(piExtensions.length).toBeGreaterThan(0);
+    for (const ext of piExtensions) {
+      expect(
+        ext.content,
+        `${ext.key} must export a default factory — Pi throws "does not export a valid factory function" otherwise`,
+      ).toMatch(/export default (function|async function|\(|[A-Za-z_$])/);
+    }
   });
 
   it('REQ-AGENT-056: Pi local statusline renders model effort and preserves extension statuses', () => {
@@ -2027,11 +2049,17 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(mv?.content).toContain('if (!transcript.trim()) return');
   });
 
-  it('REQ-VAULT-003: Pi vault indexing shares Claude marker semantics and exclusions', () => {
+  it('REQ-VAULT-003 / REQ-VAULT-026: Pi vault indexing shares Claude content-hash detection + exclusions', () => {
     const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
+    // Shared ephemeral dedup marker (advancing it keeps the entrypoint daemon quiet).
     expect(mv?.content).toContain('vault-extract.last');
     expect(mv?.content).not.toContain('pi-vault-extract.last');
-    expect(mv?.content).toContain('statSync(VAULT_MARKER_FILE).mtimeMs');
+    // REQ-VAULT-026: change detection is the content-hash manifest, NOT mtimes —
+    // the bundled fs layer must be wired in so a restored vault is not re-extracted.
+    expect(mv?.content).toContain('vault-extract-manifest.json');
+    expect(mv?.content).toContain('changedVaultFilesIn');
+    expect(mv?.content).toContain('commitVaultManifestTo');
+    // Shared exclusion set (bundled from memory-vault-helpers).
     expect(mv?.content).toContain('Raw/Sessions');
     expect(mv?.content).toContain('graphify-out');
     expect(mv?.content).toContain('.silverbullet');

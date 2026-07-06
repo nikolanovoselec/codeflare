@@ -47,18 +47,76 @@ const CF_MINIMAL = [
   'zone.read',
 ];
 const CF_RECOMMENDED = [...CF_MINIMAL, 'dns.write', 'zone-access.write', 'access-acct.write'];
+// Advanced tier = a strict superset of Recommended (built from CF_RECOMMENDED) plus the full
+// operator-finalized capability set, verified against Cloudflare's live consent screen (every
+// scope below was accepted by the OAuth authorize flow with the operator client registered for
+// the superset). Advanced KEEPS Recommended's combined Access scopes
+// (zone-access.write/access-acct.write, inherited via CF_RECOMMENDED) AND adds the granular ids
+// (access-app/access-policy/access-org/access-idp/access-group). `Logs: Edit` resolved to
+// `logs.write` (account-logs.write was rejected). Three requested permissions have no OAuth
+// scope and are intentionally absent (OAuth Clients: Edit, API Tokens: Edit, Network flow: Admin
+// — classic API token only).
 const CF_ADVANCED = [
   ...CF_RECOMMENDED,
+  // Zone / DNS
+  'zone-waf.write',
+  // Workers platform
   'page.write',
   'containers.write',
   'queues.write',
-  'ai.write',
-  'browser-rendering.write',
-  'vectorize.write',
+  'pipelines.write',
+  'r2-catalog.write',
   'workers-ci.write',
   'workers-observability.write',
-  'r2-catalog.write',
+  'workers-tail.read',
+  'cf-agents.write',
+  'secrets-store.write',
+  // AI — Workers AI, AI Gateway, Agents Gateway, AI Search, AI Audit, Firewall for AI, Websearch
+  // (the full AI scope set exposed by Cloudflare's OAuth client; `aig.*` = AI Gateway,
+  // `agw.*` = Agents Gateway — distinct products). `aig.run` authenticates the AI Gateway
+  // data-plane (cf-aig-authorization), `aig.write` its management.
+  'ai.write',
+  'ai.read',
+  'aig.write',
+  'aig.run',
   'agw.write',
+  'agw.read',
+  'agw.run',
+  'ai-search.index',
+  'ai-search.run',
+  'ai-search.write',
+  'aiaudit.read',
+  'aiaudit.write',
+  'firewall-for-ai.read',
+  'firewall-for-ai.write',
+  'websearch.run',
+  'vectorize.write',
+  'browser-rendering.write',
+  'challenge-widgets.write',
+  // Access / Zero Trust
+  'teams.write',
+  'access-org.write',
+  'access-idp.write',
+  'access-group.write',
+  'access-app.write',
+  'access-policy.write',
+  'access-audit-log.read',
+  'access-device-posture.write',
+  'access-service-token.write',
+  // Cloudflare One / networking
+  'teams-connectors.write',
+  'teams-networks.write',
+  'argotunnel.write',
+  'magic-wan.write',
+  'connectivity-directory.admin',
+  'magic-firewall.write',
+  'pcaps-api.write',
+  'logs.write',
+  'mcp-portals.write',
+  // Account security
+  'account-firewall-access-rules.write',
+  'account-waf.write',
+  'account-ssl-and-certificates.write',
 ];
 
 const CLOUDFLARE_OAUTH_SCOPES: Record<ScopeTier, string[]> = {

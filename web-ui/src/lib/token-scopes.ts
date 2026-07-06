@@ -36,6 +36,6 @@ export const CLOUDFLARE_TIERS: Record<ScopeTier, TierConfig> = {
   },
   advanced: {
     label: 'Advanced',
-    description: 'Everything including Pages, AI, Browser Rendering, Containers, Queues, and more.',
+    description: 'Full platform: Workers, AI, Containers, Queues, Pages, Turnstile, Zero Trust / Access, Cloudflare One, and account security.',
   },
 };

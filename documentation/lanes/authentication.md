@@ -260,7 +260,8 @@ SaaS mode uses a layered middleware stack on every request to protected routes (
 
      Resolves the user from whichever credential the mode issues (the `codeflare_session` cookie in SaaS/onboarding OIDC mode, the CF Access JWT in default/enterprise mode). If the user is not in KV, auto-provisions them with `pending` tier. Sets `c.get('user')`. Used for endpoints like `/api/auth/status` and `/api/auth/subscribe`.
 
-2. **`requireActiveUser`** - Authenticates then checks `subscriptionTier ?? accessTier` is an active tier via `isActiveTier()`. Pending users get 403 `{ code: 'PENDING' }` - frontend redirects to `/app/subscribe`. Blocked users get 403 `{ code: 'BLOCKED' }`. In non-SaaS mode, behaves identically to `requireIdentity`.
+2. **`requireActiveUser`** - Authenticates then checks `subscriptionTier ?? accessTier` is an active tier via `isActiveTier()`. In non-SaaS mode, behaves identically to `requireIdentity`.
+    - Pending users get 403 `{ code: 'PENDING' }` (frontend redirects to `/app/subscribe`); blocked users get 403 `{ code: 'BLOCKED' }`.
 
 3. **`requireAdmin`** - Checks `role === 'admin'`. Must be used AFTER `requireIdentity` or `requireActiveUser`.
 

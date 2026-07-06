@@ -53,6 +53,70 @@ export function isVaultExcludedPath(vaultRoot: string, path: string): boolean {
   return VAULT_GENERATED_PREFIXES.some((p) => rel === p || rel.startsWith(`${p}/`));
 }
 
+// --- Vault-extract change detection: content-hash manifest -----------------
+// The high-water mark for "what changed since the last extraction" is a
+// content-hash manifest, NOT a file mtime. The R2 restore rewrites every vault
+// file's mtime to download-time (a May-authored note comes back stamped
+// "today"), so any mtime-vs-marker comparison spuriously flags the whole vault
+// as changed on the boot where the restore lands after the marker — the
+// 200k-token full re-extraction. Hashing the file bytes is immune to that: an
+// mtime reset changes nothing, so unchanged content yields zero changes. The
+// manifest is persisted next to vault-graph.json in graphify-out/ (R2-synced
+// via an explicit allow-rule) so it survives container restart.
+
+export const VAULT_MANIFEST_VERSION = 1;
+// Relative to the vault root. graphify-out/ is extraction-excluded and hidden
+// from the SilverBullet listing, and this filename is allow-listed through the
+// graphify-out bisync exclusion so it round-trips to R2.
+export const VAULT_MANIFEST_RELPATH = "graphify-out/vault-extract-manifest.json";
+
+export interface VaultManifest {
+  version: number;
+  files: Record<string, string>; // vault-relative path -> sha256 hex of bytes
+}
+
+// Parse a manifest blob, tolerating an absent or corrupt file as an empty
+// manifest (every live file then reads as new — the correct first-boot / lost-
+// manifest fallback). Only string->string entries under `files` are kept.
+export function parseVaultManifest(text: string | null | undefined): VaultManifest {
+  if (!text) return { version: VAULT_MANIFEST_VERSION, files: {} };
+  try {
+    const blob = JSON.parse(text) as { version?: unknown; files?: unknown };
+    const files: Record<string, string> = {};
+    if (blob && typeof blob.files === "object" && blob.files) {
+      for (const [k, v] of Object.entries(blob.files as Record<string, unknown>)) {
+        if (typeof v === "string") files[k] = v;
+      }
+    }
+    return { version: typeof blob.version === "number" ? blob.version : VAULT_MANIFEST_VERSION, files };
+  } catch {
+    return { version: VAULT_MANIFEST_VERSION, files: {} };
+  }
+}
+
+// Given the current {vault-relative path -> content hash} of every live,
+// non-excluded vault file and the prior manifest, return the sorted paths whose
+// bytes are new or changed. Deletions are intentionally NOT returned — a removed
+// file needs no extraction. Purely content-based: no mtime is ever consulted, so
+// an R2 restore that resets every mtime produces an empty result as long as the
+// bytes are unchanged. This is the whole fix.
+export function vaultManifestChanges(current: Record<string, string>, manifest: VaultManifest): string[] {
+  const prior = manifest.files;
+  const changed: string[] = [];
+  for (const [rel, hash] of Object.entries(current)) {
+    if (prior[rel] !== hash) changed.push(rel);
+  }
+  return changed.sort();
+}
+
+// Build a fresh manifest object from the current hash map (sorted keys for a
+// stable, diff-friendly on-disk file).
+export function buildVaultManifest(current: Record<string, string>): VaultManifest {
+  const files: Record<string, string> = {};
+  for (const rel of Object.keys(current).sort()) files[rel] = current[rel];
+  return { version: VAULT_MANIFEST_VERSION, files };
+}
+
 export function sessionId(ctx: any): string {
   return String(ctx?.sessionManager?.getSessionId?.() ?? process.ppid).replace(/[^A-Za-z0-9_.-]+/g, "_");
 }

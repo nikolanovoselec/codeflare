@@ -1844,6 +1844,66 @@ None.
 
 ---
 
+### REQ-AGENT-078: Cloudflare OAuth token refreshed at the `api.cloudflare.com` boundary
+
+**Intent:** A Cloudflare-dashboard OAuth **access token** is short-lived by design (expires in hours), so baking it into the container as `CLOUDFLARE_API_TOKEN` at start left a running non-enterprise session broken after expiry — `wrangler` and browser-run both got `9109 Invalid access token`, with nothing refreshing the container's env var. Instead of baking the real token, inject a non-secret placeholder and intercept `api.cloudflare.com` at the container-egress boundary, stamping a **freshly refreshed** token per request. This reuses the enterprise Browser Rendering interceptor's transport ([REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)) — one interceptor per host, serving two modes — rather than adding a new class, a container-side refresher, or new storage.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. When the session's Cloudflare token source is `'oauth'`, the container receives only a non-secret placeholder (`CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER`) as `CLOUDFLARE_API_TOKEN` — the real access token never enters the container env. A non-oauth source (PAT / enterprise) is passed through untouched. <!-- @impl: src/lib/cloudflare-token.ts::applyCloudflareOAuthToken --> <!-- @impl: src/lib/constants.ts::CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (applyCloudflareOAuthToken replaces the oauth token with the placeholder preserving other fields, injects null when no valid token, passes a PAT through untouched) -->
+2. In OAuth sessions (non-enterprise, oauth source only) `api.cloudflare.com` is intercepted and every request — on every path — is re-stamped with `getValidCloudflareToken(bucket)`, which refreshes within the skew window, so the forwarded credential is the refreshed token, not the baked placeholder. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @impl: src/container/index.ts::wireCloudflareApiInterception --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (OAuth mode REST: stamps a fresh refreshed token on any api.cloudflare.com path, strips the container placeholder) -->
+3. Both the REST surface and the CDP WebSocket upgrade (browser-run) are stamped and forwarded via the shared `relay()` / `bridge()` transport, so a session survives past the access-token lifetime for wrangler **and** interactive browser-run. <!-- @impl: src/cloudflare-browser-interceptor.ts::bridge --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (OAuth mode CDP WebSocket: bridges the upgrade with the fresh token, returning a fresh client socket) -->
+4. The token is resolved **solely** from the session-bound bucket (`props.bucket`), never from any request-supplied header — no cross-user token spoofing — and the interceptor fails closed with `401` and no upstream call when no valid token can be minted. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (OAuth mode REST: resolves the token from the bound bucket only never the request, fails closed 401 with no upstream when no valid token) -->
+5. AI Gateway data-plane requests (`gateway.ai.cloudflare.com`) are intercepted in OAuth mode and stamped with the refreshed token as `cf-aig-authorization` (the token's `aig.run` scope), leaving the caller's `Authorization` untouched, so a connected user's authenticated AI Gateway survives past the token lifetime. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @impl: src/cloudflare-browser-interceptor.ts::INTERCEPTED_CF_OAUTH_HOSTS --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (OAuth mode AI Gateway data-plane: stamps the fresh token as cf-aig-authorization not Authorization, leaves the provider key untouched, fails closed 401) -->
+6. In an OAuth session the container trusts the platform-mounted intercept CA (`/etc/cloudflare/certs/cloudflare-containers-ca.crt`) so the intercepted `api.cloudflare.com` / `gateway.ai.cloudflare.com` TLS validates in agent runtimes instead of failing `SELF_SIGNED_CERT_IN_CHAIN`. <!-- @impl: entrypoint.sh --> <!-- @test: host/__tests__/entrypoint-oauth-ca-trust.test.js (non-enterprise + CA mounted trusts the CA env in .bashrc; enterprise and CA-absent both skip; idempotent) -->
+
+**Constraints:**
+
+- Enterprise is untouched: `wireCloudflareApiInterception` is double-guarded (`!isEnterpriseMode` **and** placeholder-value match), so it can never wire or collide on `api.cloudflare.com` in enterprise; the enterprise branch is unchanged.
+- The AI Gateway host lives only in `INTERCEPTED_CF_OAUTH_HOSTS` (never the enterprise browser list), so enterprise never intercepts its own `LlmInterceptor` gateway rewrites.
+- `CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER` must stay distinct from `ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER` — the placeholder value is itself the DO's OAuth-mode wiring signal.
+- The GitHub interceptor is not touched — non-enterprise git stays direct (GitHub tokens are long-lived); `api.cloudflare.com` and `gateway.ai.cloudflare.com` are the only hosts newly intercepted (OAuth-mode only).
+- The AC6 CA-trust is an isolated `entrypoint.sh` sibling of the enterprise CA-trust: distinct `CF_OAUTH_CA_SRC` var + `# cf-ca-trust` sentinel, gated `ENTERPRISE_MODE != active` && CA-present, so enterprise never enters it and a no-interception deploy (no CA file) is byte-identical to before.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-SEC-002](security.md#req-sec-002-api-tokens-never-enter-containers)
+
+**Verification:** [Interceptor test](../../src/__tests__/cloudflare-browser-interceptor.test.ts) + [Lib test](../../src/__tests__/lib/cloudflare-token.test.ts) + [OAuth CA-trust test](../../host/__tests__/entrypoint-oauth-ca-trust.test.js)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-079: Advanced Cloudflare OAuth Tier Scope Catalog
+
+**Intent:** The advanced Cloudflare OAuth tier requests the operator-finalized full-platform capability set, maintained as a single server-side catalog and pinned by a test so the connect flow, the tier tables, and the operator's registered client cannot silently drift — as they did when the catalog carried only 21 scopes while the docs described the full set and no test tied the two together.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. `cloudflareScopeForTier('advanced')` requests exactly the finalized 60 operator-verified Cloudflare scopes — including the full AI family (Workers AI, AI Gateway `aig.*`, Agents Gateway `agw.*`, AI Search, AI Audit, Firewall for AI, Websearch) — plus `user-details.read` and the always-appended `offline_access`. <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @impl: src/lib/oauth-scopes.ts::CF_ADVANCED --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (REQ-AGENT-079: the non-Browser-Rendering advanced set equals the finalized advanced-tier catalog exactly) -->
+2. The advanced tier is a superset of recommended: it keeps the combined `zone-access.write`/`access-acct.write` and adds the granular Access ids (`access-app`/`access-policy`/`access-org`/`access-idp`/`access-group`), so every recommended (and every minimal) scope is present in advanced. <!-- @impl: src/lib/oauth-scopes.ts::CF_ADVANCED --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (REQ-AGENT-079: recommended is a subset of advanced; minimal is a subset of advanced) -->
+3. `Logs: Edit` resolves to `logs.write` (the account-scoped `account-logs.write` is rejected by the authorize flow) and `Firewall (Magic): Edit` to `magic-firewall.write`; three requested capabilities have no OAuth scope and are intentionally absent (OAuth Clients: Edit, API Tokens: Edit, Network flow: Admin — classic API token only). <!-- @impl: src/lib/oauth-scopes.ts::CF_ADVANCED --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (REQ-AGENT-079: the finalized set pins logs.write and omits the no-OAuth-scope permissions) -->
+
+**Constraints:**
+
+- The operator's OAuth client must be registered with the full advanced superset; a per-connect request can only narrow within the registered scopes.
+- The server-side catalog is the single source of truth; the public ([Configuration](../../documentation/lanes/configuration.md)) and private tier tables mirror it.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth)
+
+**Verification:** [Automated test](../../src/__tests__/lib/oauth-scopes.test.ts)
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-065: Engineering Constitution Preseeded to All Agents
 
 **Intent:** One always-on engineering constitution is hardwired into every preseed-managed agent so its four mandates are applied to all planning and coding without being restated each task: (1) no overengineering, (2) behavioral tests only — no theater or text-matching, (3) reusable/composable components and best practices, (4) SDD + TDD enforced (failing behavioral test first, every change traces to a REQ, specs/anchors/docs move with the code, nothing left `Partial`). It also imposes a **plan gate** (every plan must restate the four mandates as concrete success criteria) and a **done gate** (confirm them before declaring work complete). The preseed is the single source of truth; the per-user `~/.claude` copy is a downstream seed artifact.

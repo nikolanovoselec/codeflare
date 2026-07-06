@@ -84,6 +84,7 @@ function verdictUnder({ sessionMode, syncMode = 'full' }) {
     'Vault/graphify-out/vault-graph.json': 'cumulative vault graph',
     'Vault/graphify-out/graph.json': 'per-run derived graph',
     'Vault/graphify-out/graph.html': 'rendered viz',
+    'Vault/graphify-out/vault-extract-manifest.json': 'content-hash high-water mark',
     'Uploads/a.txt': 'upload tray file',
     'Temporary/b.txt': 'temporary tray file',
     '.graphify/global-graph.json': 'ephemeral unified graph',
@@ -154,6 +155,21 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
       v['Vault/graphify-out/graph.html'],
       'INCLUDED',
       'rendered vault viz (graph.html) must persist',
+    );
+    // REQ-VAULT-026: the content-hash manifest is the durable change-detection
+    // high-water mark. It MUST ride along too, or a restored vault has no manifest
+    // and gets re-extracted whole (the 200k-token bug). Same ordering guarantee.
+    assert.equal(
+      v['Vault/graphify-out/vault-extract-manifest.json'],
+      'INCLUDED',
+      'vault-extract content-hash manifest must persist to R2 (REQ-VAULT-026 allow-rule ordered before the graphify-out exclude)',
+    );
+    // Specificity guard: only the three named artifacts are allow-listed; the
+    // per-run graph.json falls through to the graphify-out exclude and is dropped.
+    assert.equal(
+      v['Vault/graphify-out/graph.json'],
+      'EXCLUDED',
+      'per-run graph.json has no R2 value and must stay excluded',
     );
   });
 

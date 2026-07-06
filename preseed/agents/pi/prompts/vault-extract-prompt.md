@@ -15,16 +15,18 @@ the `graphify` CLI / `merge-vault-graph.py` for the merge.
 ## How you were triggered (read this first)
 
 The Pi extension is a pure trigger: it detected the changed files (delivered to
-you in `changedFiles`) and already touched the shared high-water marker
-(`vault-extract.last`). It does NOT build any graph - YOU own graph construction,
+you in `changedFiles`) and already advanced the shared content-hash high-water
+mark (`graphify-out/vault-extract-manifest.json` — a `{path: sha256}` map that
+survives R2 restart). It does NOT build any graph - YOU own graph construction,
 end to end, exactly like the Claude vault-extract subagent. The single durable
 store is `/home/user/Vault/graphify-out/vault-graph.json`; `graph.json` is the
 per-run viz artifact. `merge-vault-graph.py` is the only writer of both.
 
 Hard limits:
 
-- Do NOT advance or touch any marker file. The extension owns
-  `vault-extract.last`; touching it would skip the next real change.
+- Do NOT advance or touch the manifest (`vault-extract-manifest.json`) or
+  `vault-extract.last`. The extension owns both; touching the manifest would
+  skip the next real change.
 - Do NOT run `graphify update` or `graphify extract` (no provider key, no
   re-walk). You DO run `merge-vault-graph.py` exactly once - that is a
   union + re-cluster of your chunk into the cumulative graph, not a
@@ -62,8 +64,8 @@ window.
 rm -f "<VARS_FILE>"
 ```
 
-Do NOT delete or touch `vault-extract.last`. Keep `inflightFile` in place while
-you work; remove it only when you finish so the extension can suppress duplicate
+Do NOT delete or touch the manifest or `vault-extract.last`. Keep `inflightFile`
+in place while you work; remove it only when you finish so the extension can suppress duplicate
 runs.
 
 ### 2. Read the changed files
@@ -207,9 +209,10 @@ re-renders.
 
 ### 7. Remove the in-flight sentinel
 
-Do NOT advance the marker - the extension owns `vault-extract.last`. If you
+Do NOT advance the manifest - the extension owns
+`graphify-out/vault-extract-manifest.json` (and `vault-extract.last`). If you
 skipped extraction entirely (empty change set or nothing found), that is fine;
-the marker is already correct and nothing needs retrying. Finally, remove the
+the manifest is already correct and nothing needs retrying. Finally, remove the
 in-flight sentinel (the `inflightFile` path from the vars JSON) so the extension
 can spawn the next run:
 

@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { isVaultExcludedPath } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
+import {
+  isVaultExcludedPath,
+  parseVaultManifest,
+  vaultManifestChanges,
+  buildVaultManifest,
+  VAULT_MANIFEST_VERSION,
+} from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
 /**
  * REQ-VAULT — generated graph artifacts must not trigger vault-extract.
@@ -59,5 +65,79 @@ describe('isVaultExcludedPath', () => {
     expect(isVaultExcludedPath(VAULT, '/home/user/Vault/Rawthoughts/note.md')).toBe(false);
     expect(isVaultExcludedPath(VAULT, '/home/user/Vault/Library/MyNotes/x.md')).toBe(false);
     expect(isVaultExcludedPath(VAULT, '/home/user/Vault/graphify-output-notes/x.md')).toBe(false);
+  });
+});
+
+/**
+ * Vault-extract change detection is content-hash based, not mtime based, so it
+ * survives the R2 restore that rewrites every file's mtime to download-time.
+ * These exercise the pure diff/parse/build layer (no fs). The complementary
+ * fs-level oracle (touch every file → zero changes) lives in
+ * vault-manifest-detection.test.ts.
+ */
+describe('vaultManifestChanges (content-hash detection)', () => {
+  it('returns nothing when every current hash matches the manifest', () => {
+    const current = { 'Notes/a.md': 'h1', 'Notes/b.md': 'h2' };
+    const manifest = buildVaultManifest(current);
+    expect(vaultManifestChanges(current, manifest)).toEqual([]);
+  });
+
+  it('is immune to identical content regardless of the manifest object identity', () => {
+    // The manifest was persisted last session; the file bytes are unchanged even
+    // though (in the real system) the mtime was reset by the R2 restore. Content
+    // hash is all that matters, so the diff is empty.
+    const manifest = parseVaultManifest(
+      JSON.stringify({ version: 1, files: { 'Notes/a.md': 'h1', 'Notes/b.md': 'h2' } }),
+    );
+    const current = { 'Notes/a.md': 'h1', 'Notes/b.md': 'h2' };
+    expect(vaultManifestChanges(current, manifest)).toEqual([]);
+  });
+
+  it('reports exactly the file whose bytes changed', () => {
+    const manifest = buildVaultManifest({ 'Notes/a.md': 'h1', 'Notes/b.md': 'h2' });
+    const current = { 'Notes/a.md': 'h1', 'Notes/b.md': 'CHANGED' };
+    expect(vaultManifestChanges(current, manifest)).toEqual(['Notes/b.md']);
+  });
+
+  it('reports a brand-new file (absent from the manifest)', () => {
+    const manifest = buildVaultManifest({ 'Notes/a.md': 'h1' });
+    const current = { 'Notes/a.md': 'h1', 'Notes/new.md': 'h3' };
+    expect(vaultManifestChanges(current, manifest)).toEqual(['Notes/new.md']);
+  });
+
+  it('does NOT report a deleted file (removed from disk, still in manifest)', () => {
+    // A deletion needs no extraction; only new/changed content is work.
+    const manifest = buildVaultManifest({ 'Notes/a.md': 'h1', 'Notes/gone.md': 'h2' });
+    const current = { 'Notes/a.md': 'h1' };
+    expect(vaultManifestChanges(current, manifest)).toEqual([]);
+  });
+
+  it('treats an unextracted file from a prior session as changed (no data loss)', () => {
+    // Session 1 died before extracting Notes/b.md, so its hash never entered the
+    // manifest. Session 2 restores the vault + manifest and must still see it.
+    const manifest = buildVaultManifest({ 'Notes/a.md': 'h1' });
+    const current = { 'Notes/a.md': 'h1', 'Notes/b.md': 'h2' };
+    expect(vaultManifestChanges(current, manifest)).toEqual(['Notes/b.md']);
+  });
+
+  it('treats an absent or corrupt manifest as empty (everything reads as new)', () => {
+    expect(parseVaultManifest(null).files).toEqual({});
+    expect(parseVaultManifest('{not json').files).toEqual({});
+    expect(parseVaultManifest('{"version":1}').files).toEqual({});
+    const current = { 'Notes/a.md': 'h1' };
+    expect(vaultManifestChanges(current, parseVaultManifest(null))).toEqual(['Notes/a.md']);
+  });
+
+  it('keeps only string hash entries when parsing a manifest', () => {
+    const parsed = parseVaultManifest(
+      JSON.stringify({ version: 1, files: { good: 'h1', bad: 42, nested: { x: 1 } } }),
+    );
+    expect(parsed.files).toEqual({ good: 'h1' });
+  });
+
+  it('builds a manifest with the current version and sorted keys', () => {
+    const m = buildVaultManifest({ 'z.md': 'h2', 'a.md': 'h1' });
+    expect(m.version).toBe(VAULT_MANIFEST_VERSION);
+    expect(Object.keys(m.files)).toEqual(['a.md', 'z.md']);
   });
 });

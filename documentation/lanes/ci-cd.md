@@ -106,7 +106,9 @@ The Pi preseed job is data-driven: it diffs **every** dependency in `preseed/age
 ### Test Workflow Detail
 
 Two parallel jobs:
-- **test**: Lint (oxlint), build frontend, run backend tests, host hook tests (`node --test`), frontend tests, landing tests (`npm test` in `working-directory: landing` — Container-API render + unit tests), generate Workers runtime types (`wrangler types`), typecheck both, dead code check (knip), `npm audit --audit-level=high --omit=dev` for backend and frontend
+- **test**:
+    - Lint (oxlint), build frontend, run backend tests, host hook tests (`node --test`), frontend tests, landing tests (`npm test` in `working-directory: landing` — Container-API render + unit tests)
+    - generate Workers runtime types (`wrangler types`), typecheck both, dead code check (knip), `npm audit --audit-level=high --omit=dev` for backend and frontend
 - **dependency-review**: Runs `actions/dependency-review-action` on PRs - blocks merging if new dependencies introduce known vulnerabilities
 
 ### E2E Workflow Detail
@@ -136,7 +138,9 @@ Six parallel jobs, each running lightweight external probes against the producti
 
 ### Backend Tests
 
-**Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` `cloudflareTest()` plugin - tests run in real Workers runtime (not Node.js). **Run:** `npm test` **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch. **CI workerd crash guard:** `@cloudflare/vitest-pool-workers` 0.16.x crashes `workerd` at pool teardown after all tests pass — a known upstream flake. The backend test step in `.github/workflows/test.yml` (and the identical pre-deploy gate in `deploy.yml`) runs `npm test` once with `NO_COLOR=1`/`FORCE_COLOR=0` so the summary is plain text, then inspects the exit code: on a non-zero exit it accepts the run only when all four conditions hold — the crash fingerprint `[vitest-pool]: Worker cloudflare-pool emitted error.` is present, the summary reports exactly `Errors 1 error`, a `Tests N passed` line exists, and no `(Test Files|Tests) N failed` line exists.
+**Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` `cloudflareTest()` plugin - tests run in real Workers runtime (not Node.js). **Run:** `npm test` **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
+
+**CI workerd crash guard:** `@cloudflare/vitest-pool-workers` 0.16.x crashes `workerd` at pool teardown after all tests pass — a known upstream flake. The backend test step in `.github/workflows/test.yml` (and the identical pre-deploy gate in `deploy.yml`) runs `npm test` once with `NO_COLOR=1`/`FORCE_COLOR=0` so the summary is plain text, then inspects the exit code: on a non-zero exit it accepts the run only when all four conditions hold — the crash fingerprint `[vitest-pool]: Worker cloudflare-pool emitted error.` is present, the summary reports exactly `Errors 1 error`, a `Tests N passed` line exists, and no `(Test Files|Tests) N failed` line exists.
 
 Ordinary assertion failures, any extra unhandled error (which makes it `Errors 2 errors`), and incomplete runs all fail the job immediately. No retry, no hardcoded counts. **Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise. **Notable test files:** `kv-crypto.test.ts` (KV AES-256-GCM encryption + migration), `r2-sse.test.ts` (R2 SSE-C encryption).
 

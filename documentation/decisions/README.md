@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD92](#ad92-bundle-the-official-cloudflare-skills-into-the-advanced-seed-slimmed-references-webfetch-retrieval) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD94](#ad94-content-hash-manifest-for-vault-extract-change-detection-mtime-is-reset-by-the-r2-restore) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -103,6 +103,8 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD90](#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync) | Governed Mode preseed bake + checksum delta initial sync | Storage |
 | [AD91](#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) | Governed Mode migration is a verified, gated, chunked state machine (REPLACE copy), not a boolean-marker lazy reconcile | Storage |
 | [AD92](#ad92-bundle-the-official-cloudflare-skills-into-the-advanced-seed-slimmed-references-webfetch-retrieval) | Bundle the official Cloudflare skills into the advanced seed (slimmed references, WebFetch retrieval) | Agents |
+| [AD93](#ad93-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor) | Refresh the non-enterprise Cloudflare OAuth token at the api.cloudflare.com boundary, reusing the browser interceptor | Architecture, Security |
+| [AD94](#ad94-content-hash-manifest-for-vault-extract-change-detection-mtime-is-reset-by-the-r2-restore) | Content-hash manifest for vault-extract change detection (mtime is reset by the R2 restore) | Storage |
 
 ---
 
@@ -670,6 +672,8 @@ The original justification considered was per-PTY RAM cleanup when one tab in a 
 
 **Decision:** Keep the per-PTY reaper but reframe its role as a pure **safety net** for the case where `lastInputAt` tracking gets stuck (terminal server bug, stuck activity polling, broken `/activity` endpoint), and raise the floor to 120 minutes (equal to the maximum user-configurable `sleepAfter`). Concretely, change `PTY_KEEPALIVE_MS` default from `2700000` (45 min) to `7200000` (120 min) in `host/src/server.ts` and `host/src/session.ts`.
 
+**Amendment (2026-07-04, [REQ-SESSION-014](../../sdd/spec/session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings)):** a `4h` idle option was added, raising the maximum user-configurable `sleepAfter` from 2h to 4h. To preserve this decision's core invariant — the reaper floor must equal the maximum `sleepAfter` so it can never fire before the authoritative idle-stop — `PTY_KEEPALIVE_MS` was raised from `7200000` (120 min) to `14400000` (240 min) in the same two files. References to "120 min" / "2h" below describe the original decision; the current floor is **240 min (4h)**. The parallel `SLEEP_AFTER_FALLBACK_MS` / `idleTimeoutPref` fail-safe defaults were likewise raised 2h → 4h ([REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants)) so "fail-safe = the maximum supported value" also stays true.
+
 **Alternatives considered:**
 
 1. **Remove the reaper entirely.** Rejected: leaves no recourse if `collectMetrics` ever silently fails to stop a container with a stuck `lastInputAt`. The cost of keeping the reaper is one `setTimeout` per orphaned session.
@@ -685,19 +689,19 @@ Rejected: arbitrary midpoint with no principled basis. 120 min has a clear justi
 
 **Rationale:**
 
-- The user-facing idle contract is [REQ-SESSION-004](../../sdd/spec/session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout)'s `sleepAfter` (5m / 15m / 30m / 1h / 2h).
+- The user-facing idle contract is [REQ-SESSION-004](../../sdd/spec/session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout)'s `sleepAfter` (15m / 30m / 1h / 2h / 4h).
 
 The PTY reaper sits *below* that contract and must never undercut it. Setting the floor at the maximum `sleepAfter` ensures it cannot fire before the authoritative policy.
 - The reaper's value is purely defensive:
 
-it prevents a single orphaned PTY from outliving its container forever in pathological scenarios (e.g., `lastInputAt` polling dies but the container DO doesn't notice). With a 120-min floor it still does that job; it just doesn't fire on the happy path.
+it prevents a single orphaned PTY from outliving its container forever in pathological scenarios (e.g., `lastInputAt` polling dies but the container DO doesn't notice). With the floor pinned to the maximum `sleepAfter` (now 240 min) it still does that job; it just doesn't fire on the happy path.
 - The change is one constant in two files; risk is bounded.
 
 **Trade-offs accepted:**
 
-- Users with `sleepAfter` < 2h will, in the rare case of stuck `lastInputAt`, see PTY orphans last up to 120 min instead of 45 min.
+- Users with `sleepAfter` < 4h will, in the rare case of stuck `lastInputAt`, see PTY orphans last up to 240 min instead of 45 min.
 
-The container would also be stuck (because `collectMetrics` is the trigger for both stop paths), so the practical impact is "container survives 75 extra minutes when something is broken". Acceptable because the user can manually stop the session from the dashboard.
+The container would also be stuck (because `collectMetrics` is the trigger for both stop paths), so the practical impact is "container survives extra minutes when something is broken". Acceptable because the user can manually stop the session from the dashboard.
 - The default is hardcoded; a future operator who hits memory pressure on a long-orphaned PTY can still override via `PTY_KEEPALIVE_MS` env var. No new user-facing setting is added.
 
 **Related requirements:**
@@ -2218,6 +2222,62 @@ Exclude the upstream `.mcp.json` (5 remote MCP servers — strict-egress-blocked
 **Consequences:** Pro agents get authoritative, retrieval-first Cloudflare guidance (platform, Workers best practices, Wrangler, Durable Objects, Agents SDK, Sandbox SDK, Turnstile, email, web-perf, Zero Trust) without growing the always-on token budget meaningfully (~+450 tok of trimmed descriptions; bodies/references load on demand) and without bloating the Worker. A `scripts/measure-seed-tokens.mjs` tool reports the always-on seed budget per mode.
 
 **Related:** [REQ-AGENT-075](../../sdd/spec/agents.md#req-agent-075-cloudflare-platform-skills-bundled-into-the-advanced-seed), [REQ-AGENT-014](../../sdd/spec/agents.md#req-agent-014-manifest-driven-preseed-pipeline), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [Configuration lane](../lanes/configuration.md), [Security lane](../lanes/security.md), [Preseed lane](../lanes/preseed.md).
+
+---
+
+### AD93: Refresh the non-enterprise Cloudflare OAuth token at the `api.cloudflare.com` boundary, reusing the browser interceptor
+
+**Category:** Architecture, Security
+
+**Status:** Accepted (2026-07-04).
+
+**Context:** Non-enterprise "Connect to Cloudflare" ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)) authenticates a user against Cloudflare's dashboard OAuth, which — like `wrangler login` — issues **short-lived access tokens** that expire within hours (`offline_access` yields a `refresh_token`, but the access token still expires; there is no long-lived-token option). `applyCloudflareOAuthToken` resolved a valid token at session start and baked it into the container as `CLOUDFLARE_API_TOKEN`. Nothing refreshes an env var already set in a running container, so after the TTL every `api.cloudflare.com` call — `wrangler` deploys and browser-run's Browser Rendering REST + CDP WebSocket — failed with `9109 Invalid access token`.
+
+Reproduced live against a running container (its 93-char OAuth token returned `9109`). The refresh machinery (`getValidCloudflareToken`, which mints a fresh token from the encrypted per-user `refresh_token`) already existed but only ran server-side at container start — never reaching a live session.
+
+**Decision:** Stop baking the token in. For an `'oauth'`-source session inject only a non-secret placeholder (`CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER = 'codeflare-oauth'`) as `CLOUDFLARE_API_TOKEN`, and intercept `api.cloudflare.com` at the container-egress boundary, stamping a **freshly-refreshed** token per request.
+
+Reuse — not rebuild — the existing enterprise `CloudflareBrowserInterceptor` ([REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)): there is only one interceptor per host, and browser-run's CDP surface is a WebSocket that needs the interceptor's existing `bridge()`, so the wrangler REST path and the browser-run WS path must share one interceptor.
+
+The interceptor gains a second **OAuth mode** (props carry `bucket`): it trusts **all** `api.cloudflare.com` paths (the OAuth token is a full-scope API token, unlike the enterprise browser-rendering-path-only trust), resolves the token solely from the session-bound `props.bucket` via `getValidCloudflareToken` (never a request header — no cross-user spoof), reuses `relay()`/`bridge()` for REST + CDP, and fails closed `401` with no upstream when no valid token can be minted.
+
+Wiring (`wireCloudflareApiInterception`) is double-guarded: `!isEnterpriseMode(env)` **and** the container token equals the OAuth placeholder — so enterprise (which never has an oauth source) can never wire it, and there is no host collision with the enterprise browser interceptor. The placeholder **value** is itself the DO's OAuth-mode signal, so no new DO state or plumbing is needed.
+
+**Rejected — a container-side pull/refresh helper (poll the worker for a fresh token, rewrite the env):** heavier, and a POSIX process's environment cannot be mutated by another process after it starts, so a refreshed value would never reach the already-running `wrangler`/browser-run — the boundary is the only place a per-call fresh token can be applied. **Rejected — a background worker that re-issues the container env var:** same env-immutability problem, plus new lifecycle machinery.
+
+**Rejected — ungating the GitHub interceptor for non-enterprise too:** unnecessary — GitHub tokens are long-lived, so non-enterprise git has no expiry bug and no reason to route high-frequency git traffic through the worker; the only host newly intercepted is `api.cloudflare.com`, and only for OAuth sessions. **Rejected — a new dedicated interceptor class:** one-interceptor-per-host and the shared WS `bridge()` requirement make extending the existing class strictly simpler than a parallel class.
+
+**Consequences:** A non-enterprise OAuth session now survives indefinitely past the access-token TTL for both wrangler and interactive browser-run. The real OAuth access token never enters the (untrusted) container — the blast radius of a prompt-injected read is a non-secret placeholder — extending the [REQ-SEC-002](../../sdd/spec/security.md#req-sec-002-api-tokens-never-enter-containers) "tokens never enter containers" invariant to the per-user OAuth token. Enterprise is byte-identical: the enterprise interceptor branch and `applyEnterpriseBrowserToken` are unchanged, and the existing REQ-BROWSER-008 suite is the regression oracle. A **PAT**-source non-enterprise session is unchanged (its token is long-lived and still passes to the container). One added per-request worker hop on `api.cloudflare.com` for OAuth sessions — a low-frequency host — with `getValidCloudflareToken` short-circuiting when the cached token is still valid.
+
+**Related:** [REQ-AGENT-078](../../sdd/spec/agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary), [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth), [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-SEC-002](../../sdd/spec/security.md#req-sec-002-api-tokens-never-enter-containers), [AD81](#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens).
+
+---
+
+### AD94: Content-hash manifest for vault-extract change detection (mtime is reset by the R2 restore)
+
+**Category:** Storage
+
+**Status:** Accepted (2026-07-05).
+
+**Context:** vault-extract detected user edits by **file mtime**: `vault-extract.last` (a marker in ephemeral `~/.cache/codeflare-hooks/`) plus a `find -newer` scan (Claude daemon + contract) / `statSync().mtimeMs > since` walk (Pi). The boot R2 restore is `rclone sync` **without** `--use-server-modtime` (only the later bisync baseline uses it), and it rewrites **every** vault file's mtime to download-time — measured live on a real vault: a May-authored note comes back stamped that day's date, all 31 files clustered at one instant. `~/.cache/**` is excluded from R2 sync ([entrypoint.sh](../../entrypoint.sh) filters), so the marker is re-seeded fresh each boot.
+
+On the boot where the restore (or a subsequent bisync with `--conflict-resolve newer`) stamps file mtimes *after* the seeded marker, `find -newer` matches the whole vault and the sonnet extractor re-reads every note — **~200k tokens / ~20 min every session**. The failure is a race, which is why it presented intermittently.
+
+**Decision:** Detect changes by **content, not time**. A stdlib `vault-manifest.py` (Claude daemon + vault-extract contract) and a byte-parity `vault-manifest-fs.ts` (Pi extension) compute `{vault-relative path → sha256 of bytes}` and report a file changed iff its hash differs from — or is absent in — a persisted manifest at `graphify-out/vault-extract-manifest.json`. That path is allow-listed through the `- Vault/graphify-out/**` bisync exclusion (alongside `vault-graph.json`), so it round-trips to R2 and survives restart.
+
+The manifest is baselined from current content **only when absent** (the first session for a vault); on every later boot it is restored and never re-baselined, so a prior session's edited-but-unextracted file is still detected. `vault-extract.last` is retained purely as the ephemeral within-session vars-staleness dedup timestamp — never change detection — and the obsolete `init_user_vault` preseed-page marker-bump is removed (the four pages are excluded and unchanged bytes never register).
+
+**Rejected — preserve/round-trip mtimes on the restore (add `--use-server-modtime` to Step 1):** fragile and fights [AD88](#ad88-bisync-compares-via-server-modtime-from-fast-list-not-per-object-mtime-heads)'s deliberate server-modtime bisync; the round-trip does not faithfully preserve edit times anyway (measured), and any editor or process touch would re-fire a full scan.
+
+**Rejected — move the mtime marker into the synced vault:** the restore resets the *marker's* mtime too, so an mtime-vs-mtime comparison stays meaningless after restart.
+
+**Rejected — store the high-water timestamp as marker *content* and compare it against file mtimes:** the file mtimes are also reset to download-time, so the comparison is still meaningless. Only comparing content hashes is immune.
+
+**Consequences:** A returning session re-extracts nothing when content is unchanged — the mtime reset becomes a total non-issue because the manifest is read by its JSON contents and its own mtime is never consulted. No data loss: a prior session's unextracted file has no manifest entry, so it is still detected next session (the constraint that ruled out stamping a fresh baseline at boot). One implementation format shared across runtimes (Claude bash + Pi TypeScript). The enterprise / OAuth token boundary is untouched — this is vault/memory-graph infrastructure only, running identically in both runtimes. Cost: a sha256 pass over ~100 small markdown files per 60s daemon tick — negligible, stdlib-only, no graphify/networkx dependency.
+
+**Related:** [REQ-VAULT-026](../../sdd/spec/vault.md#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-VAULT-003](../../sdd/spec/vault.md#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s), [REQ-VAULT-001](../../sdd/spec/vault.md#req-vault-001-persistent-vault-directory-survives-across-sessions), [AD88](#ad88-bisync-compares-via-server-modtime-from-fast-list-not-per-object-mtime-heads), [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad).
+
+---
 
 ---
 

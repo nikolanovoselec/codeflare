@@ -19,6 +19,7 @@
 import type { DeployKeys, Env } from '../types';
 import { getDeployKeysKey, SETUP_KEYS } from './kv-keys';
 import { getAndDecrypt, encryptAndStore, getOrImportKey } from './kv-crypto';
+import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER } from './constants';
 import { isEnterpriseMode } from './subscription';
 import { createLogger } from './logger';
 
@@ -323,11 +324,14 @@ export async function getValidCloudflareToken(env: Env, bucketName: string): Pro
 }
 
 /**
- * When the user connected Cloudflare via OAuth, refresh-on-expiry the token before it
- * rides the deploy-keys -> CLOUDFLARE_API_TOKEN env path into the container. Mirrors
- * applyEnterpriseBrowserToken: PAT sources and the enterprise admin-global token pass
- * through untouched (only `cloudflareTokenSource === 'oauth'` triggers the refresh).
- * A refresh that fails closed sets the Cloudflare token to null (no stale token).
+ * When the user connected Cloudflare via OAuth, substitute the CLOUDFLARE_API_TOKEN that
+ * rides the deploy-keys env path into the container with a non-secret PLACEHOLDER
+ * (REQ-AGENT-078) — the real short-lived OAuth access token NEVER enters the container.
+ * The CloudflareBrowserInterceptor (OAuth mode) stamps a freshly-refreshed token at the
+ * api.cloudflare.com boundary per request. Mirrors applyEnterpriseBrowserToken: PAT sources
+ * (and the enterprise admin token) pass through untouched — only `cloudflareTokenSource ===
+ * 'oauth'` is swapped. The placeholder is emitted only when the connection can still mint a
+ * token, else `null` so `wrangler`/browser-run stay unregistered rather than authing dead.
  */
 export async function applyCloudflareOAuthToken(
   env: Env,
@@ -337,8 +341,10 @@ export async function applyCloudflareOAuthToken(
   if (deployKeys?.cloudflareTokenSource !== 'oauth' || !deployKeys.cloudflareApiToken) {
     return deployKeys;
   }
-  const freshCloudflareToken = await getValidCloudflareToken(env, bucketName);
-  return { ...deployKeys, cloudflareApiToken: freshCloudflareToken };
+  // Confirm the connection can still mint a token (refreshing if near expiry), but inject
+  // ONLY the placeholder — the real token is stamped at the boundary, never in the container.
+  const valid = await getValidCloudflareToken(env, bucketName);
+  return { ...deployKeys, cloudflareApiToken: valid ? CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER : null };
 }
 
 /**

@@ -768,11 +768,13 @@ describe('validateVaultRoute / REQ-VAULT-005 (Worker proxy exposes in-container 
         { name: 'Raw/Sessions/x.md', size: 100 },
       ]);
       const filtered = JSON.parse(filterVaultFsListing(body));
-      expect(filtered).toHaveLength(3);
+      // Raw/Sessions/ (machine-owned session-capture memory) is now filtered so
+      // it never enters the SB client sync/index; the Raw/Graphs .md index page
+      // and human notes stay visible.
+      expect(filtered).toHaveLength(2);
       expect(filtered.map((e: { name: string }) => e.name)).toEqual([
         'Notes/foo.md',
         'Raw/Graphs/Vault Graph.md',
-        'Raw/Sessions/x.md',
       ]);
     });
 

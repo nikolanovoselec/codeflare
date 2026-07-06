@@ -1,6 +1,6 @@
 /**
  * REQ-SESSION-014: User-configurable auto-sleep timeout in Settings
- * AC coverage: AC1 (5 valid sleep options: 5m, 15m, 30m, 1h, 2h),
+ * AC coverage: AC1 (5 valid sleep options: 15m, 30m, 1h, 2h, 4h),
  *              AC2 (free tier locked to 15m - structural/route),
  *              AC3 (admins and paying users can change sleepAfter),
  *              AC4 (value saved to KV preferences and applied on next session start)
@@ -58,14 +58,14 @@ describe('REQ-SESSION-014: User-configurable auto-sleep timeout in Settings', ()
     return app;
   }
 
-  // AC1: Settings dropdown with 5 options (5m, 15m, 30m, 1h, 2h)
+  // AC1: Settings dropdown with 5 options (15m, 30m, 1h, 2h, 4h)
   describe('REQ-SESSION-014 AC1: 5 valid sleep options accepted', () => {
     it('SleepAfterOptions exports exactly 5 valid sleep values', () => {
-      expect(SleepAfterOptions).toEqual(['5m', '15m', '30m', '1h', '2h']);
+      expect(SleepAfterOptions).toEqual(['15m', '30m', '1h', '2h', '4h']);
       expect(SleepAfterOptions).toHaveLength(5);
     });
 
-    it.each(['5m', '15m', '30m', '1h', '2h'] as const)(
+    it.each(['15m', '30m', '1h', '2h', '4h'] as const)(
       'accepts sleepAfter="%s" via PATCH /preferences',
       async (sleepAfter) => {
         const app = createApp();
@@ -109,6 +109,26 @@ describe('REQ-SESSION-014: User-configurable auto-sleep timeout in Settings', ()
       });
       expect(res.status).toBe(400);
     });
+
+    it('rejects sleepAfter "5m" (retired from the settable picker)', async () => {
+      const app = createApp();
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sleepAfter: '5m' }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects sleepAfter "8h" (above the 4h maximum)', async () => {
+      const app = createApp();
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sleepAfter: '8h' }),
+      });
+      expect(res.status).toBe(400);
+    });
   });
 
   // AC2: Free tier locked to 15m regardless of stored preference
@@ -126,7 +146,7 @@ describe('REQ-SESSION-014: User-configurable auto-sleep timeout in Settings', ()
       const { resolveEffectiveSleepAfter } = await import('../../routes/container/lifecycle');
       expect(resolveEffectiveSleepAfter('paid', '2h')).toBe('2h');
       expect(resolveEffectiveSleepAfter('admin', '1h')).toBe('1h');
-      expect(resolveEffectiveSleepAfter('unlimited', '5m')).toBe('5m');
+      expect(resolveEffectiveSleepAfter('unlimited', '4h')).toBe('4h');
     });
 
     it('defaults to 30m for non-free tiers without stored preference', async () => {
@@ -153,16 +173,16 @@ describe('REQ-SESSION-014: User-configurable auto-sleep timeout in Settings', ()
       expect(body.sleepAfter).toBe('2h');
     });
 
-    it('allows changing from 30m to 5m', async () => {
+    it('allows changing from 30m to 4h', async () => {
       const app = createApp();
       const res = await app.request('/preferences', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sleepAfter: '5m' }),
+        body: JSON.stringify({ sleepAfter: '4h' }),
       });
       expect(res.status).toBe(200);
       const body = await res.json() as { sleepAfter: string };
-      expect(body.sleepAfter).toBe('5m');
+      expect(body.sleepAfter).toBe('4h');
     });
   });
 

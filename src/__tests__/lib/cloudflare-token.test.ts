@@ -14,6 +14,7 @@ import {
   disconnectCloudflare,
 } from '../../lib/cloudflare-token';
 import { SETUP_KEYS } from '../../lib/kv-keys';
+import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER } from '../../lib/constants';
 
 vi.mock('../../lib/logger', () => ({
   createLogger: () => ({ info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() }),
@@ -196,7 +197,7 @@ describe('getValidCloudflareToken', () => {
 
 // ─── applyCloudflareOAuthToken: container-injection refresh wiring ────────────
 
-describe('applyCloudflareOAuthToken', () => {
+describe('applyCloudflareOAuthToken (REQ-AGENT-078: injects the placeholder, real token never in the container)', () => {
   it('passes a PAT source through untouched (no refresh, no network)', async () => {
     const dk: DeployKeys = { cloudflareApiToken: 'cf_pat', cloudflareTokenSource: 'pat', githubToken: 'gh' };
     const out = await applyCloudflareOAuthToken(env(), dk, BUCKET);
@@ -211,7 +212,7 @@ describe('applyCloudflareOAuthToken', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('injects a still-valid oauth token and preserves the other deploy fields', async () => {
+  it('injects the placeholder for a still-valid oauth token (real token never in the container), preserving other fields', async () => {
     const dk: DeployKeys = {
       cloudflareApiToken: 'cf_fresh',
       cloudflareTokenSource: 'oauth',
@@ -221,12 +222,14 @@ describe('applyCloudflareOAuthToken', () => {
     };
     mockKV._set(KEY, dk);
     const out = await applyCloudflareOAuthToken(env(), dk, BUCKET);
-    expect(out?.cloudflareApiToken).toBe('cf_fresh');
+    // The real access token is refreshed/validated at the boundary, never baked in.
+    expect(out?.cloudflareApiToken).toBe(CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER);
+    expect(out?.cloudflareApiToken).not.toBe('cf_fresh');
     expect(out?.githubToken).toBe('gh');
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('refreshes a near-expiry oauth token before injection', async () => {
+  it('refreshes a near-expiry oauth token, then injects the placeholder (never the refreshed real token)', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-15T00:00:00Z'));
     configureClient();
@@ -240,7 +243,11 @@ describe('applyCloudflareOAuthToken', () => {
     mockKV._set(KEY, dk);
     mockFetch.mockResolvedValueOnce(ok({ access_token: 'cf_new', refresh_token: 'cfr_new', expires_in: 3_600 }));
     const out = await applyCloudflareOAuthToken(env(), dk, BUCKET);
-    expect(out?.cloudflareApiToken).toBe('cf_new');
+    // The refresh still runs (proving the boundary can mint a valid token), but the
+    // container only ever receives the placeholder — never the refreshed real token.
+    expect(mockFetch).toHaveBeenCalled();
+    expect(out?.cloudflareApiToken).toBe(CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER);
+    expect(out?.cloudflareApiToken).not.toBe('cf_new');
     expect(out?.githubToken).toBe('gh');
   });
 

@@ -144,7 +144,8 @@ A `kbDebounceTimer` variable (timer ID, not boolean) gates the ResizeObserver. W
 
 - **Mobile with keyboard open:** Always call `scrollToBottom()` after `fit()`. The user expects to see the prompt whenever the keyboard is open.
 - **Desktop / mobile without keyboard:** Check `isAtBottom()` *before* `fit()`. If the user was following output (viewport at bottom), call `scrollToBottom()` after `fit()`. If the user had scrolled up into scrollback, preserve their position.
-- **Zero-height guard:** All `fit()` call sites check `containerEl.clientHeight === 0` and bail early. Inactive terminals have `height: 0` via CSS; calling `fit()` on a zero-height container calculates `rows = 0`, which clamps `viewportY` and corrupts scroll state when the terminal re-expands.
+- **Zero-height guard:** All `fit()` call sites check `containerEl.clientHeight === 0` and bail early.
+    - Inactive terminals have `height: 0` via CSS; calling `fit()` on a zero-height container calculates `rows = 0`, which clamps `viewportY` and corrupts scroll state when the terminal re-expands.
 
 This applies to all three `fit()` paths above, plus the init-overlay refit and keyboard lifecycle refit.
 
@@ -293,7 +294,8 @@ Users at the bottom following output saw constant flashing/jitter during rapid o
 
 **Solution:**
 
-1. **Bottom-following correction moved to `onScroll` handler** (`useTerminal.ts`) -- when `wasFollowingOutput` is true and `ydisp < ybase`, call `scrollToBottom()` immediately. Uses `isCorrectingScroll` flag to prevent recursion. Checks recent user intent (wheel/pointerdown/keydown) to avoid trapping users at the bottom when they intentionally scroll up.
+1. **Bottom-following correction moved to `onScroll` handler** (`useTerminal.ts`) -- when `wasFollowingOutput` is true and `ydisp < ybase`, call `scrollToBottom()` immediately. Uses `isCorrectingScroll` flag to prevent recursion.
+    - Checks recent user intent (wheel/pointerdown/keydown) to avoid trapping users at the bottom when they intentionally scroll up.
 
 2. **Write callback simplified** (`terminal.ts`) -- bottom-followers skip the callback entirely (handled by `onScroll`). Callback only handles scrolled-up user distance correction, which is less timing-sensitive.
 
@@ -326,7 +328,8 @@ The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_
 
 ### REQ-MOB-004 test scenarios
 
-1. **Burst output retains bottom anchor.** Start a session, open a terminal tab, send `for i in {1..2000}; do echo "line $i"; done` via the WS, wait for output to settle. Assert `page.evaluate(() => terminal.buffer.active.viewportY >= terminal.buffer.active.baseY)` returns true (no scroll drop).
+1. **Burst output retains bottom anchor.** Start a session, open a terminal tab, send `for i in {1..2000}; do echo "line $i"; done` via the WS, wait for output to settle.
+    - Assert `page.evaluate(() => terminal.buffer.active.viewportY >= terminal.buffer.active.baseY)` returns true (no scroll drop).
 2. **Focus loss/regain does not reset viewport.** Defocus the terminal, refocus via `page.evaluate(() => document.body.click())`, assert viewport remains at bottom (no `ydisp` drop to 0).
 3. **Viewport overflow style.** Inspect computed style of `.xterm .xterm-viewport`, assert `overflow: hidden` is present (xterm 6.0.0 `SmoothScrollableElement` invariant).
 

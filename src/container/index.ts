@@ -34,7 +34,8 @@ import { isEnterpriseMode } from '../lib/subscription';
 import { hasStrictGatewayEgress } from '../lib/controller-egress';
 import { INTERCEPTED_LLM_HOSTS } from '../llm-interceptor';
 import { interceptedGithubHosts } from '../github-interceptor';
-import { INTERCEPTED_CF_BROWSER_HOSTS } from '../cloudflare-browser-interceptor';
+import { INTERCEPTED_CF_BROWSER_HOSTS, INTERCEPTED_CF_OAUTH_HOSTS } from '../cloudflare-browser-interceptor';
+import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER } from '../lib/constants';
 import { getEnterpriseBrowserCreds } from '../lib/browser-render-token';
 import { getOrImportKey } from '../lib/kv-crypto';
 import {
@@ -108,11 +109,11 @@ export class container extends Container<Env> implements ContainerEnvState {
   // none of our timeouts having fired.
   override sleepAfter = '24h';
 
-  // User-configured idle timeout (5m/15m/30m/1h/2h). Enforced by collectMetrics,
+  // User-configured idle timeout (15m/30m/1h/2h/4h; legacy 5m tolerated). Enforced by collectMetrics,
   // NOT by the SDK. Stored in DO storage under the 'sleepAfter' key for
   // backwards compat with existing sessions created before this refactor.
   //
-  // Default is the MAX supported value (2h), not the min. Rationale: this
+  // Default is the MAX supported value (4h), not the min. Rationale: this
   // class field is the fallback that wins when (a) the DO is freshly
   // constructed and storage hasn't been populated yet, or (b) a code path
   // skipped the setBucketName flow that writes the user pref. In either
@@ -121,7 +122,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   // live longer than expected, which is a strictly safer failure mode. The
   // collectMetrics tick re-reads storage as the authoritative source on
   // every fire (60s cadence) so any drift is corrected within one tick.
-  idleTimeoutPref: string = '2h';
+  idleTimeoutPref: string = '4h';
 
   // Environment variables - set via property assignment in updateEnvVars()
   // These satisfy the ContainerEnvState interface, so they are not `private`.
@@ -257,7 +258,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       // Restore user-configured idle timeout (survives DO resets).
       // Storage key remains 'sleepAfter' for backwards compat with existing sessions.
       const storedIdleTimeout = await this.ctx.storage.get<string>('sleepAfter');
-      if (storedIdleTimeout && /^(5m|15m|30m|1h|2h)$/.test(storedIdleTimeout)) {
+      if (storedIdleTimeout && /^(5m|15m|30m|1h|2h|4h)$/.test(storedIdleTimeout)) {
         this.idleTimeoutPref = storedIdleTimeout;
       }
 
@@ -416,8 +417,8 @@ export class container extends Container<Env> implements ContainerEnvState {
    *
    * There is NO legacy 30-minute (or any other) hard idle timeout anywhere -
    * a recurring misconception. The only idle stops we own are collectMetrics'
-   * idle-stop at idleTimeoutPref (default 2h, logs "idle exceeded threshold")
-   * and the in-container PTY reaper (PTY_KEEPALIVE_MS, a 2h safety net). A
+   * idle-stop at idleTimeoutPref (default 4h, logs "idle exceeded threshold")
+   * and the in-container PTY reaper (PTY_KEEPALIVE_MS, a 4h safety net). A
    * container can still vanish well before any of those via onError
    * (deploy / platform reap), which is unrelated to any configured timeout.
    */
@@ -440,12 +441,14 @@ export class container extends Container<Env> implements ContainerEnvState {
    * The SDK applies its own pre-start interception at this same point; all start
    * paths (explicit start + containerFetch auto-start) funnel through here.
    *
-   * No-op unless enterprise mode + gateway configured, so a non-enterprise
-   * container's start path is byte-identical to today.
+   * Enterprise interception is a no-op unless enterprise mode + gateway configured. The OAuth
+   * api.cloudflare.com interception (REQ-AGENT-078) is a no-op unless this is a non-enterprise
+   * "Connect to Cloudflare" session (detected by the injected OAuth placeholder).
    */
   override async startAndWaitForPorts(
     ...args: Parameters<Container<Env>['startAndWaitForPorts']>
   ): Promise<void> {
+    this.wireCloudflareApiInterception();
     await this.setupEnterpriseInterception();
     await super.startAndWaitForPorts(...args);
   }
@@ -488,6 +491,35 @@ export class container extends Container<Env> implements ContainerEnvState {
     this.wireGithubInterception(strict);
     await this.wireCloudflareBrowserInterception(strict);
     this.wireEgressInterception(strict);
+  }
+
+  /**
+   * Wire api.cloudflare.com -> the CloudflareBrowserInterceptor in OAuth mode (REQ-AGENT-078).
+   * NON-enterprise ONLY, and ONLY for OAuth "Connect to Cloudflare" sessions — detected by the
+   * injected OAuth placeholder (`applyCloudflareOAuthToken` sets it; a PAT session keeps its real
+   * long-lived token, a plain session has none). The `!isEnterpriseMode` guard means this can
+   * never wire the host the enterprise Browser Rendering interceptor owns, so the two never
+   * collide. The container holds only the placeholder; the interceptor stamps a fresh, refreshed
+   * token per request. Independently try/catch-guarded so a wiring failure never breaks start.
+   */
+  private wireCloudflareApiInterception(): void {
+    if (isEnterpriseMode(this.env)) return;
+    if (this._cloudflareApiToken !== CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER) return;
+    const bucket = this._bucketName;
+    if (!bucket) return;
+    try {
+      const cctx = this.ctx as unknown as {
+        exports: { CloudflareBrowserInterceptor(opts: { props: { bucket: string } }): Fetcher };
+        container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
+      };
+      const interceptor = cctx.exports.CloudflareBrowserInterceptor({ props: { bucket } });
+      for (const host of INTERCEPTED_CF_OAUTH_HOSTS) {
+        cctx.container?.interceptOutboundHttps(host, interceptor);
+      }
+      this.logger.info('Cloudflare OAuth API interception wired', { hostCount: INTERCEPTED_CF_OAUTH_HOSTS.length });
+    } catch (err) {
+      this.logger.error('Failed to wire Cloudflare OAuth API interception', toError(err));
+    }
   }
 
   /**

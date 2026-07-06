@@ -66,7 +66,7 @@ export const UserPreferencesSchema = z.object({
   workspaceSyncEnabled: z.boolean().optional(),
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),
-  sleepAfter: z.enum(['5m', '15m', '30m', '1h', '2h']).optional(),
+  sleepAfter: z.enum(['15m', '30m', '1h', '2h', '4h']).optional(),
 });
 
 // Preset API response schemas

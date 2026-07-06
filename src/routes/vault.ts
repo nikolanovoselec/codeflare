@@ -47,6 +47,7 @@ import {
   hasVaultBootstrapCookie,
   readVaultSidCookie,
   filterVaultFsListing,
+  isFilteredVaultMutation,
   getVaultPrewarmRedirectSearch,
   rewriteVaultHtmlResponse,
 } from './vault-html';
@@ -130,6 +131,19 @@ export async function handleVaultRequest(
     return new Response(
       JSON.stringify({ error: 'Invalid routing result', code: 'INVALID_ROUTING' }),
       { status: 500, headers: jsonHeaders },
+    );
+  }
+
+  // REQ-VAULT-015 AC1: machine-owned memory paths (session captures + derived
+  // graph output) are hidden from the SB client listing. A client that stops
+  // seeing them on refresh could emit a sync-delete; reject client mutations to
+  // those paths so the on-disk memory the capture pipeline owns is never removed
+  // through the editor proxy (the pipeline writes them via the container FS, not
+  // this proxy). Reads pass through untouched.
+  if (isFilteredVaultMutation(request.method, remainingPath)) {
+    return new Response(
+      JSON.stringify({ error: 'Not found', code: 'FILTERED_PATH' }),
+      { status: 404, headers: jsonHeaders },
     );
   }
 

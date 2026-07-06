@@ -1,13 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import { parseSleepAfterMs, getSleepTimerInfo } from '../../lib/sleep-timer';
+import type { SleepAfterOption } from '../../types';
 
 describe('parseSleepAfterMs', () => {
   it('maps each SleepAfterOption to correct milliseconds', () => {
-    expect(parseSleepAfterMs('5m')).toBe(300_000);
     expect(parseSleepAfterMs('15m')).toBe(900_000);
     expect(parseSleepAfterMs('30m')).toBe(1_800_000);
     expect(parseSleepAfterMs('1h')).toBe(3_600_000);
     expect(parseSleepAfterMs('2h')).toBe(7_200_000);
+    expect(parseSleepAfterMs('4h')).toBe(14_400_000);
+  });
+
+  it('still maps the retired 5m value so a legacy stored pref keeps a correct countdown', () => {
+    expect(parseSleepAfterMs('5m' as SleepAfterOption)).toBe(300_000);
   });
 
   it('returns default (30m) for undefined', () => {
@@ -54,8 +59,8 @@ describe('getSleepTimerInfo / REQ-SESSION-013 (sleep timer countdown UI)', () =>
   });
 
   it('works with shorter sleepAfter values', () => {
-    const lastActiveAt = new Date(now - 2 * 60_000).toISOString(); // 2 min ago, 3 min remaining
-    const result = getSleepTimerInfo(lastActiveAt, '5m');
+    const lastActiveAt = new Date(now - 12 * 60_000).toISOString(); // 12 min ago on 15m → 3 min remaining
+    const result = getSleepTimerInfo(lastActiveAt, '15m');
     expect(result).not.toBeNull();
     expect(result!.severity).toBe('critical');
     expect(result!.bucket).toBe('< 5 min');

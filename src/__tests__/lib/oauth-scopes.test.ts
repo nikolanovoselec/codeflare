@@ -29,7 +29,10 @@ describe('githubScopeForTier', () => {
   });
 });
 
-describe('cloudflareScopeForTier', () => {
+// REQ-AGENT-079: Advanced Cloudflare OAuth tier scope catalog. The recommended-⊆-advanced
+// superset assertion here, together with the exact-set assertion in the REQ-BROWSER-002 AC3
+// test below, are the catalog's regression guard.
+describe('REQ-AGENT-079: cloudflareScopeForTier advanced-tier scope catalog', () => {
   it('always requests offline_access and escalates capability with tier', () => {
     const minimal = cloudflareScopeForTier('minimal');
     const recommended = cloudflareScopeForTier('recommended');
@@ -38,12 +41,16 @@ describe('cloudflareScopeForTier', () => {
     for (const s of [minimal, recommended, advanced]) {
       expect(s.split(' ')).toContain('offline_access'); // refresh-token grant
     }
-    // Each tier is a proper superset of the previous — verified by containment, not
-    // just length: every minimal scope is in recommended, every recommended in advanced.
+    // minimal ⊆ recommended ⊆ advanced (verified by containment, not length). Advanced is a
+    // strict superset of recommended: it keeps recommended's combined Access scopes
+    // (zone-access.write/access-acct.write) AND adds the granular ids
+    // (access-app/access-policy/access-org/access-idp/access-group), so NO recommended scope is
+    // absent from advanced.
     const recSet = new Set(recommended.split(' '));
     const advSet = new Set(advanced.split(' '));
     expect(minimal.split(' ').every((s) => recSet.has(s))).toBe(true);
-    expect([...recSet].every((s) => advSet.has(s))).toBe(true);
+    expect(minimal.split(' ').every((s) => advSet.has(s))).toBe(true);
+    expect([...recSet].filter((s) => !advSet.has(s))).toEqual([]);
     expect(recommended.split(' ').length).toBeGreaterThan(minimal.split(' ').length);
     expect(advanced.split(' ').length).toBeGreaterThan(recommended.split(' ').length);
     // Advanced unlocks AI; minimal does not.
@@ -66,9 +73,12 @@ describe('REQ-BROWSER-002: Browser Rendering scope in the Cloudflare token templ
   // The Cloudflare OAuth catalog scope ID for the "Browser Rendering - Edit" capability.
   const BROWSER_RENDERING_EDIT = 'browser-rendering.write';
 
-  // The full known core (non-Browser-Rendering) scope set the template granted before
-  // Browser Rendering was added — every Cloudflare deploy capability across all tiers.
-  // This is the backward-compat baseline for AC3.
+  // The full non-Browser-Rendering advanced scope set (the operator-finalized capability
+  // list, verified against Cloudflare's live consent screen). AC3 pins this exactly so a
+  // future edit that drops or renames a finalized scope fails the build. Advanced is a superset
+  // of recommended: it carries BOTH the combined Access scopes (zone-access.write/access-acct.write,
+  // inherited from recommended) AND the granular ids (access-app/access-policy/access-org/
+  // access-idp/access-group).
   const KNOWN_CORE_SCOPES = [
     // minimal
     'workers-scripts.write',
@@ -79,20 +89,65 @@ describe('REQ-BROWSER-002: Browser Rendering scope in the Cloudflare token templ
     'account-settings.read',
     'user-details.read',
     'zone.read',
-    // recommended adds
+    // zone / dns + recommended's combined Access scopes (inherited from recommended)
     'dns.write',
     'zone-access.write',
     'access-acct.write',
-    // advanced adds (excluding browser-rendering.write)
+    'zone-waf.write',
+    // workers platform
     'page.write',
     'containers.write',
     'queues.write',
-    'ai.write',
-    'vectorize.write',
+    'pipelines.write',
+    'r2-catalog.write',
     'workers-ci.write',
     'workers-observability.write',
-    'r2-catalog.write',
+    'workers-tail.read',
+    'cf-agents.write',
+    'secrets-store.write',
+    // AI (browser-rendering.write asserted separately in AC1). aig.* = AI Gateway,
+    // agw.* = Agents Gateway — distinct Cloudflare products, both in the OAuth catalog.
+    'ai.write',
+    'ai.read',
+    'aig.write',
+    'aig.run',
     'agw.write',
+    'agw.read',
+    'agw.run',
+    'ai-search.index',
+    'ai-search.run',
+    'ai-search.write',
+    'aiaudit.read',
+    'aiaudit.write',
+    'firewall-for-ai.read',
+    'firewall-for-ai.write',
+    'websearch.run',
+    'vectorize.write',
+    'challenge-widgets.write',
+    // access / zero trust
+    'teams.write',
+    'access-org.write',
+    'access-idp.write',
+    'access-group.write',
+    'access-app.write',
+    'access-policy.write',
+    'access-audit-log.read',
+    'access-device-posture.write',
+    'access-service-token.write',
+    // cloudflare one / networking
+    'teams-connectors.write',
+    'teams-networks.write',
+    'argotunnel.write',
+    'magic-wan.write',
+    'connectivity-directory.admin',
+    'magic-firewall.write',
+    'pcaps-api.write',
+    'logs.write',
+    'mcp-portals.write',
+    // account security
+    'account-firewall-access-rules.write',
+    'account-waf.write',
+    'account-ssl-and-certificates.write',
   ];
 
   it('AC1: the advanced Cloudflare token template grants Browser Rendering - Edit', () => {
@@ -117,6 +172,10 @@ describe('REQ-BROWSER-002: Browser Rendering scope in the Cloudflare token templ
     }
   });
 
+  // REQ-AGENT-079 AC1/AC3: this exact-set assertion is the advanced-tier scope-catalog guard —
+  // the non-Browser-Rendering advanced set must equal the finalized catalog exactly (pins
+  // logs.write, both the combined and granular Access ids, and the absence of the
+  // no-OAuth-scope permissions).
   it('AC3: backward-compat — non-Browser-Rendering scope set is exactly the known core set', () => {
     // Tokens created before the Browser Rendering scope was added still work for all
     // existing functionality: the set of non-Browser-Rendering scopes the template grants

@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 // re-export or a source-only change is caught here independently.
 import {
   filterVaultFsListing,
+  isFilteredVaultMutation,
   rewriteVaultBaseHref,
   hasVaultBootstrapCookie,
   inferOriginValidated,
@@ -31,16 +32,23 @@ import {
 describe('CF-045: vault-html direct unit tests', () => {
   // REQ-VAULT-015 AC1: graphify-out artifacts are stripped from the SB listing
   describe('filterVaultFsListing', () => {
-    it('removes derived graph artifacts that should not enter the SilverBullet index queue', () => {
+    it('removes derived graph artifacts AND machine-owned session captures, keeping human notes', () => {
       const body = JSON.stringify([
         { name: 'Notes/foo.md' },
+        { name: 'Notes/Plans/2026-06-18-plan.md' },
         { name: 'graphify-out/graph.html' },
         { name: 'Raw/Graphs/vault-graph.html' },
         { name: 'Raw/Graphs/Vault Graph.md' },
+        { name: 'Raw/Sessions/2026-07-05T00-00-00+0200-abcd.md' },
         { name: 'Index.md' },
       ]);
       const filtered = JSON.parse(filterVaultFsListing(body)) as Array<{ name: string }>;
-      expect(filtered.map((e) => e.name)).toEqual(['Notes/foo.md', 'Raw/Graphs/Vault Graph.md', 'Index.md']);
+      expect(filtered.map((e) => e.name)).toEqual([
+        'Notes/foo.md',
+        'Notes/Plans/2026-06-18-plan.md',
+        'Raw/Graphs/Vault Graph.md',
+        'Index.md',
+      ]);
     });
 
     it('returns the body byte-for-byte unchanged when nothing is filtered', () => {
@@ -56,6 +64,33 @@ describe('CF-045: vault-html direct unit tests', () => {
     it('fail-safe: returns the input unchanged when the body is not an array', () => {
       const body = JSON.stringify({ name: 'graphify-out/x' });
       expect(filterVaultFsListing(body)).toBe(body);
+    });
+  });
+
+  // REQ-VAULT-015 AC1: client mutations to the hidden machine-owned paths are
+  // rejected so a transitioning client cannot delete the on-disk memory.
+  describe('isFilteredVaultMutation', () => {
+    it('blocks client mutations to hidden machine-owned paths', () => {
+      for (const m of ['PUT', 'DELETE', 'PATCH', 'POST', 'put', 'delete']) {
+        expect(isFilteredVaultMutation(m, '/Raw/Sessions/2026-07-05T00-00-00.md')).toBe(true);
+        expect(isFilteredVaultMutation(m, '/graphify-out/graph.json')).toBe(true);
+        expect(isFilteredVaultMutation(m, '/Raw/Graphs/vault-graph.html')).toBe(true);
+      }
+    });
+
+    it('allows client mutations to human-edited vault paths', () => {
+      for (const m of ['PUT', 'DELETE', 'PATCH', 'POST']) {
+        expect(isFilteredVaultMutation(m, '/Notes/Plans/plan.md')).toBe(false);
+        expect(isFilteredVaultMutation(m, '/Notes/foo.md')).toBe(false);
+        // the Raw/Graphs markdown index page stays user-editable (only *.html is hidden)
+        expect(isFilteredVaultMutation(m, '/Raw/Graphs/Vault Graph.md')).toBe(false);
+      }
+    });
+
+    it('never blocks reads of hidden paths (GET/HEAD pass through)', () => {
+      expect(isFilteredVaultMutation('GET', '/Raw/Sessions/x.md')).toBe(false);
+      expect(isFilteredVaultMutation('HEAD', '/Raw/Sessions/x.md')).toBe(false);
+      expect(isFilteredVaultMutation('OPTIONS', '/graphify-out/graph.json')).toBe(false);
     });
   });
 

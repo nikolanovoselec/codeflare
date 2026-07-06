@@ -76,7 +76,7 @@ describe('entrypoint Browser Run MCP wiring', () => {
     const cd = claude.mcpServers['chrome-devtools'];
     assert.ok(cd, 'chrome-devtools must be registered for Claude');
     assert.equal(cd.command, 'npx');
-    assert.ok(cd.args.includes('chrome-devtools-mcp@1.4.0'), 'pins the chrome-devtools-mcp version (not @latest)');
+    assert.ok(cd.args.includes('chrome-devtools-mcp@1.5.0'), 'pins the chrome-devtools-mcp version (not @latest)');
     const wsEndpoint = cd.args.find((a) => a.startsWith('--wsEndpoint='));
     assert.ok(wsEndpoint, '--wsEndpoint arg present');
     assert.ok(wsEndpoint.includes('acct123'), 'CDP endpoint carries the account id');
