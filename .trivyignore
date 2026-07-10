@@ -627,3 +627,16 @@ CVE-2026-27145
 # bundles a newer npm - not independently upgradable without bumping node/npm. Same
 # "fixed upstream but a vendored CLI hasn't rebuilt" profile as the entries above.
 CVE-2026-48815
+
+# Go stdlib os.Root in gh (Go 1.26.4), lazygit v0.60.0 (Go 1.25.10), and
+# silverbullet (Go 1.25.1): a symlink-following bug in os.Root lets filesystem
+# operations meant to be confined to a root directory traverse outside it via a
+# symlink, enabling directory traversal. Impact: NONE - all three are local,
+# single-tenant CLI/UI tools in the sandboxed container operating on the user's
+# OWN files (gh: user repos/config; lazygit: user git working trees; silverbullet:
+# the user's Vault dir behind Cloudflare Access). There is no attacker-controlled
+# symlink tree and no multi-tenant filesystem boundary for an os.Root confinement
+# escape to cross. Fix: Go 1.25.12 / 1.26.5 / 1.27.0-rc.2; gh, lazygit, and
+# silverbullet upstream have not rebuilt with the patched Go. Same vendored-binary
+# exposure profile as CVE-2026-27145 above.
+CVE-2026-39822
