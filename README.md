@@ -2,7 +2,7 @@
 
 ![Codeflare: the agentic engineering engine. Governed engineering agents inside your own estate.](documentation/images/og.png)
 
-**Not a coding assistant. The enterprise agentic engine.**
+**Not a coding assistant. The agentic engineering engine.**
 
 Codeflare runs governed engineering agents inside your own estate. They build, test, review, and operate. The engineer specifies, steers, and judges; the agents do the rest, under your git, your CI, and your zero-trust boundary.
 
