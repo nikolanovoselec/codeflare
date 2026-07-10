@@ -598,10 +598,14 @@ svg {
    fills its half instead of stretching full-width with a dead right gutter. Single
    column on mobile (copy above the terminal); side by side from 820px. Stacked bands
    are separated by their own vertical gap. */
-/* Row-gap is the shared copy->terminal rhythm (used when the band stacks on mobile);
-   column-gap is the wider side-by-side gutter on desktop. The inner section head must
-   not also carry its own bottom margin, or on mobile it stacks on top of the row-gap
-   and doubles the space (the bug that made these bands drift from a plain section). */
+/* Desktop (>=820px): a copy column beside its proof terminal so a narrow terminal fills
+   its half instead of a dead right gutter (column-gap is the gutter; the row-gap value is
+   inert with a single row). Below 820px the band collapses to one column and switches to
+   PLAIN BLOCK FLOW (the max-width rule further down) so the copy block's own margin-bottom
+   is the copy->terminal gap and margin-collapses with the terminal margin, exactly like
+   every full-width section. A grid item can't margin-collapse, so keeping the grid on
+   mobile stacked the terminal's top margin on top of the row-gap and doubled the gap
+   (28px -> 48px). */
 .split-band {
   display: grid;
   gap: var(--gap-copy-terminal) clamp(1.5rem, 4vw, 2.75rem);
@@ -627,6 +631,25 @@ svg {
    category -> subcategory pair. */
 .split-band > .substation {
   margin-top: 0;
+}
+
+/* Below the 820px side-by-side breakpoint, the split bands and the mesh hero collapse to
+   one column. Drop the grid there and let them lay out as plain block flow, identical to
+   every full-width section: the copy block's own margin-bottom (the shared
+   --gap-copy-terminal) is the copy->terminal gap and margin-collapses with the terminal's
+   top margin. This is the fix for the doubled mobile/tablet gap — a grid item can't
+   margin-collapse, so on the grid the terminal's 20px margin stacked on the 28px row-gap
+   (=48px); block flow collapses them back to 28px, matching a plain section exactly.
+   Scoped to max-width so desktop (>=820px, the grid side-by-side) is untouched. */
+@media (max-width: 819.98px) {
+  .split-band,
+  .mesh-hero-grid {
+    display: block;
+  }
+  .split-band > .section-head,
+  .mesh-hero-copy {
+    margin-bottom: var(--gap-copy-terminal);
+  }
 }
 
 /* The operations section pairs a governed-run gate terminal with capability cards; the
