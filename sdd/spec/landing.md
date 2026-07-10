@@ -151,3 +151,62 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Verification:** [Landing first-paint render test](../../landing/src/__tests__/index-page.test.ts), [Worker asset-cache serving test](../../src/__tests__/index.test.ts)
 
 **Status:** Implemented
+
+---
+
+### REQ-LANDING-005: Inference Mesh family hero
+
+**Intent:** The public landing page presents Inference Mesh as the private inference layer of the Codeflare family directly under the primary hero, so a visitor sees, in one glance, that the agentic engine turns the idle machines a company already owns into private inference capacity for its agents, without leaving the page's existing proof-led narrative.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The landing renders a dedicated `#inference-mesh` hero band as a `<header>` directly after the primary hero and before the `#shift` section, reusing the existing section rhythm and tint and creating no second `h1`. <!-- @impl: landing/src/pages/index.astro --> <!-- @impl: landing/src/components/InferenceMeshHero.astro --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh band is a header directly after the primary hero and before shift, with no second h1) -->
+2. The band headline renders `private inference mesh for agentic engineering`, with only the `inference mesh` phrase carrying the shared `[data-scramble]` hook and a static readable fallback when JavaScript or motion is unavailable. <!-- @impl: landing/src/components/InferenceMeshHero.astro --> <!-- @impl: landing/src/scripts/scramble.ts --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh headline exposes exactly one data-scramble phrase equal to the content model, and no h1) -->
+3. The band description positions the idle machines you already own as private inference capacity for your agents, with long-running sessions kept warm on otherwise-idle capacity, sensitive work never leaving the boundary, and reaching for a hosted model framed as a policy choice instead of the default. <!-- @impl: landing/src/content/site.ts --> <!-- @impl: landing/src/components/InferenceMeshHero.astro --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh description is rendered verbatim from the typed content model) -->
+4. The band includes one primary external CTA labelled `See it on GitHub` linking to the public Inference Mesh repository, with no secondary CTA and no dedicated detail route. <!-- @impl: landing/src/content/site.ts --> <!-- @impl: landing/src/components/InferenceMeshHero.astro --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh CTA href, target, rel, single primary CTA, and no ghost CTA) -->
+5. The band uses the existing Terminal and Transcript proof system as a concrete inference-call artifact carrying the shared `proof-terminal` chrome and the page's type-on-view (cursor) treatment, introducing no new animation system or terminal chrome. <!-- @impl: landing/src/content/site.ts --> <!-- @impl: landing/src/components/InferenceMeshHero.astro --> <!-- @impl: landing/src/components/Terminal.astro --> <!-- @impl: landing/src/components/Transcript.astro --> <!-- @test: landing/src/__tests__/index-page.test.ts (inference mesh terminal is .terminal.proof-terminal.mesh-terminal[data-proof], cursor caret + typeline, content-model title/lines/foot) -->
+
+**Constraints:**
+
+- Product-led copy for this band may name the public model alias (`codeflare-mesh`), the served open model, throughput and economic figures, and capability outcomes such as cache-warm sessions, but never runtime, transport, provider-plumbing, or routing-internal components.
+- The band has one CTA and no dedicated detail route.
+- Structurally a second hero mirroring the primary hero: on desktop the proof terminal sits left and the copy right; on mobile and for assistive technology the copy is read before the proof.
+- Client-side behavior is enhancement-only; the full band is readable without JavaScript.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
+
+**Verification:** [Landing render tests](../../landing/src/__tests__/index-page.test.ts), [Scramble behavior tests](../../landing/src/__tests__/scramble.script.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-LANDING-006: Enter-the-Matrix sign-in CTA
+
+**Intent:** The public landing header presents its sign-in call to action as an on-theme "Enter The Matrix" flourish that pays off the page's existing Metacortex / Thomas Anderson easter egg, while remaining an unmistakable and accessible sign-in entry point.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The landing header renders a single sign-in CTA whose visible text is `Enter The Matrix`, sourced from the typed content model, linking to the sign-in destination unchanged. <!-- @impl: landing/src/content/site.ts --> <!-- @impl: landing/src/components/Header.astro --> <!-- @test: landing/src/__tests__/components.test.ts (header sign-in CTA renders the content-model label and the unchanged sign-in href) -->
+2. The CTA carries `aria-label="Sign in"` so its accessible name and purpose stay clear regardless of the visible flourish. <!-- @impl: landing/src/components/Header.astro --> <!-- @test: landing/src/__tests__/components.test.ts (header sign-in CTA exposes aria-label Sign in) -->
+3. The CTA text renders in the page accent coral and carries the shared scramble hook in hover/focus decode mode, with a static readable fallback under reduced-motion and with no JavaScript. <!-- @impl: landing/src/components/Header.astro --> <!-- @impl: landing/src/styles/global.css --> <!-- @impl: landing/src/scripts/scramble.ts --> <!-- @test: landing/src/__tests__/components.test.ts (header sign-in CTA carries the coral modifier class and the hover-scramble hook) -->
+
+**Constraints:**
+
+- The visible flourish never removes the accessible or semantic sign-in meaning (aria-label kept, href unchanged).
+- Client-side scramble is enhancement-only; the button is fully readable and usable without JavaScript and under reduced-motion.
+- No new color or font: the accent is the existing `--accent` token; no new animation system (reuses `scramble.ts`).
+
+**Priority:** P3
+
+**Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
+
+**Verification:** [Component tests](../../landing/src/__tests__/components.test.ts); scramble/decode animation verified via browser-e2e.
+
+**Status:** Implemented

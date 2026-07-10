@@ -30,6 +30,7 @@ import LedgerTable from '../components/LedgerTable.astro';
 import ReviewBoard from '../components/ReviewBoard.astro';
 import OrchTree from '../components/OrchTree.astro';
 import Hero from '../components/Hero.astro';
+import InferenceMeshHero from '../components/InferenceMeshHero.astro';
 import FeatureTerminals from '../components/FeatureTerminals.astro';
 import ContactForm from '../components/ContactForm.astro';
 import Footer from '../components/Footer.astro';
@@ -111,6 +112,7 @@ const mcpRows = MCP.portal.rows.map((row) => ({
 
   <main id="top">
     <Hero />
+    <InferenceMeshHero />
 
     <!-- The shift: the assistant-to-engine leap shown the way the page trades,
          as terminals. Four short feature terminals (gateway, session, review,

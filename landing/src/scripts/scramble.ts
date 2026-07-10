@@ -5,9 +5,11 @@
  * gently churning.
  *
  * Two adaptations for a marketing headline that must wrap on small screens:
- *   1. The phrase is split into per-word spans whose widths are measured once
- *      and locked, so glyph churn never reflows the headline (the line breaks
- *      stay exactly where the static text broke).
+ *   1. The phrase CONTAINER is width-locked to its natural width and set nowrap,
+ *      so glyph churn never reflows the headline. Each word span stays
+ *      content-sized, so wider churn glyphs are painted rather than clipped to a
+ *      fixed-width gradient box (a fixed-width span with background-clip:text
+ *      renders any glyph past its right edge transparent -> the old "cut off").
  *   2. Each word runs its own loop on a staggered start, so the words shimmer
  *      independently instead of pulsing in unison.
  *
@@ -92,22 +94,25 @@ function setupElement(el: HTMLElement): void {
     }
   }
 
-  // Measure each word's natural width at the CURRENT font size and lock it, so
-  // the churning glyphs can never push the line to rewrap. The hero font size is
-  // fluid (a vw-based clamp), so this must re-run on resize/rotation or the
-  // locked px widths would clip or misalign at the new size.
-  const lockWidths = () => {
+  // Lock the phrase CONTAINER's width to its natural width and stop it wrapping,
+  // so glyph churn can never reflow the headline. Each word span is left
+  // content-sized, so its own gradient box always covers its current glyphs and
+  // nothing is clipped. The container keeps its natural layout width, so churn
+  // overflow (if any) is trailing at the line end. The font size is fluid (a
+  // vw-based clamp), so this must re-run on resize/rotation.
+  const lockContainer = () => {
+    el.style.width = '';
+    el.style.display = 'inline-block';
+    el.style.whiteSpace = 'nowrap';
     for (const { span, text } of words) {
       span.style.width = '';
       span.textContent = text;
     }
-    for (const { span } of words) {
-      span.style.width = `${span.getBoundingClientRect().width.toFixed(2)}px`;
-    }
+    el.style.width = `${el.getBoundingClientRect().width.toFixed(2)}px`;
   };
 
   const start = () => {
-    lockWidths();
+    lockContainer();
     for (const { span, text } of words) {
       animateWord(span, text);
     }
@@ -125,7 +130,7 @@ function setupElement(el: HTMLElement): void {
   let resizeTimer = 0;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
-    resizeTimer = window.setTimeout(() => requestAnimationFrame(lockWidths), 150);
+    resizeTimer = window.setTimeout(() => requestAnimationFrame(lockContainer), 150);
   });
 }
 
@@ -137,3 +142,67 @@ function initScramble(): void {
 }
 
 initScramble();
+
+/**
+ * Hover / focus decode: [data-scramble-hover] elements (the header "Enter The
+ * Matrix" sign-in CTA) rest static and run a single scramble -> decode pass when
+ * hovered or focused. The button paints solid coral (not the flare gradient), so
+ * content-sized word spans never clip. Disabled under reduced motion; with no JS
+ * the label is plain, legible text.
+ */
+const HOVER_FRAMES = 26;
+
+function decodeWord(span: HTMLElement, target: string): void {
+  const chars = target.split('');
+  let frame = 0;
+  const timer = setInterval(() => {
+    frame++;
+    const settled = frame < 8 ? 0 : (frame - 8) / (HOVER_FRAMES - 8);
+    span.textContent = chars
+      .map((c) => (/\s/.test(c) || Math.random() < settled ? c : randomChar()))
+      .join('');
+    if (frame >= HOVER_FRAMES) {
+      clearInterval(timer);
+      span.textContent = target;
+    }
+  }, TICK_MS);
+}
+
+function setupHoverElement(el: HTMLElement): void {
+  const parts = (el.textContent ?? '').split(/(\s+)/);
+  el.textContent = '';
+  const words: { span: HTMLElement; text: string }[] = [];
+  for (const part of parts) {
+    if (part === '') continue;
+    if (/^\s+$/.test(part)) {
+      el.appendChild(document.createTextNode(part));
+    } else {
+      const span = document.createElement('span');
+      span.className = 'scramble-word';
+      span.textContent = part;
+      el.appendChild(span);
+      words.push({ span, text: part });
+    }
+  }
+
+  let running = false;
+  const run = () => {
+    if (running) return;
+    running = true;
+    for (const { span, text } of words) decodeWord(span, text);
+    window.setTimeout(() => {
+      running = false;
+    }, HOVER_FRAMES * TICK_MS + 80);
+  };
+  el.addEventListener('mouseenter', run);
+  el.addEventListener('focus', run);
+}
+
+function initScrambleHover(): void {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  for (const el of document.querySelectorAll<HTMLElement>('[data-scramble-hover]')) {
+    setupHoverElement(el);
+  }
+}
+
+initScrambleHover();

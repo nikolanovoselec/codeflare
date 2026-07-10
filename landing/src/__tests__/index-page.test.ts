@@ -23,6 +23,7 @@ import {
   FAQ_ITEMS,
   FEATURE_TERMINALS,
   HERO,
+  INFERENCE_MESH,
   METHOD,
   NAV_LINKS,
   ORCHESTRATION,
@@ -124,8 +125,8 @@ describe('landing page composition (REQ-LANDING-001)', () => {
 
   it('renders the full set of terminals, each armed for the proof reveal', () => {
     // hero + 4 feature + method gate + legacy + boundary + 2 context + board +
-    // orch + ledger + platform seed + mcp + dogfood = 16.
-    expect(body.querySelectorAll('.terminal[data-proof]')).toHaveLength(16);
+    // orch + ledger + platform seed + mcp + dogfood + inference mesh = 17.
+    expect(body.querySelectorAll('.terminal[data-proof]')).toHaveLength(17);
   });
 });
 
@@ -186,7 +187,7 @@ describe('feature terminals (the shift)', () => {
 describe('proof terminals type their last line in on view (#32)', () => {
   it('every proof transcript ends with one caret and a [data-typeline] last line', () => {
     const proofs = body.querySelectorAll('.proof-terminal');
-    expect(proofs).toHaveLength(3); // legacy + context web + context e2e
+    expect(proofs).toHaveLength(4); // legacy + context web + context e2e + inference mesh
     for (const p of Array.from(proofs)) {
       const lines = p.querySelectorAll('.terminal-body .t-line');
       expect(p.querySelectorAll('.terminal-body .t-caret')).toHaveLength(1);
@@ -313,5 +314,52 @@ describe('REQ-LANDING-004: dark first paint (anti-flash contract)', () => {
       .map((s) => (s.textContent ?? '').replace(/\s+/g, ''))
       .find((css) => /body\{[^}]*background-color:#[0-9a-f]{3,8}/i.test(css));
     expect(bodyPaint, 'an inline body{} rule sets the dark body background').toBeTruthy();
+  });
+});
+
+describe('inference mesh family hero (REQ-LANDING-005)', () => {
+  it('sits as a <header> directly after the primary hero and before the shift section', () => {
+    const main = body.querySelector('main')!;
+    const children = Array.from(main.children);
+    expect(children[0].classList.contains('hero')).toBe(true);
+    expect(children[1].id).toBe(INFERENCE_MESH.id);
+    expect(children[1].tagName).toBe('HEADER');
+    expect(children[2].id).toBe('shift');
+  });
+
+  it('renders the headline with exactly one shared scramble phrase and no second h1', () => {
+    const band = body.querySelector(`#${INFERENCE_MESH.id}`)!;
+    const headline = band.querySelector('.mesh-hero-headline')!;
+    const scramble = headline.querySelectorAll('[data-scramble]');
+    expect(scramble).toHaveLength(1);
+    expect(scramble[0].textContent?.trim()).toBe(INFERENCE_MESH.headline.scramble);
+    expect(band.querySelector('h1')).toBeNull();
+  });
+
+  it('renders the description verbatim from the typed content model', () => {
+    const band = body.querySelector(`#${INFERENCE_MESH.id}`)!;
+    expect(band.querySelector('.mesh-hero-def')?.textContent).toBe(INFERENCE_MESH.description);
+  });
+
+  it('renders exactly one primary external CTA and no ghost CTA', () => {
+    const band = body.querySelector(`#${INFERENCE_MESH.id}`)!;
+    const ctas = band.querySelectorAll<HTMLAnchorElement>('.mesh-hero-cta .btn-primary');
+    expect(ctas).toHaveLength(1);
+    expect(ctas[0].textContent?.trim()).toBe(INFERENCE_MESH.primaryCta.label);
+    expect(ctas[0].getAttribute('href')).toBe(INFERENCE_MESH.primaryCta.href);
+    expect(ctas[0].getAttribute('target')).toBe('_blank');
+    expect(ctas[0].getAttribute('rel')).toContain('noreferrer');
+    expect(band.querySelector('.mesh-hero-cta .btn-ghost')).toBeNull();
+  });
+
+  it('uses the shared terminal proof system as a concrete inference artifact', () => {
+    const band = body.querySelector(`#${INFERENCE_MESH.id}`)!;
+    const terminal = band.querySelector('.terminal.proof-terminal.mesh-terminal[data-proof]')!;
+    expect(terminal).not.toBeNull();
+    expect(terminal.querySelector('.terminal-title')?.textContent).toBe(INFERENCE_MESH.terminal.title);
+    expect(terminal.querySelectorAll('.terminal-body .t-line')).toHaveLength(INFERENCE_MESH.terminal.lines.length);
+    expect(terminal.querySelectorAll('.terminal-body .t-caret')).toHaveLength(1);
+    expect(terminal.querySelectorAll('.terminal-body [data-typeline]')).toHaveLength(1);
+    expect(terminal.querySelector('.terminal-foot.tf-static')?.textContent).toContain(INFERENCE_MESH.terminal.foot);
   });
 });

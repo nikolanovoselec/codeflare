@@ -7,7 +7,7 @@
  *   - 'login'    a single "Back to codeflare.ch" link (no pillar nav).
  * Both render the same .site-nav chrome (sticky, blur, scroll seam in global.css).
  */
-import { NAV_LINKS, LOGIN } from '../content/site';
+import { NAV_LINKS, LOGIN, HEADER_SIGN_IN } from '../content/site';
 import { APP_LINKS } from '../config';
 
 interface Props {
@@ -31,9 +31,12 @@ const { variant = 'landing' } = Astro.props;
               </li>
             ))}
           </ul>
-          <a class="btn btn-ghost btn-sm nav-signin" href={APP_LINKS.signIn}>
-            Sign in
-          </a>
+          <a
+            class="btn btn-ghost btn-sm nav-signin nav-signin--matrix"
+            href={APP_LINKS.signIn}
+            aria-label={HEADER_SIGN_IN.a11y}
+            data-scramble-hover
+          >{HEADER_SIGN_IN.label}</a>
         </div>
       </div>
     </nav>

@@ -126,6 +126,15 @@ export const NAV_LINKS: NavLink[] = [
   { label: 'Cost', href: '#cost' },
 ];
 
+/** The header sign-in CTA. The visible text is an on-theme "Enter The Matrix"
+ *  flourish that pays off the page's Metacortex / Thomas Anderson easter egg; the
+ *  accessible name stays "Sign in" so the auth entry is unmistakable to assistive
+ *  tech and scanners. The destination is APP_LINKS.signIn (config), unchanged. */
+export const HEADER_SIGN_IN = {
+  label: 'Enter The Matrix',
+  a11y: 'Sign in',
+};
+
 /**
  * Per-section eyebrow labels ("the kicker spine"). A small uppercase accent
  * label opens every top-level section: the calm structural cue that replaced the
@@ -185,6 +194,41 @@ export const SPINE = {
   user: 't.anderson',
   team: 'payments',
   service: 'payments-service',
+};
+
+// The Inference Mesh family hero: Codeflare's private inference layer, presented
+// as a second hero directly under the primary one. The proof terminal's command
+// line reuses SPINE.user (declared above) so the identity never drifts from the
+// hero terminal -- the two heroes read as one governed session.
+export const INFERENCE_MESH = {
+  id: 'inference-mesh',
+  familyLine: 'The agentic engine gets its own private inference layer.',
+  headline: {
+    prefix: 'private',
+    scramble: 'inference mesh',
+    suffix: 'for agentic engineering',
+  },
+  description:
+    'Turn the idle machines you already own into private inference capacity for your agents. ' +
+    'Long-running sessions stay warm on capacity that would otherwise sit idle, sensitive work ' +
+    'never leaves your boundary, and reaching for a hosted model becomes a policy choice instead ' +
+    'of the default.',
+  primaryCta: {
+    label: 'See it on GitHub',
+    href: 'https://github.com/nikolanovoselec/codeflare-inference-mesh',
+  } satisfies Cta,
+  terminal: {
+    title: 'codeflare · inference mesh',
+    lines: [
+      { tone: 'cmd', text: `${SPINE.user}@metacortex.ai -> codeflare-mesh · Qwen3.6-27B-MTP-GGUF` },
+      { tone: 'agent', text: '✻ served on idle capacity you already own' },
+      { tone: 'agent', text: '✻ session pinned warm · prompt cache hot' },
+      { tone: 'ok', text: '✓ 2731 tok/s prompt · 132.71 tok/s generation' },
+      { tone: 'ok', text: '✓ 0 prompts left your network' },
+      { tone: 'ok', text: '✓ hosted-model fallback: policy, not default' },
+    ] satisfies TranscriptLine[],
+    foot: 'your capacity · warm sessions · governed spend',
+  },
 };
 
 export const TERMINAL = {

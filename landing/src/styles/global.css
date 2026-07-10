@@ -384,6 +384,26 @@ svg {
    unauthenticated visitor back to the landing). Kept lighter than the primary
    CTA so "Book a demo" stays the lead action. Visible at every width. */
 
+/* The sign-in CTA reads "Enter The Matrix" in the page accent coral and decodes
+   on hover/focus (scramble.ts [data-scramble-hover]). aria-label keeps it "Sign
+   in". Solid coral, not the flare gradient, so the churning word spans render
+   coral instead of the gradient-clip transparent. */
+.nav-signin--matrix {
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.nav-signin--matrix:hover,
+.nav-signin--matrix:focus-visible {
+  color: var(--accent);
+}
+
+.nav-signin--matrix .scramble-word {
+  background: none;
+  -webkit-text-fill-color: var(--accent);
+  color: var(--accent);
+}
+
 @media (min-width: 900px) {
   .nav-links {
     display: flex;
@@ -429,7 +449,8 @@ svg {
   letter-spacing: -0.03em;
 }
 
-.hero-headline .flare {
+.hero-headline .flare,
+.mesh-hero-headline .flare {
   background: var(--flare-gradient);
   -webkit-background-clip: text;
   background-clip: text;
@@ -506,6 +527,78 @@ svg {
   text-transform: uppercase;
   letter-spacing: 0.14em;
   color: var(--text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   Inference Mesh family hero: a second hero mirroring the primary one, directly
+   under it. Reuses .section / .section--alt rhythm + tint and existing tokens.
+   -------------------------------------------------------------------------- */
+.mesh-hero-grid {
+  display: grid;
+  gap: clamp(2rem, 5vw, 4.5rem);
+  align-items: center;
+}
+
+.mesh-hero-copy {
+  max-width: 34rem;
+}
+
+.mesh-hero-family {
+  max-width: 42ch;
+  color: var(--text-primary);
+  font-size: var(--fs-lead);
+  line-height: 1.5;
+  margin-bottom: 1.2rem;
+}
+
+/* Refinement #2 (headline hierarchy): set NO font-size here. The band carries
+   .section, so the existing .section h2 { font-size: var(--fs-h2) } sizes this
+   headline one tier below the primary hero's --fs-display -- the engine shouts,
+   its inference layer speaks firmly. */
+.mesh-hero .mesh-hero-headline {
+  max-width: 17ch;
+  letter-spacing: -0.03em;
+}
+
+.mesh-hero-def {
+  font-size: var(--fs-lead);
+  color: var(--text-secondary);
+  max-width: 54ch;
+  margin-top: 1.35rem;
+  line-height: 1.55;
+}
+
+.mesh-hero-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  margin-top: 2rem;
+}
+
+.mesh-hero-visual {
+  min-width: 0;
+}
+
+.mesh-terminal {
+  width: 100%;
+}
+
+/* Mirror the primary hero at its own 820px breakpoint: proof left, copy right.
+   DOM order stays copy-first (mobile + AT); the grid swaps the columns here. */
+@media (min-width: 820px) {
+  .mesh-hero-grid {
+    grid-template-columns: minmax(0, 1.02fr) minmax(0, 1fr);
+  }
+
+  .mesh-hero-visual {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .mesh-hero-copy {
+    grid-column: 2;
+    grid-row: 1;
+  }
 }
 
 /* --------------------------------------------------------------------------
