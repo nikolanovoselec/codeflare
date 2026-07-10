@@ -348,19 +348,18 @@ describe('inference mesh family hero (REQ-LANDING-005)', () => {
     expect(children[2].id).toBe('shift');
   });
 
-  it('renders the headline as the coral Inference Mesh name carrying the single scramble, no repeated Codeflare wordmark, no second h1', () => {
+  it('renders the ~/inference chiplet and the plain white Inference Mesh name (no scramble)', () => {
     const band = body.querySelector(`#${INFERENCE_MESH.id}`)!;
+    // The chiplet is the shared .kicker (CSS prepends the coral ~/), wired from the model.
+    const chiplet = band.querySelector('.mesh-hero-copy > .kicker')!;
+    expect(chiplet).not.toBeNull();
+    expect(chiplet.textContent?.trim()).toBe(INFERENCE_MESH.tag);
+    // The headline is the plain product name in white section-h2 style: no flare, no scramble.
     const headline = band.querySelector('.mesh-hero-headline')!;
     expect(headline.tagName).toBe('H2');
-    // The product name "Inference Mesh" is the band's only churning phrase, in the
-    // coral flare, wired from the content model.
-    const scrambles = band.querySelectorAll('[data-scramble]');
-    expect(scrambles).toHaveLength(1);
-    const name = headline.querySelector('.flare[data-scramble]')!;
-    expect(name).not.toBeNull();
-    expect(name.textContent?.trim()).toBe(INFERENCE_MESH.name);
-    // The headline is ONLY the product name — no big "Codeflare" wordmark repeat.
     expect(headline.textContent?.trim()).toBe(INFERENCE_MESH.name);
+    expect(headline.querySelector('.flare')).toBeNull();
+    expect(band.querySelectorAll('[data-scramble]')).toHaveLength(0);
     expect(band.querySelector('h1')).toBeNull();
   });
 
@@ -369,29 +368,28 @@ describe('inference mesh family hero (REQ-LANDING-005)', () => {
     expect(band.querySelector('.mesh-hero-def')?.textContent).toBe(INFERENCE_MESH.description);
   });
 
-  it('renders exactly one primary external CTA and no ghost CTA', () => {
+  it('renders the GitHub CTA as the shared micro-cta text link (matching the dogfood CTA), external', () => {
     const band = body.querySelector(`#${INFERENCE_MESH.id}`)!;
-    const ctas = band.querySelectorAll<HTMLAnchorElement>('.mesh-hero-cta .btn-primary');
-    expect(ctas).toHaveLength(1);
-    expect(ctas[0].textContent?.trim()).toBe(INFERENCE_MESH.primaryCta.label);
-    expect(ctas[0].getAttribute('href')).toBe(INFERENCE_MESH.primaryCta.href);
-    expect(ctas[0].getAttribute('target')).toBe('_blank');
-    expect(ctas[0].getAttribute('rel')).toContain('noreferrer');
-    expect(band.querySelector('.mesh-hero-cta .btn-ghost')).toBeNull();
+    const link = band.querySelector<HTMLAnchorElement>('.mesh-hero-copy .micro-cta a')!;
+    expect(link).not.toBeNull();
+    expect(link.textContent?.trim()).toBe(INFERENCE_MESH.primaryCta.label);
+    expect(link.getAttribute('href')).toBe(INFERENCE_MESH.primaryCta.href);
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toContain('noopener');
+    // No filled button any more.
+    expect(band.querySelector('.btn-primary')).toBeNull();
   });
 
-  it('anchors the band with the product lockup only — no section chiplet and no subtitle line', () => {
+  it('orders the copy chiplet -> headline -> description -> CTA, with no product subtitle line', () => {
     const band = body.querySelector(`#${INFERENCE_MESH.id}`)!;
     const copy = band.querySelector('.mesh-hero-copy')!;
-    // The headline lockup is the anchor: no demoting ~/ path-tag chiplet, and no
-    // separate product subtitle line (the value prop lives in the description).
-    expect(copy.querySelector('.kicker')).toBeNull();
     expect(copy.querySelector('.mesh-hero-product')).toBeNull();
-    // Copy order is headline lockup -> description -> CTA.
     const order = Array.from(copy.children);
+    const chiplet = copy.querySelector('.kicker')!;
     const headline = copy.querySelector('.mesh-hero-headline')!;
     const def = copy.querySelector('.mesh-hero-def')!;
-    const cta = copy.querySelector('.mesh-hero-cta')!;
+    const cta = copy.querySelector('.micro-cta')!;
+    expect(order.indexOf(chiplet)).toBeLessThan(order.indexOf(headline));
     expect(order.indexOf(headline)).toBeLessThan(order.indexOf(def));
     expect(order.indexOf(def)).toBeLessThan(order.indexOf(cta));
   });

@@ -205,10 +205,12 @@ export const SPINE = {
 // the hero terminal -- the two heroes read as one governed session.
 export const INFERENCE_MESH = {
   id: 'inference-mesh',
-  // The headline is the product name "Inference Mesh" in the coral flare gradient (the
-  // shared scramble churns it). "Codeflare" is deliberately NOT repeated here -- the
-  // header wordmark and the hero lead already establish it, so a big display repeat was
-  // one wordmark too many.
+  // Section marker rendered by .kicker as "~/inference" (coral ~/ + mono), right-aligned
+  // on desktop to mirror the terminal (via .mesh-hero-copy text-align).
+  tag: 'inference',
+  // The headline is the plain product name in white section-h2 style -- no flare, no
+  // scramble -- right-aligned. "Codeflare" is deliberately not repeated (header wordmark
+  // and hero lead already establish it).
   name: 'Inference Mesh',
   description:
     'Codeflare works with any inference provider. Inference Mesh is one more it can pull from. ' +
@@ -547,12 +549,12 @@ export const OPERATIONS = {
   run: {
     title: 'operations · one plan',
     rows: [
-      { actor: 'operator', state: 'pass', label: 'authenticated', text: 'your IdP · your identity, your entitlements' },
-      { actor: 'reach', state: 'pass', label: 'granted', text: 'your Zero Trust · scoped to the approved targets' },
-      { actor: 'plan', state: 'work', label: 'proposed', text: 'patch 42 hosts, migrate the store, rollback ready' },
-      { actor: 'approval', state: 'pass', label: 'yours', text: 'nothing runs until you approve the plan' },
-      { actor: 'apply', state: 'pass', label: 'verified', text: 'changed, health-checked, and evidenced' },
-      { actor: 'out of scope', state: 'deny', label: 'impossible', text: 'no host outside the set · no lateral move · no reused creds' },
+      { actor: 'reach', state: 'pass', label: 'scoped', text: 'prod-k8s · db-primary · edge-fw, via your Zero Trust' },
+      { actor: 'plan', state: 'work', label: 'proposed', text: 'patch 42 nodes, rotate the expiring TLS cert, drain-migrate db-primary' },
+      { actor: 'approval', state: 'pass', label: 'yours', text: 'nothing touches a host until you approve the plan' },
+      { actor: 'rollout', state: 'pass', label: 'applied', text: 'cordon, patch, rejoin · rolling, zero downtime' },
+      { actor: 'verify', state: 'pass', label: 'green', text: 'health checks pass, cert valid, migration reconciled' },
+      { actor: 'blast radius', state: 'deny', label: 'contained', text: 'no host beyond the plan · no lateral move · no standing creds' },
     ] satisfies BoundaryRow[],
     caption: 'Authentication is not reachability: your scope admits the session, your fabric limits its reach.',
   },

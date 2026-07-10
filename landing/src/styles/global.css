@@ -449,8 +449,7 @@ svg {
   letter-spacing: -0.03em;
 }
 
-.hero-headline .flare,
-.mesh-hero-headline .flare {
+.hero-headline .flare {
   background: var(--flare-gradient);
   -webkit-background-clip: text;
   background-clip: text;
@@ -546,9 +545,9 @@ svg {
   max-width: 34rem;
 }
 
-/* The headline is the product name "Inference Mesh" in the coral flare gradient (the
-   shared scramble churns it). It is an <h2>, so the band's .section h2 { font-size:
-   var(--fs-h2) } sizes it one tier below the primary hero's --fs-display. */
+/* The headline is the plain product name "Inference Mesh" in the default white heading
+   colour (no coral flare, no scramble). It is an <h2>, so the band's .section h2 {
+   font-size: var(--fs-h2) } sizes it one tier below the primary hero's --fs-display. */
 .mesh-hero .mesh-hero-headline {
   max-width: 18ch;
   letter-spacing: -0.03em;
@@ -560,13 +559,6 @@ svg {
   max-width: 54ch;
   margin-top: 1.35rem;
   line-height: 1.55;
-}
-
-.mesh-hero-cta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.85rem;
-  margin-top: 2rem;
 }
 
 .mesh-hero-visual {
@@ -603,10 +595,6 @@ svg {
   .mesh-hero-copy .mesh-hero-def {
     margin-left: auto;
   }
-
-  .mesh-hero-copy .mesh-hero-cta {
-    justify-content: flex-end;
-  }
 }
 
 /* Split band: a copy column beside a proof terminal, so a narrow-content terminal
@@ -619,12 +607,18 @@ svg {
   align-items: center;
 }
 .split-band + .split-band {
-  margin-top: clamp(2.5rem, 6vw, 4rem);
+  margin-top: clamp(1.75rem, 4vw, 2.75rem);
 }
 @media (min-width: 820px) {
   .split-band {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
   }
+}
+
+/* The operations section pairs a governed-run gate terminal with capability cards; the
+   cards need a clear gap from the terminal above (a bare .feature-grid carries none). */
+#operations .feature-grid {
+  margin-top: clamp(2.5rem, 5vw, 3.5rem);
 }
 
 /* --------------------------------------------------------------------------
