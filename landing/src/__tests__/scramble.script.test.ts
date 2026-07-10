@@ -35,14 +35,16 @@ function buildScrambleFixture(targetText: string): HTMLElement {
   return el;
 }
 
-function mockMatchMedia(prefersReducedMotion: boolean): void {
+function mockMatchMedia(prefersReducedMotion: boolean, wideViewport = true): void {
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
-    value: vi.fn().mockReturnValue({
-      matches: prefersReducedMotion,
+    // Query-aware: the reduced-motion query returns prefersReducedMotion; the
+    // min-width gate returns wideViewport (default true = desktop, where the churn runs).
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes('prefers-reduced-motion') ? prefersReducedMotion : wideViewport,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
-    }),
+    })),
   });
 }
 
@@ -151,6 +153,61 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     expect(el.textContent).toBe(target);
     // No scramble-word spans should exist.
     expect(document.querySelectorAll('.scramble-word').length).toBe(0);
+  });
+
+  it('REQ-LANDING-001: below the layout split breakpoint the accent stays static (no churn spans)', async () => {
+    const target = 'assistant';
+    const el = buildScrambleFixture(target);
+    // Motion is allowed, but the viewport is narrow (< 820px): the churn must NOT run,
+    // because a full-width churning headline reflows between one and two lines and
+    // shoves the page (the reported mobile flicker).
+    mockMatchMedia(false, false);
+    mockFontsReady();
+
+    await import('../scripts/scramble');
+    await Promise.resolve();
+    vi.runAllTicks();
+    vi.advanceTimersByTime(ONE_CYCLE_MS);
+
+    // The server-rendered gradient stands, untouched: no word spans, text intact.
+    expect(el.textContent).toBe(target);
+    expect(document.querySelectorAll('.scramble-word').length).toBe(0);
+  });
+
+  it('REQ-LANDING-006: the hover-decode sign-in CTA locks each word span to its resting width so the header never reflows', async () => {
+    const el = document.createElement('a');
+    el.setAttribute('data-scramble-hover', '');
+    el.textContent = 'Enter Matrix';
+    document.body.appendChild(el);
+    mockMatchMedia(false);
+    mockFontsReady();
+    // happy-dom has no layout engine, so stub the resting width the lock measures.
+    const rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 42,
+      height: 0,
+      top: 0,
+      left: 0,
+      right: 42,
+      bottom: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    await import('../scripts/scramble');
+    await Promise.resolve();
+    vi.runAllTicks();
+    vi.advanceTimersByTime(50); // fire the rAF that runs the width lock
+
+    const spans = el.querySelectorAll<HTMLElement>('.scramble-word');
+    // "Enter" + "Matrix" -> two word boxes, each pinned to its measured resting width
+    // so the per-frame glyph churn cannot resize the button and shove the nav.
+    expect(spans.length).toBe(2);
+    for (const span of spans) {
+      expect(span.style.display).toBe('inline-block');
+      expect(span.style.width).toBe('42px');
+    }
+    rectSpy.mockRestore();
   });
 
   it('REQ-LANDING-001: element with no text content is handled without error', async () => {

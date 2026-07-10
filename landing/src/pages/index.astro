@@ -30,6 +30,7 @@ import LedgerTable from '../components/LedgerTable.astro';
 import ReviewBoard from '../components/ReviewBoard.astro';
 import OrchTree from '../components/OrchTree.astro';
 import Hero from '../components/Hero.astro';
+import InferenceMeshHero from '../components/InferenceMeshHero.astro';
 import FeatureTerminals from '../components/FeatureTerminals.astro';
 import ContactForm from '../components/ContactForm.astro';
 import Footer from '../components/Footer.astro';
@@ -80,6 +81,12 @@ const egressRows = EGRESS.rows.map((row) => ({
   text: row.text,
   state: `is-${row.state}`,
 }));
+const opsRows = OPERATIONS.run.rows.map((row) => ({
+  actor: row.actor,
+  label: row.label,
+  text: row.text,
+  state: `is-${row.state}`,
+}));
 const seedRows = PLATFORM.seed.rows.map((row) => ({
   actor: row.actor,
   label: row.label,
@@ -103,7 +110,7 @@ const mcpRows = MCP.portal.rows.map((row) => ({
     operatingSystem: 'Cloud',
     url: 'https://codeflare.ch/',
     description:
-      'The enterprise agentic engine: governed engineering agents that build, test, review, and operate inside your own estate, under spec-driven and test-driven enforcement, attributed, and encrypted.',
+      'The agentic engineering engine: governed engineering agents that build, test, review, and operate inside your own estate, under spec-driven and test-driven enforcement, attributed, and encrypted.',
     publisher: { '@id': 'https://codeflare.ch/#organization' },
   }}
 >
@@ -111,6 +118,7 @@ const mcpRows = MCP.portal.rows.map((row) => ({
 
   <main id="top">
     <Hero />
+    <InferenceMeshHero />
 
     <!-- The shift: the assistant-to-engine leap shown the way the page trades,
          as terminals. Four short feature terminals (gateway, session, review,
@@ -147,19 +155,38 @@ const mcpRows = MCP.portal.rows.map((row) => ({
 
     <!-- Legacy: legacy code transformed into an agentic baseline. /sdd init turns
          a legacy codebase into a spec-driven baseline and /sdd clean realigns a
-         drifted spec, in the page's existing terminal idiom. -->
+         drifted spec, in the page's existing terminal idiom. Copy + terminal as a
+         split band so the narrow terminal fills its column instead of stretching
+         full-width with a dead right gutter. -->
     <Section id={LEGACY.id}>
-      <SectionHead kicker={SECTION_KICKERS.legacy} title={LEGACY.title} lead={LEGACY.lead} />
-      <Terminal variant="proof-terminal" title={LEGACY.terminal.title} foot={LEGACY.terminal.foot}>
-        <Transcript lines={LEGACY.terminal.lines} animate="cursor" />
+      <div class="split-band">
+        <SectionHead kicker={SECTION_KICKERS.legacy} title={LEGACY.title} lead={LEGACY.lead} />
+        <Terminal variant="proof-terminal" title={LEGACY.terminal.title} foot={LEGACY.terminal.foot}>
+          <Transcript lines={LEGACY.terminal.lines} animate="cursor" />
+        </Terminal>
+      </div>
+    </Section>
+
+    <!-- Operations: the co-equal "operate" surface of the directed execution model,
+         placed before security so build (method, legacy) and operate read as the two
+         halves of what agents do, before the boundary that governs both. The same
+         governed harness that builds also patches, migrates, provisions, and configures
+         infrastructure, shown as a governed run in the same gate grammar as the security
+         boundary that follows, so it reads as a peer to build, not a security footnote. -->
+    <Section id={OPERATIONS.id} alt>
+      <SectionHead kicker={SECTION_KICKERS.operations} title={OPERATIONS.title} lead={OPERATIONS.lead} />
+      <Terminal variant="gate" foot={OPERATIONS.run.caption}>
+        <span class="gate-req" slot="bar">{OPERATIONS.run.title}</span>
+        <GateSteps rows={opsRows} />
       </Terminal>
+      <FeatureGrid cards={OPERATIONS.cards} cols={2} />
     </Section>
 
     <!-- Security: zero trust is the architecture. One merged receipt: the
          boundary's approved and impossible paths, a thin in-terminal divider,
          then one real call obeying the boundary, closing on a single in-chrome
-         foot. Operations folds in below as a substation on the same boundary. -->
-    <Section id={SECURITY.id} alt>
+         foot. Operations is the peer section directly above. -->
+    <Section id={SECURITY.id}>
       <SectionHead kicker={SECTION_KICKERS.security} title={SECURITY.title} lead={SECURITY.lead}>
         <MicroCta href="#contact" label={SECURITY.microCta} dataTopic="security-compliance" />
       </SectionHead>
@@ -169,21 +196,23 @@ const mcpRows = MCP.portal.rows.map((row) => ({
         <div class="gate-echo"><span class="gate-echo-prompt" aria-hidden="true">❯</span> {EGRESS.call}</div>
         <GateSteps rows={egressRows} />
       </Terminal>
-      <SectionHead substation kicker={OPERATIONS.tag} title={OPERATIONS.title} lead={OPERATIONS.lead} />
-      <FeatureGrid cards={OPERATIONS.cards} cols={2} />
     </Section>
 
     <!-- Context: the open web, rendered clean, never trusted. One real fetch from
          the spine run, then the same throwaway browser DRIVES an e2e (substation). -->
     <Section id={CONTEXT.id}>
-      <SectionHead kicker={SECTION_KICKERS.context} title={CONTEXT.title} lead={CONTEXT.lead} />
-      <Terminal variant="proof-terminal" title={CONTEXT.terminal.title} foot={CONTEXT.terminal.foot}>
-        <Transcript lines={CONTEXT.terminal.lines} animate="cursor" />
-      </Terminal>
-      <SectionHead substation kicker={CONTEXT.e2e.tag} title={CONTEXT.e2e.heading} lead={CONTEXT.e2e.lead} />
-      <Terminal variant="proof-terminal" title={CONTEXT.e2e.terminal.title} foot={CONTEXT.e2e.terminal.foot}>
-        <Transcript lines={CONTEXT.e2e.terminal.lines} animate="cursor" />
-      </Terminal>
+      <div class="split-band">
+        <SectionHead kicker={SECTION_KICKERS.context} title={CONTEXT.title} lead={CONTEXT.lead} />
+        <Terminal variant="proof-terminal" title={CONTEXT.terminal.title} foot={CONTEXT.terminal.foot}>
+          <Transcript lines={CONTEXT.terminal.lines} animate="cursor" />
+        </Terminal>
+      </div>
+      <div class="split-band">
+        <SectionHead substation kicker={CONTEXT.e2e.tag} title={CONTEXT.e2e.heading} lead={CONTEXT.e2e.lead} />
+        <Terminal variant="proof-terminal" title={CONTEXT.e2e.terminal.title} foot={CONTEXT.e2e.terminal.foot}>
+          <Transcript lines={CONTEXT.e2e.terminal.lines} animate="cursor" />
+        </Terminal>
+      </div>
     </Section>
 
     <!-- Pipeline: the parallel review board. Six specialist agents on one diff at

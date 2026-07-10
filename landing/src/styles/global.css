@@ -151,7 +151,7 @@ svg {
 
 .section-head {
   max-width: 44rem;
-  margin-bottom: clamp(1.75rem, 3vw, 2.5rem);
+  margin-bottom: var(--gap-copy-terminal);
 }
 
 /* Section / sub-section marker, in the page's own terminal language: a path tag
@@ -381,8 +381,29 @@ svg {
 
 /* "Sign in" goes to the SPA /login provider chooser (GitHub / Google / OIDC /
    one-time-pin), which starts the OAuth flow. NOT /app/ (that bounces an
-   unauthenticated visitor back to the landing). Kept lighter than the primary
-   CTA so "Book a demo" stays the lead action. Visible at every width. */
+   unauthenticated visitor back to the landing). A light nav affordance, distinct
+   from the page's primary "Get in touch" CTA. Visible at every width. */
+
+/* The sign-in CTA reads "Enter Matrix" in the primary white (--text-primary,
+   matching body text and the Inference Mesh heading) and decodes on hover/focus
+   (scramble.ts [data-scramble-hover]). aria-label keeps it "Sign in". Solid white,
+   not the flare gradient, so the churning word spans render white instead of the
+   gradient-clip transparent. */
+.nav-signin--matrix {
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.nav-signin--matrix:hover,
+.nav-signin--matrix:focus-visible {
+  color: var(--text-primary);
+}
+
+.nav-signin--matrix .scramble-word {
+  background: none;
+  -webkit-text-fill-color: var(--text-primary);
+  color: var(--text-primary);
+}
 
 @media (min-width: 900px) {
   .nav-links {
@@ -436,9 +457,12 @@ svg {
   color: transparent;
 }
 
-/* Scramble word spans (JS-created): fixed-width boxes so the churning glyphs
-   never reflow the headline. Each carries its own gradient clip because the
-   parent's clip does not paint through child boxes. */
+/* Scramble word spans (JS-created): content-sized inline-blocks (the script sets
+   no width), so a churning glyph grows its own box instead of overflowing a fixed
+   width and being clipped by background-clip:text. Each carries its own gradient
+   clip because the parent's clip does not paint through child boxes; nowrap keeps
+   a single word intact while the whitespace between words stays breakable, so the
+   phrase still wraps naturally inside the headline's max-width. */
 .scramble-word {
   display: inline-block;
   white-space: nowrap;
@@ -460,13 +484,6 @@ svg {
   max-width: 48ch;
   margin-top: 1.4rem;
   line-height: 1.5;
-}
-
-.hero-cta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.85rem;
-  margin-top: 2rem;
 }
 
 .hero-terminal {
@@ -506,6 +523,116 @@ svg {
   text-transform: uppercase;
   letter-spacing: 0.14em;
   color: var(--text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   Inference Mesh family hero: a second hero mirroring the primary one, directly
+   under it. Reuses .section / .section--alt rhythm + tint and existing tokens.
+   -------------------------------------------------------------------------- */
+.mesh-hero-grid {
+  display: grid;
+  /* Row-gap is the shared copy->terminal rhythm (mobile stack); column-gap is the
+     wider hero gutter on desktop. Matches .split-band so every copy+terminal pair
+     spaces identically. */
+  gap: var(--gap-copy-terminal) clamp(2rem, 5vw, 4.5rem);
+  align-items: center;
+}
+
+.mesh-hero-copy {
+  max-width: 34rem;
+}
+
+/* The headline is the plain product name "Inference Mesh" in the default white heading
+   colour (no coral flare, no scramble). It is an <h2>, so the band's .section h2 {
+   font-size: var(--fs-h2) } sizes it one tier below the primary hero's --fs-display. */
+.mesh-hero .mesh-hero-headline {
+  max-width: 18ch;
+  letter-spacing: -0.03em;
+}
+
+.mesh-hero-def {
+  font-size: var(--fs-lead);
+  color: var(--text-secondary);
+  max-width: 54ch;
+  margin-top: 1.35rem;
+  line-height: 1.55;
+}
+
+.mesh-hero-visual {
+  min-width: 0;
+}
+
+.mesh-terminal {
+  width: 100%;
+}
+
+/* Mirror the primary hero at its own 820px breakpoint: proof left, copy right.
+   DOM order stays copy-first (mobile + AT); the grid swaps the columns here. */
+@media (min-width: 820px) {
+  .mesh-hero-grid {
+    grid-template-columns: minmax(0, 1.02fr) minmax(0, 1fr);
+  }
+
+  .mesh-hero-visual {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  /* Copy sits in the right column and is flush-right, mirroring the left terminal:
+     the block and its max-width'd children hug the right edge, and text + CTA align
+     right. Mobile keeps the default left alignment for readability. */
+  .mesh-hero-copy {
+    grid-column: 2;
+    grid-row: 1;
+    margin-left: auto;
+    text-align: right;
+  }
+
+  .mesh-hero-copy .mesh-hero-headline,
+  .mesh-hero-copy .mesh-hero-def {
+    margin-left: auto;
+  }
+}
+
+/* Split band: a copy column beside a proof terminal, so a narrow-content terminal
+   fills its half instead of stretching full-width with a dead right gutter. Single
+   column on mobile (copy above the terminal); side by side from 820px. Stacked bands
+   are separated by their own vertical gap. */
+/* Row-gap is the shared copy->terminal rhythm (used when the band stacks on mobile);
+   column-gap is the wider side-by-side gutter on desktop. The inner section head must
+   not also carry its own bottom margin, or on mobile it stacks on top of the row-gap
+   and doubles the space (the bug that made these bands drift from a plain section). */
+.split-band {
+  display: grid;
+  gap: var(--gap-copy-terminal) clamp(1.5rem, 4vw, 2.75rem);
+  align-items: center;
+}
+.split-band > .section-head {
+  margin-bottom: 0;
+}
+.split-band + .split-band {
+  margin-top: clamp(1.75rem, 4vw, 2.75rem);
+}
+@media (min-width: 820px) {
+  .split-band {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  }
+}
+
+/* A substation sub-head that heads its own split band (context/automation under
+   context) must not also carry the full .substation top gap: the tight
+   .split-band + .split-band gap already spaces the bands, so the extra base
+   margin read as a section break between a category and its subcategory. Zero it
+   here so ~/context -> ~/context/automation sits as close as every other
+   category -> subcategory pair. */
+.split-band > .substation {
+  margin-top: 0;
+}
+
+/* The operations section pairs a governed-run gate terminal with capability cards; the
+   cards need a clear gap from the terminal above (a bare .feature-grid carries none). */
+#operations .feature-grid {
+  margin-top: clamp(2.5rem, 5vw, 3.5rem);
 }
 
 /* --------------------------------------------------------------------------

@@ -1,0 +1,45 @@
+---
+/**
+ * Inference Mesh family hero: a second, mirrored hero rendered directly under the
+ * primary Codeflare hero. It is a <header> (not a <Section>) so it mirrors the
+ * primary hero's shape and is deliberately invisible to the page's `main > section`
+ * structural tests. The "section section--alt" classes reuse the standard vertical
+ * rhythm (--section-y) and alt tint with no new values. It composes existing landing
+ * primitives only: the Terminal/Transcript proof chrome, the shared .kicker path-tag,
+ * the MicroCta link, and existing tokens. Copy block is first in the DOM (mobile + AT
+ * read copy before proof); CSS swaps the columns on desktop so the proof sits left.
+ */
+import Terminal from './Terminal.astro';
+import Transcript from './Transcript.astro';
+import MicroCta from './MicroCta.astro';
+import { INFERENCE_MESH } from '../content/site';
+---
+
+<header id={INFERENCE_MESH.id} class="mesh-hero section section--alt">
+  <div class="container">
+    <div class="mesh-hero-grid">
+      <div class="mesh-hero-copy">
+        <span class="kicker">{INFERENCE_MESH.tag}</span>
+        <h2 class="mesh-hero-headline">{INFERENCE_MESH.name}</h2>
+        <p class="mesh-hero-def">{INFERENCE_MESH.description}</p>
+        <MicroCta href={INFERENCE_MESH.primaryCta.href} label={INFERENCE_MESH.primaryCta.label} external />
+      </div>
+
+      <div class="mesh-hero-visual reveal">
+        <Terminal
+          reveal={false}
+          variant="proof-terminal mesh-terminal"
+          title={INFERENCE_MESH.terminal.title}
+          foot={INFERENCE_MESH.terminal.foot}
+          ftLoop={JSON.stringify(INFERENCE_MESH.terminal.loop)}
+        >
+          <Transcript
+            lines={INFERENCE_MESH.terminal.lines}
+            animate="typed"
+            typed={INFERENCE_MESH.terminal.loop[0]}
+          />
+        </Terminal>
+      </div>
+    </div>
+  </div>
+</header>
