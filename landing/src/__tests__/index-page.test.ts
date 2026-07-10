@@ -186,8 +186,11 @@ describe('feature terminals (the shift)', () => {
 
 describe('proof terminals type their last line in on view (#32)', () => {
   it('every proof transcript ends with one caret and a [data-typeline] last line', () => {
-    const proofs = body.querySelectorAll('.proof-terminal');
-    expect(proofs).toHaveLength(4); // legacy + context web + context e2e + inference mesh
+    // The inference-mesh terminal reuses the proof-terminal chrome but drives a
+    // typed reel (animate='typed'), not the type-on-view cursor, so it is excluded
+    // from this cursor-line invariant and covered by the reel assertion below.
+    const proofs = body.querySelectorAll('.proof-terminal:not(.mesh-terminal)');
+    expect(proofs).toHaveLength(3); // legacy + context web + context e2e
     for (const p of Array.from(proofs)) {
       const lines = p.querySelectorAll('.terminal-body .t-line');
       expect(p.querySelectorAll('.terminal-body .t-caret')).toHaveLength(1);
@@ -327,12 +330,15 @@ describe('inference mesh family hero (REQ-LANDING-005)', () => {
     expect(children[2].id).toBe('shift');
   });
 
-  it('renders the headline with exactly one shared scramble phrase and no second h1', () => {
+  it('leads with the bold statement carrying the only scramble phrase, and no second h1', () => {
     const band = body.querySelector(`#${INFERENCE_MESH.id}`)!;
-    const headline = band.querySelector('.mesh-hero-headline')!;
-    const scramble = headline.querySelectorAll('[data-scramble]');
-    expect(scramble).toHaveLength(1);
-    expect(scramble[0].textContent?.trim()).toBe(INFERENCE_MESH.headline.scramble);
+    const statement = band.querySelector('.mesh-hero-statement')!;
+    expect(statement.tagName).toBe('H2');
+    // Exactly one churning phrase in the whole band: the statement's "inference fabric".
+    const scrambles = band.querySelectorAll('[data-scramble]');
+    expect(scrambles).toHaveLength(1);
+    expect(scrambles[0].closest('.mesh-hero-statement')).not.toBeNull();
+    expect(scrambles[0].textContent?.trim()).toBe(INFERENCE_MESH.statement.scramble);
     expect(band.querySelector('h1')).toBeNull();
   });
 
@@ -352,14 +358,41 @@ describe('inference mesh family hero (REQ-LANDING-005)', () => {
     expect(band.querySelector('.mesh-hero-cta .btn-ghost')).toBeNull();
   });
 
-  it('uses the shared terminal proof system as a concrete inference artifact', () => {
+  it('anchors the band with the bold statement as the lead and a calm product line beneath', () => {
+    const band = body.querySelector(`#${INFERENCE_MESH.id}`)!;
+    const copy = band.querySelector('.mesh-hero-copy')!;
+    const statement = copy.querySelector('.mesh-hero-statement')!;
+    const product = copy.querySelector('.mesh-hero-product')!;
+    // No section-level chiplet: the hero-caliber statement is the anchor, not a
+    // demoting ~/ path-tag.
+    expect(copy.querySelector('.kicker')).toBeNull();
+    // The statement leads; the product name follows it.
+    const order = Array.from(copy.children);
+    expect(order.indexOf(statement)).toBeLessThan(order.indexOf(product));
+    // The product line names "inference mesh" in a CALM coral flare (gradient, no churn).
+    const productFlare = product.querySelector('.flare')!;
+    expect(productFlare).not.toBeNull();
+    expect(productFlare.textContent?.trim()).toBe(INFERENCE_MESH.product.flare);
+    expect(productFlare.hasAttribute('data-scramble')).toBe(false);
+  });
+
+  it('drives the shared typed reel on the terminal command line, looping over the beats', () => {
     const band = body.querySelector(`#${INFERENCE_MESH.id}`)!;
     const terminal = band.querySelector('.terminal.proof-terminal.mesh-terminal[data-proof]')!;
     expect(terminal).not.toBeNull();
     expect(terminal.querySelector('.terminal-title')?.textContent).toBe(INFERENCE_MESH.terminal.title);
-    expect(terminal.querySelectorAll('.terminal-body .t-line')).toHaveLength(INFERENCE_MESH.terminal.lines.length);
-    expect(terminal.querySelectorAll('.terminal-body .t-caret')).toHaveLength(1);
-    expect(terminal.querySelectorAll('.terminal-body [data-typeline]')).toHaveLength(1);
+    // The static proof lines plus exactly one typed reel command line.
+    expect(terminal.querySelectorAll('.terminal-body .t-line')).toHaveLength(
+      INFERENCE_MESH.terminal.lines.length + 1,
+    );
+    // Reel contract: the full loop rides data-ft-loop, the command line is seeded
+    // with the first beat, and it loops (no play-once) so feature-terminals.ts
+    // cycles it instead of resting.
+    expect(JSON.parse(terminal.getAttribute('data-ft-loop')!)).toEqual(INFERENCE_MESH.terminal.loop);
+    expect(terminal.querySelector('.ft-typed[data-ft-typed]')?.textContent).toBe(
+      INFERENCE_MESH.terminal.loop[0],
+    );
+    expect(terminal.hasAttribute('data-ft-once')).toBe(false);
     expect(terminal.querySelector('.terminal-foot.tf-static')?.textContent).toContain(INFERENCE_MESH.terminal.foot);
   });
 });

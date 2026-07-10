@@ -450,16 +450,20 @@ svg {
 }
 
 .hero-headline .flare,
-.mesh-hero-headline .flare {
+.mesh-hero-statement .flare,
+.mesh-hero-product .flare {
   background: var(--flare-gradient);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 
-/* Scramble word spans (JS-created): fixed-width boxes so the churning glyphs
-   never reflow the headline. Each carries its own gradient clip because the
-   parent's clip does not paint through child boxes. */
+/* Scramble word spans (JS-created): content-sized inline-blocks (the script sets
+   no width), so a churning glyph grows its own box instead of overflowing a fixed
+   width and being clipped by background-clip:text. Each carries its own gradient
+   clip because the parent's clip does not paint through child boxes; nowrap keeps
+   a single word intact while the whitespace between words stays breakable, so the
+   phrase still wraps naturally inside the headline's max-width. */
 .scramble-word {
   display: inline-block;
   white-space: nowrap;
@@ -543,21 +547,24 @@ svg {
   max-width: 34rem;
 }
 
-.mesh-hero-family {
+/* The bold lead statement is the band's hero-caliber anchor. It is an <h2>, so the
+   band's .section h2 { font-size: var(--fs-h2) } already sizes it one tier below
+   the primary hero's --fs-display -- the engine shouts, its inference fabric speaks
+   firmly. Its "inference fabric" flare is the band's only churning phrase. */
+.mesh-hero .mesh-hero-statement {
+  max-width: 22ch;
+  letter-spacing: -0.03em;
+}
+
+/* The product name, calm under the statement: the literal "inference mesh" in a
+   static coral gradient (no churn), one readable notch down (--fs-lead) so the
+   statement stays the visual lead. */
+.mesh-hero-product {
   max-width: 42ch;
   color: var(--text-primary);
   font-size: var(--fs-lead);
   line-height: 1.5;
-  margin-bottom: 1.2rem;
-}
-
-/* Refinement #2 (headline hierarchy): set NO font-size here. The band carries
-   .section, so the existing .section h2 { font-size: var(--fs-h2) } sizes this
-   headline one tier below the primary hero's --fs-display -- the engine shouts,
-   its inference layer speaks firmly. */
-.mesh-hero .mesh-hero-headline {
-  max-width: 17ch;
-  letter-spacing: -0.03em;
+  margin-top: 1.1rem;
 }
 
 .mesh-hero-def {

@@ -5,11 +5,12 @@
  * gently churning.
  *
  * Two adaptations for a marketing headline that must wrap on small screens:
- *   1. The phrase CONTAINER is width-locked to its natural width and set nowrap,
- *      so glyph churn never reflows the headline. Each word span stays
- *      content-sized, so wider churn glyphs are painted rather than clipped to a
- *      fixed-width gradient box (a fixed-width span with background-clip:text
- *      renders any glyph past its right edge transparent -> the old "cut off").
+ *   1. Each word span stays content-sized (no fixed width), so wider churn glyphs
+ *      are painted rather than clipped to a fixed-width gradient box (a fixed-width
+ *      span with background-clip:text renders any glyph past its right edge
+ *      transparent -> the old "cut off"). The phrase is left to wrap naturally
+ *      inside the headline's max-width, so a long accent breaks across lines
+ *      instead of overflowing its column and sliding under neighbouring content.
  *   2. Each word runs its own loop on a staggered start, so the words shimmer
  *      independently instead of pulsing in unison.
  *
@@ -26,7 +27,7 @@ type Phase = 'hold' | 'scramble' | 'decrypt' | 'swap';
 
 const randomChar = () => SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)];
 
-/** Run the perpetual four-phase loop on a single fixed-width word span. */
+/** Run the perpetual four-phase loop on a single content-sized word span. */
 function animateWord(span: HTMLElement, target: string): void {
   const chars = target.split('');
   let phase: Phase = 'hold';
@@ -73,7 +74,7 @@ function animateWord(span: HTMLElement, target: string): void {
   }, TICK_MS);
 }
 
-/** Split one [data-scramble] element into width-locked word spans, then run. */
+/** Split one [data-scramble] element into content-sized word spans, then run. */
 function setupElement(el: HTMLElement): void {
   const full = el.textContent ?? '';
   // Keep whitespace runs as their own tokens so word boundaries are preserved.
@@ -94,44 +95,23 @@ function setupElement(el: HTMLElement): void {
     }
   }
 
-  // Lock the phrase CONTAINER's width to its natural width and stop it wrapping,
-  // so glyph churn can never reflow the headline. Each word span is left
-  // content-sized, so its own gradient box always covers its current glyphs and
-  // nothing is clipped. The container keeps its natural layout width, so churn
-  // overflow (if any) is trailing at the line end. The font size is fluid (a
-  // vw-based clamp), so this must re-run on resize/rotation.
-  const lockContainer = () => {
-    el.style.width = '';
-    el.style.display = 'inline-block';
-    el.style.whiteSpace = 'nowrap';
-    for (const { span, text } of words) {
-      span.style.width = '';
-      span.textContent = text;
-    }
-    el.style.width = `${el.getBoundingClientRect().width.toFixed(2)}px`;
-  };
-
+  // No width lock: each word span is content-sized, so its own gradient box
+  // always covers its current glyphs (nothing is clipped), and the phrase wraps
+  // naturally inside the headline's max-width instead of overflowing its column.
+  // Start only after the webfont has loaded, so the first paint is Inter, not the
+  // fallback font.
   const start = () => {
-    lockContainer();
     for (const { span, text } of words) {
       animateWord(span, text);
     }
   };
 
-  // Measure only after the webfont has loaded, or the widths would be wrong once
-  // Inter swaps in over the fallback font.
   const fonts = (document as Document & { fonts?: { ready: Promise<unknown> } }).fonts;
   if (fonts?.ready) {
     fonts.ready.then(() => requestAnimationFrame(start));
   } else {
     requestAnimationFrame(start);
   }
-
-  let resizeTimer = 0;
-  window.addEventListener('resize', () => {
-    clearTimeout(resizeTimer);
-    resizeTimer = window.setTimeout(() => requestAnimationFrame(lockContainer), 150);
-  });
 }
 
 function initScramble(): void {

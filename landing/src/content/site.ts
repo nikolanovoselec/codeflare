@@ -202,10 +202,19 @@ export const SPINE = {
 // hero terminal -- the two heroes read as one governed session.
 export const INFERENCE_MESH = {
   id: 'inference-mesh',
-  familyLine: 'The agentic engine gets its own private inference layer.',
-  headline: {
+  // The band's bold lead statement and hero-caliber anchor. Its "inference fabric"
+  // phrase — the product's own hero term (its README tagline: "a private,
+  // cache-aware inference fabric for open LLMs") — carries the shared scramble
+  // churn; the rest is plain bold copy.
+  statement: {
+    lead: 'The agentic engine gets its own private',
+    scramble: 'inference fabric',
+  },
+  // The product name, calm beneath the statement: the literal "inference mesh" in
+  // a static coral gradient (no data-scramble), so exactly one phrase churns.
+  product: {
     prefix: 'private',
-    scramble: 'inference mesh',
+    flare: 'inference mesh',
     suffix: 'for agentic engineering',
   },
   description:
@@ -227,6 +236,15 @@ export const INFERENCE_MESH = {
       { tone: 'ok', text: '✓ 0 prompts left your network' },
       { tone: 'ok', text: '✓ hosted-model fallback: policy, not default' },
     ] satisfies TranscriptLine[],
+    // Live typed reel on the bottom command line (shared data-ft-loop machinery):
+    // active-voice mesh work that reads as a running session, deliberately
+    // distinct from the static proof lines above it. Loops in authored order.
+    loop: [
+      'sharding a 27B model across the mesh',
+      'streaming tokens from idle nodes',
+      'reusing warm KV across sessions',
+      'scaling out as machines join',
+    ],
     foot: 'your capacity · warm sessions · governed spend',
   },
 };
