@@ -172,6 +172,26 @@ function setupHoverElement(el: HTMLElement): void {
     }
   }
 
+  // Lock each word span to its resting width so the churning glyphs (a proportional
+  // nav font, every random glyph a different width) can never resize the button and
+  // reflow the header nav around it. The decode is 1:1 on character count, so the
+  // resting box always holds the churn; wider glyphs paint centered inside it without
+  // moving a sibling. Measured after the webfont loads so the lock matches the real
+  // Inter metrics, not the fallback font.
+  const lockWidths = () => {
+    for (const { span } of words) {
+      span.style.display = 'inline-block';
+      span.style.textAlign = 'center';
+      span.style.width = `${span.getBoundingClientRect().width}px`;
+    }
+  };
+  const fonts = (document as Document & { fonts?: { ready: Promise<unknown> } }).fonts;
+  if (fonts?.ready) {
+    fonts.ready.then(() => requestAnimationFrame(lockWidths));
+  } else {
+    requestAnimationFrame(lockWidths);
+  }
+
   let running = false;
   const run = () => {
     if (running) return;
