@@ -26,6 +26,7 @@ import {
   INFERENCE_MESH,
   METHOD,
   NAV_LINKS,
+  OPERATIONS,
   ORCHESTRATION,
   PIPELINE,
   SECURITY,
@@ -38,6 +39,7 @@ const SECTION_ORDER = [
   'method',
   'legacy',
   'security',
+  'operations',
   'context',
   'pipeline',
   'orchestration',
@@ -115,8 +117,8 @@ describe('landing page composition (REQ-LANDING-001)', () => {
     }
   });
 
-  it('renders exactly four folded substations (operations, e2e, tenancy, runs-everywhere)', () => {
-    expect(body.querySelectorAll('.section-head.substation')).toHaveLength(4);
+  it('renders exactly three folded substations (e2e, tenancy, runs-everywhere)', () => {
+    expect(body.querySelectorAll('.section-head.substation')).toHaveLength(3);
     for (const sub of Array.from(body.querySelectorAll('.section-head.substation'))) {
       expect(sub.querySelector('h3')).not.toBeNull();
       expect(sub.querySelector('h2')).toBeNull();
@@ -124,9 +126,9 @@ describe('landing page composition (REQ-LANDING-001)', () => {
   });
 
   it('renders the full set of terminals, each armed for the proof reveal', () => {
-    // hero + 4 feature + method gate + legacy + boundary + 2 context + board +
-    // orch + ledger + platform seed + mcp + dogfood + inference mesh = 17.
-    expect(body.querySelectorAll('.terminal[data-proof]')).toHaveLength(17);
+    // hero + 4 feature + method gate + legacy + boundary + operations gate + 2 context
+    // + board + orch + ledger + platform seed + mcp + dogfood + inference mesh = 18.
+    expect(body.querySelectorAll('.terminal[data-proof]')).toHaveLength(18);
   });
 });
 
@@ -221,6 +223,22 @@ describe('rolling-row artifacts (styler 2)', () => {
     expect(boundary.querySelector('.gate-echo')).not.toBeNull();
     expect(boundary.querySelector('.gate-step.is-deny')).not.toBeNull();
     expect(boundary.querySelector('.gate-step.is-redact')).not.toBeNull();
+  });
+
+  it('operations is a peer section (not a substation) with a governed-infra run in the gate grammar', () => {
+    const ops = body.querySelector('#operations')!;
+    expect(ops).not.toBeNull();
+    // A top-level section head (h2), not a folded substation.
+    expect(ops.querySelector('.section-head:not(.substation) h2')).not.toBeNull();
+    expect(ops.querySelector('.section-head.substation')).toBeNull();
+    // The governed infra run is a gate terminal with one row per content-model row,
+    // including at least one denied (out-of-scope) row.
+    const gate = ops.querySelector('.terminal.gate[data-proof]')!;
+    expect(gate).not.toBeNull();
+    expect(gate.querySelectorAll('.gate-steps .gate-step')).toHaveLength(OPERATIONS.run.rows.length);
+    expect(gate.querySelector('.gate-step.is-deny')).not.toBeNull();
+    // The two operations capability cards render below the run.
+    expect(ops.querySelectorAll('.feature-grid .feature-col')).toHaveLength(OPERATIONS.cards.length);
   });
 
   it('review board rolls a lane per reviewer; finding lanes show the finding -> fixed track; verdict pinned', () => {

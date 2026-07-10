@@ -116,6 +116,13 @@ function setupElement(el: HTMLElement): void {
 
 function initScramble(): void {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  // Below the layout's split breakpoint the headline is full-width and the churning
+  // accent fills the line, so per-frame glyph-width changes flip the wrap between one
+  // and two lines and shove everything below it -- a violent vertical flicker on
+  // phones. Hold the accent static there (the server-rendered gradient still shows);
+  // the churn runs only >= 820px, where the copy sits in a column with horizontal
+  // slack so a word never reaches the wrap point.
+  if (!window.matchMedia('(min-width: 820px)').matches) return;
   for (const el of document.querySelectorAll<HTMLElement>('[data-scramble]')) {
     setupElement(el);
   }

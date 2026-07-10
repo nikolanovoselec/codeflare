@@ -148,6 +148,7 @@ export const SECTION_KICKERS: Record<string, string> = {
   method: 'Quality',
   legacy: 'Adoption',
   security: 'Security',
+  operations: 'Operations',
   context: 'Context',
   pipeline: 'Control',
   orchestration: 'Observability',
@@ -210,8 +211,8 @@ export const INFERENCE_MESH = {
   // one wordmark too many.
   name: 'Inference Mesh',
   description:
-    'Codeflare works with any inference provider. Inference Mesh is one more it can pull from — ' +
-    'the idle machines you already own, turned into private, low-cost capacity for your agents. ' +
+    'Codeflare works with any inference provider. Inference Mesh is one more it can pull from. ' +
+    'It turns the idle machines you already own into private, low-cost capacity for your agents. ' +
     'Long-running sessions stay warm, sensitive work never leaves your boundary, and every hosted ' +
     'provider stays first-class, as your default or your fallback.',
   primaryCta: {
@@ -530,14 +531,31 @@ export const DOGFOOD = {
 
 export const OPERATIONS = {
   id: 'operations',
-  // Nested terminal-path tag: one level under the security section's own "~/security",
-  // so the path depth marks this as a sub-section (the "~/" prefix is added in CSS).
-  tag: 'security/operations',
+  // Promoted from a security substation to a peer section: the "operate" surface of the
+  // directed execution model, co-equal with the coding surface. Top-level path tag now
+  // (was the nested "security/operations").
+  tag: 'operations',
   title: 'The same agents operate your infrastructure.',
   lead:
-    'The same session model works past the repo. Agents reach approved infrastructure through ' +
-    'zero-trust tunnels to run scoped commands, apply patches, handle migrations, and drive ' +
-    'incident response, with an audit trail behind every action.',
+    'The governed harness is not only for code. On the same session model, under your own ' +
+    'identity, agents patch servers, migrate workloads, provision clusters, and configure ' +
+    'firewalls, proxies, and other appliances. They reach approved targets through your Zero ' +
+    'Trust, never a broad VPN, and every action is proposed, approved, and evidenced.',
+  // A governed infrastructure run in the same gate grammar as the security boundary, so
+  // "operate" reads as a peer receipt: reach is scoped by Zero Trust, the plan runs only on
+  // operator approval, and nothing outside scope is possible.
+  run: {
+    title: 'operations · one plan',
+    rows: [
+      { actor: 'operator', state: 'pass', label: 'authenticated', text: 'your IdP · your identity, your entitlements' },
+      { actor: 'reach', state: 'pass', label: 'granted', text: 'your Zero Trust · scoped to the approved targets' },
+      { actor: 'plan', state: 'work', label: 'proposed', text: 'patch 42 hosts, migrate the store, rollback ready' },
+      { actor: 'approval', state: 'pass', label: 'yours', text: 'nothing runs until you approve the plan' },
+      { actor: 'apply', state: 'pass', label: 'verified', text: 'changed, health-checked, and evidenced' },
+      { actor: 'out of scope', state: 'deny', label: 'impossible', text: 'no host outside the set · no lateral move · no reused creds' },
+    ] satisfies BoundaryRow[],
+    caption: 'Authentication is not reachability: your scope admits the session, your fabric limits its reach.',
+  },
   cards: [
     {
       title: 'Policy-scoped zero-trust tunnels',

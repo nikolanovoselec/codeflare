@@ -35,14 +35,16 @@ function buildScrambleFixture(targetText: string): HTMLElement {
   return el;
 }
 
-function mockMatchMedia(prefersReducedMotion: boolean): void {
+function mockMatchMedia(prefersReducedMotion: boolean, wideViewport = true): void {
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
-    value: vi.fn().mockReturnValue({
-      matches: prefersReducedMotion,
+    // Query-aware: the reduced-motion query returns prefersReducedMotion; the
+    // min-width gate returns wideViewport (default true = desktop, where the churn runs).
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes('prefers-reduced-motion') ? prefersReducedMotion : wideViewport,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
-    }),
+    })),
   });
 }
 
@@ -150,6 +152,25 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     // and the element content remains the original text.
     expect(el.textContent).toBe(target);
     // No scramble-word spans should exist.
+    expect(document.querySelectorAll('.scramble-word').length).toBe(0);
+  });
+
+  it('REQ-LANDING-001: below the layout split breakpoint the accent stays static (no churn spans)', async () => {
+    const target = 'assistant';
+    const el = buildScrambleFixture(target);
+    // Motion is allowed, but the viewport is narrow (< 820px): the churn must NOT run,
+    // because a full-width churning headline reflows between one and two lines and
+    // shoves the page (the reported mobile flicker).
+    mockMatchMedia(false, false);
+    mockFontsReady();
+
+    await import('../scripts/scramble');
+    await Promise.resolve();
+    vi.runAllTicks();
+    vi.advanceTimersByTime(ONE_CYCLE_MS);
+
+    // The server-rendered gradient stands, untouched: no word spans, text intact.
+    expect(el.textContent).toBe(target);
     expect(document.querySelectorAll('.scramble-word').length).toBe(0);
   });
 
