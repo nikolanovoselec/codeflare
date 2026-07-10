@@ -1,6 +1,6 @@
 ---
 /**
- * Hero: positioning line, the headline, a plain definition line, two CTAs, and
+ * Hero: positioning line, the headline, a plain definition line, one CTA, and
  * one legible terminal showing a real Codeflare session (the spine run, opened).
  * The terminal uses the shared <Terminal> chrome + <Transcript animate="typed">:
  * the transcript then a typed command line that feature-terminals.ts cycles as a
@@ -23,7 +23,6 @@ import Transcript from './Transcript.astro';
       <p class="hero-def">{HERO.definition}</p>
       <div class="hero-cta">
         <a class="btn btn-primary" href={HERO.primaryCta.href}>{HERO.primaryCta.label}</a>
-        <a class="btn btn-ghost" href={HERO.secondaryCta.href}>{HERO.secondaryCta.label}</a>
       </div>
     </div>
 

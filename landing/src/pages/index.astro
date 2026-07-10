@@ -155,19 +155,38 @@ const mcpRows = MCP.portal.rows.map((row) => ({
 
     <!-- Legacy: legacy code transformed into an agentic baseline. /sdd init turns
          a legacy codebase into a spec-driven baseline and /sdd clean realigns a
-         drifted spec, in the page's existing terminal idiom. -->
+         drifted spec, in the page's existing terminal idiom. Copy + terminal as a
+         split band so the narrow terminal fills its column instead of stretching
+         full-width with a dead right gutter. -->
     <Section id={LEGACY.id}>
-      <SectionHead kicker={SECTION_KICKERS.legacy} title={LEGACY.title} lead={LEGACY.lead} />
-      <Terminal variant="proof-terminal" title={LEGACY.terminal.title} foot={LEGACY.terminal.foot}>
-        <Transcript lines={LEGACY.terminal.lines} animate="cursor" />
+      <div class="split-band">
+        <SectionHead kicker={SECTION_KICKERS.legacy} title={LEGACY.title} lead={LEGACY.lead} />
+        <Terminal variant="proof-terminal" title={LEGACY.terminal.title} foot={LEGACY.terminal.foot}>
+          <Transcript lines={LEGACY.terminal.lines} animate="cursor" />
+        </Terminal>
+      </div>
+    </Section>
+
+    <!-- Operations: the co-equal "operate" surface of the directed execution model,
+         placed before security so build (method, legacy) and operate read as the two
+         halves of what agents do, before the boundary that governs both. The same
+         governed harness that builds also patches, migrates, provisions, and configures
+         infrastructure, shown as a governed run in the same gate grammar as the security
+         boundary that follows, so it reads as a peer to build, not a security footnote. -->
+    <Section id={OPERATIONS.id} alt>
+      <SectionHead kicker={SECTION_KICKERS.operations} title={OPERATIONS.title} lead={OPERATIONS.lead} />
+      <Terminal variant="gate" foot={OPERATIONS.run.caption}>
+        <span class="gate-req" slot="bar">{OPERATIONS.run.title}</span>
+        <GateSteps rows={opsRows} />
       </Terminal>
+      <FeatureGrid cards={OPERATIONS.cards} cols={2} />
     </Section>
 
     <!-- Security: zero trust is the architecture. One merged receipt: the
          boundary's approved and impossible paths, a thin in-terminal divider,
          then one real call obeying the boundary, closing on a single in-chrome
-         foot. Operations is its own peer section directly below. -->
-    <Section id={SECURITY.id} alt>
+         foot. Operations is the peer section directly above. -->
+    <Section id={SECURITY.id}>
       <SectionHead kicker={SECTION_KICKERS.security} title={SECURITY.title} lead={SECURITY.lead}>
         <MicroCta href="#contact" label={SECURITY.microCta} dataTopic="security-compliance" />
       </SectionHead>
@@ -177,19 +196,6 @@ const mcpRows = MCP.portal.rows.map((row) => ({
         <div class="gate-echo"><span class="gate-echo-prompt" aria-hidden="true">❯</span> {EGRESS.call}</div>
         <GateSteps rows={egressRows} />
       </Terminal>
-    </Section>
-
-    <!-- Operations: the co-equal "operate" surface of the directed execution model.
-         The same governed harness that builds also patches, migrates, provisions, and
-         configures infrastructure, shown as a governed run in the security gate grammar
-         so it reads as a peer receipt, not a security footnote. -->
-    <Section id={OPERATIONS.id}>
-      <SectionHead kicker={SECTION_KICKERS.operations} title={OPERATIONS.title} lead={OPERATIONS.lead} />
-      <Terminal variant="gate" foot={OPERATIONS.run.caption}>
-        <span class="gate-req" slot="bar">{OPERATIONS.run.title}</span>
-        <GateSteps rows={opsRows} />
-      </Terminal>
-      <FeatureGrid cards={OPERATIONS.cards} cols={2} />
     </Section>
 
     <!-- Context: the open web, rendered clean, never trusted. One real fetch from

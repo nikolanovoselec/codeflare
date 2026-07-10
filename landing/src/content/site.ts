@@ -177,8 +177,9 @@ export const HERO = {
     'Codeflare runs governed engineering agents inside your own estate. Each change is backed by a ' +
     'spec, proven by tests, documented, and handed to your team to approve, whether that is a ' +
     'pull request to merge or a change to run.',
-  primaryCta: { label: 'Book a demo', href: '#contact' } satisfies Cta,
-  secondaryCta: { label: 'See the shift', href: '#shift' } satisfies Cta,
+  // One CTA only, in the bracketed command style shared with the contact form's
+  // "[ Send message ]" submit, so the page's two primary actions read the same.
+  primaryCta: { label: '[ Book a demo ]', href: '#contact' } satisfies Cta,
 };
 
 /**
@@ -418,7 +419,7 @@ export const LEGACY = {
 
 export const SECURITY = {
   id: 'security',
-  title: 'Built on a zero-trust foundation.',
+  title: 'Built on a Zero Trust foundation.',
   lead:
     'Every dangerous path is closed at the architecture level. A session authenticates through ' +
     'your IdP, runs in an isolated container in your tenancy, and reaches models only through ' +
@@ -857,6 +858,14 @@ export const FAQ_ITEMS: FaqItem[] = [
       'and provider credentials never enter the container.',
   },
   {
+    question: 'Do we have to use the Inference Mesh?',
+    answer:
+      'No. Codeflare works with any hosted inference provider as your default or your fallback, ' +
+      'routed through your AI Gateway. The Inference Mesh is one optional additional source: it turns ' +
+      'idle machines you already own into private, low-cost capacity, so long-running or sensitive ' +
+      'work can stay inside your boundary. Run entirely on hosted providers, entirely on the mesh, or mix the two per group.',
+  },
+  {
     question: 'How does authentication work with our IdP?',
     answer:
       'Through zero-trust access in front of every surface, federating to Entra ID, Okta, Google ' +
@@ -868,6 +877,14 @@ export const FAQ_ITEMS: FaqItem[] = [
       'Hard infrastructure boundaries. Each session runs in its own ephemeral container behind ' +
       'zero-trust access, with no peers to move to and no standing infrastructure to persist on. ' +
       'When the session ends, the container is destroyed.',
+  },
+  {
+    question: 'Can agents operate infrastructure, not just write code?',
+    answer:
+      'Yes. The same governed session that builds also patches servers, migrates workloads, ' +
+      'provisions clusters, and configures firewalls, proxies, and other appliances. It reaches ' +
+      'approved targets through your Zero Trust, never a broad VPN, and every action is proposed, ' +
+      'approved, and evidenced before it touches a host, with no standing credentials left behind.',
   },
   {
     question: 'Which agents are supported?',

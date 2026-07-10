@@ -306,7 +306,7 @@ describe('Header (one nav, two variants)', () => {
 });
 
 describe('header sign-in CTA (REQ-LANDING-006)', () => {
-  it('renders one Enter-the-Matrix sign-in CTA: content-model label, aria-label, unchanged href, coral + hover-scramble hooks', async () => {
+  it('renders one Enter-the-Matrix sign-in CTA: content-model label, aria-label, unchanged href, matrix modifier + hover-scramble hooks', async () => {
     const nav = dom(await container.renderToString(Header, { props: { variant: 'landing' } })).querySelector('.site-nav')!;
     const signins = nav.querySelectorAll('.nav-signin');
     expect(signins).toHaveLength(1);

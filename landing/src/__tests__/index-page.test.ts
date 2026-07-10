@@ -38,8 +38,8 @@ const SECTION_ORDER = [
   'shift',
   'method',
   'legacy',
-  'security',
   'operations',
+  'security',
   'context',
   'pipeline',
   'orchestration',
@@ -146,6 +146,16 @@ describe('hero top line (capability ticker)', () => {
     expect(words).toHaveLength(HERO.kicker.words.length);
     expect(words[0].getAttribute('data-active')).toBe('true');
     expect(Array.from(words).map((word) => word.textContent?.trim())).toEqual(HERO.kicker.words);
+  });
+
+  it('renders a single primary hero CTA from the content model and no secondary button', () => {
+    const cta = body.querySelector('.hero-cta')!;
+    const buttons = cta.querySelectorAll('.btn');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].classList.contains('btn-primary')).toBe(true);
+    expect(cta.querySelector('.btn-ghost')).toBeNull();
+    expect(buttons[0].textContent?.trim()).toBe(HERO.primaryCta.label);
+    expect(buttons[0].getAttribute('href')).toBe(HERO.primaryCta.href);
   });
 });
 

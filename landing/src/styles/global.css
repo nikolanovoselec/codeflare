@@ -389,19 +389,19 @@ svg {
    in". Solid coral, not the flare gradient, so the churning word spans render
    coral instead of the gradient-clip transparent. */
 .nav-signin--matrix {
-  color: var(--accent);
+  color: var(--text-primary);
   white-space: nowrap;
 }
 
 .nav-signin--matrix:hover,
 .nav-signin--matrix:focus-visible {
-  color: var(--accent);
+  color: var(--text-primary);
 }
 
 .nav-signin--matrix .scramble-word {
   background: none;
-  -webkit-text-fill-color: var(--accent);
-  color: var(--accent);
+  -webkit-text-fill-color: var(--text-primary);
+  color: var(--text-primary);
 }
 
 @media (min-width: 900px) {
@@ -613,6 +613,16 @@ svg {
   .split-band {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
   }
+}
+
+/* A substation sub-head that heads its own split band (context/automation under
+   context) must not also carry the full .substation top gap: the tight
+   .split-band + .split-band gap already spaces the bands, so the extra base
+   margin read as a section break between a category and its subcategory. Zero it
+   here so ~/context -> ~/context/automation sits as close as every other
+   category -> subcategory pair. */
+.split-band > .substation {
+  margin-top: 0;
 }
 
 /* The operations section pairs a governed-run gate terminal with capability cards; the
