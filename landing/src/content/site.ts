@@ -126,12 +126,12 @@ export const NAV_LINKS: NavLink[] = [
   { label: 'Cost', href: '#cost' },
 ];
 
-/** The header sign-in CTA. The visible text is an on-theme "Enter The Matrix"
+/** The header sign-in CTA. The visible text is an on-theme "Enter Matrix"
  *  flourish that pays off the page's Metacortex / Thomas Anderson easter egg; the
  *  accessible name stays "Sign in" so the auth entry is unmistakable to assistive
  *  tech and scanners. The destination is APP_LINKS.signIn (config), unchanged. */
 export const HEADER_SIGN_IN = {
-  label: 'Enter The Matrix',
+  label: 'Enter Matrix',
   a11y: 'Sign in',
 };
 
@@ -202,23 +202,14 @@ export const SPINE = {
 // hero terminal -- the two heroes read as one governed session.
 export const INFERENCE_MESH = {
   id: 'inference-mesh',
-  // The band's bold lead statement and hero-caliber anchor. Its "inference fabric"
-  // phrase — the product's own hero term (its README tagline: "a private,
-  // cache-aware inference fabric for open LLMs") — carries the shared scramble
-  // churn; the rest is plain bold copy.
-  statement: {
-    lead: 'The agentic engine gets its own private',
-    scramble: 'inference fabric',
-  },
-  // The product name, calm beneath the statement: the literal "inference mesh" in
-  // a static coral gradient (no data-scramble), so exactly one phrase churns.
-  product: {
-    prefix: 'private',
-    flare: 'inference mesh',
-    suffix: 'for agentic engineering',
-  },
+  // The band's headline reuses the product's own operator-console lockup: "Codeflare"
+  // in white (the shared scramble churns it) stacked over "Inference Mesh" in the coral
+  // flare gradient, so the landing band and the real console read as one product. The
+  // "inference fabric" value prop lives in the description below, not as a subtitle.
+  brand: 'Codeflare',
+  name: 'Inference Mesh',
   description:
-    'Turn the idle machines you already own into private inference capacity for your agents. ' +
+    'Turn the idle machines you already own into a private inference fabric for your agents. ' +
     'Long-running sessions stay warm on capacity that would otherwise sit idle, sensitive work ' +
     'never leaves your boundary, and reaching for a hosted model becomes a policy choice instead ' +
     'of the default.',
@@ -229,7 +220,7 @@ export const INFERENCE_MESH = {
   terminal: {
     title: 'codeflare · inference mesh',
     lines: [
-      { tone: 'cmd', text: `${SPINE.user}@metacortex.ai -> codeflare-mesh · Qwen3.6-27B-MTP-GGUF` },
+      { tone: 'cmd', text: `${SPINE.user}@metacortex.ai -> codeflare-mesh · Kimi-K2.7-Code-GGUF:UD-Q8_K_XL` },
       { tone: 'agent', text: '✻ served on idle capacity you already own' },
       { tone: 'agent', text: '✻ session pinned warm · prompt cache hot' },
       { tone: 'ok', text: '✓ 2731 tok/s prompt · 132.71 tok/s generation' },
@@ -240,7 +231,7 @@ export const INFERENCE_MESH = {
     // active-voice mesh work that reads as a running session, deliberately
     // distinct from the static proof lines above it. Loops in authored order.
     loop: [
-      'sharding a 27B model across the mesh',
+      'sharding a large model across the mesh',
       'streaming tokens from idle nodes',
       'reusing warm KV across sessions',
       'scaling out as machines join',

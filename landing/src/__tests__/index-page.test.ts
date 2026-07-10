@@ -330,15 +330,21 @@ describe('inference mesh family hero (REQ-LANDING-005)', () => {
     expect(children[2].id).toBe('shift');
   });
 
-  it('leads with the bold statement carrying the only scramble phrase, and no second h1', () => {
+  it('renders the console-hero headline: Codeflare scrambles in white, Inference Mesh is the calm coral flare', () => {
     const band = body.querySelector(`#${INFERENCE_MESH.id}`)!;
-    const statement = band.querySelector('.mesh-hero-statement')!;
-    expect(statement.tagName).toBe('H2');
-    // Exactly one churning phrase in the whole band: the statement's "inference fabric".
+    const headline = band.querySelector('.mesh-hero-headline')!;
+    expect(headline.tagName).toBe('H2');
+    // "Codeflare" is the band's only churning phrase, wired from the content model.
     const scrambles = band.querySelectorAll('[data-scramble]');
     expect(scrambles).toHaveLength(1);
-    expect(scrambles[0].closest('.mesh-hero-statement')).not.toBeNull();
-    expect(scrambles[0].textContent?.trim()).toBe(INFERENCE_MESH.statement.scramble);
+    const brand = headline.querySelector('.mesh-hero-brand[data-scramble]')!;
+    expect(brand).not.toBeNull();
+    expect(brand.textContent?.trim()).toBe(INFERENCE_MESH.brand);
+    // "Inference Mesh" is the calm coral flare — no scramble.
+    const name = headline.querySelector('.flare')!;
+    expect(name).not.toBeNull();
+    expect(name.textContent?.trim()).toBe(INFERENCE_MESH.name);
+    expect(name.hasAttribute('data-scramble')).toBe(false);
     expect(band.querySelector('h1')).toBeNull();
   });
 
@@ -358,22 +364,20 @@ describe('inference mesh family hero (REQ-LANDING-005)', () => {
     expect(band.querySelector('.mesh-hero-cta .btn-ghost')).toBeNull();
   });
 
-  it('anchors the band with the bold statement as the lead and a calm product line beneath', () => {
+  it('anchors the band with the product lockup only — no section chiplet and no subtitle line', () => {
     const band = body.querySelector(`#${INFERENCE_MESH.id}`)!;
     const copy = band.querySelector('.mesh-hero-copy')!;
-    const statement = copy.querySelector('.mesh-hero-statement')!;
-    const product = copy.querySelector('.mesh-hero-product')!;
-    // No section-level chiplet: the hero-caliber statement is the anchor, not a
-    // demoting ~/ path-tag.
+    // The headline lockup is the anchor: no demoting ~/ path-tag chiplet, and no
+    // separate product subtitle line (the value prop lives in the description).
     expect(copy.querySelector('.kicker')).toBeNull();
-    // The statement leads; the product name follows it.
+    expect(copy.querySelector('.mesh-hero-product')).toBeNull();
+    // Copy order is headline lockup -> description -> CTA.
     const order = Array.from(copy.children);
-    expect(order.indexOf(statement)).toBeLessThan(order.indexOf(product));
-    // The product line names "inference mesh" in a CALM coral flare (gradient, no churn).
-    const productFlare = product.querySelector('.flare')!;
-    expect(productFlare).not.toBeNull();
-    expect(productFlare.textContent?.trim()).toBe(INFERENCE_MESH.product.flare);
-    expect(productFlare.hasAttribute('data-scramble')).toBe(false);
+    const headline = copy.querySelector('.mesh-hero-headline')!;
+    const def = copy.querySelector('.mesh-hero-def')!;
+    const cta = copy.querySelector('.mesh-hero-cta')!;
+    expect(order.indexOf(headline)).toBeLessThan(order.indexOf(def));
+    expect(order.indexOf(def)).toBeLessThan(order.indexOf(cta));
   });
 
   it('drives the shared typed reel on the terminal command line, looping over the beats', () => {

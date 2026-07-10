@@ -384,7 +384,7 @@ svg {
    unauthenticated visitor back to the landing). Kept lighter than the primary
    CTA so "Book a demo" stays the lead action. Visible at every width. */
 
-/* The sign-in CTA reads "Enter The Matrix" in the page accent coral and decodes
+/* The sign-in CTA reads "Enter Matrix" in the page accent coral and decodes
    on hover/focus (scramble.ts [data-scramble-hover]). aria-label keeps it "Sign
    in". Solid coral, not the flare gradient, so the churning word spans render
    coral instead of the gradient-clip transparent. */
@@ -450,8 +450,7 @@ svg {
 }
 
 .hero-headline .flare,
-.mesh-hero-statement .flare,
-.mesh-hero-product .flare {
+.mesh-hero-headline .flare {
   background: var(--flare-gradient);
   -webkit-background-clip: text;
   background-clip: text;
@@ -547,24 +546,25 @@ svg {
   max-width: 34rem;
 }
 
-/* The bold lead statement is the band's hero-caliber anchor. It is an <h2>, so the
-   band's .section h2 { font-size: var(--fs-h2) } already sizes it one tier below
-   the primary hero's --fs-display -- the engine shouts, its inference fabric speaks
-   firmly. Its "inference fabric" flare is the band's only churning phrase. */
-.mesh-hero .mesh-hero-statement {
-  max-width: 22ch;
+/* The headline reuses the product's own operator-console lockup: "Codeflare" in
+   white over "Inference Mesh" in the coral flare gradient. It is an <h2>, so the
+   band's .section h2 { font-size: var(--fs-h2) } sizes it one tier below the primary
+   hero's --fs-display. Tight leading stacks the two words like the console hero. */
+.mesh-hero .mesh-hero-headline {
+  max-width: 18ch;
   letter-spacing: -0.03em;
+  line-height: 1.02;
 }
 
-/* The product name, calm under the statement: the literal "inference mesh" in a
-   static coral gradient (no churn), one readable notch down (--fs-lead) so the
-   statement stays the visual lead. */
-.mesh-hero-product {
-  max-width: 42ch;
+/* "Codeflare" rests and churns in white, not the coral gradient: mirror the footer's
+   Codeflare treatment to neutralise the .scramble-word gradient the script applies. */
+.mesh-hero-brand {
   color: var(--text-primary);
-  font-size: var(--fs-lead);
-  line-height: 1.5;
-  margin-top: 1.1rem;
+}
+.mesh-hero-brand .scramble-word {
+  background: none;
+  -webkit-text-fill-color: var(--text-primary);
+  color: var(--text-primary);
 }
 
 .mesh-hero-def {
@@ -602,9 +602,23 @@ svg {
     grid-row: 1;
   }
 
+  /* Copy sits in the right column and is flush-right, mirroring the left terminal:
+     the block and its max-width'd children hug the right edge, and text + CTA align
+     right. Mobile keeps the default left alignment for readability. */
   .mesh-hero-copy {
     grid-column: 2;
     grid-row: 1;
+    margin-left: auto;
+    text-align: right;
+  }
+
+  .mesh-hero-copy .mesh-hero-headline,
+  .mesh-hero-copy .mesh-hero-def {
+    margin-left: auto;
+  }
+
+  .mesh-hero-copy .mesh-hero-cta {
+    justify-content: flex-end;
   }
 }
 

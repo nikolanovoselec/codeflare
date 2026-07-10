@@ -18,15 +18,10 @@ import { INFERENCE_MESH } from '../content/site';
   <div class="container">
     <div class="mesh-hero-grid">
       <div class="mesh-hero-copy">
-        <h2 class="mesh-hero-statement">
-          {INFERENCE_MESH.statement.lead}{' '}
-          <span class="flare" data-scramble>{INFERENCE_MESH.statement.scramble}</span>.
+        <h2 class="mesh-hero-headline">
+          <span class="mesh-hero-brand" data-scramble>{INFERENCE_MESH.brand}</span><br />
+          <span class="flare">{INFERENCE_MESH.name}</span>
         </h2>
-        <p class="mesh-hero-product">
-          {INFERENCE_MESH.product.prefix}{' '}
-          <span class="flare">{INFERENCE_MESH.product.flare}</span>{' '}
-          {INFERENCE_MESH.product.suffix}
-        </p>
         <p class="mesh-hero-def">{INFERENCE_MESH.description}</p>
         <div class="mesh-hero-cta">
           <a
