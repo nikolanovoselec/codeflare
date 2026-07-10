@@ -32,13 +32,17 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENTRYPOINT = resolve(__dirname, '../../entrypoint.sh');
 
-// rclone may or may not be on the runner. Skip cleanly when absent so the
-// suite stays meaningful on dev boxes (same guard as entrypoint-hooks-merge).
+// This behavioral suite must execute in CI; .github/workflows/test.yml installs
+// rclone before the host tests. Fail loudly rather than silently skipping the
+// load-bearing sync-policy assertions.
 const rcloneCheck = spawnSync('bash', ['-lc', 'command -v rclone'], {
   encoding: 'utf-8',
 });
-const rcloneAvailable =
-  rcloneCheck.status === 0 && rcloneCheck.stdout.trim() !== '';
+assert.equal(
+  rcloneCheck.status === 0 && rcloneCheck.stdout.trim() !== '',
+  true,
+  'rclone is required for entrypoint sync-filter behavioral tests',
+);
 
 // Slice entrypoint.sh from the VAULT_FILTER SESSION_MODE guard through the
 // closing `fi` of the SYNC_MODE branch. This faithfully exercises the same
@@ -65,11 +69,10 @@ const filterSlice = extractFilterResolution();
 // category we care about, run the real filter array against it via
 // `rclone lsf -R`, and return a verdict map { relPath: 'INCLUDED'|'EXCLUDED' }.
 //
-// The trailing `--filter "- **"` makes the default action "exclude", so a
-// path only appears in the listing if a positive rule in the real array
-// matched it first (rclone first-match semantics) — exactly how the
-// container's bisync decides what round-trips to R2.
-function verdictUnder({ sessionMode, syncMode = 'full' }) {
+// Inclusion assertions add a default-deny tail so only explicit positive
+// rules survive. Exclusion assertions retain rclone's default-include behavior
+// so every requested negative rule is load-bearing.
+function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
   const fx = mkdtempSync(join(tmpdir(), 'rclone-filters-'));
   mkdirSync(join(fx, 'Vault/graphify-out'), { recursive: true });
   mkdirSync(join(fx, 'Uploads'), { recursive: true });
@@ -78,6 +81,10 @@ function verdictUnder({ sessionMode, syncMode = 'full' }) {
   mkdirSync(join(fx, 'workspace/repo/graphify-out'), { recursive: true });
   mkdirSync(join(fx, '.cache/rclone'), { recursive: true });
   mkdirSync(join(fx, '.config/rclone'), { recursive: true });
+  mkdirSync(join(fx, '.codex/plugins/cache/catalog'), { recursive: true });
+  mkdirSync(join(fx, '.codex/cache'), { recursive: true });
+  mkdirSync(join(fx, '.copilot'), { recursive: true });
+  mkdirSync(join(fx, '.claude/projects/repo/workflows'), { recursive: true });
 
   const fixtures = {
     'Vault/note.md': 'user vault note',
@@ -91,19 +98,29 @@ function verdictUnder({ sessionMode, syncMode = 'full' }) {
     'workspace/repo/graphify-out/g.json': 'repo graph artifact',
     '.cache/rclone/junk': 'ephemeral cache',
     '.config/rclone/rclone.conf': 'r2 secrets config',
+    '.codex/plugins/cache/catalog/plugin.json': 'regenerable plugin catalog',
+    '.codex/cache/index.json': 'regenerable codex cache',
+    '.codex/logs_2.sqlite': 'regenerable codex log database',
+    '.codex/logs_2.sqlite-wal': 'regenerable codex log wal',
+    '.codex/logs_2.sqlite-shm': 'regenerable codex log shm',
+    '.copilot/session-store.db-wal': 'ephemeral copilot wal',
+    '.copilot/session-store.db-shm': 'ephemeral copilot shm',
+    '.claude/projects/repo/workflows/run.json': 'ephemeral workflow state',
   };
   for (const [rel, body] of Object.entries(fixtures)) {
     writeFileSync(join(fx, rel), body);
   }
 
+  const defaultRule = defaultDeny ? ' --filter "- **"' : '';
   const script = [
     'set -u',
     `SESSION_MODE="${sessionMode}"`,
     `SYNC_MODE="${syncMode}"`,
     filterSlice,
-    // List everything that survives the real filter array. Default-deny
-    // tail so only positively-matched paths appear.
-    'rclone lsf -R --files-only "${RCLONE_FILTERS[@]}" --filter "- **" "$1" 2>/dev/null',
+    // Vault inclusion tests use a default-deny tail to prove an explicit
+    // allow-rule won. Static-exclusion tests use rclone's normal default-include
+    // behavior so a missing negative rule makes the fixture visibly INCLUDED.
+    `rclone lsf -R --files-only "\${RCLONE_FILTERS[@]}"${defaultRule} "$1" 2>/dev/null`,
   ].join('\n');
 
   const res = spawnSync('bash', ['-c', script, '_', fx], { encoding: 'utf-8' });
@@ -134,7 +151,7 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
   //                   **/graphify-out/** exclude, so the vault's own
   //                   graphify-out source-of-truth rides along.
   // -------------------------------------------------------------------------
-  it('advanced mode: includes the vault tree AND its vault-graph.json despite the global graphify-out exclude (REQ-MEM-004 AC1 / REQ-VAULT-001 AC1)', { skip: !rcloneAvailable && 'rclone not installed' }, () => {
+  it('advanced mode: includes the vault tree AND its vault-graph.json despite the global graphify-out exclude (REQ-MEM-004 AC1 / REQ-VAULT-001 AC1)', () => {
     const v = verdictUnder({ sessionMode: 'advanced' });
 
     assert.equal(
@@ -153,8 +170,8 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
     );
     assert.equal(
       v['Vault/graphify-out/graph.html'],
-      'INCLUDED',
-      'rendered vault viz (graph.html) must persist',
+      'EXCLUDED',
+      'derived graphify-out HTML must not duplicate the served Raw/Graphs visualization in R2',
     );
     // REQ-VAULT-026: the content-hash manifest is the durable change-detection
     // high-water mark. It MUST ride along too, or a restored vault has no manifest
@@ -164,8 +181,10 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
       'INCLUDED',
       'vault-extract content-hash manifest must persist to R2 (REQ-VAULT-026 allow-rule ordered before the graphify-out exclude)',
     );
-    // Specificity guard: only the three named artifacts are allow-listed; the
-    // per-run graph.json falls through to the graphify-out exclude and is dropped.
+    // Specificity guard: only the cumulative graph and content-hash manifest
+    // are allow-listed; per-run graph.json and rendered graph.html fall through
+    // to the graphify-out exclude. The served visualization persists separately
+    // under Vault/Raw/Graphs/.
     assert.equal(
       v['Vault/graphify-out/graph.json'],
       'EXCLUDED',
@@ -180,7 +199,7 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
   //     * Vault/graphify-out/graph.json (the per-run derived file)
   //     * .graphify/** (the ephemeral unified-graph workspace)
   // -------------------------------------------------------------------------
-  it('advanced mode: excludes the per-run derived vault graph.json but keeps the cumulative one (REQ-MEM-004 AC5: derived layer not synced)', { skip: !rcloneAvailable && 'rclone not installed' }, () => {
+  it('advanced mode: excludes the per-run derived vault graph.json but keeps the cumulative one (REQ-MEM-004 AC5: derived layer not synced)', () => {
     const v = verdictUnder({ sessionMode: 'advanced' });
     assert.equal(
       v['Vault/graphify-out/graph.json'],
@@ -194,7 +213,7 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
     );
   });
 
-  it('advanced mode: excludes the ephemeral unified-graph workspace (.graphify) so it is rebuilt on boot (REQ-MEM-004 AC5 / REQ-VAULT-001 AC2)', { skip: !rcloneAvailable && 'rclone not installed' }, () => {
+  it('advanced mode: excludes the ephemeral unified-graph workspace (.graphify) so it is rebuilt on boot (REQ-MEM-004 AC5 / REQ-VAULT-001 AC2)', () => {
     const v = verdictUnder({ sessionMode: 'advanced' });
     assert.equal(
       v['.graphify/global-graph.json'],
@@ -208,7 +227,7 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
   //   EXCLUDED, so cross-session persistence is advanced-mode-only. The
   //   Uploads/Temporary trays still sync in both modes.
   // -------------------------------------------------------------------------
-  it('default mode: positively excludes the entire vault tree (REQ-MEM-006 AC1)', { skip: !rcloneAvailable && 'rclone not installed' }, () => {
+  it('default mode: positively excludes the entire vault tree (REQ-MEM-006 AC1)', () => {
     const v = verdictUnder({ sessionMode: 'default' });
     assert.equal(
       v['Vault/note.md'],
@@ -222,7 +241,7 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
     );
   });
 
-  it('default vs advanced differ ONLY on the vault tree; the user trays sync in both modes (REQ-MEM-006 AC1: mode gate is scoped to Vault)', { skip: !rcloneAvailable && 'rclone not installed' }, () => {
+  it('default vs advanced differ ONLY on the vault tree; the user trays sync in both modes (REQ-MEM-006 AC1: mode gate is scoped to Vault)', () => {
     const adv = verdictUnder({ sessionMode: 'advanced' });
     const def = verdictUnder({ sessionMode: 'default' });
 
@@ -245,24 +264,29 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
   //   Representative paths: ~/.cache/** and ~/.config/rclone/** (R2 secrets),
   //   plus the per-repo graphify-out artifacts that live in git, not R2.
   // -------------------------------------------------------------------------
-  it('statically excludes ephemeral caches and the R2-secret rclone config in both modes (REQ-STOR-004 AC6)', { skip: !rcloneAvailable && 'rclone not installed' }, () => {
+  it('statically excludes ephemeral caches and the R2-secret rclone config in both modes (REQ-STOR-004 AC6)', () => {
     for (const sessionMode of ['advanced', 'default']) {
-      const v = verdictUnder({ sessionMode });
-      assert.equal(
-        v['.cache/rclone/junk'],
-        'EXCLUDED',
-        `~/.cache/** must be excluded (regenerable) in ${sessionMode} mode`,
-      );
-      assert.equal(
-        v['.config/rclone/rclone.conf'],
-        'EXCLUDED',
-        `~/.config/rclone/** (R2 secrets) must never round-trip in ${sessionMode} mode`,
-      );
-      assert.equal(
-        v['workspace/repo/graphify-out/g.json'],
-        'EXCLUDED',
-        `per-repo graphify-out artifacts must stay out of R2 in ${sessionMode} mode (they live in git)`,
-      );
+      const v = verdictUnder({ sessionMode, defaultDeny: false });
+      const excluded = [
+        '.cache/rclone/junk',
+        '.config/rclone/rclone.conf',
+        'workspace/repo/graphify-out/g.json',
+        '.codex/plugins/cache/catalog/plugin.json',
+        '.codex/cache/index.json',
+        '.codex/logs_2.sqlite',
+        '.codex/logs_2.sqlite-wal',
+        '.codex/logs_2.sqlite-shm',
+        '.copilot/session-store.db-wal',
+        '.copilot/session-store.db-shm',
+        '.claude/projects/repo/workflows/run.json',
+      ];
+      for (const rel of excluded) {
+        assert.equal(
+          v[rel],
+          'EXCLUDED',
+          `${rel} must stay out of R2 in ${sessionMode} mode`,
+        );
+      }
     }
   });
 });

@@ -148,6 +148,11 @@ jobs:
         run: npm run build
         working-directory: host
 
+      - name: Install rclone for sync-filter behavioral tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rclone
+
       - name: Run host hook tests (node:test)
         # 15 test files excluded: they need graphify CLI, python3 graphify
         # module, rclone, or gh-in-PR-context that only exist inside the
