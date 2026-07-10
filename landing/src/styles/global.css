@@ -546,25 +546,12 @@ svg {
   max-width: 34rem;
 }
 
-/* The headline reuses the product's own operator-console lockup: "Codeflare" in
-   white over "Inference Mesh" in the coral flare gradient. It is an <h2>, so the
-   band's .section h2 { font-size: var(--fs-h2) } sizes it one tier below the primary
-   hero's --fs-display. Tight leading stacks the two words like the console hero. */
+/* The headline is the product name "Inference Mesh" in the coral flare gradient (the
+   shared scramble churns it). It is an <h2>, so the band's .section h2 { font-size:
+   var(--fs-h2) } sizes it one tier below the primary hero's --fs-display. */
 .mesh-hero .mesh-hero-headline {
   max-width: 18ch;
   letter-spacing: -0.03em;
-  line-height: 1.02;
-}
-
-/* "Codeflare" rests and churns in white, not the coral gradient: mirror the footer's
-   Codeflare treatment to neutralise the .scramble-word gradient the script applies. */
-.mesh-hero-brand {
-  color: var(--text-primary);
-}
-.mesh-hero-brand .scramble-word {
-  background: none;
-  -webkit-text-fill-color: var(--text-primary);
-  color: var(--text-primary);
 }
 
 .mesh-hero-def {

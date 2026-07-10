@@ -330,21 +330,19 @@ describe('inference mesh family hero (REQ-LANDING-005)', () => {
     expect(children[2].id).toBe('shift');
   });
 
-  it('renders the console-hero headline: Codeflare scrambles in white, Inference Mesh is the calm coral flare', () => {
+  it('renders the headline as the coral Inference Mesh name carrying the single scramble, no repeated Codeflare wordmark, no second h1', () => {
     const band = body.querySelector(`#${INFERENCE_MESH.id}`)!;
     const headline = band.querySelector('.mesh-hero-headline')!;
     expect(headline.tagName).toBe('H2');
-    // "Codeflare" is the band's only churning phrase, wired from the content model.
+    // The product name "Inference Mesh" is the band's only churning phrase, in the
+    // coral flare, wired from the content model.
     const scrambles = band.querySelectorAll('[data-scramble]');
     expect(scrambles).toHaveLength(1);
-    const brand = headline.querySelector('.mesh-hero-brand[data-scramble]')!;
-    expect(brand).not.toBeNull();
-    expect(brand.textContent?.trim()).toBe(INFERENCE_MESH.brand);
-    // "Inference Mesh" is the calm coral flare — no scramble.
-    const name = headline.querySelector('.flare')!;
+    const name = headline.querySelector('.flare[data-scramble]')!;
     expect(name).not.toBeNull();
     expect(name.textContent?.trim()).toBe(INFERENCE_MESH.name);
-    expect(name.hasAttribute('data-scramble')).toBe(false);
+    // The headline is ONLY the product name — no big "Codeflare" wordmark repeat.
+    expect(headline.textContent?.trim()).toBe(INFERENCE_MESH.name);
     expect(band.querySelector('h1')).toBeNull();
   });
 

@@ -196,23 +196,24 @@ export const SPINE = {
   service: 'payments-service',
 };
 
-// The Inference Mesh family hero: Codeflare's private inference layer, presented
-// as a second hero directly under the primary one. The proof terminal's command
-// line reuses SPINE.user (declared above) so the identity never drifts from the
-// hero terminal -- the two heroes read as one governed session.
+// The Inference Mesh band: an OPTIONAL additional inference source Codeflare can pull
+// from (idle machines you own -> private, low-cost inference), presented as a second
+// hero directly under the primary one. NOT Codeflare's only or default inference path
+// -- every hosted provider stays first-class (see description). The proof terminal's
+// command line reuses SPINE.user (declared above) so the identity never drifts from
+// the hero terminal -- the two heroes read as one governed session.
 export const INFERENCE_MESH = {
   id: 'inference-mesh',
-  // The band's headline reuses the product's own operator-console lockup: "Codeflare"
-  // in white (the shared scramble churns it) stacked over "Inference Mesh" in the coral
-  // flare gradient, so the landing band and the real console read as one product. The
-  // "inference fabric" value prop lives in the description below, not as a subtitle.
-  brand: 'Codeflare',
+  // The headline is the product name "Inference Mesh" in the coral flare gradient (the
+  // shared scramble churns it). "Codeflare" is deliberately NOT repeated here -- the
+  // header wordmark and the hero lead already establish it, so a big display repeat was
+  // one wordmark too many.
   name: 'Inference Mesh',
   description:
-    'Turn the idle machines you already own into a private inference fabric for your agents. ' +
-    'Long-running sessions stay warm on capacity that would otherwise sit idle, sensitive work ' +
-    'never leaves your boundary, and reaching for a hosted model becomes a policy choice instead ' +
-    'of the default.',
+    'Codeflare works with any inference provider. Inference Mesh is one more it can pull from — ' +
+    'the idle machines you already own, turned into private, low-cost capacity for your agents. ' +
+    'Long-running sessions stay warm, sensitive work never leaves your boundary, and every hosted ' +
+    'provider stays first-class, as your default or your fallback.',
   primaryCta: {
     label: 'See it on GitHub',
     href: 'https://github.com/nikolanovoselec/codeflare-inference-mesh',
@@ -225,7 +226,7 @@ export const INFERENCE_MESH = {
       { tone: 'agent', text: '✻ session pinned warm · prompt cache hot' },
       { tone: 'ok', text: '✓ 2731 tok/s prompt · 132.71 tok/s generation' },
       { tone: 'ok', text: '✓ 0 prompts left your network' },
-      { tone: 'ok', text: '✓ hosted-model fallback: policy, not default' },
+      { tone: 'ok', text: '✓ hosted providers stay first-class · default or fallback' },
     ] satisfies TranscriptLine[],
     // Live typed reel on the bottom command line (shared data-ft-loop machinery):
     // active-voice mesh work that reads as a running session, deliberately
