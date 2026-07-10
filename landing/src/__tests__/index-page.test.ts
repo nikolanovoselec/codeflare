@@ -148,14 +148,14 @@ describe('hero top line (capability ticker)', () => {
     expect(Array.from(words).map((word) => word.textContent?.trim())).toEqual(HERO.kicker.words);
   });
 
-  it('renders a single primary hero CTA from the content model and no secondary button', () => {
-    const cta = body.querySelector('.hero-cta')!;
-    const buttons = cta.querySelectorAll('.btn');
-    expect(buttons).toHaveLength(1);
-    expect(buttons[0].classList.contains('btn-primary')).toBe(true);
-    expect(cta.querySelector('.btn-ghost')).toBeNull();
-    expect(buttons[0].textContent?.trim()).toBe(HERO.primaryCta.label);
-    expect(buttons[0].getAttribute('href')).toBe(HERO.primaryCta.href);
+  it('renders a single hero CTA as the shared micro-cta link from the content model, no button', () => {
+    const copy = body.querySelector('.hero-copy')!;
+    const links = copy.querySelectorAll('.micro-cta a');
+    expect(links).toHaveLength(1);
+    expect(links[0].textContent?.trim()).toBe(HERO.primaryCta.label);
+    expect(links[0].getAttribute('href')).toBe(HERO.primaryCta.href);
+    // No filled/ghost buttons remain in the hero.
+    expect(copy.querySelector('.btn')).toBeNull();
   });
 });
 

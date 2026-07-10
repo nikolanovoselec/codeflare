@@ -108,6 +108,12 @@
   /* Spacing rhythm */
   --section-y: clamp(1.5rem, 1rem + 2vw, 2.75rem);
   --gap: clamp(1rem, 0.6rem + 1.5vw, 1.75rem);
+  /* Vertical rhythm between a copy block (a section head or the hero/mesh copy) and
+     the proof terminal it introduces. One value so a standard section, a split band,
+     and the mesh hero space head -> terminal identically on mobile (where they stack)
+     instead of each drifting. Reused as .section-head margin-bottom and as the
+     row-gap of .split-band / .mesh-hero-grid. */
+  --gap-copy-terminal: clamp(1.75rem, 3vw, 2.5rem);
 
   /* Layout */
   --max-width: 72rem;

@@ -151,7 +151,7 @@ svg {
 
 .section-head {
   max-width: 44rem;
-  margin-bottom: clamp(1.75rem, 3vw, 2.5rem);
+  margin-bottom: var(--gap-copy-terminal);
 }
 
 /* Section / sub-section marker, in the page's own terminal language: a path tag
@@ -381,13 +381,14 @@ svg {
 
 /* "Sign in" goes to the SPA /login provider chooser (GitHub / Google / OIDC /
    one-time-pin), which starts the OAuth flow. NOT /app/ (that bounces an
-   unauthenticated visitor back to the landing). Kept lighter than the primary
-   CTA so "Book a demo" stays the lead action. Visible at every width. */
+   unauthenticated visitor back to the landing). A light nav affordance, distinct
+   from the page's primary "Get in touch" CTA. Visible at every width. */
 
-/* The sign-in CTA reads "Enter Matrix" in the page accent coral and decodes
-   on hover/focus (scramble.ts [data-scramble-hover]). aria-label keeps it "Sign
-   in". Solid coral, not the flare gradient, so the churning word spans render
-   coral instead of the gradient-clip transparent. */
+/* The sign-in CTA reads "Enter Matrix" in the primary white (--text-primary,
+   matching body text and the Inference Mesh heading) and decodes on hover/focus
+   (scramble.ts [data-scramble-hover]). aria-label keeps it "Sign in". Solid white,
+   not the flare gradient, so the churning word spans render white instead of the
+   gradient-clip transparent. */
 .nav-signin--matrix {
   color: var(--text-primary);
   white-space: nowrap;
@@ -485,13 +486,6 @@ svg {
   line-height: 1.5;
 }
 
-.hero-cta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.85rem;
-  margin-top: 2rem;
-}
-
 .hero-terminal {
   margin-top: clamp(2rem, 5vw, 3rem);
 }
@@ -537,7 +531,10 @@ svg {
    -------------------------------------------------------------------------- */
 .mesh-hero-grid {
   display: grid;
-  gap: clamp(2rem, 5vw, 4.5rem);
+  /* Row-gap is the shared copy->terminal rhythm (mobile stack); column-gap is the
+     wider hero gutter on desktop. Matches .split-band so every copy+terminal pair
+     spaces identically. */
+  gap: var(--gap-copy-terminal) clamp(2rem, 5vw, 4.5rem);
   align-items: center;
 }
 
@@ -601,10 +598,17 @@ svg {
    fills its half instead of stretching full-width with a dead right gutter. Single
    column on mobile (copy above the terminal); side by side from 820px. Stacked bands
    are separated by their own vertical gap. */
+/* Row-gap is the shared copy->terminal rhythm (used when the band stacks on mobile);
+   column-gap is the wider side-by-side gutter on desktop. The inner section head must
+   not also carry its own bottom margin, or on mobile it stacks on top of the row-gap
+   and doubles the space (the bug that made these bands drift from a plain section). */
 .split-band {
   display: grid;
-  gap: clamp(1.5rem, 4vw, 2.75rem);
+  gap: var(--gap-copy-terminal) clamp(1.5rem, 4vw, 2.75rem);
   align-items: center;
+}
+.split-band > .section-head {
+  margin-bottom: 0;
 }
 .split-band + .split-band {
   margin-top: clamp(1.75rem, 4vw, 2.75rem);

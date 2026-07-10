@@ -13,6 +13,7 @@ import HeroKicker from './HeroKicker.astro';
 import HeroHeadline from './HeroHeadline.astro';
 import Terminal from './Terminal.astro';
 import Transcript from './Transcript.astro';
+import MicroCta from './MicroCta.astro';
 ---
 
 <header class="hero">
@@ -21,9 +22,7 @@ import Transcript from './Transcript.astro';
       <HeroKicker />
       <HeroHeadline />
       <p class="hero-def">{HERO.definition}</p>
-      <div class="hero-cta">
-        <a class="btn btn-primary" href={HERO.primaryCta.href}>{HERO.primaryCta.label}</a>
-      </div>
+      <MicroCta href={HERO.primaryCta.href} label={HERO.primaryCta.label} />
     </div>
 
     <div class="hero-terminal reveal">

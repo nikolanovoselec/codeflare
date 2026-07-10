@@ -177,9 +177,9 @@ export const HERO = {
     'Codeflare runs governed engineering agents inside your own estate. Each change is backed by a ' +
     'spec, proven by tests, documented, and handed to your team to approve, whether that is a ' +
     'pull request to merge or a change to run.',
-  // One CTA only, in the bracketed command style shared with the contact form's
-  // "[ Send message ]" submit, so the page's two primary actions read the same.
-  primaryCta: { label: '[ Book a demo ]', href: '#contact' } satisfies Cta,
+  // One CTA, rendered as the shared .micro-cta text link (same treatment as the
+  // dogfood and Inference Mesh "See it on GitHub ->" links), pointing at the contact form.
+  primaryCta: { label: 'Get in touch', href: '#contact' } satisfies Cta,
 };
 
 /**
