@@ -462,12 +462,13 @@ svg {
   color: transparent;
 }
 
-/* Scramble word spans (JS-created): inline-blocks the script width-locks to their
-   resting size after font load, so glyph churn cannot grow a word and re-wrap the
-   phrase (the mobile page-flicker). Each carries its own gradient clip because the
-   parent's clip does not paint through child boxes; nowrap keeps a single word
-   intact while the whitespace between words stays breakable, so the phrase still
-   wraps naturally at rest inside the headline's max-width. */
+/* Idle-scramble layout: a .scramble-box reserves the resting-width box via an invisible
+   .scramble-ghost copy of the word, and the churning .scramble-word paints on an absolute
+   overlay on top (see .scramble-box rules below) -- content-sized, so a churn glyph wider
+   than the resting letters paints past the box without clipping and without growing it, so
+   the phrase never reflows. The hover CTA reuses .scramble-word as a plain inline-block (no
+   box), so that scoping leaves it untouched. Each .scramble-word carries its own gradient
+   clip because a parent's clip does not paint through child boxes; nowrap keeps a word intact. */
 .scramble-word {
   display: inline-block;
   white-space: nowrap;
@@ -477,6 +478,23 @@ svg {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+
+.scramble-box {
+  position: relative;
+  display: inline-block;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+
+.scramble-ghost {
+  visibility: hidden;
+}
+
+.scramble-box .scramble-word {
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 
 /* The plain "what it is" answer directly under the headline: the terminal command

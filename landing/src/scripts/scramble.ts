@@ -5,13 +5,13 @@
  * gently churning.
  *
  * Two adaptations for a marketing headline that must wrap on small screens:
- *   1. Each churning word is locked to its resting width after the webfont loads,
- *      so a wider churn glyph can never grow the word's advance and re-wrap the
- *      phrase -- the per-frame reflow that shoved the whole page on narrow screens.
- *      A glyph wider than the resting box clips a sliver at the centered edges (a
- *      far smaller artifact than the page flicker); 1-2 character words are left
- *      static so a tiny locked box never clips a full glyph. The phrase still wraps
- *      naturally at rest inside the headline's max-width.
+ *   1. Each word is a resting-width "ghost" (invisible, in flow -> holds the layout
+ *      box) with the churning text painted on an absolutely-positioned overlay above
+ *      it. The overlay is out of flow, so a churn glyph wider than the resting letters
+ *      paints freely past the box edges -- never clipped, and never growing the box,
+ *      so the phrase's wrap points never move and the headline never reflows (the
+ *      reported mobile page-flicker). The phrase still wraps naturally at rest inside
+ *      the headline's max-width.
  *   2. Each word runs its own loop on a staggered start, so the words shimmer
  *      independently instead of pulsing in unison.
  *
@@ -75,42 +75,43 @@ function animateWord(span: HTMLElement, target: string): void {
   }, TICK_MS);
 }
 
-/** Split one [data-scramble] element into content-sized word spans, then run. */
+/** Split one [data-scramble] element into per-word ghost + churn-overlay boxes, then run. */
 function setupElement(el: HTMLElement): void {
   const full = el.textContent ?? '';
   // Keep whitespace runs as their own tokens so word boundaries are preserved.
   const parts = full.split(/(\s+)/);
   el.textContent = '';
 
-  const words: { span: HTMLElement; text: string }[] = [];
+  const words: { live: HTMLElement; text: string }[] = [];
   for (const part of parts) {
     if (part === '') continue;
     if (/^\s+$/.test(part)) {
       el.appendChild(document.createTextNode(part));
     } else {
-      const span = document.createElement('span');
-      span.className = 'scramble-word';
-      span.textContent = part;
-      el.appendChild(span);
-      words.push({ span, text: part });
+      // A resting-width ghost (invisible, in flow) reserves the layout box; the churning
+      // text is overlaid absolutely on top, so a glyph wider than the resting letters
+      // paints past the box without clipping and without growing it -- the phrase's wrap
+      // points never move, so the headline never reflows.
+      const box = document.createElement('span');
+      box.className = 'scramble-box';
+      const ghost = document.createElement('span');
+      ghost.className = 'scramble-ghost';
+      ghost.textContent = part;
+      const live = document.createElement('span');
+      live.className = 'scramble-word';
+      live.textContent = part;
+      box.appendChild(ghost);
+      box.appendChild(live);
+      el.appendChild(box);
+      words.push({ live, text: part });
     }
   }
 
-  // Lock each churning word to its resting width so glyph churn can never change the
-  // word's advance and re-wrap the phrase (the per-frame reflow that flickered the
-  // whole page on narrow screens). Measured after the webfont has loaded so the lock
-  // matches real Inter metrics, not the fallback font. 1-2 char words stay static: a
-  // tiny locked box would clip a full wide glyph, and a static short word never grows.
+  // Start only after the webfont has loaded, so the first churn frame is Inter, not the
+  // fallback font.
   const start = () => {
-    for (const { span, text } of words) {
-      if (text.length < 3) continue;
-      const width = span.getBoundingClientRect().width;
-      if (width > 0) {
-        span.style.display = 'inline-block';
-        span.style.textAlign = 'center';
-        span.style.width = `${width}px`;
-      }
-      animateWord(span, text);
+    for (const { live, text } of words) {
+      animateWord(live, text);
     }
   };
 
@@ -124,10 +125,10 @@ function setupElement(el: HTMLElement): void {
 
 function initScramble(): void {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  // Word-width locking (setupElement) freezes the churn's wrap points, so the headline
-  // no longer reflows mid-churn. Below the layout's split breakpoint the accent still
-  // stays fully static: a churning headline is louder than the calm the small-screen
-  // layout wants, and the server-rendered gradient reads cleanly on its own.
+  // The ghost/overlay structure (setupElement) makes the churn footprint-stable, so the
+  // headline never reflows at any width. The churn is still held static below the
+  // layout's split breakpoint: a churning headline is louder than the calm the
+  // small-screen layout wants, and the server-rendered gradient reads cleanly alone.
   if (!window.matchMedia('(min-width: 820px)').matches) return;
   for (const el of document.querySelectorAll<HTMLElement>('[data-scramble]')) {
     setupElement(el);
