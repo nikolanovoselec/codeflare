@@ -541,9 +541,9 @@ GET `/api/preferences`, PATCH `/api/preferences`
 | `lastAgentType` | Optional `AgentType`; last selected agent. |
 | `lastPresetId` | Optional string; last used preset. |
 | `workspaceSyncEnabled` | Boolean, default `false`; workspace sync toggle. |
-| `fastStartEnabled` | Boolean, default `true`; maps to `FAST_CLI_START` in the container DO. See [Fast Start](container.md#fast-start). |
+| `fastStartEnabled` | Boolean, default `true`; maps to `FAST_CLI_START` in the container DO. See [Fast Start](architecture.md#container-fast-start). |
 | `sessionMode` | Optional `SessionMode`; default or advanced. Changes trigger `reconcileAgentConfigs(overwrite: true, cleanup: true)`. |
-| `sleepAfter` | Optional `SleepAfterOption`; auto-sleep duration. See [Auto-sleep](container.md#auto-sleep-configurable-sleepafter). |
+| `sleepAfter` | Optional `SleepAfterOption`; auto-sleep duration. See [Auto-sleep](architecture.md#container-auto-sleep-configurable-sleepafter). |
 | `userTimezone` | Optional valid IANA timezone, max 64 chars; invalid zones return `ValidationError`. |
 | `lastPreseedHash` | Optional SHA-256 prefix of preseed content at last successful reconcile; compared on dashboard load to detect release upgrades. |
 
@@ -627,14 +627,14 @@ Both endpoints return the same JSON body:
 }
 ```
 
-**`initFlagObserved`** - `true` once the server has seen `/tmp/codeflare-init-complete` written by `entrypoint.sh` at the end of R2 sync. A session where `prewarmReady: false` and `initFlagObserved: false` indicates the init-complete flag was never written (sync hung, `jq` merge failed, etc.). See [Container Startup](container.md#startup-sequence) and [Troubleshooting](troubleshooting.md#container-stuck-at-waiting-for-services).
+**`initFlagObserved`** - `true` once the server has seen `/tmp/codeflare-init-complete` written by `entrypoint.sh` at the end of R2 sync. A session where `prewarmReady: false` and `initFlagObserved: false` indicates the init-complete flag was never written (sync hung, `jq` merge failed, etc.). See [Container Startup](architecture.md#container-startup-sequence) and [Troubleshooting](troubleshooting.md#container-stuck-at-waiting-for-services).
 
 **`prewarmReady`** - `true` once the tab-1 PTY session has produced its first output (pre-warm complete).
 
 ---
 
 ## Related Documentation
-- [Authentication](authentication.md#three-tier-auth-middleware) - Auth middleware details
+- [Authentication](security.md#authentication-three-tier-auth-middleware) - Auth middleware details
 - [Security](security.md#rate-limiting) - Rate limits per endpoint
 - [Configuration](configuration.md#worker-environment) - Environment variables
 

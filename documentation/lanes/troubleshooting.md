@@ -171,7 +171,7 @@ The button now shows a live `Migrating N%` and clears within one 5s poll of comp
 
 ### R2 Sync Issues
 
-See [Storage & Sync - Troubleshooting](storage-and-sync.md#troubleshooting).
+See [Storage & Sync - Troubleshooting](architecture.md#storage-and-sync-troubleshooting).
 
 ### Zombie Container
 
@@ -518,8 +518,8 @@ wrangler tail codeflare --status error
 ## Related Documentation
 - [Architecture](architecture.md#system-components) - System component overview
 - [Configuration](configuration.md#secrets) - Secret management
-- [Container](container.md#container-startup) - Container startup sequence
-- [Storage & Sync](storage-and-sync.md) - Sync mechanics
+- [Container](architecture.md#container-container-startup) - Container startup sequence
+- [Storage & Sync](architecture.md#storage-and-sync-reference) - Sync mechanics
 - [Authentication](security.md#authentication-gate) - Auth flow
 - [Security - GitHub Token Handling](security.md#github-token-handling) - Egress-injection model, placeholder token, non-enterprise behaviour
 - [Configuration - GitHub Integration](configuration.md#github-integration) - GitHub App vs OAuth provider, env var reference

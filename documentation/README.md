@@ -20,33 +20,33 @@ The specification (`sdd/`) defines what the system should do. This documentation
 
 | Audience | Start here |
 |----------|------------|
-| Operator | [Configuration](lanes/configuration.md), [Container](lanes/container.md), [Storage & Sync](lanes/storage-and-sync.md), [Troubleshooting](lanes/troubleshooting.md) |
-| Developer | [Architecture](lanes/architecture.md), [API Reference](lanes/api-reference.md), [CI/CD](lanes/ci-cd.md), [Preseed System](lanes/preseed.md) |
-| Security | [Security](lanes/security.md), [Penetration Testing](lanes/pentest.md), [Authentication](lanes/authentication.md) |
+| Operator | [Configuration](lanes/configuration.md), [Container](lanes/architecture.md#container-reference), [Storage & Sync](lanes/architecture.md#storage-and-sync-reference), [Troubleshooting](lanes/troubleshooting.md) |
+| Developer | [Architecture](lanes/architecture.md), [API Reference](lanes/api-reference.md), [CI/CD](lanes/deployment.md#ci-and-cd-reference), [Preseed System](lanes/architecture.md#preseed-reference) |
+| Security | [Security](lanes/security.md), [Penetration Testing](lanes/security.md#penetration-testing-reference), [Authentication](lanes/security.md#authentication-reference) |
 
 ## Lane Index
 
 | Document | Description | Audience |
 |----------|-------------|----------|
 | [Architecture](lanes/architecture.md) | System overview, components, data flow, design rationale | Developers |
-| [Architecture Internals](lanes/architecture-internals.md) | Backend library reference, code structure, CF-NNN index | Developers |
+| [Architecture Internals](lanes/architecture.md#architecture-internals-reference) | Backend library reference, code structure, CF-NNN index | Developers |
 | [API Reference](lanes/api-reference.md) | All API endpoints, request/response formats | Developers |
-| [Authentication & Billing](lanes/authentication.md) | Dual auth (CF Access + OIDC), SaaS mode, three-tier middleware | Operators, Developers, Security |
-| [Billing & Subscription](lanes/billing.md) | Stripe integration, subscription tiers, Timekeeper, paygate | Operators, Developers |
-| [User Provisioning](lanes/user-provisioning.md) | JIT provisioning, subscribe page, session mode authorization | Operators, Developers |
+| [Authentication & Billing](lanes/security.md#authentication-reference) | Dual auth (CF Access + OIDC), SaaS mode, three-tier middleware | Operators, Developers, Security |
+| [Billing & Subscription](lanes/architecture.md#billing-reference) | Stripe integration, subscription tiers, Timekeeper, paygate | Operators, Developers |
+| [User Provisioning](lanes/security.md#user-provisioning-reference) | JIT provisioning, subscribe page, session mode authorization | Operators, Developers |
 | [Security](lanes/security.md) | Security model, encryption, rate limiting, hardening | Operators, Security |
 | [Configuration](lanes/configuration.md) | Environment variables, secrets, CORS, API token permissions | Operators |
-| [Container](lanes/container.md) | Container image, startup, AI tools, auto-sleep, Push & Deploy | Operators, Developers |
-| [Storage & Sync](lanes/storage-and-sync.md) | R2 storage, rclone bisync, sync modes, quotas | Operators |
-| [CI/CD & Testing](lanes/ci-cd.md) | GitHub Actions workflows, test suites, E2E setup | Developers |
+| [Container](lanes/architecture.md#container-reference) | Container image, startup, AI tools, auto-sleep, Push & Deploy | Operators, Developers |
+| [Storage & Sync](lanes/architecture.md#storage-and-sync-reference) | R2 storage, rclone bisync, sync modes, quotas | Operators |
+| [CI/CD & Testing](lanes/deployment.md#ci-and-cd-reference) | GitHub Actions workflows, test suites, E2E setup | Developers |
 | [Development & Deployment](lanes/deployment.md) | Dev setup, file structure, cost analysis | Developers |
 | [Troubleshooting](lanes/troubleshooting.md) | Diagnostic commands, common failures, resolutions | Operators |
-| [Mobile Terminal](lanes/mobile.md) | Keyboard handling, scroll stability, touch input | Developers |
-| [Vault](lanes/vault.md) | Persistent user note vault, cross-session memory capture, unified graphify graph, SilverBullet editor | Developers |
-| [Preseed System](lanes/preseed.md) | Session modes, manifest pipeline, multi-agent adaptation, hooks, troubleshooting | Developers |
+| [Mobile Terminal](lanes/architecture.md#mobile-reference) | Keyboard handling, scroll stability, touch input | Developers |
+| [Vault](lanes/architecture.md#vault-reference) | Persistent user note vault, cross-session memory capture, unified graphify graph, SilverBullet editor | Developers |
+| [Preseed System](lanes/architecture.md#preseed-reference) | Session modes, manifest pipeline, multi-agent adaptation, hooks, troubleshooting | Developers |
 | [Architecture Decisions](decisions/README.md) | Architecture Decision Records with rationale and trade-offs | Developers |
-| [Penetration Testing](lanes/pentest.md) | Security scan results | Security |
-| [Stress Testing](lanes/stress-test.md) | Load testing guide, latest benchmark results | Operators |
+| [Penetration Testing](lanes/security.md#penetration-testing-reference) | Security scan results | Security |
+| [Stress Testing](lanes/deployment.md#stress-testing-reference) | Load testing guide, latest benchmark results | Operators |
 
 ## Architecture Decisions
 

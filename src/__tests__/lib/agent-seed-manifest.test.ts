@@ -834,7 +834,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
   });
 
   it('REQ-AGENT-040: Pi review enforcement classifies lanes by changed file surface', () => {
-    expect(classifyReviewFiles(['documentation/lanes/preseed.md'])).toEqual(['doc-updater']);
+    expect(classifyReviewFiles(['documentation/lanes/architecture.md'])).toEqual(['doc-updater']);
     expect(classifyReviewFiles(['sdd/spec/agents.md'])).toEqual(['spec-reviewer', 'doc-updater']);
     expect(classifyReviewFiles(['preseed/agents/pi/extensions/review-enforcement.ts'])).toEqual(['code-reviewer', 'spec-reviewer', 'doc-updater']);
     expect(classifyReviewFiles(undefined)).toEqual(['code-reviewer', 'spec-reviewer', 'doc-updater']);
@@ -1301,12 +1301,12 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       'Fix: Mark AD64 superseded and add AD76.',
       '',
       '[HIGH] Preseed docs cite removed lane symbols',
-      'File: `documentation/lanes/preseed.md:415`',
+      'File: `documentation/lanes/architecture.md:1650`',
       'Issue: createAgentSession no longer exists.',
       'Fix: Describe spawnDurableLane instead.',
       '',
       '[MEDIUM] Lane-classifier docs omit generated-only auto-ack',
-      'File: `documentation/lanes/preseed.md:499`',
+      'File: `documentation/lanes/architecture.md:1734`',
       'Issue: The no-lane auto-ack behavior is undocumented.',
       'Fix: Document the generated-only auto-ack.',
     ].join('\n');
@@ -1327,7 +1327,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
         lane: 'doc-updater',
         severity: 'HIGH',
         title: 'Preseed docs cite removed lane symbols',
-        file: 'documentation/lanes/preseed.md:415',
+        file: 'documentation/lanes/architecture.md:1650',
         issue: 'createAgentSession no longer exists.',
         fix: 'Describe spawnDurableLane instead.',
       },
@@ -1335,7 +1335,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
         lane: 'doc-updater',
         severity: 'MEDIUM',
         title: 'Lane-classifier docs omit generated-only auto-ack',
-        file: 'documentation/lanes/preseed.md:499',
+        file: 'documentation/lanes/architecture.md:1734',
         issue: 'The no-lane auto-ack behavior is undocumented.',
         fix: 'Document the generated-only auto-ack.',
       },

@@ -322,7 +322,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 5. On Samsung, the virtual-keyboard overlay re-enable is delayed enough on visibility return that stale browser keyboard-geometry events arrive inside the ignore window. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::setupMobileInput --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Visibility Return Keyboard Reset / REQ-MOB-009 (visibility-return keyboard recovery)) --> <!-- coverage-gap: Samsung delayed overlay re-enable timing is a device-timing concern, no genuine unit test -->
 6. Any WebSockets dropped while the page was hidden are re-established on visibility return. <!-- @impl: web-ui/src/stores/terminal.ts::reconnectOnVisibilityReturn --> <!-- coverage-gap: WebSocket re-establish on visibility return is covered under REQ-TERM, no MOB test isolates it -->
 
-**Notes:** Visibility-return recovery is validated manually per the checklist in [documentation/lanes/mobile.md](../../documentation/lanes/mobile.md#visibility-return-reset).
+**Notes:** Visibility-return recovery is validated manually per the checklist in [documentation/lanes/architecture.md#mobile-reference](../../documentation/lanes/architecture.md#mobile-visibility-return-reset).
 
 **Constraints:**
 
@@ -381,7 +381,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 2. Samsung browser resume uses an automatic dashboard bounce (deactivate then reactivate the session after a brief delay) to reset the unreliable keyboard compositor state. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Visibility Return Keyboard Reset / REQ-MOB-009 (visibility-return keyboard recovery)) --> <!-- coverage-gap: Samsung dashboard-bounce on resume is validated manually per the lane checklist -->
 3. Samsung's address-bar position is configured via a user-settings toggle because no browser API exposes it. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (should show Samsung section when Samsung browser) -->
 
-**Notes:** Samsung Internet manual verification checklist lives in [documentation/lanes/mobile.md](../../documentation/lanes/mobile.md#samsung-internet-quirks).
+**Notes:** Samsung Internet manual verification checklist lives in [documentation/lanes/architecture.md#mobile-reference](../../documentation/lanes/architecture.md#mobile-samsung-internet-quirks).
 
 **Constraints:**
 

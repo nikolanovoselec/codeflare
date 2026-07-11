@@ -94,7 +94,7 @@ Every session comes pre-loaded with your choice of agent:
 ![Codeflare IDE](assets/documentation/hero-ide-fullscreen.png)
 *Six terminal tabs, split tiling, and your dev tools — in a disposable container you didn't have to configure.*
 
-Each session runs in its own isolated, pre-warmed container that scales to zero when idle — no sessions, no bill — while your storage persists and usage is tracked per user. Auth defaults to Cloudflare Access, with GitHub OAuth available in the advanced modes (see [authentication.md](documentation/lanes/authentication.md)). Full internals in [architecture.md](documentation/lanes/architecture.md).
+Each session runs in its own isolated, pre-warmed container that scales to zero when idle — no sessions, no bill — while your storage persists and usage is tracked per user. Auth defaults to Cloudflare Access, with GitHub OAuth available in the advanced modes (see [authentication.md](documentation/lanes/security.md#authentication-reference)). Full internals in [architecture.md](documentation/lanes/architecture.md).
 
 ---
 
@@ -188,7 +188,7 @@ Defense-in-depth throughout; full detail in [security.md](documentation/lanes/se
 - **Encryption at rest** *(optional, set `ENCRYPTION_KEY`)* — KV credentials (AES-256-GCM, per-value IVs, AAD-bound) and R2 files (SSE-C) are encrypted; the vault gets its own zero-UI per-session key. Existing plaintext entries migrate transparently on first read. See [Credential Encryption at Rest](documentation/lanes/security.md#credential-encryption-at-rest).
 - **Hardening** — HSTS, CSP, X-Frame-Options, and Referrer-Policy on every response; KV-backed per-user rate limits (429 + `Retry-After`); Zod input validation with a 64 KiB body limit.
 - **Supply chain** — CodeQL (with Copilot Autofix), OSSF Scorecard, `npm audit`, dependency review, Dependabot, and Trivy container scanning.
-- **Continuous testing** — a weekly CI workflow runs automated penetration tests against the auth gate, security headers, TLS, injection, and information disclosure. See [Penetration Testing](documentation/lanes/pentest.md).
+- **Continuous testing** — a weekly CI workflow runs automated penetration tests against the auth gate, security headers, TLS, injection, and information disclosure. See [Penetration Testing](documentation/lanes/security.md#penetration-testing-reference).
 
 Report a vulnerability via [SECURITY.md](SECURITY.md).
 
@@ -205,7 +205,7 @@ npm run test:e2e:ui          # E2E UI desktop (requires a deployed worker)
 npm run test:e2e:ui-mobile   # E2E UI mobile
 ```
 
-E2E tests require a deployed worker and service credentials (CF Access service tokens). See [CI/CD & Testing](documentation/lanes/ci-cd.md#testing) for the full suite and [E2E setup](documentation/lanes/ci-cd.md#e2e-service-token-setup).
+E2E tests require a deployed worker and service credentials (CF Access service tokens). See [CI/CD & Testing](documentation/lanes/deployment.md#ci-and-cd-testing) for the full suite and [E2E setup](documentation/lanes/deployment.md#ci-and-cd-e2e-service-token-setup).
 
 ---
 
@@ -222,13 +222,13 @@ E2E tests require a deployed worker and service credentials (CF Access service t
 | `pentest.yml` | Weekly (Mon 05:00 UTC), manual | Automated external penetration testing |
 | `stress-test.yml` | Manual | k6 load testing against the integration worker |
 
-See [CI/CD & Testing](documentation/lanes/ci-cd.md) for full documentation.
+See [CI/CD & Testing](documentation/lanes/deployment.md#ci-and-cd-reference) for full documentation.
 
 ---
 
 ## Documentation
 
-- **`documentation/`** — [architecture](documentation/lanes/architecture.md), [API reference](documentation/lanes/api-reference.md), [security](documentation/lanes/security.md), [configuration](documentation/lanes/configuration.md), [billing](documentation/lanes/billing.md), and [more](documentation/README.md).
+- **`documentation/`** — [architecture](documentation/lanes/architecture.md), [API reference](documentation/lanes/api-reference.md), [security](documentation/lanes/security.md), [configuration](documentation/lanes/configuration.md), [billing](documentation/lanes/architecture.md#billing-reference), and [more](documentation/README.md).
 - **`preseed/tutorials/Getting Started.md`** — tabs, tiling, file persistence, and three paths forward depending on how much hand-holding you want.
 - **`preseed/tutorials/Examples/`** — spec-driven project examples from Hello World to a full blog platform. Hand one to your agent and go.
 

@@ -4,7 +4,7 @@ Security architecture, encryption at rest, rate limiting, and hardening measures
 
 **Audience:** Operators, Security
 
-For authentication modes and user identity flow, see [Authentication](authentication.md).
+For authentication modes and user identity flow, see [Authentication](security.md#authentication-reference).
 
 > For the vulnerability reporting policy, see [SECURITY.md](../../SECURITY.md).
 
@@ -34,7 +34,7 @@ For authentication modes and user identity flow, see [Authentication](authentica
 
 All authenticated surfaces (`/app`, `/api`, `/setup`) are protected by one of two auth mechanisms depending on deployment mode:
 
-- **Default mode (and any session-OIDC mode without `OAUTH_CLIENT_ID`):** Cloudflare Access JWT verification (see [Authentication](authentication.md#authentication-modes) for Access application destination strategy)
+- **Default mode (and any session-OIDC mode without `OAUTH_CLIENT_ID`):** Cloudflare Access JWT verification (see [Authentication](security.md#authentication-authentication-modes) for Access application destination strategy)
 - **Session-OIDC mode with GitHub OIDC (SaaS OR onboarding + `OAUTH_CLIENT_ID`):** Worker-managed session cookies (`codeflare_session`, HMAC-SHA256). CF Access is bypassed at runtime.
 
 The setup wizard skips CF Access provisioning entirely in Session-OIDC mode, mirroring the `isSessionOidcMode` guard so an onboarding deployment does not get a stray Access app.
@@ -572,11 +572,697 @@ A per-bucket state object (`r2-regime:<bucket>`) keeps reads correct during the 
 The regime commits only after a full verification HEAD-scan. A partial/crashed pass never leaves the bucket unreadable, and a stray cross-regime object self-heals on read ([AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile), supersedes [AD89](../decisions/README.md#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration)).
 
 ## Related Documentation
-- [Authentication - Auth Modes](authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
+- [Authentication - Auth Modes](security.md#authentication-authentication-modes) - CF Access vs Direct GitHub OAuth
 - [Configuration - GitHub Integration](configuration.md#github-integration) - GitHub App/OAuth env vars, GH_TOKEN placeholder, Browser Rendering token setup
-- [Billing - Subscription Tiers](billing.md) - Tier-based access control
+- [Billing - Subscription Tiers](architecture.md#billing-reference) - Tier-based access control
 - [API Reference - Common Headers](api-reference.md#common-response-headers) - Security headers on responses
-- [pentest.md](pentest.md) - Penetration testing results
-- [stress-test.md](stress-test.md) - Load testing and rate limit validation
+- [pentest.md](security.md#penetration-testing-reference) - Penetration testing results
+- [stress-test.md](deployment.md#stress-testing-reference) - Load testing and rate limit validation
 - [Troubleshooting](troubleshooting.md#common-failure-modes) - Common failure modes
 - [Decisions](../decisions/README.md#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) - Security-related architecture decisions
+
+## Authentication reference
+
+Dual authentication (Cloudflare Access and GitHub OIDC), SaaS mode, and three-tier auth middleware for Codeflare.
+
+**Audience:** Operators, Developers
+
+For security hardening, rate limiting, and encryption at rest, see [Security](security.md).
+
+---
+
+## Authentication — Authentication Modes
+
+Codeflare supports two fundamentally different authentication flows:
+
+| | CF Access (with GitHub as IdP) | Direct GitHub OAuth |
+|---|---|---|
+| **When** | Default/enterprise, or SaaS without `OAUTH_CLIENT_ID` | SaaS or onboarding mode with `OAUTH_CLIENT_ID` configured (onboarding uses a landing-integrated `/login`) |
+| **Auth layer** | Cloudflare Access (external service) | Worker handles auth directly |
+| **Login page** | CF Access branded login page | Codeflare login page (`/login`) |
+| **GitHub role** | One of several IdPs configured in CF Access dashboard | The sole auth provider, managed by the Worker |
+| **OAuth flow** | CF Access -> GitHub -> CF Access issues `CF_Authorization` JWT | Worker -> GitHub -> Worker issues `codeflare_session` JWT |
+| **JWT issuer** | Cloudflare (RS256, verified via JWKS) | Worker (HMAC-SHA256, verified via `OAUTH_JWT_SECRET`) |
+| **Cookie** | `CF_Authorization` (managed by CF Access) | `codeflare_session` (HttpOnly, Secure, SameSite=Lax, 1h) |
+| **Session lifetime** | Managed by CF Access policy | 1h TTL, auto-refreshed when < 15 min remaining |
+| **User management** | CF Access groups + email allowlists | Worker KV records, JIT provisioning |
+| **Setup wizard** | Creates CF Access app, groups, policies | No CF Access resources created |
+| **Cost** | Free for 50 users, $3/user/month after | Free for unlimited users |
+| **E2E auth** | `CF_ACCESS_CLIENT_SECRET` (CF Access + service headers) | `OAUTH_E2E_TEST_SECRET` (X-Service-Auth only) |
+| **Logout** | `/cdn-cgi/access/logout` (CF Access system endpoint) | `/auth/github/logout` (clears `codeflare_session` cookie) |
+
+The frontend always calls `/auth/logout` - the backend dispatches to the correct logout flow based on mode: any mode that issues a `codeflare_session` (SaaS or onboarding) takes the `/auth/github/logout` path, and only default/enterprise CF Access deployments use the CF Access system endpoint. Onboarding must not be sent to CF Access logout - it rejects the `returnTo` as an invalid redirect URL.
+
+### Authentication — Auth Resolution Order
+
+`getUserFromRequest()` in `src/lib/access.ts` checks auth methods in this order:
+
+1. **Service token** (`X-Service-Auth` header) - E2E testing, all modes. Constant-time comparison against `SERVICE_AUTH_SECRET`.
+2. **Direct GitHub OAuth** (`codeflare_session` cookie) - only when (`SAAS_MODE=active` OR `ONBOARDING_LANDING_PAGE=active`) AND `OAUTH_CLIENT_ID` is set. HMAC-SHA256 JWT verified against `OAUTH_JWT_SECRET`. When this branch is entered, CF Access is never checked.
+3. **Cloudflare Access** (`cf-access-jwt-assertion` header or `CF_Authorization` cookie) - all other modes. RS256 JWT verified against CF Access JWKS endpoint.
+4. **Pre-setup fallback** (`cf-access-authenticated-user-email` header) - trusted only before setup completes.
+
+### Authentication — Direct GitHub OAuth Flow
+
+When `SAAS_MODE=active` or `ONBOARDING_LANDING_PAGE=active`, and `OAUTH_CLIENT_ID` is configured, the Worker handles the entire OAuth flow:
+
+```
+User clicks "Sign in with GitHub" on /login
+  -> GET /auth/github/login
+  -> Generate HMAC-signed state token (nonce.iat.sig, signed with OAUTH_JWT_SECRET, 30-min iat window)
+  -> 302 to github.com/login/oauth/authorize?client_id=...&scope=user:email&state=<signed>
+  -> User authorizes on GitHub
+  -> GitHub redirects to /auth/github/callback?code=...&state=...
+  -> Worker verifies HMAC signature on state and checks iat is within window
+     (stateless - no cookie required, works on iOS WebKit / ITP / private browsing)
+  -> Worker exchanges code for access token via GitHub API
+  -> Worker fetches verified email from /user + /user/emails
+  -> Worker signs HMAC-SHA256 JWT with OAUTH_JWT_SECRET
+  -> Set-Cookie: codeflare_session (HttpOnly, Secure, SameSite=Lax, Max-Age=3600)
+  -> Redirect to /app/ (active user) or /app/subscribe (pending user)
+  -> On state verification failure: redirect to /?error=session-expired
+```
+
+- Only `primary: true, verified: true` emails accepted from GitHub API
+- Callback rate-limited (10/min per IP)
+- Missing `OAUTH_JWT_SECRET` throws `AuthError` (fail-loud - never silently falls through to CF Access)
+- Cookie auto-refreshed by middleware when < 15 min remaining
+
+### Authentication — Connect GitHub (link mode)
+
+"Connect GitHub" is an explicit, additive action - a button in the GitHub panel, separate from login. It is **never** the Codeflare login. Login stays Cloudflare Access (enterprise) or the existing mode; Connect only authorizes Codeflare to act as the user on GitHub. The repo panel is available in every mode and renders whenever GitHub is enabled — there is no session-tier gate in the dashboard frontend. Connect/disconnect are `authMiddleware`-only (any authenticated user), so they work from Guided Setup and the Settings accordion even when the panel is not shown ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)).
+
+**Flow** ([REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage)):
+
+```
+User clicks "Connect GitHub" in the GitHub panel
+  -> GET /api/github/connect (browser-navigated, carries the session cookie)
+  -> Sign an HMAC OAuth state BOUND to the caller's bucket (anti-CSRF)
+  -> 302 to the provider's authorize URL
+  -> User authorizes on GitHub
+  -> GitHub redirects to the stable callback GET /auth/github/connect/callback
+     (src/routes/github-auth.ts)
+  -> Re-derive the caller's identity from the EXISTING session
+     (Access email header in enterprise; session JWT in SaaS) -
+     no new codeflare_session cookie is minted
+  -> Verify the OAuth state against THIS session's bucket: a state minted
+     for another user (or the unbound /login flow) is rejected, so an
+     attacker's code+state cannot plant their token in this bucket
+  -> Exchange code for a token
+  -> Persist the token to the existing deploy-keys entry (DeployKeys.githubToken)
+```
+
+**Two providers behind one seam (`getGithubProvider`):**
+
+| Provider | Used for | Token behavior |
+|---|---|---|
+| **GitHub App user-to-server** | Enterprise / EMU | Acts as the user, expires ~8h, refreshable. `getValidGithubToken` refreshes within the skew window and fails closed when an expired App token cannot be refreshed (never returns a stale token). |
+| **OAuth App** (existing) | Non-EMU SaaS | Long-lived token. |
+
+A configured GitHub App takes precedence. With neither configured, Connect is unavailable (`503 GITHUB_NOT_CONFIGURED`).
+
+**Provider configuration source.** `getGithubProvider` is async and resolves the same way in **every** mode: the provider type + credentials are admin-configured in the Setup wizard and stored in KV (client id plain, client secret encrypted) via `getProviderFromKv`; the resolver reads that config first and only falls back to the deploy-config env vars (`GITHUB_APP_*` / `OAUTH_*`) when KV is unconfigured. (This was enterprise-only; it is now admin-gated in any mode, so GitHub works without GitHub-Actions/Cloudflare-secret access everywhere.) A stored client secret that cannot be decrypted (no `ENCRYPTION_KEY`) is treated as unconfigured (fails closed). See [REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup) and the [Configuration](configuration.md#github-integration) lane.
+
+**Connect is decoupled from the repo panel.** `GET /api/github/connect` + callback + `POST /api/github/disconnect` are `authMiddleware`-only (any authenticated user), reachable from Guided Setup + the Settings accordion even when the advanced-gated panel is hidden; only `status`/`repos`/`clone` follow the panel gate ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). The same shared `OAuthConnectCard` drives connect on all three surfaces. **Cloudflare** has a parallel per-user OAuth connect in non-enterprise modes ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)); enterprise has none (`getCloudflareProvider` returns null).
+
+**Scopes / permissions:** the OAuth App's `scope` is derived per connect from the selected tier (default `repo read:org workflow`; [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). The GitHub App's equivalent permissions (Contents R/W, Pull requests R/W, Workflows W, Metadata R) are set at registration and ignore the tier. Enterprise GitHub Apps must be **internal** to the customer's enterprise - EMU managed users cannot authorize third-party apps.
+
+**At rest:** the token is encrypted (kv-crypto) and never returned to the browser. Disconnect/offboarding revokes it ([REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation)). For the enterprise egress-injection security model and at-rest detail, see [Security](security.md) rather than duplicating it here.
+
+Connect reuses the OAuth App from [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth) (SaaS login OAuth) in SaaS mode, but is distinct from login.
+
+### Authentication — Connect Cloudflare (per-user OAuth, non-enterprise)
+
+The parallel to "Connect GitHub": a non-enterprise user authorizes **their own** Cloudflare account so sessions deploy with `wrangler` without a pasted API token ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)). Like GitHub Connect it is additive and never the Codeflare login; `GET /api/cloudflare/connect` + callback + `POST /api/cloudflare/disconnect` are `authMiddleware`-only, reachable from Guided Setup and the Settings "Push & Deploy" accordion via the shared `OAuthConnectCard`. **Enterprise has none** — `getCloudflareProvider` returns null and every Cloudflare-connect route fails closed; enterprise injects the admin-global Browser Rendering token instead ([REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
+
+The tier is chosen in the UI before the redirect: on Guided Setup and Settings, the connect card (GitHub and Cloudflare alike) presents the Minimal/Recommended/Advanced choice as a segmented toggle with the selected level's description beneath it (the popover/bottom-sheet tier dialog is specific to the GitHub dashboard panel).
+
+**Flow:**
+
+```
+User clicks "Connect" on the Cloudflare card (panel / Guided Setup / Settings)
+  -> GET /api/cloudflare/connect?tier=<minimal|recommended|advanced>
+  -> Sign an HMAC OAuth state BOUND to the caller's bucket (anti-CSRF)
+  -> 302 to dash.cloudflare.com/oauth2/auth (response_type=code, scope from tier
+     + offline_access, client_secret_post)
+  -> User authorizes on Cloudflare
+  -> Cloudflare redirects to GET /auth/cloudflare/connect/callback
+     (src/routes/cloudflare-auth.ts)
+  -> Re-derive identity from the EXISTING session; verify state against THIS
+     session's bucket
+  -> Exchange code for access + refresh token; resolve the account(s)
+  -> Persist token/refreshToken/expiresAt to the existing deploy-keys:<bucket>
+     Cloudflare fields (source 'oauth', encrypted) - no new KV key
+```
+
+**Provider seam (`getCloudflareProvider`):** `CloudflareOAuthProvider` mirrors the GitHub provider against `dash.cloudflare.com/oauth2/{auth,token,revoke}` (token endpoint auth = **Client Secret Post**, not PKCE). The operator's client id + secret are admin-configured in the Setup wizard (`setup:cloudflare_oauth_client_id` plain, `setup:cloudflare_oauth_client_secret` encrypted); a secret that cannot be decrypted (no `ENCRYPTION_KEY`) is treated as unconfigured (fails closed → `503 CLOUDFLARE_NOT_CONFIGURED`).
+
+**Token lifecycle:** `getValidCloudflareToken` refreshes within the skew window and fails closed when an expired token cannot be refreshed (never returns a stale token); `applyCloudflareOAuthToken` injects the valid token into the container env as `CLOUDFLARE_API_TOKEN` on session start. Disconnect revokes the grant (the refresh token when present) and clears the stored fields.
+
+**Scopes:** the connect URL's `tier` maps server-side to dot-notation Cloudflare OAuth scope IDs (`<resource>.<read|write>`, always `offline_access`); see [Configuration → Cloudflare Connect](configuration.md#cloudflare-connect-oauth). The registered client scopes are the ceiling; a tier requests a subset.
+
+### Authentication — CF Access Flow
+
+When `OAUTH_CLIENT_ID` is NOT set, Cloudflare Access handles authentication:
+
+```
+User visits protected URL (/app, /api/*, /setup)
+  -> CF Access intercepts (302 to CF Access login page)
+  -> User picks identity provider (GitHub, Google, etc.)
+  -> IdP OAuth flow (managed entirely by CF Access)
+  -> CF Access issues CF_Authorization cookie (RS256 JWT)
+  -> Request reaches Worker with cf-access-jwt-assertion header
+  -> Worker verifies JWT signature via JWKS
+  -> Worker extracts email, normalizes, resolves user from KV
+```
+
+**Email Normalization:** Trimmed + lowercased before KV lookup, role resolution, and bucket name derivation.
+
+**Enterprise mode:** When `ENTERPRISE_MODE=active`, an authenticated CF Access request enters `resolveOrProvisionEnterpriseUser()` **before** the SaaS path. Existing users (admin or prior JIT) are returned unchanged; unknown emails are JIT-provisioned to `unlimited` tier (subject to an optional access-group gate). The SaaS subscribe/onboarding path is never reached. See [User Provisioning — Enterprise Mode Provisioning](security.md#user-provisioning-enterprise-mode-provisioning) and [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning).
+
+### Authentication — CF Access Resources
+
+Created by the setup wizard only when GitHub OAuth is NOT configured:
+
+**Access Application:** One self-hosted app with five destinations: `/app`, `/app/*`, `/api/*`, `/setup`, `/setup/*`.
+
+**Access Groups:** Per-worker groups: `<worker-name>-admins`, `<worker-name>-users`. Setup upserts both, stores IDs in KV. `/api/users` syncs group membership via `syncAccessPolicy()` after user mutations.
+
+When `OAUTH_CLIENT_ID` IS set: no CF Access groups or policies are created.
+
+### Authentication — E2E Testing Auth
+
+E2E tests authenticate via `X-Service-Auth` header in all modes. The secret comes from:
+- **CF Access mode:** `CF_ACCESS_CLIENT_SECRET` environment secret
+- **Direct GitHub OAuth mode:** `OAUTH_E2E_TEST_SECRET` environment secret
+
+Both are deployed as `SERVICE_AUTH_SECRET` on the Worker. When neither is set, service auth is disabled.
+
+### Authentication — Auth Flow
+
+```mermaid
+flowchart TD
+    A[Request] --> B[Edge routing]
+    B --> C[CORS]
+    C --> D[Auth Middleware]
+    D --> E["getUserFromRequest()"]
+    E --> F{Service token?}
+    F -->|Yes| G[Return admin user]
+    F -->|No| H{SaaS or Onboarding + OIDC?}
+    H -->|Yes| I[Verify codeflare_session cookie]
+    H -->|No| J[Verify CF Access JWT]
+    I --> K[Normalize email]
+    J --> K
+    K --> L[Resolve user from KV]
+    L --> M[Route Handler]
+```
+
+---
+
+## Authentication — User Identity
+
+Each authenticated user is mapped to a unique R2 bucket and a set of scoped credentials.
+
+### Authentication — Per-User Bucket Naming ([REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket))
+
+`user@example.com` -> `codeflare-user-example-com` (sanitized, max 63 chars).
+
+### Authentication — Bucket Auto-Creation
+
+**File:** `src/lib/r2-admin.ts` - `createBucketIfNotExists()` via Cloudflare API on first container start.
+
+---
+
+## Authentication — SaaS Mode
+
+When `SAAS_MODE=active`, Codeflare replaces the Cloudflare Access interstitial with a branded login page. New users are auto-provisioned with `pending` subscription tier and require subscription selection. The SPA login surface renders core content visible at first paint; ambient particle/logo motion remains, but the content/features are not hidden behind entrance opacity or translate animations.
+
+### Authentication — Deployment Modes
+
+| Mode | Auth provider | User provisioning | Access control |
+|------|--------------|-------------------|----------------|
+| **Default** (no `SAAS_MODE`) | Cloudflare Access (JWT) | Manual allowlist via setup wizard | CF Access policies + KV allowlist |
+| **SaaS** (`SAAS_MODE=active`) | Custom login page + CF Access IdP hints | Auto-provisioned on first login | Three-tier middleware + KV subscription tiers |
+
+### Authentication — Complete SaaS Authentication Flow
+
+> Note: this flow depicts SaaS mode without `OAUTH_CLIENT_ID` (CF Access-backed). When `OAUTH_CLIENT_ID` is set, the Direct GitHub OAuth flow above applies instead and CF Access is bypassed.
+
+```mermaid
+flowchart TD
+    A["Visitor"] --> B["CF Access OAuth"]
+    B --> C["Access JWT"]
+    C --> D["Worker verifies JWT"]
+    D --> E{"User in KV?"}
+    E -->|no| F["JIT pending tier"]
+    E -->|yes| G["Load tier"]
+    F --> H["requireActiveUser"]
+    G --> H
+    H -->|pending| I["/app/subscribe"]
+    H -->|active| J["IDE access"]
+    H -->|blocked| K["blocked"]
+    I --> L["POST /api/auth/subscribe"]
+    L --> J
+```
+
+**Key architectural choice:** CF Access handles authentication (identity), while the Worker handles authorization (access control).
+
+### Authentication — Three-Tier Auth Middleware
+
+SaaS mode uses a layered middleware stack on every request to protected routes (`src/middleware/auth.ts`):
+
+1. **`requireIdentity`**
+
+     Resolves the user from whichever credential the mode issues (the `codeflare_session` cookie in SaaS/onboarding OIDC mode, the CF Access JWT in default/enterprise mode). If the user is not in KV, auto-provisions them with `pending` tier. Sets `c.get('user')`. Used for endpoints like `/api/auth/status` and `/api/auth/subscribe`.
+
+2. **`requireActiveUser`** - Authenticates then checks `subscriptionTier ?? accessTier` is an active tier via `isActiveTier()`. In non-SaaS mode, behaves identically to `requireIdentity`.
+    - Pending users get 403 `{ code: 'PENDING' }` (frontend redirects to `/app/subscribe`); blocked users get 403 `{ code: 'BLOCKED' }`.
+
+3. **`requireAdmin`** - Checks `role === 'admin'`. Must be used AFTER `requireIdentity` or `requireActiveUser`.
+
+#### Authentication — Admin authorization (admin-by-email and admin-by-group)
+
+Admin authorization has two sources:
+
+- **Admin-by-email (durable):** a KV `user:<email>` record with `role: 'admin'`, seeded from the Setup wizard's Admin Users list. `requireAdmin` passes immediately when the resolved user is already `admin`.
+- **Admin-by-group (enterprise, live):**
+
+    in enterprise mode, if the user is not already admin, `requireAdmin` calls `resolveAdminAccessGroup()` to test the user's Cloudflare Access group membership (a single get-identity call) against the Setup-configured `setup:enterprise_admin_access_group`. A match elevates the user to `admin` for that request only (set on the Hono context — no KV record written), so removing them from the group revokes admin access on the next request. The check is confined to `requireAdmin` (never the hot `authenticateRequest` path), is a no-op outside enterprise mode or when no admin groups are configured, and fails closed on any get-identity error. See [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) and [Configuration — Admin Access Group Configuration](configuration.md#admin-access-group-configuration).
+
+Admin groups also widen the JIT entry gate (union of user-access + admin groups) so an admin in no user-access group is not locked out; see [User Provisioning](security.md#user-provisioning-enterprise-mode-provisioning).
+
+### Authentication — Root Redirect
+
+- Setup incomplete -> redirect to `/setup`
+- Setup complete, default mode -> `/` redirects to `/app/`
+- Setup complete, onboarding mode -> authenticated users to `/app/`, unauthenticated to public landing
+- Setup complete, SaaS mode -> `/` shows login page with "Sign in with GitHub" button
+- Unauthenticated marketing-landing Sign in clicks target `/login` (`APP_LINKS.signIn` in `landing/src/config.ts`).
+
+In onboarding mode, `/login` is the landing-built sign-in page: it shares landing tokens, preloaded fonts, and nav chrome, but omits marketing WebGL/motion hooks so first paint is stable. In SaaS mode, `/login` remains the SPA provider chooser (GitHub, Google, OIDC, one-time-pin). `/app/` is not the Sign-in target because the SPA guard redirects unauthenticated requests back to `/` before login UI renders. See [REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-shell), [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow), `src/index.ts`, and `landing/src/pages/login.astro`.
+
+---
+
+## Authentication — Environment Variables for SaaS Mode
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `SAAS_MODE` | unset | Set to `active` to enable custom login, JIT provisioning |
+| `SAAS_EXTRA_IDPS` | unset | Comma-separated IdP UUIDs for custom OIDC providers |
+| `RESEND_API_KEY` | unset | Resend email API token for notifications |
+| `RESEND_EMAIL` | `Codeflare <onboarding@resend.dev>` | From address for notification emails |
+| `ONBOARDING_LANDING_PAGE` | unset | Set to `active` to show waitlist page at `/` |
+
+Both `SAAS_MODE` and `ONBOARDING_LANDING_PAGE` are passed to the Worker via `--var` in `deploy.yml`.
+
+---
+
+## Authentication — Common Pitfalls
+
+1. **Auto-redirect loops:** Early versions auto-redirected pending users from `/app/subscribe` back to themselves on page load after approval. Fixed by removing auto-redirect.
+
+2. **Stale JWT cache:** The Worker cached auth config for 5 minutes. If setup changed during that window, old JWTs would fail verification. Fixed by adding `resetAuthConfigCache()` called after setup completes.
+
+3. **Policy overwrite on reconfigure:** If `syncAccessPolicy()` were called in SaaS mode, it would overwrite `login_method` with group includes. Fixed by not calling sync in SaaS mode.
+
+4. **Concurrent first-login writes:** KV eventual consistency means two simultaneous first-logins may write the same user record twice. This is benign (idempotent) - KV per-key serialization prevents split-brain.
+
+5. **CSRF on state-changing requests:** Added `X-Requested-With` header check on POST/PUT/DELETE in `authenticateRequest()`.
+
+6. **Service token auth for e2e tests:** `X-Service-Auth` header with custom secret for CI/e2e tests that cannot go through CF Access.
+
+---
+
+## Authentication — Header User Dropdown
+
+The avatar/username widget in the header and dashboard is always visible regardless of mode — users always see their identity. Clicking it opens a dropdown in non-enterprise modes only.
+
+**Enterprise mode:** the avatar trigger's `onClick` is inert. `Dashboard.tsx` uses an early-return guard (`if (sessionStore.enterpriseMode) return;`); `Header.tsx` uses the equivalent inverted guard (`if (!sessionStore.enterpriseMode) setShowUserMenu(...)`). Either way no dropdown opens — the avatar element itself stays present and styled normally.
+
+**Dropdown entries by mode:**
+
+| Entry | SaaS (`saasMode`) | Onboarding / default | Enterprise |
+|---|---|---|---|
+| Subscription | shown | hidden | not reachable (dropdown inert) |
+| Usage | shown | hidden | not reachable (dropdown inert) |
+| Guided Setup | shown | shown | not reachable (dropdown inert) |
+| Logout | shown | shown | not reachable (dropdown inert) |
+
+Subscription and Usage are gated on `saasMode`. Enterprise previously exposed a read-only Usage view, but it was reverted because the Timekeeper read path is not wired for enterprise (it always reported zero); the entry is deferred until the data source is fixed.
+
+Implements [REQ-AUTH-016](../../sdd/spec/authentication.md#req-auth-016-header-user-dropdown) (non-enterprise dropdown) and [REQ-ENTERPRISE-008](../../sdd/spec/enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression) AC2/AC8 (enterprise avatar inert, Usage SaaS-only).
+
+## Penetration testing reference
+
+External black-box security scan results.
+
+**Audience:** Security
+
+## Penetration testing — Tools
+
+| Tool | Version | Purpose |
+|------|---------|---------|
+| curl | 8.x | Manual HTTP probing, header analysis |
+| ffuf | 2.1.0 | Endpoint fuzzing |
+| httpx | 1.6.10 | Technology detection |
+| openssl | CLI | TLS/certificate analysis |
+
+## Penetration testing — Test Results
+
+### Penetration testing — 1. Authentication Gate
+
+**Result: PASS**
+
+All protected `/api/*` endpoints require authentication - either a Cloudflare Access JWT (default mode) or a valid `codeflare_session` cookie (SaaS mode with GitHub OIDC). Unauthenticated requests are rejected (302 redirect or 401). Exceptions:
+
+**Public endpoints (no authentication required):**
+- `GET /api/setup/status` - Returns setup completion status and custom domain
+- `GET /public/auth/providers` - Lists available OAuth providers
+- `POST /public/waitlist` - Waitlist submission (when onboarding landing page is active)
+- `GET /public/onboarding-config` - Provides Turnstile site key
+
+**Protected (requires authentication):**
+- `GET /api/sessions` (list)
+- `POST /api/sessions` (create)
+- `DELETE /api/sessions/:id` (delete)
+- `POST /api/sessions/:id/stop` (stop)
+- `POST /api/container/start` (start)
+- All `/api/storage/*` endpoints
+- All `/api/terminal/*` endpoints (including WebSocket)
+- All `/api/user/*` endpoints
+- `/api/auth/status` (requires authentication, allows pending users)
+- `/api/auth/request-access` (requires authentication, allows pending users)
+- `/api/auth/subscribe` (self-service tier selection, requires authentication, allows pending users)
+- `/api/auth/tiers` (subscribable tier config, requires authentication, allows pending users)
+- `/api/auth/onboarding-config` (Turnstile site key, requires authentication, allows pending users)
+- `/api/user/onboarding-complete` (mark onboarding done, requires authentication)
+- `/api/usage` (per-user usage stats from Timekeeper DO, requires authentication + active subscription)
+- `/api/admin/tiers` (GET/PUT tier config management, requires authentication + admin role)
+
+### Penetration testing — 2. Header Spoofing
+
+**Result: PASS**
+
+In CF Access mode, Cloudflare Access strips or ignores spoofed identity headers from external requests. In SaaS mode (GitHub OIDC), the Worker validates HMAC-signed session cookies - spoofed headers are ignored entirely.
+
+```
+cf-access-authenticated-user-email: admin@example.com  -> 302 (blocked)
+cf-access-authenticated-user-email: test@evil.com        -> 302 (blocked)
+No auth header                                           -> 302 (blocked)
+```
+
+### Penetration testing — 3. Path Traversal
+
+**Result: PASS (blocked at auth layer)**
+
+All traversal variants return 302 (auth redirect), meaning the request never reaches the storage handler. Null byte injection returns 400. Delete endpoint JSON body traversal (via `keys` and `prefixes` fields) also blocked at auth layer.
+
+| Payload | Status |
+|---------|--------|
+| `%2e%2e/%2e%2e/etc/passwd` (URL) | 302 |
+| `..%252f..%252f` (URL) | 302 |
+| `..%2f..%2f` (URL) | 302 |
+| `..%5c..%5c` (URL) | 302 |
+| `%00../` (URL) | 400 |
+| `%c0%ae%c0%ae/` (URL) | 302 |
+| `{"prefixes":["../../etc/"]}` (POST body) | 302 |
+| `{"keys":["../../etc/passwd"]}` (POST body) | 302 |
+
+### Penetration testing — 4. CORS Configuration
+
+**Result: ACCEPTABLE RISK**
+
+The application implements two-layer CORS validation:
+
+1. **Auth layer** - In default mode, CF Access 302-redirects unauthenticated requests to login. In SaaS mode (GitHub OIDC), the Worker validates `codeflare_session` cookies directly - CF Access is bypassed.
+
+2. **Application layer** - On authenticated requests, `src/lib/cors-cache.ts` validates the `Origin` header against allowed patterns before processing. WebSocket connections (`src/routes/terminal.ts`) also validate Origin.
+
+**`.workers.dev` wildcard:** The app allows any `*.workers.dev` origin by design (default: `ALLOWED_ORIGINS = ".workers.dev"` in `wrangler.toml`). This is required because:
+- Initial setup runs on `<worker>.workers.dev` before custom domain is configured
+- Users may load the worker from any `*.workers.dev` URL during setup wizard
+- The pattern is dot-prefixed (`.workers.dev`) to prevent suffix-matching abuse - `evilworkers.dev` does not match
+
+**Dynamic origins:** Custom domains and additional origins can be configured via the setup wizard (`POST /api/setup/configure`) and are cached in-memory for 5 minutes with KV as the source of truth.
+
+**Mitigating factors:**
+- Auth cookies have `SameSite=Lax` (both CF Access `CF_Authorization` and OIDC `codeflare_session`), blocking cross-origin `fetch()` with credentials from non-CORS preflight requests
+- Attacker would need victim to actively load and interact with a malicious `*.workers.dev` page while logged in
+- Even if origin validation is bypassed, user authentication (CF Access JWT or OIDC session cookie) is required for all protected API routes
+
+### Penetration testing — 5. Security Headers ([REQ-SEC-008](../../sdd/spec/security.md#req-sec-008-security-headers-on-every-response))
+
+**Result: PASS**
+
+All recommended security headers present:
+
+| Header | Value |
+|--------|-------|
+| `Strict-Transport-Security` | `max-age=63072000; includeSubDomains; preload` |
+| `Content-Security-Policy` | The policy is emitted by `src/index.ts`; it limits content to the application, Turnstile, fonts, avatars, WebSockets, and the optional Web Analytics beacon. The pentest compares the live header with that source-owned policy. |
+| `X-Frame-Options` | `DENY` |
+| `X-Content-Type-Options` | `nosniff` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=(), interest-cohort=()` |
+
+### Penetration testing — 6. TLS
+
+**Result: PASS**
+
+- Protocol: TLSv1.3 (`TLS_AES_256_GCM_SHA384`)
+- TLS 1.0: Rejected
+- TLS 1.1: Rejected
+- Certificate: Wildcard `*.codeflare.ch`, issued by Google Trust Services (WE1)
+- Expires: 2026-05-07
+- HSTS preload enabled
+
+### Penetration testing — 7. Information Disclosure
+
+**Result: PASS**
+
+- `/.env` returns SPA HTML (catch-all routing), not actual environment variables
+- `Server` header shows only `cloudflare` (no version)
+- No `X-Powered-By` header
+- Error responses reveal no stack traces or internal paths
+- `/.well-known/security.txt` properly configured with contact and policy
+
+### Penetration testing — 8. Host Header Injection
+
+**Result: PASS**
+
+| Test | Status | Impact |
+|------|--------|--------|
+| `Host: evil.com` | 403 | Blocked by Cloudflare |
+| `X-Forwarded-Host: evil.com` | 200 | No content change |
+| `X-Forwarded-For: 127.0.0.1` | 200 | No behavior change |
+
+Response content is identical regardless of injected headers.
+
+### Penetration testing — 9. HTTP Request Smuggling
+
+**Result: PASS**
+
+Cloudflare returns `400 Bad Request` on CL/TE smuggling attempts.
+
+### Penetration testing — 10. Endpoint Fuzzing
+
+**Result: PASS**
+
+ffuf tested 55 common API paths against `/api/FUZZ`. No endpoints returned 200, 401, 403, or 500 - all returned 302 (auth redirect). No hidden or debug endpoints exposed.
+
+### Penetration testing — 11. HTTP Methods
+
+**Result: PASS**
+
+Non-standard methods on root path return 405 (Method Not Allowed):
+`PUT`, `DELETE`, `PATCH`, `TRACE`, `OPTIONS` -> 405
+
+### Penetration testing — 12. Technology Stack
+
+Detected via httpx:
+- Cloudflare (CDN/WAF)
+- HTTP/3 (QUIC)
+- HSTS
+- Cloudflare Browser Insights
+
+### Penetration testing — 13. Rate Limiting
+
+**Result: NOT TESTABLE (unauthenticated)**
+
+Static SPA (`/`) served 20 rapid requests without throttling, which is expected for static assets. API rate limiting could not be tested without authentication.
+
+**Application-level rate limits** (enforced per authenticated user, KV-backed with in-memory fallback):
+
+| Endpoint | Method | Limit | Window | Notes |
+|----------|--------|-------|--------|-------|
+| `/api/storage/upload/*` | POST | 60/min | 60s | All upload variants (simple, multipart, initiate, part, complete, abort) |
+| `/api/storage/download` | GET | 120/min | 60s | - |
+| `/api/storage/preview` | GET | 120/min | 60s | - |
+| `/api/storage/browse` | GET | 30/min | 60s | - |
+| `/api/storage/delete` | POST | 20/min | 60s | Accepts `keys` and `prefixes` for server-side bulk delete via R2 S3 API (max 1000 keys, 50 prefixes per request) |
+| `/api/storage/stats` | GET | 10/min | 60s | Results cached for 60s in KV |
+| `/api/storage/seed/*` | POST | 3/min | 60s | Recreates starter documentation |
+| `/api/sessions` (list) | GET | None | - | Listed for completeness; no rate limit |
+| `/api/sessions/batch-status` | GET | None | - | Status check for all sessions; no rate limit (polled frequently) |
+| `/api/sessions` (create) | POST | 10/min | 60s | - |
+| `/api/sessions/:id` (delete) | DELETE | 10/min | 60s | - |
+| `/api/sessions/:id/stop` | POST | 10/min | 60s | - |
+| `/api/container/start` | POST | 5/min | 60s | Kickstarts container; async operation |
+| `/api/preferences` | PATCH | 20/min | 60s | Update user preferences |
+| `/api/user/ensure-r2-token` | POST | 5/min | 60s | Generates or refreshes scoped R2 credentials |
+| `/api/users/:email` (delete) | DELETE | 20/min | 60s | Admin-only; triggers full user data cleanup |
+| `/api/setup/status` | GET | 30/min | 60s | Public endpoint |
+| `/api/setup/detect-token` | GET | 10/min | 60s | Verifies CLOUDFLARE_API_TOKEN against CF API |
+| `/api/setup/prefill` | GET | 10/min | 60s | Prefills admin/user lists from CF Access groups |
+| `/api/setup/configure` | POST | 5/min | 60s | Main setup orchestration endpoint |
+| WebSocket `/api/terminal/:id/ws` | WS | 30/min | 60s | Per-user connection rate limit |
+| `/api/auth/request-access` | POST | 3/hr | 3600s | Pending users request access with Turnstile |
+| `/api/auth/subscribe` | POST | 3/min | 60s | Self-service tier selection; Turnstile required for new subscriptions |
+| `/public/waitlist` | POST | 5/min | 60s | Requires Turnstile verification; sends email to admins |
+
+All rate-limited responses include `X-RateLimit-Limit` and `X-RateLimit-Remaining` headers. Exceeding the limit returns HTTP 429 with `{ code: "RATE_LIMIT_ERROR" }`.
+
+Rate limit enforcement is validated by backend unit tests and the `rate-limit-validation.js` stress test suite. See [stress-test.md](deployment.md#stress-testing-reference) for details.
+
+**Implementation details:**
+- Middleware: `src/middleware/rate-limit.ts` (createRateLimiter)
+- Core logic: `src/lib/rate-limit-core.ts` (checkRateLimit with KV + in-memory fallback)
+- WebSocket rate limit: `src/routes/terminal.ts` (handleWebSocketUpgrade)
+- Bypass: Set `STRESS_TEST_MODE=active` on worker to disable all rate limits (requires exact string match)
+
+## Penetration testing — Summary
+
+| # | Test | Result | Severity |
+|---|------|--------|----------|
+| 1 | Authentication gate | PASS | - |
+| 2 | Header spoofing | PASS | - |
+| 3 | Path traversal | PASS | - |
+| 4 | CORS `.workers.dev` wildcard | Acceptable risk | Low |
+| 5 | Security headers | PASS | - |
+| 6 | TLS configuration | PASS | - |
+| 7 | Information disclosure | PASS | - |
+| 8 | Host header injection | PASS | - |
+| 9 | Request smuggling | PASS | - |
+| 10 | Endpoint fuzzing | PASS | - |
+| 11 | HTTP methods | PASS | - |
+| 12 | Technology detection | PASS | - |
+| 13 | Rate limiting | Not testable | - |
+
+**Overall: The application is well-secured.** The authentication layer (Cloudflare Access in default mode, GitHub OIDC session cookies in SaaS mode) prevents unauthenticated access to all protected API endpoints, including the subscription (`/api/auth/subscribe`), usage (`/api/usage`), and admin tier management (`/api/admin/tiers`) endpoints. Security headers, TLS, and input handling are all properly configured. Public endpoints are intentionally exposed (setup status, auth providers, waitlist) for the onboarding flow. The only finding (`.workers.dev` CORS wildcard) is an accepted design tradeoff required for the setup flow, mitigated by browser SameSite cookie defaults and authentication requirement for actual operations.
+
+---
+
+## User provisioning reference
+
+JIT user provisioning, subscription UX flows, session mode authorization, and frontend auth components for Codeflare SaaS mode.
+
+**Audience:** Operators, Developers
+
+See [Authentication](security.md#authentication-reference) for auth flows. See [Billing](architecture.md#billing-reference) for subscription tiers and Stripe integration.
+
+---
+
+## User provisioning — JIT User Provisioning
+
+When a GitHub-authenticated user makes their first request to a protected endpoint:
+
+1. `authenticateRequest()` in `src/lib/access.ts` extracts the user's email from the JWT
+2. `resolveUserFromKV()` looks up `user:{email}` - not found (first login)
+3. If `SAAS_MODE=active`, `resolveOrProvisionUser()` creates a new KV record with `subscriptionTier: 'pending'`
+4. The user is returned with pending tier; `requireActiveUser` rejects with 403, frontend redirects to `/app/subscribe`
+
+**Concurrency note:** Simultaneous first-logins produce identical records (KV per-key serialization prevents split-brain).
+
+**User data cleanup:** `cleanupUserData()` normalizes email before constructing KV keys and performs full cleanup: destroys active sessions, deletes bucket-keyed KV entries, deletes R2 scoped token, empties and deletes R2 bucket.
+
+---
+
+## User provisioning — Enterprise Mode Provisioning
+
+When `ENTERPRISE_MODE=active`, users are owned by the customer's Cloudflare Access, not by Codeflare. A dedicated branch in `authenticateRequest()` (`src/lib/access.ts`) runs **before** the SaaS path and provisions any Access-authenticated user just-in-time:
+
+1. `resolveOrProvisionEnterpriseUser()` looks up `user:{email}`. An existing record (admin, or a prior JIT user) is returned **unchanged** — enterprise provisioning never downgrades.
+2. For an unknown email, if the optional access-group gate is configured (see below) it is checked; on pass, a new KV record is written. **No welcome/subscription email is sent** (unlike the SaaS path).
+    - Record fields: `addedBy: 'enterprise-jit'`, `role: 'user'`, `accessTier: 'advanced'`, `subscriptionTier: 'unlimited'`.
+3. The user lands working on `/app/` immediately — there is no pending tier, subscribe page, or onboarding/waitlist flow ([REQ-ENTERPRISE-008](../../sdd/spec/enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression) AC5).
+
+**Enterprise frontend surface suppression ([REQ-ENTERPRISE-008](../../sdd/spec/enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression)):** When `ENTERPRISE_MODE=active`, the following surfaces are globally suppressed for all users regardless of role: Subscribe button, billing management page, setup-wizard access for non-admin users, and any onboarding/waitlist flow. The app header renders an enterprise-mode variant. These suppressions apply in the frontend unconditionally — there is no role or tier combination that re-enables them in enterprise mode.
+
+**Optional access-group gate (`ENTERPRISE_ACCESS_GROUP`):** an operator-managed value stored in KV (`setup:enterprise_access_group`), set via the setup wizard — editable without a redeploy. When set (a comma/newline-separated list of group names/ids), `resolveUserAccessGroup()` calls the Cloudflare Access **get-identity** endpoint (`GET https://{auth_domain}/cdn-cgi/access/get-identity` with the request's `CF_Authorization` cookie) and admits a user who is a member of **any** configured group — the single matched group is what gets forwarded to the gateway as `cf-aig-metadata.group`; a user in none gets a 403. The check **fails closed** — a missing token, non-OK response, or fetch error denies provisioning rather than admitting on incomplete information. When unset, any user the Access policy admits is provisioned on their valid Access JWT alone.
+
+The application JWT does not carry group membership by default, which is why the gate uses get-identity rather than reading a JWT claim. Each group name/id is matched **case-sensitively** against the configured value exactly as it appears in the Cloudflare dashboard — a mismatch denies every user. See [Configuration — Enterprise Mode Runtime Configuration](configuration.md#enterprise-mode-runtime-configuration) for the KV key details.
+
+**Admin access groups widen the entry gate (`ENTERPRISE_ADMIN_ACCESS_GROUP`):** members of a configured admin Access group ([REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups)) are granted admin access, and so they must also be admitted by the entry gate. When the user-access gate is active, membership is tested against the **union** of user-access + admin groups, so an admin who belongs to no *user* group is not locked out. Admin groups never arm the entry gate by themselves — with no user-access groups configured, entry stays open exactly as before.
+
+Provisioning still creates the user as a normal `unlimited` user (role `user`); admin elevation happens per-request in `requireAdmin`, not at provisioning, so it leaves no `role:'admin'` record. See [Authentication — Admin authorization](security.md#authentication-admin-authorization-admin-by-email-and-admin-by-group) and [Configuration — Admin Access Group Configuration](configuration.md#admin-access-group-configuration).
+
+**Defense in depth:** the SaaS/admin routes that would let an enterprise user self-manage are also hardened server-side — billing, user-management, tier-config, subscribe, request-access, and the Stripe webhook all fail closed (403 / no-op) in enterprise mode ([REQ-ENTERPRISE-009](../../sdd/spec/enterprise-mode.md#req-enterprise-009-enterprise-backend-route-hardening)).
+
+**Non-enterprise unchanged:** the entire branch is gated on `isEnterpriseMode(env)`; with the flag unset an unknown user follows the existing SaaS or non-SaaS-allowlist path exactly as before.
+
+**Subscribe route and billing UI suppression:** When `ENTERPRISE_MODE=active`, the subscribe page (`/subscribe`) and all billing-management routes return 403. The billing UI and "Subscribe" button are suppressed globally in the frontend regardless of the user's role. There is no path to reach a subscribe or payment flow in enterprise mode ([REQ-ENTERPRISE-002](../../sdd/spec/enterprise-mode.md#req-enterprise-002-subscription-ui-hidden-and-subscribe-route-guarded)).
+
+---
+
+## User provisioning — Self-Service Subscription Flow
+
+When a pending user lands on `/app/subscribe`:
+
+1. **Tier selection:** Frontend fetches `/api/auth/tiers` to display 5 subscribable tiers (free, standard, advanced, max, unlimited)
+2. **Turnstile CAPTCHA:** User selects a tier; Turnstile CAPTCHA widget renders
+3. **Subscription request:** `POST /api/auth/subscribe` with `{ tier, turnstileToken, mode? }`
+4. **Backend validation:** Verifies Turnstile, validates tier, writes to KV: `subscriptionTier`, `accessTier`, `subscribedAt`, `subscribedMode`, `trialUsed: false`
+5. **Redirect:** Frontend redirects to `/app/onboarding` (first-time) or `/app/` (returning user)
+
+For paid tiers when `STRIPE_SECRET_KEY` is set, `POST /api/auth/subscribe` rejects with "Paid subscriptions require checkout." Only `free` tier goes through the direct endpoint.
+
+**First-time onboarding redirect:** After subscription, `AppContent.onMount` checks `onboardingComplete` from `/api/user`. If `false`, redirects to `/app/onboarding`. The onboarding page sets `onboardingComplete: true` via `POST /api/user/onboarding-complete`.
+
+---
+
+## User provisioning — Session Mode Authorization
+
+Session mode access requires both tier support AND an active Pro mode subscription.
+
+**Two distinct mode fields:**
+- `subscribedMode` (KV record `user:{email}`) - what mode the user paid for. Set by `POST /api/auth/subscribe`. Read by SettingsPanel Pro gate and subscribe page.
+- `sessionMode` (preferences KV `user-prefs:{bucket}`) - what mode the next session uses. Changed by Settings toggle. Does not affect the Pro gate.
+
+Users can freely toggle Standard/Pro in Settings within what they subscribed to. To change subscription mode, users go through the subscribe page.
+
+**Backend authorization (`canUseSessionMode()`):** Admin users always have advanced access. `getAllowedSessionModes()` reads from tier config - by default, `standard` allows `['default', 'advanced']`.
+
+**Session Mode Upgrade (Auto-Advanced):** When an admin changes a user's tier to `advanced`, `max`, or `unlimited`, the backend auto-sets `sessionMode: 'advanced'` in user preferences if not already set.
+
+---
+
+## User provisioning — CF Access Configuration Strategy
+
+The setup wizard calls `handleCreateAccessApp()` only when GitHub OIDC is NOT configured. When `SAAS_MODE=active` and `OAUTH_CLIENT_ID` is set, the `create_access_app` step is skipped entirely - the Worker handles auth directly, and creating a CF Access app on the same domain would intercept requests before the Worker runs.
+
+**Why `login_method` in SaaS mode (not groups):**
+- **Groups (default mode):** `include: { group: { id: adminGroupId } }` - only allowlisted users can authenticate
+- **login_method (SaaS mode):** `include: { login_method: { id: githubIdpId } }` - ANY GitHub-authenticated user passes CF Access; the Worker enforces subscription tiers
+
+In SaaS mode, the admin group is NOT included in the CF Access policy because admin status is enforced by `requireAdmin` middleware, not CF Access.
+
+**`syncAccessPolicy` is skipped in SaaS mode** - if called, it would overwrite the `login_method` policy with group includes, breaking open signup.
+
+---
+
+## User provisioning — Frontend Components
+
+See [Architecture Internals - SaaS UI Components](architecture.md#architecture-internals-saas-ui-components) for LoginPage, SubscribePage, RootPage, and admin user management details.
+
+---
+
+## User provisioning — Legacy Compatibility
+
+**Legacy `accessTier` backward compatibility:** The original 4-tier system is preserved. New code uses `subscriptionTier` with fallback to `accessTier`. When writing tier changes via `PATCH /api/users/:email`, both fields are written.
+
+**Default tier behavior for users without a stored tier:**
+- Auth status: returns `'advanced'` (pre-subscription backward compat)
+- Tier resolution: returns the `isDefault` tier from config (standard)
+- `isActiveTier(undefined)`: returns `true` (backward compat for non-SaaS users)
+
+---
