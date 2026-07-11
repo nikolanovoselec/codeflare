@@ -60,13 +60,13 @@ describe('validateVscodeRoute (REQ-IDE-001, REQ-IDE-002)', () => {
     const r = validateVscodeRoute(req(`/api/vscode/${token}/notes`));
     expect(r.isVscodeRoute).toBe(true);
     expect(r.errorResponse?.status).toBe(400);
-    expect((r as Record<string, unknown>).bucketToken).toBeUndefined();
+    expect((r as unknown as Record<string, unknown>).bucketToken).toBeUndefined();
     expect(r.sessionId).toBeUndefined();
   });
 
   it('REQ-IDE-002: a valid route result carries a sessionId and never a bucketToken', () => {
     const r = validateVscodeRoute(req(`/api/vscode/${SID}/x`));
     expect(r.sessionId).toBe(SID);
-    expect((r as Record<string, unknown>).bucketToken).toBeUndefined();
+    expect((r as unknown as Record<string, unknown>).bucketToken).toBeUndefined();
   });
 });
