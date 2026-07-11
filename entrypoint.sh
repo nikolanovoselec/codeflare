@@ -1194,6 +1194,87 @@ start_silverbullet_supervisor() {
 }
 
 # ============================================================================
+# OpenVSCode Server supervisor (REQ-IDE-001, REQ-IDE-002, REQ-IDE-003)
+#
+# Runs the browser IDE (OpenVSCode Server) on 127.0.0.1:13337 against the
+# session's ~/workspace, reached from the codeflare UI through the Worker proxy
+# at /api/vscode/:sid/. Localhost-only -- the Worker is the auth boundary.
+#
+# LAZY START: the server is NOT launched at boot. The supervisor waits until
+# init is complete AND the host has recorded a first /api/vscode request (the
+# trigger file host/src/vscode-proxy.ts writes), so sessions that never open the
+# IDE never pay for it. Supervised by a restart loop like SilverBullet.
+#
+# SESSION ISOLATION: --server-base-path=/api/vscode/<SESSION_ID> makes OpenVSCode
+# build its own asset + service-worker URLs under the per-session path, so each
+# session's editor is isolated (the deliberate opposite of the bucket-stable
+# vault). --server-data-dir is ephemeral under /tmp (never R2-synced), so no
+# server state leaks across sessions.
+# ============================================================================
+
+# Gate: may the IDE launch yet? Requires a resolved session id (so the base path
+# is correct), a completed init, and a first-request trigger. Fail-safe: with no
+# session id, never launch (a base-path mismatch would 404 anyway).
+# REQ-IDE-003 AC1, REQ-IDE-002.
+_openvscode_should_launch() {
+    [ -n "${SESSION_ID:-}" ] \
+        && [ -f "${CODEFLARE_INIT_FLAG_FILE:-/tmp/codeflare-init-complete}" ] \
+        && [ -f "${OPENVSCODE_REQUEST_TRIGGER:-/tmp/openvscode-requested}" ]
+}
+
+# Launch OpenVSCode Server once in the foreground (the supervisor loop wraps this
+# in a restart loop). Session-isolated base path, workspace folder, ephemeral
+# per-container data dir; no connection token (the Worker is the auth boundary).
+# REQ-IDE-001, REQ-IDE-002.
+_openvscode_launch_once() {
+    "${OPENVSCODE_BIN:-/usr/local/bin/openvscode-server}" \
+        --host "${OPENVSCODE_HOST:-127.0.0.1}" \
+        --port "${OPENVSCODE_PORT:-13337}" \
+        --server-base-path "/api/vscode/${SESSION_ID}" \
+        --without-connection-token \
+        --default-folder "${OPENVSCODE_WORKSPACE:-$HOME/workspace}" \
+        --server-data-dir "${OPENVSCODE_DATA_DIR:-/tmp/openvscode-data}" \
+        --telemetry-level off \
+        --accept-server-license-terms
+}
+
+# Supervisor loop: wait for the gate, launch, restart on exit. REQ-IDE-003 AC3.
+_openvscode_supervise_loop() {
+    while true; do
+        if ! _openvscode_should_launch; then
+            sleep 2
+            continue
+        fi
+        _openvscode_launch_once >> /tmp/openvscode.log 2>&1
+        echo "[openvscode] $(date '+%Y-%m-%d %H:%M:%S') exited (code $?), restarting in 5s..." >> /tmp/openvscode.log
+        sleep 5
+    done
+}
+
+start_openvscode_supervisor() {
+    local OVSC_BIN="${OPENVSCODE_BIN:-/usr/local/bin/openvscode-server}"
+
+    if [ ! -x "$OVSC_BIN" ]; then
+        echo "[entrypoint] WARNING: openvscode-server not found at $OVSC_BIN; browser IDE unavailable" >&2
+        return 0
+    fi
+
+    echo "[entrypoint] Arming OpenVSCode supervisor (lazy-start on first /api/vscode request)..."
+
+    # setsid creates a new session + process group so the shutdown handler can
+    # kill the supervisor AND its openvscode child in one kill_pidfile_subtree
+    # walk (same reason as the SilverBullet supervisor). export -f makes the loop
+    # helpers available inside the fresh non-interactive setsid bash.
+    export -f _openvscode_should_launch _openvscode_launch_once _openvscode_supervise_loop
+    setsid bash -c '_openvscode_supervise_loop' openvscode-supervisor \
+        >> /tmp/openvscode.log 2>&1 &
+
+    OPENVSCODE_SUPERVISOR_PID=$!
+    echo "$OPENVSCODE_SUPERVISOR_PID" > /tmp/openvscode.pid
+    echo "[entrypoint] OpenVSCode supervisor armed with PID $OPENVSCODE_SUPERVISOR_PID"
+}
+
+# ============================================================================
 # Shutdown handler - final bisync on SIGTERM/SIGINT/EXIT
 # ============================================================================
 shutdown_handler() {
@@ -1224,6 +1305,7 @@ shutdown_handler() {
     kill_pidfile_subtree /tmp/sync-daemon.pid
     kill_pidfile_subtree /tmp/vault-monitor.pid
     kill_pidfile_subtree /tmp/silverbullet.pid
+    kill_pidfile_subtree /tmp/openvscode.pid
 
     # Perform final bisync to R2 (only if baseline was established).
     # Wrap in a 120s watchdog so the DO's destroy() SIGKILL budget (135s,
@@ -3043,12 +3125,13 @@ if [ $RCLONE_CONFIG_RESULT -eq 0 ] && [ "${STEP1_RESULT:-1}" -eq 0 ]; then
         # Each daemon has its own retry + recovery; a dead daemon means
         # zero sync (or zero vault ingestion) for the entire session.
         start_sync_daemon
-        # Vault monitor + SilverBullet supervisor are advanced-mode-only
-        # (REQ-MEM-006 AC1, REQ-AGENT-005 AC2). The workspace sync daemon
-        # above always runs; only the vault daemons are gated.
+        # Vault monitor, SilverBullet, and OpenVSCode supervisors are
+        # advanced-mode-only (REQ-MEM-006 AC1, REQ-AGENT-005 AC2, REQ-IDE-003).
+        # The workspace sync daemon above always runs; only these are gated.
         if [ "${SESSION_MODE:-default}" = "advanced" ]; then
             start_vault_monitor_daemon
             start_silverbullet_supervisor
+            start_openvscode_supervisor
         fi
     ) &
     BISYNC_INIT_PID=$!

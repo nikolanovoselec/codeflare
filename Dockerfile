@@ -133,6 +133,27 @@ RUN SILVERBULLET_VERSION="2.9.0" && \
     chmod +x /usr/local/bin/silverbullet && \
     rm -rf /tmp/silverbullet /tmp/silverbullet.zip
 
+# Install OpenVSCode Server -- the upstream VS Code web server (Gitpod build),
+# run per session inside the container and reached from the codeflare UI through
+# the Worker proxy at /api/vscode/:sid/ (REQ-IDE-001). Launched lazily on first
+# use and bound to localhost:13337 by the supervisor loop in entrypoint.sh.
+#
+# Pinned + SHA-verified like the other vendored binaries; the version literal is
+# shadow-pinned by the `openvscode-server` job in bump-shadow-pins.yml because
+# Dependabot cannot see it. Unlike the SilverBullet block above, this asserts the
+# binary is executable and runs a same-layer --version smoke so a bad download or
+# an incompatible bundled Node surfaces at build time, not first launch.
+RUN OPENVSCODE_VERSION="1.109.5" && \
+    OPENVSCODE_SHA256="b433bf4f0227321a7014d8460d10a8f958adc0f45aa79bd889e84e65e8f88363" && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/gitpod-io/openvscode-server/releases/download/openvscode-server-v${OPENVSCODE_VERSION}/openvscode-server-v${OPENVSCODE_VERSION}-linux-x64.tar.gz" -o /tmp/openvscode.tar.gz && \
+    echo "${OPENVSCODE_SHA256}  /tmp/openvscode.tar.gz" | sha256sum -c - && \
+    mkdir -p /opt/openvscode-server && \
+    tar -xzf /tmp/openvscode.tar.gz -C /opt/openvscode-server --strip-components=1 && \
+    ln -sf /opt/openvscode-server/bin/openvscode-server /usr/local/bin/openvscode-server && \
+    test -x /opt/openvscode-server/bin/openvscode-server && \
+    /usr/local/bin/openvscode-server --version && \
+    rm -rf /tmp/openvscode.tar.gz
+
 # REQ-STOR-017 / AD90: bake the agent-config seed tree into the image so a Governed Mode
 # (R2 SSE-C disabled) container can lay it down locally BEFORE the initial R2 sync — the
 # `--checksum` sync then skips the unchanged seed files and transfers only user deltas.
