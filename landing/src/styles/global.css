@@ -353,10 +353,11 @@ svg {
   border-radius: 3px;
   background: var(--flare-gradient);
   box-shadow: 0 0 14px rgb(var(--accent-rgb) / 0.55);
-  /* Optical alignment: "codeflare" has no descenders, so its ink centre sits
-     ~0.7px above the flex box centre and the mark reads slightly low (its bottom
-     dips past the baseline). Nudge it up onto the text's optical centre. */
-  transform: translateY(-0.7px);
+  /* Optical alignment: "codeflare" is all-lowercase, so its visual mass (the
+     x-height letters) sits below the cap height the flex box centres the mark on,
+     making the wordmark read low against the mark. Nudge the mark down onto the
+     lowercase optical centre (between the cap-height and x-height centres). */
+  transform: translateY(0.8px);
 }
 
 .nav-links {
