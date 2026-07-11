@@ -145,7 +145,7 @@ Enter the new client id + creation secret in the admin Setup wizard (REQ-AGENT-0
 
 **Cause:** Fullscreen renders in xterm's alternate buffer, which has no terminal scrollback; Claude owns the history and consumes mouse-wheel reports. Codeflare's mobile gesture handler intercepted the touch first and called `terminal.scrollLines()` or sent arrow keys, while its tap-to-keyboard shield prevented xterm's native touch handler from forwarding a wheel report ([REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll) AC8).
 
-**Fix:** Deploy a web UI where alternate-buffer vertical swipes with wheel-capable mouse tracking dispatch line-mode wheel events through xterm. Keep the Gesture shield enabled so tapping the terminal still opens the mobile keyboard. `/tui default` remains an immediate workaround on older builds.
+**Fix:** Deploy a web UI where `attachSwipeGestures()` (`web-ui/src/lib/touch-gestures.ts`) detects an alternate buffer with wheel-capable mouse tracking and dispatches line-mode `WheelEvent`s through xterm via its `scrollTouchLines()` helper. Keep the Gesture shield enabled so tapping the terminal still opens the mobile keyboard. `/tui default` remains an immediate workaround on older builds. ([REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll) AC8)
 
 **Verify:** Enter `/tui fullscreen` on mobile and swipe vertically with the keyboard both closed and open. Conversation history should move while horizontal swipes still navigate the prompt. CI's `touch-gestures.test.ts` verifies the fullscreen path emits wheel events without calling `scrollLines()` or sending arrow keys.
 
@@ -544,6 +544,7 @@ wrangler tail codeflare --status error
 - [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) - Broaden the panel gate beyond enterprise
 - [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) - Per-session browser IDE proxy (WebSocket code-1009 reconnect loop)
 - [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output) - Scroll stability during Pi burst output and full-buffer trimming
+- [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll) - Swipe gestures send arrow keys or scroll (fullscreen alternate-buffer wheel routing for Claude Code `/tui fullscreen` on mobile)
 - [REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants) - sleepAfter fail-safe invariants
 - [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) - Container Port-Readiness Gating with Pre-Warm Pre-Condition
 - [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit) - Persisted status is authoritative on container exit
