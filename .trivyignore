@@ -649,15 +649,21 @@ CVE-2026-39822
 # tarball; unfixable without rebuilding the vendored binary, and a newer
 # OpenVSCode release ships the same built-in-extension CVEs).
 #
-# SCOPE NOTE: `undici`, `diff`, and `ini` also appear in codeflare's OWN trees
-# (root, web-ui, and the baked-in pi agent tree under /opt/codeflare/pi-agent/
-# npm), but every own-tree copy is already on a PATCHED version (undici
-# 7.28.0/8.3.0, diff 8.0.4, ini 1.3.8) — which is why Trivy reports these IDs
-# only under opt/openvscode-server. The plain .trivyignore suppresses by ID
-# image-wide (no path scoping), so nothing is masked today; but if the
-# pi/web-ui/root undici|diff|ini ever drift back into an affected range this
-# allowlist would hide it — re-audit these three on ANY of those bumps, not only
-# on an OPENVSCODE_VERSION bump.
+# SCOPE NOTE: `undici`, `diff`, and `ini` also appear elsewhere in codeflare, so
+# note where this image-wide, path-unscoped suppression can and cannot leak. The
+# Trivy gate is an IMAGE scan, and the Dockerfile does NOT copy the root /
+# web-ui / landing node_modules into the image (those ship as separate Worker /
+# Pages builds), so this allowlist can never mask a finding there — Trivy is
+# simply blind to them, regardless of their version. What IS in the scanned image
+# and shares these IDs: the baked-in pi agent tree (/opt/codeflare/pi-agent/npm),
+# the global `npm install -g` CLIs under /usr/local/lib/node_modules (e.g.
+# @earendil-works/pi-coding-agent, which carries undici/diff transitively), and
+# /opt/codeflare/browser-run-mcp. Every in-image copy is currently on a PATCHED
+# version (undici 8.3.0, diff 8.0.4, ini 1.3.8), so nothing is masked today — but
+# because suppression is by ID image-wide, if any of those IN-IMAGE trees ever
+# drift undici|diff|ini back into an affected range this allowlist would silently
+# hide it. Re-audit the in-image trees (pi agent, global CLIs, browser-run-mcp)
+# on ANY undici/diff/ini bump, not only on an OPENVSCODE_VERSION bump.
 #
 # Impact: NONE across codeflare's trust boundary. OpenVSCode binds 127.0.0.1
 # only, one instance per the user's OWN session container, reachable solely
