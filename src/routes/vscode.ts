@@ -24,7 +24,7 @@
  */
 import { getContainer } from '@cloudflare/containers';
 import type { Env, Session } from '../types';
-import { getSessionKey, putSessionWithMetadata } from '../lib/kv-keys';
+import { putSessionWithMetadata } from '../lib/kv-keys';
 import {
   REQUEST_ID_LENGTH,
   REQUEST_ID_PATTERN,
