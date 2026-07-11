@@ -47,7 +47,7 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.18.4",
     "@types/node": "^25.9.3",
-    "@vitest/coverage-v8": "4.1.8",
+    "@vitest/coverage-v8": "4.1.10",
     "fast-check": "^4.8.0",
     "knip": "^6.17.1",
     "oxlint": "^1.70.0",
