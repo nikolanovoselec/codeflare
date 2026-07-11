@@ -189,6 +189,9 @@ The mobile terminal input system uses several techniques to work around browser/
    With the keyboard closed and normal scrollback active, vertical swipes in `touch-gestures.ts` scroll the terminal buffer through `terminal.scrollLines()`. xterm 6.0.0's `SmoothScrollableElement` uses JS-based scrolling rather than native overflow, so the gesture handler accumulates pixel deltas and converts them to lines using the terminal font metrics.
 
    An alternate-screen application with wheel-capable mouse tracking owns its own history. `attachSwipeGestures()`'s `scrollTouchLines()` helper (`web-ui/src/lib/touch-gestures.ts`) turns the same accumulated lines into DOM wheel events on xterm's terminal element, allowing xterm to encode application mouse reports instead of attempting to move nonexistent terminal scrollback.
+7. **Floating page navigation**
+
+   The page-up and down-arrow controls query the focused terminal's live buffer type on each click. Normal-buffer controls keep xterm's `scrollPages(-1)` and `scrollToBottom()` behavior. Alternate-screen controls send the PageUp/PageDown input sequences so fullscreen applications such as Claude Code move their application-owned history instead of nonexistent terminal scrollback. The same target resolver preserves focused MultiView pane routing. ([REQ-MOB-001](../../sdd/spec/mobile.md#req-mob-001-terminal-fully-usable-on-mobile-devices) AC7)
 
 ## xterm 6.1 Color-Scheme Report Suppression (git: Fix 21)
 
@@ -200,7 +203,7 @@ xterm 6.1's default-on color-scheme reporting (upstream PR #5628) answers `CSI ?
 
 ### Root Cause
 
-`@xterm/xterm` is pinned to `6.1.0-beta.288`. Its deferred viewport-DOM synchronization fixes Pi's full-scrollback flicker and its full-buffer trim now preserves the visible content for a scrolled-up user. The older xterm 6.0 correction history below remains relevant only to bottom-following and genuine focus-reset protection; post-write distance correction is no longer part of the integration.
+`@xterm/xterm` is pinned to `6.1.0-beta.288`. Its deferred viewport-DOM synchronization fixes Pi's full-scrollback flicker and its full-buffer trim preserves surviving content for a scrolled-up user. The older xterm 6.0 correction history remains relevant to bottom-following and focus resets; generic post-write distance correction stays removed, with only the configured-full zero-clamp boundary recovery described below.
 
 xterm 6.0.0 replaced `.xterm-viewport` (native `overflow-y: scroll` with a scroll-area div) with VS Code's `SmoothScrollableElement` (JS-based scrolling via transforms). Despite this, the terminal would jump to the top of scrollback during burst output (git: Fix 8). Root cause was a vicious cycle between two performance hacks:
 

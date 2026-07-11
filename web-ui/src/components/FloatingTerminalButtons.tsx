@@ -3,7 +3,7 @@ import { mdiCancel, mdiKeyboardTab, mdiContentPaste, mdiContentCopy, mdiArrowExp
 import Icon from './Icon';
 import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight } from '../lib/mobile';
 import { sendTerminalKey } from '../lib/touch-gestures';
-import { activateStickyCtrl, deactivateStickyCtrl, isStickyCtrlActive } from '../lib/terminal-mobile-input';
+import { activateStickyCtrl, deactivateStickyCtrl, FUNCTIONAL_KEY_MAP, isStickyCtrlActive } from '../lib/terminal-mobile-input';
 import { terminalStore } from '../stores/terminal';
 import { sessionStore } from '../stores/session';
 import { terminalWorkspaceStore } from '../stores/terminal-workspace';
@@ -80,6 +80,21 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
       sendTerminalKey(term, sequence);
       refocusTerminal();
     }
+  };
+
+  const navigatePage = (direction: 'up' | 'down') => {
+    const target = getActiveTerminalTarget();
+    if (target?.term) {
+      if (target.term.buffer.active.type === 'alternate') {
+        const sequence = direction === 'up' ? FUNCTIONAL_KEY_MAP.PageUp : FUNCTIONAL_KEY_MAP.PageDown;
+        sendTerminalKey(target.term, sequence);
+      } else {
+        markScrollIntent(target.sessionId, target.terminalId);
+        if (direction === 'up') target.term.scrollPages(-1);
+        else target.term.scrollToBottom();
+      }
+    }
+    refocusTerminal();
   };
 
   const pasteFromClipboard = async () => {
@@ -268,14 +283,7 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
             class="floating-terminal-btn"
             tabIndex={-1}
             onPointerDown={preventFocusSteal}
-            onClick={() => {
-              const target = getActiveTerminalTarget();
-              if (target?.term) {
-                markScrollIntent(target.sessionId, target.terminalId);
-                target.term.scrollPages(-1);
-              }
-              refocusTerminal();
-            }}
+            onClick={() => navigatePage('up')}
             title="Page Up"
           >
             <Icon path={mdiArrowExpandUp} size={18} />
@@ -288,14 +296,7 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
             class="floating-terminal-btn"
             tabIndex={-1}
             onPointerDown={preventFocusSteal}
-            onClick={() => {
-              const target = getActiveTerminalTarget();
-              if (target?.term) {
-                markScrollIntent(target.sessionId, target.terminalId);
-                target.term.scrollToBottom();
-              }
-              refocusTerminal();
-            }}
+            onClick={() => navigatePage('down')}
             title="Scroll to Bottom"
           >
             <Icon path={mdiArrowExpandDown} size={18} />

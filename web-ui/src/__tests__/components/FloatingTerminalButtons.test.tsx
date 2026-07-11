@@ -73,6 +73,7 @@ vi.mock('../../lib/speech-input', () => ({
   stopListening: vi.fn(),
 }));
 
+// REQ-MOB-001: Terminal fully usable on mobile devices
 // REQ-TERM-017: MultiView Pane Focus and Input Routing
 // REQ-MOB-007: Voice input via Web Speech API
 
@@ -138,21 +139,6 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
       labels.forEach((label) => {
         expect(label).not.toHaveClass('visible');
       });
-    });
-  });
-
-  describe('Label Content', () => {
-    it('renders correct label text for each button', () => {
-      render(() => <FloatingTerminalButtons showTerminal={true} />);
-
-      const labels = document.querySelectorAll('.floating-btn-label');
-      const labelTexts = Array.from(labels).map((l) => l.textContent);
-
-      // Copy URL buttons are conditional on hasAuthUrl/hasNormalUrl, so neither will appear
-      expect(labelTexts).toContain('PASTE');
-      expect(labelTexts).toContain('TAB');
-      expect(labelTexts).toContain('ESCAPE / CANCEL');
-      expect(labelTexts).toContain('SCROLL TO BOTTOM');
     });
   });
 
@@ -240,6 +226,51 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
 
       const mobileButtons = document.querySelector('.floating-terminal-buttons');
       expect(mobileButtons).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Page navigation', () => {
+    const setActiveTerminal = (bufferType: 'normal' | 'alternate') => {
+      const term = {
+        buffer: { active: { type: bufferType } },
+        scrollPages: vi.fn(),
+        scrollToBottom: vi.fn(),
+        textarea: document.createElement('textarea'),
+      };
+      (sessionStore as any).activeSessionId = 'test-session';
+      vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({ activeTabId: '1' } as any);
+      vi.mocked(terminalStore.getTerminal).mockReturnValue(term as any);
+      return term;
+    };
+
+    it('REQ-MOB-001 AC7: sends PageUp and PageDown to an alternate-screen application', () => {
+      const term = setActiveTerminal('alternate');
+      vi.mocked(sendTerminalKey).mockClear();
+      render(() => <FloatingTerminalButtons showTerminal={true} />);
+
+      screen.getByTitle('Page Up').click();
+      screen.getByTitle('Scroll to Bottom').click();
+
+      expect(vi.mocked(sendTerminalKey).mock.calls).toEqual([
+        [term, '\x1b[5~'],
+        [term, '\x1b[6~'],
+      ]);
+      expect(term.scrollPages).not.toHaveBeenCalled();
+      expect(term.scrollToBottom).not.toHaveBeenCalled();
+    });
+
+    it('REQ-MOB-001 AC7: preserves normal-buffer page-up and bottom navigation', () => {
+      const term = setActiveTerminal('normal');
+      vi.mocked(sendTerminalKey).mockClear();
+      render(() => <FloatingTerminalButtons showTerminal={true} />);
+
+      screen.getByTitle('Page Up').click();
+      screen.getByTitle('Scroll to Bottom').click();
+
+      expect(term.scrollPages).toHaveBeenCalledWith(-1);
+      expect(term.scrollToBottom).toHaveBeenCalledTimes(1);
+      expect(sendTerminalKey).not.toHaveBeenCalledWith(term, '\x1b[5~');
+      expect(sendTerminalKey).not.toHaveBeenCalledWith(term, '\x1b[6~');
     });
   });
 

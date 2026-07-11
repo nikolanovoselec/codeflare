@@ -36,6 +36,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 4. The terminal adjusts layout when the virtual keyboard opens or closes without visual corruption. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (keyboard-open layout adjust via the VirtualKeyboard geometry signal) -->
 5. Terminal dimensions are recalculated on viewport changes (keyboard open/close, orientation change, resize). <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (viewport-change height recalculation) -->
 6. The terminal layout recalculation is skipped when the terminal container has no visible height, preventing row calculation corruption on inactive terminals. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (no-visible-height skip: no fit/scroll/resize when clientHeight is 0) -->
+7. Floating page controls navigate normal terminal scrollback through xterm's viewport APIs and navigate alternate-screen application history with PageUp/PageDown input. <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::FloatingTerminalButtons --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (REQ-MOB-001 AC7: sends PageUp and PageDown to an alternate-screen application; REQ-MOB-001 AC7: preserves normal-buffer page-up and bottom navigation) -->
 
 **Constraints:**
 
@@ -46,7 +47,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Dependencies:** [REQ-TERM-002](terminal.md#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** [Automated test](../../web-ui/src/__tests__/lib/mobile.test.ts)
+**Verification:** [Mobile tests](../../web-ui/src/__tests__/lib/mobile.test.ts), [floating control tests](../../web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx)
 
 **Status:** Implemented
 
