@@ -65,7 +65,7 @@ None. Authentication is foundational; other domains depend on it.
 1. Visiting the root URL in SaaS mode shows the Codeflare login page with a "Sign in with GitHub" button. <!-- @impl: src/routes/github-auth.ts::callbackRateLimiter --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 2. The login endpoint initiates a GitHub OAuth flow with a signed, self-contained state token (no cookie required during the redirect). <!-- @impl: src/lib/oauth-state.ts::signOauthState --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 3. The OAuth callback validates the state token, rejecting tokens not issued by this server, issued more than 30 minutes ago, or already redeemed. <!-- @impl: src/lib/oauth-state.ts::verifyOauthState --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
-4. Successful callback validation creates an authenticated session and redirects the user to their workspace if their subscription is active, or to the subscription page if pending or blocked; the GitHub access token used during the exchange is held only for the duration of the callback and never persisted to KV, DO storage, or any session record. <!-- @impl: src/routes/github-auth.ts::app --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
+4. Valid callbacks create a session and redirect active users to workspaces or pending/blocked users to subscriptions; the exchanged GitHub access token exists only during callback and is never persisted. <!-- @impl: src/routes/github-auth.ts::app --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 5. State-validation failure redirects to the login page with an error indicator. <!-- @impl: src/lib/oauth-state.ts::verifyOauthState --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 6. The OAuth handshake works on browsers that drop or partition cross-site cookies during the github.com bounce-back, including iOS WebKit (Safari, Brave) in standard, private, and ephemeral browsing modes. <!-- @impl: src/lib/oauth-state.ts::signOauthState --> <!-- @test: src/__tests__/routes/github-auth.test.ts (GitHub OAuth Routes / REQ-AUTH-002 (SaaS mode GitHub OAuth handshake)) -->
 7. Only verified primary GitHub emails are accepted. <!-- @test: src/__tests__/routes/github-auth.test.ts (redirects to /?error=no-verified-email when no verified email) -->
@@ -475,7 +475,7 @@ None.
 
 **Constraints:**
 
-- In Enterprise Mode the dropdown does not open — the avatar/username stays visible but its click is inert — per [REQ-ENTERPRISE-008](enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression) AC8. This REQ describes the non-enterprise dropdown.
+- In Enterprise Mode the dropdown does not open — the avatar/username stays visible but its click is inert — per [REQ-ENTERPRISE-008](enterprise-mode.md#req-enterprise-008-enterprise-frontend-surface-suppression) AC8; This REQ describes the non-enterprise dropdown.
 
 **Priority:** P2
 
@@ -528,7 +528,8 @@ None.
 
 **Constraints:**
 
-- Tier mutation (`PATCH /api/users/:email`) is the access-approval mechanism in the app-owned OIDC modes only: it is gated on `isSessionOidcMode` (`SAAS_MODE` active OR `ONBOARDING_LANDING_PAGE` active). Enterprise mode is already 403'd by the user-management router middleware ([REQ-ENTERPRISE-009](enterprise-mode.md#req-enterprise-009-enterprise-backend-route-hardening)), and default (CF Access) mode has no tier-gated access, so PATCH returns 400 there.
+- Tier mutation approves access only in app-owned OIDC modes gated by `isSessionOidcMode`.
+- Enterprise mode returns 403 through [REQ-ENTERPRISE-009](enterprise-mode.md#req-enterprise-009-enterprise-backend-route-hardening); default CF Access mode has no tier-gated access and returns 400.
 
 **Priority:** P1
 

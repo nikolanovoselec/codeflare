@@ -196,7 +196,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Constraints:**
 
-- Migration is lazy (on-read), not batch. Complete migration happens gradually as values are accessed.
+- Migration is lazy (on-read), not batch; Complete migration happens gradually as values are accessed.
 - No downtime or manual intervention required.
 
 **Priority:** P0
@@ -512,7 +512,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Constraints:**
 
-- The plaintext allowlist is explicit. New KV namespaces are encrypted by default; adding to the plaintext allowlist requires a security-review sign-off.
+- The plaintext allowlist is explicit; New KV namespaces are encrypted by default; adding to the plaintext allowlist requires a security-review sign-off.
 
 **Priority:** P0
 

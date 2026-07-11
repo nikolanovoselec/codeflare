@@ -40,7 +40,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 3. When triggered, a background sonnet subagent runs the three-stage capture pipeline (prefilter transcript noise, accumulate per-chunk observations, synthesise the final note) and writes the capture file into the vault's session-captures folder. <!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh (REQ-MEM-001 AC3) / REQ-VAULT-002 (conversation captures land in vault as markdown)) -->
 4. Capture-file timestamps reflect the user's local timezone, resolved per [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC4.
 5. The capture file uses a YAML frontmatter template with session, capture-time, and capture-range fields followed by Context / Decisions / Observations / References sections. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
-6. Graph nodes and edges are extracted from the rendered capture into a chunk, folded into the cumulative `vault-graph.json` via the shared `merge-vault-graph.py` (per [REQ-MEM-009](#req-mem-009-vault-graph-accumulates-monotonically-across-extractions)), and that cumulative graph is merged into the unified global graph under `user_vault`; the merge is serialised and atomic, so the new content is queryable on the same turn it is written. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
+6. Extracted chunks merge serially and atomically into cumulative `vault-graph.json`, then into the global graph under `user_vault`, making new content queryable in the same turn. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
 
 **Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
@@ -72,7 +72,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. The capture sources the conversation from the durable on-disk session transcript that each runtime already persists for session resume, never from a volatile in-memory buffer. A capture triggered immediately after a reload or resume therefore sees the full conversation; if the resolved transcript is empty the capture is skipped rather than writing a placeholder "no substantive content" note. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::default --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
+1. Capture reads each runtime's durable resume transcript, never volatile memory, so reload and resume retain full history; an empty resolved transcript skips capture instead of writing a placeholder. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::default --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
 2. Pi capture triggers are inert inside subagent child sessions — sessions whose header carries a parent-session pointer (review monitors, CI monitors, capture/extract subagents themselves, which always load the parent's extensions) — so a background task's transcript never receives an injected capture follow-up as its visible output. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::isChildSession --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-001/REQ-VAULT-003: memory-vault handlers are inert inside subagent child sessions) -->
 
 **Constraints:**
@@ -99,7 +99,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Acceptance Criteria:**
 
 1. The hook tracks the number of user messages since the last capture using a per-session counter file. The counter directory defaults to `/tmp/.memory-counter/` and is overridable via the `MEMCAP_COUNTER_DIR` environment variable for hermetic tests. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 15 user messages)) -->
-2. On the first run for a session whose transcript contains exactly one real-user prompt (CURRENT_COUNT == 1), the hook treats this as a brand-new session: it initialises a baseline at the current transcript size, writes the counter, injects the first-message graph-query directive ([REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3), and exits without triggering capture. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::CONTEXT --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)) -->
+2. A first run with exactly one user prompt initializes transcript baseline and counter, injects the first-message graph-query directive, and exits without capture. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::CONTEXT --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)) -->
 3. If the counter file exists and the delta since the last capture is less than 15 messages, the hook exits silently. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 15 user messages)) -->
 4. When the delta reaches 15, the capture subagent is triggered. <!-- @test: host/__tests__/memory-capture-hook.test.js (counter advances on capture so the next run starts a fresh window) -->
 5. Duplicate capture triggers are suppressed while a capture is pending. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memoryVarsPending --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
@@ -111,8 +111,10 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Constraints:**
 
 - The counter file MUST live under an ephemeral path (default `/tmp/.memory-counter/`).
-- The two first-run sub-cases (brand-new vs. resumed) are distinguished entirely by `CURRENT_COUNT`: a value of 1 means the just-submitted prompt is the only one in the transcript (brand-new); a value greater than 1 means a prior session's prompts persisted in the transcript (resumed). No timestamps, mtimes, or external sentinels are involved.
-- The in-session `/compact` case (same container, same PID, counter survives) is not detected by this hook; the 15-prompt cadence catches up within one window, and the compressed summary left by `/compact` keeps the agent oriented in the meantime. Documented as a known limitation; revisit if observed to bite in practice.
+- `CURRENT_COUNT` alone distinguishes first runs: 1 means a brand-new transcript containing only the submitted prompt; greater values mean prior prompts persisted from a resumed session.
+- Detection uses no timestamps, mtimes, or external sentinels.
+- The hook does not detect in-session `/compact`; its surviving counter catches up within the 15-prompt window while the compressed summary preserves orientation.
+- This remains an accepted limitation pending observed harm.
 - On Pi, the `.vars` carrier file is the pending-capture lock and stale retry marker.
 
 **Priority:** P0
@@ -235,7 +237,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Constraints:**
 
-- No HTML visualization is generated for the unified global graph; structural queries are the interface. Only the curated vault subset receives a rendered visualization shipped to users.
+- No HTML visualization is generated for the unified global graph; structural queries are the interface; Only the curated vault subset receives a rendered visualization shipped to users.
 
 **Priority:** P0
 
@@ -356,7 +358,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 - The hook plugin is advanced-session-only by manifest declaration (`preseed/agents/claude/manifest.json`); standard sessions never receive the plugin.
 - The hook reads the graph JSON directly (no MCP round-trip).
-- The hook is fail-safe: any error exits silently with no output. A failed injection must never block the session.
+- The hook is fail-safe: any error exits silently with no output; A failed injection must never block the session.
 - Keyword extraction strips all non-alphanumeric characters and filters to words of 4+ characters to avoid noise.
 
 **Priority:** P1
