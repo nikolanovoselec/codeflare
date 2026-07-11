@@ -27,6 +27,7 @@ import { checkContainerAuth } from './auth-check.js';
 import { evaluateFinalSync } from './final-sync.js';
 import { resolveGitClone, resolveWorkspaceRoot, buildCloneArgs } from './git-clone.js';
 import { stripVaultPrefix } from './vault-proxy.js';
+import { isVscodePath, vscodeUpstreamPath, requestOpenvscodeStart } from './vscode-proxy.js';
 import { Session } from './session.js';
 import { SessionManager, PREWARM_SESSION_ID } from './session-manager.js';
 import type { LogLevel, Logger, WsEventLogger, WsEvent, TabConfigEntry, ActivityTracker, SessionOptions } from './types.js';
@@ -78,6 +79,14 @@ const MAX_CONTROL_MSG_LENGTH = 200;       // Max length for JSON control message
 // boundary is the Worker proxy at /api/vault/:sid/.
 const SILVERBULLET_HOST = process.env.SILVERBULLET_HOST ?? '127.0.0.1';
 const SILVERBULLET_PORT = parseInt(process.env.SILVERBULLET_PORT ?? '3030', 10);
+
+// OpenVSCode Server supervisor binds on 127.0.0.1:13337 inside the container
+// (see entrypoint.sh:start_openvscode_supervisor). The /api/vscode HTTP + WS
+// branch below proxies to it, forwarding the path UNCHANGED because OpenVSCode
+// runs with --server-base-path=/api/vscode/<sid>. Localhost-only by design —
+// the auth boundary is the Worker proxy at /api/vscode/:sid/.
+const OPENVSCODE_HOST = process.env.OPENVSCODE_HOST ?? '127.0.0.1';
+const OPENVSCODE_PORT = parseInt(process.env.OPENVSCODE_PORT ?? '13337', 10);
 
 // Parse TAB_CONFIG for expected process names per terminal tab.
 // TAB_CONFIG is set by the Container DO before container start.
@@ -579,6 +588,48 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
     return;
   }
 
+  // Browser IDE HTTP proxy -> OpenVSCode Server at OPENVSCODE_HOST:OPENVSCODE_PORT.
+  // Forward the path UNCHANGED (no strip): OpenVSCode runs with
+  // --server-base-path=/api/vscode/<sid> and expects its own path. The first
+  // request lazily triggers the supervisor to launch the server; while it is
+  // still warming, connect errors map to 503 VSCODE_WARMING. The injected
+  // container-auth Authorization header (validated above) is stripped before
+  // forwarding to the in-container app.
+  if (isVscodePath(pathname)) {
+    requestOpenvscodeStart();
+    const upstreamPath = vscodeUpstreamPath(pathname);
+    const search = (req.url ?? '').includes('?') ? '?' + (req.url ?? '').split('?').slice(1).join('?') : '';
+    const headers: http.OutgoingHttpHeaders = {};
+    for (const [k, v] of Object.entries(req.headers)) {
+      const lk = k.toLowerCase();
+      if (lk === 'connection' || lk === 'keep-alive' || lk === 'transfer-encoding'
+        || lk === 'upgrade' || lk === 'proxy-authenticate' || lk === 'proxy-authorization'
+        || lk === 'te' || lk === 'trailer' || lk === 'authorization' || lk === 'host') continue;
+      if (v !== undefined) headers[k] = v as string | string[];
+    }
+    const upstreamReq = http.request({
+      host: OPENVSCODE_HOST,
+      port: OPENVSCODE_PORT,
+      method,
+      path: upstreamPath + search,
+      headers,
+    }, (upstreamRes) => {
+      res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
+      upstreamRes.pipe(res);
+    });
+    upstreamReq.on('error', (err) => {
+      log('warn', 'Vscode proxy upstream error', { error: err.message, path: upstreamPath });
+      if (!res.headersSent) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Browser IDE starting', code: 'VSCODE_WARMING' }));
+      } else {
+        res.end();
+      }
+    });
+    req.pipe(upstreamReq);
+    return;
+  }
+
   // 404 for unknown paths
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: 'Not found' }));
@@ -736,6 +787,7 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
 // SilverBullet client picks (e.g. `/.client/ws`). We route /vault/* via
 // `noServer: true` and proxy to upstream below.
 const vaultWss = new WebSocketServer({ noServer: true, maxPayload: WS_MAX_PAYLOAD });
+const vscodeWss = new WebSocketServer({ noServer: true, maxPayload: WS_MAX_PAYLOAD });
 
 // Single upgrade dispatcher for the whole server. Both `wss` (terminal)
 // and `vaultWss` (vault) use noServer:true; this listener inspects the
@@ -753,6 +805,12 @@ server.on('upgrade', (req, socket, head) => {
 
   if (pathname && (pathname === '/vault' || pathname.startsWith('/vault/'))) {
     handleVaultUpgrade(req, socket, head);
+    return;
+  }
+
+  if (isVscodePath(pathname)) {
+    requestOpenvscodeStart();
+    handleVscodeUpgrade(req, socket, head);
     return;
   }
 
@@ -830,6 +888,77 @@ function handleVaultUpgrade(req: http.IncomingMessage, socket: import('node:stre
     });
     upstream.on('error', (err) => {
       log('warn', 'Vault WS upstream error', { message: err.message });
+      closeBoth(1011, 'upstream-error');
+    });
+  });
+}
+
+// Browser IDE WebSocket bridge -> OpenVSCode Server (the VS Code server
+// protocol). Mirrors handleVaultUpgrade but forwards the path UNCHANGED
+// (no strip): OpenVSCode is base-path native at /api/vscode/<sid>.
+function handleVscodeUpgrade(req: http.IncomingMessage, socket: import('node:stream').Duplex, head: Buffer): void {
+  const { pathname } = parseUrl(req.url ?? '');
+  const upstreamPath = vscodeUpstreamPath(pathname);
+  const search = (req.url ?? '').includes('?')
+    ? '?' + (req.url ?? '').split('?').slice(1).join('?')
+    : '';
+
+  vscodeWss.handleUpgrade(req, socket, head, (clientWs) => {
+    const upstreamUrl = `ws://${OPENVSCODE_HOST}:${OPENVSCODE_PORT}${upstreamPath}${search}`;
+    let upstream: WebSocket;
+    try {
+      upstream = new WebSocket(upstreamUrl, {
+        headers: {
+          // Forward client headers minus hop-by-hop / handshake / injected
+          // container-auth headers (the `ws` client sets those itself).
+          ...Object.fromEntries(
+            Object.entries(req.headers).filter(([k]) => {
+              const lk = k.toLowerCase();
+              return lk !== 'connection' && lk !== 'upgrade'
+                && lk !== 'sec-websocket-key' && lk !== 'sec-websocket-version'
+                && lk !== 'sec-websocket-extensions' && lk !== 'sec-websocket-protocol'
+                && lk !== 'authorization' && lk !== 'host';
+            }),
+          ) as Record<string, string>,
+        },
+      });
+    } catch (err) {
+      log('warn', 'Vscode WS upstream construct failed', { error: (err as Error).message });
+      clientWs.close(1011, 'upstream-construct-failed');
+      return;
+    }
+
+    const closeBoth = (code: number, reason: string): void => {
+      try { clientWs.close(code, reason); } catch { /* ignore */ }
+      try { upstream.close(code, reason); } catch { /* ignore */ }
+    };
+
+    upstream.on('open', () => {
+      clientWs.on('message', (data, isBinary) => {
+        if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary: isBinary });
+      });
+      upstream.on('message', (data, isBinary) => {
+        if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data, { binary: isBinary });
+      });
+    });
+
+    clientWs.on('close', (code, reason) => {
+      if (upstream.readyState === WebSocket.OPEN || upstream.readyState === WebSocket.CONNECTING) {
+        try { upstream.close(code, reason.toString()); } catch { /* ignore */ }
+      }
+    });
+    upstream.on('close', (code, reason) => {
+      if (clientWs.readyState === WebSocket.OPEN || clientWs.readyState === WebSocket.CONNECTING) {
+        try { clientWs.close(code, reason.toString()); } catch { /* ignore */ }
+      }
+    });
+
+    clientWs.on('error', (err) => {
+      log('warn', 'Vscode WS client error', { message: err.message });
+      closeBoth(1011, 'client-error');
+    });
+    upstream.on('error', (err) => {
+      log('warn', 'Vscode WS upstream error', { message: err.message });
       closeBoth(1011, 'upstream-error');
     });
   });
