@@ -1014,11 +1014,11 @@ svg {
   color: var(--text-dimmed);
 }
 
-/* Active rail item: brighter icon + a 2px inset accent bar (VS Code's active-rail
-   tell, drawn with an inset shadow so it is not a banned side-stripe border). */
+/* Active rail item: color-only (VS Code's active-tool tell) — the icon lifts to
+   the brightest ink over a faint coral wash, no side-stripe. */
 .ce-rail-btn.is-active {
-  color: var(--text-secondary);
-  box-shadow: inset 2px 0 0 var(--accent);
+  color: var(--text-primary);
+  background: rgb(var(--accent-rgb) / 0.08);
 }
 
 .ce-rail-scm {

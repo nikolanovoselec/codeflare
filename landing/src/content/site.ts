@@ -679,7 +679,7 @@ export const IDE = {
   ],
   // Resting integrated-terminal output above the live command line (calm, dim).
   termLog: [
-    '✓ node-agent · router-worker  build · vet · test',
+    '✓ node-agent · router-worker · build · vet · test',
     '✓ 6 review lanes · 0 findings',
   ],
   stream: [
