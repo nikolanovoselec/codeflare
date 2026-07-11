@@ -140,9 +140,9 @@ Six parallel jobs, each running lightweight external probes against the producti
 
 **Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` `cloudflareTest()` plugin - tests run in real Workers runtime (not Node.js). **Run:** `npm test` **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
 
-**CI workerd crash guard:** `@cloudflare/vitest-pool-workers` 0.16.x crashes `workerd` at pool teardown after all tests pass — a known upstream flake. The backend test step in `.github/workflows/test.yml` (and the identical pre-deploy gate in `deploy.yml`) runs `npm test` once with `NO_COLOR=1`/`FORCE_COLOR=0` so the summary is plain text, then inspects the exit code: on a non-zero exit it accepts the run only when all four conditions hold — the crash fingerprint `[vitest-pool]: Worker cloudflare-pool emitted error.` is present, the summary reports exactly `Errors 1 error`, a `Tests N passed` line exists, and no `(Test Files|Tests) N failed` line exists.
+**CI workerd crash guard:** `@cloudflare/vitest-pool-workers` 0.16.x crashes `workerd` at pool teardown after all tests pass — a known upstream flake. The backend test step in `.github/workflows/test.yml` (and the identical pre-deploy gate in `deploy.yml`) runs `npm test` once with `NO_COLOR=1`/`FORCE_COLOR=0` so the summary is plain text, then inspects the exit code: on a non-zero exit it accepts the run only when all four conditions hold — the crash fingerprint `[vitest-pool]: Worker cloudflare-pool emitted error.` is present, the summary reports an `Errors N error` line (the count is not pinned — per-file isolation emits one teardown crash per isolate, so a busy suite reports 2+), a `Tests N passed` line exists, and no `(Test Files|Tests) N failed` line exists.
 
-Ordinary assertion failures, any extra unhandled error (which makes it `Errors 2 errors`), and incomplete runs all fail the job immediately. No retry, no hardcoded counts. **Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise. **Notable test files:** `kv-crypto.test.ts` (KV AES-256-GCM encryption + migration), `r2-sse.test.ts` (R2 SSE-C encryption).
+Ordinary assertion failures (any `(Test Files|Tests) N failed` line) and incomplete runs fail the job immediately. No retry, no hardcoded error count. **Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise. **Notable test files:** `kv-crypto.test.ts` (KV AES-256-GCM encryption + migration), `r2-sse.test.ts` (R2 SSE-C encryption).
 
 ### Frontend Tests
 
@@ -180,6 +180,8 @@ Ordinary assertion failures, any extra unhandled error (which makes it `Errors 2
 ### Vitest Configuration
 
 Both root and `web-ui/` use Vitest v4.x with independent `node_modules` and separate configs. Root uses the `cloudflareTest()` plugin from `@cloudflare/vitest-pool-workers` v0.13+ (replaces the old `defineWorkersConfig()` pattern). Web-UI uses jsdom with `vite-plugin-solid`.
+
+**Reporter:** all three Vitest configs (root, `web-ui/`, `landing/`) select the reporter from `process.env.CI`: `dot` (compact, dots + summary) in CI, `default` (full per-test output) locally. The CI workerd crash guard above and its `deploy.yml` counterpart grep only the final summary block and the pool-crash fingerprint line, both of which the `dot` reporter still prints, so the guard is unaffected by the switch.
 
 ### E2E API Tests
 
