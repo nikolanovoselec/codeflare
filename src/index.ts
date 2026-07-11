@@ -7,6 +7,7 @@ import containerRoutes from './routes/container/index';
 import sessionRoutes from './routes/session/index';
 import terminalRoutes, { validateWebSocketRoute, handleWebSocketUpgrade } from './routes/terminal';
 import vaultRoutes, { validateVaultRoute, handleVaultRequest } from './routes/vault';
+import { validateVscodeRoute, handleVscodeRequest } from './routes/vscode';
 import usersRoutes from './routes/users';
 import setupRoutes from './routes/setup/index';
 import storageRoutes from './routes/storage';
@@ -358,6 +359,22 @@ export default {
           frame: 'sameorigin',
         });
       }
+    }
+
+    // Browser IDE proxy (HTTP + WS) - intercept BEFORE Hono, like the vault,
+    // so OpenVSCode's static assets and its client WebSocket (the VS Code
+    // server protocol) are not filtered by Hono routes. Session-keyed only:
+    // the sessionId in the URL is the sole container selector, so each session
+    // gets an isolated editor (REQ-IDE-001, REQ-IDE-002).
+    const vscodeRouteResult = validateVscodeRoute(request);
+    if (vscodeRouteResult.isVscodeRoute) {
+      if (vscodeRouteResult.errorResponse) {
+        return withSecurityHeaders(vscodeRouteResult.errorResponse);
+      }
+      return withSecurityHeaders(await handleVscodeRequest(request, env, ctx, vscodeRouteResult), {
+        csp: false,
+        frame: 'sameorigin',
+      });
     }
 
     // Only route API and health requests through Hono
