@@ -32,6 +32,7 @@ import OrchTree from '../components/OrchTree.astro';
 import Hero from '../components/Hero.astro';
 import InferenceMeshHero from '../components/InferenceMeshHero.astro';
 import FeatureTerminals from '../components/FeatureTerminals.astro';
+import CodeEditor from '../components/CodeEditor.astro';
 import ContactForm from '../components/ContactForm.astro';
 import Footer from '../components/Footer.astro';
 import {
@@ -45,6 +46,7 @@ import {
   OPERATIONS,
   BROWSER,
   PLATFORM,
+  IDE,
   CONTEXT,
   PIPELINE,
   COST,
@@ -256,6 +258,15 @@ const mcpRows = MCP.portal.rows.map((row) => ({
       </div>
       <SectionHead substation kicker={BROWSER.tag} title={BROWSER.title} lead={BROWSER.lead} />
       <FeatureGrid cards={BROWSER.cards} cols={3} />
+    </Section>
+
+    <!-- Browser IDE: the bridge from the traditional SDLC to agentic work. The
+         familiar VS Code window where a developer watches the agent move at
+         machine speed and can take the wheel to edit directly. Sits in the payoff
+         cluster after PLATFORM (capability the governance made safe). -->
+    <Section id={IDE.id}>
+      <SectionHead kicker={SECTION_KICKERS.ide} title={IDE.title} lead={IDE.lead} />
+      <CodeEditor />
     </Section>
 
     <!-- MCP portals: the external tools an agent can reach, governed. Many MCP

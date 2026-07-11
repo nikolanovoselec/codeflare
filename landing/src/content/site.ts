@@ -154,6 +154,7 @@ export const SECTION_KICKERS: Record<string, string> = {
   orchestration: 'Observability',
   cost: 'Cost',
   platform: 'Platform',
+  ide: 'Continuity',
   mcp: 'Tooling',
   dogfood: 'Proof',
   faq: 'FAQ',
@@ -628,6 +629,51 @@ export const PLATFORM = {
       { actor: 'any agent', label: 'one engine', text: 'identical governance whichever agent does the work' },
     ],
     caption: 'every session · same context · same controls · same isolation',
+  },
+};
+
+// The Browser IDE band: the bridge between the traditional SDLC and agentic work.
+// A familiar VS Code window where a developer watches the agent move at machine
+// speed and can take the wheel to edit directly. `stream` is the integrated
+// terminal's reel (feature-terminals.ts types/deletes/shuffles it) — the agent's
+// live activity, made legible, with the human stepping in. `code` is the calm,
+// line-numbered pane; `status` is the editor status bar. No VS Code blue: the
+// page's one locked accent tints the bar instead.
+export const IDE = {
+  id: 'ide',
+  title: 'The editor you already know',
+  lead:
+    'The bridge between how you have always worked and how agents work now. Watch the ' +
+    'agent move at machine speed in a familiar editor: files changing, the terminal ' +
+    'streaming. Take the wheel and edit directly whenever you want.',
+  // Real files + snippet from the public codeflare-inference-mesh repo
+  // (packages/node-agent/internal/agent/proxy.go), so the mock shows actual
+  // codebase code rather than invented sample text.
+  file: 'proxy.go',
+  fileAlt: 'runtime.go',
+  folder: 'codeflare-inference-mesh',
+  code: [
+    'type ActiveCounter struct {',
+    '  value int64',
+    '}',
+    'func (c *ActiveCounter) Inc() {',
+    '  atomic.AddInt64(&c.value, 1)',
+    '}',
+  ],
+  stream: [
+    'git push  → PR Checks · GitHub Actions',
+    'agent edits proxy.go  +12 -3',
+    'gh run watch  ✓ node-agent · router-worker',
+    'review · 6 lanes · 0 findings',
+    'you edit runtime.go · agent hands off',
+    'agent picks up at machine speed',
+  ],
+  status: {
+    branch: 'main',
+    sync: '✓ synced',
+    ci: 'Actions: passing',
+    pos: 'Ln 5, Col 3',
+    lang: 'Go',
   },
 };
 

@@ -1,0 +1,56 @@
+---
+/**
+ * Browser IDE band (REQ-LANDING-007): the SDLC-to-agentic bridge, shown as the
+ * VS Code window a traditional developer already lives in. It reuses the shared
+ * <Terminal> chrome — an editor tab in the "bar" slot, a line-numbered code pane
+ * plus an integrated terminal in the body, and an editor status bar in the "foot"
+ * slot — so the frame, border, radius, and shadow stay identical to every other
+ * artifact on the page (tune the frame once, in <Terminal>).
+ *
+ * The integrated terminal's last line is the reel: feature-terminals.ts types /
+ * deletes / shuffles it (the .terminal carries data-ft-loop + data-ft-shuffle,
+ * passed through <Terminal>), streaming the agent's live activity with the human
+ * stepping in — machine-speed work made legible in a familiar view. The
+ * server-rendered first beat is the resting state, fully legible with no JS and
+ * under reduced motion. Recognition is carried by shape (tab, line-number gutter,
+ * integrated terminal, status bar); the palette stays the page's one locked
+ * coral accent, not VS Code blue. Content lives in IDE (content/site.ts).
+ */
+import Terminal from './Terminal.astro';
+import { IDE } from '../content/site';
+---
+
+<Terminal variant="code-editor" ftLoop={JSON.stringify(IDE.stream)} ftShuffle>
+  <Fragment slot="bar">
+    <span class="ce-tab is-active">{IDE.file}<span class="ce-dot" aria-hidden="true">●</span></span>
+    <span class="ce-tab is-dim">{IDE.fileAlt}</span>
+    <span class="ce-folder">{IDE.folder}</span>
+  </Fragment>
+
+  <div class="ce-pane">
+    <ol class="ce-code" aria-label={`${IDE.file}, the agent's workspace`}>
+      {IDE.code.map((line) => (
+        <li class="ce-codeline"><span class="ce-src">{line}</span></li>
+      ))}
+    </ol>
+    <div class="ce-term">
+      <span class="ce-term-tab">TERMINAL</span>
+      <div class="terminal-body ce-term-body">
+        <span class="t-line t-cmd"><span class="ft-typed" data-ft-typed>{IDE.stream[0]}</span><span class="t-caret" aria-hidden="true" /></span>
+      </div>
+    </div>
+  </div>
+
+  <Fragment slot="foot">
+    <div class="terminal-foot ce-status">
+      <span class="ce-stat ce-branch">
+        <svg class="ce-branch-icon" viewBox="0 0 16 16" width="11" height="11" aria-hidden="true" fill="currentColor"><path d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 019 8.5H7a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836A2.492 2.492 0 017 7h2a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.75 12a.75.75 0 100 1.5.75.75 0 000-1.5zm0-8.5a.75.75 0 100 1.5.75.75 0 000-1.5z"></path></svg>
+        {IDE.status.branch}
+      </span>
+      <span class="ce-stat">{IDE.status.sync}</span>
+      <span class="ce-stat ce-ci"><span class="ce-ci-dot" aria-hidden="true"></span>{IDE.status.ci}</span>
+      <span class="ce-stat ce-pos">{IDE.status.pos}</span>
+      <span class="ce-stat">{IDE.status.lang}</span>
+    </div>
+  </Fragment>
+</Terminal>
