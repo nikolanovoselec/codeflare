@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD96](#ad96-deactivate-codexcopilot-v8-warm-up-and-opencode-db-pre-init-image-size) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -107,6 +107,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD94](#ad94-content-hash-manifest-for-vault-extract-change-detection-mtime-is-reset-by-the-r2-restore) | Content-hash manifest for vault-extract change detection (mtime is reset by the R2 restore) | Storage |
 | [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault) | Browser IDE is session-isolated (the deliberate opposite of the bucket-stable Vault) | Architecture, Security |
 | [AD96](#ad96-deactivate-codexcopilot-v8-warm-up-and-opencode-db-pre-init-image-size) | Deactivate codex/copilot V8 warm-up and OpenCode DB pre-init (image size) | Build / Container |
+| [AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk) | Keep OpenVSCode upstream-clean and accept known vulnerability risk | Security, Build / Container |
 
 ---
 
@@ -2376,6 +2377,22 @@ The manifest is baselined from current content **only when absent** (the first s
 **Related:** [container.md § V8 Compile Cache Warm-Up](../lanes/architecture.md#container-v8-compile-cache-warm-up), [container.md § OpenCode Database Pre-Initialization](../lanes/architecture.md#container-opencode-database-pre-initialization).
 
 ---
+
+### AD97: Keep OpenVSCode upstream-clean and accept known vulnerability risk
+
+**Category:** Security, Build / Container
+
+**Status:** Accepted (2026-07-12).
+
+**Context:** The pinned OpenVSCode release installed by the [Dockerfile](../../Dockerfile) includes upstream packages and bundled extensions reported with known HIGH/CRITICAL vulnerabilities, including command-injection and remote-code-execution classes. Repositories opened in the editor are untrusted input, and a successful exploit could access that session's workspace and credentials. Codeflare's container isolation, inspection, and platform guardrails reduce blast radius and improve detection; they do not eliminate this risk. The accepted findings remain explicit in [`.trivyignore`](../../.trivyignore) and in the [security reference](../lanes/security.md#openvscode-upstream-vulnerability-acceptance).
+
+**Decision:** Ship the pinned OpenVSCode artifact unchanged. Clean upstream version bumps take precedence over local vendored-package rewrites, extension removal, or a Codeflare-maintained fork because a locally modified artifact would obscure provenance, complicate verification, and make each upstream security update harder to adopt. This is an explicit acceptance of the known vulnerability and RCE risk, not a claim that session isolation makes the artifact safe.
+
+**Alternatives rejected:** Disable the Browser IDE until upstream clears every finding; patch or fork OpenVSCode and its bundled packages locally; remove vulnerable bundled extensions; or publish a separately patched artifact. Each can reduce current exposure, but each either removes the approved product surface or creates a local artifact lifecycle that competes with prompt upstream upgrades.
+
+**Consequences:** Operators accept the documented editor risk while retaining reproducible, upstream-clean upgrades. Enterprise mitigations are per-session Codeflare container isolation plus enterprise inspection and guardrails; they constrain and observe the workload but cannot guarantee containment of an editor exploit. Every OpenVSCode upstream bump must re-review this decision, the scanner exceptions, and available fixed releases. Review is also required immediately when credible evidence shows critical exploitation in the wild or a materially more severe reachable exploit path. Acceptance expires at either trigger until the review records whether to upgrade, disable, or renew the decision.
+
+**Related:** [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy), [Browser IDE security](../lanes/security.md#openvscode-upstream-vulnerability-acceptance).
 
 ---
 
