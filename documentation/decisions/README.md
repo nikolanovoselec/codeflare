@@ -818,7 +818,9 @@ A future contributor who adds a SessionStart-style ctx_* nudge, a context-mode s
 - Runtime wiring:
 
 `entrypoint.sh` registers the `context-mode` MCP server in `~/.claude.json` (`command: "context-mode"`, no args) and appends four `context-mode hook claude-code <event>` commands to `~/.claude/settings.json` when the plugin manifest is present and `SESSION_MODE=advanced`. Mirrors the wiring path used by `codeflare-memory` and `codeflare-hooks`.
-- Build-time install: the Dockerfile runs `npm install -g context-mode@<ver>` reading the version from `preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json`, then prepends a 2-line `createRequire` shim to both `cli.bundle.mjs` and `server.bundle.mjs` in the global install.
+- Build-time install: the Dockerfile installs the context-mode version declared by the Claude plugin manifest.
+
+  It then prepends the two-line `createRequire` shim to the global `cli.bundle.mjs` and `server.bundle.mjs` files.
 - Bun for executor perf:
 
 Bun is installed globally in the image (`npm install -g bun`). context-mode autodetects Bun on first run and uses it as the JS/TS subprocess runtime for `ctx_execute` / `ctx_batch_execute`. Bun starts short-lived JS subprocesses faster than Node, which adds up across hook-heavy sessions. No spec contract on the perf delta - if a Bun release regresses, context-mode falls back to Node. Bun is a perf-only addition; the shim above is what fixes #309.
@@ -1002,7 +1004,9 @@ The initial implementation defined only `--cf-*`-namespaced custom properties on
 - Users who want custom styling cannot achieve it without forking the project or opening a PR to `preseed/silverbullet/STYLES.md`. This is the explicit trade-off: brand consistency over per-user theming.
 - Preseed theme updates propagate to all users on next session boot with no per-user migration.
 - The always-overwrite contract is documented in `documentation/lanes/vault.md` (three-tier durability) and in the in-vault `README.md` so users discover the constraint before hand-editing.
-- The variable-namespace lesson is preserved in-source as a header comment in `STYLES.md` so future maintainers do not regress to a `--cf-*`-only theme; visual-regression smoke is documented in `documentation/lanes/vault.md` First-session Expectations (zinc base, blue accent, Inter body, JetBrains Mono code).
+- The variable-namespace lesson is preserved in the `STYLES.md` header so maintainers do not regress to a `--cf-*`-only theme.
+
+  The Vault first-session expectations document the zinc base, blue accent, Inter body, and JetBrains Mono code smoke check.
 
 **Alternative considered:** Ship `STYLES.md` as recreate-if-missing only, preserving user edits. Rejected: the same user who deletes `index.md` or `CONFIG.md` and expects automatic recovery (the always-overwrite contract for those files) would not expect `STYLES.md` to behave differently. Mixing tiers within the same set of preseed pages was deemed more confusing than the cost of disallowing in-place theme edits.
 
@@ -1216,7 +1220,9 @@ a future SB upstream change to the shell HTML template could break the `</head>`
 
 That buffer was empty immediately after a Pi reload/resume, so the first capture-boundary prompt produced a hollow "no substantive content" note even though the full session JSONL was on disk; reading the persisted file fixed it, and a skip-empty guard now suppresses the capture rather than writing a placeholder note.
 - Later refinement ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), 2026-06-19): Pi treats the `.vars` carrier as the pending-capture lock and advances the prompt counter only after the capture note is written.
-- Capture retry impact ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages) AC5-AC6): a stopped capture leaves the old counter intact and retries after the stale pending marker clears instead of skipping the 15-prompt window; source: `preseed/agents/pi/extensions/memory-vault.ts::memoryVarsPending`, `preseed/agents/pi/extensions/memory-vault.ts::captureVars`, and `preseed/agents/pi/prompts/memory-agent-prompt.md::Advance the counter and clear the pending marker`.
+- Capture retry impact ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages) AC5-AC6): a stopped capture keeps the prior counter and retries after the stale pending marker clears.
+
+  Sources: `memory-vault.ts::memoryVarsPending`, `memory-vault.ts::captureVars`, and `memory-agent-prompt.md::Advance the counter and clear the pending marker`.
 
 **Alternative considered:** Keep the thin inline Pi contract and ratchet its prompt. Rejected for the same reason [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) rejected prompt-only tightening: recency bias is a function of feeding raw tool records to the model, not a prompt-comprehension gap, and a divergent contract drifts from the [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) source of truth over time.
 
@@ -1650,7 +1656,9 @@ Identity-driven budgets are additionally a closed beta. Net: keep `AIG_TOKEN` + 
 
 - Pi and Claude graphify queries share one engine — no divergent third-party reimplementation.
 - The Pi npm closure shrinks by `@gaodes/pi-graphify` (and the transitive `@gaodes/pi-utils-ui`); `bump-shadow-pins.yml` and `dependabot.yml` no longer track it.
-- Graph resolution is codified in source: the session/job cwd repo's `graphify-out/graph.json` wins, then the same-repo active sentinel graph, then the merged global graph (`~/.graphify/global-graph.json`); a graphless session fails soft with a "build a graph first" message.
+- Graph resolution prefers the current repository graph, then the same-repository active sentinel graph, then the merged global graph.
+
+  A graphless session fails softly with a "build a graph first" message.
 - Durable review lanes load `graphify-native.ts` via explicit `-e`, plus `review-lane-guards.ts` and settings-enabled context-mode, so reviewers keep graphify tools without loading `codeflare-pi.ts` or recursive review enforcement.
 - The `save-result` feedback loop is restored in both agents' graphify skills, which move to the `references/` progressive-disclosure layout.
 - Clone-time triage (detect graph, prompt build/update/skip) is unchanged in both agents — only the query-tool provider changed.
@@ -1678,7 +1686,9 @@ Load only explicit `-e` extensions: `graphify-native.ts`, `review-lane-guards.ts
 **Consequences:**
 
 - Lanes survive the spawning session and are reaped from disk. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::reapDurableReviewLanes -->
-- The idle reaper advances durable jobs without a user turn, and completed windows start a background `review-monitor` that reports `REVIEW_RESULT` back to the main session. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview -->
+- The idle reaper advances durable jobs without a user turn.
+
+  Completed windows start a background review monitor that reports `REVIEW_RESULT` to the main session. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview -->
 - Reviewers get a bounded inspection tool allowlist: bash for git/gh inspection, graphify tools, local-build blockers, and optional `ctx_search`.
 - Lanes do not load `codeflare-pi.ts`, `review-enforcement`, or `@gotgenes/pi-subagents`.
 
@@ -1763,7 +1773,7 @@ The host pre-warm (REQ-SESSION-015) treats first PTY output as its readiness sig
 
 **Decision:** Bake a warmed jiti cache into the image. A Dockerfile layer runs a throwaway `pi -p` at build with `TMPDIR` redirected, against an agent dir that mirrors the runtime layout (npm symlinked to the image preseed cache; package list **derived** from the preseed `package.json`, never duplicated), then moves the result to `/opt/codeflare/jiti-cache` and **fails the build if the cache is empty**.
 
-The entrypoint symlinks `/tmp/jiti` → the baked cache at boot (the same pattern as the npm preseed `node_modules` symlink). <!-- @impl: Dockerfile --> <!-- @impl: entrypoint.sh --> All coding agents — pi included — stay `@latest` (user policy: agents auto-update at every deploy); the bake remains self-consistent under `@latest` because the warm run executes with the exact pi installed in the same build, so the cache is always generated by the same pi/jiti that consumes it at runtime. (One residual cold path: a Fast-Start-disabled session runs `pi update` at start, and a pi that updates past the image version may miss the baked cache — it then transpiles cold once, which is the pre-existing Fast-Start-disabled cost profile.)
+The entrypoint symlinks `/tmp/jiti` → the baked cache at boot (the same pattern as the npm preseed `node_modules` symlink). <!-- @impl: Dockerfile::PI_CODING_AGENT_DIR --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> All coding agents — pi included — stay `@latest` (user policy: agents auto-update at every deploy); the bake remains self-consistent under `@latest` because the warm run executes with the exact pi installed in the same build, so the cache is always generated by the same pi/jiti that consumes it at runtime. (One residual cold path: a Fast-Start-disabled session runs `pi update` at start, and a pi that updates past the image version may miss the baked cache — it then transpiles cold once, which is the pre-existing Fast-Start-disabled cost profile.)
 
 **Rationale:** The bake works only when the warm run transpiles each extension at the **exact path Pi loads it from at runtime** — jiti's cache key is path-sensitive (`hash(abspath + source + jiti version)`), not content-addressed, so an entry hits only when both the path and the bytes match. (The original 2026-06-10 rationale assumed a content-only key; that was corrected 2026-06-28 under REQ-STOR-017 — see Update below.
 
@@ -1771,7 +1781,7 @@ The live "153/153 cache hits" validation at the time covered the npm packages, w
 
 **Update (2026-06-28, REQ-STOR-017):** Empirical testing proved jiti's key is path-sensitive — identical bytes at two paths produce two cache entries that never hit each other — so the original warm bake at a throwaway `TMPDIR` path never hit for the extension `.ts` files, and every advanced session cold-transpiled them (~2.4s).
 
-Three changes close this: the warm bake now runs at the real runtime paths (`PI_CODING_AGENT_DIR=/home/user/.pi/agent`, `HOME=/home/user`); `entrypoint.sh::relay_managed_pi_extensions` re-lays the image-baked managed extension bytes after each R2 restore so the content half also matches in **all** deployment modes (not just Governed); and the empty-cache guard was hardened to a per-extension fail-closed assertion — every extension must produce a baked `extensions-<base>.<hash>.mjs` entry or the build fails. <!-- @impl: Dockerfile --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
+Three changes close this: the warm bake now runs at the real runtime paths (`PI_CODING_AGENT_DIR=/home/user/.pi/agent`, `HOME=/home/user`); `entrypoint.sh::relay_managed_pi_extensions` re-lays the image-baked managed extension bytes after each R2 restore so the content half also matches in **all** deployment modes (not just Governed); and the empty-cache guard was hardened to a per-extension fail-closed assertion — every extension must produce a baked `extensions-<base>.<hash>.mjs` entry or the build fails. <!-- @impl: Dockerfile::PI_CODING_AGENT_DIR --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
 
 **Alternatives considered:**
 
@@ -1875,7 +1885,9 @@ Short-lived GitHub App tokens cap the exfiltration value there.
 
 **Context:** A request asked to key the SilverBullet (SB) vault IndexedDB to the user's R2 bucket ID instead of the session ID so the SB store would persist across sessions, and proposed achieving this by making the encryption key bucket-stable. Reading the vendored SB worker disproves the premise. SB derives its IndexedDB name as `sb_<type>_<SHA-256(`${spaceFolderPath}:${Ie}:${keyDigest}`)>`, built by `Xe(type, spaceFolderPath, Ie, key)` in `src/routes/vault-native-sw.ts` (verbatim SilverBullet code; call site `let i=t.spaceFolderPath,n=await Xe("files",i,Ie,y)`).
 
-Of the three inputs: `spaceFolderPath` is the constant `/home/user/Vault`; `keyDigest` is a digest of the per-session encryption key; and `Ie` is the service-worker/page **directory URL** — `Ie = location.href.substring(0, location.href.length - kt.length - 1)`. The vault editor and its worker are served at `/api/vault/<sid>/` and `/api/vault/<sid>/service_worker.js` (e.g. `web-ui/src/lib/vault-prewarm.ts`, `vault-local-readiness.ts`), so `Ie = https://<domain>/api/vault/<sid>` and **carries the per-session session id**. Each new session has a new `sid` → a new `Ie` → a different SHA-256 → a different DB id, regardless of the key. Therefore a bucket-stable key alone would NOT persist the SB IndexedDB across sessions; the DB id is dominated by the per-session vault URL, not the key.
+Of the three inputs: `spaceFolderPath` is the constant `/home/user/Vault`; `keyDigest` is a digest of the per-session encryption key; and `Ie` is the service-worker/page **directory URL** — `Ie = location.href.substring(0, location.href.length - kt.length - 1)`. The vault editor and its worker are served at `/api/vault/<sid>/` and `/api/vault/<sid>/service_worker.js` (e.g. `web-ui/src/lib/vault-prewarm.ts`, `vault-local-readiness.ts`), so `Ie = https://<domain>/api/vault/<sid>` and **carries the per-session session id**. Each new session has a new `sid` → a new `Ie` → a different SHA-256 → a different DB id, regardless of the key.
+
+Therefore a bucket-stable key alone would NOT persist the SB IndexedDB across sessions; the DB id is dominated by the per-session vault URL, not the key.
 
 Making the key bucket-stable would only weaken the forward-secrecy property of [AD59](#ad59-zero-ui-vault-encryption-with-per-session-do-storage-key) for no persistence gain, so it must not be done in isolation.
 
@@ -2066,7 +2078,9 @@ AD87 kept the narrowly-scoped "Browser Rendering - Edit" token in the container,
 - The real R2 key is removed from the container's blast radius:
 
 a prompt-injected read now yields only a non-secret placeholder; R2 access is gated by the worker-held key the agent cannot reach. This is the actual containment the egress boundary needs for R2.
-- The redundant per-request `KV.get` is gone; a per-op diagnostic log (`{h, sc, tx, rs, fMs}`) is shipped to attribute the ~196ms/op R2 wall time on deploy and choose the speed lever from data (it is a temporary diagnostic, removed once measured).
+- The redundant per-request `KV.get` is removed.
+
+  A temporary per-operation diagnostic (`{h, sc, tx, rs, fMs}`) attributes the measured R2 wall time so deployment data can identify the next speed improvement.
 - The placeholder trips entrypoint.sh's non-fatal "R2_ACCESS_KEY_ID contains unexpected characters (expected hex)" warning in strict mode (the placeholder is not hex); this is expected and harmless (rclone signs with the placeholder; the controller re-signs) — documented in the troubleshooting lane.
 
 **Related:** [AD86](#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network) (refined by this), [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off), [AD81](#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) (placeholder-credential containment precedent for GitHub), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token), [Security — Strict Gateway Egress](../lanes/security.md#strict-gateway-egress-enterprise-mode), [Architecture — Strict Gateway Egress](../lanes/architecture.md#strict-gateway-egress), [Configuration — Container env vars](../lanes/configuration.md), [Troubleshooting — Strict Gateway Egress](../lanes/troubleshooting.md).

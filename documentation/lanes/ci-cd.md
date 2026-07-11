@@ -24,9 +24,9 @@ Dependabot runs weekly against the `develop` branch for four npm package directo
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
 | `deploy.yml` | `workflow_run` when PR Checks complete green on `main` + `workflow_dispatch` (production/integration/enterprise/enterprise integration) | Full pipeline: tests, typecheck, Docker build, Trivy vulnerability scan, wrangler deploy, worker secrets. Deploy only fires after checks pass - eliminates the parallel-trigger race where a broken merge could deploy before checks failed. |
-| `test.yml` | PRs to `main` or `develop`, push to `main` + `workflow_dispatch` | PR checks: lint (oxlint), tests, typecheck, build verification, dead-code check (knip), `npm audit --omit=dev`, dependency review. Host-test lane installs rclone so the sync-filter suite runs instead of skipping. Push-to-`main` gives `deploy.yml` its post-merge signal; push-to-`develop` is omitted because the open develop→main PR's synchronize run already covers it. |
+| `test.yml` | PRs to `main` or `develop`, push to `main` + `workflow_dispatch` | Runs lint, tests, typecheck, build verification, dead-code and dependency checks. The host lane installs rclone. A green push-to-main run signals deploy; the open develop-to-main PR supplies develop coverage. |
 | `e2e.yml` | `workflow_dispatch` (integration/production) | E2E tests against deployed worker - sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop` -> `e2e-ui-mobile` |
-| `codeql.yml` | Push to `main`, PRs to `main`, weekly (Monday 06:00 UTC) | CodeQL static analysis for JavaScript/TypeScript vulnerabilities, uploads SARIF to GitHub Security. Scoped by `.github/codeql/codeql-config.yml`, which excludes the vendored Impeccable copy-edit scripts (`preseed/agents/*/skills/impeccable/scripts/**`) — third-party bundle code refreshed wholesale on each shadow-pin bump, never in the production request path (the CodeQL analog of the `.trivyignore` vendored-binary acceptances). |
+| `codeql.yml` | Push to `main`, PRs to `main`, weekly (Monday 06:00 UTC) | Scans JavaScript and TypeScript and uploads SARIF. Its config excludes vendored Impeccable scripts, which are refreshed wholesale by shadow-pin bumps and do not run in the production request path. |
 | `fuzz.yml` | PRs to `main`, weekly (Sunday 04:00 UTC) + `workflow_dispatch` | Property-based fuzzing with fast-check (50,000 iterations) |
 | `scorecard.yml` | Push to `main`, weekly (Monday 06:00 UTC) + `workflow_dispatch` | OSSF Scorecard security posture assessment, publishes results and uploads SARIF |
 | `pentest.yml` | Weekly (Monday 05:00 UTC) + `workflow_dispatch` | External black-box penetration testing: security headers, TLS, auth gate, info disclosure, injection attacks, HTTP methods |
@@ -233,7 +233,9 @@ E2E_MOBILE=1 npm run test:e2e:ui  # UI mobile tests only
 
 **Rule:** When modifying UI components or API routes, review and update corresponding E2E tests.
 
-- **Source -> test mapping:** Each source module has a corresponding E2E test file. Key mappings: `src/routes/session/` -> `e2e/api/sessions.test.ts`, `src/routes/storage/` -> `e2e/api/storage.test.ts`, `src/routes/setup/` -> `e2e/api/setup-status.test.ts`, `web-ui/.../Dashboard.tsx` -> `e2e/ui/dashboard.test.ts`. Run `grep -r 'data-testid' e2e/` to find all referenced test IDs.
+- **Source -> test mapping:** Session, storage, setup, and dashboard surfaces have corresponding E2E files.
+
+  Key mappings are `src/routes/session/` -> `e2e/api/sessions.test.ts`, `src/routes/storage/` -> `e2e/api/storage.test.ts`, `src/routes/setup/` -> `e2e/api/setup-status.test.ts`, and `web-ui/.../Dashboard.tsx` -> `e2e/ui/dashboard.test.ts`. Run `grep -r 'data-testid' e2e/` to find referenced test IDs.
 - **`data-testid` verification:** Every `data-testid` referenced in E2E tests must exist in the web-ui source. Grep to verify before committing.
 - **Cleanup:** `afterAll` hooks handle test cleanup. If tests fail mid-run, manually restore: `npx wrangler kv key put "setup:complete" "true" --namespace-id <id> --remote`
 

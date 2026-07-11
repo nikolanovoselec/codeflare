@@ -197,16 +197,9 @@ The recovery filter file starts empty on every container start and is never sync
 The storage browser reads directly from R2 via the Worker API (not the container
 filesystem) and renders as a side drawer on desktop, a bottom-sheet on mobile.
 
-**Folder paths.** Because rclone bisyncs the whole `/home/user` home directory to the
-bucket root, every folder maps to a real in-container directory. Each folder row shows
-that path in `~/<prefix>` form (`web-ui/src/components/storage/FileList.tsx::folderShortPath`) so operators can see
-where a prefix lands in the container — at any depth (`Documentation/guides/` →
-`~/Documentation/guides`) and for dotfolders (`.claude/` → `~/.claude`). Special folders
-(Vault, Uploads, Temporary, Workspace) instead show their canonical `containerPath`
-mapping, whose casing can differ from the R2 prefix (`workspace/` → `~/Workspace`).
-Within a row the path is pinned to the right edge for every folder so all paths align
-identically; the special-folder container icon (a tooltip toggle) sits immediately after
-the folder name rather than trailing the row (`web-ui/src/components/storage/FileList.tsx`, `web-ui/src/styles/storage-browser.css`).
+**Folder paths.** Because rclone bisyncs the whole `/home/user` home directory to the bucket root, every folder maps to a real in-container directory. Each folder row shows that path in `~/<prefix>` form (`web-ui/src/components/storage/FileList.tsx::folderShortPath`) so operators can see where a prefix lands in the container — at any depth (`Documentation/guides/` → `~/Documentation/guides`) and for dotfolders (`.claude/` → `~/.claude`). Special folders (Vault, Uploads, Temporary, Workspace) instead show their canonical `containerPath` mapping, whose casing can differ from the R2 prefix (`workspace/` → `~/Workspace`).
+
+Within a row the path is pinned to the right edge for every folder so all paths align identically; the special-folder container icon (a tooltip toggle) sits immediately after the folder name rather than trailing the row (`web-ui/src/components/storage/FileList.tsx`, `web-ui/src/styles/storage-browser.css`).
 
 Clicking a file opens it inline in a new browser tab (served with an XSS-safe
 Content-Type + `nosniff`) rather than downloading it.
