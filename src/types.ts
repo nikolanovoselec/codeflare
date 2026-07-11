@@ -246,16 +246,6 @@ export interface TabConfig {
 }
 
 /**
- * Saved preset for quick session creation
- */
-export interface Preset {
-  id: string;
-  name: string;
-  tabs: TabConfig[];
-  createdAt: string;
-}
-
-/**
  * User preferences persisted across sessions
  */
 export type SleepAfterOption = '15m' | '30m' | '1h' | '2h' | '4h';
