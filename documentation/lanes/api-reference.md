@@ -23,7 +23,6 @@ Complete API endpoint reference for the Codeflare Worker.
 - [Discoverability Documents](#discoverability-documents)
 - [Setup](#setup)
 - [Storage (R2 File Browser)](#storage-r2-file-browser)
-- [Presets](#presets)
 - [Preferences](#preferences)
 - [LLM API Keys](#llm-api-keys)
 - [Public (Onboarding)](#public-onboarding)
@@ -530,10 +529,6 @@ Note: `/api/setup/detect-token` and `/api/setup/prefill` are also subject to the
 | POST | `/api/storage/upload/part` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Upload a single part (base64 body) |
 | POST | `/api/storage/upload/complete` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Complete multipart upload |
 | POST | `/api/storage/upload/abort` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Abort multipart upload |
-
-### Presets
-
-GET `/api/presets`, POST `/api/presets`, PATCH `/api/presets/:id` (rename), DELETE `/api/presets/:id`
 
 ### Preferences
 

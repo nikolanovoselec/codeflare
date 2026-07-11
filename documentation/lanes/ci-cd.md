@@ -187,7 +187,7 @@ Both root and `web-ui/` use Vitest v4.x with independent `node_modules` and sepa
 **Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:api`
 **Pattern:** Plain `fetch` via `apiRequest()` helper from `e2e/setup.ts`. No Puppeteer. Authenticates via `X-Service-Auth` header matching `SERVICE_AUTH_SECRET` worker secret.
 
-Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, `presets`, `setup-status`, `health`, `container`, `container-lifecycle`, `error-responses`, `rate-limiting`.
+Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, `setup-status`, `health`, `container`, `container-lifecycle`, `error-responses`, `rate-limiting`.
 
 ### E2E UI Tests
 
@@ -196,7 +196,7 @@ Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, 
 **Mobile:** `E2E_MOBILE=1 E2E_BASE_URL=... npm run test:e2e:ui`
 **Pattern:** Puppeteer + Vitest. Each suite creates a fresh page. Desktop viewport: 1280x720. Mobile viewport: 390x844 (iPhone-like).
 
-Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-panel`, `storage`, `terminal-tabs`, `tiling`, `bookmarks`, `error-states`, `mobile-specific`.
+Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-panel`, `storage`, `terminal-tabs`, `tiling`, `error-states`, `mobile-specific`.
 
 ### E2E Infrastructure
 
@@ -204,7 +204,7 @@ Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-pan
 - **KV eventual consistency:** New KV entries take ~60s to propagate. E2E setup job includes retry loops with 15s waits. Test helpers use `waitForFunction` with generous timeouts.
 - **CSS disable:** UI tests inject a `<style>` element via `evaluateOnNewDocument` that sets `transition: none !important; animation: none !important; scroll-behavior: auto !important` on all elements (`*, *::before, *::after`), disabling CSS transitions and animations for reliable element positioning in headless Chrome.
 - **Screenshot artifacts:** Failed UI tests capture screenshots and HTML dumps to `e2e-artifacts/`. CI uploads these as artifacts with 5-day retention.
-- **Suite prefix isolation:** Each E2E suite prefixes its test sessions/presets with a unique identifier driven by the `E2E_SUITE` env var (default: `'default'`) to avoid cross-suite interference when running in parallel.
+- **Suite prefix isolation:** Each E2E suite prefixes its test sessions with a unique identifier driven by the `E2E_SUITE` env var (default: `'default'`) to avoid cross-suite interference when running in parallel.
 
 ### E2E Service Token Setup
 

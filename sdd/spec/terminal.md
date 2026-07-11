@@ -357,33 +357,6 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 ---
 
-### REQ-TERM-010: Session presets (saved tab configurations)
-
-
-**Intent:** Users save and reuse their preferred tab layouts across sessions.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. Users can save the current tab configuration as a named preset. <!-- @impl: src/routes/presets.ts::app --> <!-- @test: src/__tests__/routes/presets-req-term-010.test.ts (POST preset name+tabs + 201) --> <!-- @test: web-ui/src/__tests__/stores/session-presets-ac-coverage.test.ts (savePreset state append) -->
-2. Each user is capped at a small fixed number of presets to keep the preset picker scannable. <!-- @impl: src/routes/presets.ts::app --> <!-- @test: src/__tests__/routes/presets-req-term-010.test.ts (3-max cap enforcement) -->
-3. Presets are exposed via a dedicated CRUD endpoint set. <!-- @impl: src/routes/presets.ts::app --> <!-- @test: src/__tests__/routes/presets-req-term-010.test.ts (POST/GET/PATCH/DELETE CRUD endpoints) --> <!-- @test: src/__tests__/routes/presets.test.ts (Presets Routes GET/POST/DELETE) -->
-4. Applying a preset to a new session populates the tab configuration from the preset. <!-- @impl: web-ui/src/stores/session-presets.ts::applyPresetToSession --> <!-- @test: web-ui/src/__tests__/stores/session-presets-ac-coverage.test.ts (applyPresetToSession populates tabConfig + tab 1 preserved + 404 on missing) -->
-5. Deleting a preset removes it from the user's preset list. <!-- @impl: src/routes/presets.ts::app --> <!-- @test: src/__tests__/routes/presets-req-term-010.test.ts (DELETE removes preset from list) -->
-
-**Constraints:** None.
-
-**Priority:** P2
-
-**Dependencies:** [REQ-TERM-001](#req-term-001-up-to-6-terminal-tabs-per-session)
-
-**Verification:** [Integration test](../../src/__tests__/routes/presets-req-term-010.test.ts)
-
-**Status:** Implemented
-
----
-
 ### REQ-TERM-011: Visible terminal panes own WebSocket connections
 
 **Intent:** Terminal WebSockets are opened only for terminal panes that are visible in the current browser workspace, preventing hidden sessions from attaching to PTYs and sending stale resize or input traffic.

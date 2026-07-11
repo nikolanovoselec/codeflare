@@ -23,7 +23,7 @@ That's it. The rest of this page is for the curious.
 | 1 | Your AI agent | Pre-warmed during container startup. Already loaded when you click Open. |
 | 2-6 | bash | Five blank canvases. Run whatever you want. I don't judge. |
 
-Tabs 2-6 are draggable. Rearrange them however you want - save your layout using Bookmarks.
+Tabs 2-6 are draggable. Rearrange them however you want.
 
 **Tiling mode** - button in the top-right corner. View 2-4 terminals side by side instead of switching tabs. Agent in one pane, lazygit in another, htop keeping an eye on things in the third. Once you tile, you don't go back.
 
