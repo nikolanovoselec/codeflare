@@ -126,10 +126,8 @@ function setupElement(el: HTMLElement): void {
 function initScramble(): void {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   // The ghost/overlay structure (setupElement) makes the churn footprint-stable, so the
-  // headline never reflows at any width. The churn is still held static below the
-  // layout's split breakpoint: a churning headline is louder than the calm the
-  // small-screen layout wants, and the server-rendered gradient reads cleanly alone.
-  if (!window.matchMedia('(min-width: 820px)').matches) return;
+  // headline never reflows at any width -- the churn therefore runs at every viewport
+  // size (mobile included), gated only on reduced-motion, never on width.
   for (const el of document.querySelectorAll<HTMLElement>('[data-scramble]')) {
     setupElement(el);
   }

@@ -38,8 +38,11 @@ function buildScrambleFixture(targetText: string): HTMLElement {
 function mockMatchMedia(prefersReducedMotion: boolean, wideViewport = true): void {
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
-    // Query-aware: the reduced-motion query returns prefersReducedMotion; the
-    // min-width gate returns wideViewport (default true = desktop, where the churn runs).
+    // Query-aware: the reduced-motion query returns prefersReducedMotion. Any other query
+    // (a hypothetical min-width gate) returns wideViewport; the churn must run regardless of
+    // it -- it is gated only on reduced-motion, never on viewport width. Passing
+    // wideViewport=false simulates a narrow/mobile viewport as a regression guard: if a
+    // width gate is ever re-added, the churn would stop and the mobile test below would fail.
     value: vi.fn().mockImplementation((query: string) => ({
       matches: query.includes('prefers-reduced-motion') ? prefersReducedMotion : wideViewport,
       addEventListener: vi.fn(),
@@ -155,23 +158,32 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     expect(document.querySelectorAll('.scramble-word').length).toBe(0);
   });
 
-  it('REQ-LANDING-001: below the layout split breakpoint the accent stays static (no churn spans)', async () => {
+  it('REQ-LANDING-001: the churn runs at narrow (mobile) viewport width too — gated only on reduced-motion, never on width', async () => {
     const target = 'assistant';
-    const el = buildScrambleFixture(target);
-    // Motion is allowed, but the viewport is narrow (< 820px): the churn must NOT run,
-    // because a full-width churning headline reflows between one and two lines and
-    // shoves the page (the reported mobile flicker).
+    buildScrambleFixture(target);
+    // Motion is allowed and the viewport is narrow (a min-width query reports false). The
+    // footprint-stable ghost/overlay means the churn no longer reflows the headline, so it
+    // runs on mobile as well — width is not a gate. If a width gate is ever reintroduced the
+    // churn would stop under this mock and this assertion would fail.
     mockMatchMedia(false, false);
     mockFontsReady();
 
     await import('../scripts/scramble');
     await Promise.resolve();
     vi.runAllTicks();
-    vi.advanceTimersByTime(ONE_CYCLE_MS);
 
-    // The server-rendered gradient stands, untouched: no word spans, text intact.
-    expect(el.textContent).toBe(target);
-    expect(document.querySelectorAll('.scramble-word').length).toBe(0);
+    // The churn overlay is created and actually mutates even at mobile width.
+    const live = document.querySelector<HTMLElement>('.scramble-word');
+    expect(live).not.toBeNull();
+    let sawScramble = false;
+    for (let t = 0; t < ONE_CYCLE_MS; t += 50) {
+      vi.advanceTimersByTime(50);
+      if (live!.textContent && live!.textContent !== target) {
+        sawScramble = true;
+        break;
+      }
+    }
+    expect(sawScramble).toBe(true);
   });
 
   it('REQ-LANDING-001: each churning word paints on an out-of-flow .scramble-word overlay above a hidden resting-width ghost, so churn neither clips a glyph nor reflows the phrase', async () => {
