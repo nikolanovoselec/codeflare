@@ -17,7 +17,7 @@
   },
   "devDependencies": {
     "happy-dom": "^20.10.5",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.10"
   },
   "overrides": {
     "esbuild": "0.28.1"
