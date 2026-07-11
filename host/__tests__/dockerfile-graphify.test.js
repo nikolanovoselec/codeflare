@@ -140,15 +140,22 @@ describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026) / REQ-OPS-0
       dockerfile.includes('COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/'),
       'Dockerfile must copy the Pi package manifest for the image-time install'
     );
+    assert.ok(
+      dockerfile.includes('/opt/codeflare/pi-agent/npm') && dockerfile.includes('npm install --omit=dev'),
+      'Dockerfile must install Pi extension dependencies into the image-local cache'
+    );
+    assert.ok(
+      entrypoint.includes('warm_pi_npm_dependencies') && entrypoint.includes('Pi extension npm dependencies symlinked'),
+      'entrypoint must symlink the image-local Pi npm cache into ~/.pi/agent/npm after restore'
+    );
+  });
+
+  it('REQ-AGENT-001 AC6 (Pi SDK version bridge fails closed)', () => {
     // The prewarm Pi SDK is bridged to the global @latest runtime agent: the frozen
     // lockfile is dropped and replaced by an npm override forcing
     // @earendil-works/pi-coding-agent to the exact version the global install resolved,
     // then a lockfile-free reinstall. Keeps the prewarm SDK identical to the runtime
     // agent (no transitive drift, no stale-CVE shipping).
-    assert.ok(
-      dockerfile.includes('/opt/codeflare/pi-agent/npm') && dockerfile.includes('npm install --omit=dev'),
-      'Dockerfile must install Pi extension dependencies into the image-local cache'
-    );
     assert.ok(
       dockerfile.includes('@earendil-works/pi-coding-agent') && dockerfile.includes('rm -f package-lock.json'),
       'Dockerfile must bridge the prewarm Pi SDK to the global agent version via an npm override (dropping the frozen lockfile)'
@@ -157,9 +164,13 @@ describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026) / REQ-OPS-0
       dockerfile.includes('[ -n "$PI_VER" ]') && dockerfile.includes('INSTALLED_PI_VER'),
       'the Pi SDK version bridge must fail closed: abort on an unreadable version and assert the override pinned the transitive copy'
     );
+  });
+
+  it('REQ-AGENT-001 AC7 (claude verified by install-time smoke-test)', () => {
+    const active = dockerfile.split('\n').filter(l => !l.trim().startsWith('#')).join('\n');
     assert.ok(
-      entrypoint.includes('warm_pi_npm_dependencies') && entrypoint.includes('Pi extension npm dependencies symlinked'),
-      'entrypoint must symlink the image-local Pi npm cache into ~/.pi/agent/npm after restore'
+      /claude\s+--version/.test(active),
+      'Dockerfile must verify Claude Code with an install-time claude --version smoke-test, not the V8 warm-up block'
     );
   });
 

@@ -893,7 +893,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it('REQ-TERM-014 AC8: restores distance when an unchanged full buffer clamps viewport to the top', async () => {
+    it('REQ-TERM-014 AC7: restores distance when an unchanged full buffer clamps viewport to the top', async () => {
       const activeBuffer = { viewportY: 500, baseY: 1000 };
       const scrollLines = vi.fn((delta: number) => {
         activeBuffer.viewportY += delta;
@@ -940,7 +940,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       { name: 'base changes during write', beforeBaseY: 1000, beforeY: 500, afterBaseY: 999 },
       { name: 'viewport was already at top', beforeBaseY: 1000, beforeY: 0, afterBaseY: 1000 },
       { name: 'viewport was following bottom', beforeBaseY: 1000, beforeY: 1000, afterBaseY: 1000 },
-    ])('REQ-TERM-014 AC8: does not recover zero clamp when $name', async ({ beforeBaseY, beforeY, afterBaseY }) => {
+    ])('REQ-TERM-014 AC7: does not recover zero clamp when $name', async ({ beforeBaseY, beforeY, afterBaseY }) => {
       const activeBuffer = { viewportY: beforeY, baseY: beforeBaseY };
       const scrollLines = vi.fn((delta: number) => {
         activeBuffer.viewportY += delta;
