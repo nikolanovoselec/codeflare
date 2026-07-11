@@ -278,7 +278,7 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
     });
 
     describe('alternate-screen application scrolling', () => {
-      it('REQ-MOB-005 AC8: routes keyboard-closed vertical swipes as wheel input', () => {
+      it('REQ-MOB-017 AC1: routes keyboard-closed vertical swipes as wheel input', () => {
         (window as any).ontouchstart = null;
         const { terminal, triggerDataEvent, scrollLines, element } = createMockTerminal({
           bufferType: 'alternate',
@@ -306,7 +306,7 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         cleanup();
       });
 
-      it('REQ-MOB-005 AC8: routes keyboard-open vertical swipes as wheel input', () => {
+      it('REQ-MOB-017 AC1: routes keyboard-open vertical swipes as wheel input', () => {
         (window as any).ontouchstart = null;
         const { terminal, triggerDataEvent, scrollLines, element } = createMockTerminal({
           bufferType: 'alternate',

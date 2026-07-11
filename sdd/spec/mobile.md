@@ -183,8 +183,6 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 5. When the keyboard is closed and terminal scrollback is active, vertical swipes scroll that buffer directly. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (should call scrollLines on vertical swipe when keyboard is closed) -->
 6. Scroll sensitivity scales with the terminal's font metrics so a swipe travels the same number of lines on different font sizes. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (scroll distance scales proportionally to finger movement) -->
 7. When the keyboard is open and no fullscreen application captures wheel input, vertical swipes send arrow keys while horizontal swipes remain available. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (should call preventDefault and send up arrow; should send down arrow on downward swipe) -->
-8. In an alternate buffer with wheel-capable mouse tracking, vertical swipes send line-granularity wheel events to the fullscreen application whether the keyboard is open or closed. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-005 AC8: routes keyboard-closed vertical swipes as wheel input; REQ-MOB-005 AC8: routes keyboard-open vertical swipes as wheel input) -->
-
 **Constraints:**
 
 - Normal scrollback uses xterm's buffer-scroll API; alternate-screen application scrolling uses xterm's public DOM wheel pipeline so mouse-protocol encoding remains owned by xterm.
@@ -192,6 +190,28 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 **Priority:** P1
 
 **Dependencies:** [REQ-MOB-001](#req-mob-001-terminal-fully-usable-on-mobile-devices), [REQ-TERM-002](terminal.md#req-term-002-websocket-connection-to-container-pty)
+
+**Verification:** [Automated test](../../web-ui/src/__tests__/lib/touch-gestures.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-MOB-017: Fullscreen application touch scrolling
+
+**Intent:** Vertical swipes navigate application-owned history when a fullscreen terminal program uses the alternate buffer, preserving mobile access to conversations that do not use terminal scrollback.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. In an alternate buffer with wheel-capable mouse tracking, vertical swipes send line-granularity wheel events to the fullscreen application whether the keyboard is open or closed. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1: routes keyboard-closed vertical swipes as wheel input) -->
+
+**Constraints:** Normal scrollback remains owned by [REQ-MOB-005](#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MOB-005](#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll), [REQ-TERM-002](terminal.md#req-term-002-websocket-connection-to-container-pty)
 
 **Verification:** [Automated test](../../web-ui/src/__tests__/lib/touch-gestures.test.ts)
 
