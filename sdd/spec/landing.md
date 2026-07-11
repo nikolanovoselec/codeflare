@@ -233,7 +233,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 - The band reuses the shared `<Terminal>` chrome and the `feature-terminals.ts` reel; it introduces no new animation system or terminal frame.
 - No new color: recognition is carried by shape (the tab, the line-number gutter, the integrated terminal, the status bar), and the palette stays the page's one locked accent, never VS Code blue.
-- Client-side behavior is enhancement-only; the server-rendered resting state is fully legible.
+- Client-side behavior is enhancement-only; the server-rendered resting state is fully legible, including under prefers-reduced-motion.
 
 **Priority:** P3
 
