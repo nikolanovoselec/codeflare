@@ -8,6 +8,8 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/__tests__/setup.ts'],
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
+    // Compact per-test output in CI (dots + summary); full reporter locally.
+    reporters: process.env.CI ? ['dot'] : ['default'],
     server: {
       deps: {
         inline: [/@solidjs\/router/],

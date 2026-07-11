@@ -48,6 +48,11 @@ export default defineConfig({
     // .github/workflows/test.yml + deploy.yml (which still fails on any real failure).
     maxWorkers: 1,
 
+    // Compact per-test output in CI (dots + summary); full reporter locally.
+    // The deploy/test guards grep only the summary + pool-crash lines, which
+    // the dot reporter still prints.
+    reporters: process.env.CI ? ['dot'] : ['default'],
+
     // v8 coverage configuration (FIX-54)
     coverage: {
       provider: 'v8',
