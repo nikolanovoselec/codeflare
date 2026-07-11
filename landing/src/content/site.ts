@@ -646,29 +646,34 @@ export const IDE = {
     'The bridge between how you have always worked and how agents work now. Watch the ' +
     'agent move at machine speed in a familiar editor: files changing, the terminal ' +
     'streaming. Take the wheel and edit directly whenever you want.',
-  file: 'session.tsx',
-  fileAlt: 'agents.ts',
-  folder: '~/blast-from-the-past',
+  // Real files + snippet from the public codeflare-inference-mesh repo
+  // (packages/node-agent/internal/agent/proxy.go), so the mock shows actual
+  // codebase code rather than invented sample text.
+  file: 'proxy.go',
+  fileAlt: 'runtime.go',
+  folder: 'codeflare-inference-mesh',
   code: [
-    'export function Session() {',
-    "  const agent = useAgent('claude')",
-    '  return <Terminal live />',
+    'type ActiveCounter struct {',
+    '  value int64',
+    '}',
+    'func (c *ActiveCounter) Inc() {',
+    '  atomic.AddInt64(&c.value, 1)',
     '}',
   ],
   stream: [
     'git push  → PR Checks · GitHub Actions',
-    'agent edits session.tsx  +12 -3',
-    'gh run watch  ✓ test · CodeQL · fuzz',
+    'agent edits proxy.go  +12 -3',
+    'gh run watch  ✓ node-agent · router-worker',
     'review · 6 lanes · 0 findings',
-    'you edit line 2 · agent hands off',
+    'you edit runtime.go · agent hands off',
     'agent picks up at machine speed',
   ],
   status: {
     branch: 'main',
     sync: '✓ synced',
     ci: 'Actions: passing',
-    pos: 'Ln 2, Col 22',
-    lang: 'TSX',
+    pos: 'Ln 5, Col 3',
+    lang: 'Go',
   },
 };
 

@@ -1007,6 +1007,16 @@ svg {
   color: var(--text-dimmed);
 }
 
+/* Phone: match the .terminal-body mobile shrink so the code pane and the
+   integrated terminal below it stay the same size. Code keeps `pre` + scroll
+   (it must not reflow), unlike the wrapping transcript body. */
+@media (max-width: 680px) {
+  .ce-code {
+    font-size: 0.74rem;
+    padding: 1rem 1.05rem 0.4rem;
+  }
+}
+
 /* Integrated terminal: a panel label + the reel line. It reuses .terminal-body
    + .t-cmd + .ft-typed + .t-caret, so the ❯ prompt, command colour, and caret
    match the page's other terminals and feature-terminals.ts drives the loop. */
