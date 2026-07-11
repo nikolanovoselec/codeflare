@@ -141,7 +141,7 @@ describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026) / REQ-OPS-0
       'Dockerfile must copy the Pi package manifest for the image-time install'
     );
     assert.ok(
-      dockerfile.includes('/opt/codeflare/pi-agent/npm') && dockerfile.includes('npm install --omit=dev'),
+      dockerfile.includes('RUN cd /opt/codeflare/pi-agent/npm') && dockerfile.includes('npm install --omit=dev'),
       'Dockerfile must install Pi extension dependencies into the image-local cache'
     );
     assert.ok(
