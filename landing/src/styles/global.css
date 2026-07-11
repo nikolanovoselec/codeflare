@@ -353,6 +353,10 @@ svg {
   border-radius: 3px;
   background: var(--flare-gradient);
   box-shadow: 0 0 14px rgb(var(--accent-rgb) / 0.55);
+  /* Optical alignment: "codeflare" has no descenders, so its ink centre sits
+     ~0.7px above the flex box centre and the mark reads slightly low (its bottom
+     dips past the baseline). Nudge it up onto the text's optical centre. */
+  transform: translateY(-0.7px);
 }
 
 .nav-links {
