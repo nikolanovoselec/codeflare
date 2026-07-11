@@ -149,7 +149,15 @@ describe('_openvscode_supervise_loop / REQ-IDE-003 AC1+AC3 (lazy no-launch, rest
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
   function loopScript() {
-    return [extractFn('_openvscode_should_launch'), extractFn('_openvscode_launch_once'), extractFn('_openvscode_supervise_loop')].join('\n');
+    // export -f so the inner `timeout bash -c '_openvscode_supervise_loop'`
+    // inherits the helpers -- the exact mechanism start_openvscode_supervisor
+    // uses for its setsid subshell.
+    return [
+      extractFn('_openvscode_should_launch'),
+      extractFn('_openvscode_launch_once'),
+      extractFn('_openvscode_supervise_loop'),
+      'export -f _openvscode_should_launch _openvscode_launch_once _openvscode_supervise_loop',
+    ].join('\n');
   }
 
   it('never launches while the trigger is absent (lazy start)', () => {
