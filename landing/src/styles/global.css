@@ -937,18 +937,19 @@ svg {
 }
 
 /* --------------------------------------------------------------------------
-   Browser IDE band (REQ-LANDING-007): the VS Code window a traditional
-   developer already knows, built on the .terminal chrome. An editor tab in the
-   bar, a line-numbered code pane + an integrated terminal in the body, and an
-   editor status bar as the foot. Recognition comes from shape (the gutter, the
-   tab, the integrated terminal, the status bar); the palette stays the page's
-   one locked coral accent, never VS Code blue.
+   Browser IDE band (REQ-LANDING-007): the full VS Code workbench a traditional
+   developer already knows — activity rail, explorer file tree, editor tab, a
+   line-numbered code pane, an integrated terminal, and a status bar — built on
+   the shared .terminal chrome. The three-column workbench fills the width on
+   desktop; the rail and explorer fold away on narrow viewports, leaving the
+   editor + terminal full width. Recognition comes from shape; the palette stays
+   the page's one locked coral accent, never VS Code blue.
    -------------------------------------------------------------------------- */
 .code-editor {
   box-shadow: 0 18px 40px -28px rgb(0 0 0 / 0.6);
 }
 
-/* The .terminal-bar reads as an editor tab row. */
+/* The .terminal-bar reads as the editor tab row. */
 .ce-tab {
   display: inline-flex;
   align-items: center;
@@ -984,11 +985,146 @@ svg {
   text-overflow: ellipsis;
 }
 
+/* Workbench: mobile-first single column (editor only). The activity rail appears
+   at 600px and the explorer at 860px, so the desktop band is a filled
+   three-column editor with no dead horizontal space. Columns stretch to equal
+   height, so every panel background/hairline runs the full frame. */
+.ce-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Activity rail — the vertical icon strip. Hidden until there is room. */
+.ce-rail {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.5rem 0;
+  border-right: 1px solid var(--border-subtle);
+  background: rgb(var(--white-rgb) / 0.012);
+}
+
+.ce-rail-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 0.5rem 0;
+  color: var(--text-dimmed);
+}
+
+/* Active rail item: brighter icon + a 2px inset accent bar (VS Code's active-rail
+   tell, drawn with an inset shadow so it is not a banned side-stripe border). */
+.ce-rail-btn.is-active {
+  color: var(--text-secondary);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.ce-rail-scm {
+  position: relative;
+}
+
+.ce-rail-badge {
+  position: absolute;
+  top: 0.28rem;
+  right: 0.32rem;
+  min-width: 0.95rem;
+  height: 0.95rem;
+  padding: 0 0.2rem;
+  border-radius: 0.5rem;
+  background: var(--accent);
+  color: var(--bg-base);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 600;
+  line-height: 0.95rem;
+  text-align: center;
+}
+
+/* Explorer — the file tree. Hidden below desktop. */
+.ce-explorer {
+  display: none;
+  padding: 0.6rem 0 0.4rem;
+  border-right: 1px solid var(--border-subtle);
+  background: rgb(var(--white-rgb) / 0.008);
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-ui);
+  overflow: hidden;
+}
+
+.ce-explorer-head {
+  display: block;
+  padding: 0 0.9rem 0.5rem;
+  font-size: var(--fs-mono-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.ce-tree {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* One tree row. Depth indent (root at 0); the twist column keeps files aligned
+   under their folders. Folders read secondary, files muted, active file brighter. */
+.ce-node {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.16rem 0.6rem 0.16rem calc(0.6rem + var(--ce-depth) * 0.85rem);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.ce-node.is-root {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ce-node.is-file {
+  color: var(--text-muted);
+}
+
+/* Active file row: a calm coral-tinted background + brighter text (VS Code's
+   selected-row tell), not a side-stripe. */
+.ce-node.is-active {
+  background: rgb(var(--accent-rgb) / 0.1);
+  color: var(--text-primary);
+}
+
+.ce-twist {
+  flex: none;
+  width: 0.8ch;
+  color: var(--text-dimmed);
+}
+
+.ce-node-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ce-node .ce-dot {
+  margin-left: auto;
+}
+
+/* Editor main — code pane over the integrated terminal, filling the remaining
+   width. The code pane grows; the terminal is pinned to the bottom like VS Code's
+   panel, so the column never leaves a dead gap. */
+.ce-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 /* Code pane: line-numbered source. The gutter uses a CSS counter (no numbers
    hardcoded) and is the recognizable editor tell. Calm, static, single tone. */
 .ce-code {
+  flex: 1 1 auto;
   margin: 0;
-  padding: 1.1rem 1.25rem 0.5rem;
+  padding: 1.1rem 1.25rem 0.9rem;
   list-style: none;
   counter-reset: ce-ln;
   font-family: var(--font-mono);
@@ -1012,20 +1148,12 @@ svg {
   color: var(--text-dimmed);
 }
 
-/* Phone: match the .terminal-body mobile shrink so the code pane and the
-   integrated terminal below it stay the same size. Code keeps `pre` + scroll
-   (it must not reflow), unlike the wrapping transcript body. */
-@media (max-width: 680px) {
-  .ce-code {
-    font-size: 0.74rem;
-    padding: 1rem 1.05rem 0.4rem;
-  }
-}
-
-/* Integrated terminal: a panel label + the reel line. It reuses .terminal-body
-   + .t-cmd + .ft-typed + .t-caret, so the ❯ prompt, command colour, and caret
-   match the page's other terminals and feature-terminals.ts drives the loop. */
+/* Integrated terminal: a panel label + a couple of calm resting output lines and
+   the live reel command. It reuses .terminal-body + .t-cmd + .ft-typed +
+   .t-caret, so the ❯ prompt, command colour, and caret match the page's other
+   terminals and feature-terminals.ts drives the loop. Pinned to the bottom. */
 .ce-term {
+  margin-top: auto;
   border-top: 1px solid var(--border-subtle);
   background: rgb(var(--white-rgb) / 0.012);
 }
@@ -1078,6 +1206,36 @@ svg {
 /* Caret position + language push right, like VS Code's status bar. */
 .ce-pos {
   margin-left: auto;
+}
+
+/* The rail appears once there is room; the explorer at desktop. Each reveal adds
+   its column so the workbench stays filled edge to edge. */
+@media (min-width: 600px) {
+  .ce-workbench {
+    grid-template-columns: 2.85rem minmax(0, 1fr);
+  }
+  .ce-rail {
+    display: flex;
+  }
+}
+
+@media (min-width: 860px) {
+  .ce-workbench {
+    grid-template-columns: 2.85rem 13.5rem minmax(0, 1fr);
+  }
+  .ce-explorer {
+    display: block;
+  }
+}
+
+/* Phone: match the .terminal-body mobile shrink so the code pane and the
+   integrated terminal stay the same size. Code keeps `pre` + scroll (it must not
+   reflow), unlike the wrapping transcript body. */
+@media (max-width: 680px) {
+  .ce-code {
+    font-size: 0.74rem;
+    padding: 1rem 1.05rem 0.6rem;
+  }
 }
 
 /* --------------------------------------------------------------------------

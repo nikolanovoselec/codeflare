@@ -643,15 +643,32 @@ export const IDE = {
   id: 'ide',
   title: 'The editor you already know',
   lead:
-    'The bridge between how you have always worked and how agents work now. Watch the ' +
-    'agent move at machine speed in a familiar editor: files changing, the terminal ' +
-    'streaming. Take the wheel and edit directly whenever you want.',
+    'Visual Studio Code in your browser, running inside Codeflare: the editor you already ' +
+    "know, turned into a bird's-eye view across the agent's execution at machine speed. " +
+    'Files change, checks run, the integrated terminal streams, and you stay oriented in a ' +
+    'familiar workspace while the work moves faster than you could type it. Take the wheel ' +
+    'and edit directly whenever you want.',
   // Real files + snippet from the public codeflare-inference-mesh repo
   // (packages/node-agent/internal/agent/proxy.go), so the mock shows actual
   // codebase code rather than invented sample text.
   file: 'proxy.go',
   fileAlt: 'runtime.go',
   folder: 'codeflare-inference-mesh',
+  // Modified-file count shown on the source-control rail badge.
+  changes: 2,
+  // Explorer file tree (depth-indented rows). Real node-agent / router-worker
+  // files from the mesh repo; proxy.go is the active, modified file.
+  explorer: [
+    { label: 'codeflare-inference-mesh', depth: 0, kind: 'root' },
+    { label: 'packages', depth: 1, kind: 'folder-open' },
+    { label: 'node-agent', depth: 2, kind: 'folder-open' },
+    { label: 'proxy.go', depth: 3, kind: 'file', active: true, dot: true },
+    { label: 'runtime.go', depth: 3, kind: 'file' },
+    { label: 'scheduler.go', depth: 3, kind: 'file' },
+    { label: 'router-worker', depth: 2, kind: 'folder' },
+    { label: 'README.md', depth: 1, kind: 'file' },
+    { label: 'go.mod', depth: 1, kind: 'file' },
+  ],
   code: [
     'type ActiveCounter struct {',
     '  value int64',
@@ -659,6 +676,11 @@ export const IDE = {
     'func (c *ActiveCounter) Inc() {',
     '  atomic.AddInt64(&c.value, 1)',
     '}',
+  ],
+  // Resting integrated-terminal output above the live command line (calm, dim).
+  termLog: [
+    '✓ node-agent · router-worker  build · vet · test',
+    '✓ 6 review lanes · 0 findings',
   ],
   stream: [
     'git push  → PR Checks · GitHub Actions',
