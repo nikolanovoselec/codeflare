@@ -91,8 +91,8 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o 
     && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
 
 # Install zoxide from GitHub releases (pinned version, not in Debian bookworm repos)
-RUN ZOXIDE_VERSION="0.9.9" && \
-    ZOXIDE_SHA256="4ff057d3c4d957946937274c2b8be7af2a9bbae7f90a1b5e9baaa7cb65a20caa" && \
+RUN ZOXIDE_VERSION="0.10.0" && \
+    ZOXIDE_SHA256="2d93385b99f3e82cf2701609a1bffcad863fbeb75aa3fe7eb6be4d29be68b1ae" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/ajeetdsouza/zoxide/releases/download/v${ZOXIDE_VERSION}/zoxide-${ZOXIDE_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o /tmp/zoxide.tar.gz && \
     echo "${ZOXIDE_SHA256}  /tmp/zoxide.tar.gz" | sha256sum -c - && \
     tar xzf /tmp/zoxide.tar.gz -C /usr/local/bin zoxide && \
@@ -108,8 +108,8 @@ RUN YAZI_VERSION="26.5.6" && \
     mv /tmp/yazi/yazi-x86_64-unknown-linux-musl/yazi /usr/local/bin/yazi && \
     chmod +x /usr/local/bin/yazi && \
     rm -rf /tmp/yazi /tmp/yazi.zip
-RUN LAZYGIT_VERSION="0.62.2" && \
-    LAZYGIT_SHA256="8b9a4c2d0969cbea92b45c956dd2a44e1ba76900c9df49f1c60984045ce77984" && \
+RUN LAZYGIT_VERSION="0.63.0" && \
+    LAZYGIT_SHA256="cf5cfa3e116d7775f3600a51ec1d9ce7ba554a08b9566c7c2da83cb0023efabf" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_linux_x86_64.tar.gz" -o /tmp/lazygit.tar.gz && \
     echo "${LAZYGIT_SHA256}  /tmp/lazygit.tar.gz" | sha256sum -c - && \
     tar xzf /tmp/lazygit.tar.gz -C /usr/local/bin lazygit && \

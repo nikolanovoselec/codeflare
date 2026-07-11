@@ -26,13 +26,13 @@
   "devDependencies": {
     "@solidjs/testing-library": "^0.8.10",
     "@testing-library/jest-dom": "^6.9.1",
-    "@types/node": "^25.9.3",
+    "@types/node": "^26.1.1",
     "fast-check": "^4.8.0",
     "jsdom": "^29.1.1",
-    "knip": "^6.17.1",
-    "oxlint": "^1.70.0",
-    "typescript": "^6.0.3",
-    "vite": "^8.0.16",
+    "knip": "^6.26.0",
+    "oxlint": "^1.73.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.4",
     "vite-plugin-solid": "^2.11.12",
     "vitest": "^4.1.9"
   },
