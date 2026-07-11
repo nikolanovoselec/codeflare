@@ -389,7 +389,7 @@ svg {
    unauthenticated visitor back to the landing). A light nav affordance, distinct
    from the page's primary "Get in touch" CTA. Visible at every width. */
 
-/* The sign-in CTA reads "Enter Matrix" in the primary white (--text-primary,
+/* The sign-in CTA reads "Enter The Matrix" in the primary white (--text-primary,
    matching body text and the Inference Mesh heading) and decodes on hover/focus
    (scramble.ts [data-scramble-hover]). aria-label keeps it "Sign in". Solid white,
    not the flare gradient, so the churning word spans render white instead of the

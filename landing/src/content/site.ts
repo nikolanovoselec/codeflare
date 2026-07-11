@@ -126,12 +126,12 @@ export const NAV_LINKS: NavLink[] = [
   { label: 'Cost', href: '#cost' },
 ];
 
-/** The header sign-in CTA. The visible text is an on-theme "Enter Matrix"
+/** The header sign-in CTA. The visible text is an on-theme "Enter The Matrix"
  *  flourish that pays off the page's Metacortex / Thomas Anderson easter egg; the
  *  accessible name stays "Sign in" so the auth entry is unmistakable to assistive
  *  tech and scanners. The destination is APP_LINKS.signIn (config), unchanged. */
 export const HEADER_SIGN_IN = {
-  label: 'Enter Matrix',
+  label: 'Enter The Matrix',
   a11y: 'Sign in',
 };
 

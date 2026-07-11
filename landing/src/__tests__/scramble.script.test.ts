@@ -212,7 +212,7 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
   it('REQ-LANDING-006: the hover-decode sign-in CTA locks each word span to its resting width so the header never reflows', async () => {
     const el = document.createElement('a');
     el.setAttribute('data-scramble-hover', '');
-    el.textContent = 'Enter Matrix';
+    el.textContent = 'Enter The Matrix';
     document.body.appendChild(el);
     mockMatchMedia(false);
     mockFontsReady();
@@ -235,9 +235,9 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     vi.advanceTimersByTime(50); // fire the rAF that runs the width lock
 
     const spans = el.querySelectorAll<HTMLElement>('.scramble-word');
-    // "Enter" + "Matrix" -> two word boxes, each pinned to its measured resting width
-    // so the per-frame glyph churn cannot resize the button and shove the nav.
-    expect(spans.length).toBe(2);
+    // "Enter" + "The" + "Matrix" -> three word boxes, each pinned to its measured resting
+    // width so the per-frame glyph churn cannot resize the button and shove the nav.
+    expect(spans.length).toBe(3);
     for (const span of spans) {
       expect(span.style.display).toBe('inline-block');
       expect(span.style.width).toBe('42px');
