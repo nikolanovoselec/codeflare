@@ -92,10 +92,12 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. The subscribe endpoint activates the free tier directly without any payment-provider interaction. <!-- @impl: src/routes/auth.ts --> <!-- @impl: src/routes/billing.ts --> <!-- @test: src/__tests__/routes/auth.test.ts (auth route -> free tier subscribe path bypasses Stripe) -->
+1. The subscribe endpoint activates the free tier directly without any payment-provider interaction.
 2. The free tier has a zero monthly price. <!-- @impl: src/lib/subscription.ts::getDefaultTiers --> <!-- @test: src/__tests__/lib/subscription.test.ts (getDefaultTiers / REQ-SUB-001 AC1/AC2 (8 default tiers in canonical order) / REQ-SUB-003 (free tier requires no payment)) -->
-3. Even when the payment provider is configured, the free tier still bypasses external checkout. <!-- @impl: src/routes/auth.ts --> <!-- @test: src/__tests__/lib/subscription.test.ts (getDefaultTiers / REQ-SUB-001 AC1/AC2 (8 default tiers in canonical order) / REQ-SUB-003 (free tier requires no payment)) -->
-4. Free-tier users have no billing-state fields populated. <!-- @impl: src/routes/auth.ts --> <!-- @test: src/__tests__/lib/subscription.test.ts (getDefaultTiers / REQ-SUB-001 AC1/AC2 (8 default tiers in canonical order) / REQ-SUB-003 (free tier requires no payment)) -->
+3. Even when the payment provider is configured, the free tier still bypasses external checkout. <!-- @test: src/__tests__/lib/subscription.test.ts (getDefaultTiers / REQ-SUB-001 AC1/AC2 (8 default tiers in canonical order) / REQ-SUB-003 (free tier requires no payment)) -->
+4. Free-tier users have no billing-state fields populated. <!-- @test: src/__tests__/lib/subscription.test.ts (getDefaultTiers / REQ-SUB-001 AC1/AC2 (8 default tiers in canonical order) / REQ-SUB-003 (free tier requires no payment)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -106,7 +108,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** [Automated test](../../src/__tests__/lib/subscription.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -123,10 +125,12 @@ Tiers, billing, usage tracking, and quotas.
 1. When the payment provider is configured, the direct-subscribe endpoint rejects paid tiers with a clear "checkout required" error; only the free tier remains directly subscribable. <!-- @impl: src/routes/auth.ts::SubscribeSchema --> <!-- @test: src/__tests__/routes/auth-subscribe.test.ts (POST /auth/subscribe) -->
 2. The checkout endpoint creates a hosted checkout session pre-populated with the visitor's email and the tier/mode metadata, and returns the externally-hosted checkout URL. <!-- @impl: src/lib/stripe.ts::createCheckoutSession --> <!-- @test: src/__tests__/routes/billing.test.ts (POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-IPCountry) / REQ-SUB-004 (Stripe checkout session creation)) -->
 3. After payment, the provider sends a checkout-completed webhook that records the checkout outcome and triggers an authoritative state sync. <!-- @impl: src/routes/stripe-webhook.ts::handleCheckoutCompleted --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscription state) / REQ-SUB-015 (webhook handlers for updated/deleted/canceled)) -->
-4. The frontend polls the auth-status endpoint after the checkout redirect on a fixed interval with no bounded total wait (the poll has no deadline and continues until activation is observed) so subscription activation feels immediate to the user. <!-- @impl: web-ui/src/components/SubscribePage.tsx --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SUB-004 AC4: post-checkout activation polling) -->
-5. The webhook handler covers the three relevant lifecycle events: checkout completion, subscription update, and subscription deletion. <!-- @impl: src/routes/stripe-webhook.ts --> <!-- @test: src/__tests__/routes/billing.test.ts (POST /public/stripe/webhook) -->
+4. The frontend polls the auth-status endpoint after the checkout redirect on a fixed interval with no bounded total wait (the poll has no deadline and continues until activation is observed) so subscription activation feels immediate to the user. <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (REQ-SUB-004 AC4: post-checkout activation polling) -->
+5. The webhook handler covers the three relevant lifecycle events: checkout completion, subscription update, and subscription deletion. <!-- @test: src/__tests__/routes/billing.test.ts (POST /public/stripe/webhook) -->
 6. The webhook endpoint is publicly reachable but enforces signed-payload verification with a short timestamp tolerance. <!-- @impl: src/lib/stripe.ts::verifyWebhookSignature --> <!-- @test: src/__tests__/lib/stripe.test.ts (rejects missing timestamp) -->
-7. Webhook events are de-duplicated by event identifier with a multi-day retention window so replayed events do not double-apply. <!-- @impl: src/routes/stripe-webhook.ts --> <!-- @test: src/__tests__/routes/billing.test.ts (POST /public/stripe/webhook) -->
+7. Webhook events are de-duplicated by event identifier with a multi-day retention window so replayed events do not double-apply. <!-- @test: src/__tests__/routes/billing.test.ts (POST /public/stripe/webhook) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -138,7 +142,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-003](#req-sub-003-free-tier-requires-no-payment)
 
-**Verification:** [Integration test](../../src/__tests__/routes/auth-subscribe.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -270,12 +274,14 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. The admin tier-update endpoint accepts a full tier-configuration array and persists it to durable storage. <!-- @impl: src/routes/admin/tiers.ts --> <!-- @test: src/__tests__/routes/admin-tiers.test.ts (REQ-SUB-009 AC1: writes accepted tier array to tiers:config KV key) -->
-2. The admin Subscription Management panel exposes editable fields for all tier properties, including storage cap, monthly compute, maximum concurrent sessions, trial cap, and external price IDs. <!-- @impl: web-ui/src/components/admin/SubscriptionManagement.tsx --> <!-- @test: web-ui/src/__tests__/components/admin/SubscriptionManagement.test.tsx (SubscriptionManagement (Admin)) -->
+1. The admin tier-update endpoint accepts a full tier-configuration array and persists it to durable storage. <!-- @test: src/__tests__/routes/admin-tiers.test.ts (REQ-SUB-009 AC1: writes accepted tier array to tiers:config KV key) -->
+2. The admin Subscription Management panel exposes editable fields for all tier properties, including storage cap, monthly compute, maximum concurrent sessions, trial cap, and external price IDs. <!-- @test: web-ui/src/__tests__/components/admin/SubscriptionManagement.test.tsx (SubscriptionManagement (Admin)) -->
 3. Tier-configuration reads return the persisted admin configuration when present and fall back to the hardcoded defaults when absent. <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-009: getTierConfig KV-first with default fallback) -->
 4. Admin-saved values always take priority over defaults; absent fields fall back to defaults, present fields override. <!-- @impl: src/lib/subscription.ts::getTierConfig --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-009: getTierConfig KV-first with default fallback) -->
 5. The admin tier-update endpoint validates its input against a schema that covers every persisted tier property, so a save never silently drops a field. <!-- @impl: src/routes/admin/tiers.ts::PutTiersBodySchema --> <!-- @test: src/__tests__/routes/admin-tiers.test.ts (PUT /admin/tiers — REQ-SUB-009) -->
-6. All tier-management endpoints are admin-gated. <!-- @impl: src/routes/admin/tiers.ts --> <!-- @impl: src/routes/admin --> <!-- @test: src/__tests__/routes/admin-tiers.test.ts (REQ-SUB-009 AC6: returns 403 when user is not admin) -->
+6. All tier-management endpoints are admin-gated. <!-- @test: src/__tests__/routes/admin-tiers.test.ts (REQ-SUB-009 AC6: returns 403 when user is not admin) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -286,7 +292,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** [Automated test](../../src/__tests__/lib/subscription-req-sub-gaps.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -329,10 +335,12 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. When the payment provider is not configured, all tiers can be activated via the direct-subscribe endpoint without an external payment step. <!-- @impl: src/routes/auth.ts --> <!-- @impl: src/routes/billing.ts --> <!-- @test: src/__tests__/lib/stripe.test.ts (isStripeConfigured / REQ-SUB-011 (graceful degradation without Stripe: when STRIPE_SECRET_KEY unset, free tier remains usable, paid tiers are hidden)) -->
-2. Billing-state fields remain unset in user records on payment-less activation. <!-- @impl: src/routes/auth.ts --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-011 AC2: billing fields returned by getEffectiveTier are tier strings, not billing objects) -->
+1. When the payment provider is not configured, all tiers can be activated via the direct-subscribe endpoint without an external payment step. <!-- @test: src/__tests__/lib/stripe.test.ts (isStripeConfigured / REQ-SUB-011 (graceful degradation without Stripe: when STRIPE_SECRET_KEY unset, free tier remains usable, paid tiers are hidden)) -->
+2. Billing-state fields remain unset in user records on payment-less activation. <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-011 AC2: billing fields returned by getEffectiveTier are tier strings, not billing objects) -->
 3. The effective-tier resolver does not downgrade paid tiers when billing fields are absent and the payment provider is not configured. <!-- @impl: src/lib/subscription.ts::getEffectiveTier --> <!-- @test: src/__tests__/lib/subscription-req-sub-gaps.test.ts (REQ-SUB-011 AC3: getEffectiveTier does not downgrade paid tier when billingStatus is null) -->
 4. The subscribe page renders normally, showing tier comparisons without payment buttons. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: src/__tests__/lib/stripe.test.ts (isStripeConfigured / REQ-SUB-011 (graceful degradation without Stripe: when STRIPE_SECRET_KEY unset, free tier remains usable, paid tiers are hidden)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -343,7 +351,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** [Automated test](../../src/__tests__/lib/subscription-req-sub-gaps.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -392,7 +400,9 @@ Tiers, billing, usage tracking, and quotas.
 1. The tier-configuration lookup exposes the maximum-concurrent-sessions value for any tier. <!-- @impl: src/lib/subscription.ts::getUserTier --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (Session limits / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN with env overrides) / REQ-SEC-019 AC2 (per-user concurrent session caps)) -->
 2. Session creation is rejected when the count of running plus initializing sessions has reached the configured maximum. <!-- @impl: src/routes/container/lifecycle-validation.ts::validateSessionAndCheckLimits --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (Session limits / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN with env overrides) / REQ-SEC-019 AC2 (per-user concurrent session caps)) -->
 3. The frontend prevents starting a new session once the session limit is reached: at the limit the start-session control does not open the create dialog, and the limit is surfaced to the user via the session-limit popup ([REQ-SUB-019](#req-sub-019-session-limit-popup-in-frontend)). <!-- @impl: web-ui/src/stores/session.ts::isAtSessionLimit --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (Session limits / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN with env overrides) / REQ-SEC-019 AC2 (per-user concurrent session caps)) -->
-4. The session-status batch endpoint returns the tier maximum so the frontend can enforce limits client-side without a separate fetch. <!-- @impl: src/routes/session/lifecycle.ts --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) -->
+4. The session-status batch endpoint returns the tier maximum so the frontend can enforce limits client-side without a separate fetch. <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessionAndCheckLimits enforces per-tier MAX_SESSIONS at session start) / REQ-SUB-013 (concurrent session caps from MAX_SESSIONS_USER/MAX_SESSIONS_ADMIN)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -403,7 +413,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-SUB-012](#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** [Automated test](../../src/__tests__/routes/container-lifecycle.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -478,11 +488,13 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. The billing-portal endpoint creates a hosted billing-portal session and returns the portal URL. <!-- @impl: src/lib/stripe.ts::createPortalSession --> <!-- @test: src/__tests__/routes/billing.test.ts (POST /billing/portal / REQ-SUB-016 (Stripe customer portal for cancel/payment-method)) -->
-2. The plan-switch endpoint creates a portal session deep-linked into the subscription-update-confirmation flow with the new price pre-selected. <!-- @impl: src/routes/billing.ts --> <!-- @test: src/__tests__/lib/stripe.test.ts (CF-022: Stripe response validation) -->
+2. The plan-switch endpoint creates a portal session deep-linked into the subscription-update-confirmation flow with the new price pre-selected. <!-- @test: src/__tests__/lib/stripe.test.ts (CF-022: Stripe response validation) -->
 3. Plan switching requires the active subscription-item identifier, which the switch endpoint resolves from the payment provider before opening the portal session. <!-- @impl: src/routes/billing.ts::SwitchSchema --> <!-- @test: src/__tests__/routes/billing.test.ts (POST /billing/switch) -->
-4. If the subscription no longer exists at the payment provider, stale fields are cleaned up locally and the response asks the frontend to restart at checkout. <!-- @impl: src/routes/billing.ts --> <!-- @test: src/__tests__/routes/billing.test.ts (POST /public/stripe/webhook) -->
+4. If the subscription no longer exists at the payment provider, stale fields are cleaned up locally and the response asks the frontend to restart at checkout. <!-- @test: src/__tests__/routes/billing.test.ts (POST /public/stripe/webhook) -->
 5. Plan changes trigger the subscription-updated webhook which the state-sync routine picks up to update the persisted record. <!-- @impl: src/routes/stripe-webhook.ts::syncSubscriptionState --> <!-- @test: src/__tests__/routes/stripe-webhook.test.ts (handleCheckoutCompleted / REQ-SUB-005 (Stripe webhook syncs subscription state) / REQ-SUB-015 (webhook handlers for updated/deleted/canceled)) -->
-6. The portal endpoint requires an authenticated user with an associated payment-provider customer record and is rate-limited. <!-- @impl: src/routes/billing.ts --> <!-- @test: src/__tests__/routes/billing.test.ts (REQ-SUB-016 AC6: portal endpoint is rate-limited to 5 requests per minute per user) -->
+6. The portal endpoint requires an authenticated user with an associated payment-provider customer record and is rate-limited. <!-- @test: src/__tests__/routes/billing.test.ts (REQ-SUB-016 AC6: portal endpoint is rate-limited to 5 requests per minute per user) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -493,7 +505,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout), [REQ-SUB-012](#req-sub-012-billing-status-enforcement-effective-tier)
 
-**Verification:** [Integration test](../../src/__tests__/routes/billing.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -510,8 +522,10 @@ Tiers, billing, usage tracking, and quotas.
 1. The subscribe page shows a contact-style call-to-action for the Custom tier in place of a checkout button. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (AC1: selecting the Custom tier renders a contact CTA, not a checkout button) -->
 2. Activating the call-to-action sends an inquiry email to admins through a dedicated contact-team endpoint. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: src/__tests__/routes/contact-team.test.ts (POST /auth/contact-team — REQ-SUB-017: Enterprise tier contact flow) -->
 3. After activation, the control switches to a disabled confirmation state to prevent duplicate submissions. <!-- @impl: web-ui/src/components/SubscribePage.tsx::SubscribePage --> <!-- @test: web-ui/src/__tests__/components/SubscribePage.test.tsx (AC3: after activation the Custom-tier CTA switches to a disabled confirmation state) -->
-4. The endpoint is rate-limited to one inquiry per hour per user. <!-- @impl: src/routes/auth.ts --> <!-- @test: src/__tests__/routes/contact-team.test.ts (POST /auth/contact-team — REQ-SUB-017: Enterprise tier contact flow) -->
-5. When the email-provider integration is not configured, the endpoint still returns success and the inquiry is silently dropped. <!-- @impl: src/routes/auth.ts --> <!-- @test: src/__tests__/routes/contact-team.test.ts (POST /auth/contact-team — REQ-SUB-017: Enterprise tier contact flow) -->
+4. The endpoint is rate-limited to one inquiry per hour per user. <!-- @test: src/__tests__/routes/contact-team.test.ts (POST /auth/contact-team — REQ-SUB-017: Enterprise tier contact flow) -->
+5. When the email-provider integration is not configured, the endpoint still returns success and the inquiry is silently dropped. <!-- @test: src/__tests__/routes/contact-team.test.ts (POST /auth/contact-team — REQ-SUB-017: Enterprise tier contact flow) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -522,7 +536,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system)
 
-**Verification:** [Integration test](../../src/__tests__/routes/contact-team.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -565,7 +579,9 @@ Tiers, billing, usage tracking, and quotas.
 
 1. When the count of running plus initializing sessions reaches the tier maximum, the "New Session" control stays enabled but diverts to the session-limit popup instead of starting a session. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
 2. The popup explains the tier limit, showing the running-session count and a progress bar, with a dismiss control; it does not list individual sessions with per-session stop controls. <!-- @impl: web-ui/src/components/SessionLimitPopup.tsx::SessionLimitPopup --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
-3. The tier maximum is sourced from the session-status batch endpoint so the frontend and backend agree without an additional request. <!-- @impl: web-ui/src/stores/session.ts --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
+3. The tier maximum is sourced from the session-status batch endpoint so the frontend and backend agree without an additional request. <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:** None.
 
@@ -573,7 +589,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-013](#req-sub-013-concurrent-session-limits)
 
-**Verification:** [Integration test](../../web-ui/src/__tests__/components/Dashboard.test.tsx)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -617,11 +633,13 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. When a user starts checkout for a paid tier, the resulting subscription is anchored so that all recurring charges occur at the start of each calendar month (UTC). <!-- @impl: src/lib/kv-keys.ts::getNextUtcMonthStart --> <!-- @test: src/__tests__/routes/billing.test.ts (passes billingCycleAnchor for next 1st of month when trial already used (REQ-SUB-021)) -->
-2. The first charge is prorated for the partial period between the subscription's effective start (creation date for non-trial subscriptions, or trial end for trial subscriptions) and the next calendar-month boundary. <!-- @impl: src/routes/billing.ts --> <!-- @test: src/__tests__/routes/billing.test.ts (POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-IPCountry) / REQ-SUB-004 (Stripe checkout session creation)) -->
-3. Subsequent monthly charges occur at the start of each calendar month. <!-- @impl: src/lib/kv-keys.ts::getNextUtcMonthStart --> <!-- @test: src/__tests__/routes/billing.test.ts (billing-cycle-anchor describe -> 1st-of-UTC-month anchor + proration + trial-end anchor) -->
+2. The first charge is prorated for the partial period between the subscription's effective start (creation date for non-trial subscriptions, or trial end for trial subscriptions) and the next calendar-month boundary. <!-- @test: src/__tests__/routes/billing.test.ts (POST /billing/checkout / REQ-SUB-020 (multi-currency pricing from CF-IPCountry) / REQ-SUB-004 (Stripe checkout session creation)) -->
+3. Subsequent monthly charges occur at the start of each calendar month. <!-- @impl: src/lib/kv-keys.ts::getNextUtcMonthStart -->
 4. The monthly compute-quota reset and the billing-cycle charge both occur on the same calendar date so users never see a half-cycle where one resets and the other does not. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekeeper DO) / REQ-SUB-006 (real-time usage tracking: /ping increments seconds, /usage reads, alarm flushes to KV) / REQ-SUB-007 (quota enforcement: 402 returned when /ping detects over-quota mid-session)) -->
-5. Subscriptions created before this behavior was introduced retain their original billing anniversary; the spec does not require backfilling the new anchor. <!-- @impl: src/routes/stripe-webhook.ts --> <!-- @test: src/__tests__/routes/billing.test.ts (POST /public/stripe/webhook) -->
-6. When a free trial is active, the billing-cycle anchor is the first calendar-month boundary strictly after the trial ends, so billing begins on that anchor date once the trial completes (whether naturally or by early termination on quota consumption). Trial length itself is unaffected. <!-- @impl: src/routes/billing.ts --> <!-- @test: src/__tests__/routes/billing.test.ts (passes billingCycleAnchor after trial end when trial is active (REQ-SUB-021)) -->
+5. Subscriptions created before this behavior was introduced retain their original billing anniversary; the spec does not require backfilling the new anchor. <!-- @test: src/__tests__/routes/billing.test.ts (POST /public/stripe/webhook) -->
+6. When a free trial is active, the billing-cycle anchor is the first calendar-month boundary strictly after the trial ends, so billing begins on that anchor date once the trial completes (whether naturally or by early termination on quota consumption). Trial length itself is unaffected. <!-- @test: src/__tests__/routes/billing.test.ts (passes billingCycleAnchor after trial end when trial is active (REQ-SUB-021)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:** None.
 
@@ -629,6 +647,6 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-004](#req-sub-004-paid-tiers-integrate-with-stripe-checkout), [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do)
 
-**Verification:** [Automated test](../../src/__tests__/routes/billing.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented

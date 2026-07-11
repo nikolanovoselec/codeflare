@@ -538,3 +538,11 @@ Additional details:
 - [Authentication](security.md#authentication-environment-variables-for-saas-mode) - SaaS mode variables
 - [Security](security.md#credential-encryption-at-rest) - Encryption key details
 - [CI/CD](deployment.md#ci-and-cd-github-secrets-and-variables) - CI secrets and variables
+
+## Manual verification checklist
+
+Run the setup flow in staging from a clean configuration and again as an update; compare bindings, stored settings, public status, and idempotent outcomes with every AC.
+
+- [ ] [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth) — verify every acceptance criterion.
+- [ ] [REQ-SETUP-010](../../sdd/spec/setup.md#req-setup-010-social-share-preview-metadata-on-the-public-landing-page) — verify every acceptance criterion.
+- [ ] [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012-setup-wizard-step-sequence) — verify every acceptance criterion.

@@ -39,11 +39,13 @@ Multi-agent support, preseed system, and session modes.
 
 1. Seven agent types are defined: `claude-code`, `codex`, `copilot`, `antigravity`, `opencode`, `pi`, `bash`. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/lib/agent-config.test.ts (AGENT_COMMANDS exhaustiveness / REQ-AGENT-001 AC1/AC2 (seven agent types: claude-code, codex, copilot, antigravity, opencode, pi, bash; enforced via AgentTypeSchema)) -->
 2. The `AgentType` type is enforced via Zod schema (`AgentTypeSchema`). <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/lib/agent-config.test.ts (AGENT_COMMANDS exhaustiveness / REQ-AGENT-001 AC1/AC2 (seven agent types: claude-code, codex, copilot, antigravity, opencode, pi, bash; enforced via AgentTypeSchema)) -->
-3. Each agent's CLI is pre-installed in the container image as a global npm package (or native binary for Go-based agents). <!-- @impl: Dockerfile --> <!-- @impl: entrypoint.sh --> <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-001 AC3 (Node-based agent CLIs pre-installed globally via npm)) -->
-4. Of the Node.js-based agent CLIs, only Pi is pre-warmed at image build time so V8's compile cache is populated before first interactive launch; Codex and Copilot are excluded from the warm-up block (owner decision, image-size) and pay the compile cost on first launch. <!-- @impl: Dockerfile --> <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-001 AC4: only pi warms the V8 compile cache at build, codex/copilot deactivated) -->
-5. Pi extension npm dependencies are installed into an image-local cache at build time; the entrypoint symlinks `node_modules` to the cache so Pi starts without a first-launch package install. <!-- @impl: Dockerfile --> <!-- @impl: entrypoint.sh --> <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-001 AC5 (Pi extension npm dependencies preinstalled in image cache)) -->
-6. A build-time version bridge pins the transitive `@earendil-works/pi-coding-agent` dependency to the exact version the global runtime agent resolved (npm override plus a lockfile-free reinstall), failing the build closed if the version cannot be read or the pin does not hold. <!-- @impl: Dockerfile --> <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-001 AC6 (Pi SDK version bridge fails closed)) -->
-7. Claude Code is verified at build time by an install-time `claude --version` smoke-test rather than the dedicated V8 compile-cache warm-up block. <!-- @impl: Dockerfile --> <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-001 AC7 (claude verified by install-time smoke-test)) -->
+3. Each agent's CLI is pre-installed in the container image as a global npm package (or native binary for Go-based agents). <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-001 AC3 (Node-based agent CLIs pre-installed globally via npm)) -->
+4. Of the Node.js-based agent CLIs, only Pi is pre-warmed at image build time so V8's compile cache is populated before first interactive launch; Codex and Copilot are excluded from the warm-up block (owner decision, image-size) and pay the compile cost on first launch. <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-001 AC4: only pi warms the V8 compile cache at build, codex/copilot deactivated) -->
+5. Pi extension npm dependencies are installed into an image-local cache at build time; the entrypoint symlinks `node_modules` to the cache so Pi starts without a first-launch package install. <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-001 AC5 (Pi extension npm dependencies preinstalled in image cache)) -->
+6. A build-time version bridge pins the transitive `@earendil-works/pi-coding-agent` dependency to the exact version the global runtime agent resolved (npm override plus a lockfile-free reinstall), failing the build closed if the version cannot be read or the pin does not hold. <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-001 AC6 (Pi SDK version bridge fails closed)) -->
+7. Claude Code is verified at build time by an install-time `claude --version` smoke-test rather than the dedicated V8 compile-cache warm-up block. <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-001 AC7 (claude verified by install-time smoke-test)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -54,7 +56,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../src/__tests__/lib/agent-config.test.ts), [Dockerfile test](../../host/__tests__/dockerfile-graphify.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -70,10 +72,12 @@ Multi-agent support, preseed system, and session modes.
 
 1. `POST /api/sessions` accepts an optional `agentType` field in the request body. <!-- @impl: src/routes/session/crud.ts::UpdateSessionBody --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 AC2: POST /api/sessions accepts all seven valid agent types) -->
 2. Invalid agent types are rejected at session creation. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002 AC2: POST /api/sessions accepts all seven valid agent types) -->
-3. The selected agent type is persisted in the session record. <!-- @impl: src/routes/session/crud.ts --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002: Agent Selection at Session Creation) -->
-4. The UI defaults to the agent type used in the user's most recent session. <!-- @impl: src/routes/preferences.ts --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002: Agent Selection at Session Creation) -->
-5. When `agentType` is not specified, it defaults to `claude-code`. <!-- @impl: src/lib/agent-config.ts --> <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002: Agent Selection at Session Creation) -->
+3. The selected agent type is persisted in the session record. <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002: Agent Selection at Session Creation) -->
+4. The UI defaults to the agent type used in the user's most recent session. <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002: Agent Selection at Session Creation) -->
+5. When `agentType` is not specified, it defaults to `claude-code`. <!-- @test: src/__tests__/routes/session-agent-type.test.ts (REQ-AGENT-002: Agent Selection at Session Creation) -->
 6. The session-creation UI renders a `beta` badge on agents in preview status: `antigravity` and `opencode` carry the badge; all other agents (Claude Code, Codex, Copilot, Pi, Bash) render without one. <!-- @impl: web-ui/src/components/CreateSessionDialog.tsx::CreateSessionDialog --> <!-- @test: web-ui/src/__tests__/components/CreateSessionDialog.test.tsx (Agent type selection) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -84,7 +88,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** [Automated test](../../src/__tests__/lib/agent-config.test.ts), [Beta-badge UI test](../../web-ui/src/__tests__/components/CreateSessionDialog.test.tsx)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -102,8 +106,10 @@ Multi-agent support, preseed system, and session modes.
 2. Claude Code starts in permissions-bypass mode appropriate for an isolated sandbox container. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC1+AC2+AC4: default layout writes the claude --dangerously-skip-permissions launch line + hardened PATH into .bashrc) -->
 3. User-opened tabs beyond tab 1 do not auto-start an agent. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC3: generated .bashrc guards autostart with the MANUAL_TAB skip branch) -->
 4. The agent CLI is findable on the system PATH in all terminal sessions. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/prewarm-readiness.test.js (when tab 1 has a command / REQ-AGENT-003 (agent CLI auto-started in tab 1) / REQ-TERM-005 (pre-warm pty)) -->
-5. Pre-warm readiness is detected by first PTY output (any terminal output means the agent is ready). <!-- @impl: host/src/prewarm-config.ts::getPrewarmConfig --> <!-- @test: host/__tests__/prewarm-readiness.test.js (when tab 1 has a command / REQ-AGENT-003 (agent CLI auto-started in tab 1) / REQ-TERM-005 (pre-warm pty)) --> <!-- coverage-gap: prewarm readiness is detected by first PTY output inside the server.listen callback in host/src/server.ts (stateful PTY+timer closures, not a clean extraction); the getPrewarmConfig parser is covered by prewarm-readiness.test.js, but the readiness slice is integration/e2e-verified, not unit-testable -->
-6. A 20-second hard timeout exists as a safety net if the PTY produces no output. <!-- @impl: host/src/prewarm-config.ts::getPrewarmConfig --> <!-- coverage-gap: the 20-second hard-timeout safety net lives in the same server.listen callback in host/src/server.ts (un-importable, boots a listening server on import); integration/e2e-verified, not unit-testable in the node:test pool -->
+5. Pre-warm readiness is detected by first PTY output (any terminal output means the agent is ready). <!-- @impl: host/src/prewarm-config.ts::getPrewarmConfig --> <!-- @test: host/__tests__/prewarm-readiness.test.js (when tab 1 has a command / REQ-AGENT-003 (agent CLI auto-started in tab 1) / REQ-TERM-005 (pre-warm pty)) -->
+6. A 20-second hard timeout exists as a safety net if the PTY produces no output. <!-- @impl: host/src/prewarm-config.ts::getPrewarmConfig -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -115,7 +121,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-002](#req-agent-002-agent-selection-at-session-creation), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** [Integration test](../../host/__tests__/entrypoint-tab-autostart.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -129,12 +135,14 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. Session mode (Standard or Pro) is stored durably in the user's preferences record; the value is absent for users who have never expressed a preference. <!-- @impl: src/routes/preferences.ts --> <!-- @impl: src/lib/session-mode.ts --> <!-- @test: src/__tests__/lib/session-mode.test.ts (clampSessionModeToTier / REQ-SEC-015 (AC2 clamp at container start + AC3 canceled-user stale advanced => default)) -->
+1. Session mode (Standard or Pro) is stored durably in the user's preferences record; the value is absent for users who have never expressed a preference. <!-- @test: src/__tests__/lib/session-mode.test.ts (clampSessionModeToTier / REQ-SEC-015 (AC2 clamp at container start + AC3 canceled-user stale advanced => default)) -->
 2. A single resolver provides the default-to-Standard fallback when no preference is recorded; all callers read through the resolver rather than checking the raw field directly. <!-- @impl: src/lib/session-mode.ts::resolveSessionMode --> <!-- @test: src/__tests__/lib/session-mode.test.ts (resolveSessionMode / REQ-AGENT-004 (two session modes: default and advanced; default when prefs unset; honors persisted sessionMode)) -->
-3. Mode selection is available in Settings under the session-defaults area. <!-- @impl: web-ui/src/components --> <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (REQ-AGENT-004 AC3: mode selection in Settings session-defaults) -->
+3. Mode selection is available in Settings under the session-defaults area. <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (REQ-AGENT-004 AC3: mode selection in Settings session-defaults) -->
 4. Mode takes effect on any of: explicit "Recreate AI agent skills & rules" action, new bucket creation, payment-provider mode change (upgrade or downgrade via webhook), subscription termination, or Settings toggle of the session-mode preference. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-004 AC4: overwrite:true writes all docs regardless of existing state (recreate button)) -->
 5. On webhook-driven or Settings-driven reconciliation, preseed files are overwritten to match the new mode; user-created files are never deleted (see [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) Constraints). <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-004 AC5: cleanup:true deletes advanced-only keys when switching to default mode) -->
 6. Reconciliation triggered by webhooks or Settings is non-fatal: failure does not block the webhook response or the preference write. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-004 AC6: reconcileAgentConfigs is non-fatal when DELETE calls fail) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -145,7 +153,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../src/__tests__/lib/session-mode.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -159,10 +167,12 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. Pro mode delivers a strict superset of Standard mode's content — memory persistence, language rules, agent definitions, slash commands, skills, the spec/docs/tests discipline triad, and commit-attribution/PR-boundary review hooks. The per-content-category matrix lives in [documentation/preseed.md](../../documentation/lanes/architecture.md#preseed-session-modes). <!-- @impl: preseed/agents/claude/manifest.json --> <!-- @impl: src/lib/agent-seed.generated.ts --> <!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-005 + REQ-AGENT-014: getConfigsForMode) -->
-2. Pro mode enables persistent memory by including the user's Vault directory tree in the R2 sync filters so it syncs to their bucket; Standard mode excludes the Vault tree, so memory does not persist across container restarts. The legacy `.memory/` directory is no longer written. <!-- @impl: preseed/agents/claude/manifest.json --> <!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-005 AC2: getConfigsForMode("advanced") returns docs for both default and advanced modes) -->
-3. Pro-mode hooks fire uniformly regardless of tool surface — Custom tier routes commands through context-mode, other tiers run them directly — so commit attribution, the PR-boundary SDD review trigger, the unreviewed-PR turn-block, and prompt-cadence memory capture all fire identically on both paths. <!-- @impl: entrypoint.sh::CONTEXT_MODE_MANIFEST --> <!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-005 + REQ-AGENT-014: getConfigsForMode) --> <!-- coverage-gap: AC3 (Pro hooks fire uniformly across tool surfaces) — no single end-to-end automated test; partial coverage via entrypoint-hooks-merge hook-registration tests -->
+1. Pro mode delivers a strict superset of Standard mode's content — memory persistence, language rules, agent definitions, slash commands, skills, the spec/docs/tests discipline triad, and commit-attribution/PR-boundary review hooks. The per-content-category matrix lives in [documentation/preseed.md](../../documentation/lanes/architecture.md#preseed-session-modes). <!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-005 + REQ-AGENT-014: getConfigsForMode) -->
+2. Pro mode enables persistent memory by including the user's Vault directory tree in the R2 sync filters so it syncs to their bucket; Standard mode excludes the Vault tree, so memory does not persist across container restarts. The legacy `.memory/` directory is no longer written. <!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-005 AC2: getConfigsForMode("advanced") returns docs for both default and advanced modes) -->
+3. Pro-mode hooks fire uniformly regardless of tool surface — Custom tier routes commands through context-mode, other tiers run them directly — so commit attribution, the PR-boundary SDD review trigger, the unreviewed-PR turn-block, and prompt-cadence memory capture all fire identically on both paths. <!-- @impl: entrypoint.sh::CONTEXT_MODE_MANIFEST --> <!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-005 + REQ-AGENT-014: getConfigsForMode) -->
 4. Pi agents remain fully functional whether or not context-mode is active: native Bash/Read/Grep/Find/Edit/Write plus graphify tools suffice alone. Agent definitions declare context-mode helpers under Pi-native names (`ctx_execute`, `ctx_batch_execute`, `ctx_execute_file`, `ctx_search`, `ctx_fetch_and_index`) in frontmatter rather than stripped, so `/ctx off` drops them — no Pi-specific variants. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::commandText --> <!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-005: Pi agents keep context-mode tool declarations (inert when off); enforcement extension is removed) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -172,7 +182,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** [Automated test](../../host/__tests__/entrypoint-context-mode.test.js) (AC4); [Content-delivery superset test](../../src/__tests__/lib/r2-seed-mode-req-coverage.test.ts) (AC1, AC2). AC3 (Pro hooks fire uniformly across tool surfaces) has no single end-to-end automated test — carried as a coverage-gap.
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -186,13 +196,15 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. All preseed source files live in a single source tree organized by type (rules, agents, commands, skills, plugins). <!-- @impl: preseed/agents/claude/manifest.json --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-2. A declarative manifest maps each preseed file to its applicable session modes (default, advanced, or both). <!-- @impl: preseed/agents/claude/manifest.json --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
-3. A build-time seed generator reads the manifest and source files, producing the runtime payload the Worker ships to the container. <!-- @impl: scripts/generate-agent-seed.mjs --> <!-- @impl: src/lib/agent-seed.generated.ts --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
-4. The generator is manifest-driven; files not in the manifest are ignored. <!-- @impl: scripts/generate-agent-seed.mjs --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
-5. No duplicate preseed source files exist on disk. <!-- @impl: preseed/agents/claude/manifest.json --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
+1. All preseed source files live in a single source tree organized by type (rules, agents, commands, skills, plugins). <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+2. A declarative manifest maps each preseed file to its applicable session modes (default, advanced, or both). <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
+3. A build-time seed generator reads the manifest and source files, producing the runtime payload the Worker ships to the container. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
+4. The generator is manifest-driven; files not in the manifest are ignored. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
+5. No duplicate preseed source files exist on disk. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
 6. The generator produces output for all supported agents (Claude Code as the source-of-truth lane plus adapted lanes for Codex, Copilot, OpenCode, Antigravity, and Pi). <!-- @impl: scripts/generate-agent-seed.mjs::AGENT_CONFIGS --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 7. Shared operational rules, including git review-push gating and engineering work-continuity, are present in their Claude source rules and every adapted agent instruction file. <!-- @impl: scripts/generate-agent-seed.mjs::renderInstructionsFile --> <!-- @impl: src/lib/agent-seed.generated.ts::AGENTS_SEEDED_CONFIGS --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -203,7 +215,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -217,10 +229,12 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. Adapted configs are generated for all supported non-Claude agents from the Claude Code source. <!-- @impl: scripts/generate-agent-seed.mjs --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+1. Adapted configs are generated for all supported non-Claude agents from the Claude Code source. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 2. Tool names are remapped per agent (e.g., `Read` -> `read` for Codex and Pi). <!-- @impl: scripts/generate-agent-seed.mjs::PI_SDD_SKILLS --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 3. Instructions are concatenated into a single file for agents that use monolithic config (Codex: `AGENTS.md`, Copilot: `copilot-instructions.md`, OpenCode: `AGENTS.md`, Antigravity: `.gemini/GEMINI.md`, Pi: `AGENTS.md`). <!-- @impl: scripts/generate-agent-seed.mjs::AGENT_CONFIGS --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 4. Claude Code keeps individual rule files in `~/.claude/rules/`, and Pi receives native runtime-adapter assets for Pi extension/package/MCP/subagent surfaces. <!-- @impl: scripts/generate-agent-seed.mjs::CLAUDE_ONLY_SKILLS --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -234,7 +248,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -253,7 +267,9 @@ Multi-agent support, preseed system, and session modes.
 3. The container entrypoint merges agent settings using a hooks-aware merge: non-hook fields use recursive merge; hook arrays are rebuilt per event type by preserving user-added hooks and replacing managed (codeflare-owned) hooks with the current platform version. The managed-hook detector identifies a stable, enumerable set of codeflare-owned hook surfaces; per-path inventory lives in [documentation/lanes/architecture.md#preseed-reference](../../documentation/lanes/architecture.md#preseed-reference). <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings.json configuration / REQ-AGENT-015 (/review command)) -->
 4. In Pro mode, the settings merge includes the codeflare-owned hook registrations across the PreToolUse, PostToolUse, and UserPromptSubmit event families; Standard mode omits them. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings.json configuration / REQ-AGENT-015 (/review command)) -->
 5. The container entrypoint enables the codeflare-managed plugins in the agent's plugin configuration permanently (not mode-gated). Missing plugin files are silently skipped so a plugin removal does not break agent startup. <!-- @impl: entrypoint.sh::GRAPHIFY_BIN_DST --> <!-- @test: src/__tests__/lib/r2-seed.test.ts (seedAgentConfigs / REQ-AGENT-008 (preseed deployed to container on start) / REQ-STOR-010 (reconcileAgentConfigs deletes orphaned seed entries on tier change)) -->
-6. Settings merge handles three cases: file doesn't exist (create), file exists (recursive merge), file malformed (skip with warning). <!-- @impl: entrypoint.sh --> <!-- @test: src/__tests__/lib/r2-seed.test.ts (seedAgentConfigs / REQ-AGENT-008 (preseed deployed to container on start) / REQ-STOR-010 (reconcileAgentConfigs deletes orphaned seed entries on tier change)) -->
+6. Settings merge handles three cases: file doesn't exist (create), file exists (recursive merge), file malformed (skip with warning). <!-- @test: src/__tests__/lib/r2-seed.test.ts (seedAgentConfigs / REQ-AGENT-008 (preseed deployed to container on start) / REQ-STOR-010 (reconcileAgentConfigs deletes orphaned seed entries on tier change)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -266,7 +282,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** [Integration test](../../src/__tests__/lib/r2-seed.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -282,9 +298,11 @@ Multi-agent support, preseed system, and session modes.
 
 1. Users can store one or both supported LLM provider keys (OpenAI and Gemini) through a single management endpoint. <!-- @impl: src/routes/llm-keys.ts::validateOpenAIKey --> <!-- @test: src/__tests__/routes/llm-keys.test.ts (LLM Keys routes / REQ-AGENT-020 (LLM API key storage) / REQ-AGENT-009 (LLM API Key Storage endpoint shape, KV path, encryption-at-rest, masking, GET behaviour)) -->
 2. The update interface supports three semantics per key: a new value replaces, an explicit null deletes, an absent field leaves the existing value unchanged. <!-- @impl: src/routes/llm-keys.ts::app --> <!-- @test: src/__tests__/routes/llm-keys.test.ts (LLM Keys routes / REQ-AGENT-020 (LLM API key storage) / REQ-AGENT-009 (LLM API Key Storage endpoint shape, KV path, encryption-at-rest, masking, GET behaviour)) -->
-3. Keys are persisted in durable storage scoped to the user's bucket so two users cannot read each other's keys. <!-- @impl: src/routes/llm-keys.ts --> <!-- @test: src/__tests__/routes/llm-keys.test.ts (LLM Keys routes / REQ-AGENT-020 (LLM API key storage) / REQ-AGENT-009 (LLM API Key Storage endpoint shape, KV path, encryption-at-rest, masking, GET behaviour)) -->
+3. Keys are persisted in durable storage scoped to the user's bucket so two users cannot read each other's keys. <!-- @test: src/__tests__/routes/llm-keys.test.ts (LLM Keys routes / REQ-AGENT-020 (LLM API key storage) / REQ-AGENT-009 (LLM API Key Storage endpoint shape, KV path, encryption-at-rest, masking, GET behaviour)) -->
 4. When platform-level credential encryption is configured, values are encrypted before persistence. <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore --> <!-- @test: src/__tests__/routes/llm-keys.test.ts (LLM Keys routes / REQ-AGENT-020 (LLM API key storage) / REQ-AGENT-009 (LLM API Key Storage endpoint shape, KV path, encryption-at-rest, masking, GET behaviour)) -->
 5. Read responses return masked values (only the trailing characters are visible); the full key is never returned to the client. <!-- @impl: src/routes/llm-keys.ts::app --> <!-- @test: src/__tests__/routes/llm-keys.test.ts (LLM Keys routes / REQ-AGENT-020 (LLM API key storage) / REQ-AGENT-009 (LLM API Key Storage endpoint shape, KV path, encryption-at-rest, masking, GET behaviour)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -298,7 +316,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-SEC-004](security.md#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** [Automated test](../../src/__tests__/routes/llm-keys.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -314,8 +332,10 @@ Multi-agent support, preseed system, and session modes.
 
 1. Tokens are validated against the provider's own API before being stored, so an invalid or expired token is rejected up front rather than discovered at use time. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)) -->
 2. Read responses return masked tokens; the full value is never returned to the client. <!-- @impl: src/routes/deploy-keys.ts::app --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)) -->
-3. Users can clear all stored deploy credentials in a single action. <!-- @impl: src/routes/deploy-keys.ts --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)) -->
+3. Users can clear all stored deploy credentials in a single action. <!-- @test: src/__tests__/routes/deploy-keys.test.ts (Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)) -->
 4. Deploy credentials are persisted in durable storage scoped to the user's bucket and are encrypted at rest when platform-level credential encryption is configured. <!-- @impl: src/lib/kv-crypto.ts::encryptAndStore --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -325,7 +345,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-SEC-004](security.md#req-sec-004-credential-encryption-at-rest-cryptographic-contract)
 
-**Verification:** [Automated test](../../src/__tests__/routes/deploy-keys.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -339,13 +359,15 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. A "Recreate AI agent skills & rules" action in the settings UI triggers a reseed of preseed-managed agent configuration. <!-- @impl: src/routes/storage/seed.ts --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) -->
-2. The reseed performs a full overwrite-and-cleanup of all preseed-managed files for the user's current session mode. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-011 reconcileAgentConfigs describe -> overwrite-and-cleanup with user-file preservation) -->
+1. A "Recreate AI agent skills & rules" action in the settings UI triggers a reseed of preseed-managed agent configuration. <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) -->
+2. The reseed performs a full overwrite-and-cleanup of all preseed-managed files for the user's current session mode. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
 3. Overwrite replaces every preseed-managed file with the current default content. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) -->
-4. Cleanup removes preseed-managed files that are not part of the user's current session mode. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-011 reconcileAgentConfigs describe -> overwrite-and-cleanup with user-file preservation) -->
-5. User-created files (files not generated by the preseed pipeline) are never overwritten or deleted. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-011 reconcileAgentConfigs describe -> overwrite-and-cleanup with user-file preservation) -->
-6. The endpoint is rate-limited (3/min). <!-- @impl: src/routes/storage/seed.ts --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) -->
-7. After seeding, the storage stats KV cache is invalidated. <!-- @impl: src/routes/storage/seed.ts --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) -->
+4. Cleanup removes preseed-managed files that are not part of the user's current session mode. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+5. User-created files (files not generated by the preseed pipeline) are never overwritten or deleted. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+6. The endpoint is rate-limited (3/min). <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) -->
+7. After seeding, the storage stats KV cache is invalidated. <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -358,7 +380,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-STOR-010](storage.md#req-stor-010-agent-configs-auto-seeded-based-on-session-mode)
 
-**Verification:** [storage-seed.test.ts](../../src/__tests__/routes/storage-seed.test.ts) (AC1/AC3/AC6/AC7), [r2-seed-mode-req-coverage.test.ts](../../src/__tests__/lib/r2-seed-mode-req-coverage.test.ts) (AC2/AC4/AC5)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -376,7 +398,9 @@ Multi-agent support, preseed system, and session modes.
 2. When enabled, auto-update checks are disabled for all supported agent CLIs, eliminating 5-30s startup delay. <!-- @impl: entrypoint.sh::update_pi_when_fast_start_disabled --> <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-012 (Fast Start controls Pi update checks)) -->
 3. Every supported agent CLI has a corresponding disable mechanism: each tool's native auto-update path is suppressed by the channel that tool exposes (environment variable for tools that expose one, on-disk settings file for tools that don't). For settings-file tools, user customizations are preserved across container restarts. <!-- @impl: entrypoint.sh::GRAPHIFY_PY --> <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-023 AC1: copies plugin.json into image and reads the version from it) -->
 4. When the fast-start preference is disabled, the suppression channels are not applied, Codeflare-managed settings-file suppressors are removed, and each CLI runs its normal update or package-reconciliation path before the session starts. <!-- @impl: entrypoint.sh::update_pi_when_fast_start_disabled --> <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-012 (Fast Start OFF removes settings-file update suppressors)) -->
-5. Users can toggle the preference from the session defaults area of the application settings. <!-- @impl: web-ui/src/components --> <!-- @test: src/__tests__/routes/preferences.test.ts (Preferences Routes) -->
+5. Users can toggle the preference from the session defaults area of the application settings. <!-- @test: src/__tests__/routes/preferences.test.ts (Preferences Routes) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -387,7 +411,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-003](#req-agent-003-agent-cli-auto-started-in-tab-1)
 
-**Verification:** [Automated test](../../src/__tests__/routes/preferences.test.ts), [Fast Start runtime test](../../host/__tests__/dockerfile-graphify.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -401,10 +425,12 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. A browser-shim is installed in the container that intercepts browser-launch attempts and exits with a non-zero code, causing the calling CLI to fall back to plain-text URL output. <!-- @impl: Dockerfile --> <!-- @test: host/__tests__/dockerfile-browser-shim-behavior.test.js (Dockerfile browser-shim behavior (real) / REQ-AGENT-013 (browser-shim intercepts launch and exits non-zero)) --> <!-- coverage-gap: AC1 (browser-shim intercepts launch and exits non-zero) — no behavioral test; the shim-seeding test cited on the prior Verification line is not present in r2-seed-mode-req-coverage -->
-2. The XDG browser-launch entry-point is similarly shimmed so any tool that bypasses the BROWSER convention also degrades to text output. <!-- @impl: Dockerfile --> <!-- @test: host/__tests__/dockerfile-browser-shim-behavior.test.js (Dockerfile browser-shim behavior (real) / REQ-AGENT-013 (browser-shim intercepts launch and exits non-zero)) --> <!-- coverage-gap: AC2 (XDG browser-launch entry-point shimmed) — no automated test -->
-3. CLIs fall back to printing auth URLs as plain text in the PTY when the browser fails to open. <!-- @impl: Dockerfile --> <!-- @test: host/__tests__/dockerfile-browser-shim-behavior.test.js (Dockerfile browser-shim behavior (real) / REQ-AGENT-013 (browser-shim intercepts launch and exits non-zero)) --> <!-- coverage-gap: AC3 (CLIs fall back to plain-text URL in PTY) — no automated test -->
+1. A browser-shim is installed in the container that intercepts browser-launch attempts and exits with a non-zero code, causing the calling CLI to fall back to plain-text URL output. <!-- @test: host/__tests__/dockerfile-browser-shim-behavior.test.js (Dockerfile browser-shim behavior (real) / REQ-AGENT-013 (browser-shim intercepts launch and exits non-zero)) -->
+2. The XDG browser-launch entry-point is similarly shimmed so any tool that bypasses the BROWSER convention also degrades to text output. <!-- @test: host/__tests__/dockerfile-browser-shim-behavior.test.js (Dockerfile browser-shim behavior (real) / REQ-AGENT-013 (browser-shim intercepts launch and exits non-zero)) -->
+3. CLIs fall back to printing auth URLs as plain text in the PTY when the browser fails to open. <!-- @test: host/__tests__/dockerfile-browser-shim-behavior.test.js (Dockerfile browser-shim behavior (real) / REQ-AGENT-013 (browser-shim intercepts launch and exits non-zero)) -->
 4. The xterm.js link provider detects URLs in terminal output and makes them clickable, joining continuation rows for URLs that span multiple terminal rows (soft-wrap or application-inserted newlines) so long OAuth URLs on narrow or mobile-keyboard-shrunk viewports are assembled and offered in full, never truncated mid-URL. <!-- @impl: web-ui/src/lib/terminal-link-provider.ts::registerMultiLineLinkProvider --> <!-- @impl: web-ui/src/stores/terminal-url-detection.ts::getLastUrlFromBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal-url-detection.test.ts (joins a long OAuth URL whose tail wraps past the viewport edge (no truncation)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -416,7 +442,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** [r2-seed-mode-req-coverage.test.ts](../../src/__tests__/lib/r2-seed-mode-req-coverage.test.ts) (AC1-AC3 shim seeding), [terminal-url-detection.test.ts](../../web-ui/src/__tests__/stores/terminal-url-detection.test.ts) (AC4 multi-row URL assembly)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -430,13 +456,15 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. A single declarative manifest is the source of truth for all preseed files and their session-mode assignments. <!-- @impl: preseed/agents/claude/manifest.json --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
+1. A single declarative manifest is the source of truth for all preseed files and their session-mode assignments. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
 2. The manifest organizes entries by type: rules (including the discipline triad: spec-discipline, documentation-discipline, tdd-discipline), agents, commands, skills (including SDD scaffolding templates), and plugins (memory and hook plugins). <!-- @impl: scripts/generate-agent-seed.mjs::CLAUDE_ONLY_SKILLS --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-3. Each entry declares the session modes (default, advanced, or both) it applies to. <!-- @impl: scripts/generate-agent-seed.mjs --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
-4. The seed generator is manifest-driven and ignores files not in the manifest. <!-- @impl: scripts/generate-agent-seed.mjs --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-5. The generator produces a runtime payload the Worker consumes at session start. <!-- @impl: scripts/generate-agent-seed.mjs --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-6. Within a single mode, no two preseed entries may share the same storage key. <!-- @impl: scripts/generate-agent-seed.mjs --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
+3. Each entry declares the session modes (default, advanced, or both) it applies to. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
+4. The seed generator is manifest-driven and ignores files not in the manifest. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+5. The generator produces a runtime payload the Worker consumes at session start. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+6. Within a single mode, no two preseed entries may share the same storage key. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
 7. Variant-per-mode keys (same storage key, different content per mode) are excluded from cleanup when the mode changes. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode-req-coverage.test.ts (REQ-AGENT-014 AC7: variant-per-mode keys excluded from cleanup (key exists in target mode)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -447,7 +475,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -461,13 +489,15 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. `/review` launches 6 parallel specialist agents (security, architecture, code quality, dead code, test gaps, documentation), followed by a sequential Reality Filter pass that re-evaluates findings against repeat-offender, memory, cluster-aggregation, user-impact, and spec-vs-shipped questions. <!-- @impl: preseed/agents/claude/commands/review.md --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md --> <!-- @impl: preseed/agents/pi/extensions/review-command.ts --> <!-- coverage-gap: REQ-AGENT-015 acceptance criteria describe a /review multi-agent workflow (agent-orchestration prompt); no automated behavioral test asserts the 6-agent launch, dedup, triage, or no-auto-apply behavior -->
-2. Results cross-referenced and deduplicated. <!-- @impl: preseed/agents/claude/commands/review.md --> <!-- coverage-gap: REQ-AGENT-015 acceptance criteria describe a /review multi-agent workflow (agent-orchestration prompt); no automated behavioral test asserts the 6-agent launch, dedup, triage, or no-auto-apply behavior -->
-3. Findings filtered against architecture decisions. <!-- @impl: preseed/agents/claude/commands/review.md --> <!-- coverage-gap: REQ-AGENT-015 acceptance criteria describe a /review multi-agent workflow (agent-orchestration prompt); no automated behavioral test asserts the 6-agent launch, dedup, triage, or no-auto-apply behavior -->
-4. Optional LLM verification of HIGH/CRITICAL findings. <!-- @impl: preseed/agents/claude/commands/review.md --> <!-- coverage-gap: REQ-AGENT-015 acceptance criteria describe a /review multi-agent workflow (agent-orchestration prompt); no automated behavioral test asserts the 6-agent launch, dedup, triage, or no-auto-apply behavior -->
-5. Interactive triage with fix/AD/defer/ignore options. Defer/Ignore/Tech-Debt decisions persist to `sdd/.review-decisions.md` so subsequent runs do not re-surface the same noise. <!-- @impl: preseed/agents/claude/commands/review.md --> <!-- coverage-gap: REQ-AGENT-015 acceptance criteria describe a /review multi-agent workflow (agent-orchestration prompt); no automated behavioral test asserts the 6-agent launch, dedup, triage, or no-auto-apply behavior -->
-6. When `doc-updater` is invoked on a project with no `sdd/` or no `documentation/` surface (vibe-coding mode), it writes a one-line no-op header to its output file rather than leaving it empty, so the cross-reference phase can distinguish "ran and found nothing" from "did not run". The other five specialist agents always have a code surface to review and produce findings or `Verified Clean` sections normally. <!-- @impl: preseed/agents/claude/commands/review.md --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings.json configuration / REQ-AGENT-015 (/review command)) --> <!-- coverage-gap: REQ-AGENT-015 acceptance criteria describe a /review multi-agent workflow (agent-orchestration prompt); no automated behavioral test asserts the 6-agent launch, dedup, triage, or no-auto-apply behavior -->
-7. Findings reported in interactive triage are never auto-applied by `/review`; the user explicitly confirms each fix. The `auto` and `unleashed` modes that auto-apply spec/doc fixes are scoped to the PR-boundary review pipeline and `/sdd clean` (configured via `sdd/config.yml`), not to interactive `/review` invocations. <!-- @impl: preseed/agents/claude/commands/review.md --> <!-- coverage-gap: REQ-AGENT-015 acceptance criteria describe a /review multi-agent workflow (agent-orchestration prompt); no automated behavioral test asserts the 6-agent launch, dedup, triage, or no-auto-apply behavior -->
+1. `/review` launches 6 parallel specialist agents (security, architecture, code quality, dead code, test gaps, documentation), followed by a sequential Reality Filter pass that re-evaluates findings against repeat-offender, memory, cluster-aggregation, user-impact, and spec-vs-shipped questions.
+2. Results cross-referenced and deduplicated.
+3. Findings filtered against architecture decisions.
+4. Optional LLM verification of HIGH/CRITICAL findings.
+5. Interactive triage with fix/AD/defer/ignore options. Defer/Ignore/Tech-Debt decisions persist to `sdd/.review-decisions.md` so subsequent runs do not re-surface the same noise.
+6. When `doc-updater` is invoked on a project with no `sdd/` or no `documentation/` surface (vibe-coding mode), it writes a one-line no-op header to its output file rather than leaving it empty, so the cross-reference phase can distinguish "ran and found nothing" from "did not run". The other five specialist agents always have a code surface to review and produce findings or `Verified Clean` sections normally. <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings.json configuration / REQ-AGENT-015 (/review command)) -->
+7. Findings reported in interactive triage are never auto-applied by `/review`; the user explicitly confirms each fix. The `auto` and `unleashed` modes that auto-apply spec/doc fixes are scoped to the PR-boundary review pipeline and `/sdd clean` (configured via `sdd/config.yml`), not to interactive `/review` invocations.
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -477,7 +507,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../host/__tests__/entrypoint-hooks-merge.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -491,8 +521,10 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. bubblewrap (bwrap) is installed in the container image. <!-- @impl: Dockerfile --> <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-017 (bubblewrap installed in container image so Codex can sandbox its execution)) -->
-2. bubblewrap is available on the system PATH for Codex's built-in sandbox; the sandbox invocation is owned by the upstream Codex CLI, not by codeflare source. <!-- @impl: Dockerfile --> <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-017 (bubblewrap installed in container image so Codex can sandbox its execution)) --> <!-- coverage-gap: AC2 (bwrap on system PATH for Codex built-in sandbox) — no automated test; install presence covered, PATH availability not asserted -->
+1. bubblewrap (bwrap) is installed in the container image. <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-017 (bubblewrap installed in container image so Codex can sandbox its execution)) -->
+2. bubblewrap is available on the system PATH for Codex's built-in sandbox; the sandbox invocation is owned by the upstream Codex CLI, not by codeflare source. <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-017 (bubblewrap installed in container image so Codex can sandbox its execution)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -502,7 +534,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** [Automated test](../../host/__tests__/dockerfile-graphify.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -519,7 +551,9 @@ None.
 1. The Settings "Push & Deploy" accordion presents one shared OAuth connect card per provider (GitHub, Cloudflare) — the same composable card reused by the dashboard panel and Guided Setup ([REQ-GITHUB-007](github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise), [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth)). <!-- @impl: web-ui/src/components/settings/DeployKeysSection.tsx::DeployKeysSection --> <!-- @test: web-ui/src/__tests__/components/settings/DeployKeysSection.test.tsx (DeployKeysSection (OAuth connect surface)) -->
 2. Connecting runs the provider OAuth flow (no manual token entry); the per-user token is stored encrypted server-side and never reaches the browser, and disconnect revokes + clears it. <!-- @impl: src/routes/github.ts::REPOS_PER_PAGE --> <!-- @test: src/__tests__/routes/deploy-keys.test.ts (Deploy Keys routes / REQ-AGENT-018 (deploy credential storage)) -->
 3. A connected card shows the account identity and (Cloudflare) an account picker; a scope tier can be selected before connecting. <!-- @impl: web-ui/src/components/connect/OAuthConnectCard.tsx::OAuthAccountOption --> <!-- @test: web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx (OAuthConnectCard) -->
-4. Deploy credentials are propagated into the container environment so the agent CLIs can authenticate to GitHub and Cloudflare without additional configuration. <!-- @impl: src/routes/container/lifecycle.ts --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
+4. Deploy credentials are propagated into the container environment so the agent CLIs can authenticate to GitHub and Cloudflare without additional configuration. <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -529,7 +563,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-010](#req-agent-010-deploy-credential-storage-github-pat-cf-api-token)
 
-**Verification:** [Accordion test](../../web-ui/src/__tests__/components/settings/DeployKeysSection.test.tsx) + [Connect card test](../../web-ui/src/__tests__/components/connect/OAuthConnectCard.test.tsx) + [Propagation test](../../src/__tests__/routes/deploy-keys.test.ts) + [Env-var injection test](../../src/__tests__/container/container-env.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -544,9 +578,11 @@ None.
 **Acceptance Criteria:**
 
 1. Settings panel uses accordion groups (appearance, session, deploy, LLM, admin). <!-- @impl: web-ui/src/components/SettingsPanel.tsx::ACCORDION_SUBTITLES --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (SettingsPanel Component / REQ-AGENT-019 (branded settings UI)) -->
-2. Provider rows with SVG brand icons and inline expansion. <!-- @impl: web-ui/src/components --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (renders OpenAI and Gemini provider rows) -->
-3. Appearance section with accent color picker. <!-- @impl: web-ui/src/components --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (SettingsPanel Component / REQ-AGENT-019 (branded settings UI)) -->
-4. Session section with a session-mode toggle and a sleep-timeout select; agent type is chosen at session creation, not here. <!-- @impl: web-ui/src/components --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (SettingsPanel Component / REQ-AGENT-019 (branded settings UI)) -->
+2. Provider rows with SVG brand icons and inline expansion. <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (renders OpenAI and Gemini provider rows) -->
+3. Appearance section with accent color picker. <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (SettingsPanel Component / REQ-AGENT-019 (branded settings UI)) -->
+4. Session section with a session-mode toggle and a sleep-timeout select; agent type is chosen at session creation, not here. <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (SettingsPanel Component / REQ-AGENT-019 (branded settings UI)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -556,7 +592,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../web-ui/src/__tests__/components/SettingsPanel.test.tsx)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -571,9 +607,11 @@ None.
 **Acceptance Criteria:**
 
 1. Settings panel has LLM Keys section with masked password inputs for OpenAI and Gemini. <!-- @impl: src/routes/llm-keys.ts::app --> <!-- @test: src/__tests__/routes/llm-keys.test.ts (LLM Keys routes / REQ-AGENT-020 (LLM API key storage) / REQ-AGENT-009 (LLM API Key Storage endpoint shape, KV path, encryption-at-rest, masking, GET behaviour)) -->
-2. Keys validated before saving. <!-- @impl: web-ui/src/components --> <!-- @test: src/__tests__/routes/llm-keys.test.ts (LLM Keys routes / REQ-AGENT-020 (LLM API key storage) / REQ-AGENT-009 (LLM API Key Storage endpoint shape, KV path, encryption-at-rest, masking, GET behaviour)) -->
-3. Delete button clears all keys. <!-- @impl: web-ui/src/components --> <!-- @test: src/__tests__/routes/llm-keys.test.ts (LLM Keys routes / REQ-AGENT-020 (LLM API key storage) / REQ-AGENT-009 (LLM API Key Storage endpoint shape, KV path, encryption-at-rest, masking, GET behaviour)) -->
-4. Keys displayed as masked (never shown in full after save). <!-- @impl: web-ui/src/components --> <!-- @test: src/__tests__/routes/llm-keys.test.ts (LLM Keys routes / REQ-AGENT-020 (LLM API key storage) / REQ-AGENT-009 (LLM API Key Storage endpoint shape, KV path, encryption-at-rest, masking, GET behaviour)) -->
+2. Keys validated before saving. <!-- @test: src/__tests__/routes/llm-keys.test.ts (LLM Keys routes / REQ-AGENT-020 (LLM API key storage) / REQ-AGENT-009 (LLM API Key Storage endpoint shape, KV path, encryption-at-rest, masking, GET behaviour)) -->
+3. Delete button clears all keys. <!-- @test: src/__tests__/routes/llm-keys.test.ts (LLM Keys routes / REQ-AGENT-020 (LLM API key storage) / REQ-AGENT-009 (LLM API Key Storage endpoint shape, KV path, encryption-at-rest, masking, GET behaviour)) -->
+4. Keys displayed as masked (never shown in full after save). <!-- @test: src/__tests__/routes/llm-keys.test.ts (LLM Keys routes / REQ-AGENT-020 (LLM API key storage) / REQ-AGENT-009 (LLM API Key Storage endpoint shape, KV path, encryption-at-rest, masking, GET behaviour)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -584,7 +622,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-009](#req-agent-009-llm-api-key-storage-encrypted-in-kv)
 
-**Verification:** [Integration test](../../src/__tests__/routes/llm-keys.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -598,11 +636,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. Pro mode preseeds the `spec-driven-development` skill, the `sdd-init` and `sdd-clean` sub-command skills, the `vault-operations` skill, the `ci-monitoring` skill, the `/sdd` command, the `spec-discipline`, `documentation-discipline`, and `tdd-discipline` rules (loaded into every agent's instructions), and the `spec-reviewer` + `doc-updater` agents. <!-- @impl: preseed/agents/claude/skills/spec-driven-development --> <!-- @impl: preseed/agents/claude/rules/spec-discipline.md --> <!-- @impl: preseed/agents/claude/rules/documentation-discipline.md --> <!-- @impl: preseed/agents/claude/rules/tdd-discipline.md --> <!-- @test: src/__tests__/lib/agent-seed-ecc-rules.test.ts (ECC rules in agent-seed) -->
-2. Every `/sdd` sub-command (`init`, `edit`, `add`, `clean`, `mode`) works in Pi without context-mode by using native Bash/Read/Grep/Find/Write/Edit tools; context-management helper tools, when present in another runtime, are optional rather than required. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-3. Large discovery commands use Pi-native discovery tools when context-mode is absent. <!-- @impl: scripts/generate-agent-seed.mjs::PI_SDD_COMPATIBILITY_NOTE --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-021: Pi has skills, native runtime extensions, and subagent definitions) --> <!-- coverage-gap: AC3 (large discovery uses Pi-native discovery tools when context-mode absent) — covered only by PI_SDD_COMPATIBILITY_NOTE impl; no behavioral test -->
-4. Pi-transformed SDD skills use Pi-native graphify tools and `Agent`/`Plan` terminology. <!-- @impl: scripts/generate-agent-seed.mjs::PI_SDD_COMPATIBILITY_NOTE --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-021: Pi has skills, native runtime extensions, and subagent definitions) --> <!-- coverage-gap: AC4 (Pi-transformed SDD skills use Pi-native graphify tools/terminology) — no behavioral test beyond generator note -->
-5. The native `/sdd` command enforces command-file hard gates before workflow dispatch. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::sddRepoState --> <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddCommandDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (native /sdd hard gates / REQ-AGENT-021 AC5 (the native /sdd command enforces command-file hard gates before workflow dispatch)) --> <!-- coverage-gap: AC5 (native /sdd command enforces hard gates before dispatch) — no behavioral test for sddCommandDecision gates -->
+1. Pro mode preseeds the `spec-driven-development` skill, the `sdd-init` and `sdd-clean` sub-command skills, the `vault-operations` skill, the `ci-monitoring` skill, the `/sdd` command, the `spec-discipline`, `documentation-discipline`, and `tdd-discipline` rules (loaded into every agent's instructions), and the `spec-reviewer` + `doc-updater` agents. <!-- @test: src/__tests__/lib/agent-seed-ecc-rules.test.ts (ECC rules in agent-seed) -->
+2. Every `/sdd` sub-command (`init`, `edit`, `add`, `clean`, `mode`) works in Pi without context-mode by using native Bash/Read/Grep/Find/Write/Edit tools; context-management helper tools, when present in another runtime, are optional rather than required. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+3. Large discovery commands use Pi-native discovery tools when context-mode is absent. <!-- @impl: scripts/generate-agent-seed.mjs::PI_SDD_COMPATIBILITY_NOTE --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-021: Pi has skills, native runtime extensions, and subagent definitions) -->
+4. Pi-transformed SDD skills use Pi-native graphify tools and `Agent`/`Plan` terminology. <!-- @impl: scripts/generate-agent-seed.mjs::PI_SDD_COMPATIBILITY_NOTE --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-021: Pi has skills, native runtime extensions, and subagent definitions) -->
+5. The native `/sdd` command enforces command-file hard gates before workflow dispatch. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::sddRepoState --> <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddCommandDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (native /sdd hard gates / REQ-AGENT-021 AC5 (the native /sdd command enforces command-file hard gates before workflow dispatch)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -615,7 +655,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-025](#req-agent-025-post-clone-graph-triage)
 
-**Verification:** [Automated tests](../../src/__tests__/lib/agent-seed-ecc-rules.test.ts), [Pi command dispatch tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -629,12 +669,14 @@ None.
 
 **Acceptance Criteria:**
 
-1. `/sdd init` Import Mode emits two outputs simultaneously: spec REQs in `sdd/{domain}.md` for anything clearly determinable from the full discovery surface, and triage entries in `sdd/.init-triage.md` for anything unclear (magic numbers without rationale, retry policies without context, ambiguous contracts, orphan code, missing Intent, domain-placement guesses). <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh - SDD transition gate (REQ-AGENT-022)) -->
-2. The discovery surface during Import Mode is the full project history, not just source code. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh - SDD transition gate (REQ-AGENT-022)) -->
-3. The agent pulls evidence from the working tree (README, configs, source, tests, inline comments, ADR-shaped files) and git history (commit messages on entry-point files, tag annotations). <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- coverage-gap: AC3 (Import Mode discovery surface: working-tree/git-history/GitHub-corpus/chain-following/unreachable-fallback) is a skill-prompt workflow; no automated behavioral test -->
-4. When a GitHub remote is detected, the agent additionally pulls pull requests with their review comments and inline threads, issues open and closed with their comments, release notes, and the wiki via the GitHub API. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- coverage-gap: AC4 (Import Mode discovery surface: working-tree/git-history/GitHub-corpus/chain-following/unreachable-fallback) is a skill-prompt workflow; no automated behavioral test -->
-5. When one artifact references another ("Closes #142"), the agent follows the chain backward through every linked artifact rather than stopping at the first hit. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- coverage-gap: AC5 (Import Mode discovery surface: working-tree/git-history/GitHub-corpus/chain-following/unreachable-fallback) is a skill-prompt workflow; no automated behavioral test -->
-6. When the GitHub corpus is unreachable (non-GitHub remote, `gh auth status` fails, rate-limited, private repo with insufficient token scope, air-gapped), the agent skips GitHub sources and proceeds with working-tree + git-log evidence only; a one-line notice naming the reason is printed before scaffolding and appended to the `sdd/changes.md` import entry. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh - SDD transition gate (REQ-AGENT-022)) --> <!-- coverage-gap: AC6 (Import Mode discovery surface: working-tree/git-history/GitHub-corpus/chain-following/unreachable-fallback) is a skill-prompt workflow; no automated behavioral test -->
+1. `/sdd init` Import Mode emits two outputs simultaneously: spec REQs in `sdd/{domain}.md` for anything clearly determinable from the full discovery surface, and triage entries in `sdd/.init-triage.md` for anything unclear (magic numbers without rationale, retry policies without context, ambiguous contracts, orphan code, missing Intent, domain-placement guesses). <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh - SDD transition gate (REQ-AGENT-022)) -->
+2. The discovery surface during Import Mode is the full project history, not just source code. <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh - SDD transition gate (REQ-AGENT-022)) -->
+3. The agent pulls evidence from the working tree (README, configs, source, tests, inline comments, ADR-shaped files) and git history (commit messages on entry-point files, tag annotations).
+4. When a GitHub remote is detected, the agent additionally pulls pull requests with their review comments and inline threads, issues open and closed with their comments, release notes, and the wiki via the GitHub API.
+5. When one artifact references another ("Closes #142"), the agent follows the chain backward through every linked artifact rather than stopping at the first hit.
+6. When the GitHub corpus is unreachable (non-GitHub remote, `gh auth status` fails, rate-limited, private repo with insufficient token scope, air-gapped), the agent skips GitHub sources and proceeds with working-tree + git-log evidence only; a one-line notice naming the reason is printed before scaffolding and appended to the `sdd/changes.md` import entry. <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh - SDD transition gate (REQ-AGENT-022)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -644,7 +686,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
 
-**Verification:** [Automated test](../../host/__tests__/enforce-review-spawn.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -660,7 +702,7 @@ None.
 
 1. `graphifyy` installs in every container image with MCP, SQL, and PDF extras, pinned to one Dependabot-tracked version. Provider extras stay absent; extraction and labeling remain agent-driven. <!-- @impl: Dockerfile::graphifyy --> <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-023 AC1: copies plugin.json into image and reads the version from it) -->
 2. Claude receives the Graphify MCP server in every session. Pi receives first-party native `graphify_query`/`graphify_path`/`graphify_explain` tools from `graphify-native.ts`, not an MCP server or npm wrapper. Both shell the upstream engine. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py::LazyGraph --> <!-- @impl: preseed/agents/pi/extensions/graphify-native.ts::graphify_query --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-023: Pi native runtime assets expose first-party graphify-native tools (no MCP, no third-party wrapper)) -->
-3. AC1 and AC2 hold across all paid tiers for ambient query/build capability; advanced-mode agent orchestration keeps `/graphify` extraction context bounded via subagent chunking. <!-- @impl: Dockerfile::graphifyy --> <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md::subagent --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- coverage-gap: AC3 (capability holds across all paid tiers; advanced /graphify extraction context bounded via subagent chunking) — no automated test exercises tier-spread, subagent bounding, or the local-graphify-labels.sh labeling step (integration/manual only); the bounded refresh wrapper is covered by safe-graphify-update.test.js -->
+3. AC1 and AC2 hold across all paid tiers for ambient query/build capability; advanced-mode agent orchestration keeps `/graphify` extraction context bounded via subagent chunking. <!-- @impl: Dockerfile::graphifyy --> <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md::subagent --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 4. Startup with no graph is tolerated: Claude starts empty and rebinds later; advanced-mode Pi clone triage asks before graph work. Query tools use the active repo graph after it exists. <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::graphifyCloneAction --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::fallbackGraphifyToolResult --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 5. Advanced mode tracks the active repository; resolution walks up to the nearest Git repo or graph artefact and understands command-local `cd ... &&` plus `git -C ...` forms. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::effectivePathForCommand --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::updateActiveRepoFromPath --> <!-- @test: host/__tests__/graphify-active-repo.test.js (graphify-active-repo.sh / REQ-VAULT-004 (unified global graph merges vault + active repos)) -->
 6. When the active-repo signal is absent or stale, Pi graphify query tools fall back from the session cwd repo graph to the same-repo sentinel graph and then to the merged global graph. <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::pickGraphSource --> <!-- @test: host/__tests__/graphify-mcp-lazy.test.js (graphify-mcp-lazy.py static contract) -->
@@ -694,12 +736,14 @@ None.
 **Acceptance Criteria:**
 
 1. In advanced session mode only, a SessionStart hook queries the knowledge graph for the highest-connectivity nodes and injects a compressed structural summary as additionalContext. Three fallback tiers: (a) god-nodes query producing node labels with degree counts, (b) GRAPH_REPORT.md preamble when the query fails, (c) build-suggestion reminder when the cwd has source files but no graph. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-session-start.sh::emit_reminder --> <!-- @test: host/__tests__/graphify-session-start.test.js (graphify-session-start.sh (REQ-AGENT-024 AC1)) -->
-2. In advanced session mode only, a short authoritative graph-first rule is preseeded, stating MUST / MUST NOT bullets for graph vs grep and routing to the graphify skill for mechanics rather than restating them. <!-- @impl: preseed/agents/claude/rules/graph-first.md --> <!-- @test: host/__tests__/preseed-graphify-discipline.test.js (graphify preseed - advanced-mode discipline (REQ-AGENT-024)) -->
-3. In advanced session mode only, the graphify skill is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, OpenCode, and Antigravity by the seed generator. <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md --> <!-- @test: host/__tests__/preseed-graphify-discipline.test.js (graphify preseed - advanced-mode discipline (REQ-AGENT-024)) -->
-4. The skill documents the safe build path for large repos (more than 2000 files). <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md --> <!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch)) --> <!-- coverage-gap: AC4 (skill documents the >2000-file safe build path) — only asserted by skill-graphify-content.test.js source-string matching on SKILL.md prose, which is not behavioral coverage -->
-5. The skill instructs the agent on first build to add canonical ignore and attribute rules so regenerable graph build outputs and working-tree intermediates are not committed while the queryable graph remains under git merge control. <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-024 AC5-AC6 / REQ-AGENT-043: Pi graphify skill preserves durable graph artifacts and stays model-agnostic) -->
-6. The committed knowledge-graph surface includes the queryable graph artefact, a human-readable report, a visual exploration page, the generated `callflow.html`, `.graphify_labels.json`, and an optional wiki tree. <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-024 AC5-AC6 / REQ-AGENT-043: Pi graphify skill preserves durable graph artifacts and stays model-agnostic) -->
+2. In advanced session mode only, a short authoritative graph-first rule is preseeded, stating MUST / MUST NOT bullets for graph vs grep and routing to the graphify skill for mechanics rather than restating them. <!-- @test: host/__tests__/preseed-graphify-discipline.test.js (graphify preseed - advanced-mode discipline (REQ-AGENT-024)) -->
+3. In advanced session mode only, the graphify skill is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, OpenCode, and Antigravity by the seed generator. <!-- @test: host/__tests__/preseed-graphify-discipline.test.js (graphify preseed - advanced-mode discipline (REQ-AGENT-024)) -->
+4. The skill documents the safe build path for large repos (more than 2000 files). <!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch)) -->
+5. The skill instructs the agent on first build to add canonical ignore and attribute rules so regenerable graph build outputs and working-tree intermediates are not committed while the queryable graph remains under git merge control. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-024 AC5-AC6 / REQ-AGENT-043: Pi graphify skill preserves durable graph artifacts and stays model-agnostic) -->
+6. The committed knowledge-graph surface includes the queryable graph artefact, a human-readable report, a visual exploration page, the generated `callflow.html`, `.graphify_labels.json`, and an optional wiki tree. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-024 AC5-AC6 / REQ-AGENT-043: Pi graphify skill preserves durable graph artifacts and stays model-agnostic) -->
 7. In advanced session mode only, a soft-nudge hook fires on grep-class tool calls and emits a reminder to prefer the graph MCP tools when a graph exists for the cwd; the hook never blocks. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graph-first-nudge.sh::TOOL --> <!-- @test: host/__tests__/entrypoint-graphify-hooks.test.js (manifest present + advanced mode: PreToolUse graph-first nudge wired for Grep|Glob and the ctx grep-equivalents (REQ-AGENT-024 AC7)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -711,7 +755,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
 
-**Verification:** [Automated test](../../host/__tests__/entrypoint-graphify-hooks.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -730,8 +774,10 @@ None.
 3. Clone destination resolution prefers the tool result's `Cloning into '...'` line before falling back to command parsing, so shell variables such as `$repo` never surface as literal user-facing paths. <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::cloneTargetPath --> <!-- @test: host/__tests__/graphify-clone-prompt.test.js (graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)) -->
 4. When `<cloned-dir>/graphify-out/graph.json` is absent, the directive asks which graph action the user wants before any graph work, offering Full repo AST-only, Full repo semantic intent, or no graph action. <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::renderGraphifyCloneDirective --> <!-- @test: host/__tests__/graphify-clone-prompt.test.js (graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)) -->
 5. When `<cloned-dir>/graphify-out/graph.json` exists, fresh graphs are used as-is (information message only); a stale graph (built at a commit other than HEAD) opens the directive with an explicit STALE warning before the choices, while an unknown-freshness graph asks without the stale flag — all offering existing-graph-as-is, Full repo AST-only update, or Full repo semantic refresh intent. Freshness and on-disk existence are resolved at clone-event time via `exists`/`freshness` callbacks. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::existingGraphCloneNotice --> <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::renderGraphifyCloneDirective --> <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::graphifyClonePromptDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-6. The bounded upstream-update wrapper runs only after the user chooses AST-only, and Full semantic build/refresh must pass through graphify skill detection plus post-detection count confirmation before semantic subagents dispatch. <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md::Clone-time triage --> <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md::Mandatory graph refresh choice --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+6. The bounded upstream-update wrapper runs only after the user chooses AST-only, and Full semantic build/refresh must pass through graphify skill detection plus post-detection count confirmation before semantic subagents dispatch. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 7. The hook is idempotent per cloned directory per session via a marker key that includes both the session identifier and cloned repository path; Pi clone triage suppresses follow-up prompts for failed clone commands, skipped/already-cloned targets, and durable PR-boundary review lanes. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::shouldHandleClonePrompt --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -741,7 +787,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** [Clone prompt hook tests](../../host/__tests__/graphify-clone-prompt.test.js) and [Pi clone triage helper tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -756,9 +802,11 @@ None.
 **Acceptance Criteria:**
 
 1. Knowledge-graph artefacts are excluded from R2 sync, so they never round-trip through user-bucket storage. <!-- @impl: entrypoint.sh::init_recovery_filters --> <!-- @test: host/__tests__/entrypoint-graphify-bisync.test.js (entrypoint.sh rclone bisync filter for graphify (REQ-AGENT-026)) -->
-2. The container image registers the graphify semantic merge driver globally, independent of session mode. <!-- @impl: Dockerfile --> <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-026 AC2: registers the semantic merge driver globally (tier-independent)) -->
-3. Repo owners with push permission commit the knowledge-graph artefacts to git so contributors inherit the graph and the visualization on clone; concurrent edits to the graph artefact are auto-resolved by the registered merge driver without manual JSON conflict resolution. <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-4. For repos without push permission, the graph lives in the working tree only and is ephemeral. <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md --> <!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch)) --> <!-- coverage-gap: the only candidate coverage is host/__tests__/skill-graphify-content.test.js, which is rejected as theater (readFileSync(SKILL.md) + .test(skill)/.includes() prose matching); the ephemeral / working-tree-only fallback is agent-behavioral skill prose with no behavioral test. -->
+2. The container image registers the graphify semantic merge driver globally, independent of session mode. <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-026 AC2: registers the semantic merge driver globally (tier-independent)) -->
+3. Repo owners with push permission commit the knowledge-graph artefacts to git so contributors inherit the graph and the visualization on clone; concurrent edits to the graph artefact are auto-resolved by the registered merge driver without manual JSON conflict resolution. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+4. For repos without push permission, the graph lives in the working tree only and is ephemeral. <!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -768,7 +816,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
 
-**Verification:** [Automated test](../../host/__tests__/entrypoint-graphify-bisync.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -782,8 +830,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. When the context-mode plugin is preseeded (effectiveTier `unlimited` plus advanced session mode), `graphify update .` and `graphify query ...` run unimpeded: context-mode is wired as a tool only (MCP server plus the indexing PreToolUse/PostToolUse hooks), with no Bash deny-gate, so no command-routing whitelist is needed. Any stale `enforce-ctx-mode.sh` deny-gate left in a pre-existing `settings.json` is stripped on container start by the managed-hooks prune regex. <!-- @impl: preseed/agents/claude/plugins/context-mode --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+1. When the context-mode plugin is preseeded (effectiveTier `unlimited` plus advanced session mode), `graphify update .` and `graphify query ...` run unimpeded: context-mode is wired as a tool only (MCP server plus the indexing PreToolUse/PostToolUse hooks), with no Bash deny-gate, so no command-routing whitelist is needed. Any stale `enforce-ctx-mode.sh` deny-gate left in a pre-existing `settings.json` is stripped on container start by the managed-hooks prune regex. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 2. The [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline) AC7 PreToolUse soft-nudge hook registers both the non-ctx matchers (`Grep`, `Glob`) and the ctx grep-equivalents (`mcp__context-mode__ctx_search`, `mcp__context-mode__ctx_batch_execute`) so the nudge fires in both tier paths. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graph-first-nudge.sh::INPUT --> <!-- @test: host/__tests__/graph-first-nudge.test.js (graph-first-nudge.sh) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -793,7 +843,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** [Soft-nudge test](../../host/__tests__/graph-first-nudge.test.js) (AC2) and [agent-seed manifest test](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC1: no `enforce-ctx-mode` deny-gate is preseeded in any seeded config, so context-mode ships as a tool with no command deny-gate). The stale-gate pruning AC1 relies on at runtime is additionally covered by [the settings.json hook-merge dedup test](../../host/__tests__/entrypoint-enforce-ctx-mode-dedup.test.js).
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -836,8 +886,10 @@ None.
 
 1. Stored GitHub and Cloudflare deploy credentials are injected into the container as environment variables on session start. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
 2. Credentials are sent as explicit `null` when absent (not omitted) so revocation propagates on session restart. <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/container/container-env.test.ts (applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESSION-016 AC3 wiring regression) / REQ-AGENT-029 (container env vars contract)) -->
-3. When a GitHub credential is present, the container configures git for authenticated HTTPS access. <!-- @impl: entrypoint.sh --> <!-- @test: host/__tests__/entrypoint-credentials.test.js (does NOT configure git credential.helper when GH_TOKEN is unset (REQ-AGENT-029 AC3: guard)) -->
-4. The Cloudflare account ID is resolved automatically from the API token when one is stored, so users need not supply it separately. <!-- @impl: src/routes/setup/account.ts::handleGetAccount --> <!-- @test: src/__tests__/routes/setup/account.test.ts (resolves the Cloudflare account ID from the API token) -->
+3. When a GitHub credential is present, the container configures git for authenticated HTTPS access. <!-- @test: host/__tests__/entrypoint-credentials.test.js (does NOT configure git credential.helper when GH_TOKEN is unset (REQ-AGENT-029 AC3: guard)) -->
+4. The Cloudflare account ID is resolved automatically from the API token when one is stored, so users need not supply it separately. <!-- @impl: src/routes/setup/account.ts::handleGetAccount -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -847,7 +899,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-010](#req-agent-010-deploy-credential-storage-github-pat-cf-api-token)
 
-**Verification:** [Automated test](../../src/__tests__/container/container-env.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -864,8 +916,10 @@ None.
 1. Agent definitions use correct frontmatter format per agent (e.g., `tools` as record `{read: true}` for OpenCode, as array or comma-separated names according to the target schema). <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 2. `model` field is removed from frontmatter for non-CC agents where the target runtime resolves model selection independently. <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 3. Path references (e.g., `~/.claude/`) are replaced with agent-specific config paths, including Pi's `.pi/agent/agents/` subagent path. <!-- @impl: scripts/generate-agent-seed.mjs::adaptPaths --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-4. File extensions match agent conventions (e.g., `.agent.md` for Copilot agents and `.md` for Pi subagents). <!-- @impl: scripts/generate-agent-seed.mjs --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+4. File extensions match agent conventions (e.g., `.agent.md` for Copilot agents and `.md` for Pi subagents). <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 5. Pi subagent transforms emit Pi-compatible frontmatter for tools, prompt mode, extension/skill inheritance, context inheritance, and background defaults. <!-- @impl: scripts/generate-agent-seed.mjs::adaptPiSkillContent --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -875,7 +929,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline)
 
-**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -893,8 +947,10 @@ None.
 2. The entrypoint maps the namespaced keys back to the standard `OPENAI_API_KEY` / `GEMINI_API_KEY` names ONLY inside the `consult-llm-mcp` MCP server's scoped `env` block (in `~/.claude.json` and `~/.pi/agent/mcp.json`), never as a global export. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: host/__tests__/entrypoint-consult-llm.test.js (entrypoint consult-llm configuration / REQ-AGENT-031 (key isolation, subscription backend, Pi parity, enterprise gate)) -->
 3. Per provider the entrypoint prefers the subscription over the API key: OpenAI uses the Codex CLI backend (`CONSULT_LLM_OPENAI_BACKEND=codex-cli`, `CONSULT_LLM_CODEX_REASONING_EFFORT=high`) when the user is logged into Codex (`~/.codex/auth.json` present), passing the API key only as a fallback; otherwise it uses the API key. Gemini always uses the API key. When no provider is usable, no MCP server is written. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @test: host/__tests__/entrypoint-consult-llm.test.js (entrypoint consult-llm configuration / REQ-AGENT-031 (key isolation, subscription backend, Pi parity, enterprise gate)) -->
 4. The `consult-llm` tooling is scoped to Claude Code and Pi only; no other agent receives the skill or MCP server. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
-5. Claude and Pi consult-llm skills implement the invocation and model-selection behavior in [REQ-AGENT-067](#req-agent-067-consult-llm-invocation-and-model-selection-behavior). <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md::Hard gate --> <!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md::Hard gate --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
+5. Claude and Pi consult-llm skills implement the invocation and model-selection behavior in [REQ-AGENT-067](#req-agent-067-consult-llm-invocation-and-model-selection-behavior). <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
 6. In enterprise mode the entire LLM-keys-and-consult-llm surface is unavailable: the keys are not injected (AC1 suppressed), the `/api/llm-keys` routes return 403 on every method, the Settings "LLM API Keys" section is hidden, and the entrypoint writes no consult-llm MCP config and removes any seeded `consult-llm` skill dirs for both Claude and Pi. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: host/__tests__/entrypoint-consult-llm.test.js (entrypoint consult-llm configuration / REQ-AGENT-031 (key isolation, subscription backend, Pi parity, enterprise gate)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -906,7 +962,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-009](#req-agent-009-llm-api-key-storage-encrypted-in-kv)
 
-**Verification:** [Container-env test](../../src/__tests__/container/container-env.test.ts) (AC1/AC6), [entrypoint consult-llm host test](../../host/__tests__/entrypoint-consult-llm.test.js) (AC2/AC3/AC4/AC6 and REQ-AGENT-069), [agent-seed manifest test](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC4/AC5), and [LLM keys route test](../../src/__tests__/routes/llm-keys.test.ts) (AC6 enterprise 403).
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -922,7 +978,9 @@ None.
 
 1. "Recreate starter documentation" button triggers `POST /api/storage/seed/getting-started`. <!-- @impl: src/routes/storage/seed.ts::app --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (Storage Seed Routes / REQ-AGENT-032 (starter docs manually recreatable)) -->
 2. The endpoint is rate-limited (3/min). <!-- @impl: src/routes/storage/seed.ts::storageSeedRateLimiter --> <!-- @test: src/__tests__/routes/storage-seed-rate-limit.test.ts (REQ-AGENT-032 AC2: storage-seed rate limiter (3/min)) -->
-3. After seeding, the storage stats KV cache is invalidated. <!-- @impl: src/routes/storage/seed.ts --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (invalidates storage-stats KV cache after successful getting-started seed) -->
+3. After seeding, the storage stats KV cache is invalidated. <!-- @test: src/__tests__/routes/storage-seed.test.ts (invalidates storage-stats KV cache after successful getting-started seed) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -932,7 +990,7 @@ None.
 
 **Dependencies:** [REQ-STOR-009](storage.md#req-stor-009-getting-started-docs-auto-seeded-on-first-session)
 
-**Verification:** [Automated test](../../src/__tests__/routes/storage-seed.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -946,13 +1004,15 @@ None.
 
 **Acceptance Criteria:**
 
-1. `/sdd init` scaffolds a new `sdd/` from templates for greenfield projects. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @impl: preseed/agents/claude/commands/sdd.md --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-033: /sdd init scaffolding and canonical render) --> <!-- coverage-gap: the only candidate coverage is host/__tests__/skill-sdd-init-contract.test.js, rejected as theater (readFileSync(SKILL.md) + .test(skill) prose matching); greenfield scaffolding is agent-behavioral skill prose with no behavioral test. -->
-2. In import mode, `/sdd init` derives a spec from existing source code rather than scaffolding from templates. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-033: /sdd init scaffolding and canonical render) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; Import Mode derivation is agent-behavioral with no behavioral test. -->
-3. When `/sdd init` generates a package manifest, top-level dependency versions are resolved at scaffold time via the ecosystem's registry (npm, Cargo, pip, Go) rather than emitted from memory. The Cloudflare Workers stack pins `wrangler`, `@cloudflare/workers-types`, `@cloudflare/vitest-pool-workers`, and `vitest` as a single co-resolved cohort. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-033: /sdd init scaffolding and canonical render) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; dep-version resolution is agent-behavioral skill prose with no behavioral test. -->
-4. Lockfile generation during `/sdd init` is a scoped carveout to the no-local-builds rule (resolution only, with `--ignore-scripts` on npm; no installs, tests, or builds). <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-033: /sdd init scaffolding and canonical render) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; the --ignore-scripts carveout is agent-behavioral skill prose with no behavioral test. -->
-5. `/sdd init` (both greenfield and Import Mode) runs as a lean two-confirm flow: the agent asks one vision question (or accepts `$ARGUMENTS`), drafts the entire spec in memory (actors, domains, design principles, REQs in canonical shape, CON-* constraints, founding ADRs, glossary terms), presents the full draft as one review surface, and applies user edits in place until the user accepts. The 10-15-turn one-domain-at-a-time confirmation chain is not used. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-033: /sdd init scaffolding and canonical render) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; the two-confirm flow is agent-behavioral skill prose with no behavioral test. -->
-6. Every REQ written by `/sdd init` renders in the canonical shape defined by the `spec-driven-development` skill: ACs numbered (`1.`, `2.`, `3.`), each labeled field on its own line with blank-line separators between trailing fields (`Constraints`, `Priority`, `Dependencies`, `Verification`, `Status`), and `**Constraints:**` + `**Dependencies:**` always present (rendered as the literal string `None.` when empty). Cross-references render as markdown anchor links, not plain text. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-033: /sdd init scaffolding and canonical render) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; canonical REQ render is agent-behavioral skill prose with no behavioral test. -->
-7. `/sdd init` pre-creates the verification-queue file `sdd/spec/.review-queue.md` at scaffold time with the placeholder `_Awaiting first finding._` so the file ships discoverable; after scaffold the layout-resolved review queue (`sdd/spec/.review-queue.md` on the nested layout, `sdd/.review-needed.md` on the flat-legacy layout) accumulates findings appended by spec-reviewer, `/sdd clean`, or `/sdd init` Import-Mode triage. Adjacent audit accumulator surfaces are specified in [REQ-AGENT-048](#req-agent-048-audit-accumulator-surfaces). <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-033: /sdd init scaffolding and canonical render) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; .review-queue.md placeholder pre-creation is agent-behavioral skill prose with no behavioral test. -->
+1. `/sdd init` scaffolds a new `sdd/` from templates for greenfield projects. <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-033: /sdd init scaffolding and canonical render) -->
+2. In import mode, `/sdd init` derives a spec from existing source code rather than scaffolding from templates. <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-033: /sdd init scaffolding and canonical render) -->
+3. When `/sdd init` generates a package manifest, top-level dependency versions are resolved at scaffold time via the ecosystem's registry (npm, Cargo, pip, Go) rather than emitted from memory. The Cloudflare Workers stack pins `wrangler`, `@cloudflare/workers-types`, `@cloudflare/vitest-pool-workers`, and `vitest` as a single co-resolved cohort. <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-033: /sdd init scaffolding and canonical render) -->
+4. Lockfile generation during `/sdd init` is a scoped carveout to the no-local-builds rule (resolution only, with `--ignore-scripts` on npm; no installs, tests, or builds). <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-033: /sdd init scaffolding and canonical render) -->
+5. `/sdd init` (both greenfield and Import Mode) runs as a lean two-confirm flow: the agent asks one vision question (or accepts `$ARGUMENTS`), drafts the entire spec in memory (actors, domains, design principles, REQs in canonical shape, CON-* constraints, founding ADRs, glossary terms), presents the full draft as one review surface, and applies user edits in place until the user accepts. The 10-15-turn one-domain-at-a-time confirmation chain is not used. <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-033: /sdd init scaffolding and canonical render) -->
+6. Every REQ written by `/sdd init` renders in the canonical shape defined by the `spec-driven-development` skill: ACs numbered (`1.`, `2.`, `3.`), each labeled field on its own line with blank-line separators between trailing fields (`Constraints`, `Priority`, `Dependencies`, `Verification`, `Status`), and `**Constraints:**` + `**Dependencies:**` always present (rendered as the literal string `None.` when empty). Cross-references render as markdown anchor links, not plain text. <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-033: /sdd init scaffolding and canonical render) -->
+7. `/sdd init` pre-creates the verification-queue file `sdd/spec/.review-queue.md` at scaffold time with the placeholder `_Awaiting first finding._` so the file ships discoverable; after scaffold the layout-resolved review queue (`sdd/spec/.review-queue.md` on the nested layout, `sdd/.review-needed.md` on the flat-legacy layout) accumulates findings appended by spec-reviewer, `/sdd clean`, or `/sdd init` Import-Mode triage. Adjacent audit accumulator surfaces are specified in [REQ-AGENT-048](#req-agent-048-audit-accumulator-surfaces). <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-033: /sdd init scaffolding and canonical render) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:** None.
 
@@ -960,7 +1020,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
 
-**Verification:** [Automated test](../../host/__tests__/skill-sdd-init-contract.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -974,13 +1034,15 @@ None.
 
 **Acceptance Criteria:**
 
-1. After the full draft is accepted, an enrichment pass runs before files are written, executing three sub-passes (cross-link, ADR-seed, glossary-seed) in one in-memory cycle with no additional user prompts. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-034: /sdd init enrichment pass with graphify) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; the enrichment pass is agent-behavioral skill prose with no behavioral test. -->
-2. The cross-link sub-pass adds every REQ that references another REQ concept by name to the parent's `Dependencies:` as an anchor link `[REQ-X-NNN](#req-x-nnn-title-slug)`. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; the cross-link sub-pass is agent-behavioral skill prose with no behavioral test. -->
-3. The ADR-seed sub-pass drafts 3-8 founding ADRs covering non-obvious technology choices (tech stack, framework, deployment target, auth pattern, data store, key middleware) and writes them to `documentation/decisions/README.md` with an index table at the top and per-ADR sections below. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-034: /sdd init enrichment pass with graphify) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; the ADR-seed sub-pass is agent-behavioral skill prose with no behavioral test. -->
-4. The glossary-seed sub-pass extracts every product noun, vendor name, and protocol mentioned in any REQ Intent or AC body and gives each a one-line definition in `sdd/glossary.md`. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-034: /sdd init enrichment pass with graphify) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; the glossary-seed sub-pass is agent-behavioral skill prose with no behavioral test. -->
-5. The enrichment pass queries the project's `graphify-out/graph.json` via the `mcp__graphify__*` MCP tool family: `get_neighbors` drives the cross-link pass, `god_nodes` surfaces ADR-seed candidates, `query_graph` extracts glossary concept-tagged nodes, and `shortest_path` validates non-obvious dependency edges. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-034: /sdd init enrichment pass with graphify) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; the mcp__graphify__ tool-call wiring is agent-behavioral skill prose with no behavioral test. -->
-6. When the graph is missing at enrichment time, `/sdd init` prompts the user once with a `/graphify cluster-only` (AST-only, free) build offer; on decline, enrichment falls back to an in-memory heuristic (literal-string matching across drafted REQs) and appends a one-line notice to `sdd/changes.md` recording reduced cross-link density. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-034: /sdd init enrichment pass with graphify) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; the cluster-only fallback + changes.md notice are agent-behavioral skill prose with no behavioral test. -->
-7. Graphify MCP tools are tool-agnostic across Bash and context-mode surfaces; the enrichment-pass contract is identical regardless of which tool surface is active. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-034: /sdd init enrichment pass with graphify) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; tool-surface agnosticism is agent-behavioral skill prose with no behavioral test. -->
+1. After the full draft is accepted, an enrichment pass runs before files are written, executing three sub-passes (cross-link, ADR-seed, glossary-seed) in one in-memory cycle with no additional user prompts. <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-034: /sdd init enrichment pass with graphify) -->
+2. The cross-link sub-pass adds every REQ that references another REQ concept by name to the parent's `Dependencies:` as an anchor link `[REQ-X-NNN](#req-x-nnn-title-slug)`.
+3. The ADR-seed sub-pass drafts 3-8 founding ADRs covering non-obvious technology choices (tech stack, framework, deployment target, auth pattern, data store, key middleware) and writes them to `documentation/decisions/README.md` with an index table at the top and per-ADR sections below. <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-034: /sdd init enrichment pass with graphify) -->
+4. The glossary-seed sub-pass extracts every product noun, vendor name, and protocol mentioned in any REQ Intent or AC body and gives each a one-line definition in `sdd/glossary.md`. <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-034: /sdd init enrichment pass with graphify) -->
+5. The enrichment pass queries the project's `graphify-out/graph.json` via the `mcp__graphify__*` MCP tool family: `get_neighbors` drives the cross-link pass, `god_nodes` surfaces ADR-seed candidates, `query_graph` extracts glossary concept-tagged nodes, and `shortest_path` validates non-obvious dependency edges. <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-034: /sdd init enrichment pass with graphify) -->
+6. When the graph is missing at enrichment time, `/sdd init` prompts the user once with a `/graphify cluster-only` (AST-only, free) build offer; on decline, enrichment falls back to an in-memory heuristic (literal-string matching across drafted REQs) and appends a one-line notice to `sdd/changes.md` recording reduced cross-link density. <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-034: /sdd init enrichment pass with graphify) -->
+7. Graphify MCP tools are tool-agnostic across Bash and context-mode surfaces; the enrichment-pass contract is identical regardless of which tool surface is active. <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-034: /sdd init enrichment pass with graphify) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -990,7 +1052,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render), [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-025](#req-agent-025-post-clone-graph-triage)
 
-**Verification:** [Automated test](../../host/__tests__/skill-sdd-init-contract.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1004,13 +1066,15 @@ None.
 
 **Acceptance Criteria:**
 
-1. `/sdd init` runs Phase 7a as a CRITICAL non-skippable gate BEFORE invoking `spec-enforce` and `doc-enforce`. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/sdd-init-phase-7a-verifier.test.js (REQ-AGENT-035: /sdd init Phase 7a source-anchor verifier gate) --> <!-- coverage-gap: gate ordering (run Phase 7a before the enforcement skills) is agent-behavioral skill prose in sdd-init; the phase-7a verifier test asserts the script's JSON/exit-code contract, not the skill's invocation ordering. -->
+1. `/sdd init` runs Phase 7a as a CRITICAL non-skippable gate BEFORE invoking `spec-enforce` and `doc-enforce`. <!-- @test: host/__tests__/sdd-init-phase-7a-verifier.test.js (REQ-AGENT-035: /sdd init Phase 7a source-anchor verifier gate) -->
 2. The verifier walks every `<!-- @impl: <path>::<symbol>[ = <value>] -->` anchor across `sdd/**/*.md` and `documentation/**/*.md`, resolves the path on disk, confirms the symbol's word-bounded presence in source, validates any literal value pattern within the symbol's local region, and counts malformed `@impl`-shaped comments and unreadable files. <!-- @test: host/__tests__/sdd-init-phase-7a-verifier.test.js (REQ-AGENT-035: /sdd init Phase 7a source-anchor verifier gate) -->
 3. The verifier emits a machine-readable JSON report containing counts of parsed, resolved, orphaned, drifted, malformed, and unreadable anchors, plus per-entry failure details and an exit-code field, written to a Phase-7a evidence file the commit body can reference. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/verify-source-anchors.py::main --> <!-- @test: host/__tests__/sdd-init-phase-7a-verifier.test.js (emits all 9 contract fields: parsed/resolved/orphaned/drifted/malformed/unreadable/failures/malformed_entries/unreadable_entries/exit_code) -->
-4. The `[sdd-init]` commit body MUST include the verbatim summary line `Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N malformed=N unreadable=N exit_code=0|1`. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/sdd-init-phase-7a-verifier.test.js (REQ-AGENT-035: /sdd init Phase 7a source-anchor verifier gate) --> <!-- coverage-gap: the commit-body summary line is agent-authored at commit time per sdd-init skill prose; no behavioral test asserts the agent includes it (the verifier test asserts the JSON the line is derived from, not the commit body). -->
-5. A non-zero `exit_code` blocks the commit until every failure is fixed in source or escalated to `sdd/spec/.review-queue.md`. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/verify-source-anchors.py --> <!-- @test: host/__tests__/sdd-init-phase-7a-verifier.test.js (AC5: non-zero exit_code blocks until every failure is fixed) -->
-6. Substituting a structural sanity check or agent self-attestation, partial coverage, running the verifier AFTER the enforcement skills, bypassing on a missing-tool error, or committing without the summary line each carry a CRITICAL severity (`phase-7a-self-attestation`, `phase-7a-incomplete-coverage`, `phase-7a-pipeline-inversion`, `phase-7a-tooling-bypass`, `phase-7a-evidence-missing`). <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- coverage-gap: the CRITICAL-severity violation classes are enforce-time / skill discipline rules (agent behavior); no automated test exercises self-attestation/pipeline-inversion detection. -->
-7. After `/sdd init`, steady-state CQ-SOURCE (`spec-enforce-truth`) and Pass 15 (`doc-enforce-truth`) consume Phase 7a's JSON when available rather than re-deriving. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/sdd-init-phase-7a-verifier.test.js (REQ-AGENT-035: /sdd init Phase 7a source-anchor verifier gate) --> <!-- coverage-gap: the steady-state JSON-reuse handoff is cross-skill (spec-enforce-truth / doc-enforce-truth) agent-behavioral prose; no automated test asserts the consume-rather-than-rederive path. -->
+4. The `[sdd-init]` commit body MUST include the verbatim summary line `Phase 7a verifier: parsed=N resolved=N orphaned=N drifted=N malformed=N unreadable=N exit_code=0|1`. <!-- @test: host/__tests__/sdd-init-phase-7a-verifier.test.js (REQ-AGENT-035: /sdd init Phase 7a source-anchor verifier gate) -->
+5. A non-zero `exit_code` blocks the commit until every failure is fixed in source or escalated to `sdd/spec/.review-queue.md`. <!-- @test: host/__tests__/sdd-init-phase-7a-verifier.test.js (AC5: non-zero exit_code blocks until every failure is fixed) -->
+6. Substituting a structural sanity check or agent self-attestation, partial coverage, running the verifier AFTER the enforcement skills, bypassing on a missing-tool error, or committing without the summary line each carry a CRITICAL severity (`phase-7a-self-attestation`, `phase-7a-incomplete-coverage`, `phase-7a-pipeline-inversion`, `phase-7a-tooling-bypass`, `phase-7a-evidence-missing`).
+7. After `/sdd init`, steady-state CQ-SOURCE (`spec-enforce-truth`) and Pass 15 (`doc-enforce-truth`) consume Phase 7a's JSON when available rather than re-deriving. <!-- @test: host/__tests__/sdd-init-phase-7a-verifier.test.js (REQ-AGENT-035: /sdd init Phase 7a source-anchor verifier gate) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -1020,7 +1084,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render), [REQ-AGENT-034](#req-agent-034-sdd-init-enrichment-pass-with-graphify)
 
-**Verification:** [Automated test](../../host/__tests__/sdd-init-phase-7a-verifier.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1064,13 +1128,15 @@ None.
 
 **Acceptance Criteria:**
 
-1. Three autonomy modes (`interactive`, `auto`, `unleashed`) are selectable via the layout-resolved config file (`sdd/spec/config.yml` on the nested layout, `sdd/config.yml` on the flat-legacy layout). <!-- @impl: preseed/agents/claude/skills/sdd-clean --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts --> <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-037: /sdd clean rescue and autonomy modes) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-clean-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; the autonomy-mode config selection is agent-behavioral skill prose with no behavioral test. -->
-2. `interactive` and `auto` modes apply fixes on the current branch (auto silently, interactive after confirmation). <!-- @impl: preseed/agents/claude/skills/sdd-clean --> <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-037: /sdd clean rescue and autonomy modes) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-clean-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; per-mode fix application is agent-behavioral skill prose with no behavioral test. -->
-3. `unleashed` mode applies SAFE + RISKY + JUDGMENT fixes on the current branch via per-category `[sdd-clean]` commits and uses conservative JUDGMENT auto-resolution that never overwrites intent. <!-- @impl: preseed/agents/claude/skills/sdd-clean --> <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-037: /sdd clean rescue and autonomy modes) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-clean-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; unleashed JUDGMENT auto-resolution is agent-behavioral skill prose with no behavioral test. -->
-4. `unleashed` refuses to run when `enforce_tdd: false` so the per-project opt-out is preserved; the user flips the flag manually or invokes `auto` instead, and `unleashed` never creates a new branch or opens a pull request so `git revert <sha>` on a per-category commit is the rollback surface. <!-- @impl: preseed/agents/claude/skills/sdd-clean --> <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-037: /sdd clean rescue and autonomy modes) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-clean-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; the enforce_tdd refusal and no-branch/no-PR guarantee are agent-behavioral skill prose with no behavioral test. -->
-5. `/sdd clean` rescues rotted specs with conservative JUDGMENT auto-resolution that never overwrites spec intent (mark Partial + Notes, move to Out of Scope, shrink in place). <!-- @impl: preseed/agents/claude/skills/sdd-clean --> <!-- @impl: preseed/agents/claude/rules/spec-discipline.md --> <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-037: /sdd clean rescue and autonomy modes) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-clean-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; rotted-spec JUDGMENT rescue is agent-behavioral skill prose with no behavioral test. -->
+1. Three autonomy modes (`interactive`, `auto`, `unleashed`) are selectable via the layout-resolved config file (`sdd/spec/config.yml` on the nested layout, `sdd/config.yml` on the flat-legacy layout). <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-037: /sdd clean rescue and autonomy modes) -->
+2. `interactive` and `auto` modes apply fixes on the current branch (auto silently, interactive after confirmation). <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-037: /sdd clean rescue and autonomy modes) -->
+3. `unleashed` mode applies SAFE + RISKY + JUDGMENT fixes on the current branch via per-category `[sdd-clean]` commits and uses conservative JUDGMENT auto-resolution that never overwrites intent. <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-037: /sdd clean rescue and autonomy modes) -->
+4. `unleashed` refuses to run when `enforce_tdd: false` so the per-project opt-out is preserved; the user flips the flag manually or invokes `auto` instead, and `unleashed` never creates a new branch or opens a pull request so `git revert <sha>` on a per-category commit is the rollback surface. <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-037: /sdd clean rescue and autonomy modes) -->
+5. `/sdd clean` rescues rotted specs with conservative JUDGMENT auto-resolution that never overwrites spec intent (mark Partial + Notes, move to Out of Scope, shrink in place). <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-037: /sdd clean rescue and autonomy modes) -->
 6. Each review agent self-limits to 2 fix rounds per commit cycle scoped to its own lane (spec-reviewer counts only commits touching `sdd/**`; doc-updater counts only commits touching `documentation/**`) to prevent micro-fix spirals without cross-contaminating lanes. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::all_required_lanes_completed_for_current_head --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — fail-safe behavior) -->
-7. In `auto` and `unleashed` modes, spec-reviewer and doc-updater push to whatever branch is currently checked out; the user is responsible for checking out the right branch before invoking. <!-- @impl: preseed/agents/claude/skills/sdd-clean --> <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-037: /sdd clean rescue and autonomy modes) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-clean-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; the push-to-current-branch behavior is agent-behavioral skill prose with no behavioral test. -->
+7. In `auto` and `unleashed` modes, spec-reviewer and doc-updater push to whatever branch is currently checked out; the user is responsible for checking out the right branch before invoking. <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-037: /sdd clean rescue and autonomy modes) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -1080,7 +1146,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** [Automated test](../../host/__tests__/skill-sdd-clean-contract.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1094,12 +1160,14 @@ None.
 
 **Acceptance Criteria:**
 
-1. Re-invoking `/sdd init` on a project where `sdd/` already exists and `sdd/.init-triage.md` has at least one open item enters Resume Mode rather than aborting. Resume Mode surfaces one open item at a time, refreshing its Context before presenting (re-reads source, re-checks git log, re-fetches related PRs, issues, and releases). <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-038: Resume Mode drain workflow) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; Resume Mode entry + per-item Context refresh is agent-behavioral skill prose with no behavioral test. -->
-2. The user chooses one of five decisions per item (`accept`, `correct`, `lost`, `skip`, `quit`); per-decision semantics are enumerated in Constraints. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; the five-decision menu is agent-behavioral skill prose with no behavioral test. -->
-3. Only `accept` and `correct` promote anything into the official spec; `skip` and `lost` write nothing to `sdd/{domain}.md`. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; per-decision spec-promotion behavior is agent-behavioral skill prose with no behavioral test. -->
-4. Each decision is its own commit (`[sdd-init] resolve TRIAGE-{NNN}` or `mark lost`). <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; the per-decision commit shape is agent-behavioral skill prose with no behavioral test. -->
-5. Resume Mode entry refuses to start when the working tree has uncommitted changes (same gate as `/sdd clean`) and is always interactive regardless of `sdd/config.yml`'s `mode`. When `mode: auto` is set, Resume Mode prints a one-line notice that auto is suspended for this run and resumes after the queue drains. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-038: Resume Mode drain workflow) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; the dirty-tree gate and auto-suspend notice are agent-behavioral skill prose with no behavioral test. -->
-6. Queue-drain closure mechanics are specified in [REQ-AGENT-047](#req-agent-047-resume-mode-closure-and-review-pipeline-gate). <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- coverage-gap: this AC is a pure cross-reference deferring closure mechanics to REQ-AGENT-047; the closure behavior is verified there. The sdd-init skill prose carrying the deferral has only the rejected theater test host/__tests__/skill-sdd-init-contract.test.js. -->
+1. Re-invoking `/sdd init` on a project where `sdd/` already exists and `sdd/.init-triage.md` has at least one open item enters Resume Mode rather than aborting. Resume Mode surfaces one open item at a time, refreshing its Context before presenting (re-reads source, re-checks git log, re-fetches related PRs, issues, and releases). <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-038: Resume Mode drain workflow) -->
+2. The user chooses one of five decisions per item (`accept`, `correct`, `lost`, `skip`, `quit`); per-decision semantics are enumerated in Constraints.
+3. Only `accept` and `correct` promote anything into the official spec; `skip` and `lost` write nothing to `sdd/{domain}.md`.
+4. Each decision is its own commit (`[sdd-init] resolve TRIAGE-{NNN}` or `mark lost`).
+5. Resume Mode entry refuses to start when the working tree has uncommitted changes (same gate as `/sdd clean`) and is always interactive regardless of `sdd/config.yml`'s `mode`. When `mode: auto` is set, Resume Mode prints a one-line notice that auto is suspended for this run and resumes after the queue drains. <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-038: Resume Mode drain workflow) -->
+6. Queue-drain closure mechanics are specified in [REQ-AGENT-047](#req-agent-047-resume-mode-closure-and-review-pipeline-gate).
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -1115,7 +1183,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-022](#req-agent-022-legacy-codebase-import-mode-discovery)
 
-**Verification:** [Automated test](../../host/__tests__/skill-sdd-init-contract.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1129,13 +1197,15 @@ None.
 
 **Acceptance Criteria:**
 
-1. `/sdd init` runs Phase 7b as a second CRITICAL non-skippable gate AFTER Phase 7a and BEFORE iterate-to-clean. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/sdd-init-phase-7b-verifier.test.js (REQ-AGENT-039: /sdd init Phase 7b enumeration-coverage verifier gate) --> <!-- coverage-gap: gate ordering (Phase 7b after 7a, before iterate-to-clean) is agent-behavioral skill prose in sdd-init; the phase-7b verifier test asserts the script's JSON/exit-code contract, not the skill's invocation ordering. -->
+1. `/sdd init` runs Phase 7b as a second CRITICAL non-skippable gate AFTER Phase 7a and BEFORE iterate-to-clean. <!-- @test: host/__tests__/sdd-init-phase-7b-verifier.test.js (REQ-AGENT-039: /sdd init Phase 7b enumeration-coverage verifier gate) -->
 2. The verifier walks the working tree, identifies load-bearing source files (under `services/`, `handlers/`, `controllers/`, `providers/`, `models/`, `domain/`, `core/`, `commands/`, `usecases/`, `workers/` OR source-line-count >= 100), and checks each file's repo-relative path against (a) the `<path>` portion of every `<!-- @impl: <path>::<symbol> -->` anchor in `sdd/**/*.md` + `documentation/**/*.md`, AND (b) literal mentions in the layout-appropriate triage files (nested: `sdd/spec/.init-triage.md` + `sdd/spec/.review-queue.md`; flat-layout legacy: `sdd/.init-triage.md` + `sdd/.review-needed.md`). <!-- @test: host/__tests__/sdd-init-phase-7b-verifier.test.js (REQ-AGENT-039: /sdd init Phase 7b enumeration-coverage verifier gate) -->
 3. The verifier emits a JSON report `{enumerated, accounted, unaccounted, coverage_pct, accounted_via, unaccounted_entries, exit_code}`. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/verify-enumeration-coverage.py::CoverageReport --> <!-- @test: host/__tests__/sdd-init-phase-7b-verifier.test.js (emits enumerated/accounted/unaccounted/coverage_pct/accounted_via/unaccounted_entries/exit_code) -->
-4. The `[sdd-init]` step-10 commit body MUST include the verbatim summary line `Phase 7b enum verifier: enumerated=N accounted=N unaccounted=N coverage_pct=P exit_code=0|1` alongside the Phase 7a line. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/sdd-init-phase-7b-verifier.test.js (REQ-AGENT-039: /sdd init Phase 7b enumeration-coverage verifier gate) --> <!-- coverage-gap: the commit-body summary line is agent-authored at commit time per sdd-init skill prose; no behavioral test asserts the agent includes it (the verifier test asserts the JSON the line is derived from, not the commit body). -->
-5. An empty triage queue on Import Mode with `unaccounted > 0` is CRITICAL `import-mode-narrowed-scope`. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/verify-enumeration-coverage.py --> <!-- @test: host/__tests__/sdd-init-phase-7b-verifier.test.js (REQ-AGENT-039: /sdd init Phase 7b enumeration-coverage verifier gate) -->
-6. Agent self-attestation, sampling, running `spec-enforce` first without Phase 7b, or committing without the summary line each carry a CRITICAL severity (`phase-7b-self-attestation`, `phase-7b-incomplete-coverage`, `phase-7b-pipeline-inversion`, `phase-7b-evidence-missing`). <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- coverage-gap: the CRITICAL-severity violation classes are enforce-time / skill discipline rules (agent behavior); no automated test exercises self-attestation/pipeline-inversion detection. -->
+4. The `[sdd-init]` step-10 commit body MUST include the verbatim summary line `Phase 7b enum verifier: enumerated=N accounted=N unaccounted=N coverage_pct=P exit_code=0|1` alongside the Phase 7a line. <!-- @test: host/__tests__/sdd-init-phase-7b-verifier.test.js (REQ-AGENT-039: /sdd init Phase 7b enumeration-coverage verifier gate) -->
+5. An empty triage queue on Import Mode with `unaccounted > 0` is CRITICAL `import-mode-narrowed-scope`. <!-- @test: host/__tests__/sdd-init-phase-7b-verifier.test.js (REQ-AGENT-039: /sdd init Phase 7b enumeration-coverage verifier gate) -->
+6. Agent self-attestation, sampling, running `spec-enforce` first without Phase 7b, or committing without the summary line each carry a CRITICAL severity (`phase-7b-self-attestation`, `phase-7b-incomplete-coverage`, `phase-7b-pipeline-inversion`, `phase-7b-evidence-missing`).
 7. A per-project waiver file `sdd/spec/.phase-7b-waiver.txt` (one repo-relative path per line, each with a one-line justification) excludes framework-boilerplate files from coverage; greenfield runs that produce `enumerated=0` and `coverage_pct=100.0` are advisory but still emit the commit body line so the audit-trail format stays uniform across modes. <!-- @impl: preseed/agents/claude/skills/sdd-init/references/verify-enumeration-coverage.py::main --> <!-- @test: host/__tests__/sdd-init-phase-7b-verifier.test.js (REQ-AGENT-039: /sdd init Phase 7b enumeration-coverage verifier gate) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -1145,7 +1215,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-035](#req-agent-035-sdd-init-phase-7a-source-anchor-verifier-gate)
 
-**Verification:** [Automated test](../../host/__tests__/sdd-init-phase-7b-verifier.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1191,7 +1261,9 @@ None.
 4. Pi task/subagent sessions must leave the sentinel untouched and must not acknowledge a bypass if sentinel consumption fails. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::consumeBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::canMainSessionConsumeReviewBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewBypassConsumeDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-041 / REQ-AGENT-055: Pi bypass consumption stays main-session-only and active head selection rejects stale states) -->
 5. A user-authored `skip review` or `skip verification` phrase after the candidate push line bypasses that push. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::BYPASS_FILE --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — bypass 2: magic phrase) -->
 6. A 5-strike circuit breaker exits silently for the same unacked PR HEAD until the SHA changes. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::openBreaker --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::isBreakerOpen --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — 5-strike circuit breaker / REQ-AGENT-044 (review-agent discipline enforcement)) -->
-7. The assistant MUST NEVER create the sentinel file or write the magic phrase in its own output. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBypass --> <!-- coverage-gap: this AC is a negative assistant-discipline constraint (the assistant never emits the sentinel/magic phrase); it is not a code path, so there is no behavioral test — enforcement relies on the consumption side being user/main-session-gated (acknowledgeBypass / canMainSessionConsumeReviewBypass). -->
+7. The assistant MUST NEVER create the sentinel file or write the magic phrase in its own output. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBypass -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -1203,7 +1275,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** [Automated test](../../host/__tests__/enforce-review-spawn.test.js), [Pi bypass-head acknowledgement test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1217,13 +1289,15 @@ None.
 
 **Acceptance Criteria:**
 
-1. Before dispatching semantic-extraction subagents in a Claude `/graphify` build (Step B2 of the upstream protocol), the agent presents an `AskUserQuestion` with exactly two modes: AST-only (free, structural edges only) and Full (AST plus parallel semantic-extraction subagents processing docs/papers/images). The Full option includes the actual subagent count and a wall-time estimate. <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md::AskUserQuestion --> <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md::uncached_doc_paper_files --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-025 / REQ-AGENT-043: Pi graphify clone triage resolves clone destinations and branches on graph state) --> <!-- coverage-gap: the only candidate coverage is host/__tests__/skill-graphify-content.test.js (readFileSync(SKILL.md) + .test(skill)/.includes() prose matcher), rejected as theater; the interactive AskUserQuestion build-mode dialog is agent-behavioral with no behavioral test. -->
-2. In Pi, after detection, the graph refresh choice offers Architecture graph, Full repo AST-only, Full repo semantic, and an explicit no-graph option that stops without modifying `graphify-out`. <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md::Architecture --> <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md::graphify-out --> <!-- @test: host/__tests__/graphify-clone-prompt.test.js (graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)) --> <!-- coverage-gap: the only candidate coverage is host/__tests__/skill-graphify-content.test.js (readFileSync(SKILL.md) + .includes() prose matcher), rejected as theater; the Pi post-detection refresh menu is agent-behavioral with no behavioral test. -->
-3. Clone-time AST-only and no-graph choices suppress the duplicate post-detection mode question; clone-time Full semantic is intent only, and the agent must show the actual uncached file/subagent counts after detection and get confirmation before dispatching semantic subagents. <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md::uncached --> <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md::uncached --> <!-- @test: host/__tests__/graphify-clone-prompt.test.js (graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)) --> <!-- coverage-gap: the only candidate coverage is host/__tests__/skill-graphify-content.test.js (readFileSync(SKILL.md) + .includes() prose matcher), rejected as theater; clone-time mode-question suppression is agent-behavioral with no behavioral test. -->
-4. The semantic option is hidden when the corpus contains zero docs/papers/images; code-only repos still offer the Pi Architecture graph, Full repo AST-only, and no-graph options. <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md --> <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-025 / REQ-AGENT-043: Pi graphify clone triage resolves clone destinations and branches on graph state) --> <!-- coverage-gap: the only candidate coverage is host/__tests__/skill-graphify-content.test.js (readFileSync(SKILL.md) + .includes() prose matcher), rejected as theater; the hidden-semantic-option behavior is agent-behavioral with no behavioral test. -->
-5. In advanced session mode only, Claude Code Part B semantic subagents use the Claude graphify skill's configured reliable extraction model, while Pi Part B semantic subagents omit `model` overrides so they inherit the current main-session model. Claude's graphify skill never escalates to Opus from this workflow, and Pi's native graphify skill does not name or pin any provider-specific model. <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md --> <!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch)) --> <!-- coverage-gap: the only candidate coverage is host/__tests__/skill-graphify-content.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher on the model-pin lines), rejected as theater; extraction-model selection is agent-behavioral skill prose with no behavioral test. -->
-6. The Part C merge step preserves all data structures produced by Part B subagents - including hyperedges - by saving subagent chunks into Graphify's semantic cache before official Graphify extraction/build consumes the cache. <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md --> <!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch)) --> <!-- coverage-gap: the Part C merge-preserves-hyperedges step is agent-behavioral skill prose; the only candidate (host/__tests__/skill-graphify-content.test.js) is theater, so there is no behavioral test in the Workers vitest pool. -->
-7. Pi's native graphify skill does not instruct the agent to run headless semantic extraction or Graphify provider labeling. Architecture mode uses the Pi-owned module-graph script, AST-only initial build uses the Pi-owned first-build script built from Graphify's own modules, AST-only refresh uses the bounded upstream-update wrapper, Full mode uses Pi `Agent` subagents for uncached semantic chunks, the Pi main session writes community labels into `.graphify_labels.json`, and local Graphify module calls regenerate the final report/html from existing graph community assignments. Full semantic merge starts from a freshly recreated AST-only baseline and must not pass semantic source files as `prune_sources`, because Graphify prunes after adding. The final user-facing `graphify-out/graph.html` and `graphify-out/callflow.html` are generated after labels are applied. <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+1. Before dispatching semantic-extraction subagents in a Claude `/graphify` build (Step B2 of the upstream protocol), the agent presents an `AskUserQuestion` with exactly two modes: AST-only (free, structural edges only) and Full (AST plus parallel semantic-extraction subagents processing docs/papers/images). The Full option includes the actual subagent count and a wall-time estimate. <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md::AskUserQuestion --> <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md::uncached_doc_paper_files --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-025 / REQ-AGENT-043: Pi graphify clone triage resolves clone destinations and branches on graph state) -->
+2. In Pi, after detection, the graph refresh choice offers Architecture graph, Full repo AST-only, Full repo semantic, and an explicit no-graph option that stops without modifying `graphify-out`. <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md::Architecture --> <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md::graphify-out --> <!-- @test: host/__tests__/graphify-clone-prompt.test.js (graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)) -->
+3. Clone-time AST-only and no-graph choices suppress the duplicate post-detection mode question; clone-time Full semantic is intent only, and the agent must show the actual uncached file/subagent counts after detection and get confirmation before dispatching semantic subagents. <!-- @impl: preseed/agents/claude/skills/graphify/SKILL.md::uncached --> <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md::uncached --> <!-- @test: host/__tests__/graphify-clone-prompt.test.js (graphify-clone-prompt.sh / REQ-AGENT-025 (post-clone graph triage)) -->
+4. The semantic option is hidden when the corpus contains zero docs/papers/images; code-only repos still offer the Pi Architecture graph, Full repo AST-only, and no-graph options. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-025 / REQ-AGENT-043: Pi graphify clone triage resolves clone destinations and branches on graph state) -->
+5. In advanced session mode only, Claude Code Part B semantic subagents use the Claude graphify skill's configured reliable extraction model, while Pi Part B semantic subagents omit `model` overrides so they inherit the current main-session model. Claude's graphify skill never escalates to Opus from this workflow, and Pi's native graphify skill does not name or pin any provider-specific model. <!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch)) -->
+6. The Part C merge step preserves all data structures produced by Part B subagents - including hyperedges - by saving subagent chunks into Graphify's semantic cache before official Graphify extraction/build consumes the cache. <!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch)) -->
+7. Pi's native graphify skill does not instruct the agent to run headless semantic extraction or Graphify provider labeling. Architecture mode uses the Pi-owned module-graph script, AST-only initial build uses the Pi-owned first-build script built from Graphify's own modules, AST-only refresh uses the bounded upstream-update wrapper, Full mode uses Pi `Agent` subagents for uncached semantic chunks, the Pi main session writes community labels into `.graphify_labels.json`, and local Graphify module calls regenerate the final report/html from existing graph community assignments. Full semantic merge starts from a freshly recreated AST-only baseline and must not pass semantic source files as `prune_sources`, because Graphify prunes after adding. The final user-facing `graphify-out/graph.html` and `graphify-out/callflow.html` are generated after labels are applied. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -1233,7 +1307,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** [Automated test](../../host/__tests__/skill-graphify-content.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1247,11 +1321,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. All three review agents (doc, spec, tdd) enforce both structural compliance and content-quality on every applicable lane. <!-- @impl: preseed/agents/claude/rules/spec-discipline.md --> <!-- @impl: preseed/agents/claude/rules/documentation-discipline.md --> <!-- @impl: preseed/agents/claude/rules/tdd-discipline.md --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh - lane-aware emission (compute_required_lanes integration)) -->
-2. doc-updater runs structural passes (shape, budgets, lane) and content-quality passes (verification truth-check, Implements-vs-AC cross-walk, stale code-block detection against source, content-preservation on trims, stranger cold-read usability). <!-- @impl: preseed/agents/claude/rules/documentation-discipline.md --> <!-- coverage-gap: the doc-updater content-quality passes are agent-behavioral, defined by rules/documentation-discipline.md and applied by the reviewer agent at PR-boundary; no automated test in the suite exercises a truth-check / cold-read pass. -->
-3. spec-reviewer runs the spec analogs (REQ-test truth-check beyond literal ID match, vendor/protocol drift detection, content-preservation on shrink). <!-- @impl: preseed/agents/claude/rules/spec-discipline.md --> <!-- coverage-gap: the spec-reviewer content-quality passes are agent-behavioral, defined by rules/spec-discipline.md and applied by the reviewer agent; no automated test exercises the REQ-test truth-check / vendor-drift passes. -->
-4. code-reviewer flags tests whose name claims behavior the assertions don't actually verify (the test-name-lies antipattern from `tdd-discipline`). <!-- @impl: preseed/agents/claude/rules/tdd-discipline.md --> <!-- coverage-gap: test-name-lies detection is agent-behavioral, defined by rules/tdd-discipline.md and applied by code-reviewer; no automated test exercises the detection pass. -->
-5. Auto-fixes derive concrete content from source or REQ when possible; load-bearing clauses that would be lost to a word-cap trim are promoted to surrounding prose, or the trim is reverted with a finding. <!-- @impl: preseed/agents/claude/rules/documentation-discipline.md --> <!-- @impl: preseed/agents/claude/rules/spec-discipline.md --> <!-- coverage-gap: the auto-fix / load-bearing-clause-promotion behavior is agent-behavioral, defined by the discipline rules files and applied by the reviewer agents; no automated test exercises the auto-fix derivation. -->
+1. All three review agents (doc, spec, tdd) enforce both structural compliance and content-quality on every applicable lane. <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh - lane-aware emission (compute_required_lanes integration)) -->
+2. doc-updater runs structural passes (shape, budgets, lane) and content-quality passes (verification truth-check, Implements-vs-AC cross-walk, stale code-block detection against source, content-preservation on trims, stranger cold-read usability).
+3. spec-reviewer runs the spec analogs (REQ-test truth-check beyond literal ID match, vendor/protocol drift detection, content-preservation on shrink).
+4. code-reviewer flags tests whose name claims behavior the assertions don't actually verify (the test-name-lies antipattern from `tdd-discipline`).
+5. Auto-fixes derive concrete content from source or REQ when possible; load-bearing clauses that would be lost to a word-cap trim are promoted to surrounding prose, or the trim is reverted with a finding.
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -1262,7 +1338,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-037](#req-agent-037-sdd-clean-rescue-and-autonomy-modes), [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** [Automated test](../../host/__tests__/enforce-review-spawn.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1276,12 +1352,14 @@ None.
 
 **Acceptance Criteria:**
 
-1. Every entry in `sdd/.init-triage.md` carries `**Context:**` (concrete evidence: file path + line range, git author of last meaningful change, commit SHA + subject, related tests, related PR numbers, related issue numbers, related release tags) and `**Recommendation:**` (the agent's specific best-guess answer) with `**Rationale:**` (one line tying the recommendation to specific Context evidence). <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-045: Import-Mode triage queue and transition state) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; per-entry Context/Recommendation/Rationale population is agent-behavioral skill prose with no behavioral test. -->
-2. The `/sdd init` skill instructs the agent to populate `**Context:**`, `**Recommendation:**`, and `**Rationale:**` for every entry; well-formedness (concrete Context refs, a specific Recommendation, no placeholders like `TBD`/`(inferred)`) is verified at the enforce pass, not by a programmatic parser gate. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; well-formedness verification is an agent-behavioral enforce-pass check with no behavioral test. -->
-3. Triage entries use `**Status:** open | resolved | lost`; `lost` requires a one-line `**Reason:**` field explaining why the information is genuinely unrecoverable. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-045: Import-Mode triage queue and transition state) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; the Status vocabulary + Reason-on-lost rule is agent-behavioral skill prose with no behavioral test. -->
+1. Every entry in `sdd/.init-triage.md` carries `**Context:**` (concrete evidence: file path + line range, git author of last meaningful change, commit SHA + subject, related tests, related PR numbers, related issue numbers, related release tags) and `**Recommendation:**` (the agent's specific best-guess answer) with `**Rationale:**` (one line tying the recommendation to specific Context evidence). <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-045: Import-Mode triage queue and transition state) -->
+2. The `/sdd init` skill instructs the agent to populate `**Context:**`, `**Recommendation:**`, and `**Rationale:**` for every entry; well-formedness (concrete Context refs, a specific Recommendation, no placeholders like `TBD`/`(inferred)`) is verified at the enforce pass, not by a programmatic parser gate.
+3. Triage entries use `**Status:** open | resolved | lost`; `lost` requires a one-line `**Reason:**` field explaining why the information is genuinely unrecoverable. <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-045: Import-Mode triage queue and transition state) -->
 4. While `sdd/.init-triage.md` contains any `Status: open` items, `sdd/config.yml` carries `transition: true` and the project is in SDD transition; during transition the entire review pipeline is suspended (code-reviewer, spec-reviewer, and doc-updater do not fire on any push or PR event) and `/sdd mode unleashed` is rejected with a message naming the transition and the open triage items. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::BYPASS_FILE --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh - SDD transition gate (REQ-AGENT-022)) -->
-5. When `enforce_tdd: false` (the Import Mode default), CLEAR REQs whose source code implements the AC default to `Status: Implemented` unconditionally so the project's opt-out from test-based verification is honored. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; the enforce_tdd:false Status-default rule is agent-behavioral skill prose with no behavioral test. -->
-6. When `enforce_tdd: true`, Status defaults `Implemented` only if a test file references the REQ ID, `Partial` otherwise. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; the enforce_tdd:true Status-default rule is agent-behavioral skill prose with no behavioral test. -->
+5. When `enforce_tdd: false` (the Import Mode default), CLEAR REQs whose source code implements the AC default to `Status: Implemented` unconditionally so the project's opt-out from test-based verification is honored.
+6. When `enforce_tdd: true`, Status defaults `Implemented` only if a test file references the REQ ID, `Partial` otherwise.
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -1295,7 +1373,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-022](#req-agent-022-legacy-codebase-import-mode-discovery)
 
-**Verification:** [Automated test](../../host/__tests__/skill-sdd-init-contract.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1309,10 +1387,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. When the last `Status: open` item is resolved or marked `lost`, the resolving commit clears `transition: true` from `sdd/config.yml`, appends a closure entry to `sdd/changes.md` recording totals (accepted / corrected / lost), and the agent enters Plan Mode (same hard gate as greenfield `/sdd init`) so the first feature work on top of the now-real spec is plan-gated. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; the closure sequence (clear transition, append totals, enter Plan Mode) is agent-behavioral skill prose with no behavioral test. -->
-2. `enforce_tdd` is NOT auto-flipped on closure; the user changes it manually when ready for TDD enforcement, typically after adding REQ-ID references to test names in the imported source. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; the no-auto-flip-on-closure rule is agent-behavioral skill prose with no behavioral test. -->
-3. `sdd/.init-triage.md` is preserved on closure as the audit record. <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; triage-file preservation on closure is agent-behavioral skill prose with no behavioral test. -->
+1. When the last `Status: open` item is resolved or marked `lost`, the resolving commit clears `transition: true` from `sdd/config.yml`, appends a closure entry to `sdd/changes.md` recording totals (accepted / corrected / lost), and the agent enters Plan Mode (same hard gate as greenfield `/sdd init`) so the first feature work on top of the now-real spec is plan-gated.
+2. `enforce_tdd` is NOT auto-flipped on closure; the user changes it manually when ready for TDD enforcement, typically after adding REQ-ID references to test names in the imported source.
+3. `sdd/.init-triage.md` is preserved on closure as the audit record.
 4. The PR-boundary review pipeline (PostToolUse `git-push-review-reminder` + Stop `enforce-review-spawn` hooks) short-circuits to no-op while `sdd/.init-triage.md` has open items, so legacy code does not trigger code-reviewer / spec-reviewer / doc-updater until the spec is real. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::requires_lane --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh - lane-aware emission (compute_required_lanes integration)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:** None.
 
@@ -1320,7 +1400,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-038](#req-agent-038-resume-mode-drain-workflow)
 
-**Verification:** [Automated test](../../host/__tests__/skill-sdd-init-contract.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1334,8 +1414,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. The doc-lane audit accumulator `documentation/.doc-coverage.md` is lazy-created by doc-updater on first substantive finding (no scaffold-time placeholder). <!-- @impl: preseed/agents/claude/skills/sdd-init --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-048: Audit accumulator surfaces (sdd-init half)) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-init-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher asserting sdd-init does NOT pre-create the dotfile), rejected as theater; the doc-updater lazy-create behavior is agent-behavioral with no behavioral test. -->
-2. The `/sdd clean` execution audit lives in per-category commit bodies (recoverable via `git log --grep='\[sdd-clean\]'`), not in a dotfile. <!-- @impl: preseed/agents/claude/skills/sdd-clean --> <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-048: Audit accumulator surfaces (sdd-clean half)) --> <!-- coverage-gap: covered only by host/__tests__/skill-sdd-clean-contract.test.js (readFileSync(SKILL.md) + .test(skill) prose matcher), rejected as theater; the commit-body audit (no dotfile) is agent-behavioral skill prose with no behavioral test. -->
+1. The doc-lane audit accumulator `documentation/.doc-coverage.md` is lazy-created by doc-updater on first substantive finding (no scaffold-time placeholder). <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-048: Audit accumulator surfaces (sdd-init half)) -->
+2. The `/sdd clean` execution audit lives in per-category commit bodies (recoverable via `git log --grep='\[sdd-clean\]'`), not in a dotfile. <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-048: Audit accumulator surfaces (sdd-clean half)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:** None.
 
@@ -1343,7 +1425,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render), [REQ-AGENT-037](#req-agent-037-sdd-clean-rescue-and-autonomy-modes)
 
-**Verification:** [Automated test](../../host/__tests__/skill-sdd-init-contract.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1358,12 +1440,14 @@ None.
 **Acceptance Criteria:**
 
 1. The preseed generation script computes a deterministic SHA-256 content hash over all preseed documents (sorted by key) and emits it as a build-time constant accessible to the runtime. <!-- @impl: src/lib/agent-seed.generated.ts::PRESEED_CONTENT_HASH --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-2. After a successful reconcile (manual or auto), the applied hash is persisted in the user's preferences store. <!-- @impl: src/routes/storage/seed.ts --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) -->
-3. On initial dashboard load, the backend compares the stored hash against the build-time constant and returns whether an upgrade is needed. This check is omitted from periodic polling to avoid overhead. <!-- @impl: src/routes/session/lifecycle.ts --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (returns preseedNeedsUpgrade true when hash missing from preferences) -->
+2. After a successful reconcile (manual or auto), the applied hash is persisted in the user's preferences store. <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) -->
+3. On initial dashboard load, the backend compares the stored hash against the build-time constant and returns whether an upgrade is needed. This check is omitted from periodic polling to avoid overhead. <!-- @test: src/__tests__/routes/session-batch-status.test.ts (returns preseedNeedsUpgrade true when hash missing from preferences) -->
 4. On initial dashboard load, if an upgrade is needed, the frontend triggers the reconcile in the background. <!-- @impl: web-ui/src/stores/session.ts::applyMetricsUpdate --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (Session Store) -->
 5. While the upgrade is in progress, the "+ New Session" button is disabled and displays "Upgrading..." (both Dashboard and SessionDropdown), and stopped session cards are visually dimmed (reduced opacity) and click-disabled. <!-- @impl: web-ui/src/stores/session.ts::applyMetricsUpdate --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-AGENT-049 AC6: stopped card dimmed during preseed upgrade) -->
 6. If the auto-upgrade fails, the error is logged but the dashboard remains fully usable. A page refresh retries the check. <!-- @impl: web-ui/src/stores/session.ts::applyMetricsUpdate --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049 AC7: should clear preseedUpgrading on failure so dashboard remains usable) -->
-7. The reconcile respects the user's current session mode and tier (standard/pro/unlimited) - identical behavior to the manual "Recreate" button. <!-- @impl: src/routes/storage/seed.ts --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) -->
+7. The reconcile respects the user's current session mode and tier (standard/pro/unlimited) - identical behavior to the manual "Recreate" button. <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:** None.
 
@@ -1371,7 +1455,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-011](#req-agent-011-agent-skills--rules-manually-recreatable-from-settings), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** [Backend route tests](../../src/__tests__/routes/session-batch-status.test.ts), [Seed hash persistence + AC8 mode/tier propagation](../../src/__tests__/routes/storage-seed.test.ts), [Store upgrade flow + AC7 failure path](../../web-ui/src/__tests__/stores/session.test.ts), [Dashboard UI AC5](../../web-ui/src/__tests__/components/Dashboard.test.tsx), [SessionDropdown AC5](../../web-ui/src/__tests__/components/SessionDropdown.test.tsx), [SessionStatCard AC6](../../web-ui/src/__tests__/components/SessionStatCard.test.tsx), [AC1 hash determinism](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1386,11 +1470,13 @@ None.
 **Acceptance Criteria:**
 
 1. The Pi `/review` command injects a dedicated Pi-native `review` skill that mirrors the Claude `commands/review.md` workflow, instead of injecting the `git-review-pipeline` enforcement skill. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::dispatchReview --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-2. The Pi `review` skill is the user-invoked review workflow (multi-perspective specialist subagents, cross-reference, architecture-decision filter, optional external verification, interactive triage), explicitly distinct from PR-boundary enforcement; it does not run the `git-review-pipeline`. <!-- @impl: preseed/agents/pi/skills/review/SKILL.md --> <!-- coverage-gap: the review-workflow phases are skill-content behavior injected at command time; the only file that reads the SKILL.md does so via prose matching (theater), so there is no behavioral test for the workflow distinct-from-enforcement contract. -->
-3. The skill scopes review by `--all` or `--diff` parsed from the appended command line, prints help and runs no phases when neither flag is present, and supports the `--deep` and `--verify-high` flags. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::dispatchReview --> <!-- coverage-gap: the --all/--diff/--deep flag handling lives only in the non-exported Pi extension preseed/agents/pi/extensions/review-command.ts (dispatchReview forwards the raw arg string to a Pi skill prompt); it is Pi-runtime, not importable into the Workers vitest pool, so it has no unit surface (the src test covers the /review-status renderer) -->
-4. The skill is static-analysis only: it never runs builds, tests, or linters (the container is resource-constrained). <!-- @impl: preseed/agents/pi/skills/review/SKILL.md --> <!-- coverage-gap: the static-analysis-only constraint is skill-content prose injected at command time; the only candidate coverage reads SKILL.md via prose matching (theater), so there is no behavioral test. -->
-5. The skill maps Claude primitives to Pi-native ones: subagents spawn via Pi's `Agent` tool with `subagent_type`, graph queries use Pi-native `graphify_query`/`graphify_path`/`graphify_explain` (with a `--graph <repo>/graphify-out/graph.json` CLI fallback), and plan entry uses the `Plan` agent or an explicit written-and-approved plan. <!-- @impl: preseed/agents/pi/skills/review/SKILL.md --> <!-- coverage-gap: the Claude-to-Pi primitive mapping is skill-content prose injected at command time; the only candidate coverage reads SKILL.md via prose matching (theater), so there is no behavioral test. -->
-6. The skill is delivered advanced-only via the Pi manifest (`skills/review/SKILL.md`) through the standard seed pipeline. <!-- @impl: preseed/agents/pi/manifest.json --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+2. The Pi `review` skill is the user-invoked review workflow (multi-perspective specialist subagents, cross-reference, architecture-decision filter, optional external verification, interactive triage), explicitly distinct from PR-boundary enforcement; it does not run the `git-review-pipeline`.
+3. The skill scopes review by `--all` or `--diff` parsed from the appended command line, prints help and runs no phases when neither flag is present, and supports the `--deep` and `--verify-high` flags. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::dispatchReview -->
+4. The skill is static-analysis only: it never runs builds, tests, or linters (the container is resource-constrained).
+5. The skill maps Claude primitives to Pi-native ones: subagents spawn via Pi's `Agent` tool with `subagent_type`, graph queries use Pi-native `graphify_query`/`graphify_path`/`graphify_explain` (with a `--graph <repo>/graphify-out/graph.json` CLI fallback), and plan entry uses the `Plan` agent or an explicit written-and-approved plan.
+6. The skill is delivered advanced-only via the Pi manifest (`skills/review/SKILL.md`) through the standard seed pipeline. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -1400,7 +1486,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-015](#req-agent-015-review-command-for-multi-perspective-codebase-review)
 
-**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1419,7 +1505,9 @@ None.
 3. `/debug` runs a systematic root-cause debugging workflow (no fixes before root cause is established; the 3-Fix Rule). <!-- @impl: preseed/agents/pi/extensions/commands-helpers.ts::DEBUG_WORKFLOW --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi /debug, /deploy, /brainstorm commands / REQ-AGENT-051 (Claude-only slash commands reimplemented as Pi native command handlers)) -->
 4. `/deploy` runs the push, stale-CI cancellation, CI monitoring, deploy, and live-URL verification workflow. <!-- @impl: preseed/agents/pi/extensions/commands-helpers.ts::DEPLOY_WORKFLOW --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi /debug, /deploy, /brainstorm commands / REQ-AGENT-051 (Claude-only slash commands reimplemented as Pi native command handlers)) -->
 5. `/brainstorm` runs a structured option-generation workflow that produces trade-offs and a recommendation. <!-- @impl: preseed/agents/pi/extensions/commands-helpers.ts::BRAINSTORM_WORKFLOW --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi /debug, /deploy, /brainstorm commands / REQ-AGENT-051 (Claude-only slash commands reimplemented as Pi native command handlers)) -->
-6. The extension is delivered advanced-only via the Pi manifest (`extensions/codeflare-commands.ts`) through the standard seed pipeline. <!-- @impl: preseed/agents/pi/manifest.json --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (AC6: codeflare-commands.ts is delivered advanced-only through the seed pipeline (manifest mode-gate)) -->
+6. The extension is delivered advanced-only via the Pi manifest (`extensions/codeflare-commands.ts`) through the standard seed pipeline. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (AC6: codeflare-commands.ts is delivered advanced-only through the seed pipeline (manifest mode-gate)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -1429,7 +1517,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline)
 
-**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1571,7 +1659,7 @@ None.
 **Constraints:**
 
 - The statusline is cosmetic and must not block agent execution if repository or context metadata cannot be read.
-- Idle sessions render no empty extra footer lines; active review progress remains visually below non-review extension status. <!-- coverage-gap: verified by the fake-footer render test (agent-seed-manifest.test.ts REQ-AGENT-056 block) rather than a dedicated idle-session render test -->
+- Idle sessions render no empty extra footer lines; active review progress remains visually below non-review extension status.
 
 **Priority:** P2
 
@@ -1652,7 +1740,9 @@ None.
 2. After `REVIEW_RESULT`, the main session first prints a detailed overview, then reads `summary.md`, verifies actionable findings, and fixes only legitimate findings by default. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::ENGINEERING_CONSTITUTION --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 3. If the latest user instruction says not to autofix, wait for approval, or do not push, the monitor result tells the main session to stop for approval instead of starting the fix pass. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 4. Partial lane result sets, missing `summary.md`, or failed required lanes never trigger an autofix request. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-5. The fix loop is driven by the background review-monitor completion result, not by a hidden `autofix.requested` marker or custom summary announcement channel. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- coverage-gap: AC5 asserts the fix loop is driven by the live background-agent completion notification rather than a marker file — a Pi runtime integration path the Workers vitest pool cannot inject (it cannot deliver Pi's background subagent result UI); verified by load-check plus live smoke/adversarial review per the Verification field. -->
+5. The fix loop is driven by the background review-monitor completion result, not by a hidden `autofix.requested` marker or custom summary announcement channel. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -1662,7 +1752,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-durable-review-status-and-result-formatting), [REQ-AGENT-062](#req-agent-062-pi-pr-boundary-review-result-delivery)
 
-**Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts); [review-state tests](../../src/__tests__/lib/review-state.test.ts). The actual main-session autofix response to a background-agent completion notification is a Pi runtime integration path verified by live smoke/adversarial review, because the repo test pool cannot inject Pi's background subagent result UI.
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1676,11 +1766,11 @@ None.
 
 **Acceptance Criteria:**
 
-1. Durable review lanes run isolated from the parent Pi session so a lane can finish after the spawning session exits. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-060 AC6: durable review lanes load context-mode only when enabled, never subagents; graphify is a first-party local extension, not a package) --> <!-- coverage-gap: AC1's detached child-process lane execution (a lane outliving its spawning session) is a runtime behaviour verified by an integration smoke test; the Workers vitest pool cannot spawn pi, so there is no dedicated automated test. -->
-2. Durable review lanes start without stdin from the parent session. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-060 AC6: durable review lanes load context-mode only when enabled, never subagents; graphify is a first-party local extension, not a package) --> <!-- coverage-gap: AC2's detached lane spawn (no parent stdin) is a runtime behaviour verified by an integration smoke test; the Workers vitest pool cannot spawn pi, so there is no dedicated automated test. -->
-3. Durable review lanes start without context files and do not recursively load the full Codeflare extension stack. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-060 AC6: durable review lanes load context-mode only when enabled, never subagents; graphify is a first-party local extension, not a package) --> <!-- coverage-gap: AC3's no-context-file / non-recursive lane launch is a runtime behaviour verified by an integration smoke test; the Workers vitest pool cannot spawn pi, so there is no dedicated automated test. -->
-4. Durable review lanes expose bash for git/gh diff inspection. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-060 AC7: detached review lanes never consume the local-build bypass sentinel) --> <!-- coverage-gap: AC4's bash tool-surface exposure on a spawned lane is a runtime behaviour verified by an integration smoke test; the Workers vitest pool cannot spawn pi, so there is no dedicated automated test. -->
-5. Durable review lanes expose graphify inspection tools. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-060 AC6: durable review lanes load context-mode only when enabled, never subagents; graphify is a first-party local extension, not a package) --> <!-- coverage-gap: AC5's graphify tool-surface exposure on a spawned lane is a runtime behaviour verified by an integration smoke test; the Workers vitest pool cannot spawn pi, so there is no dedicated automated test. -->
+1. Durable review lanes run isolated from the parent Pi session so a lane can finish after the spawning session exits. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-060 AC6: durable review lanes load context-mode only when enabled, never subagents; graphify is a first-party local extension, not a package) -->
+2. Durable review lanes start without stdin from the parent session. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-060 AC6: durable review lanes load context-mode only when enabled, never subagents; graphify is a first-party local extension, not a package) -->
+3. Durable review lanes start without context files and do not recursively load the full Codeflare extension stack. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-060 AC6: durable review lanes load context-mode only when enabled, never subagents; graphify is a first-party local extension, not a package) -->
+4. Durable review lanes expose bash for git/gh diff inspection. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-060 AC7: detached review lanes never consume the local-build bypass sentinel) -->
+5. Durable review lanes expose graphify inspection tools. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-060 AC6: durable review lanes load context-mode only when enabled, never subagents; graphify is a first-party local extension, not a package) -->
 6. Settings-enabled context-mode may add `ctx_search` to durable review lanes. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::laneExtensionSources --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 
 **Constraints:**
@@ -1705,13 +1795,15 @@ None.
 
 **Acceptance Criteria:**
 
-1. An idle Pi session with no user turn still reaps finished durable review lanes. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- coverage-gap: AC1's off-turn runtime reaping (an idle session with no user turn driving a reaper tick) is verified by an integration smoke test; the Workers vitest pool cannot drive Pi's idle/off-turn lifecycle, so there is no dedicated automated test. -->
+1. An idle Pi session with no user turn still reaps finished durable review lanes. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick -->
 2. An idle Pi session starts the next eligible durable review lane after prerequisite lanes complete. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-3. An idle Pi session finalizes completed durable reviews by saving the merged summary while the already-running background review-monitor delivers the result; Pi acknowledges and clears the pending window only after `monitor.completed` exists. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-061: idle reaper helpers advance completed lanes to monitor-delivered summary) --> <!-- coverage-gap: AC3's off-turn finalization (idle-session merged-summary save while a background monitor delivers) is verified by an integration smoke test; the Workers vitest pool cannot drive Pi's off-turn lifecycle or background subagent delivery, so there is no dedicated automated test. -->
-4. Pi does not resurrect old acked review jobs after pending state is cleared; monitor delivery is tied to the active review window started by a real PR-boundary trigger. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::refreshReviewStatusFromDurable --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ensureReviewWindow --> <!-- coverage-gap: AC4's off-turn no-resurrection guarantee (monitor delivery tied to a live review window across an idle session) is verified by an integration smoke test; the Workers vitest pool cannot drive Pi's off-turn lifecycle, so there is no dedicated automated test. -->
+3. An idle Pi session finalizes completed durable reviews by saving the merged summary while the already-running background review-monitor delivers the result; Pi acknowledges and clears the pending window only after `monitor.completed` exists. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-061: idle reaper helpers advance completed lanes to monitor-delivered summary) -->
+4. Pi does not resurrect old acked review jobs after pending state is cleared; monitor delivery is tied to the active review window started by a real PR-boundary trigger. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::refreshReviewStatusFromDurable --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ensureReviewWindow -->
 5. Ctx-bearing review routing accepts only direct Codeflare workspace children (`/home/user/workspace/<repo>`), preferring boundary/session repo, then current active repo, then remembered review repo; routing never uses the shared graphify active-cwd sentinel or arbitrary git-root walking. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::resolveReviewRepo --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::workspaceRepoFromPath --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewRepoForCtx --> <!-- @test: src/__tests__/lib/review-state.test.ts (resolveReviewRepo (Codeflare workspace-child routing only)) -->
 6. The no-ctx idle reaper iterates remembered review repos instead of applying single-repo routing precedence; persisted entries are accepted only while the workspace child still has a local `.git` directory. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::rememberReviewRepo --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::readPersistedReviewRepos --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::localHasGitDir --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::recallReviewRepos --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- @test: src/__tests__/lib/review-state.test.ts (REQ-AGENT-061: persisted recall ignores stale workspace-child paths without a .git directory) -->
 7. Read-only `/review-status` may fall back to the guarded display sentinel only after review routing candidates fail. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::reviewStatusRepo --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::liveReviewRow --> <!-- @test: src/__tests__/lib/review-state.test.ts (resolveReviewRepo (Codeflare workspace-child routing only)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -1721,7 +1813,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-054](#req-agent-054-pi-durable-review-lane-failure-handling), [REQ-AGENT-059](#req-agent-059-pi-durable-review-fix-loop), [REQ-AGENT-062](#req-agent-062-pi-pr-boundary-review-result-delivery)
 
-**Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC1/AC2); [review-state.test.ts](../../src/__tests__/lib/review-state.test.ts) (AC5/AC6/AC7 — workspace-child repo routing, remembered repo iteration, and sentinel-independence). AC3/AC4 are Pi runtime integration paths verified by load-check plus live smoke/adversarial review.
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1737,10 +1829,10 @@ None.
 
 1. Creating an active PR-boundary review window records at most one monitor claim per `(repo, head)` using durable claims and completion markers. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ensureReviewWindow --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::claimReviewMonitorStart --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorCompletionReady --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorSpawnDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 2. The monitor waits while any required lane marker is `running` or any required lane result file is missing. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-062: monitor waits for every required lane file and summary.md before reporting ready) -->
-3. If every required lane result exists but `summary.md` is missing, the monitor writes the merged summary before reporting. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatMergedReviewSummary --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-062: monitor waits for every required lane file and summary.md before reporting ready) --> <!-- coverage-gap: summary write is performed by the background monitor agent runtime; verified by live PR-boundary smoke review. -->
+3. If every required lane result exists but `summary.md` is missing, the monitor writes the merged summary before reporting. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatMergedReviewSummary --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-062: monitor waits for every required lane file and summary.md before reporting ready) -->
 4. After complete lane results and `summary.md` exist, the monitor writes `monitor.completed` JSON containing `repo`, `head`, `summaryPath`, `completedAt`, and result `clean` or `findings`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorCompletionReady --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorCompletionRecordReady --> <!-- @test: src/__tests__/lib/review-monitor-reliability.test.ts (reviewMonitorCompletionRejectReason (R3: diagnostic completion validation)) -->
 5. A completion record with mismatched repo/head/summaryPath, invalid `result`, or stale/missing `completedAt` is rejected, deleted for retry, and only a valid record latches. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorCompletionReady --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorCompletionRejectReason --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorCompletionRecordReady --> <!-- @test: src/__tests__/lib/review-monitor-reliability.test.ts (reviewMonitorCompletionRejectReason (R3: diagnostic completion validation)) -->
-6. Only an explicit required-lane `failed` marker can produce `REVIEW_RESULT failed` before completion. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- coverage-gap: AC6's actual REVIEW_RESULT failed emission is the background review-monitor's runtime output path; verified by live smoke/adversarial review. -->
+6. Only an explicit required-lane `failed` marker can produce `REVIEW_RESULT failed` before completion. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 
 **Constraints:**
 
@@ -1766,7 +1858,7 @@ None.
 **Acceptance Criteria:**
 
 1. `/review-results` remains a manual fallback that displays the saved `summary.md` for the current exact head without mutating delivery state, relying on nonce/announcement records, or claiming the head was acknowledged. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewResultsSummaryMessage --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatMergedReviewSummary --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-077 AC1: manual review-results display does not claim acknowledgement) -->
-2. When a monitor claim's tracked agent is terminal (per the subagents service) with no completion latched, the extension reclaims the claim before its TTL so the next active-run reaper re-spawns a fresh monitor rather than the review staying stuck until the TTL elapses. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reclaimStaleReviewMonitorClaim --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorLiveness --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorClaimReclaimEarly --> <!-- @test: src/__tests__/lib/review-monitor-reliability.test.ts (reviewMonitorClaimReclaimEarly (reclaim before TTL only on provable death with no completion)) --> <!-- coverage-gap: AC2's fs/service wiring in reclaimStaleReviewMonitorClaim (reading the claim agentId, the subagents-service getRecord probe, and the unlink) is Pi extension runtime not exercised by an automated test; only the pure reviewMonitorLiveness classification and reviewMonitorClaimReclaimEarly decision are unit-tested. Verified by live smoke/adversarial review. -->
+2. When a monitor claim's tracked agent is terminal (per the subagents service) with no completion latched, the extension reclaims the claim before its TTL so the next active-run reaper re-spawns a fresh monitor rather than the review staying stuck until the TTL elapses. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reclaimStaleReviewMonitorClaim --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorLiveness --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorClaimReclaimEarly --> <!-- @test: src/__tests__/lib/review-monitor-reliability.test.ts (reviewMonitorClaimReclaimEarly (reclaim before TTL only on provable death with no completion)) -->
 
 **Constraints:**
 
@@ -1796,8 +1888,10 @@ None.
 3. GitHub CLI parsing recognizes `gh pr create`, `gh pr merge`, `gh pr update-branch`, `gh repo sync`, and protected-base `gh pr edit`, including edit commands with value-bearing flags before the PR selector. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isPrBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prEditBoundaryBase --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prEditCommandTarget --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (isPrBoundaryTrigger) -->
 4. Here-doc bodies are stripped before command tokenization so markdown PR bodies cannot hide a following boundary command. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::stripHeredocs --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (isPrBoundaryTrigger) -->
 5. Non-advancing push forms (`--dry-run`, `-n`, `--delete`, `-d`, tag-only pushes, and delete-only refspecs) are excluded. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::gitPushCommandTarget --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isGitPushOnlyCommand --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (command target parsing for PR-boundary recovery (REQ-AGENT-063 / REQ-AGENT-066)) -->
-6. Quoted text and non-shell tool bodies containing boundary-looking strings are ignored. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::commandTextFromEvent --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (printf/rg false-positive guards) -->
+6. Quoted text and non-shell tool bodies containing boundary-looking strings are ignored. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::commandTextFromEvent -->
 7. Command wrappers are parsed structurally rather than with wrapper-heavy regular expressions. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::unwrapCommandWords --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (command target parsing for PR-boundary recovery (REQ-AGENT-063 / REQ-AGENT-066)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -1807,7 +1901,7 @@ None.
 
 **Dependencies:** None
 
-**Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [`review-trigger.test.ts`](../../src/__tests__/lib/review-trigger.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1826,8 +1920,10 @@ None.
 3. The callback binds an HMAC-signed, single-use state to the initiating user's bucket (token-fixation CSRF defense); a forged, expired, or replayed state is rejected without exchanging the code. On success it stores the token and auto-selects the account when exactly one is accessible, else redirects to an account picker. <!-- @impl: src/lib/cloudflare-token.ts::connectCloudflare --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (GET /auth/cloudflare/connect/callback) -->
 4. `getValidCloudflareToken` returns a currently-valid token, refreshing within the skew window and failing closed (never a stale token); the resolved token is injected into the container env via `applyCloudflareOAuthToken` on session start. <!-- @impl: src/lib/cloudflare-token.ts::getValidCloudflareToken --> <!-- @impl: src/lib/cloudflare-token.ts::applyCloudflareOAuthToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (getValidCloudflareToken) -->
 5. The connect URL carries a scope `tier`; the server maps it to the OAuth `scope`, always including `offline_access` so a refresh token is issued. <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (feeds the scope tier into the OAuth authorize scope param (always incl. offline_access)) -->
-6. The operator's Cloudflare OAuth client id + secret are configured in the admin-gated Setup wizard (KV; id plain, secret encrypted at rest, fail-closed without `ENCRYPTION_KEY`), mirroring the GitHub provider config ([REQ-GITHUB-008](github.md#req-github-008-enterprise-github-provider-configuration-via-setup)). <!-- @impl: src/routes/setup/index.ts --> <!-- @impl: web-ui/src/components/setup/CloudflareProviderChooser.tsx --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
+6. The operator's Cloudflare OAuth client id + secret are configured in the admin-gated Setup wizard (KV; id plain, secret encrypted at rest, fail-closed without `ENCRYPTION_KEY`), mirroring the GitHub provider config ([REQ-GITHUB-008](github.md#req-github-008-enterprise-github-provider-configuration-via-setup)). <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
 7. Enterprise is unchanged: `getCloudflareProvider` returns null in enterprise, so every Cloudflare-OAuth route fails closed there; enterprise keeps the admin-global Browser Rendering token ([REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)). <!-- @impl: src/lib/cloudflare-token.ts::getCloudflareProvider --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (applyCloudflareOAuthToken (REQ-AGENT-078: injects the placeholder, real token never in the container)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -1840,7 +1936,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-029](#req-agent-029-deploy-credential-propagation-to-container)
 
-**Verification:** [Lib test](../../src/__tests__/lib/cloudflare-token.test.ts) + [Route test](../../src/__tests__/routes/cloudflare-oauth.test.ts) + [Setup test](../../src/__tests__/routes/setup.test.ts) + [Chooser test](../../web-ui/src/__tests__/components/CloudflareProviderChooser.test.tsx)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1914,8 +2010,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. In advanced session mode, the constitution is seeded as a Claude rule — the preseed rule file is present and the seed manifest gates it to `advanced` only, matching the other engineering rules ([REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)). <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md --> <!-- @impl: preseed/agents/claude/manifest.json --> <!-- @test: host/__tests__/engineering-constitution.test.js (seeds the Claude constitution rule, gated to advanced mode) -->
-2. The constitution is injected into every Pi agent system prompt on `before_agent_start` as an always-on, self-contained `<codeflare_constitution>` block (placed in the base prompt parts, not behind a conditional), so it is present in every Pi session. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::ENGINEERING_CONSTITUTION --> <!-- @test: host/__tests__/engineering-constitution.test.js (ENGINEERING_CONSTITUTION injected into the base before_agent_start parts array, not behind a conditional) -->
+1. In advanced session mode, the constitution is seeded as a Claude rule — the preseed rule file is present and the seed manifest gates it to `advanced` only, matching the other engineering rules ([REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)). <!-- @test: host/__tests__/engineering-constitution.test.js (seeds the Claude constitution rule, gated to advanced mode) -->
+2. The constitution is injected into every Pi agent system prompt on `before_agent_start` as an always-on, self-contained `<codeflare_constitution>` block (placed in the base prompt parts, not behind a conditional), so it is present in every Pi session. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::ENGINEERING_CONSTITUTION -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -1927,7 +2025,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** [Automated test](../../host/__tests__/engineering-constitution.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1968,11 +2066,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. The skill is invoked only when the user's current request asks for external LLMs or names GPT, ChatGPT, Gemini, OpenAI, or `consult_llm`. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md::Hard gate --> <!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md::Hard gate --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) --> <!-- coverage-gap: AC1 is the SKILL.md hard-gate invocation rule; its only candidate coverage is the REQ-AGENT-031/067 describe in agent-seed-manifest.test.ts, which asserts the gate via SKILL.md prose-matching (hardGate.toContain('explicitly asks to consult external LLMs')) — rejected as text-matching theater. The skill is markdown prose with no executable gate to test behaviorally. -->
-2. Without a named model, the agent asks one model-selection question with latest Gemini, latest OpenAI, both, list-all, and the tool-provided write-in option. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md::Step 1 --> <!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md::Step 1 --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) --> <!-- coverage-gap: AC2 is the SKILL.md model-dialog instruction; its only candidate coverage is the REQ-AGENT-031/067 describe in agent-seed-manifest.test.ts, which asserts the dialog via SKILL.md prose-matching (body.toContain('AskUserQuestion'), toMatch(/five/i), toMatch(/list all available/i)) — rejected as text-matching theater. -->
-3. The list-all path reads concrete Gemini/OpenAI model IDs from the consult-llm startup log, not from provider selectors. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md::Listing concrete models --> <!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md::Listing concrete models --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) --> <!-- coverage-gap: AC3 is the SKILL.md list-all instruction; its only candidate coverage is the REQ-AGENT-031/067 describe in agent-seed-manifest.test.ts, which asserts it via SKILL.md prose-matching (body.toContain('AVAILABLE MODELS'), toContain('mcp.log'), toContain('never present that selector list')) — rejected as text-matching theater. -->
-4. Latest-model choices use server-side `"openai"` / `"gemini"` selectors and never perform provider model-list HTTP requests with raw keys. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md::Step 1 --> <!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md::Step 1 --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) --> <!-- coverage-gap: AC4 is the SKILL.md selector instruction; its only candidate coverage is the REQ-AGENT-031/067 describe in agent-seed-manifest.test.ts, which asserts it via SKILL.md prose-matching (body.toContain('"openai"'), not.toContain('/v1/models'), not.toContain('Authorization: Bearer')) — rejected as text-matching theater. -->
-5. When the user names a specific model, no dialog is shown and that exact ID is passed. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md::Step 1 --> <!-- @impl: preseed/agents/pi/skills/consult-llm/SKILL.md::Step 1 --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) --> <!-- coverage-gap: AC5 is the SKILL.md named-model skip-dialog instruction; its only candidate coverage is the REQ-AGENT-031/067 describe in agent-seed-manifest.test.ts, which asserts it via SKILL.md prose-matching (body.toLowerCase().toContain('named a specific model')) — rejected as text-matching theater. -->
+1. The skill is invoked only when the user's current request asks for external LLMs or names GPT, ChatGPT, Gemini, OpenAI, or `consult_llm`. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
+2. Without a named model, the agent asks one model-selection question with latest Gemini, latest OpenAI, both, list-all, and the tool-provided write-in option. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
+3. The list-all path reads concrete Gemini/OpenAI model IDs from the consult-llm startup log, not from provider selectors. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
+4. Latest-model choices use server-side `"openai"` / `"gemini"` selectors and never perform provider model-list HTTP requests with raw keys. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
+5. When the user names a specific model, no dialog is shown and that exact ID is passed. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -1983,7 +2083,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-031](#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)
 
-**Verification:** [Agent seed manifest test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1997,7 +2097,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. When a Pi push or PR opens or syncs a PR to `main`/`master`, an exact-head CI monitor is spawned together with the `review-monitor` from the PR-boundary handoff and kept active until `CI_RESULT`, unless skipped or superseded. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-ci-route --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::visibleMonitorHandoffRequest --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-074: visible monitor handoff requests review and CI monitors for the exact head) --> <!-- coverage-gap: the PR-boundary trigger and stopped/no-output monitor restart are main-session responses to Pi background-task UI notifications; verified by live PR-boundary smoke review. -->
+1. When a Pi push or PR opens or syncs a PR to `main`/`master`, an exact-head CI monitor is spawned together with the `review-monitor` from the PR-boundary handoff and kept active until `CI_RESULT`, unless skipped or superseded. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-ci-route --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::visibleMonitorHandoffRequest --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-074: visible monitor handoff requests review and CI monitors for the exact head) -->
 2. The CI monitor reports success only after every workflow row for the monitored HEAD is complete and the workflow/run-id fingerprint is stable. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 AC2: ci monitor waits for a stable workflow/run set before success) -->
 3. If the local branch ref no longer points at the monitored HEAD before any terminal success/failure, the monitor reports `CI_RESULT timeout superseded` instead of success/failure for the stale head. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 AC3: ci monitor re-checks superseded status before terminal success) -->
 4. CI failures are report-only: the background agent reports the failed workflow/run/log pointer and never fixes, commits, or pushes. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 AC4: ci monitor reports failed workflow rows) -->
@@ -2058,11 +2158,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. Routine pushes do not auto-start Claude `ci-monitoring`. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Hard obligations --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) --> <!-- coverage-gap: AC1 is a Claude agent-instruction policy encoded only as git-workflow rule prose; its only candidate coverage is the REQ-AGENT-068/070 describe in agent-seed-manifest.test.ts, which asserts it via rule prose-matching (claudeHardObligations.toContain('Do not auto-start CI monitoring after routine pushes.')) — rejected as text-matching theater. There is no executable to test the no-auto-start behavior. -->
-2. Claude invokes `ci-monitoring` only when the user explicitly asks or a deploy/merge gate needs a fresh result. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Binding invocation rule --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- coverage-gap: AC2 is a Claude agent-instruction invocation policy encoded only as SKILL.md/git-workflow rule prose; its only candidate coverage is the REQ-AGENT-068/070 describe in agent-seed-manifest.test.ts, which asserts it via rule prose-matching (claudeHardObligations.toContain('Invoke `ci-monitoring` only when the user explicitly asks')) — rejected as text-matching theater. -->
-3. The Claude monitor uses a durable temp-script launcher that prints the monitored head, pid, and log path before detaching. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::The monitor launcher --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC3: Claude ci monitor launcher starts detached work and returns a durable log path) -->
-4. Claude success requires a non-empty workflow/run fingerprint to stay stable across two polls. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::The monitor launcher --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC4: Claude ci monitor waits for a stable workflow/run set before success) -->
-5. Claude writes terminal failure and timeout result lines to the durable log when workflow rows fail or GitHub CLI access is unavailable. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::The monitor launcher --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC5: Claude ci monitor reports failed workflow rows) -->
+1. Routine pushes do not auto-start Claude `ci-monitoring`. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+2. Claude invokes `ci-monitoring` only when the user explicitly asks or a deploy/merge gate needs a fresh result. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
+3. The Claude monitor uses a durable temp-script launcher that prints the monitored head, pid, and log path before detaching. <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC3: Claude ci monitor launcher starts detached work and returns a durable log path) -->
+4. Claude success requires a non-empty workflow/run fingerprint to stay stable across two polls. <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC4: Claude ci monitor waits for a stable workflow/run set before success) -->
+5. Claude writes terminal failure and timeout result lines to the durable log when workflow rows fail or GitHub CLI access is unavailable. <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC5: Claude ci monitor reports failed workflow rows) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -2072,7 +2174,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-068](#req-agent-068-ci-monitoring-background-agent-policy)
 
-**Verification:** [Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [CI monitoring skill tests](../../host/__tests__/ci-monitoring-skill.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -2168,23 +2270,25 @@ None.
 **Acceptance Criteria:**
 
 1. Review startup sends a main-session follow-up containing exact-head `review-monitor` and CI monitor requests; this handoff is the single spawn trigger for both. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendVisibleMonitorHandoff --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::visibleMonitorHandoffRequest --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-074: visible monitor handoff requests review and CI monitors for the exact head) -->
-2. If the visible handoff cannot be sent, Pi may start one hidden fallback monitor without creating duplicate durable claims. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::BACKGROUND_SUBAGENT_SPAWN --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorSpawnDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-074: visible monitor handoff requests review and CI monitors for the exact head) --> <!-- coverage-gap: fallback ordering depends on Pi extension runtime availability of sendUserMessage vs the optional subagents service; verified by live smoke review. -->
-3. After a main/master SDD PR opens or syncs, the main session obeys the handoff by spawning missing exact-head monitors. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- coverage-gap: AC3 is a main-session skill-prompt workflow; no automated behavioral test -->
-4. The main session reports visible monitor agent IDs for the exact head after spawning them. <!-- @impl: preseed/agents/pi/skills/pr-workflow/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/git-review-pipeline/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-074: visible monitor handoff requests review and CI monitors for the exact head) --> <!-- coverage-gap: AC4 is a main-session response to Pi background-task UI notifications; verified by live PR-boundary smoke review. -->
-5. The main session restarts any CI/review monitor task that stops or completes without `CI_RESULT`/`REVIEW_RESULT`. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-074: visible monitor handoff requests review and CI monitors for the exact head) --> <!-- coverage-gap: AC5 is a main-session workflow over Pi background-task UI notifications; verified by live PR-boundary smoke review. -->
+2. If the visible handoff cannot be sent, Pi may start one hidden fallback monitor without creating duplicate durable claims. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::BACKGROUND_SUBAGENT_SPAWN --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorSpawnDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-074: visible monitor handoff requests review and CI monitors for the exact head) -->
+3. After a main/master SDD PR opens or syncs, the main session obeys the handoff by spawning missing exact-head monitors. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations -->
+4. The main session reports visible monitor agent IDs for the exact head after spawning them. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-074: visible monitor handoff requests review and CI monitors for the exact head) -->
+5. The main session restarts any CI/review monitor task that stops or completes without `CI_RESULT`/`REVIEW_RESULT`. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-074: visible monitor handoff requests review and CI monitors for the exact head) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
 - Visible monitor handoff is review result delivery, not reviewer lane spawning.
 - Durable monitor claims remain the duplicate-suppression source of truth.
 - The handoff is the sole trigger for the CI monitor as well as the `review-monitor`; no separate per-push CI monitor is started ([REQ-AGENT-068](#req-agent-068-ci-monitoring-background-agent-policy)), so the two never collide.
-- The `review-monitor` polling loop uses a tight fixed cadence (≈10s between checks, never a coarse multi-minute sleep) so a completed review is delivered to the main session within ~10s of the lanes finishing, not minutes later. Both monitor-prompt sources (the extension's inline `reviewMonitorPrompt` and the `review-monitor` agent file) pin this cadence so the subagent cannot pick an arbitrarily coarse interval. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/agents/review-monitor.md --> <!-- coverage-gap: the poll cadence is subagent-executed shell in a spawned monitor; verified by live PR-boundary review latency, no isolatable unit -->
+- The `review-monitor` polling loop uses a tight fixed cadence (≈10s between checks, never a coarse multi-minute sleep) so a completed review is delivered to the main session within ~10s of the lanes finishing, not minutes later. Both monitor-prompt sources (the extension's inline `reviewMonitorPrompt` and the `review-monitor` agent file) pin this cadence so the subagent cannot pick an arbitrarily coarse interval. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/agents/review-monitor.md -->
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-062](#req-agent-062-pi-pr-boundary-review-result-delivery), [REQ-AGENT-068](#req-agent-068-ci-monitoring-background-agent-policy)
 
-**Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts). Main-session restart behavior is a Pi runtime integration path verified by live smoke/adversarial review.
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -2198,10 +2302,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. All 11 Cloudflare skills (`cloudflare`, `cloudflare-one`, `cloudflare-one-migrations`, `wrangler`, `workers-best-practices`, `durable-objects`, `agents-sdk`, `sandbox-sdk`, `turnstile-spin`, `cloudflare-email-service`, `web-perf`) plus the `cloudflare-build-agent`/`cloudflare-build-mcp` commands are seeded to advanced-mode agents (Claude + the non-Claude agents via the shared pipeline) and gated `advanced`-only; default mode receives none. <!-- @impl: preseed/agents/claude/skills/cloudflare/SKILL.md --> <!-- @impl: preseed/agents/claude/skills/cloudflare-one/SKILL.md --> <!-- @impl: preseed/agents/claude/manifest.json --> <!-- @impl: preseed/agents/claude/commands/cloudflare-build-agent.md --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (default mode receives NONE of the Cloudflare skills (advanced/Pro-only)) -->
-2. The cloudflare mega-skill is slimmed: its `SKILL.md` decision tree is kept (with the dangling `references:` frontmatter removed) but the `references/` tree is NOT bundled, so the Worker bundle does not carry ~2.2 MB × every agent of retrieval-first reference markdown. <!-- @impl: preseed/agents/claude/skills/cloudflare/SKILL.md --> <!-- @impl: preseed/agents/claude/manifest.json --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (SLIMS the cloudflare mega-skill: SKILL.md is kept, the references/ tree is NOT bundled) -->
-3. Doc retrieval is via WebFetch of `developers.cloudflare.com`: a `paths:`-scoped `rules/cloudflare-workers.md` (loaded only on Workers files, not always-on) carries the retrieval-first guidance, and the upstream remote-MCP config (`.mcp.json`) is NOT bundled. <!-- @impl: preseed/agents/claude/rules/cloudflare-workers.md --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (the Workers retrieval rule is path-conditional (not always-on) and WebFetch-oriented) -->
-4. The upstream Apache-2.0 `LICENSE` is vendored alongside the skills for attribution. <!-- @impl: preseed/agents/claude/skills/cloudflare/LICENSE --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (carries the upstream Apache-2.0 LICENSE alongside the vendored skills (attribution)) -->
+1. All 11 Cloudflare skills (`cloudflare`, `cloudflare-one`, `cloudflare-one-migrations`, `wrangler`, `workers-best-practices`, `durable-objects`, `agents-sdk`, `sandbox-sdk`, `turnstile-spin`, `cloudflare-email-service`, `web-perf`) plus the `cloudflare-build-agent`/`cloudflare-build-mcp` commands are seeded to advanced-mode agents (Claude + the non-Claude agents via the shared pipeline) and gated `advanced`-only; default mode receives none. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (default mode receives NONE of the Cloudflare skills (advanced/Pro-only)) -->
+2. The cloudflare mega-skill is slimmed: its `SKILL.md` decision tree is kept (with the dangling `references:` frontmatter removed) but the `references/` tree is NOT bundled, so the Worker bundle does not carry ~2.2 MB × every agent of retrieval-first reference markdown. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (SLIMS the cloudflare mega-skill: SKILL.md is kept, the references/ tree is NOT bundled) -->
+3. Doc retrieval is via WebFetch of `developers.cloudflare.com`: a `paths:`-scoped `rules/cloudflare-workers.md` (loaded only on Workers files, not always-on) carries the retrieval-first guidance, and the upstream remote-MCP config (`.mcp.json`) is NOT bundled. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (the Workers retrieval rule is path-conditional (not always-on) and WebFetch-oriented) -->
+4. The upstream Apache-2.0 `LICENSE` is vendored alongside the skills for attribution. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (carries the upstream Apache-2.0 LICENSE alongside the vendored skills (attribution)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -2213,7 +2319,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** [Automated test](../../src/__tests__/lib/cloudflare-skills-seed.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -2229,12 +2335,12 @@ None.
 
 1. Pi starts with context-mode ENABLED by default — its `ctx_*` tools and the bash-curl-redirect hook are active without `/ctx on`. The Codeflare Pi extension also provides `/ctx status` and `/ctx off`, disabling it for the session; the next container start resets Pi to enabled. <!-- @impl: entrypoint.sh::CONTEXT_MODE_VERSION --> <!-- @test: host/__tests__/entrypoint-context-mode.test.js (entrypoint context-mode preseed gate / REQ-AGENT-005 + REQ-AGENT-076 (context-mode MCP registration)) -->
 2. Custom-tier Claude Code users may receive context-mode's automatic context-window-reduction behavior; downgrades, non-Pro mode, and Pi remove it on the next reconcile. <!-- @impl: src/lib/r2-seed.ts::getConfigsForMode --> <!-- @test: host/__tests__/entrypoint-context-mode.test.js (entrypoint context-mode preseed gate / REQ-AGENT-005 + REQ-AGENT-076 (context-mode MCP registration)) -->
-3. The Pi preseed installs five always-on tool extensions in the settings `required` set: `@juicesharp/rpiv-advisor`, `@juicesharp/rpiv-ask-user-question`, `@juicesharp/rpiv-todo`, `pi-web-access`, and `pi-mcp-adapter`. <!-- @impl: entrypoint.sh --> <!-- @impl: preseed/agents/pi/package.json --> <!-- @impl: preseed/agents/pi/manifest.json --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly (entrypoint.sh)) -->
+3. The Pi preseed installs five always-on tool extensions in the settings `required` set: `@juicesharp/rpiv-advisor`, `@juicesharp/rpiv-ask-user-question`, `@juicesharp/rpiv-todo`, `pi-web-access`, and `pi-mcp-adapter`. <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly (entrypoint.sh)) -->
 4. context-mode's npm update-check probe is neutralized at build time in both the Claude global install and Pi's prewarmed npm copy of context-mode, so neither surface renders an "Update available" notice; the version resolves "unknown" and no outbound npm traffic occurs (pin-drift protection: [REQ-OPS-020](operations.md#req-ops-020-shadow-pin-version-bump-automation) AC2). <!-- @impl: scripts/patch-context-mode-bundles.mjs::BUNDLE_NAMES --> <!-- @test: host/__tests__/dockerfile-context-mode-patch.test.js (Dockerfile context-mode patch (createRequire shim + REQ-AGENT-076 AC4 update-check disable)) -->
 5. Pi's `web_search` workflow defaults to `auto-summary`, so it never invokes the interactive browser-curator fallback (which cannot function in this headless container). <!-- @impl: entrypoint.sh::PI_WEB_SEARCH_JSON --> <!-- @test: host/__tests__/entrypoint-pi-web-search.test.js (entrypoint.sh Pi web-search workflow default) -->
 6. Codeflare does not globally disable context-mode's bridge idle-reaper: neither the entrypoint nor the preseeded Pi runtime extension forces `CONTEXT_MODE_BRIDGE_IDLE_MS=0` (the extension clears any inherited value), so context-mode's own foreground/subagent split keeps the interactive bridge quiet while non-foreground bridge helpers self-release and never accumulate. <!-- @impl: entrypoint.sh::SYNC_STATUS --> <!-- @test: host/__tests__/entrypoint-context-mode-runtime.test.js (entrypoint never sets or exports a global CONTEXT_MODE_BRIDGE_IDLE_MS override) -->
 
-**Notes:** The upstream `pi-web-access` bug this default avoids (`openCuratorBrowser`/`sendCuratorFallbackUpdate` scoping) and its crash symptom are documented in [documentation/lanes/troubleshooting.md](../../documentation/lanes/troubleshooting.md#pi-web-search-crashed-the-session). The Pi prewarm npm copy of context-mode and the AC4 update-check-probe neutralization are documented in [documentation/lanes/architecture.md#preseed-reference](../../documentation/lanes/architecture.md#preseed-third-party-plugin-context-mode).
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -2248,6 +2354,6 @@ None.
 
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** [Context-mode gating test](../../host/__tests__/entrypoint-context-mode.test.js) (AC1, AC2); [Pi settings packages test](../../host/__tests__/pi-settings-packages.test.js) (AC1, AC3); [Dockerfile context-mode patch test](../../host/__tests__/dockerfile-context-mode-patch.test.js) (AC4); [Pi web-search default test](../../host/__tests__/entrypoint-pi-web-search.test.js) (AC5); [Context-mode idle-notice runtime test](../../host/__tests__/entrypoint-context-mode-runtime.test.js) (AC6); [Agent-seed manifest test](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC6); [Context-mode version-pin test](../../host/__tests__/context-mode-version-pin.test.js) (AC1, AC6)
+**Verification:** Manual check
 
 **Status:** Implemented

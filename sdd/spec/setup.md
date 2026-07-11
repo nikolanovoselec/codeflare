@@ -154,8 +154,10 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 1. Once setup is marked complete, the setup-route auth middleware requires valid authentication for all configure/detect/prefill endpoints. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) -->
 2. The authenticated principal must have the admin role. <!-- @impl: src/lib/access.ts::authenticateRequest --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) -->
 3. The admin gate applies to the configure endpoint, the token-detection endpoint, and the prefill endpoint. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) -->
-4. The setup-status endpoint remains always public and never returns secrets. <!-- @impl: src/routes/setup/handlers.ts --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) -->
+4. The setup-status endpoint remains always public and never returns secrets. <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) -->
 5. Authentication accepts either Cloudflare Access tokens or Worker-issued session credentials, verified through the shared auth middleware. <!-- @impl: src/lib/access.ts::authenticateRequest --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) -->
+
+**Notes:** Manual verification procedures are documented in the [configuration checklist](../../documentation/lanes/configuration.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -166,7 +168,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-001](#req-setup-001-first-time-setup-requires-zero-pre-configuration), [REQ-AUTH-005](authentication.md#req-auth-005-three-tier-authorization-middleware)
 
-**Verification:** [Automated test](../../src/__tests__/routes/setup/handlers.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -297,8 +299,10 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 1. The home page exposes Open Graph metadata: `og:type`, `og:site_name`, `og:title`, `og:description`, `og:url`, `og:image`, `og:image:width=1200`, `og:image:height=630`, `og:image:alt`, `og:locale`. <!-- @impl: web-ui/index.html::og:image:alt --> <!-- @test: web-ui/src/__tests__/setup-010-og-metadata.test.ts (REQ-SETUP-010: Social-share preview metadata on the public landing page) -->
 2. Twitter Card metadata is set with `twitter:card="summary_large_image"` plus title, description, image, and image:alt. <!-- @impl: web-ui/index.html::format-detection --> <!-- @test: web-ui/src/__tests__/setup-010-og-metadata.test.ts (AC2: Twitter Card metadata is set (scraper view)) -->
-3. The preview image is a 1200x630 PNG that includes the Codeflare wordmark, the product tagline, and a CODEFLARE.CH wordmark footer. <!-- @impl: web-ui/public/og.png --> <!-- @test: web-ui/src/__tests__/setup-010-og-metadata.test.ts (AC3: 1200x630 PNG preview image is referenced (parsed values)) -->
-4. The `<meta name="description">` extends the `og:description` (it begins with the same canonical share copy and appends a short product descriptor) so search-engine snippets and social-share cards stay aligned. <!-- @impl: web-ui/index.html --> <!-- @test: web-ui/src/__tests__/setup-010-og-metadata.test.ts (REQ-SETUP-010: Social-share preview metadata on the public landing page) -->
+3. The preview image is a 1200x630 PNG that includes the Codeflare wordmark, the product tagline, and a CODEFLARE.CH wordmark footer. <!-- @test: web-ui/src/__tests__/setup-010-og-metadata.test.ts (AC3: 1200x630 PNG preview image is referenced (parsed values)) -->
+4. The `<meta name="description">` extends the `og:description` (it begins with the same canonical share copy and appends a short product descriptor) so search-engine snippets and social-share cards stay aligned. <!-- @test: web-ui/src/__tests__/setup-010-og-metadata.test.ts (REQ-SETUP-010: Social-share preview metadata on the public landing page) -->
+
+**Notes:** Manual verification procedures are documented in the [configuration checklist](../../documentation/lanes/configuration.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -309,7 +313,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../web-ui/src/__tests__/setup-010-og-metadata.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -356,7 +360,9 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 4. On reconfigure, stale users removed from the allowlist are cleaned up before continuing. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-012 AC4: step cleanup_stale_users runs only on reconfigure when users removed from allowlist) -->
 5. Step 4 configures the custom domain by upserting the DNS record and Worker route. <!-- @impl: src/routes/setup/custom-domain.ts::handleConfigureCustomDomain --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-012 AC5: step configure_custom_domain creates CNAME DNS record and Worker route) -->
 6. Step 5 upserts the CF Access application, groups, and policies; this step is bypassed when an OAuth client ID is configured (the SaaS OAuth path per AD38), not unconditionally in SaaS mode. <!-- @impl: src/routes/setup/access.ts::handleCreateAccessApp --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-012 AC6: step create_access_app creates CF Access application and is skipped in GitHub OIDC mode) -->
-7. Step 6 provisions a Turnstile widget when onboarding or SaaS mode is active; Step 7 writes final state and marks setup complete. <!-- @impl: src/routes/setup/handlers.ts --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (Setup AC Coverage) -->
+7. Step 6 provisions a Turnstile widget when onboarding or SaaS mode is active; Step 7 writes final state and marks setup complete. <!-- @test: src/__tests__/setup-ac-coverage.test.ts (Setup AC Coverage) -->
+
+**Notes:** Manual verification procedures are documented in the [configuration checklist](../../documentation/lanes/configuration.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -366,6 +372,6 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-002](#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile)
 
-**Verification:** [Integration test](../../src/__tests__/setup-ac-coverage.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented

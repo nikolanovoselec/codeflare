@@ -103,9 +103,11 @@ Full VS Code editor (OpenVSCode Server) running inside each session's container,
 2. The host writes the request-trigger file on the first `/api/vscode` request (idempotent) and, until OpenVSCode binds, serves a 503 auto-refreshing HTML warming page (not a raw JSON error) so a plain browser tab lands on the editor once it is up. <!-- @impl: host/src/vscode-proxy.ts::vscodeWarmingResponse --> <!-- @test: host/__tests__/openvscode-proxy.test.js (vscodeWarmingResponse / REQ-IDE-003 AC2 (auto-refreshing warming page, not raw JSON)) -->
 3. The supervisor restarts the server on crash via a restart loop, matching the SilverBullet supervisor pattern. <!-- @impl: entrypoint.sh::start_openvscode_supervisor --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (kill_pidfile_subtree / REQ-IDE-003 AC4 (shutdown releases the IDE port)) -->
 4. The shutdown handler kills the supervisor subtree via its pidfile so the IDE port is released for the next session. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (kill_pidfile_subtree / REQ-IDE-003 AC4 (shutdown releases the IDE port)) -->
-5. The header IDE button renders only when the active session is advanced-mode AND running; clicking it opens the session's `/api/vscode/<sessionId>/`. <!-- @impl: web-ui/src/components/Layout.tsx --> <!-- @impl: web-ui/src/components/Header.tsx --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Browser IDE button gating (REQ-IDE-001 / REQ-IDE-003)) -->
+5. The header IDE button renders only when the active session is advanced-mode AND running; clicking it opens the session's `/api/vscode/<sessionId>/`. <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Browser IDE button gating (REQ-IDE-001 / REQ-IDE-003)) -->
 6. Workspace edits persist through the existing final-sync; the IDE adds no new drain path and its server data dir is excluded from sync by living under `/tmp`. <!-- @impl: entrypoint.sh::start_openvscode_supervisor --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (kill_pidfile_subtree / REQ-IDE-003 AC4 (shutdown releases the IDE port)) -->
 7. The host rejects a non-advanced-mode session's `/api/vscode` request at the host layer -- a 409 non-refreshing page for HTTP, a refused upgrade for WebSocket -- since the supervisor never arms for such a session; this is independent of the header-button gate. <!-- @impl: host/src/vscode-proxy.ts::vscodeModeAllowed --> <!-- @impl: host/src/vscode-proxy.ts::vscodeDisabledResponse --> <!-- @test: host/__tests__/openvscode-proxy.test.js (vscodeDisabledResponse / REQ-IDE-003 (non-advanced session: clear page, no refresh loop)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -116,6 +118,6 @@ Full VS Code editor (OpenVSCode Server) running inside each session's container,
 
 **Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) (the proxy chain), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start) (workspace persistence)
 
-**Verification:** [Behavioral test](../../host/__tests__/entrypoint-openvscode.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
