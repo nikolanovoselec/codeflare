@@ -2304,7 +2304,7 @@ The manifest is baselined from current content **only when absent** (the first s
 
 **Category:** Build / Container
 
-**Status:** Proposed — drafted from Dockerfile inline comment (837bca3); needs owner confirmation before Accepted.
+**Status:** Accepted (2026-07-11).
 
 **Context:** [container.md](../lanes/container.md#v8-compile-cache-warm-up) documented that `codex` and `copilot` are warmed at Docker build time via `--version`, and that `opencode run "hello"` pre-runs OpenCode's one-time Goose DB migration at build time. The OpenCode warm-up alone baked ~147MB of `opencode` data into the image.
 
