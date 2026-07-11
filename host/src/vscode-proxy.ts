@@ -51,3 +51,50 @@ export function requestOpenvscodeStart(triggerPath: string = OPENVSCODE_REQUEST_
     return false;
   }
 }
+
+/** A response the host serves directly for the browser-IDE proxy surface. */
+export interface VscodeHostResponse {
+  status: number;
+  contentType: string;
+  body: string;
+}
+
+/**
+ * REQ-IDE-003 (advanced-mode only): the OpenVSCode supervisor is armed only in
+ * advanced session mode. `mode` is the container's `SESSION_MODE`. Fail-open
+ * when it is unset/empty so behaviour is unchanged; block only a session that is
+ * explicitly a non-advanced mode -- otherwise such a session would sit on the
+ * auto-refreshing warming page forever (its supervisor never launches).
+ */
+export function vscodeModeAllowed(mode: string | undefined | null): boolean {
+  return !mode || mode === 'advanced';
+}
+
+/**
+ * The lazy-start warming page (REQ-IDE-003 AC2). The first `/api/vscode` request
+ * triggers the supervisor, and the connect to `:13337` fails until OpenVSCode
+ * binds (a few seconds). Rather than dumping raw JSON into a plain `_blank`
+ * browser tab, serve a tiny HTML page that auto-refreshes so the tab lands on
+ * the real editor once it is up. 503 = not-ready; browsers still render the body
+ * and honour the meta refresh.
+ */
+export function vscodeWarmingResponse(): VscodeHostResponse {
+  return {
+    status: 503,
+    contentType: 'text/html; charset=utf-8',
+    body: '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="2"><meta name="color-scheme" content="dark light"><title>Starting editor</title></head><body style="font-family:system-ui,sans-serif;display:grid;place-items:center;height:100vh;margin:0"><p>Starting the editor&hellip;</p></body></html>',
+  };
+}
+
+/**
+ * REQ-IDE-003: the IDE is an advanced-mode affordance. A non-advanced session
+ * (e.g. a hand-typed `/api/vscode` URL) gets a clear, NON-refreshing page rather
+ * than an endless warming loop for a supervisor that will never arm.
+ */
+export function vscodeDisabledResponse(): VscodeHostResponse {
+  return {
+    status: 409,
+    contentType: 'text/html; charset=utf-8',
+    body: '<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="dark light"><title>Editor unavailable</title></head><body style="font-family:system-ui,sans-serif;display:grid;place-items:center;height:100vh;margin:0"><p>The browser editor is available in advanced sessions only.</p></body></html>',
+  };
+}

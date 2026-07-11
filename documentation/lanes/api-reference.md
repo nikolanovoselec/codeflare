@@ -10,6 +10,7 @@ Complete API endpoint reference for the Codeflare Worker.
 - [Container Lifecycle](#container-lifecycle)
 - [Terminal](#terminal)
 - [Vault](#vault)
+- [Browser IDE](#browser-ide)
 - [User Management](#user-management)
 - [Auth (SaaS Mode)](#auth-saas-mode)
 - [Usage](#usage)
@@ -92,6 +93,14 @@ The in-container SilverBullet editor is reached through the Worker proxy. Under 
 | GET | `/api/vault/<token>/service_worker.js` | None (browser-only `service-worker` header) | [REQ-VAULT-017](../../sdd/spec/vault.md#req-vault-017-silverbullet-native-service-worker) | Auth-short-circuited native SilverBullet SW (credential-less registration fetch). |
 | GET | `/api/vault/<token>/.codeflare-bootstrap` | Session cookie | [REQ-VAULT-024](../../sdd/spec/vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) AC1, [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) | Bootstrap hop: registers native SW, posts bucket-derived key via `set-encryption-key`, sets `codeflare_vault_bootstrap` cookie, redirects to token URL. |
 | GET | `/api/vault/<token>/.vault-key` | Session cookie | [REQ-VAULT-024](../../sdd/spec/vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) AC5 | Returns `{ key }` JSON (bucket-derived HKDF key) for in-memory key recovery by the grafted SW. `Cache-Control: no-store`. |
+
+### Browser IDE
+
+The in-container OpenVSCode Server (full VS Code editor) is reached through the Worker proxy. Unlike the Vault, the IDE is **session-keyed** ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable)): OpenVSCode runs with `--server-base-path=/api/vscode/<sessionId>`, so it is base-path native — the Worker and host forward the path **unchanged** (no `/vault`-style strip, no HTML base-href graft) and its service-worker scope is session-specific. The sessionId in the URL is the sole container selector; there is no bucket-stable path.
+
+| Method | Endpoint | Auth | Implements | Description |
+|--------|----------|------|------------|-------------|
+| GET / WS | `/api/vscode/<sessionId>/*` | Session cookie (shared vault auth chain) | [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable) | Session-keyed OpenVSCode proxy, parsed before Hono so WebSocket upgrades pass through. Malformed sessionId → 400 `INVALID_SESSION`; unowned session → 404 `SESSION_NOT_FOUND`; stopped session → 503 `CONTAINER_STOPPED`; unhealthy container → 503 `CONTAINER_NOT_READY`; while OpenVSCode is still lazy-starting the host returns 503 `VSCODE_WARMING` (an auto-refreshing HTML page). Path forwarded unchanged. Security headers: `frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`, no CSP (the pre-parse 400 keeps the full default set). WebSocket upgrades share the `ws-connect:<email>` rate-limit bucket with terminal + vault (30/60s). |
 
 ### User Management
 

@@ -137,7 +137,6 @@ export async function handleVscodeRequest(
         return new Response(null, {
           status: 429,
           headers: { ...jsonHeaders, 'Retry-After': String(wsRateResult.retryAfterSec) },
-          webSocket: undefined,
         });
       }
     }

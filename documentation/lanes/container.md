@@ -127,6 +127,12 @@ Auto-start uses `claude --dangerously-skip-permissions` for fast boot. Auto-upda
 
 **PTY PATH:** The `.bashrc` tab autostart block sets `PATH="/usr/local/bin:/usr/bin:/bin:$PATH"` so that PTY sessions can find globally installed CLI tools.
 
+### OpenVSCode Server (Browser IDE)
+
+**File:** `Dockerfile` installs `openvscode-server` (Gitpod build) at a pinned version with a `sha256sum -c` verification, mirroring the SilverBullet install block; `entrypoint.sh`'s `start_openvscode_supervisor` runs it on `127.0.0.1:13337` against the session's `~/workspace`, supervised by a crash-restart loop.
+
+**Lazy-started ([REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-lazy-start-supervised-clean-teardown)):** the supervisor does not launch at boot. It waits until `CODEFLARE_INIT_FLAG_FILE` exists AND the host has written `/tmp/openvscode-requested` (on the container's first `/api/vscode` request), so a session that never opens the IDE never pays for it. It runs `--server-base-path=/api/vscode/<sessionId>` for session isolation and an ephemeral `--server-data-dir` under `/tmp` (never R2-synced). Advanced-mode only, armed alongside the SilverBullet supervisor. Torn down via `/tmp/openvscode.pid` on shutdown. Shadow-pinned by the `openvscode-server` job in `bump-shadow-pins.yml`. See [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy).
+
 ### Fast Start
 
 **User preference:** `fastStartEnabled` (default: `true`) in `UserPreferences`.

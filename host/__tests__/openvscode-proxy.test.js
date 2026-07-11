@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isVscodePath, vscodeUpstreamPath, requestOpenvscodeStart } from '../dist/vscode-proxy.js';
+import { isVscodePath, vscodeUpstreamPath, requestOpenvscodeStart, vscodeModeAllowed, vscodeWarmingResponse, vscodeDisabledResponse } from '../dist/vscode-proxy.js';
 
 describe('isVscodePath / REQ-IDE-001 (base-path-native IDE proxy surface)', () => {
   it('matches the bare /api/vscode surface and everything below it', () => {
@@ -76,5 +76,43 @@ describe('requestOpenvscodeStart / REQ-IDE-003 AC2 (lazy-start trigger, idempote
     const second = requestOpenvscodeStart(triggerPath);
     assert.equal(second, false);
     assert.equal(fs.existsSync(triggerPath), true);
+  });
+});
+
+describe('vscodeModeAllowed / REQ-IDE-003 (advanced-mode only, fail-open when unset)', () => {
+  it('allows advanced mode and fails open when SESSION_MODE is unset/empty', () => {
+    assert.equal(vscodeModeAllowed('advanced'), true);
+    assert.equal(vscodeModeAllowed(undefined), true); // var absent -> unchanged behaviour
+    assert.equal(vscodeModeAllowed(null), true);
+    assert.equal(vscodeModeAllowed(''), true);
+  });
+
+  it('blocks an explicitly non-advanced session mode', () => {
+    assert.equal(vscodeModeAllowed('default'), false);
+    assert.equal(vscodeModeAllowed('standard'), false);
+  });
+});
+
+describe('vscodeWarmingResponse / REQ-IDE-003 AC2 (auto-refreshing warming page, not raw JSON)', () => {
+  it('is a 503 HTML page that auto-refreshes so a plain tab lands on the editor once it is up', () => {
+    const r = vscodeWarmingResponse();
+    assert.equal(r.status, 503);
+    assert.match(r.contentType, /text\/html/);
+    // Contract: the page must auto-retry (a meta refresh), so the first-open tab
+    // is not left on a dead error page while OpenVSCode is still binding :13337.
+    assert.match(r.body, /<meta[^>]*http-equiv=["']refresh["']/i);
+    // It must NOT be the old JSON error payload.
+    assert.doesNotMatch(r.body, /VSCODE_WARMING/);
+  });
+});
+
+describe('vscodeDisabledResponse / REQ-IDE-003 (non-advanced session: clear page, no refresh loop)', () => {
+  it('is a non-2xx HTML page that does NOT auto-refresh (so a default-mode session never loops)', () => {
+    const r = vscodeDisabledResponse();
+    assert.equal(r.status, 409);
+    assert.match(r.contentType, /text\/html/);
+    // The load-bearing behavioural difference from the warming page: no meta
+    // refresh, because the supervisor will never arm for a non-advanced session.
+    assert.doesNotMatch(r.body, /http-equiv=["']refresh["']/i);
   });
 });

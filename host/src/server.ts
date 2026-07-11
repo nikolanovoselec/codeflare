@@ -27,7 +27,7 @@ import { checkContainerAuth } from './auth-check.js';
 import { evaluateFinalSync } from './final-sync.js';
 import { resolveGitClone, resolveWorkspaceRoot, buildCloneArgs } from './git-clone.js';
 import { stripVaultPrefix } from './vault-proxy.js';
-import { isVscodePath, vscodeUpstreamPath, requestOpenvscodeStart } from './vscode-proxy.js';
+import { isVscodePath, vscodeUpstreamPath, requestOpenvscodeStart, vscodeModeAllowed, vscodeWarmingResponse, vscodeDisabledResponse } from './vscode-proxy.js';
 import { Session } from './session.js';
 import { SessionManager, PREWARM_SESSION_ID } from './session-manager.js';
 import type { LogLevel, Logger, WsEventLogger, WsEvent, TabConfigEntry, ActivityTracker, SessionOptions } from './types.js';
@@ -596,6 +596,15 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
   // container-auth Authorization header (validated above) is stripped before
   // forwarding to the in-container app.
   if (isVscodePath(pathname)) {
+    // Advanced-mode only (REQ-IDE-003): a non-advanced session never arms the
+    // supervisor, so return a clear NON-refreshing page instead of triggering a
+    // lazy start that will never complete and looping on the warming page.
+    if (!vscodeModeAllowed(process.env.SESSION_MODE)) {
+      const disabled = vscodeDisabledResponse();
+      res.writeHead(disabled.status, { 'Content-Type': disabled.contentType });
+      res.end(disabled.body);
+      return;
+    }
     requestOpenvscodeStart();
     const upstreamPath = vscodeUpstreamPath(pathname);
     const search = (req.url ?? '').includes('?') ? '?' + (req.url ?? '').split('?').slice(1).join('?') : '';
@@ -620,8 +629,9 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
     upstreamReq.on('error', (err) => {
       log('warn', 'Vscode proxy upstream error', { error: err.message, path: upstreamPath });
       if (!res.headersSent) {
-        res.writeHead(503, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Browser IDE starting', code: 'VSCODE_WARMING' }));
+        const warming = vscodeWarmingResponse();
+        res.writeHead(warming.status, { 'Content-Type': warming.contentType });
+        res.end(warming.body);
       } else {
         res.end();
       }

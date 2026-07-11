@@ -7,7 +7,7 @@ import { createMockKV } from '../helpers/mock-kv';
  * Integration coverage for the browser-IDE auth chain + path forwarding.
  *
  * handleVscodeRequest threads requests through the same session-safe guards
- * the vault reuses (authenticate -> origin -> tier -> session ownership ->
+ * the vault reuses (origin -> authenticate -> tier -> session ownership ->
  * container health -> WS rate limit -> container.fetch), then forwards the
  * path UNCHANGED to the base-path-native OpenVSCode server. This suite drives
  * the full chain so a regression in the guard ORDER, the branch outcomes, or
@@ -62,6 +62,15 @@ vi.mock('../../lib/container-helpers', async (importOriginal) => {
   };
 });
 
+// Controllable WS rate-limit outcome (default: allowed). Only the WebSocket
+// path reads it, so the non-WS tests are unaffected.
+const mockRateLimit = vi.hoisted(() => ({
+  value: { allowed: true, count: 0, retryAfterSec: 0 } as { allowed: boolean; count: number; retryAfterSec: number },
+}));
+vi.mock('../../lib/rate-limit-core', () => ({
+  checkRateLimit: vi.fn(async () => mockRateLimit.value),
+}));
+
 describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
   let mockEnv: Env;
@@ -79,6 +88,7 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     };
     mockAuthResult.error = null;
     mockHealth.healthy = true;
+    mockRateLimit.value = { allowed: true, count: 0, retryAfterSec: 0 };
     mockContainerFetch.mockResolvedValue(new Response('ide', { status: 200 }));
 
     mockEnv = {
@@ -186,6 +196,47 @@ describe('handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)
     const request = vscodeRequest();
     const response = await handleVscodeRequest(request, mockEnv, mockCtx, route(request));
     expect(response.status).toBe(404);
+    expect(mockContainerFetch).not.toHaveBeenCalled();
+  });
+
+  // REQ-IDE-001: the browser-WS Origin guard runs BEFORE the auth chain -- a real
+  // browser WebSocket always sends Origin, so its absence on a browser client is
+  // rejected 403. Deleting the guard lets the request fall through to a 200.
+  it('REQ-IDE-001: a browser WebSocket upgrade without an Origin header is rejected 403', async () => {
+    const request = new Request(`https://codeflare.ch/api/vscode/${SID}/ws`, {
+      headers: new Headers({
+        Upgrade: 'websocket',
+        'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+        'Sec-Fetch-Mode': 'websocket',
+        // deliberately NO Origin
+      }),
+    });
+    const rr = route(request);
+    expect(rr.isWebSocket).toBe(true);
+    const response = await handleVscodeRequest(request, mockEnv, mockCtx, rr);
+    expect(response.status).toBe(403);
+    expect(mockContainerFetch).not.toHaveBeenCalled();
+  });
+
+  // REQ-IDE-001: the IDE WS shares the ws-connect:<email> bucket with terminal +
+  // vault; over the limit it MUST 429 with Retry-After. This is a real DoS
+  // control -- deleting the rate-limit block would leave the suite green without
+  // this case (the coverage gap the code review flagged).
+  it('REQ-IDE-001: a WebSocket upgrade over the shared per-user connection limit is rejected 429 with Retry-After', async () => {
+    mockRateLimit.value = { allowed: false, count: 31, retryAfterSec: 42 };
+    const request = new Request(`https://codeflare.ch/api/vscode/${SID}/ws`, {
+      headers: new Headers({
+        Origin: 'https://codeflare.ch',
+        Upgrade: 'websocket',
+        'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+        'Sec-Fetch-Mode': 'websocket',
+      }),
+    });
+    const rr = route(request);
+    expect(rr.isWebSocket).toBe(true);
+    const response = await handleVscodeRequest(request, mockEnv, mockCtx, rr);
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Retry-After')).toBe('42');
     expect(mockContainerFetch).not.toHaveBeenCalled();
   });
 });
