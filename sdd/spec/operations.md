@@ -98,7 +98,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. The PR-check workflow triggers on every pull request to the main branch and on manual dispatch. <!-- @test: host/__tests__/workflow-files.test.js (shadow-pin bump workflow / REQ-OPS-020 (shadow-pin version bump automation)) -->
 2. The workflow runs lint on the codebase. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
 3. The workflow builds the frontend. <!-- @test: host/__tests__/workflow-files.test.js (test.yml declares a dependency-review job (REQ-OPS-009 supply-chain gate)) -->
-4. The workflow runs both backend and frontend test suites; the backend step may accept a non-zero `npm test` exit only when the log shows the known Workers-pool teardown-crash fingerprint as the single reported error, at least one test passed, and no failed-test tokens are present — never when actual test failures occurred. <!-- @impl: .github/workflows/test.yml::test --> <!-- @test: host/__tests__/workflow-files.test.js (shadow-pin bump workflow / REQ-OPS-020 (shadow-pin version bump automation)) -->
+4. The workflow runs both backend and frontend test suites; the backend step may accept a non-zero `npm test` exit only when the log shows the known Workers-pool teardown-crash fingerprint as the single reported error, at least one test passed, and no failed-test tokens are present. <!-- @impl: .github/workflows/test.yml::test --> <!-- @test: host/__tests__/workflow-files.test.js (shadow-pin bump workflow / REQ-OPS-020 (shadow-pin version bump automation)) -->
 5. The workflow runs both backend and frontend typechecks. <!-- @test: host/__tests__/workflow-files.test.js (deploy.yml runs backend + frontend tests + type checks before deploy (pre-deploy gate)) -->
 6. The workflow runs a dead-code check on the codebase. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 7. The workflow runs a high-severity security audit on production dependencies; PRs introducing dependencies with known vulnerabilities are blocked. <!-- @test: host/__tests__/workflow-files.test.js (test.yml declares a dependency-review job (REQ-OPS-009 supply-chain gate)) -->
@@ -137,7 +137,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Constraints:**
 
-- E2E tests authenticate via the service-token header rather than browser-based flows.
+- E2E tests authenticate via the service-token header.
 - Per-suite test execution + artifact handling live in [REQ-OPS-015](#req-ops-015-e2e-per-suite-execution-and-artifact-handling).
 
 **Priority:** P1

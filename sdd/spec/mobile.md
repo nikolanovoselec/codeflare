@@ -68,7 +68,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 3. Keyboard height changes are detected via the browser's VirtualKeyboard geometry change event. <!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ-MOB-001 (mobile detection + visualViewport handling) / REQ-MOB-010 (visualViewport resize triggers terminal refit cadence)) -->
 4. Terminal height is reduced by the keyboard height so content is not obscured. <!-- @impl: web-ui/src/lib/mobile.ts::getKeyboardHeight --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ-MOB-001 (mobile detection + visualViewport handling) / REQ-MOB-010 (visualViewport resize triggers terminal refit cadence)) -->
 5. Focus state detection uses a live browser query rather than a cached value. <!-- @impl: web-ui/src/lib/mobile.ts::isFocusOnTerminalInput --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (mobile.ts / REQ-MOB-002 (virtual keyboard opens reliably on tap) / REQ-MOB-001 (mobile detection + visualViewport handling) / REQ-MOB-010 (visualViewport resize triggers terminal refit cadence)) -->
-6. Touch events originating inside the terminal container are stopped from propagating to document-level listeners, so the emulator's internal gesture system (xterm ≥6.1 document-level Gesture singleton) cannot cancel the browser's synthesized click that triggers keyboard focus. Touches outside the container are unaffected, and the shield is removed on terminal cleanup. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)) -->
+6. Touch events originating inside the terminal container are stopped from propagating to document-level listeners, so the emulator's internal gesture system cannot cancel the browser's synthesized click that triggers keyboard focus. Touches outside the container are unaffected, and the shield is removed on terminal cleanup. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)) -->
 
 **Constraints:**
 
@@ -303,7 +303,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Constraints:**
 
-- Cursor visibility depends on the agent version using the terminal's native cursor layer rather than rendering its own via ANSI sequences.
+- Cursor visibility depends on the agent version using the terminal's native cursor layer.
 
 **Priority:** P1
 
@@ -334,7 +334,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Constraints:**
 
-- Visibility-return recovery does not rely on cached browser geometry because it is stale at that point.
+- Visibility-return recovery does not rely on cached browser geometry.
 - Chrome and Samsung paths are separate; Samsung requires full session deactivation/reactivation.
 
 **Priority:** P1

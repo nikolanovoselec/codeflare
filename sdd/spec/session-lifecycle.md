@@ -135,7 +135,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 - The idle timeout is validated server-side against the supported value set.
 - The preference survives container-orchestration resets; the storage shape is preserved for backwards compatibility with existing sessions.
 - Free-tier override cannot be bypassed via API.
-- Idle detection MUST NOT rely on the platform's built-in inactivity timer because it refreshes on any traffic (including background process output). The product semantics are "no user input", not "no traffic".
+- Idle detection MUST NOT rely on the platform's built-in inactivity timer.
 
 **Priority:** P0
 
@@ -337,7 +337,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Before signalling the container to stop, every deliberate stop path runs a live bidirectional R2 sync to completion while the container is still fully running — including a delete where the platform reports `running:false` transiently (the drain is never gated on that reading, #516) — and records the drain outcome durably (DO storage `finalSyncAudit`, carrying the session id and the final-sync HTTP status/reason for post-mortem correlation) instead of silently swallowing it. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-lifecycle.ts::recordFinalSyncAudit --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+1. Before signalling the container to stop, every deliberate stop path runs a live bidirectional R2 sync to completion while the container is still fully running including a delete where the platform reports `running:false` transiently. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-lifecycle.ts::recordFinalSyncAudit --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
 2. The container exposes an awaitable final-sync endpoint that triggers a fresh bisync and responds only once that bisync has completed (success or failure) or an internal timeout elapses, distinguishing completion from failure and timeout. <!-- @impl: host/src/server.ts::PREWARM_ORPHAN_MS --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2: final-sync endpoint wiring (structural)) -->
 3. The sync-status record carries a monotonic timestamp and a `syncing`->`success`/`failed` transition, and the endpoint accepts a terminal status only after observing its own run's `syncing` (stamped strictly after the trigger), never a bare `success`. <!-- @impl: host/src/final-sync.ts::FinalSyncEval --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2/AC3: evaluateFinalSync completion detection (behavioral)) -->
 4. The Durable Object waits up to a bounded sync budget (120s) for the live sync to report completion; a failed or timed-out sync still proceeds to stop rather than blocking teardown. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (destroy) -->
@@ -348,9 +348,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Constraints:**
 
 - The platform's post-SIGTERM kill grace is never relied on for sync completion; the authoritative sync runs while the container is alive and the DO holds teardown open awaiting it.
-- The container's final-sync endpoint internal timeout MUST exceed the DO's drain budget (120s), so the DO's `AbortSignal` — not the endpoint — is the authoritative ceiling. A host endpoint timeout *below* the budget returns a premature 504 while rclone is still flushing, the DO records `incomplete`, and the session deletes with the last edits lost (the budget-inversion regression that defeated ~10 prior "raise the budget" fixes).
-- A failed or timed-out drain proceeds to stop (135s hard force-kill ceiling) rather than blocking teardown indefinitely; liveness is preserved over a guaranteed-complete sync in the pathological case.
-- Completion detection accepts a terminal status only after observing the triggered run's `syncing` stamped strictly after the trigger, so an in-flight or same-millisecond stamp is never mistaken for it and the rare missed-sample case degrades to a benign timeout, not data loss (rationale in [AD57](../../documentation/decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync)).
+- The container's final-sync endpoint internal timeout MUST exceed the DO's drain budget (120s), so the DO's `AbortSignal` not the endpoint is the authoritative ceiling.
+- A failed or timed-out drain proceeds to stop (135s hard force-kill ceiling).
+- Completion detection accepts a terminal status only after observing the triggered run's `syncing` stamped strictly after the trigger, so an in-flight or same-millisecond stamp is.
 - The container image still declares a trappable stop signal so the backstop trap stays reachable.
 
 **Priority:** P0
@@ -461,7 +461,7 @@ None.
 2. The entrypoint writes an init-complete signal only after initial sync, file modifications, and tab-autostart configuration have completed. <!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (guarded warm-up calls from entrypoint.sh still reach the init-flag write when they fail) -->
 3. Tab-1 PTY pre-warm is gated on the init-complete signal, so it never starts before initial state restore is in place. <!-- @impl: host/src/prewarm-config.ts::getPrewarmConfig --> <!-- @test: host/__tests__/prewarm-readiness.test.js (getPrewarmConfig / REQ-SESSION-015 (tab-1 pre-warm command feeds readiness gate)) -->
 4. The host terminal server rejects terminal WebSocket upgrades with a retriable ("try again later") close code and a human-readable container-warming reason until both the init-complete signal is observed and the pre-warm session is registered. <!-- @impl: host/src/server.ts::initFlagObserved --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (handleWebSocketUpgrade) -->
-5. The image bakes a pre-transpiled (jiti) cache for the full Pi extension set at build time — warmed via a throwaway `pi` run with the package list derived from the preseed `package.json`, the build failing if the cache comes out empty — and the entrypoint exposes it at jiti's tmpdir fallback path (`/tmp/jiti` symlink), so the pre-warm PTY's first output is not delayed by a cold extension transpile (measured ~9s cold vs ~4s warm; the cold path pushed pre-warm past its 20s hard cap and doubled perceived session startup). The `pi` CLI stays `@latest` like the other coding agents (user policy: agents auto-update at deploy); the bake remains self-consistent because the warm run executes with the pi installed in the same build. <!-- @test: host/__tests__/dockerfile-pi-warm.test.js (Pi startup warm-up: baked jiti cache) -->
+5. The image bakes a pre-transpiled (jiti) cache for the full Pi extension set at build time warmed via a throwaway `pi` run with the package list derived from the preseed `package.json`, the build failing if the cache comes out empty. <!-- @test: host/__tests__/dockerfile-pi-warm.test.js (Pi startup warm-up: baked jiti cache) -->
 
 **Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
@@ -498,7 +498,7 @@ None.
 
 **Constraints:**
 
-- Validation uses a runtime IANA-zone round-trip rather than a static zone allowlist, so the validator stays accurate as the IANA database evolves.
+- Validation uses a runtime IANA-zone round-trip.
 - The field is optional; absence is silently treated as "use the entrypoint fallback chain", not an error.
 
 **Priority:** P1
@@ -558,7 +558,7 @@ None.
 
 - The not-running confirmation window and the deliberate-stop marker are persisted in DO storage (not in-memory), so a hibernation or mid-shutdown eviction cannot discard them; `destroy()` sets the marker before clearing identifiers and `onStart` clears it.
 - Newly started sessions have a 3-minute startup guard during which only the container-stopped close code can transition them to stopped (anti-flapping).
-- A genuine crash converges to stopped after the confirmation window (one to a few alarm ticks) rather than immediately, accepted as the price of never flipping a live session to stopped.
+- A genuine crash converges to stopped after the confirmation window (one to a few alarm ticks).
 - Accepted residual: a tick landing in the sub-millisecond gap between the user-stop KV write and `destroy()` persisting the marker can self-heal the just-stopped session for a single tick before `destroy()` settles it back to stopped; the idle-stop path is immune.
 
 **Priority:** P1
@@ -579,7 +579,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Every Durable-Object-side drain request to the final-sync endpoint authenticates with the container auth token (`Authorization: Bearer`). The drains use a raw `port.fetch`, which bypasses the DO's public fetch override — the only place the auth header is otherwise injected — and the in-container host's auth gate rejects unauthenticated `/internal/*` requests (only `/health` and `/activity` are exempt). The delete path captures the token BEFORE `destroy()`'s operational-storage clear deletes it (the drain runs after the clear by REQ-SESSION-009 ordering); the idle/quota-stop path reads it from DO storage, which is intact there. An unauthenticated drain dies at the auth gate in milliseconds (observed live: every stop/delete 401'd for ≥30 days, zero successful teardown syncs ever recorded) and the session stops/deletes with the last edits unsynced. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+1. Every Durable-Object-side drain request to the final-sync endpoint authenticates with the container auth token. The drains use a raw `port.fetch`, which bypasses the DO's public fetch override the only place the auth header is otherwise injected. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
 
 **Constraints:** None.
 

@@ -72,7 +72,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Constraints:**
 
-- WebSocket upgrade handling must run before the application router because of a Worker-runtime limitation that prevents WebSocket frames from reaching downstream middleware.
+- WebSocket upgrade handling must run before the application router.
 - All proxied HTTP requests from the DO to the container carry the shared container auth token; only the health and activity probes are exempt.
 
 **Priority:** P0
@@ -152,9 +152,9 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Acceptance Criteria:**
 
-1. Tearing down a connection whose WebSocket is still mid-handshake (CONNECTING) neither force-closes the socket nor surfaces an error: the already-aborted connect handlers close it cleanly once it resolves, so the rapid disconnect-reconnect cycles of dashboard enter/exit produce no "closed before the connection is established" browser warning or spurious WS-error log. An already-open socket is still closed on teardown. <!-- @impl: web-ui/src/stores/terminal.ts::disconnect --> <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-020 AC1: quiet teardown of in-flight connections) -->
+1. Tearing down a connection whose WebSocket is still mid-handshake (CONNECTING) neither force-closes the socket nor surfaces an error: the already-aborted connect handlers close it cleanly once it resolves, so the rapid disconnect-reconnect cycles of dashboard enter/exit produce no "closed before the connection is established. <!-- @impl: web-ui/src/stores/terminal.ts::disconnect --> <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-020 AC1: quiet teardown of in-flight connections) -->
 2. A socket that stays in CONNECTING past `WS_CONNECT_TIMEOUT_MS` (the network is still re-establishing right after a mobile app-switch and the socket emits no close or error event) is force-closed and a backoff reconnect is scheduled, so the terminal is no longer stranded mid-handshake. <!-- @impl: web-ui/src/stores/terminal.ts::disconnect --> <!-- @test: web-ui/src/__tests__/stores/terminal-connect-timeout.test.ts (Terminal Store / REQ-TERM-020 AC2: connect-timeout force-close & AC3 pause-while-hidden) -->
-3. Reconnection delay is an equal-jitter exponential backoff (`reconnectBackoffMs`, base 500ms, doubling per attempt, capped at 15000ms, scaled to 50–100% so multiple panes de-correlate); the backoff resets to attempt 1 on a successful open and on visibility return, and is paused while `document.hidden` (the visibility-return handler restarts it at attempt 1). <!-- @impl: web-ui/src/stores/terminal.ts::reconnectBackoffMs --> <!-- @test: web-ui/src/__tests__/stores/terminal-reconnect-backoff.test.ts (reconnectBackoffMs (REQ-TERM-020 AC3): equal-jitter exponential backoff) -->
+3. Reconnection delay is an equal-jitter exponential backoff; the backoff resets to attempt 1 on a successful open and on visibility return, and is paused while `document.hidden`. <!-- @impl: web-ui/src/stores/terminal.ts::reconnectBackoffMs --> <!-- @test: web-ui/src/__tests__/stores/terminal-reconnect-backoff.test.ts (reconnectBackoffMs (REQ-TERM-020 AC3): equal-jitter exponential backoff) -->
 
 **Constraints:**
 
@@ -442,7 +442,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 **Constraints:**
 
 - Stopped sessions are not selectable for MultiView.
-- Capacity decisions must come from a shared viewport-capacity helper rather than duplicated component branches.
+- Capacity decisions must come from a shared viewport-capacity helper.
 
 **Priority:** P1
 
@@ -580,7 +580,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 **Constraints:**
 
 - Stopped sessions are not selectable for MultiView.
-- Capacity decisions must come from a shared viewport-capacity helper rather than duplicated component branches.
+- Capacity decisions must come from a shared viewport-capacity helper.
 
 **Priority:** P1
 

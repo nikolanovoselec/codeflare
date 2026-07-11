@@ -1097,7 +1097,7 @@ OpenCode uses SQLite with Goose migrations that run on first startup ("Performin
 
 ### Container — Browser Shims
 
-CLI tools (Claude Code, OpenCode, Antigravity) try to open a browser for OAuth. The Dockerfile installs shims (`open-url` for `BROWSER` env var, `xdg-open-shim` for `xdg-open`) that exit 1, forcing CLIs to print auth URLs as plain text in the PTY. The xterm.js link provider then detects and makes these URLs clickable.
+CLI tools (Claude Code, OpenCode, Antigravity) try to open a browser for OAuth. The Dockerfile installs shims (`open-url` for `BROWSER` env var, `xdg-open-shim` for `xdg-open`) that exit 1, forcing CLIs to print auth URLs as plain text in the PTY. The xterm.js link provider then detects and makes these URLs clickable, joining both soft-wrapped and application-newline continuation rows before offering the complete URL.
 
 ### Container — OpenVSCode Server Binary
 
