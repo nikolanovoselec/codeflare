@@ -147,13 +147,13 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 1. The terminal viewport disables native scrolling on all devices so xterm's own scroll layer is the sole scroller. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- coverage-gap: native-scroll-disabled is a CSS/xterm-layer concern, no genuine unit test -->
 2. The browser's focus-scroll targets the cursor position at the bottom of the terminal, not the top-left origin. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- coverage-gap: focus-scroll-to-cursor is a browser-behavior concern, no genuine unit test -->
-3. A post-write scroll guard re-applies bottom alignment when the buffer's display offset drops below the base after a write. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (re-anchors a bottom-following terminal when scrollback trimming displaces it — drives the real onScroll handler and asserts the restored relative position) -->
+3. A bottom-following scroll-event guard re-applies bottom alignment before paint when the buffer's display offset drops below the base; scrolled-up views are left to xterm's native full-buffer anchor instead of receiving a post-write correction. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (re-anchors a bottom-following terminal when scrollback trimming displaces it) --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014: preserves xterm viewport anchoring when full scrollback trims during a batched write) -->
 4. A scroll-drop detector watches for sudden display-offset drops to zero while the base is high and corrects them. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (scroll-drop-to-zero focus-reset detection restores relative position) -->
 5. Distance-based detection (rather than equality against zero) distinguishes browser focus resets from normal scrollback trimming; small drifts are ignored. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (small distance drift ignored — normal trimming, not a reset) -->
 
 **Constraints:**
 
-- Programmatic scroll corrections cannot recursively trigger the scroll-reset detector.
+- Post-write handling cannot override xterm's native anchor for a user reading scrollback.
 - Scrollback is limited to 1000 lines on both frontend and headless renderers; agent-side virtual scrolling is disabled.
 - The keyboard-transition correction + user-anchoring behavior live in [REQ-MOB-012](#req-mob-012-scroll-anchoring-during-keyboard-transitions).
 
@@ -161,7 +161,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Dependencies:** [REQ-TERM-008](terminal.md#req-term-008-write-batching-at-30fps)
 
-**Verification:** [Integration test](../../web-ui/src/__tests__/hooks/useScrollCorrection.test.ts)
+**Verification:** [Scroll-event tests](../../web-ui/src/__tests__/hooks/useScrollCorrection.test.ts); [full-buffer batched-write test](../../web-ui/src/__tests__/stores/terminal.test.ts)
 
 **Status:** Implemented
 
@@ -378,16 +378,16 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ### REQ-MOB-012: Scroll anchoring during keyboard transitions
 
-**Intent:** Programmatic scroll corrections must not be misidentified by the scroll-reset detector, and the visible scroll anchor (bottom for following users, relative position for scrolled-up users) must be preserved across keyboard open/close and scrollback trimming.
+**Intent:** The visible scroll anchor (bottom for following users, stable content for scrolled-up users) must be preserved across keyboard open/close and scrollback trimming without competing post-write corrections.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Programmatic scroll corrections are bracketed by a suppression marker so the scroll-reset detector does not misidentify them. <!-- @impl: web-ui/src/stores/terminal.ts::isProgrammaticScrollSuppressed --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (correction skipped while the programmatic-scroll suppression marker is set) -->
+1. Batched output delegates full-buffer viewport anchoring to xterm and does not apply a post-write `scrollLines` correction to a scrolled-up user. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014: preserves xterm viewport anchoring when full scrollback trims during a batched write) -->
 2. When the keyboard is open, the scroll-reset detector is skipped (browser focus resets cannot occur while the keyboard is open). <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (touch+keyboard gate suppresses the Strategy-2 reset-restore) -->
 3. Bottom-following users see zero flicker: correction is applied in the scroll-event handler before the canvas paints, not in the asynchronous write callback. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (re-anchors a bottom-following terminal in the scroll-event handler) -->
-4. Users who have scrolled up have their relative position (distance from bottom) preserved across scrollback trimming. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (does not override deliberate user scroll gestures, preserving position) -->
+4. Users who have scrolled up keep the same visible content anchored while output continues and the full scrollback trims. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014: preserves xterm viewport anchoring when full scrollback trims during a batched write) -->
 
 **Constraints:**
 
@@ -397,7 +397,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Dependencies:** [REQ-MOB-004](#req-mob-004-scroll-drop-detection-during-burst-output)
 
-**Verification:** [Integration test](../../web-ui/src/__tests__/hooks/useScrollCorrection.test.ts)
+**Verification:** [Scroll-event tests](../../web-ui/src/__tests__/hooks/useScrollCorrection.test.ts); [full-buffer batched-write test](../../web-ui/src/__tests__/stores/terminal.test.ts)
 
 **Status:** Implemented
 

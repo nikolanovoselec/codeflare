@@ -27,7 +27,7 @@ import { checkContainerAuth } from './auth-check.js';
 import { evaluateFinalSync } from './final-sync.js';
 import { resolveGitClone, resolveWorkspaceRoot, buildCloneArgs } from './git-clone.js';
 import { stripVaultPrefix } from './vault-proxy.js';
-import { isVscodePath, vscodeUpstreamPath, requestOpenvscodeStart, vscodeModeAllowed, vscodeWarmingResponse, vscodeDisabledResponse } from './vscode-proxy.js';
+import { createVscodeWebSocketServer, isVscodePath, vscodeUpstreamPath, requestOpenvscodeStart, vscodeModeAllowed, vscodeWarmingResponse, vscodeDisabledResponse } from './vscode-proxy.js';
 import { Session } from './session.js';
 import { SessionManager, PREWARM_SESSION_ID } from './session-manager.js';
 import type { LogLevel, Logger, WsEventLogger, WsEvent, TabConfigEntry, ActivityTracker, SessionOptions } from './types.js';
@@ -797,7 +797,7 @@ wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
 // SilverBullet client picks (e.g. `/.client/ws`). We route /vault/* via
 // `noServer: true` and proxy to upstream below.
 const vaultWss = new WebSocketServer({ noServer: true, maxPayload: WS_MAX_PAYLOAD });
-const vscodeWss = new WebSocketServer({ noServer: true, maxPayload: WS_MAX_PAYLOAD });
+const vscodeWss = createVscodeWebSocketServer();
 
 // Single upgrade dispatcher for the whole server. Both `wss` (terminal)
 // and `vaultWss` (vault) use noServer:true; this listener inspects the

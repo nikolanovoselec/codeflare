@@ -10,9 +10,21 @@
  * same reason stripVaultPrefix was extracted into vault-proxy.ts.
  */
 import fs from 'node:fs';
+import { WebSocketServer } from 'ws';
 
 /** Default lazy-start trigger path the OpenVSCode supervisor waits on. */
 export const OPENVSCODE_REQUEST_TRIGGER = '/tmp/openvscode-requested';
+
+// VS Code's remote protocol uses messages around 256 KiB. The terminal's
+// defensive 64 KiB cap therefore cannot be reused here: `ws` rejects an
+// oversized message with close code 1009, causing an endless reconnect loop.
+// Keep this bounded to the Cloudflare WebSocket message ceiling.
+const OPENVSCODE_WS_MAX_PAYLOAD = 32 * 1024 * 1024;
+
+/** Create the no-server WebSocket endpoint used by the OpenVSCode bridge. */
+export function createVscodeWebSocketServer(): WebSocketServer {
+  return new WebSocketServer({ noServer: true, maxPayload: OPENVSCODE_WS_MAX_PAYLOAD });
+}
 
 /** True for the base-path-native IDE proxy surface `/api/vscode` and below. */
 export function isVscodePath(pathname: string | null | undefined): boolean {
