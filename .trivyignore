@@ -644,23 +644,39 @@ CVE-2026-39822
 # ============================================================================
 # OpenVSCode Server v1.109.5 (REQ-IDE-001, the per-session browser IDE): the
 # pinned, vendored Gitpod VS Code web-server build added to the container image.
-# All 22 HIGH/CRITICAL findings live inside the pinned tarball, under
-# opt/openvscode-server/{extensions,node_modules}/ — never codeflare's own
-# package.json. They are baked into the pinned binary and cannot be bumped
-# independently (a newer OpenVSCode release ships the same built-in-extension
-# CVEs). Impact: NONE — same vendored-binary, single-tenant-sandbox exposure
-# profile as the gh/lazygit/silverbullet entries above (CVE-2026-39822):
-# OpenVSCode binds 127.0.0.1 only, one instance per the user's OWN session
-# container, reachable solely through the Worker's Cloudflare Access + tier +
-# session-ownership auth chain — no multi-tenant boundary, no attacker-controlled
-# input crossing the trust boundary. Fixes exist upstream; the vendored tarball
-# has not rebuilt. Review when bumping the OPENVSCODE_VERSION pin.
+# All 22 HIGH/CRITICAL findings are reported ONLY under
+# opt/openvscode-server/{extensions,node_modules}/ (baked into the pinned
+# tarball; unfixable without rebuilding the vendored binary, and a newer
+# OpenVSCode release ships the same built-in-extension CVEs).
+#
+# SCOPE NOTE: `undici`, `diff`, and `ini` also appear in codeflare's OWN trees
+# (root, web-ui, and the baked-in pi agent tree under /opt/codeflare/pi-agent/
+# npm), but every own-tree copy is already on a PATCHED version (undici
+# 7.28.0/8.3.0, diff 8.0.4, ini 1.3.8) — which is why Trivy reports these IDs
+# only under opt/openvscode-server. The plain .trivyignore suppresses by ID
+# image-wide (no path scoping), so nothing is masked today; but if the
+# pi/web-ui/root undici|diff|ini ever drift back into an affected range this
+# allowlist would hide it — re-audit these three on ANY of those bumps, not only
+# on an OPENVSCODE_VERSION bump.
+#
+# Impact: NONE across codeflare's trust boundary. OpenVSCode binds 127.0.0.1
+# only, one instance per the user's OWN session container, reachable solely
+# through the Worker's Cloudflare Access + tier + session-ownership auth chain.
+# An AI coding agent DOES clone arbitrary repos, so untrusted workspace content
+# (Gruntfiles, package.json, .ini, .hbs, WS peers) can reach some of these
+# components — but any resulting code-execution/file-write is confined to the
+# ephemeral, single-tenant container the session occupant already fully controls
+# via their own shell, and none of these CVEs is a container-escape or
+# cross-tenant primitive. Same vendored-binary, single-tenant-sandbox acceptance
+# policy as CVE-2026-39822.
 # ----------------------------------------------------------------------------
-# Built-in language extensions ship as compiled TextMate-grammar / language-config
-# extensions; VS Code does NOT execute the flagged npm packages (handlebars
-# template compiler, grunt task runner, npm CLI, etc.) at runtime, so the
-# vulnerable code paths are unreachable. These are old CVEs inherent to every
-# VS Code / OpenVSCode build.
+# Built-in language extensions. The grammar / language-config extensions
+# (handlebars, diff, ini, json) never invoke the flagged npm package at runtime
+# (no Handlebars.compile(), no INI/JSON parser on that dep) -> vulnerable path
+# unreachable. The grunt and npm extensions DO ship runtime detection JS, but
+# only shell out to the workspace's own grunt/npm on the user's own in-container
+# files (in-container-by-design, not a boundary crossing). Old CVEs inherent to
+# every VS Code / OpenVSCode build.
 #
 # extensions/handlebars — prototype-pollution / RCE via template compilation:
 CVE-2019-19919

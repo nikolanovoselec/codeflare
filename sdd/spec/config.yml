@@ -67,6 +67,7 @@ src_globs:
   - "Dockerfile"
   - "wrangler.toml"
   - ".github/workflows/*.yml"
+  - ".trivyignore"
 
 # Forbidden content allowlist — which categories are acceptable inside REQs.
 forbidden_content_allowlist:

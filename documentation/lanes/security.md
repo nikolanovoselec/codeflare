@@ -502,11 +502,10 @@ Browse endpoint validates prefix parameter against directory traversal (`..` rej
 
 Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (in `deploy.yml` and `deploy-dockerhub.yml`). The scan runs with `ignore-unfixed: true`, so the deploy fails only on a HIGH/CRITICAL CVE that has an **available fix** and is not suppressed. Unfixed CVEs (blank Fixed Version — no upstream patch) cannot be remediated by rebuilding and are not gated; this stops the recurring breakage where a newly-published, unfixable base-image CVE would block every deploy until manually suppressed.
 
-**Suppression policy (`.trivyignore`):** With `ignore-unfixed`, the allowlist is now for **fixable** CVEs that are consciously accepted — a fix exists but cannot be applied yet (typically a vendored CLI such as rclone/lazygit/an npm CLI fixed upstream but not yet rebuilt). A CVE is added only when all of:
+**Suppression policy (`.trivyignore`):** With `ignore-unfixed`, the allowlist is now for **fixable** CVEs that are consciously accepted — a fix exists but cannot be applied yet (typically a vendored CLI such as rclone/lazygit/an npm CLI, or a vendored binary such as OpenVSCode Server, fixed upstream but not yet rebuilt). A CVE is added only when both of:
 
-1. **No untrusted-input path** — the vulnerable code is never reached with attacker-controlled input in the container (typically outbound-only CLI tools, or base-image / git-tooling dependencies never invoked on hostile archives, JSON, XML, or MIME).
-2. **Impact is limited** — DoS only (CPU/memory exhaustion or panic), with no confidentiality or integrity impact in this container's context.
-3. **The fix is not yet applicable** — it exists upstream but the vendored tool or base image has not rebuilt against it.
+1. **Impact is contained to the session owner's own privilege boundary** — either (a) the vulnerable code path is never reached with attacker-controlled input (typically outbound-only CLI tools, or base-image / git-tooling dependencies never invoked on hostile archives, JSON, XML, or MIME); or (b) the path may be reached with input the session's own user controls (e.g. a cloned repo's files), but the worst case — including arbitrary-code-execution-class CVEs — is DoS or code-execution/file-write confined to the ephemeral, single-tenant container that user already fully controls via their existing shell, with no container-escape and no cross-tenant primitive, so exploiting it grants no privilege the user does not already hold.
+2. **The fix is not yet applicable** — it exists upstream but the vendored tool or base image has not rebuilt against it.
 
 Every entry carries an inline comment recording the affected package, the impact, and which conditions apply. The allowlist is reviewed monthly and entries are removed once a fix reaches the image. (Pre-existing entries for unfixed CVEs are now redundant with `ignore-unfixed` but are left in place as a documented record.)
 
