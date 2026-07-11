@@ -152,69 +152,21 @@ const WRITE_FLUSH_INTERVAL_MS = 33;
 const writeBuffers = new Map<string, string[]>();
 const pendingFlushes = new Map<string, number>();
 
-// Fix 18: Programmatic scroll suppression counter.
-// Prevents post-write scroll corrections from triggering the onScroll reset
-// detector, which caused a feedback loop during scrollback trimming.
-//
-// Root cause: xterm's Viewport._sync() calls setScrollDimensions() before
-// setScrollPosition(). During dimension update, ScrollState clamps scrollTop
-// to (scrollHeight - height), which can temporarily set it to 0. This clamped
-// value leaks as an onScroll event that the detector misidentifies as a
-// browser focus reset. The suppression counter tells the detector to ignore
-// scroll events caused by our own corrections.
-const scrollSuppressionCounts = new Map<string, number>();
-
-function beginProgrammaticScroll(key: string): void {
-  scrollSuppressionCounts.set(key, (scrollSuppressionCounts.get(key) || 0) + 1);
-}
-
-function endProgrammaticScroll(key: string): void {
-  const count = scrollSuppressionCounts.get(key) || 0;
-  if (count <= 1) scrollSuppressionCounts.delete(key);
-  else scrollSuppressionCounts.set(key, count - 1);
-}
-
-function isProgrammaticScrollSuppressed(sessionId: string, terminalId: string): boolean {
-  return (scrollSuppressionCounts.get(makeKey(sessionId, terminalId)) || 0) > 0;
-}
-
 function flushWriteBuffer(key: string, terminal: Terminal): void {
   pendingFlushes.delete(key);
   const buffer = writeBuffers.get(key);
   if (!buffer || buffer.length === 0) return;
 
-  const beforeBaseY = terminal.buffer.active.baseY;
-  const beforeY = terminal.buffer.active.viewportY;
-  const wasAtBottom = beforeY >= beforeBaseY;
-  const beforeDistFromBottom = beforeBaseY - beforeY;
   const data = buffer.join('');
   buffer.length = 0;
 
   recordFlush(key, data.length);
 
-  // Fix 19: Bottom-following correction moved to onScroll handler (useTerminal.ts)
-  // where it runs synchronously BEFORE render, eliminating one-frame jitter.
-  // Write callback now only handles scrolled-up user distance correction.
-  // Fix 18 suppression counter still active for scrolled-up corrections.
-  terminal.write(data, () => {
-    // Bottom-followers are handled by onScroll (Fix 19) — skip here
-    if (wasAtBottom) return;
-
-    // Scrolled-up user: check if trim shifted position
-    const afterBaseY = terminal.buffer.active.baseY;
-    const afterY = terminal.buffer.active.viewportY;
-    const afterDistFromBottom = afterBaseY - afterY;
-    const drift = Math.abs(afterDistFromBottom - beforeDistFromBottom);
-    if (drift > 5) {
-      const targetY = Math.max(0, afterBaseY - beforeDistFromBottom);
-      const delta = targetY - afterY;
-      if (delta !== 0) {
-        beginProgrammaticScroll(key);
-        terminal.scrollLines(delta);
-        queueMicrotask(() => endProgrammaticScroll(key));
-      }
-    }
-  });
+  // xterm 6.1 preserves the visible viewport while a full scrollback buffer
+  // trims. Do not apply a post-write distance correction: that would undo
+  // xterm's anchor and pull a user who is reading scrollback toward the bottom.
+  // Bottom-following recovery remains in useScrollCorrection's onScroll path.
+  terminal.write(data);
 }
 
 function scheduleWrite(key: string, terminal: Terminal, data: string): void {
@@ -610,9 +562,8 @@ function connect(
 function disconnect(sessionId: string, terminalId: string): void {
   const key = makeKey(sessionId, terminalId);
 
-  // Cancel any buffered writes and clear scroll suppression
+  // Cancel any buffered writes.
   cancelPendingFlush(key);
-  scrollSuppressionCounts.delete(key);
 
   // Abort any in-flight retry loops for this key (THE BUG FIX)
   const controller = abortControllers.get(key);
@@ -1022,9 +973,6 @@ export const terminalStore = {
   registerFitAddon: _registerFitAddon,
   unregisterFitAddon: _unregisterFitAddon,
   triggerLayoutResize: _triggerLayoutResize,
-
-  // Fix 18: Scroll suppression query for onScroll detector
-  isProgrammaticScrollSuppressed,
 
   // URL detection (L26: delegated to terminal-url-detection.ts)
   setDetectedUrl: (url: string | null) => {

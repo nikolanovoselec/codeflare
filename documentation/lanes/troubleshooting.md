@@ -129,36 +129,15 @@ Enter the new client id + creation secret in the admin Setup wizard (REQ-AGENT-0
 
 **Fix:** A connect-timeout watchdog force-closes any socket still in `CONNECTING` after `WS_CONNECT_TIMEOUT_MS` and schedules a reconnect. Reconnect now uses equal-jitter exponential backoff (`reconnectBackoffMs`, base 500ms, capped at 15000ms) that resets to attempt 1 on a successful open, and is paused while the tab is hidden — the visibility-return handler restarts it at attempt 1 so a backgrounded pane burns no battery or connect budget. Redeploy the web-ui build to pick up the fix. ([REQ-TERM-003](../../sdd/spec/terminal.md#req-term-003-automatic-websocket-reconnection-on-transient-failures))
 
-### Pi Terminal Flicker (Investigation Ongoing)
+### Pi Terminal Flicker or Scrollback Snaps to the Bottom
 
-**Symptom:** In Pi sessions specifically (not Claude Code, Codex, or Antigravity, which
-share the same `Terminal.tsx`/`useTerminal.ts`/xterm stack), the terminal display
-flickers erratically during streaming output, intensifying once scrollback fills the
-1000-line cap and old lines start trimming.
+**Symptom:** Pi streaming output previously flickered once the terminal reached its 1000-line scrollback cap. With xterm 6.1 the flicker stops, but trying to read scrollback while Pi is still writing can repeatedly pull the viewport toward the live prompt.
 
-**Cause:** Not yet confirmed. Suspected interaction between Pi's own output pattern
-(write volume/frequency, redraw/escape-sequence shape -- Pi uses DEC 2026 synchronized
-output without the alternate screen) and the scroll-correction stack
-(`useScrollCorrection.ts`, `flushWriteBuffer`), rather than the xterm overlay-scrollbar
-widget itself. A CSS attempt to hide the ScrollableElement `.scrollbar` widget was tried
-and reverted after live confirmation it did not fix the flicker
-([REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output)
-AC6, removed).
+**Cause:** These were separate problems. `@xterm/xterm` `6.1.0-beta.288` includes upstream PR [#5770](https://github.com/xtermjs/xterm.js/pull/5770), which defers viewport DOM synchronization during DEC 2026 synchronized output and fixes the Pi flicker. The remaining snap was codeflare's older post-write distance guard: xterm 6.1 correctly shifted `viewportY` as old lines trimmed, then `flushWriteBuffer` mistook a multi-line shift for drift and called `scrollLines` toward the bottom after each dense 33ms batch ([REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming) AC2).
 
-**Current mitigation attempt:** `@xterm/xterm` is pinned to `6.1.0-beta.288` (not
-`^6.0.0`) in `web-ui/package.json`, since that prerelease contains upstream xterm.js PR
-[#5770](https://github.com/xtermjs/xterm.js/pull/5770) ("defer viewport DOM sync during
-synchronized output (DEC 2026)"), whose own repro notes name Pi as the test subject.
-This is an unconfirmed mitigation, not a verified fix -- track root-cause status in
-`sdd/spec/changes.md` before assuming this is resolved.
+**Fix:** Keep `@xterm/xterm` pinned to `6.1.0-beta.288` and deploy a web UI where `flushWriteBuffer` batches output without applying a post-write scroll correction. Bottom-following and true focus-reset recovery remain in `useScrollCorrection`; a user who scrolls up is left on xterm's native visible-content anchor.
 
-A 2026-07-02 investigation into the `6.1.0-beta.288` bump (5-agent static analysis of both repos) confirmed and fixed two *separate* regressions introduced by the same version bump — a broken mobile keyboard tap-to-open (xterm's new document-level `Gesture` singleton, see [Mobile: Fix 20](mobile.md#touch-input)) and a `CSI ?997` echo flood in DECSET-2031 TUIs like Claude Code (see [Mobile: Fix 21](mobile.md#xterm-61-color-scheme-report-suppression-git-fix-21)) — both fixed codeflare-side while keeping the beta pin. The flicker itself was NOT implicated by that investigation and remains unconfirmed.
-
-**Fix:** None confirmed yet. If you hit this, check whether `web-ui/package.json` still
-pins the `6.1.0-beta.288` prerelease -- npm `latest` for `@xterm/xterm` was still
-`6.0.0` as of this writing, so a routine `npm update` will silently drop the pin and
-lose the mitigation. Report reproduction details (scrollback depth, output pattern) to
-help narrow the root cause.
+**Verify:** Fill scrollback, scroll up while Pi continues streaming, and confirm the same surviving content remains visible rather than snapping toward the bottom. CI's `terminal.test.ts` reproduces a ten-line trim at full scrollback and asserts that no programmatic `scrollLines` call occurs.
 
 ### Container Stuck at "Waiting for Services"
 
@@ -554,7 +533,7 @@ wrangler tail codeflare --status error
 - [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session) - Clone a repository into a session
 - [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) - Broaden the panel gate beyond enterprise
 - [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) - Per-session browser IDE proxy (WebSocket code-1009 reconnect loop)
-- [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output) - Scroll-drop detection during burst output (Pi terminal flicker investigation)
+- [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output) - Scroll stability during Pi burst output and full-buffer trimming
 - [REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants) - sleepAfter fail-safe invariants
 - [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) - Container Port-Readiness Gating with Pre-Warm Pre-Condition
 - [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit) - Persisted status is authoritative on container exit

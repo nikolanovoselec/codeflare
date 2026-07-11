@@ -2,15 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createRoot } from 'solid-js';
 import { useScrollCorrection } from '../../hooks/useScrollCorrection';
 
-const terminalStoreMock = vi.hoisted(() => ({ suppressed: false }));
 const mobileMock = vi.hoisted(() => ({ touch: false, keyboardOpen: false }));
 const scrollIntentMock = vi.hoisted(() => ({ recent: false }));
-
-vi.mock('../../stores/terminal', () => ({
-  terminalStore: {
-    isProgrammaticScrollSuppressed: vi.fn(() => terminalStoreMock.suppressed),
-  },
-}));
 
 vi.mock('../../lib/mobile', () => ({
   isTouchDevice: () => mobileMock.touch,
@@ -44,7 +37,6 @@ function createFakeTerminal() {
 describe('useScrollCorrection / REQ-TERM-014 terminal scroll anchoring', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    terminalStoreMock.suppressed = false;
     mobileMock.touch = false;
     mobileMock.keyboardOpen = false;
     scrollIntentMock.recent = false;
@@ -136,34 +128,6 @@ describe('useScrollCorrection / REQ-TERM-014 terminal scroll anchoring', () => {
       terminal.emitScroll(100, 100);
       terminal.emitScroll(99, 100);
 
-      expect(terminal.scrollToBottom).toHaveBeenCalledTimes(1);
-      dispose();
-    });
-  });
-
-  // ==========================================================================
-  // REQ-MOB-012 AC1: suppression marker is consumed by the detector
-  // ==========================================================================
-  it('REQ-MOB-012 AC1: skips correction while the programmatic-scroll suppression marker is set', () => {
-    createRoot((dispose) => {
-      terminalStoreMock.suppressed = true;
-
-      const terminal = createFakeTerminal();
-      const container = document.createElement('div');
-      useScrollCorrection(terminal as any, container, { sessionId: 's1', terminalId: '1' });
-
-      // A drop that would normally re-anchor (Strategy 1) must be ignored while
-      // suppression is active, so our own post-write corrections cannot feed back.
-      terminal.emitScroll(100, 100);
-      terminal.emitScroll(50, 100);
-
-      expect(terminal.scrollToBottom).not.toHaveBeenCalled();
-      expect(terminal.buffer.active.viewportY).toBe(50);
-
-      // Once suppression clears, the detector re-anchors a following user again.
-      terminalStoreMock.suppressed = false;
-      terminal.emitScroll(100, 100);
-      terminal.emitScroll(99, 100);
       expect(terminal.scrollToBottom).toHaveBeenCalledTimes(1);
       dispose();
     });
