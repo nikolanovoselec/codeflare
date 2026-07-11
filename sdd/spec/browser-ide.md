@@ -1,63 +1,60 @@
 # Browser IDE
 
-Full VS Code editor (OpenVSCode Server) running inside each session's container, reached from the codeflare UI through the existing Worker proxy, opening that session's workspace. Session-isolated by design -- the deliberate opposite of the bucket-stable Vault editor.
+A full browser editor for an advanced running session. The editor opens that session's workspace, stays isolated from every other session, and uses the existing authenticated session-container path.
 
-**Domain owner:** Worker `/api/vscode` route, host proxy (`host/src/server.ts`), `entrypoint.sh` (OpenVSCode supervisor), `Dockerfile` (OpenVSCode install), web-ui `Header`
+**Domain owner:** Worker editor route, container host proxy, editor lifecycle supervisor, and header launch control
 
 ### Key Concepts
 
-- **Browser IDE** -- OpenVSCode Server (the upstream VS Code web server) running inside the session container, bound to localhost only and reachable from the codeflare UI through the Worker proxy. The auth boundary lives at the Worker, exactly like the Vault editor. One IDE server per session container.
-- **Session isolation** -- Each session's IDE is fully isolated from every other session's: a distinct URL base path (`/api/vscode/<sessionId>/`), a distinct browser service-worker scope, a distinct per-container server data directory, and a distinct container. This is the deliberate opposite of the Vault, which is bucket-stable ([REQ-VAULT-021](vault.md)) so one notes store is shared across a user's sessions. The workspace differs per session (different repos, branches, working state), so the IDE must never share state across sessions.
-- **Base-path native serving** -- OpenVSCode Server is launched with `--server-base-path=/api/vscode/<sessionId>`, so it builds its own asset URLs and registers its service worker under that path. The Worker and host forward the path unchanged (no prefix strip, no HTML base-href graft) -- unlike SilverBullet, which has no base-path flag and requires the Vault's HTML graft.
-- **Lazy start** -- The OpenVSCode supervisor does not launch the server at container boot; it waits for the init-complete flag and a first-request trigger the host writes when the first `/api/vscode` request arrives. Sessions that never open the IDE never pay for it.
-- **OpenVSCode supervisor** -- A restart loop in the entrypoint (modelled on the SilverBullet supervisor) that keeps the IDE server alive across crashes and is torn down cleanly via pidfile on shutdown so the port is released for the next session.
+- **Browser IDE** -- The per-session OpenVSCode editor defined in the [glossary](glossary.md#glossary).
+- **Session isolation** -- Editor routing, browser storage, server state, and workspace selection belong to one session and are never shared through the user's storage identity.
+- **Lazy start** -- The editor consumes resources only after an eligible user first opens it.
+- **Editor activity** -- Every client-to-server editor message counts as input for the same idle policy used by terminal input.
 
 ### Out of Scope
 
-- A second Worker, origin, Durable Object, binding, or iframe host for the IDE (it reuses the session container and the existing proxy chain).
-- A separate connection-token auth layer inside OpenVSCode (`--without-connection-token`; the Worker's Cloudflare Access + tier + session-ownership check plus the localhost bind is the auth boundary, identical to the Vault).
-- Cross-session persistence of the IDE's own server state or installed extensions (the server data dir is ephemeral per container; workspace files persist via the existing final-sync, editor state does not).
-- A bucket-stable IDE URL or shared service worker across sessions (that is the Vault's model and is explicitly rejected here).
-- Desktop VS Code, Remote-SSH, or a VNC editor surface (the browser IDE covers the in-session editing surface).
-- A standalone IDE-only container (the IDE lives inside the session container).
+- A separate editor deployment, container, authentication system, or origin.
+- Cross-session persistence of editor settings, extensions, or browser state.
+- Desktop remote-development protocols or a graphical desktop surface.
+- Parsing the upstream editor protocol to classify messages.
 
 ### Domain Dependencies
 
-- **Session Lifecycle** -- The IDE runs inside the existing session container and is gated on the container being up (`safeCheckContainerHealth`); its supervisor is launched and torn down alongside the other in-container daemons.
-- **Vault** -- Reuses the Vault's Worker proxy plumbing (auth chain, container fetch, health gate, WS bridge shape) but deliberately not its bucket-stable serving layer ([REQ-VAULT-021](vault.md)).
-- **Storage** -- Workspace edits persist through the existing bisync to R2 (the final-sync drain); the IDE adds no new sync path.
-- **Security** -- The `/api/vscode/*` surface is an authenticated Worker proxy; it inherits the container-auth Bearer injection and the same-origin frame policy.
-- **Agents** -- The IDE button is gated to advanced session mode, alongside the Vault button.
+- [REQ-SESSION-001](session-lifecycle.md#req-session-001-container-creation-and-lifecycle) -- the editor runs inside the selected session container.
+- [REQ-VAULT-005](vault.md#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) -- the editor reuses the authenticated container-proxy boundary.
+- [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start) -- workspace files use the existing persistence lifecycle.
+- [REQ-SEC-007](security.md#req-sec-007-rate-limiting-infrastructure) -- editor WebSocket upgrades share the connection budget.
+- [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response) -- editor responses use same-origin framing controls.
+- [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro) -- editor availability follows advanced session mode.
 
 ---
 
 ### REQ-IDE-001: Per-session browser IDE served through the Worker proxy
 
-**Intent:** A user in an advanced session opens a full VS Code editor in the browser. The editor runs inside that session's container and opens `~/workspace`, reached through the existing Worker -> Container -> host proxy chain. No new Worker, origin, Durable Object, binding, or auth system is introduced.
+**Intent:** An authenticated user can open a full editor for a valid selected session without introducing another deployment or authentication boundary.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The Worker parses `/api/vscode/<sessionId>/...` at the route boundary before the Hono router (so WebSocket upgrades pass through), and rejects a first segment that fails `SESSION_ID_PATTERN` with a 400. <!-- @impl: src/routes/vscode-validation.ts::validateVscodeRoute --> <!-- @test: src/__tests__/routes/vscode-validation.test.ts (validateVscodeRoute (REQ-IDE-001, REQ-IDE-002)) -->
-2. A vscode request passes the shared auth chain -- origin allowlist, then authenticate (with CSRF synthesis), then active-tier -- reusing the vault's session-safe guards; an unauthenticated request returns 401 and a disallowed origin returns 403. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)) -->
-3. The Worker forwards the request to the session's container via `container.fetch` with the path unchanged (`/api/vscode/<sessionId>/...`) so OpenVSCode's `--server-base-path` matches; the container fetch wrapper supplies the container-auth Bearer. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)) -->
-4. HTTP responses carry the embeddable-frame security headers (`frame: sameorigin`, `csp: false`); WebSocket upgrade responses are passed through untouched (status 101 no-op). <!-- @impl: src/index.ts::AppVariables --> <!-- @test: src/__tests__/security/early-return-security.test.ts (CF-001: security headers on pre-Hono early-return responses) -->
-5. The host forwards `/api/vscode/*` to OpenVSCode on `127.0.0.1:13337` without stripping the prefix, so the base-path-native server receives its own path. <!-- @impl: host/src/vscode-proxy.ts::isVscodePath --> <!-- @test: host/__tests__/openvscode-proxy.test.js (vscodeUpstreamPath / REQ-IDE-001 (forward UNCHANGED, no strip)) -->
-6. Ownership and liveness are enforced after the auth chain: a session the user does not own returns 404, a stopped session returns 503, and an unhealthy container returns 503. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)) -->
-7. The host WebSocket endpoint accepts a 256 KiB binary VS Code protocol message, preserves its bytes, and keeps the connection open instead of closing it with code 1009; the IDE does not reuse the terminal protocol's 64 KiB message cap. <!-- @impl: host/src/vscode-proxy.ts::createVscodeWebSocketServer --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-IDE-001: accepts a 256 KiB binary protocol message intact without a 1009 close) -->
+1. Malformed or missing session identifiers are rejected before container access. <!-- @impl: src/routes/vscode-validation.ts::validateVscodeRoute --> <!-- @test: src/__tests__/routes/vscode-validation.test.ts (validateVscodeRoute (REQ-IDE-001, REQ-IDE-002)) -->
+2. Unauthenticated editor access is rejected, and requests from disallowed origins are forbidden. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)) -->
+3. Editor pages, assets, and sockets reach the selected session while retaining its session-scoped browser location. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @impl: host/src/vscode-proxy.ts::vscodeUpstreamPath --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)) --> <!-- @test: host/__tests__/openvscode-proxy.test.js (vscodeUpstreamPath / REQ-IDE-001 (forward UNCHANGED, no strip)) -->
+4. Editor content may be framed only by the same origin, and successful socket upgrades remain intact. <!-- @impl: src/index.ts::withSecurityHeaders --> <!-- @test: src/__tests__/security/early-return-security.test.ts (CF-001: security headers on pre-Hono early-return responses) -->
+5. A session not owned by the user is unavailable, and stopped or unhealthy sessions do not forward editor traffic. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)) -->
+6. Normal editor protocol messages of at least 256 KiB pass byte-for-byte without a payload-limit disconnect. <!-- @impl: host/src/vscode-proxy.ts::createVscodeWebSocketServer --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-IDE-001: accepts a 256 KiB binary protocol message intact without a 1009 close) -->
 
 **Constraints:**
 
-- No new Worker, origin, Durable Object, or binding is added; the IDE reuses the session container and the existing proxy chain.
-- OpenVSCode is installed at a pinned version with a `sha256sum -c` verification in the Docker build, shadow-pinned like the other vendored binaries.
-- The IDE binds `127.0.0.1` only; the Worker is the sole auth boundary.
+- The editor reuses the session container and existing authenticated proxy boundary.
+- The editor listens only inside the container; it has no independently reachable network surface.
+- The upstream OpenVSCode artifact remains unmodified under the accepted risk in [AD97](../../documentation/decisions/README.md#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk).
 
 **Priority:** P2
 
-**Dependencies:** [REQ-VAULT-005](vault.md) (Worker vault proxy plumbing, incl. container health probe)
+**Dependencies:** [REQ-SESSION-001](session-lifecycle.md#req-session-001-container-creation-and-lifecycle), [REQ-VAULT-005](vault.md#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor), [REQ-SEC-008](security.md#req-sec-008-security-headers-on-every-response)
 
-**Verification:** [Route parsing](../../src/__tests__/routes/vscode-validation.test.ts); [Auth chain + forwarding](../../src/__tests__/routes/vscode-auth-chain.test.ts); [Security headers](../../src/__tests__/security/early-return-security.test.ts); [Host no-strip](../../host/__tests__/openvscode-proxy.test.js)
+**Verification:** [Worker route tests](../../src/__tests__/routes/vscode-auth-chain.test.ts); [host proxy tests](../../host/__tests__/openvscode-proxy.test.js)
 
 **Status:** Implemented
 
@@ -65,59 +62,85 @@ Full VS Code editor (OpenVSCode Server) running inside each session's container,
 
 ### REQ-IDE-002: Session-isolated IDE, not bucket-stable
 
-**Intent:** Each session's IDE is fully isolated from every other session's -- distinct URL base path, service-worker scope, server data directory, and container. This is the deliberate opposite of the bucket-stable Vault ([REQ-VAULT-021](vault.md)); opening the IDE in two sessions yields two independent editors, each showing its own container's `~/workspace`.
+**Intent:** Each session receives an independent editor for its own workspace; no editor identity or state is shared through the user's persistent-storage identity.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The vscode route is session-keyed only: the route parser has no bucket-token branch and reads no routing cookie; the sessionId in the URL is the sole container selector. <!-- @impl: src/routes/vscode-validation.ts::validateVscodeRoute --> <!-- @test: src/__tests__/routes/vscode-validation.test.ts (REQ-IDE-002: a valid route result carries a sessionId and never a bucketToken) -->
-2. OpenVSCode serves under `--server-base-path=/api/vscode/<sessionId>` so its asset URLs and service-worker scope are session-specific. <!-- @impl: entrypoint.sh::start_openvscode_supervisor --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)) -->
-3. Each container runs its own OpenVSCode with an ephemeral per-container `--server-data-dir` under `/tmp`, so no server state is shared across sessions and none is synced to R2. <!-- @impl: entrypoint.sh::start_openvscode_supervisor --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (handleVscodeRequest auth chain + forwarding (REQ-IDE-001, REQ-IDE-002)) -->
-4. The IDE is session-keyed at every layer: the route parser, the container routing, the `--server-base-path`, the ephemeral per-container `--server-data-dir`, and the header open-URL all carry the sessionId, so two sessions get isolated editors with distinct workspace, service-worker scope, and server state. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Layout Component / REQ-AUTH-014 (session expiry handling on 401)) -->
+1. Editor routing selects only the requested session and never substitutes a shared storage identity. <!-- @impl: src/routes/vscode-validation.ts::validateVscodeRoute --> <!-- @test: src/__tests__/routes/vscode-validation.test.ts (REQ-IDE-002: a valid route result carries a sessionId and never a bucketToken) -->
+2. Browser resource scope and editor server state are distinct for each session. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated launch command)) -->
+3. Editor-only state is ephemeral and is not synchronized with workspace files. <!-- @impl: entrypoint.sh::_openvscode_launch_once --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated launch command)) -->
+4. Launching from the header always opens the active session rather than another running session. <!-- @impl: web-ui/src/components/Layout.tsx::handleVscodeOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Browser IDE button gating (REQ-IDE-001 / REQ-IDE-003)) -->
 
 **Constraints:**
 
-- The IDE URL must always carry the sessionId; nothing may rewrite it to a bucket-stable or shared path.
-- The server data directory is ephemeral (`/tmp`); IDE extension/state persistence across sessions is out of scope.
+- The selected session remains visible in the editor location for the lifetime of the page.
+- Editor state does not become a bucket-level or account-level store.
 
 **Priority:** P2
 
-**Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) (the proxy chain), [REQ-VAULT-021](vault.md) (the contrasting bucket-stable model)
+**Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-VAULT-021](vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key)
 
-**Verification:** [Behavioral test](../../src/__tests__/routes/vscode-auth-chain.test.ts)
+**Verification:** [Route isolation tests](../../src/__tests__/routes/vscode-validation.test.ts); [launch tests](../../host/__tests__/entrypoint-openvscode.test.js)
 
 **Status:** Implemented
 
 ---
 
-### REQ-IDE-003: IDE lifecycle (lazy start, supervised, clean teardown)
+### REQ-IDE-003: IDE lifecycle and availability
 
-**Intent:** The IDE server starts on first use rather than at boot, is supervised for crash-restart, tears down cleanly on shutdown without orphaning its port, and its header button appears only for an advanced-mode running session. Workspace edits persist through the existing final-sync.
+**Intent:** The editor starts only when used, becomes available after warm-up or a process restart, stops cleanly with its session, and is offered only for an advanced running session.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The OpenVSCode supervisor launches the server only after the init-complete flag exists AND a first-request trigger file is present; until both are present it waits without launching. <!-- @impl: entrypoint.sh::start_openvscode_supervisor --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (_openvscode_should_launch / REQ-IDE-003 AC1 (lazy-start gate)) -->
-2. The host writes the request-trigger file on the first `/api/vscode` request (idempotent) and, until OpenVSCode binds, serves a 503 auto-refreshing HTML warming page (not a raw JSON error) so a plain browser tab lands on the editor once it is up. <!-- @impl: host/src/vscode-proxy.ts::vscodeWarmingResponse --> <!-- @test: host/__tests__/openvscode-proxy.test.js (vscodeWarmingResponse / REQ-IDE-003 AC2 (auto-refreshing warming page, not raw JSON)) -->
-3. The supervisor restarts the server on crash via a restart loop, matching the SilverBullet supervisor pattern. <!-- @impl: entrypoint.sh::start_openvscode_supervisor --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (kill_pidfile_subtree / REQ-IDE-003 AC4 (shutdown releases the IDE port)) -->
-4. The shutdown handler kills the supervisor subtree via its pidfile so the IDE port is released for the next session. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (kill_pidfile_subtree / REQ-IDE-003 AC4 (shutdown releases the IDE port)) -->
-5. The header IDE button renders only when the active session is advanced-mode AND running; clicking it opens the session's `/api/vscode/<sessionId>/`. <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Browser IDE button gating (REQ-IDE-001 / REQ-IDE-003)) -->
-6. Workspace edits persist through the existing final-sync; the IDE adds no new drain path and its server data dir is excluded from sync by living under `/tmp`. <!-- @impl: entrypoint.sh::start_openvscode_supervisor --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (kill_pidfile_subtree / REQ-IDE-003 AC4 (shutdown releases the IDE port)) -->
-7. The host rejects a non-advanced-mode session's `/api/vscode` request at the host layer -- a 409 non-refreshing page for HTTP, a refused upgrade for WebSocket -- since the supervisor never arms for such a session; this is independent of the header-button gate. <!-- @impl: host/src/vscode-proxy.ts::vscodeModeAllowed --> <!-- @impl: host/src/vscode-proxy.ts::vscodeDisabledResponse --> <!-- @test: host/__tests__/openvscode-proxy.test.js (vscodeDisabledResponse / REQ-IDE-003 (non-advanced session: clear page, no refresh loop)) -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+1. The editor remains stopped until session initialization is complete and an eligible editor request has arrived. <!-- @impl: entrypoint.sh::_openvscode_should_launch --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (_openvscode_should_launch / REQ-IDE-003 AC1 (lazy-start gate)) -->
+2. The first editor request records the start request idempotently. <!-- @impl: host/src/vscode-proxy.ts::requestOpenvscodeStart --> <!-- @test: host/__tests__/openvscode-proxy.test.js (requestOpenvscodeStart / REQ-IDE-003 AC2 (lazy-start trigger, idempotent)) -->
+3. While the editor starts, the browser retries automatically and reaches the editor when it becomes ready. <!-- @impl: host/src/vscode-proxy.ts::vscodeWarmingResponse --> <!-- @test: host/__tests__/openvscode-proxy.test.js (vscodeWarmingResponse / REQ-IDE-003 AC2 (auto-refreshing warming page, not raw JSON)) -->
+4. The editor becomes available again after its server process exits unexpectedly. <!-- @impl: entrypoint.sh::_openvscode_supervise_loop --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (_openvscode_supervise_loop / REQ-IDE-003 AC1+AC3 (lazy no-launch, restart on exit)) -->
+5. Session shutdown terminates editor processes before the container lifecycle completes. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (kill_pidfile_subtree / REQ-IDE-003 AC4 (shutdown releases the IDE port)) -->
+6. The header offers the editor only for the active advanced running session and opens that session when selected. <!-- @impl: web-ui/src/components/Layout.tsx::handleVscodeOpen --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (Browser IDE button gating (REQ-IDE-001 / REQ-IDE-003)) -->
+7. A non-advanced session cannot open the editor and is not left in an automatic retry loop. <!-- @impl: host/src/vscode-proxy.ts::vscodeModeAllowed --> <!-- @impl: host/src/vscode-proxy.ts::vscodeDisabledResponse --> <!-- @test: host/__tests__/openvscode-proxy.test.js (vscodeDisabledResponse / REQ-IDE-003 (non-advanced session: clear page, no refresh loop)) -->
 
 **Constraints:**
 
-- The IDE is an advanced-mode feature; it is not offered in default session mode.
-- No new final-sync/drain code is added; workspace persistence rides the existing bisync.
+- Workspace persistence continues through [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start); the editor adds no sync path.
+- Sessions that never open the editor incur no editor-process cost.
 
 **Priority:** P2
 
-**Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) (the proxy chain), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start) (workspace persistence)
+**Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)
 
-**Verification:** Manual check
+**Verification:** [Lifecycle tests](../../host/__tests__/entrypoint-openvscode.test.js); [host response tests](../../host/__tests__/openvscode-proxy.test.js); [header tests](../../web-ui/src/__tests__/components/Layout.test.tsx)
+
+**Status:** Implemented
+
+---
+
+### REQ-IDE-004: Resilient editor activity transport
+
+**Intent:** Editor input reaches the upstream editor during connection start-up and refreshes the same input timestamp used by idle shutdown.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Client frames received before the upstream connection opens are delivered afterward in original order with text and binary flags preserved. <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-IDE-004: delivers immediate pre-open frames in order with binary flags preserved) -->
+2. The pre-open frame queue has a fixed bound; overflow closes the stalled bridge with retry-later semantics and releases the queued frames and bridge listeners. <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-IDE-004: closes with 1013 on bounded-queue overflow and releases bridge listeners) -->
+3. Closing or failing either side releases the bridge's queued frames and event listeners. <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-IDE-004: releases bridge listeners when either socket closes or errors) -->
+4. Every client-to-server editor frame advances the host `lastInputAt` value consumed by idle shutdown. <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @impl: host/src/activity-tracker.ts::createActivityTracker --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-IDE-004: advances the idle policy lastInputAt for every client-to-server frame) -->
+
+**Constraints:**
+
+- The bridge does not parse or classify the editor protocol.
+- Buffering is ordered and bounded by frame count.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-SESSION-005](session-lifecycle.md#req-session-005-input-based-idle-detection)
+
+**Verification:** [Behavioral host proxy tests](../../host/__tests__/openvscode-proxy.test.js)
 
 **Status:** Implemented

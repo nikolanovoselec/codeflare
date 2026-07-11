@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-07-12
+
+- **Browser IDE startup and active-editing reliability improved** ([REQ-IDE-004](browser-ide.md#req-ide-004-resilient-editor-activity-transport) added; Implemented). Editor input sent during connection start-up is no longer dropped, and continued editing now refreshes the session idle timer. Stalled start-up connections close safely instead of buffering without limit. The OpenVSCode artifact remains upstream-clean under the explicit known-vulnerability acceptance in [AD97](../../documentation/decisions/README.md#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk), preserving straightforward upstream security upgrades.
+
 ## 2026-07-11
 
 - Codex and Copilot CLIs no longer get their V8 compile cache pre-warmed at image build time (image-size tradeoff); only Pi keeps the build-time warm-up, and both CLIs now pay the compile cost on first interactive launch instead.

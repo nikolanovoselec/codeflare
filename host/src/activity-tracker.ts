@@ -3,7 +3,7 @@
  *
  * Tracks WebSocket client connection/disconnection events and user input
  * timestamps. The container DO polls /activity every 60s; its idle policy is
- * keyed off lastInputAt (PTY keystrokes only) in collectMetrics and stops the
+ * keyed off lastInputAt (terminal or Browser IDE input) in collectMetrics and stops the
  * container at the configured idle timeout - see src/container/index.ts.
  *
  * NOTE: there is NO 30-minute (or any) disconnect-based auto-expire.
@@ -31,7 +31,7 @@ export function createActivityTracker(): ActivityTracker {
       tracker.lastAllDisconnectedAt = Date.now();
     },
 
-    // Called on every real user input (keypresses, clicks — not terminal protocol chatter)
+    // Called on classified terminal input or any client-to-server Browser IDE frame.
     recordInput(): void {
       lastInputAt = Date.now();
     },

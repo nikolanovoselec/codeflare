@@ -27,7 +27,7 @@ import { checkContainerAuth } from './auth-check.js';
 import { evaluateFinalSync } from './final-sync.js';
 import { resolveGitClone, resolveWorkspaceRoot, buildCloneArgs } from './git-clone.js';
 import { stripVaultPrefix } from './vault-proxy.js';
-import { createVscodeWebSocketServer, isVscodePath, vscodeUpstreamPath, requestOpenvscodeStart, vscodeModeAllowed, vscodeWarmingResponse, vscodeDisabledResponse } from './vscode-proxy.js';
+import { bridgeVscodeClientMessages, createVscodeWebSocketServer, isVscodePath, vscodeUpstreamPath, requestOpenvscodeStart, vscodeModeAllowed, vscodeWarmingResponse, vscodeDisabledResponse } from './vscode-proxy.js';
 import { Session } from './session.js';
 import { SessionManager, PREWARM_SESSION_ID } from './session-manager.js';
 import type { LogLevel, Logger, WsEventLogger, WsEvent, TabConfigEntry, ActivityTracker, SessionOptions } from './types.js';
@@ -952,10 +952,8 @@ function handleVscodeUpgrade(req: http.IncomingMessage, socket: import('node:str
       try { upstream.close(code, reason); } catch { /* ignore */ }
     };
 
+    bridgeVscodeClientMessages(clientWs, upstream, () => state.activityTracker.recordInput());
     upstream.on('open', () => {
-      clientWs.on('message', (data, isBinary) => {
-        if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary: isBinary });
-      });
       upstream.on('message', (data, isBinary) => {
         if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data, { binary: isBinary });
       });

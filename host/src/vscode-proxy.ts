@@ -10,7 +10,7 @@
  * same reason stripVaultPrefix was extracted into vault-proxy.ts.
  */
 import fs from 'node:fs';
-import { WebSocketServer } from 'ws';
+import { WebSocket, WebSocketServer, type RawData } from 'ws';
 
 /** Default lazy-start trigger path the OpenVSCode supervisor waits on. */
 export const OPENVSCODE_REQUEST_TRIGGER = '/tmp/openvscode-requested';
@@ -25,6 +25,75 @@ const OPENVSCODE_WS_MAX_PAYLOAD = 32 * 1024 * 1024;
 /** Create the no-server WebSocket endpoint used by the OpenVSCode bridge. */
 export function createVscodeWebSocketServer(): WebSocketServer {
   return new WebSocketServer({ noServer: true, maxPayload: OPENVSCODE_WS_MAX_PAYLOAD });
+}
+
+interface QueuedVscodeFrame {
+  readonly data: RawData;
+  readonly isBinary: boolean;
+}
+
+/**
+ * Attach the downstream listener before the upstream handshake completes.
+ * Early VS Code initialization frames are retained in order, while a fixed
+ * frame cap prevents a stalled localhost server from creating an unbounded
+ * queue. Every client frame is meaningful IDE activity for idle detection.
+ */
+export function bridgeVscodeClientMessages(
+  client: WebSocket,
+  upstream: WebSocket,
+  recordInput: () => void,
+  maxQueuedFrames = 128,
+): void {
+  let queuedFrames: readonly QueuedVscodeFrame[] = [];
+  let active = true;
+
+  const cleanup = (): void => {
+    if (!active) return;
+    active = false;
+    queuedFrames = [];
+    client.off('message', onClientMessage);
+    client.off('close', cleanup);
+    client.off('error', cleanup);
+    upstream.off('open', onUpstreamOpen);
+    upstream.off('close', cleanup);
+    upstream.off('error', cleanup);
+  };
+
+  const onClientMessage = (data: RawData, isBinary: boolean): void => {
+    recordInput();
+    if (upstream.readyState === WebSocket.OPEN) {
+      upstream.send(data, { binary: isBinary });
+      return;
+    }
+    if (upstream.readyState !== WebSocket.CONNECTING) {
+      cleanup();
+      return;
+    }
+    if (queuedFrames.length >= maxQueuedFrames) {
+      cleanup();
+      client.close(1013, 'upstream-not-ready');
+      upstream.close(1013, 'upstream-not-ready');
+      return;
+    }
+    queuedFrames = [...queuedFrames, { data, isBinary }];
+  };
+
+  const onUpstreamOpen = (): void => {
+    upstream.off('open', onUpstreamOpen);
+    const frames = queuedFrames;
+    queuedFrames = [];
+    for (const frame of frames) {
+      if (upstream.readyState !== WebSocket.OPEN) break;
+      upstream.send(frame.data, { binary: frame.isBinary });
+    }
+  };
+
+  client.on('message', onClientMessage);
+  client.on('close', cleanup);
+  client.on('error', cleanup);
+  upstream.on('open', onUpstreamOpen);
+  upstream.on('close', cleanup);
+  upstream.on('error', cleanup);
 }
 
 /** True for the base-path-native IDE proxy surface `/api/vscode` and below. */

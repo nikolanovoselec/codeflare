@@ -7,13 +7,14 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { once } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import WebSocket from 'ws';
-import { createVscodeWebSocketServer, isVscodePath, vscodeUpstreamPath, requestOpenvscodeStart, vscodeModeAllowed, vscodeWarmingResponse, vscodeDisabledResponse } from '../dist/vscode-proxy.js';
+import { createActivityTracker } from '../dist/activity-tracker.js';
+import { bridgeVscodeClientMessages, createVscodeWebSocketServer, isVscodePath, vscodeUpstreamPath, requestOpenvscodeStart, vscodeModeAllowed, vscodeWarmingResponse, vscodeDisabledResponse } from '../dist/vscode-proxy.js';
 
 describe('isVscodePath / REQ-IDE-001 (base-path-native IDE proxy surface)', () => {
   it('matches the bare /api/vscode surface and everything below it', () => {
@@ -117,6 +118,101 @@ describe('vscodeDisabledResponse / REQ-IDE-003 (non-advanced session: clear page
     // The load-bearing behavioural difference from the warming page: no meta
     // refresh, because the supervisor will never arm for a non-advanced session.
     assert.doesNotMatch(r.body, /http-equiv=["']refresh["']/i);
+  });
+});
+
+describe('bridgeVscodeClientMessages / REQ-IDE-004 (early-frame delivery and IDE activity)', () => {
+  function socket(state) {
+    const events = new EventEmitter();
+    return Object.assign(events, {
+      readyState: state,
+      sent: [],
+      closes: [],
+      send(data, options) { this.sent.push({ data: Buffer.from(data), options }); },
+      close(code, reason) { this.closes.push({ code, reason }); },
+    });
+  }
+
+  function assertBridgeListenersRemoved(client, upstream) {
+    assert.equal(client.listenerCount('message'), 0);
+    assert.equal(client.listenerCount('close'), 0);
+    assert.equal(client.listenerCount('error'), 0);
+    assert.equal(upstream.listenerCount('open'), 0);
+    assert.equal(upstream.listenerCount('close'), 0);
+    assert.equal(upstream.listenerCount('error'), 0);
+  }
+
+  it('REQ-IDE-004: delivers immediate pre-open frames in order with binary flags preserved', () => {
+    const client = socket(WebSocket.OPEN);
+    const upstream = socket(WebSocket.CONNECTING);
+
+    bridgeVscodeClientMessages(client, upstream, () => {});
+    client.emit('message', Buffer.from('first'), true);
+    client.emit('message', Buffer.from('second'), false);
+    assert.deepEqual(upstream.sent, []);
+
+    upstream.readyState = WebSocket.OPEN;
+    upstream.emit('open');
+    upstream.emit('open');
+
+    assert.deepEqual(upstream.sent.map(({ data }) => data.toString()), ['first', 'second']);
+    assert.deepEqual(upstream.sent.map(({ options }) => options.binary), [true, false]);
+    assert.equal(upstream.listenerCount('open'), 0);
+  });
+
+  it('REQ-IDE-004: closes with 1013 on bounded-queue overflow and releases bridge listeners', () => {
+    const client = socket(WebSocket.OPEN);
+    const upstream = socket(WebSocket.CONNECTING);
+    let recordedInputs = 0;
+    bridgeVscodeClientMessages(client, upstream, () => { recordedInputs += 1; }, 2);
+
+    client.emit('message', Buffer.from('one'), true);
+    client.emit('message', Buffer.from('two'), true);
+    client.emit('message', Buffer.from('overflow'), true);
+
+    assert.deepEqual(client.closes, [{ code: 1013, reason: 'upstream-not-ready' }]);
+    assert.deepEqual(upstream.closes, [{ code: 1013, reason: 'upstream-not-ready' }]);
+    assertBridgeListenersRemoved(client, upstream);
+    client.emit('message', Buffer.from('after-overflow'), true);
+    assert.equal(recordedInputs, 3);
+  });
+
+  it('REQ-IDE-004: releases bridge listeners when either socket closes or errors', () => {
+    for (const [socketName, eventName] of [
+      ['client', 'close'],
+      ['client', 'error'],
+      ['upstream', 'close'],
+      ['upstream', 'error'],
+    ]) {
+      const client = socket(WebSocket.OPEN);
+      const upstream = socket(WebSocket.CONNECTING);
+      bridgeVscodeClientMessages(client, upstream, () => {});
+
+      const target = socketName === 'client' ? client : upstream;
+      target.emit(eventName, eventName === 'error' ? new Error('socket failed') : 1000);
+
+      assertBridgeListenersRemoved(client, upstream);
+    }
+  });
+
+  it('REQ-IDE-004: advances the idle policy lastInputAt for every client-to-server frame', () => {
+    const client = socket(WebSocket.OPEN);
+    const upstream = socket(WebSocket.OPEN);
+    const tracker = createActivityTracker();
+    const originalNow = Date.now;
+
+    try {
+      Date.now = () => 100;
+      bridgeVscodeClientMessages(client, upstream, () => tracker.recordInput());
+      client.emit('message', Buffer.from('edit-one'), true);
+      assert.equal(tracker.getActivityInfo(null).lastInputAt, 100);
+
+      Date.now = () => 250;
+      client.emit('message', Buffer.from('edit-two'), false);
+      assert.equal(tracker.getActivityInfo(null).lastInputAt, 250);
+    } finally {
+      Date.now = originalNow;
+    }
   });
 });
 
