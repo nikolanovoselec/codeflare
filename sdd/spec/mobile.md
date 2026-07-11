@@ -33,10 +33,10 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 1. The terminal renders correctly on mobile viewports (phones and tablets). <!-- @impl: web-ui/src/lib/mobile.ts::isMobile --> <!-- @test: web-ui/src/__tests__/lib/mobile.test.ts (isMobile reflects mobile media query) --> <!-- @test: e2e/ui/mobile-specific.test.ts (session switcher renders + responds on mobile viewport) -->
 2. Text input, command execution, and output display work identically to desktop except where touch interaction necessarily differs. <!-- coverage-gap: cross-cutting desktop-parity, no single source symbol --> <!-- coverage-gap: identical-to-desktop behavior is covered only by e2e/manual, no unit test -->
 3. The mobile E2E test suite passes against the deployed worker. <!-- @impl: .github/workflows/e2e.yml --> <!-- @test: .github/workflows/e2e.yml (e2e-ui-mobile job runs the mobile E2E suite with E2E_MOBILE=1) -->
-4. The terminal adjusts layout when the virtual keyboard opens or closes without visual corruption. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (keyboard-open layout adjust via the VirtualKeyboard geometry signal) -->
-5. Terminal dimensions are recalculated on viewport changes (keyboard open/close, orientation change, resize). <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (viewport-change height recalculation) -->
-6. The terminal layout recalculation is skipped when the terminal container has no visible height, preventing row calculation corruption on inactive terminals. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (no-visible-height skip: no fit/scroll/resize when clientHeight is 0) -->
-7. Floating page controls navigate normal terminal scrollback through xterm's viewport APIs and navigate alternate-screen application history with PageUp/PageDown input. <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::FloatingTerminalButtons --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (REQ-MOB-001 AC7: sends PageUp and PageDown to an alternate-screen application; REQ-MOB-001 AC7: preserves normal-buffer page-up and bottom navigation) -->
+4. Terminal dimensions are recalculated on every viewport change (virtual keyboard open/close, orientation change, resize), keeping the layout free of visual corruption. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-001 AC4: keyboard height is non-zero after geometrychange fires with keyboard open) --> <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-001 AC5: visualViewport resize event triggers keyboard state update (fallback path)) -->
+5. The terminal layout recalculation is skipped when the terminal container has no visible height, preventing row calculation corruption on inactive terminals. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (no-visible-height skip: no fit/scroll/resize when clientHeight is 0) -->
+6. Floating page controls navigate normal terminal scrollback through xterm's viewport APIs. <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::FloatingTerminalButtons --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (REQ-MOB-001 AC7: preserves normal-buffer page-up and bottom navigation) -->
+7. Floating page controls send PageUp/PageDown input to navigate alternate-screen application history. <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::FloatingTerminalButtons --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (REQ-MOB-001 AC7: sends PageUp and PageDown to an alternate-screen application) -->
 
 **Constraints:**
 
@@ -148,7 +148,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 1. The terminal viewport disables native scrolling on all devices so xterm's own scroll layer is the sole scroller. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- coverage-gap: native-scroll-disabled is a CSS/xterm-layer concern, no genuine unit test -->
 2. The browser's focus-scroll targets the cursor position at the bottom of the terminal, not the top-left origin. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- coverage-gap: focus-scroll-to-cursor is a browser-behavior concern, no genuine unit test -->
-3. A bottom-following scroll-event guard re-applies bottom alignment before paint; scrolled-up views keep xterm's ordinary non-zero full-buffer anchor, with prior distance restored only if an unchanged configured-full buffer clamps that anchor to zero. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (re-anchors a bottom-following terminal when scrollback trimming displaces it) --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014: preserves xterm viewport anchoring when full scrollback trims during a batched write; REQ-TERM-014 AC8: restores distance when an unchanged full buffer clamps viewport to the top) -->
+3. A bottom-following scroll-event guard re-applies bottom alignment before paint. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (re-anchors a bottom-following terminal when scrollback trimming displaces it) -->
 4. A scroll-drop detector watches for sudden display-offset drops to zero while the base is high and corrects them. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (scroll-drop-to-zero focus-reset detection restores relative position) -->
 5. Distance-based detection (rather than equality against zero) distinguishes browser focus resets from normal scrollback trimming; small drifts are ignored. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (small distance drift ignored — normal trimming, not a reset) -->
 
@@ -160,7 +160,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Priority:** P0
 
-**Dependencies:** [REQ-TERM-008](terminal.md#req-term-008-write-batching-at-30fps)
+**Dependencies:** [REQ-TERM-008](terminal.md#req-term-008-write-batching-at-30fps), [REQ-TERM-014](terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming)
 
 **Verification:** [Scroll-event tests](../../web-ui/src/__tests__/hooks/useScrollCorrection.test.ts); [full-buffer batched-write test](../../web-ui/src/__tests__/stores/terminal.test.ts)
 
@@ -386,10 +386,10 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. Batched output delegates ordinary non-zero full-buffer anchoring to xterm and applies write-side recovery only at the configured-full zero-clamp boundary. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014: preserves xterm viewport anchoring when full scrollback trims during a batched write; REQ-TERM-014 AC8: restores distance when an unchanged full buffer clamps viewport to the top) -->
+1. Batched output delegates ordinary non-zero full-buffer anchoring to xterm. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014: preserves xterm viewport anchoring when full scrollback trims during a batched write) -->
 2. When the keyboard is open, the scroll-reset detector is skipped (browser focus resets cannot occur while the keyboard is open). <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (touch+keyboard gate suppresses the Strategy-2 reset-restore) -->
 3. Bottom-following users see zero flicker: their correction is applied in the scroll-event handler before the canvas paints, never in the write callback. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (re-anchors a bottom-following terminal in the scroll-event handler) -->
-4. Scrolled-up users keep surviving content anchored during ordinary trims; if a dense full-buffer write exhausts that anchor at zero, their prior distance from the bottom is restored without bottom-following. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014: preserves xterm viewport anchoring when full scrollback trims during a batched write; REQ-TERM-014 AC8: restores distance when an unchanged full buffer clamps viewport to the top) -->
+4. Scrolled-up users keep surviving content anchored during ordinary trims. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014: preserves xterm viewport anchoring when full scrollback trims during a batched write) -->
 
 **Constraints:**
 
@@ -397,7 +397,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Priority:** P0
 
-**Dependencies:** [REQ-MOB-004](#req-mob-004-scroll-drop-detection-during-burst-output)
+**Dependencies:** [REQ-MOB-004](#req-mob-004-scroll-drop-detection-during-burst-output), [REQ-TERM-014](terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming)
 
 **Verification:** [Scroll-event tests](../../web-ui/src/__tests__/hooks/useScrollCorrection.test.ts); [full-buffer batched-write test](../../web-ui/src/__tests__/stores/terminal.test.ts)
 

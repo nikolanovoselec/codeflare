@@ -117,16 +117,21 @@ describe('Dockerfile graphify install (REQ-AGENT-023, REQ-AGENT-026) / REQ-OPS-0
     );
   });
 
-  it('REQ-AGENT-001 AC4 (Node CLIs warm V8 compile-cache via NODE_COMPILE_CACHE + --version invocations at build)', () => {
+  it('REQ-AGENT-001 AC4: only pi warms the V8 compile cache at build, codex/copilot deactivated', () => {
+    // Strip commented-out lines so the deactivated (commented) codex/copilot
+    // warm-up lines cannot false-match; only active build instructions count.
+    const active = dockerfile.split('\n').filter(l => !l.trim().startsWith('#')).join('\n');
     assert.ok(
-      /NODE_COMPILE_CACHE/.test(dockerfile),
+      /NODE_COMPILE_CACHE/.test(active),
       'Dockerfile must set NODE_COMPILE_CACHE env so the warm-up populates a cache'
     );
-    // Invoke --version on at least one of the Node CLIs to trigger
-    // the warm-up; the matching agent binary names are codex/copilot.
     assert.ok(
-      /(codex|copilot)\s+(?:[a-z]+\s+)?--version/.test(dockerfile),
-      'Dockerfile must run at least one Node-based agent CLI with --version at build to trigger the V8 compile cache'
+      /pi\s+--version/.test(active),
+      'Dockerfile must run pi --version at build to warm Pi\'s V8 compile cache'
+    );
+    assert.ok(
+      !/(codex|copilot)\s+--version/.test(active),
+      'codex/copilot V8 warm-up is deactivated (owner decision, image-size); their --version must not run in active build steps'
     );
   });
 

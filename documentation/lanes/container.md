@@ -68,7 +68,9 @@ The build **fails closed**: an empty resolved version aborts before reinstall, a
 
 ### V8 Compile Cache Warm-Up
 
-Node.js CLIs (codex, copilot) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Go binaries (opencode, Antigravity/agy) are already natively compiled and do not need V8 cache warm-up. Claude Code ships as a native binary and is verified at build time via `claude --version`.
+Pi is warmed at Docker build time by running `pi --version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Go binaries (opencode, Antigravity/agy) are already natively compiled and do not need V8 cache warm-up. Claude Code ships as a native binary and is verified at build time via `claude --version`.
+
+**codex and copilot are excluded (image-size owner decision):** both warm-ups are commented out in the Dockerfile so their bytecode is not baked into the image; each pays the V8 compile cost on its own first launch instead. Re-enable by restoring the two commented `RUN` lines next to `RUN pi --version` in the Dockerfile.
 
 ### Pi Extension Jiti Transpile Cache Warm-Up ([AD79](../decisions/README.md#ad79-image-baked-pi-extension-transpile-cache))
 
@@ -85,7 +87,9 @@ Node.js CLIs (codex, copilot) are warmed at Docker build time by running `--vers
 
 ### OpenCode Database Pre-Initialization
 
-OpenCode uses SQLite with Goose migrations that run on first startup ("Performing one time database migration"). The DB is stored at `~/.local/share/opencode/opencode.db` (XDG data directory). To avoid this overhead at container start, the Dockerfile runs `opencode run "hello"` at build time which triggers the migration, creating the sessions/files/messages schema so the first interactive launch is fast.
+OpenCode uses SQLite with Goose migrations that run on first startup ("Performing one time database migration"). The DB is stored at `~/.local/share/opencode/opencode.db` (XDG data directory).
+
+**Disabled (image-size owner decision):** the Dockerfile's `opencode run "hello"` build-time warm-up is commented out — it baked ~147MB of opencode data into the image. OpenCode now runs its one-time DB migration on first interactive launch instead. Re-enable by uncommenting the `RUN ANTHROPIC_API_KEY="" ... opencode run "hello"` block in the Dockerfile.
 
 ### Browser Shims
 

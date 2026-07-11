@@ -98,7 +98,7 @@ Tier configuration cached for 60s in `src/lib/subscription.ts`. Other cache TTLs
 | WebSocket retry delay | 1s | Terminal WebSocket reconnect store |
 | Dashboard WS disconnect grace period | 60s | Web UI shared constants |
 | Container fetch timeout | 5s | Worker request constants |
-| V8 compile cache | Pre-warmed at image build time for Node.js agent CLIs (Codex, Copilot) | Image build step |
+| V8 compile cache | Pre-warmed at image build time for Pi only (Codex/Copilot excluded — owner decision, image-size) | Image build step |
 | Context expiry threshold | 30 min | Frontend stale-session detection |
 | Bucket name settle delay | 100ms | Worker request constants |
 

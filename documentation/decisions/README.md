@@ -2300,6 +2300,22 @@ The manifest is baselined from current content **only when absent** (the first s
 
 ---
 
+### AD96: Deactivate codex/copilot V8 warm-up and OpenCode DB pre-init (image size)
+
+**Category:** Build / Container
+
+**Status:** Proposed — drafted from Dockerfile inline comment (837bca3); needs owner confirmation before Accepted.
+
+**Context:** [container.md](../lanes/container.md#v8-compile-cache-warm-up) documented that `codex` and `copilot` are warmed at Docker build time via `--version`, and that `opencode run "hello"` pre-runs OpenCode's one-time Goose DB migration at build time. The OpenCode warm-up alone baked ~147MB of `opencode` data into the image.
+
+**Decision:** Both warm-ups are commented out (not deleted) in the Dockerfile. `codex` and `copilot` skip the V8 compile-cache bake; OpenCode skips the build-time DB migration. Each CLI now pays its own first-launch cost instead of paying it at build time for every image. Claude Code (its own `--version` verify) and Pi (V8 `--version` + the jiti extension warm, [AD79](#ad79-image-baked-pi-extension-transpile-cache)) keep their prewarm.
+
+**Consequences:** Smaller image (~147MB saved from the OpenCode change alone); first launch of `codex`, `copilot`, and `opencode` inside a fresh container is slower (pays JS compile / DB migration cost once per container instead of never, at build time). Re-enabling either is a Dockerfile uncomment (see inline comments next to `RUN pi --version` and the `opencode run "hello"` block).
+
+**Related:** [container.md § V8 Compile Cache Warm-Up](../lanes/container.md#v8-compile-cache-warm-up), [container.md § OpenCode Database Pre-Initialization](../lanes/container.md#opencode-database-pre-initialization).
+
+---
+
 ---
 
 ## Related Documentation

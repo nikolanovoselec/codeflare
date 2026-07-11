@@ -280,7 +280,7 @@ Users following the prompt saw flashing when generic post-write correction compe
 
 1. **Bottom-following correction stays in `onScroll`** (`useScrollCorrection.ts`) -- when `wasFollowingOutput` is true and `ydisp < ybase`, call `scrollToBottom()` immediately. The `isCorrectingScroll` flag prevents recursion, and recent wheel/pointer/navigation intent prevents trapping a user at the bottom.
 
-2. **Write-side recovery is boundary-only** (`terminal.ts`) -- xterm's `WriteBuffer` invokes a chunk callback after model parsing and before its scheduled screen update for synchronous terminal data. `flushWriteBuffer()` uses that point only for the configured-full `viewportY > 0 -> 0` clamp. Every non-zero native anchor shift remains unmodified.
+2. **Write-side recovery is boundary-only** (`terminal.ts`) -- `flushWriteBuffer()`'s write callback performs only the configured-full `viewportY > 0 -> 0` clamp recovery; every non-zero native anchor shift remains unmodified, verified by `terminal.test.ts`'s boundary-guard cases (see REQ-TERM-014 test scenarios below).
 
 ### Scroll Stability Overhaul Context
 
