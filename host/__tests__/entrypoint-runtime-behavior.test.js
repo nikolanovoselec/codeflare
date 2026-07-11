@@ -77,6 +77,7 @@ describe('entrypoint production helpers', () => {
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(result.stdout.trim().split('\n'), [
       'on:1:1:false:1:1',
+      '[entrypoint] Fast Start disabled; updating Pi and Pi packages',
       'off:unset:unset:unset:unset:unset:unset',
       'pi:update offline= skip=',
     ]);
