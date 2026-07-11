@@ -819,6 +819,15 @@ server.on('upgrade', (req, socket, head) => {
   }
 
   if (isVscodePath(pathname)) {
+    // Advanced-mode only (REQ-IDE-003): mirror the HTTP branch's guard so a
+    // non-advanced session never arms the lazy-start trigger for a supervisor
+    // that will never launch. Refuse the upgrade cleanly (the client sees a
+    // failed handshake); the Worker auth chain remains the real boundary.
+    if (!vscodeModeAllowed(process.env.SESSION_MODE)) {
+      socket.write('HTTP/1.1 409 Conflict\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     requestOpenvscodeStart();
     handleVscodeUpgrade(req, socket, head);
     return;

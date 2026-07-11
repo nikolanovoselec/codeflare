@@ -349,8 +349,12 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect((window as any).__headerProps.onVscodeOpen).toBeUndefined();
     });
 
-    it('does NOT pass onVscodeOpen when the advanced session is not running (e.g. stopped)', () => {
-      mockSessions = [createMockSession({ status: 'stopped' })];
+    it('does NOT pass onVscodeOpen when the advanced session is initializing (not yet running)', () => {
+      // An initializing session renders the Header (the terminal view is up), so
+      // this exercises the status==='running' gate directly: the IDE button must
+      // stay hidden until the container is fully running. (A stopped session
+      // instead shows the dashboard with no Header at all -- a different path.)
+      mockSessions = [createMockSession({ status: 'initializing' })];
       mockActiveSessionId = 'sess1';
       mockPreferences = { sessionMode: 'advanced' };
 

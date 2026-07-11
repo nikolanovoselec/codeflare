@@ -482,6 +482,8 @@ Surface: [REQ-VAULT-005](../../sdd/spec/vault.md#req-vault-005-worker-proxy-expo
 
 The browser-IDE proxy at `/api/vscode/<sessionId>/*` (`handleVscodeRequest` in `src/routes/vscode.ts`) is long-lived-WebSocket heavy (the VS Code server protocol). IDE WebSocket upgrades are rate-limited via the same `ws-connect:<email>` bucket as terminal and vault WebSockets (30 connections per 60s window), so opening many IDE tabs cannot find a separate connection budget; over the limit returns 429 with `Retry-After`. Plain HTTP requests share the per-user HTTP rate-limit defaults.
 
+Surface: [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) (proxy exists). Rate-limit infrastructure: [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) (shared bucket and 30/60s window).
+
 ### Session Limits ([REQ-SUB-013](../../sdd/spec/subscription.md#req-sub-013-concurrent-session-limits))
 
 Per-user cap on concurrent running sessions, configurable by role via `MAX_SESSIONS_USER` (default: 3) and `MAX_SESSIONS_ADMIN` (default: 10) in `wrangler.toml`.

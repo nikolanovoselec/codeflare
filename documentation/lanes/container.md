@@ -91,6 +91,10 @@ OpenCode uses SQLite with Goose migrations that run on first startup ("Performin
 
 CLI tools (Claude Code, OpenCode, Antigravity) try to open a browser for OAuth. The Dockerfile installs shims (`open-url` for `BROWSER` env var, `xdg-open-shim` for `xdg-open`) that exit 1, forcing CLIs to print auth URLs as plain text in the PTY. The xterm.js link provider then detects and makes these URLs clickable.
 
+### OpenVSCode Server Binary
+
+**File:** `Dockerfile` installs `openvscode-server` (Gitpod build) at a pinned version with a `sha256sum -c` verification, mirroring the SilverBullet install block. Shadow-pinned by the `openvscode-server` job in `bump-shadow-pins.yml`. The supervisor that runs it is described under [Container Startup](#openvscode-server-browser-ide).
+
 Port: 8080 (single port architecture).
 
 ---
@@ -129,9 +133,7 @@ Auto-start uses `claude --dangerously-skip-permissions` for fast boot. Auto-upda
 
 ### OpenVSCode Server (Browser IDE)
 
-**File:** `Dockerfile` installs `openvscode-server` (Gitpod build) at a pinned version with a `sha256sum -c` verification, mirroring the SilverBullet install block; `entrypoint.sh`'s `start_openvscode_supervisor` runs it on `127.0.0.1:13337` against the session's `~/workspace`, supervised by a crash-restart loop.
-
-**Lazy-started ([REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-lazy-start-supervised-clean-teardown)):** the supervisor does not launch at boot. It waits until `CODEFLARE_INIT_FLAG_FILE` exists AND the host has written `/tmp/openvscode-requested` (on the container's first `/api/vscode` request), so a session that never opens the IDE never pays for it. It runs `--server-base-path=/api/vscode/<sessionId>` for session isolation and an ephemeral `--server-data-dir` under `/tmp` (never R2-synced). Advanced-mode only, armed alongside the SilverBullet supervisor. Torn down via `/tmp/openvscode.pid` on shutdown. Shadow-pinned by the `openvscode-server` job in `bump-shadow-pins.yml`. See [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy).
+**Lazy-started ([REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-lazy-start-supervised-clean-teardown)):** `entrypoint.sh`'s `start_openvscode_supervisor` runs OpenVSCode (the binary installed under [Container Image](#openvscode-server-binary)) on `127.0.0.1:13337` against the session's `~/workspace`, supervised by a crash-restart loop. It does not launch at boot: it waits until `CODEFLARE_INIT_FLAG_FILE` exists AND the host has written `/tmp/openvscode-requested` (on the container's first `/api/vscode` request), so a session that never opens the IDE never pays for it. It runs `--server-base-path=/api/vscode/<sessionId>` for session isolation and an ephemeral `--server-data-dir` under `/tmp` (never R2-synced). Advanced-mode only, armed alongside the SilverBullet supervisor. Torn down via `/tmp/openvscode.pid` on shutdown. See [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy).
 
 ### Fast Start
 
