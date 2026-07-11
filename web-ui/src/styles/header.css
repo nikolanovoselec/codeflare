@@ -525,6 +525,7 @@
         }
 
         .header-vault-button,
+        .header-vscode-button,
         .header-storage-button,
         .header-settings-button,
         .header-logout-button {
@@ -540,6 +541,7 @@
         }
 
         .header-vault-button:hover:not([aria-disabled="true"]),
+        .header-vscode-button:hover,
         .header-storage-button:hover,
         .header-settings-button:hover,
         .header-logout-button:hover {
@@ -584,6 +586,7 @@
         }
 
         .header-vault-button:focus-visible,
+        .header-vscode-button:focus-visible,
         .header-storage-button:focus-visible,
         .header-settings-button:focus-visible,
         .header-logout-button:focus-visible {
@@ -692,6 +695,7 @@
            ====================================== */
         @media (max-width: 640px) {
           .header-vault-button,
+          .header-vscode-button,
           .header-storage-button,
           .header-settings-button,
           .header-bookmarks-button {

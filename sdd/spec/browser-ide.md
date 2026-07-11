@@ -72,7 +72,7 @@ Full VS Code editor (OpenVSCode Server) running inside each session's container,
 1. The vscode route is session-keyed only: the route parser has no bucket-token branch and reads no routing cookie; the sessionId in the URL is the sole container selector. <!-- @impl: src/routes/vscode-validation.ts::validateVscodeRoute --> <!-- @test: src/__tests__/routes/vscode-validation.test.ts (REQ-IDE-002: only a SESSION_ID_PATTERN first segment routes; the result carries sessionId and never a bucketToken) -->
 2. OpenVSCode serves under `--server-base-path=/api/vscode/<sessionId>` so its asset URLs and service-worker scope are session-specific. <!-- @impl: entrypoint.sh::start_openvscode_supervisor --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-002: the launch command includes --server-base-path=/api/vscode/$SESSION_ID) -->
 3. Each container runs its own OpenVSCode with an ephemeral per-container `--server-data-dir` under `/tmp`, so no server state is shared across sessions and none is synced to R2. <!-- @impl: entrypoint.sh::start_openvscode_supervisor --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-002: the launch command sets --server-data-dir under /tmp) -->
-4. Opening the IDE in two different running sessions yields two isolated editors -- different workspace contents and independent state. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @test: e2e/ui/vscode.test.ts (REQ-IDE-002: two sessions expose distinct /api/vscode/<sid>/ workspaces) -->
+4. The IDE is session-keyed at every layer -- the route parser, the container routing, the `--server-base-path`, the ephemeral per-container `--server-data-dir`, and the header open-URL all carry the sessionId -- so two different sessions are served two isolated editors (distinct workspace, service-worker scope, and server state); a session the user does not own is unreachable. <!-- @impl: src/routes/vscode.ts::handleVscodeRequest --> <!-- @test: src/__tests__/routes/vscode-auth-chain.test.ts (REQ-IDE-002: the forwarded path is the unchanged session-keyed path, and a session existing only under a different bucket is unreachable) --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-002: --server-base-path=/api/vscode/<sid> + ephemeral /tmp data dir per session) --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-002: the open handler targets the session-keyed /api/vscode/<sid>/) -->
 
 **Constraints:**
 
@@ -83,7 +83,7 @@ Full VS Code editor (OpenVSCode Server) running inside each session's container,
 
 **Dependencies:** [REQ-IDE-001](#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) (the proxy chain), [REQ-VAULT-021](vault.md) (the contrasting bucket-stable model)
 
-**Verification:** [Behavioral test](../../e2e/ui/vscode.test.ts)
+**Verification:** [Behavioral test](../../src/__tests__/routes/vscode-auth-chain.test.ts)
 
 **Status:** Planned
 
@@ -101,7 +101,7 @@ Full VS Code editor (OpenVSCode Server) running inside each session's container,
 2. The host writes the request-trigger file on the first `/api/vscode` request (idempotent). <!-- @impl: host/src/server.ts --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-IDE-003: a /api/vscode request causes the trigger file to be written) -->
 3. The supervisor restarts the server on crash via a restart loop, matching the SilverBullet supervisor pattern. <!-- @impl: entrypoint.sh::start_openvscode_supervisor --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-003: the supervisor body is a while-true restart loop) -->
 4. The shutdown handler kills the supervisor subtree via its pidfile so the IDE port is released for the next session. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-003: shutdown_handler kill_pidfile_subtree targets /tmp/openvscode.pid) -->
-5. The header IDE button renders only when the active session is advanced-mode AND running; clicking it opens the session's `/api/vscode/<sessionId>/`. <!-- @impl: web-ui/src/components/Layout.tsx --> <!-- @test: web-ui/src/__tests__/components/header-vscode-button.test.tsx (REQ-IDE-003: onVscodeOpen is passed only for an advanced running session and is absent otherwise) -->
+5. The header IDE button renders only when the active session is advanced-mode AND running; clicking it opens the session's `/api/vscode/<sessionId>/`. <!-- @impl: web-ui/src/components/Layout.tsx --> <!-- @impl: web-ui/src/components/Header.tsx --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-IDE-003 Browser IDE button gating: onVscodeOpen passed only for an advanced running session, absent for default mode or a stopped session; the handler opens the session-keyed /api/vscode/<sid>/) --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (Browser IDE button: renders iff the handler is provided, click invokes it) -->
 6. Workspace edits persist through the existing final-sync; the IDE adds no new drain path and its server data dir is excluded from sync by living under `/tmp`. <!-- @impl: entrypoint.sh::start_openvscode_supervisor --> <!-- @test: host/__tests__/entrypoint-openvscode.test.js (REQ-IDE-003: --server-data-dir is under /tmp so it is outside the R2-synced tree) -->
 
 **Constraints:**

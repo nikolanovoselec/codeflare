@@ -14,6 +14,7 @@ import {
   mdiCheck,
   mdiClose,
   mdiFileCabinet,
+  mdiMicrosoftVisualStudioCode,
   mdiOpenInNew,
   mdiClockTimeEightOutline,
 } from '@mdi/js';
@@ -37,6 +38,7 @@ interface HeaderProps {
   onVaultOpen?: () => void;
   vaultReady?: boolean;
   vaultStatus?: VaultButtonStatus;
+  onVscodeOpen?: () => void;
   onLogoClick?: () => void;
   sessions: SessionWithStatus[];
   activeSessionId: string | null;
@@ -549,6 +551,26 @@ const Header: Component<HeaderProps> = (props) => {
               status={props.vaultStatus ?? (props.vaultReady ? 'ready' : 'prewarming')}
               onOpen={onOpen()}
             />
+          )}
+        </Show>
+
+        {/* Browser IDE button — opens the per-session OpenVSCode editor in a new
+            tab. Rendered only when the parent passes onVscodeOpen (terminal-view
+            + active advanced running session), mirroring the vault gating. Each
+            session's editor is isolated (REQ-IDE-001, REQ-IDE-002); no client-side
+            readiness gate is needed — the host lazily starts the server and
+            returns a warming state until it is up. */}
+        <Show when={props.onVscodeOpen}>
+          {(onOpen) => (
+            <button
+              class="header-vscode-button"
+              data-testid="header-vscode-button"
+              title="Open editor (VS Code)"
+              type="button"
+              onClick={onOpen()}
+            >
+              <Icon path={mdiMicrosoftVisualStudioCode} size={20} />
+            </button>
           )}
         </Show>
 

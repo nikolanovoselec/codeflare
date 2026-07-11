@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
-import { mdiViewDashboardOutline } from '@mdi/js';
+import { mdiViewDashboardOutline, mdiMicrosoftVisualStudioCode } from '@mdi/js';
 import Header from '../../components/Header';
 
 // Mock isMobile - default to desktop (false)
@@ -211,6 +211,33 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
       expect(errorButton).toHaveAttribute('data-vault-status', 'error');
       expect(screen.getByTestId('header-vault-status')).toBeInTheDocument();
       expect(onVaultOpen).not.toHaveBeenCalled();
+    });
+  });
+
+  // REQ-IDE-001/003: the browser-IDE (OpenVSCode) header button. The Show gate
+  // renders it only when the parent (Layout, for an advanced running session)
+  // passes onVscodeOpen; clicking invokes that handler (which opens the IDE tab).
+  describe('Browser IDE button / REQ-IDE-001, REQ-IDE-003 (per-session VS Code)', () => {
+    it('does not render the IDE button when no open handler is provided', () => {
+      render(() => <Header {...defaultSessionProps} />);
+      expect(screen.queryByTestId('header-vscode-button')).not.toBeInTheDocument();
+    });
+
+    it('renders the IDE button and invokes the handler on click when provided', () => {
+      const onVscodeOpen = vi.fn();
+      render(() => <Header {...defaultSessionProps} onVscodeOpen={onVscodeOpen} />);
+
+      const button = screen.getByTestId('header-vscode-button');
+      expect(button).toBeInTheDocument();
+      expect(button).toHaveAttribute('title');
+      fireEvent.click(button);
+      expect(onVscodeOpen).toHaveBeenCalledOnce();
+    });
+
+    it('uses the Microsoft VS Code icon', () => {
+      render(() => <Header {...defaultSessionProps} onVscodeOpen={vi.fn()} />);
+      const svgPath = screen.getByTestId('header-vscode-button').querySelector('svg path');
+      expect(svgPath?.getAttribute('d')).toBe(mdiMicrosoftVisualStudioCode);
     });
   });
 
