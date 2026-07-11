@@ -23,6 +23,7 @@ import {
   FAQ_ITEMS,
   FEATURE_TERMINALS,
   HERO,
+  IDE,
   INFERENCE_MESH,
   METHOD,
   NAV_LINKS,
@@ -45,6 +46,7 @@ const SECTION_ORDER = [
   'orchestration',
   'cost',
   'platform',
+  'ide',
   'mcp',
   'dogfood',
   'faq',
@@ -127,8 +129,8 @@ describe('landing page composition (REQ-LANDING-001)', () => {
 
   it('renders the full set of terminals, each armed for the proof reveal', () => {
     // hero + 4 feature + method gate + legacy + boundary + operations gate + 2 context
-    // + board + orch + ledger + platform seed + mcp + dogfood + inference mesh = 18.
-    expect(body.querySelectorAll('.terminal[data-proof]')).toHaveLength(18);
+    // + board + orch + ledger + platform seed + ide editor + mcp + dogfood + inference mesh = 19.
+    expect(body.querySelectorAll('.terminal[data-proof]')).toHaveLength(19);
   });
 });
 
@@ -422,5 +424,20 @@ describe('inference mesh family hero (REQ-LANDING-005)', () => {
     );
     expect(terminal.hasAttribute('data-ft-once')).toBe(false);
     expect(terminal.querySelector('.terminal-foot.tf-static')?.textContent).toContain(INFERENCE_MESH.terminal.foot);
+  });
+});
+
+describe('browser IDE continuity band (REQ-LANDING-007)', () => {
+  it('sits as a section directly after platform, built on the shared terminal frame', () => {
+    const ids = Array.from(body.querySelectorAll('main > section')).map((s) => s.id);
+    expect(ids.indexOf('ide')).toBe(ids.indexOf('platform') + 1);
+    expect(body.querySelector('#ide .terminal.code-editor')).not.toBeNull();
+  });
+
+  it('drives the integrated terminal on the shared reel (data-ft-loop seeded on the first beat)', () => {
+    const editor = body.querySelector('#ide .terminal.code-editor')!;
+    expect(JSON.parse(editor.getAttribute('data-ft-loop')!)).toEqual(IDE.stream);
+    expect(editor.querySelector('.ce-term .ft-typed[data-ft-typed]')?.textContent).toBe(IDE.stream[0]);
+    expect(editor.querySelector('.terminal-foot.ce-status')).not.toBeNull();
   });
 });

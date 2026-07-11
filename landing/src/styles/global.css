@@ -932,6 +932,140 @@ svg {
 }
 
 /* --------------------------------------------------------------------------
+   Browser IDE band (REQ-LANDING-007): the VS Code window a traditional
+   developer already knows, built on the .terminal chrome. An editor tab in the
+   bar, a line-numbered code pane + an integrated terminal in the body, and an
+   editor status bar as the foot. Recognition comes from shape (the gutter, the
+   tab, the integrated terminal, the status bar); the palette stays the page's
+   one locked coral accent, never VS Code blue.
+   -------------------------------------------------------------------------- */
+.code-editor {
+  box-shadow: 0 18px 40px -28px rgb(0 0 0 / 0.6);
+}
+
+/* The .terminal-bar reads as an editor tab row. */
+.ce-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-ui);
+}
+
+/* Active tab: brighter text + a 2px top accent line (VS Code's active-tab tell;
+   a top rule, not a banned side-stripe). */
+.ce-tab.is-active {
+  color: var(--text-primary);
+  padding: 0.32rem 0.15rem 0.15rem;
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.ce-tab.is-dim {
+  color: var(--text-dimmed);
+}
+
+.ce-dot {
+  color: var(--accent);
+  font-size: 0.7em;
+}
+
+.ce-folder {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-micro);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Code pane: line-numbered source. The gutter uses a CSS counter (no numbers
+   hardcoded) and is the recognizable editor tell. Calm, static, single tone. */
+.ce-code {
+  margin: 0;
+  padding: 1.1rem 1.25rem 0.5rem;
+  list-style: none;
+  counter-reset: ce-ln;
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono);
+  line-height: 1.85;
+  color: var(--text-secondary);
+  overflow-x: auto;
+}
+
+.ce-codeline {
+  counter-increment: ce-ln;
+  white-space: pre;
+}
+
+.ce-codeline::before {
+  content: counter(ce-ln);
+  display: inline-block;
+  width: 2.5ch;
+  margin-right: 1.5ch;
+  text-align: right;
+  color: var(--text-dimmed);
+}
+
+/* Integrated terminal: a panel label + the reel line. It reuses .terminal-body
+   + .t-cmd + .ft-typed + .t-caret, so the ❯ prompt, command colour, and caret
+   match the page's other terminals and feature-terminals.ts drives the loop. */
+.ce-term {
+  border-top: 1px solid var(--border-subtle);
+  background: rgb(var(--white-rgb) / 0.012);
+}
+
+.ce-term-tab {
+  display: inline-block;
+  padding: 0.55rem 1.25rem 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-micro);
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.ce-term-body {
+  padding-top: 0.4rem;
+}
+
+/* Editor status bar (the .terminal-foot): a subtle coral-tint bar — the brand's
+   one accent standing in for VS Code's blue — carrying branch, sync, CI, and
+   caret position. Text stays on the light ramp for AA contrast over the tint. */
+.ce-status {
+  gap: 0.3rem 1.1rem;
+  background: rgb(var(--accent-rgb) / 0.14);
+  color: var(--text-secondary);
+}
+
+.ce-stat {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.ce-branch {
+  gap: 0.42rem;
+  color: var(--text-primary);
+}
+
+.ce-branch-icon {
+  flex: none;
+}
+
+.ce-ci-dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: var(--term-green);
+  margin-right: 0.42rem;
+}
+
+/* Caret position + language push right, like VS Code's status bar. */
+.ce-pos {
+  margin-left: auto;
+}
+
+/* --------------------------------------------------------------------------
    Feature grid (borderless, hairline-separated)
    -------------------------------------------------------------------------- */
 .feature-grid {

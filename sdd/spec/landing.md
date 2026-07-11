@@ -213,3 +213,32 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Verification:** [Component tests](../../landing/src/__tests__/components.test.ts); scramble/decode animation verified via browser-e2e.
 
 **Status:** Implemented
+
+---
+
+### REQ-LANDING-007: Browser IDE continuity band
+
+**Intent:** The public landing page presents the per-session Browser IDE as the bridge between the traditional SDLC and agentic development: a familiar VS Code window in the post-governance payoff cluster where a developer watches the agent work at machine speed and can take the wheel to edit directly, so the capability reads as continuity a traditional developer already trusts rather than a leap they must relearn.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The landing renders a dedicated `#ide` band directly after the `#platform` section, built on the shared `<Terminal>` chrome (a `.code-editor` variant) with an editor tab carrying the file name and an unsaved-change dot, introducing no new frame. <!-- @impl: landing/src/pages/index.astro --> <!-- @impl: landing/src/components/CodeEditor.astro --> <!-- @impl: landing/src/content/site.ts --> <!-- @impl: landing/src/styles/global.css --> <!-- @test: landing/src/__tests__/code-editor.test.ts (renders the VS Code chrome on the shared terminal frame with the editor tab + modified dot) --> <!-- @test: landing/src/__tests__/index-page.test.ts (sits as a section directly after platform) -->
+2. The band shows a calm, line-numbered code pane whose gutter numbers come from a CSS counter, so no line numbers are hardcoded in the markup. <!-- @impl: landing/src/components/CodeEditor.astro --> <!-- @impl: landing/src/styles/global.css --> <!-- @test: landing/src/__tests__/code-editor.test.ts (renders one line-numbered code row per source line) -->
+3. The integrated terminal's command line is driven by the shared typed reel and nothing new: the `.code-editor` frame carries `data-ft-loop` (the content-model activity stream) plus `data-ft-shuffle`, and exactly one `[data-ft-typed]` line rests on the first beat so the band is legible with no JavaScript and under reduced motion. <!-- @impl: landing/src/components/CodeEditor.astro --> <!-- @impl: landing/src/content/site.ts --> <!-- @impl: landing/src/scripts/feature-terminals.ts --> <!-- @test: landing/src/__tests__/code-editor.test.ts (wires the integrated terminal to the shared reel: data-ft-loop + data-ft-shuffle on the frame, one data-ft-typed line resting on the first beat) --> <!-- @test: landing/src/__tests__/index-page.test.ts (drives the integrated terminal on the shared reel) -->
+4. The editor status bar carries the branch and caret-position segments from the content model and is the custom foot slot, not the default prose-caption foot. <!-- @impl: landing/src/components/CodeEditor.astro --> <!-- @impl: landing/src/content/site.ts --> <!-- @test: landing/src/__tests__/code-editor.test.ts (renders the editor status bar with the branch and caret-position segments) -->
+
+**Constraints:**
+
+- The band reuses the shared `<Terminal>` chrome and the `feature-terminals.ts` reel; it introduces no new animation system or terminal frame.
+- No new color: recognition is carried by shape (the tab, the line-number gutter, the integrated terminal, the status bar), and the palette stays the page's one locked accent, never VS Code blue.
+- Client-side behavior is enhancement-only; the server-rendered resting state is fully legible.
+
+**Priority:** P3
+
+**Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
+
+**Verification:** [Component tests](../../landing/src/__tests__/code-editor.test.ts), [Landing render tests](../../landing/src/__tests__/index-page.test.ts)
+
+**Status:** Implemented
