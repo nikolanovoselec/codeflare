@@ -7,10 +7,13 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { isVscodePath, vscodeUpstreamPath, requestOpenvscodeStart, vscodeModeAllowed, vscodeWarmingResponse, vscodeDisabledResponse } from '../dist/vscode-proxy.js';
+import WebSocket from 'ws';
+import { createVscodeWebSocketServer, isVscodePath, vscodeUpstreamPath, requestOpenvscodeStart, vscodeModeAllowed, vscodeWarmingResponse, vscodeDisabledResponse } from '../dist/vscode-proxy.js';
 
 describe('isVscodePath / REQ-IDE-001 (base-path-native IDE proxy surface)', () => {
   it('matches the bare /api/vscode surface and everything below it', () => {
@@ -114,5 +117,75 @@ describe('vscodeDisabledResponse / REQ-IDE-003 (non-advanced session: clear page
     // The load-bearing behavioural difference from the warming page: no meta
     // refresh, because the supervisor will never arm for a non-advanced session.
     assert.doesNotMatch(r.body, /http-equiv=["']refresh["']/i);
+  });
+});
+
+describe('createVscodeWebSocketServer / REQ-IDE-001 (VS Code protocol payload capacity)', () => {
+  it('REQ-IDE-001: accepts a 256 KiB binary protocol message intact without a 1009 close', { timeout: 5000 }, async () => {
+    const proxyServer = http.createServer();
+    const vscodeWss = createVscodeWebSocketServer();
+    let client;
+
+    proxyServer.on('upgrade', (req, socket, head) => {
+      vscodeWss.handleUpgrade(req, socket, head, (ws) => {
+        vscodeWss.emit('connection', ws, req);
+      });
+    });
+
+    await new Promise((resolve, reject) => {
+      proxyServer.once('error', reject);
+      proxyServer.listen(0, '127.0.0.1', resolve);
+    });
+
+    try {
+      const serverOutcome = new Promise((resolve) => {
+        vscodeWss.once('connection', (ws) => {
+          ws.once('message', (data, isBinary) => {
+            ws.send(data, { binary: isBinary });
+            resolve({ kind: 'message', data, isBinary });
+          });
+          ws.once('close', (code) => resolve({ kind: 'close', code }));
+          ws.once('error', (error) => resolve({ kind: 'error', error }));
+        });
+      });
+
+      const address = proxyServer.address();
+      assert.ok(address && typeof address !== 'string');
+      client = new WebSocket(`ws://127.0.0.1:${address.port}/api/vscode/test-session/`);
+      await once(client, 'open');
+
+      const clientOutcome = new Promise((resolve, reject) => {
+        client.once('message', (data, isBinary) => resolve({ kind: 'message', data, isBinary }));
+        client.once('close', (code) => resolve({ kind: 'close', code }));
+        client.once('error', reject);
+      });
+      const payload = Buffer.alloc(256 * 1024, 0xa5);
+      await new Promise((resolve, reject) => {
+        client.send(payload, { binary: true }, (error) => error ? reject(error) : resolve());
+      });
+
+      const [receivedByServer, echoedToClient] = await Promise.all([serverOutcome, clientOutcome]);
+      if (echoedToClient.kind === 'close') {
+        assert.notEqual(echoedToClient.code, 1009, 'the proxy rejected a valid VS Code protocol payload as too large');
+      }
+      assert.equal(receivedByServer.kind, 'message');
+      assert.equal(receivedByServer.isBinary, true);
+      assert.deepEqual(Buffer.from(receivedByServer.data), payload);
+      assert.equal(echoedToClient.kind, 'message');
+      assert.equal(echoedToClient.isBinary, true);
+      assert.deepEqual(Buffer.from(echoedToClient.data), payload);
+
+      const clientClosed = once(client, 'close');
+      client.close(1000, 'test-complete');
+      const [closeCode] = await clientClosed;
+      assert.equal(closeCode, 1000);
+    } finally {
+      if (client && client.readyState !== WebSocket.CLOSED) client.terminate();
+      for (const ws of vscodeWss.clients) ws.terminate();
+      await new Promise((resolve) => vscodeWss.close(resolve));
+      await new Promise((resolve, reject) => {
+        proxyServer.close((error) => error ? reject(error) : resolve());
+      });
+    }
   });
 });

@@ -20,6 +20,16 @@ Diagnostic commands, common failure modes, and resolution steps.
 
 Frequently encountered problems grouped by symptom, with causes and resolution steps.
 
+### Browser IDE Repeatedly Disconnects with WebSocket Code 1009
+
+**Symptom:** OpenVSCode connects successfully, then the Management and Extension Host connections immediately close with code `1009` and enter a reconnect loop. Repeated reconnects can eventually receive `429` because they consume the shared WebSocket connection budget.
+
+**Cause:** The host bridge reused the terminal protocol's 64 KiB WebSocket message limit. VS Code sends protocol messages around 256 KiB, so the `ws` receiver classified normal IDE traffic as too large and closed the connection ([REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) AC7).
+
+**Fix:** Deploy a host build where `createVscodeWebSocketServer` gives the IDE its dedicated bounded payload limit. Do not raise `WS_MAX_PAYLOAD`; that 64 KiB limit still protects terminal and Vault traffic.
+
+**Verify:** In the browser console, the IDE's Management and Extension Host sockets remain connected without recurring code-`1009` close events. CI's `openvscode-proxy.test.js` also sends and echoes a 256 KiB binary protocol message through the real `ws` endpoint.
+
 ### Enterprise Containers Won't Start / Crash-Loop (Terminal Reconnect Storm)
 
 **Symptom:** In Enterprise Mode, sessions never reach a usable terminal. Worker logs (`codeflare-enterprise-<env>`) show a rapid terminal-WebSocket reconnect storm (~10+ per minute), `Error proxying request to container`, and teardown `Final sync did NOT complete on teardown … The container is not running` — i.e. the container's PID 1 keeps exiting. Plain (non-enterprise) sessions on the same image are unaffected.
@@ -543,6 +553,7 @@ wrangler tail codeflare --status error
 - [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials) - Enterprise egress-injected GitHub credentials
 - [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session) - Clone a repository into a session
 - [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) - Broaden the panel gate beyond enterprise
+- [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) - Per-session browser IDE proxy (WebSocket code-1009 reconnect loop)
 - [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output) - Scroll-drop detection during burst output (Pi terminal flicker investigation)
 - [REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants) - sleepAfter fail-safe invariants
 - [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) - Container Port-Readiness Gating with Pre-Warm Pre-Condition
