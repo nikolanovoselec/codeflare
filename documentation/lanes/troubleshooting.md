@@ -139,6 +139,16 @@ Enter the new client id + creation secret in the admin Setup wizard (REQ-AGENT-0
 
 **Verify:** Fill scrollback, scroll up while Pi continues streaming, and confirm the same surviving content remains visible rather than snapping toward the bottom. CI's `terminal.test.ts` reproduces a ten-line trim at full scrollback and asserts that no programmatic `scrollLines` call occurs.
 
+### Claude Fullscreen TUI Does Not Scroll on Mobile
+
+**Symptom:** After `/tui fullscreen`, desktop wheel scrolling works but a vertical swipe on mobile does not move through Claude's conversation history.
+
+**Cause:** Fullscreen renders in xterm's alternate buffer, which has no terminal scrollback; Claude owns the history and consumes mouse-wheel reports. Codeflare's mobile gesture handler intercepted the touch first and called `terminal.scrollLines()` or sent arrow keys, while its tap-to-keyboard shield prevented xterm's native touch handler from forwarding a wheel report ([REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll) AC8).
+
+**Fix:** Deploy a web UI where alternate-buffer vertical swipes with wheel-capable mouse tracking dispatch line-mode wheel events through xterm. Keep the Gesture shield enabled so tapping the terminal still opens the mobile keyboard. `/tui default` remains an immediate workaround on older builds.
+
+**Verify:** Enter `/tui fullscreen` on mobile and swipe vertically with the keyboard both closed and open. Conversation history should move while horizontal swipes still navigate the prompt. CI's `touch-gestures.test.ts` verifies the fullscreen path emits wheel events without calling `scrollLines()` or sending arrow keys.
+
 ### Container Stuck at "Waiting for Services"
 
 The loading screen waits for both R2 sync and PTY pre-warm to complete before signalling ready. Check `GET /api/container/startup-status?sessionId=xxx` and inspect the `details.syncError` field.

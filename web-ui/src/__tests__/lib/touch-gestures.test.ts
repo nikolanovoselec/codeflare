@@ -3,9 +3,13 @@ import { attachSwipeGestures, sendTerminalKey } from '../../lib/touch-gestures';
 import type { Terminal } from '@xterm/xterm';
 
 // Helper: create a mock Terminal with the internal triggerDataEvent path
-function createMockTerminal() {
+function createMockTerminal(options: {
+  bufferType?: 'normal' | 'alternate';
+  mouseTrackingMode?: 'none' | 'x10' | 'vt200' | 'drag' | 'any';
+} = {}) {
   const triggerDataEvent = vi.fn();
   const scrollLines = vi.fn();
+  const element = document.createElement('div');
   const terminal = {
     _core: {
       coreService: {
@@ -13,9 +17,12 @@ function createMockTerminal() {
       },
     },
     options: { fontSize: 14, lineHeight: 1.2 },
+    element,
+    buffer: { active: { type: options.bufferType ?? 'normal' } },
+    modes: { mouseTrackingMode: options.mouseTrackingMode ?? 'none' },
     scrollLines,
   } as unknown as Terminal;
-  return { terminal, triggerDataEvent, scrollLines };
+  return { terminal, triggerDataEvent, scrollLines, element };
 }
 
 // Helper: create a minimal TouchEvent
@@ -266,6 +273,56 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         container.dispatchEvent(makeTouchEvent('touchmove', 100, 140));
 
         expect(triggerDataEvent).toHaveBeenCalledWith('\x1b[B', false);
+        cleanup();
+      });
+    });
+
+    describe('alternate-screen application scrolling', () => {
+      it('REQ-MOB-005 AC8: routes keyboard-closed vertical swipes as wheel input', () => {
+        (window as any).ontouchstart = null;
+        const { terminal, triggerDataEvent, scrollLines, element } = createMockTerminal({
+          bufferType: 'alternate',
+          mouseTrackingMode: 'any',
+        });
+        const wheelEvents: WheelEvent[] = [];
+        element.addEventListener('wheel', (event) => wheelEvents.push(event as WheelEvent));
+        container.appendChild(element);
+        const cleanup = attachSwipeGestures(container, terminal, () => false)!;
+
+        container.dispatchEvent(makeTouchEvent('touchstart', 100, 100));
+        container.dispatchEvent(makeTouchEvent('touchmove', 100, 60));
+
+        expect(wheelEvents.map((event) => ({
+          deltaY: event.deltaY,
+          deltaMode: event.deltaMode,
+          clientX: event.clientX,
+          clientY: event.clientY,
+        }))).toEqual([
+          { deltaY: 1, deltaMode: WheelEvent.DOM_DELTA_LINE, clientX: 100, clientY: 60 },
+          { deltaY: 1, deltaMode: WheelEvent.DOM_DELTA_LINE, clientX: 100, clientY: 60 },
+        ]);
+        expect(scrollLines).not.toHaveBeenCalled();
+        expect(triggerDataEvent).not.toHaveBeenCalled();
+        cleanup();
+      });
+
+      it('REQ-MOB-005 AC8: routes keyboard-open vertical swipes as wheel input', () => {
+        (window as any).ontouchstart = null;
+        const { terminal, triggerDataEvent, scrollLines, element } = createMockTerminal({
+          bufferType: 'alternate',
+          mouseTrackingMode: 'vt200',
+        });
+        const wheelEvents: WheelEvent[] = [];
+        element.addEventListener('wheel', (event) => wheelEvents.push(event as WheelEvent));
+        container.appendChild(element);
+        const cleanup = attachSwipeGestures(container, terminal, () => true)!;
+
+        container.dispatchEvent(makeTouchEvent('touchstart', 100, 100));
+        container.dispatchEvent(makeTouchEvent('touchmove', 100, 140));
+
+        expect(wheelEvents.map((event) => event.deltaY)).toEqual([-1, -1]);
+        expect(scrollLines).not.toHaveBeenCalled();
+        expect(triggerDataEvent).not.toHaveBeenCalled();
         cleanup();
       });
     });

@@ -12,8 +12,8 @@ const INERTIA_MIN_VELOCITY = 0.05; // px/ms — stop inertia below this
 const VELOCITY_SAMPLE_COUNT = 4; // number of recent touch samples for velocity calc
 const VELOCITY_MAX_AGE_MS = 300; // ignore velocity samples older than this
 // ANSI escape sequences for arrow keys.
-// Horizontal swipes always active; vertical swipes send arrow keys only when
-// keyboard is open (when closed, vertical swipes scroll the terminal buffer).
+// Horizontal swipes are always active. Vertical swipes use arrows only when
+// the keyboard is open and no fullscreen application captures wheel input.
 const ARROW: Record<string, string> = {
   left: '\x1b[D',
   right: '\x1b[C',
@@ -42,13 +42,44 @@ function getScrollPxPerLine(terminal: Terminal): number {
   return Math.max(12, Math.round(fontSize * lineHeight));
 }
 
+function hasFullscreenWheelTracking(terminal: Terminal): boolean {
+  const mouseTrackingMode = terminal.modes.mouseTrackingMode;
+  return terminal.buffer.active.type === 'alternate'
+    && mouseTrackingMode !== 'none'
+    && mouseTrackingMode !== 'x10';
+}
+
+function scrollTouchLines(
+  terminal: Terminal,
+  lines: number,
+  clientX: number,
+  clientY: number,
+): void {
+  const element = terminal.element;
+  if (!hasFullscreenWheelTracking(terminal) || !element) {
+    terminal.scrollLines(lines);
+    return;
+  }
+
+  const deltaY = Math.sign(lines);
+  for (let index = 0; index < Math.abs(lines); index += 1) {
+    element.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      clientX,
+      clientY,
+      deltaY,
+      deltaMode: WheelEvent.DOM_DELTA_LINE,
+    }));
+  }
+}
+
 /**
  * Attach touch gestures to a terminal container.
  * Horizontal swipes (left/right) always map to arrow left/right.
- * Vertical swipes (up/down) map to arrow up/down when keyboard is open.
- * When keyboard is closed, vertical swipes scroll the terminal buffer
- * via terminal.scrollLines() (xterm 6.0.0's SmoothScrollableElement
- * doesn't support touch natively).
+ * Vertical swipes route to a fullscreen application's wheel protocol when active,
+ * otherwise they map to arrow up/down with the keyboard open or scroll normal
+ * terminal scrollback with the keyboard closed.
  * Returns a cleanup function, or undefined if touch is not supported.
  */
 export function attachSwipeGestures(
@@ -82,7 +113,7 @@ export function attachSwipeGestures(
     }
   }
 
-  function startInertia(velocityPxPerMs: number) {
+  function startInertia(velocityPxPerMs: number, clientX: number, clientY: number) {
     let velocity = velocityPxPerMs;
     let lastTime = performance.now();
     let accumulator = 0;
@@ -98,7 +129,7 @@ export function attachSwipeGestures(
 
       const lines = Math.trunc(accumulator / scrollPxPerLine);
       if (lines !== 0) {
-        terminal.scrollLines(lines);
+        scrollTouchLines(terminal, lines, clientX, clientY);
         accumulator -= lines * scrollPxPerLine;
       }
 
@@ -188,8 +219,8 @@ export function attachSwipeGestures(
 
     const kbOpen = isKeyboardOpen?.() ?? false;
 
-    // When keyboard is open, block ALL native touch behavior — we handle
-    // navigation via swipe gestures (arrow keys) instead.
+    // When keyboard is open, block native touch behavior. Vertical gestures
+    // become fullscreen wheel input or arrow-key navigation below.
     if (kbOpen) {
       e.preventDefault();
     }
@@ -212,7 +243,7 @@ export function attachSwipeGestures(
 
       const lines = Math.trunc(scrollAccumulator / scrollPxPerLine);
       if (lines !== 0) {
-        terminal.scrollLines(lines);
+        scrollTouchLines(terminal, lines, touch.clientX, touch.clientY);
         scrollAccumulator -= lines * scrollPxPerLine;
       }
       return;
@@ -222,13 +253,14 @@ export function attachSwipeGestures(
     if (lockedDirection === null) {
       const absDx = Math.abs(dx);
       const absDy = Math.abs(dy);
+      const fullscreenWheelTracking = hasFullscreenWheelTracking(terminal);
 
-      // Keyboard closed + vertical-dominant swipe → enter scroll mode.
-      // xterm 6.0.0 moved scrolling to SmoothScrollableElement which uses
-      // JS-based scrolling (not native overflow). pointer-events:none would
-      // kill it, and .xterm-viewport no longer has scrollable content. So
-      // we scroll the buffer directly via terminal.scrollLines().
-      if (!kbOpen && absDy >= SWIPE_THRESHOLD && absDy >= absDx * DIRECTION_LOCK_RATIO) {
+      // A vertical-dominant swipe enters scroll mode when normal scrollback is
+      // available with the keyboard closed, or when a fullscreen application
+      // requests wheel input regardless of keyboard state.
+      if ((!kbOpen || fullscreenWheelTracking)
+        && absDy >= SWIPE_THRESHOLD
+        && absDy >= absDx * DIRECTION_LOCK_RATIO) {
         scrollMode = true;
         lastScrollY = touch.clientY;
         scrollAccumulator = startY - touch.clientY; // pre-seed with threshold movement
@@ -239,7 +271,7 @@ export function attachSwipeGestures(
         // Immediately scroll if the threshold crossing already covers a full line
         const lines = Math.trunc(scrollAccumulator / scrollPxPerLine);
         if (lines !== 0) {
-          terminal.scrollLines(lines);
+          scrollTouchLines(terminal, lines, touch.clientX, touch.clientY);
           scrollAccumulator -= lines * scrollPxPerLine;
         }
         e.preventDefault();
@@ -281,7 +313,7 @@ export function attachSwipeGestures(
         // Velocity in px/ms: positive = finger moving up = scroll down (content moves up)
         const velocity = (first.y - last.y) / dt;
         if (Math.abs(velocity) > INERTIA_MIN_VELOCITY) {
-          startInertia(velocity);
+          startInertia(velocity, startX, lastScrollY);
         }
       }
     }
