@@ -38,7 +38,7 @@ AI CLI packages install with `@latest` -- each deploy pulls the newest versions 
 
 | Package | Version | Provides |
 |---------|---------|----------|
-| `@anthropic-ai/claude-code` | latest | `claude` command. Runs with `IS_SANDBOX=1` + `--dangerously-skip-permissions` for root container support. |
+| `@anthropic-ai/claude-code` | `@latest` | `claude` command. Runs with `IS_SANDBOX=1` + `--dangerously-skip-permissions` for root container support. |
 | `@openai/codex` | `@latest` | `codex` command |
 | Antigravity (agy) | beta | `agy` command. Installed via `curl -fsSL https://antigravity.google/cli/install.sh \| bash` (Go-native binary, not npm). Runs with `--dangerously-skip-permissions`. |
 | `opencode-ai` | `@latest` | `opencode` command |
