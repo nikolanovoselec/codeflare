@@ -221,7 +221,7 @@ describe('REQ-GITHUB-003: response hygiene', () => {
   });
 });
 
-describe('REQ-ENTERPRISE-016: strict gateway egress transport swap', () => {
+describe('REQ-ENTERPRISE-016: strict gateway egress transport swap / REQ-ENTERPRISE-024', () => {
   /** A Fetcher mock recording each upstream call. */
   function makeEgress() {
     const calls: { url: string; method: string; headers: Headers; redirect: string }[] = [];

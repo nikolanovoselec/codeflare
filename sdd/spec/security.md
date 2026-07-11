@@ -74,7 +74,8 @@ Security requirements for authentication enforcement, credential isolation, encr
 **Constraints:**
 
 - The Worker/DO acts as a security boundary between the API token and container-executed user code.
-- The boundary now also covers the per-user Cloudflare **OAuth access token** in non-enterprise sessions: it is never baked into the container (only a placeholder is), and a freshly-refreshed token is stamped worker-side at the `api.cloudflare.com` boundary ([REQ-AGENT-078](agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary)) — mirroring the enterprise Browser Rendering token ([REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)).
+- Per-user Cloudflare OAuth tokens never enter non-enterprise containers; only a placeholder does, and the Worker injects refreshed credentials at the Cloudflare API boundary ([REQ-AGENT-078](agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary)).
+- This boundary mirrors enterprise Browser Rendering credential isolation in [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container).
 
 **Priority:** P0
 

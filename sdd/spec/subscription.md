@@ -43,7 +43,8 @@ Tiers, billing, usage tracking, and quotas.
 **Constraints:**
 
 - Exactly one tier carries the default-tier flag so users with no recorded tier always resolve deterministically.
-- The `blocked` tier denies login; the `pending` tier permits login (because pending users still need to reach the subscribe page).
+- The `blocked` tier denies login.
+- The `pending` tier permits login so pending users can reach the subscribe page.
 
 **Priority:** P0
 

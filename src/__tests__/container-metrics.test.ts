@@ -353,7 +353,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     });
 
     // REQ-SESSION-018 AC1: Persisted status is authoritative on container exit
-    it('writes status=stopped to KV only after the not-running confirmation window (catch-all)', async () => {
+    it('writes status=stopped to KV only after the not-running confirmation window (catch-all) / REQ-SESSION-018', async () => {
       // The container exited unexpectedly (crash / deploy-roll / platform reap)
       // and the SDK never surfaced onError. The catch-all marks the session
       // stopped - but only after the not-running reading has persisted past the

@@ -50,8 +50,9 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 - Memory capture requires advanced session mode (the hook, plugin, and memory rule are only preseeded in advanced mode).
 - The capture agent is sonnet per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad), pinned at the subagent-definition level so the dispatching parent cannot silently downgrade the model.
 - The capture agent itself is the LLM that produces the extracted graph (the upstream headless extract CLI is not invoked) to avoid duplicating inference cost.
-- The capture subagent's pipeline must run whether or not a shell-routing gate (context-mode) is active: the subagent definition carries both the Bash tools and the context-mode execute tools and uses whichever the session permits, so a gated Bash call never silently aborts the capture.
-- The durable transcript source is per-runtime: the Claude capture reads the transcript JSONL slice the hook passes by line range; the Pi capture reads its persisted session file via `getSessionFile()` and parses the message entries. Both skip the capture when the resolved transcript is empty.
+- The capture subagent carries Bash and context-mode execution tools and uses whichever surface the session permits, so shell-routing gates cannot abort capture.
+- Claude reads the hook-provided transcript JSONL range; Pi reads message entries from the persisted session returned by `getSessionFile()`.
+- Both runtimes skip capture when the resolved transcript is empty.
 
 **Priority:** P0
 

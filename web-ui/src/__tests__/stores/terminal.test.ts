@@ -386,7 +386,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it('REQ-TERM-011: sends queued focus before the initial resize when the WebSocket opens', async () => {
+    it('REQ-TERM-011: sends queued focus before the initial resize when the WebSocket opens / REQ-TERM-016', async () => {
       const terminal = {
         ...createMockTerminal(),
         cols: 132,

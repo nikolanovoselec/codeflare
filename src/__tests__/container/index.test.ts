@@ -89,7 +89,7 @@ import { container as ContainerClass, validateBucketNameInput } from '../../cont
 // REQ-SESSION-006: User can stop, restart, and delete sessions
 // REQ-SESSION-008: Container restart preserves R2 bucket
 
-describe('container DO class / REQ-SESSION-002 (one container per session)', () => {
+describe('container DO class / REQ-SESSION-002 (one container per session) / REQ-SESSION-019', () => {
   let mockStorage: {
     get: ReturnType<typeof vi.fn>;
     put: ReturnType<typeof vi.fn>;

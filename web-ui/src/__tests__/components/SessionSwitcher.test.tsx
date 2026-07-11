@@ -71,7 +71,7 @@ function createSession(overrides: Partial<SessionWithStatus> = {}): SessionWithS
 }
 
 // REQ-TERM-018: MultiView Reopen and Close
-describe('SessionSwitcher', () => {
+describe('SessionSwitcher / REQ-TERM-018', () => {
   const defaultProps = {
     sessions: [createSession({ id: 's1', name: 'My Session', status: 'running' })],
     activeSessionId: 's1' as string | null,

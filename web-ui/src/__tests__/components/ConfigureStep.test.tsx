@@ -125,7 +125,7 @@ vi.mock('../../components/Icon', () => ({
 // REQ-ENTERPRISE-015: Enterprise-mode admin and dropdown suppressions
 // REQ-ENTERPRISE-022: Per-Route Context Windows for Dynamic Routes
 
-describe('ConfigureStep', () => {
+describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     storeState.customDomain = '';
