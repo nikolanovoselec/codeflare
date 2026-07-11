@@ -109,7 +109,7 @@ RUN YAZI_VERSION="26.5.6" && \
     chmod +x /usr/local/bin/yazi && \
     rm -rf /tmp/yazi /tmp/yazi.zip
 RUN LAZYGIT_VERSION="0.63.0" && \
-    LAZYGIT_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
+    LAZYGIT_SHA256="cf5cfa3e116d7775f3600a51ec1d9ce7ba554a08b9566c7c2da83cb0023efabf" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_linux_x86_64.tar.gz" -o /tmp/lazygit.tar.gz && \
     echo "${LAZYGIT_SHA256}  /tmp/lazygit.tar.gz" | sha256sum -c - && \
     tar xzf /tmp/lazygit.tar.gz -C /usr/local/bin lazygit && \
