@@ -1,6 +1,6 @@
-# <img src="documentation/images/logo-icon.svg" width="28" align="absmiddle" alt="Codeflare logo"> Codeflare
+# <img src="assets/documentation/logo-icon.svg" width="28" align="absmiddle" alt="Codeflare logo"> Codeflare
 
-![Codeflare: the agentic engineering engine. Governed engineering agents inside your own estate.](documentation/images/og.png)
+![Codeflare: the agentic engineering engine. Governed engineering agents inside your own estate.](assets/documentation/og.png)
 
 **Not a coding assistant. The agentic engineering engine.**
 
@@ -8,7 +8,7 @@ Codeflare runs governed engineering agents inside your own estate. They build, t
 
 The governance is the product. Spec-driven and test-driven development run as enforced, self-healing loops: every change is checked against its specification at the pull-request boundary, and drift is a blocking finding instead of something that ships. Each session runs in its own isolated, ephemeral container with no standing infrastructure to persist on. Model traffic never goes direct. It is intercepted at the platform layer and routed through your AI Gateway, where guardrails and DLP apply, every call is inspected, and every token of spend is attributed to a user, team, and route.
 
-![Codeflare on a foldable tablet](documentation/images/mobile-foldable.jpg)
+![Codeflare on a foldable tablet](assets/documentation/mobile-foldable.jpg)
 *One governed run, from intent to merge. Reachable from any screen with a browser, zero setup.*
 
 **Try it:** [codeflare.ch](https://codeflare.ch)
@@ -48,7 +48,7 @@ Every session comes pre-loaded with your choice of agent:
 
 ## What Codeflare does
 
-![Dashboard](documentation/images/dashboard.png)
+![Dashboard](assets/documentation/dashboard.png)
 *Manage sessions, browse persistent storage, and monitor live resource usage — all from one view.*
 
 **Native integrations, wired in, not bolted on.**
@@ -84,14 +84,14 @@ Every session comes pre-loaded with your choice of agent:
 - **SaaS** — multi-tenant: subscriptions and billing (Stripe), tiered plans, just-in-time user provisioning, an admin approval workflow, and per-user usage metering.
 - **Enterprise** — single-tenant, end-to-end Zero Trust: browser isolation, SSO with your corporate IdP, a Secure Web Gateway, and every model call routed through your own AI Gateway with dynamic routing, DLP, and guardrails — no key or token ever inside the container.
 
-![Codeflare on a phone](documentation/images/mobile-phone.jpg)
+![Codeflare on a phone](assets/documentation/mobile-phone.jpg)
 *Strongly optimized for mobile. Swipe up/down with the keyboard open to navigate like arrow keys; swipe left/right to scroll terminal text.*
 
 ---
 
 ## Architecture
 
-![Codeflare IDE](documentation/images/hero-ide-fullscreen.png)
+![Codeflare IDE](assets/documentation/hero-ide-fullscreen.png)
 *Six terminal tabs, split tiling, and your dev tools — in a disposable container you didn't have to configure.*
 
 Each session runs in its own isolated, pre-warmed container that scales to zero when idle — no sessions, no bill — while your storage persists and usage is tracked per user. Auth defaults to Cloudflare Access, with GitHub OAuth available in the advanced modes (see [authentication.md](documentation/lanes/authentication.md)). Full internals in [architecture.md](documentation/lanes/architecture.md).
@@ -123,7 +123,7 @@ These two are the **only** required configuration. Everything in [Configuration]
 
 Find your worker URL at [dash.cloudflare.com](https://dash.cloudflare.com/) → **Compute → Workers & Pages →** your worker (default name: `codeflare`, so `codeflare.<your-subdomain>.workers.dev`). Open it; the wizard verifies your token, configures a custom domain and allowed users, and sets up authentication via Cloudflare Access.
 
-![Guided setup](documentation/images/guided-setup.png)
+![Guided setup](assets/documentation/guided-setup.png)
 *Connect your accounts and pick an agent. No prior Cloudflare or GitHub knowledge required.*
 
 That's it, you're live. You'll need an active subscription to at least one supported agent; log in directly from the terminal.
