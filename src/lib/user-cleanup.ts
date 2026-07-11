@@ -71,6 +71,9 @@ async function deleteUserKvEntries(normalizedEmail: string, bucketName: string, 
   // --- Block B2: Bucket-keyed KV cleanup ---
   await Promise.all([
     env.KV.delete(`storage-stats:${bucketName}`),
+    // Legacy erasure: the removed bookmark/presets feature wrote presets:<bucket>;
+    // purge any lingering entry so account deletion leaves nothing behind.
+    env.KV.delete(`presets:${bucketName}`),
     env.KV.delete(getPreferencesKey(bucketName)),
     env.KV.delete(getLlmKeysKey(bucketName)),
     env.KV.delete(getDeployKeysKey(bucketName)),

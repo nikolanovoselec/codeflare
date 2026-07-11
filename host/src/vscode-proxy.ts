@@ -18,7 +18,8 @@ export const OPENVSCODE_REQUEST_TRIGGER = '/tmp/openvscode-requested';
 // VS Code's remote protocol uses messages around 256 KiB. The terminal's
 // defensive 64 KiB cap therefore cannot be reused here: `ws` rejects an
 // oversized message with close code 1009, causing an endless reconnect loop.
-// Keep this bounded to the Cloudflare WebSocket message ceiling.
+// 32 MiB is a generous defensive upper bound, far above any real protocol
+// message, so no legitimate frame is ever rejected.
 const OPENVSCODE_WS_MAX_PAYLOAD = 32 * 1024 * 1024;
 
 /** Create the no-server WebSocket endpoint used by the OpenVSCode bridge. */

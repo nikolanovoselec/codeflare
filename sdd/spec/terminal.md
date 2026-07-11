@@ -16,6 +16,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 - Terminal recording and playback (session replay)
 - Collaborative terminal sharing (multi-user viewing or input on the same PTY)
+- Saved terminal command presets / header "bookmarks" (feature removed; see [changes.md](changes.md))
 
 ### Domain Dependencies
 
@@ -470,7 +471,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-008](#req-term-008-write-batching-at-30fps), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
 
-**Verification:** [Automated tests](../../web-ui/src/__tests__/hooks/useScrollCorrection.test.ts) + [Resize authority test](../../host/__tests__/session-resize-authority.test.js) + [Layout transition test](../../web-ui/src/__tests__/components/Layout.test.tsx)
+**Verification:** [Automated tests](../../web-ui/src/__tests__/hooks/useScrollCorrection.test.ts) + [Resize authority test](../../host/__tests__/session-resize-authority.test.js) + [Layout transition test](../../web-ui/src/__tests__/components/Layout.test.tsx) + [Full-buffer anchoring test](../../web-ui/src/__tests__/stores/terminal.test.ts)
 
 **Status:** Implemented
 

@@ -24,29 +24,29 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 | Category | Packages |
 |----------|----------|
 | Sync | rclone |
-| Version Control | git, github-cli (gh), lazygit (v0.62.1) |
+| Version Control | git, github-cli (gh), lazygit |
 | Editors | vim (symlinked to neovim), neovim, nano |
 | Network | curl, openssh-client |
 | Process | procps (ps, pgrep) |
-| Utilities | jq, python3 plus `python` alias, ripgrep, fd, tree, htop, tmux, yazi (v26.5.6), fzf, zoxide, bat |
+| Utilities | jq, python3 plus `python` alias, ripgrep, fd, tree, htop, tmux, yazi, fzf, zoxide, bat |
 
 ### Global NPM Packages
 
-AI CLI packages install with `@latest` -- each deploy pulls the newest versions (`.cache-bust` layer invalidation triggers fresh installs). The Dockerfile is the source of truth -- versions listed below are approximate and may drift between deploys. Exception: `bun` is pinned to a specific version because context-mode autodetects it as the JS/TS subprocess runtime; an upstream regression would silently break `ctx_execute` for every user.
+AI CLI packages install with `@latest` -- each deploy pulls the newest versions (`.cache-bust` layer invalidation triggers fresh installs). The Dockerfile is the source of truth for exact versions. Exception: `bun` is pinned to a specific version because context-mode autodetects it as the JS/TS subprocess runtime; an upstream regression would silently break `ctx_execute` for every user.
 
-**Known trade-off:** Installing CLIs via `@latest` means each new container may run a different CLI version. Major version jumps (e.g., Copilot 0.0.418 → 1.0.12) between deploys have caused regressions (e.g., cursor rendering, xterm integration). Users in long-lived sessions will see the old version; new sessions after a deploy will see the new version. Monitor for unexpected behavior after deploys.
+**Known trade-off:** Installing CLIs via `@latest` means each new container may run a different CLI version. Major version jumps between deploys have caused regressions (e.g., cursor rendering, xterm integration). Users in long-lived sessions will see the old version; new sessions after a deploy will see the new version. Monitor for unexpected behavior after deploys.
 
 | Package | Version | Provides |
 |---------|---------|----------|
 | `@anthropic-ai/claude-code` | latest | `claude` command. Runs with `IS_SANDBOX=1` + `--dangerously-skip-permissions` for root container support. |
-| `@openai/codex` | 0.105.0 | `codex` command |
+| `@openai/codex` | `@latest` | `codex` command |
 | Antigravity (agy) | beta | `agy` command. Installed via `curl -fsSL https://antigravity.google/cli/install.sh \| bash` (Go-native binary, not npm). Runs with `--dangerously-skip-permissions`. |
-| `opencode-ai` | 1.2.15 | `opencode` command |
-| `@github/copilot` | 0.0.418 | `copilot` command. Post-install: non-linux-x64 prebuilds, `mxc-bin/arm64`, bundled `ripgrep/` (system `rg` used instead), and non-linux native modules (`clipboard`, `pvrecorder`, `sharp` node_modules) stripped to save ~200MB. |
-| `bun` | 1.3.14 (pinned) | JS/TS subprocess runtime. context-mode autodetects Bun for `ctx_execute` / `ctx_batch_execute`. The Dockerfile `npm install -g bun@X` literal is shadow-pinned by the `bun` job in `bump-shadow-pins.yml`; future bumps should smoke-test context-mode startup before merge. Post-install: `node_modules/` (258MB of non-linux platform binaries) stripped; only the linux-x64 binary in `bin/` is retained. |
-| `consult-llm-mcp` | 2.13.4 (pinned) | `consult-llm-mcp` command — the LLM Consultation MCP server for Claude Code + Pi. |
+| `opencode-ai` | `@latest` | `opencode` command |
+| `@github/copilot` | `@latest` | `copilot` command. Post-install: non-linux-x64 prebuilds, `mxc-bin/arm64`, bundled `ripgrep/` (system `rg` used instead), and non-linux native modules (`clipboard`, `pvrecorder`, `sharp` node_modules) stripped to save ~200MB. |
+| `bun` | pinned | JS/TS subprocess runtime. context-mode autodetects Bun for `ctx_execute` / `ctx_batch_execute`. The Dockerfile `npm install -g bun@X` literal is shadow-pinned by the `bun` job in `bump-shadow-pins.yml`; future bumps should smoke-test context-mode startup before merge. Post-install: `node_modules/` (258MB of non-linux platform binaries) stripped; only the linux-x64 binary in `bin/` is retained. |
+| `consult-llm-mcp` | pinned | `consult-llm-mcp` command — the LLM Consultation MCP server for Claude Code + Pi. |
 | `browser-run-mcp` | `@modelcontextprotocol/sdk` pinned exact in `preseed/agents/claude/browser-run-mcp/package.json` | Claude Code's cheap one-shot Browser Run READ surface. |
-| `chrome-devtools-mcp` | 1.5.0 (pinned via `CHROME_DEVTOOLS_MCP_VERSION`) | Interactive Browser Run surface for Claude Code and Pi (via `pi-mcp-adapter`). Baked through npx into `/opt/codeflare/chrome-devtools-mcp-npx-cache`, exposed as `/opt/codeflare/bin/chrome-devtools-mcp`; `entrypoint.sh` registers that bin only in advanced mode with a Cloudflare Browser Rendering token. Shadow-pinned by the `chrome-devtools-mcp` job in `bump-shadow-pins.yml` (Dependabot cannot see the Dockerfile env pin). ([REQ-BROWSER-001](../../sdd/spec/browser-run.md#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-006](../../sdd/spec/browser-run.md#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter)) |
+| `chrome-devtools-mcp` | pinned via `CHROME_DEVTOOLS_MCP_VERSION` | Interactive Browser Run surface for Claude Code and Pi (via `pi-mcp-adapter`). Baked through npx into `/opt/codeflare/chrome-devtools-mcp-npx-cache`, exposed as `/opt/codeflare/bin/chrome-devtools-mcp`; `entrypoint.sh` registers that bin only in advanced mode with a Cloudflare Browser Rendering token. Shadow-pinned by the `chrome-devtools-mcp` job in `bump-shadow-pins.yml` (Dependabot cannot see the Dockerfile env pin). ([REQ-BROWSER-001](../../sdd/spec/browser-run.md#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-006](../../sdd/spec/browser-run.md#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter)) |
 
 `consult-llm-mcp` is installed `-g` and verified on `PATH` at build time so the server starts without a runtime `npx` fetch. It is pinned and shadow-pinned by the `consult-llm-mcp` job in `bump-shadow-pins.yml`; the version literal lives only in the Dockerfile `npm install -g` line, so Dependabot cannot see it.
 
@@ -68,7 +68,7 @@ The build **fails closed**: an empty resolved version aborts before reinstall, a
 
 ### V8 Compile Cache Warm-Up
 
-Node.js CLIs (codex, copilot) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Go binaries (opencode, Antigravity/agy) are already natively compiled and do not need V8 cache warm-up. Claude Code ships as a native binary (v2.1.102+) and is verified at build time via `claude --version`.
+Node.js CLIs (codex, copilot) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Go binaries (opencode, Antigravity/agy) are already natively compiled and do not need V8 cache warm-up. Claude Code ships as a native binary and is verified at build time via `claude --version`.
 
 ### Pi Extension Jiti Transpile Cache Warm-Up ([AD79](../decisions/README.md#ad79-image-baked-pi-extension-transpile-cache))
 
