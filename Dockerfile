@@ -491,12 +491,18 @@ ENV PATH="/root/.local/bin:${PATH}"
 
 # V8 compile cache warm-up: Pre-populate Node.js V8 compile cache at Docker build time.
 # Running --version triggers V8 to compile and cache bytecode for each CLI's JavaScript.
-# This speeds up first-launch of Node.js CLIs (codex, copilot, pi) inside containers
-# by avoiding the compilation overhead on every container start.
+# This speeds up first-launch of Node.js CLIs inside containers by avoiding the
+# compilation overhead on every container start.
 # Note: Go binaries (like opencode and antigravity) don't need this — they're already natively compiled.
-RUN codex --version 2>&1 || true && \
-    copilot --version 2>&1 || true && \
-    pi --version 2>&1 || true
+#
+# Owner decision (image-size): the codex + copilot compile-cache warm-ups are
+# DEACTIVATED so their bytecode is not baked into the image (build-space saving);
+# their first launch pays the compile cost instead. Claude Code (its own --version
+# verify above) and Pi (here, plus the jiti extension warm below) keep their prewarm.
+# Re-enable by restoring the two commented lines into the RUN.
+#   codex --version 2>&1 || true && \
+#   copilot --version 2>&1 || true && \
+RUN pi --version 2>&1 || true
 
 # Pi extension warm-up: pre-transpile the full Pi extension set (npm packages +
 # local preseed extensions) into a baked jiti cache + the V8 compile cache.
@@ -559,8 +565,11 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
 # migration ("Performing one time database migration") so first interactive launch is fast.
 # Unset all provider keys so the migration runs without making an actual LLM call.
 # GitHub Actions injects GITHUB_TOKEN which OpenCode would use for GitHub Models.
-RUN ANTHROPIC_API_KEY="" OPENAI_API_KEY="" GEMINI_API_KEY="" GITHUB_TOKEN="" \
-    timeout 30 opencode run "hello" 2>&1 || true
+# Owner decision (image-size): DEACTIVATED — this warm-up baked ~147MB of opencode
+# data into the image. OpenCode now runs its one-time DB migration on first launch
+# instead. Re-enable by uncommenting the RUN below.
+# RUN ANTHROPIC_API_KEY="" OPENAI_API_KEY="" GEMINI_API_KEY="" GITHUB_TOKEN="" \
+#     timeout 30 opencode run "hello" 2>&1 || true
 
 # Verify critical tools are installed (including vim→nvim symlink)
 RUN git --version && gh --version && rclone --version && node --version && \
