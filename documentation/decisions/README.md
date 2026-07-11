@@ -2279,6 +2279,22 @@ The manifest is baselined from current content **only when absent** (the first s
 
 ---
 
+### AD95: Browser IDE is session-isolated (the deliberate opposite of the bucket-stable Vault)
+
+**Context:** The Vault editor (SilverBullet) is deliberately **bucket-stable** ([REQ-VAULT-021](../../sdd/spec/vault.md)): it is served under `/api/vault/<bucketToken>/` (a per-R2-bucket token; the session id rides in the `cf_vault_sid` cookie, never the URL) so `location.href`, the service-worker scope, and IndexedDB store names stay identical across all of a user's sessions — one persistent notes store, no re-index every session. The new browser IDE (OpenVSCode Server, [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy)) reuses the same Worker → Container → host proxy chain, so the obvious move is to copy the vault pattern wholesale. That would be wrong: each session has a *different* `~/workspace` (different repos, branches, working state), so a bucket-stable IDE URL is ambiguous ("which session's workspace?") and would bleed one session's editor state into another.
+
+**Decision:** The IDE is **session-isolated** — the exact opposite of the vault. The sessionId is the sole container selector and appears at every layer: the route parser (`validateVscodeRoute`, session-keyed only, no bucket-token branch), the container routing (`getContainerId(bucket, sessionId)`), OpenVSCode's `--server-base-path=/api/vscode/<sessionId>` (so it builds its own asset + service-worker URLs under the per-session path), an ephemeral per-container `--server-data-dir` under `/tmp` (never R2-synced), and the header open-URL. Because `--server-base-path` makes OpenVSCode base-path native, the Worker and host forward the path **unchanged** — no `/vault`-style strip, no HTML base-href / service-worker graft (the entire `vault-html.ts` machinery is unnecessary). The auth boundary is identical to the vault: Cloudflare Access + effective-tier + session-ownership at the Worker, the container-auth Bearer injected by the container DO fetch wrapper, and a localhost-only bind with `--without-connection-token`.
+
+**Rejected — reuse the vault's bucket-stable serving ([REQ-VAULT-021](../../sdd/spec/vault.md)) for the IDE:** that layer exists to *share* one store across sessions; applied to the IDE it collapses every session's editor onto one bucket-scoped service worker + storage, so switching sessions would show the wrong workspace and leak state. Session isolation is a hard requirement, not a preference.
+
+**Rejected — run OpenVSCode at root (`--server-base-path=/`) and strip the prefix like the vault:** OpenVSCode would then build asset / service-worker URLs at `/`, which resolve against the Worker root (no handler → white screen), forcing the same HTML base-href graft the vault carries. The `--server-base-path` flag (confirmed in `microsoft/vscode`'s `serverEnvironmentService.ts`) removes the entire class of problem, so the IDE is *simpler* than the vault, not a copy of it.
+
+**Consequences:** Two sessions yield two fully isolated editors (distinct base path, service-worker scope, server-data-dir, and container); a session the user does not own is unreachable (the ownership guard 404s). The IDE lazy-starts — a supervisor gated on the init flag, a first-request trigger, and a resolved `SESSION_ID` — so sessions that never open it pay nothing, and it is advanced-mode only. Workspace edits persist via the *existing* final-sync R2 bisync (no new drain path); editor/extension state under `/tmp` is intentionally ephemeral. A future maintainer must not "unify" the two editors: keep the vault bucket-stable and the IDE session-keyed.
+
+**Related:** [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-lazy-start-supervised-clean-teardown), [REQ-VAULT-021](../../sdd/spec/vault.md), [REQ-SEC-008](../../sdd/spec/security.md).
+
+---
+
 ---
 
 ## Related Documentation

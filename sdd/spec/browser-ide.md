@@ -57,7 +57,7 @@ Full VS Code editor (OpenVSCode Server) running inside each session's container,
 
 **Verification:** [Behavioral test](../../src/routes/__tests__/vscode.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -85,11 +85,11 @@ Full VS Code editor (OpenVSCode Server) running inside each session's container,
 
 **Verification:** [Behavioral test](../../src/__tests__/routes/vscode-auth-chain.test.ts)
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
-### REQ-IDE-003: IDE lifecycle -- lazy start, supervised, clean teardown
+### REQ-IDE-003: IDE lifecycle (lazy start, supervised, clean teardown)
 
 **Intent:** The IDE server starts on first use rather than at boot, is supervised for crash-restart, tears down cleanly on shutdown without orphaning its port, and its header button appears only for an advanced-mode running session. Workspace edits persist through the existing final-sync.
 
@@ -115,4 +115,4 @@ Full VS Code editor (OpenVSCode Server) running inside each session's container,
 
 **Verification:** [Behavioral test](../../host/__tests__/entrypoint-openvscode.test.js)
 
-**Status:** Planned
+**Status:** Implemented
