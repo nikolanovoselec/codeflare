@@ -159,7 +159,7 @@ Horizontal swipe gestures (left/right arrow key simulation) use a `setInterval` 
 
 **xterm 6.1 Gesture shield (git: Fix 20).** xterm 6.1 (`6.1.0-beta.288`) vendored VS Code's touch-scroll rewrite (upstream PR #5377, absent from 6.0.0), which registers a document-level `Gesture` singleton via `MouseService` → `Gesture.addTarget(.xterm-screen)` and calls `preventDefault()` on any `touchstart`/`touchend` starting inside the terminal. Per the Touch Events spec that cancels the browser's synthesized `click` — codeflare's ONLY mobile-keyboard-open trigger (`Terminal.tsx` `on:click`) — so upgrading past 6.0.0 silently broke tap-to-open-keyboard on mobile (the keyboard never appeared; scrolling still worked).
 
-Fix: a bubble-phase `stopPropagation` "Gesture shield" for `touchstart`/`touchmove`/`touchend` on the terminal container in `attachSwipeGestures()` (`web-ui/src/lib/touch-gestures.ts`) — codeflare's own capture-phase handlers still run first, `stopPropagation()` (never `preventDefault`) does not affect browser click synthesis, and xterm's document-level Gesture singleton never sees a terminal-container touch. Removed on terminal cleanup. Covered by `touch-gestures.test.ts` (shield blocks container-origin touches from reaching document-level listeners; outside-container touches unaffected; cleanup removes the shield). Kept on top of the beta pin rather than reverting it — pinning an intermediate build is impossible (both breaking commits are ancestors of #5770's branch, the Pi-flicker mitigation this repo needs; see [Pi Terminal Flicker](troubleshooting.md#pi-terminal-flicker-or-scrollback-snaps-to-the-bottom)). ([REQ-MOB-002](../../sdd/spec/mobile.md#req-mob-002-virtual-keyboard-opens-reliably-on-tap) AC6)
+Fix: a bubble-phase `stopPropagation` "Gesture shield" for `touchstart`/`touchmove`/`touchend` on the terminal container in `attachSwipeGestures()` (`web-ui/src/lib/touch-gestures.ts`) — codeflare's own capture-phase handlers still run first, `stopPropagation()` (never `preventDefault`) does not affect browser click synthesis, and xterm's document-level Gesture singleton never sees a terminal-container touch. Removed on terminal cleanup. Covered by `touch-gestures.test.ts` (shield blocks container-origin touches from reaching document-level listeners; outside-container touches unaffected; cleanup removes the shield). Kept on top of the beta pin rather than reverting it — pinning an intermediate build is impossible (both breaking commits are ancestors of #5770's branch, the Pi-flicker mitigation this repo needs; see [Pi Terminal Flicker](troubleshooting.md#pi-terminal-flicker-or-scrollback-snaps-to-an-edge)). ([REQ-MOB-002](../../sdd/spec/mobile.md#req-mob-002-virtual-keyboard-opens-reliably-on-tap) AC6)
 
 **Fullscreen alternate-buffer scroll routing (git: Fix 22).** Claude Code `/tui fullscreen` renders conversation history inside the alternate screen and captures wheel reports, so `terminal.scrollLines()` cannot move that application-owned history. Desktop wheel events already reach Claude; mobile swipes did not because the Gesture shield deliberately keeps xterm's document-level touch handler out. `attachSwipeGestures()` now detects an alternate buffer with wheel-capable mouse tracking and emits one line-mode `WheelEvent` per accumulated touch line on `terminal.element`. xterm retains ownership of mouse-protocol encoding, the route works with the keyboard open or closed, and the shield continues preserving tap-to-open-keyboard. Normal-buffer swipes still use `terminal.scrollLines()`. ([REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll) AC8)
 
@@ -235,7 +235,7 @@ xterm 6.0.0 replaced `.xterm-viewport` (native `overflow-y: scroll` with a scrol
 **Additional hardening:**
 - All `fitAddon.fit()` call sites are guarded with `containerEl.clientHeight === 0` checks to prevent zero-row dimension calculations during CSS visibility transitions (inactive terminals have `height: 0`).
 - All `scrollToBottom()` call sites check `viewportY >= baseY` before scrolling to preserve manual scrollback position.
-- `flushWriteBuffer()` batches output only; it does not alter scroll position after a write. xterm 6.1 owns the scrolled-up full-buffer anchor.
+- `flushWriteBuffer()` leaves ordinary non-zero trim shifts to xterm 6.1. It restores distance only when an unchanged, configured-full buffer exhausts that native anchor and clamps a previously scrolled-up viewport to zero.
 - `refitAllTerminals()` skips the resize WS message if dimensions didn't change.
 
 ### Distance-Based Detection
@@ -251,9 +251,9 @@ Absolute `ydisp === 0` detection false-positived during scrollback trimming: xte
 
 ### xterm 6.1 Native Full-Buffer Anchoring
 
-When the 1000-line scrollback is full, xterm 6.1 shifts `viewportY` upward as old lines trim so the same visible content remains under a scrolled-up user. Codeflare's older post-write distance guard interpreted a multi-line shift as drift and called `scrollLines` back toward the former distance from bottom. Under Pi's dense 33ms output batches, that correction repeatedly overrode xterm and made scrollback snap toward the live prompt.
+When the 1000-line scrollback is full, xterm 6.1 decrements `viewportY` as old lines trim so the same surviving content remains under a scrolled-up user. Codeflare's older generic distance guard interpreted every multi-line shift as drift and called `scrollLines` toward the former distance after each 33ms batch, repeatedly overriding xterm and pulling the viewport toward the live prompt.
 
-`flushWriteBuffer()` now only coalesces and writes output. The obsolete post-write correction and its suppression counter are removed. `useScrollCorrection()` remains responsible for bottom-following re-anchor and true focus resets, and still yields immediately to recent wheel, pointer, or navigation-key intent.
+Removing that generic correction exposed the opposite boundary: once a dense batch trims at least the current `viewportY`, xterm's native anchor reaches zero and cannot decrement further, leaving the viewport clamped at the top. `flushWriteBuffer()` now snapshots distance only for a non-top, scrolled-up viewport whose `baseY` equals the configured scrollback cap. After parsing, it restores that distance only if `baseY` is unchanged and `viewportY` reached exactly zero. Ordinary shifts such as `500 -> 490` remain untouched, bottom followers stay owned by `useScrollCorrection()`, and no suppression counter or `scrollToBottom()` call is reintroduced.
 
 #### Keyboard-Open Suppression
 
@@ -271,18 +271,13 @@ The keyboard height effect remains the source of truth for keyboard-transition r
 
 ### Bottom-Following Re-Anchor
 
-Users at the bottom following output saw constant flashing/jitter during rapid output with scrollback trimming. The post-write callback correction ran AFTER xterm rendered, causing a visible two-frame glitch: frame 1 shows wrong position, frame 2 shows corrected position (git: Fix 19).
-
-**Root cause:** `terminal.write(data, callback)` is async -- the callback fires after xterm processes data AND renders via rAF. The correction arrives too late to prevent the bad frame from being painted.
-
-**Key insight (validated by GPT-5.4 + Gemini 3.1 Pro):** xterm's `onScroll` event fires synchronously during the parse loop, BEFORE the rAF render pass. Correcting viewport position in the `onScroll` handler means the fix is applied before the canvas paints -- the bad frame is never visible.
+Users following the prompt saw flashing when generic post-write correction competed with xterm's render and viewport synchronization (git: Fix 19). Bottom ownership therefore remains in xterm's synchronous `onScroll` path, where the terminal can distinguish a follower from a user reading scrollback before the next paint.
 
 **Solution:**
 
-1. **Bottom-following correction moved to `onScroll` handler** (`useTerminal.ts`) -- when `wasFollowingOutput` is true and `ydisp < ybase`, call `scrollToBottom()` immediately. Uses `isCorrectingScroll` flag to prevent recursion.
-    - Checks recent user intent (wheel/pointerdown/keydown) to avoid trapping users at the bottom when they intentionally scroll up.
+1. **Bottom-following correction stays in `onScroll`** (`useScrollCorrection.ts`) -- when `wasFollowingOutput` is true and `ydisp < ybase`, call `scrollToBottom()` immediately. The `isCorrectingScroll` flag prevents recursion, and recent wheel/pointer/navigation intent prevents trapping a user at the bottom.
 
-2. **No write-side correction** (`terminal.ts`) -- `flushWriteBuffer` delegates the scrolled-up anchor to xterm 6.1 and never calls `scrollLines` after output.
+2. **Write-side recovery is boundary-only** (`terminal.ts`) -- xterm's `WriteBuffer` invokes a chunk callback after model parsing and before its scheduled screen update for synchronous terminal data. `flushWriteBuffer()` uses that point only for the configured-full `viewportY > 0 -> 0` clamp. Every non-zero native anchor shift remains unmodified.
 
 ### Scroll Stability Overhaul Context
 
@@ -315,8 +310,9 @@ The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_
 ### REQ-MOB-012 test scenarios
 
 1. **Keyboard-open burst pins to bottom.** Tap terminal to open the virtual keyboard, send a burst, assert viewport remains pinned to bottom with no flicker (scroll-reset detector is silent because the keyboard-open branch is taken).
-2. **Scrolled-up users keep visible content during output.** Fill the 1000-line scrollback, scroll up by ~100 lines, continue streaming output, and assert the same surviving content remains visible instead of snapping toward the bottom.
-3. **Keyboard transition does not override manual scrollback.** With the keyboard closed, scroll up during active output and assert no post-write programmatic scroll runs.
+2. **Ordinary trim keeps surviving content.** Fill the 1000-line scrollback, scroll up, continue with a small output batch, and assert xterm's non-zero viewport shift is not corrected toward the bottom.
+3. **Dense trim cannot clamp to top.** From a non-top scrolled-up position in a configured-full buffer, stream enough output to exhaust the native anchor and assert the prior distance is restored instead of leaving `viewportY = 0`.
+4. **Keyboard transition does not override manual scrollback.** With the keyboard closed, scroll during active output and assert only the full-buffer zero-clamp boundary can invoke write-side recovery.
 
 The Verification fields in [`sdd/spec/mobile.md`](../../sdd/spec/mobile.md) point at this plan; CQ-1 truth check resolves on test file annotation once the Playwright suite is written.
 

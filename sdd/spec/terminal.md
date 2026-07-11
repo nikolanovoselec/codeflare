@@ -461,10 +461,12 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 5. Visible terminal resize frames carry the current fitted dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (resize handling) -->
 6. Hidden or disconnected terminals do not send resize frames. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::resize --> <!-- @test: host/__tests__/session-resize-authority.test.js (foreground owner only + detach promotion) -->
 7. A pane that loses focus before its terminal connection opens does not claim resize authority when that connection later opens. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::clearPendingResizeAuthority --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (stale queued focus clearing) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (queued focus clearing) -->
+8. When an unchanged, configured-full scrollback buffer exhausts native content anchoring and clamps a previously scrolled-up viewport to zero during a write, the prior distance from the bottom is restored before render. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC8: restores distance when an unchanged full buffer clamps viewport to the top; REQ-TERM-014 AC8: does not recover zero clamp) -->
 
 **Constraints:**
 
 - Scroll ownership must be centralized so write, resize, and reset-correction paths do not fight each other.
+- Ordinary non-zero trim shifts remain owned by xterm; post-write recovery is limited to the full-buffer zero-clamp boundary.
 - Mobile keyboard resize behavior must preserve the existing virtual-keyboard safeguards.
 
 **Priority:** P1

@@ -41,7 +41,7 @@ export interface ScrollCorrectionParams {
  * Both strategies are suppressed when:
  * - A recent user scroll gesture was detected (wheel, pointer, nav key, or
  *   external intent from floating UI buttons).
- * - The mobile virtual keyboard is open (the write callback handles
+ * - The mobile virtual keyboard is open (the keyboard-height effect handles
  *   `scrollToBottom` in that mode; corrections here would cause oscillation).
  */
 export function useScrollCorrection(
@@ -115,7 +115,7 @@ export function useScrollCorrection(
     }
 
     // When the virtual keyboard is open on mobile, skip all further correction.
-    // The write callback handles scrollToBottom; corrections here fight it.
+    // The keyboard-height effect handles scrollToBottom; corrections here fight it.
     if (isTouchDevice() && isVirtualKeyboardOpen()) {
       previousYdisp = ydisp;
       previousDistFromBottom = distFromBottom;

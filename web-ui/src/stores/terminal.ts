@@ -157,16 +157,40 @@ function flushWriteBuffer(key: string, terminal: Terminal): void {
   const buffer = writeBuffers.get(key);
   if (!buffer || buffer.length === 0) return;
 
+  const beforeBaseY = terminal.buffer.active.baseY;
+  const beforeViewportY = terminal.buffer.active.viewportY;
+  const beforeDistanceFromBottom = beforeBaseY - beforeViewportY;
+  const wasScrolledUpAtFullBuffer =
+    beforeViewportY > 0
+    && beforeViewportY < beforeBaseY
+    && beforeBaseY === terminal.options.scrollback;
+
   const data = buffer.join('');
   buffer.length = 0;
 
   recordFlush(key, data.length);
 
-  // xterm 6.1 preserves the visible viewport while a full scrollback buffer
-  // trims. Do not apply a post-write distance correction: that would undo
-  // xterm's anchor and pull a user who is reading scrollback toward the bottom.
-  // Bottom-following recovery remains in useScrollCorrection's onScroll path.
-  terminal.write(data);
+  if (!wasScrolledUpAtFullBuffer) {
+    terminal.write(data);
+    return;
+  }
+
+  terminal.write(data, () => {
+    const activeBuffer = terminal.buffer.active;
+
+    // xterm owns ordinary non-zero shifts because they keep surviving content
+    // stable while full scrollback trims. Recover only when that native anchor
+    // is exhausted and clamps a previously scrolled-up viewport to the top.
+    if (activeBuffer.baseY !== beforeBaseY || activeBuffer.viewportY !== 0) {
+      return;
+    }
+
+    const targetY = Math.max(0, activeBuffer.baseY - beforeDistanceFromBottom);
+    const delta = targetY - activeBuffer.viewportY;
+    if (delta !== 0) {
+      terminal.scrollLines(delta);
+    }
+  });
 }
 
 function scheduleWrite(key: string, terminal: Terminal, data: string): void {

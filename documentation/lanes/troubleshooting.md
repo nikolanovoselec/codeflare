@@ -129,15 +129,15 @@ Enter the new client id + creation secret in the admin Setup wizard (REQ-AGENT-0
 
 **Fix:** A connect-timeout watchdog force-closes any socket still in `CONNECTING` after `WS_CONNECT_TIMEOUT_MS` and schedules a reconnect. Reconnect now uses equal-jitter exponential backoff (`reconnectBackoffMs`, base 500ms, capped at 15000ms) that resets to attempt 1 on a successful open, and is paused while the tab is hidden — the visibility-return handler restarts it at attempt 1 so a backgrounded pane burns no battery or connect budget. Redeploy the web-ui build to pick up the fix. ([REQ-TERM-003](../../sdd/spec/terminal.md#req-term-003-automatic-websocket-reconnection-on-transient-failures))
 
-### Pi Terminal Flicker or Scrollback Snaps to the Bottom
+### Pi Terminal Flicker or Scrollback Snaps to an Edge
 
-**Symptom:** Pi streaming output previously flickered once the terminal reached its 1000-line scrollback cap. With xterm 6.1 the flicker stops, but trying to read scrollback while Pi is still writing can repeatedly pull the viewport toward the live prompt.
+**Symptom:** Pi output no longer flickers at the 1000-line scrollback cap, but a user reading or navigating older output is pulled either toward the live prompt or abruptly to the top while Pi continues writing.
 
-**Cause:** These were separate problems. `@xterm/xterm` `6.1.0-beta.288` includes upstream PR [#5770](https://github.com/xtermjs/xterm.js/pull/5770), which defers viewport DOM synchronization during DEC 2026 synchronized output and fixes the Pi flicker. The remaining snap was codeflare's older post-write distance guard: xterm 6.1 correctly shifted `viewportY` as old lines trimmed, then `flushWriteBuffer` mistook a multi-line shift for drift and called `scrollLines` toward the bottom after each dense 33ms batch ([REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming) AC2).
+**Cause:** `@xterm/xterm` `6.1.0-beta.288` includes upstream PR [#5770](https://github.com/xtermjs/xterm.js/pull/5770), which fixes synchronized-output flicker. Codeflare's former generic post-write distance guard overrode valid xterm trim shifts and pulled toward the bottom. Removing all post-write handling fixed that direction but exposed xterm's lower bound: when a dense full-buffer batch trims at least the current `viewportY`, native content anchoring clamps at zero and leaves the viewport at the top ([REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming) AC2/AC8).
 
-**Fix:** Keep `@xterm/xterm` pinned to `6.1.0-beta.288` and deploy a web UI where `flushWriteBuffer` batches output without applying a post-write scroll correction. Bottom-following and true focus-reset recovery remain in `useScrollCorrection`; a user who scrolls up is left on xterm's native visible-content anchor.
+**Fix:** Keep ordinary non-zero trim shifts under xterm's ownership. Recover only when a pre-write viewport was non-top and scrolled up at the configured-full buffer, the buffer base remains unchanged, and parsing clamps `viewportY` to exactly zero. Restore its prior distance with `scrollLines`; never call `scrollToBottom()` from this path.
 
-**Verify:** Fill scrollback, scroll up while Pi continues streaming, and confirm the same surviving content remains visible rather than snapping toward the bottom. CI's `terminal.test.ts` reproduces a ten-line trim at full scrollback and asserts that no programmatic `scrollLines` call occurs.
+**Verify:** At full scrollback, a small trim such as `500 -> 490` remains uncorrected. A dense batch that would clamp `500 -> 0` finishes at the prior distance (`viewportY = 500`) rather than either edge. CI's `terminal.test.ts` drives both cases through the WebSocket batching path and verifies the boundary guard does not run for a non-full buffer, a changed base, an already-top viewport, or a bottom follower.
 
 ### Claude Fullscreen TUI Does Not Scroll on Mobile
 
