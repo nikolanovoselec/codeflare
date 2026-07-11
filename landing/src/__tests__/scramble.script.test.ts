@@ -174,6 +174,48 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     expect(document.querySelectorAll('.scramble-word').length).toBe(0);
   });
 
+  it('REQ-LANDING-001: the idle churn width-locks each >=3-char word to its resting size, leaving 1-2 char words unlocked, so glyph churn cannot re-wrap the headline', async () => {
+    // The reported mobile flicker: churn glyphs are wider than the resting letters,
+    // so an unlocked word grows and re-wraps the phrase every frame, shoving the page.
+    // The fix pins each churning word to its resting width. A 1-2 char word (e.g. "a")
+    // is skipped so a tiny locked box never clips a full wide glyph.
+    buildScrambleFixture('a coding assistant'); // a(1) skipped, coding(6) + assistant(9) locked
+    mockMatchMedia(false);
+    mockFontsReady();
+    // happy-dom has no layout engine, so stub the resting width the lock measures (>0
+    // so the width>0 guard fires).
+    const rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 88,
+      height: 0,
+      top: 0,
+      left: 0,
+      right: 88,
+      bottom: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    await import('../scripts/scramble');
+    await Promise.resolve();
+    vi.runAllTicks();
+    vi.advanceTimersByTime(50); // fire the rAF that runs the width lock
+
+    const spans = [...document.querySelectorAll<HTMLElement>('.scramble-word')];
+    expect(spans.length).toBe(3);
+    const locked = spans.filter((s) => s.style.width !== '');
+    const unlocked = spans.filter((s) => s.style.width === '');
+    // the two >=3-char words are pinned to their measured resting width so churn cannot resize them
+    expect(locked.length).toBe(2);
+    for (const s of locked) {
+      expect(s.style.display).toBe('inline-block');
+      expect(s.style.width).toBe('88px');
+    }
+    // the 1-char word is left unlocked (static): a static short word never grows to reflow anything
+    expect(unlocked.length).toBe(1);
+    rectSpy.mockRestore();
+  });
+
   it('REQ-LANDING-006: the hover-decode sign-in CTA locks each word span to its resting width so the header never reflows', async () => {
     const el = document.createElement('a');
     el.setAttribute('data-scramble-hover', '');

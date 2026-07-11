@@ -462,12 +462,12 @@ svg {
   color: transparent;
 }
 
-/* Scramble word spans (JS-created): content-sized inline-blocks (the script sets
-   no width), so a churning glyph grows its own box instead of overflowing a fixed
-   width and being clipped by background-clip:text. Each carries its own gradient
-   clip because the parent's clip does not paint through child boxes; nowrap keeps
-   a single word intact while the whitespace between words stays breakable, so the
-   phrase still wraps naturally inside the headline's max-width. */
+/* Scramble word spans (JS-created): inline-blocks the script width-locks to their
+   resting size after font load, so glyph churn cannot grow a word and re-wrap the
+   phrase (the mobile page-flicker). Each carries its own gradient clip because the
+   parent's clip does not paint through child boxes; nowrap keeps a single word
+   intact while the whitespace between words stays breakable, so the phrase still
+   wraps naturally at rest inside the headline's max-width. */
 .scramble-word {
   display: inline-block;
   white-space: nowrap;
