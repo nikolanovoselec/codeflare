@@ -71,7 +71,6 @@ const mockGetBatchSessionStatus = vi.mocked(api.getBatchSessionStatus);
 const mockGetStartupStatus = vi.mocked(api.getStartupStatus);
 const mockStopSession = vi.mocked(api.stopSession);
 const mockRecreateAgentConfigs = vi.mocked(storageApi.recreateAgentConfigs);
-const mockSendInputToTerminal = vi.mocked(terminal.sendInputToTerminal);
 const mockCleanupSessionVaultCache = vi.mocked(vaultCache.cleanupSessionVaultCache);
 const mockSweepOrphanVaultCaches = vi.mocked(vaultCache.sweepOrphanVaultCaches);
 

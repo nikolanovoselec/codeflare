@@ -21,7 +21,7 @@ import UsageInlineBadge from './UsageInlineBadge';
 
 import { terminalStore } from '../stores/terminal';
 import { getGravatarUrl, gravatarExists } from '../lib/gravatar';
-import { isTouchDevice, getKeyboardHeight } from '../lib/mobile';
+import { isTouchDevice } from '../lib/mobile';
 import type { SessionWithStatus, AgentType, TabConfig } from '../types';
 import '../styles/header.css';
 
