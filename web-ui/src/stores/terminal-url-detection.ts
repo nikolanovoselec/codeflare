@@ -9,7 +9,7 @@ import { getBufferActive } from '../lib/xterm-internals';
  * and sets reactive signals consumed by UI components.
  *
  * Uses dependency injection (registerUrlDetectionDeps) to avoid circular imports
- * with the terminal store, following the pattern established by session-presets.ts.
+ * with the terminal store, following the pattern established by session-tabs.ts.
  */
 
 // ─── Dependency Injection ────────────────────────────────────────────────────

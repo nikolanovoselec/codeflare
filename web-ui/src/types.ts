@@ -11,14 +11,6 @@ export interface TabConfig {
   label: string;     // Display label
 }
 
-/** Saved preset for quick session creation */
-export interface TabPreset {
-  id: string;
-  name: string;
-  tabs: TabConfig[];
-  createdAt: string;
-}
-
 /** User preferences persisted across sessions */
 export type SessionMode = z.infer<typeof SessionModeSchema>;
 

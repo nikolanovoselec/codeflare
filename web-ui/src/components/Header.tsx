@@ -1,4 +1,4 @@
-import { Component, Show, For, createMemo, createSignal, createEffect, onMount, onCleanup } from 'solid-js';
+import { Component, Show, createMemo, createSignal, createEffect, onMount, onCleanup } from 'solid-js';
 import {
   mdiCogOutline,
   mdiShieldAccount,
@@ -7,12 +7,6 @@ import {
   mdiChartBar,
   mdiLogout,
   mdiViewDashboardOutline,
-  mdiBookOutline,
-  mdiDelete,
-  mdiPlus,
-  mdiPencilOutline,
-  mdiCheck,
-  mdiClose,
   mdiFileCabinet,
   mdiMicrosoftVisualStudioCode,
   mdiOpenInNew,
@@ -56,7 +50,7 @@ interface HeaderProps {
  *
  * Layout:
  * +-----------------------------------------------------------------------------------+
- * | [</>] [Session Switcher]          [Avatar] [Bookmarks] [Vault] [Storage] [Settings] [Dashboard] |
+ * | [</>] [Session Switcher]          [Avatar] [Vault] [Storage] [Settings] [Dashboard] |
  * +-----------------------------------------------------------------------------------+
  */
 const Header: Component<HeaderProps> = (props) => {
@@ -68,15 +62,8 @@ const Header: Component<HeaderProps> = (props) => {
     if (!email) { setGravatarOk(false); return; }
     gravatarExists(email, 48).then(setGravatarOk);
   });
-  const [showBookmarksMenu, setShowBookmarksMenu] = createSignal(false);
-  const [showCreateBookmark, setShowCreateBookmark] = createSignal(false);
   const [showTimerDropdown, setShowTimerDropdown] = createSignal(false);
-  const [bookmarkName, setBookmarkName] = createSignal('');
-  const [bookmarkError, setBookmarkError] = createSignal<string | null>(null);
-  const [editingPresetId, setEditingPresetId] = createSignal<string | null>(null);
-  const [editingPresetName, setEditingPresetName] = createSignal('');
   let userMenuRef: HTMLDivElement | undefined;
-  let bookmarksMenuRef: HTMLDivElement | undefined;
   let timerMenuRef: HTMLDivElement | undefined;
 
   const activeSession = createMemo(() =>
@@ -93,36 +80,12 @@ const Header: Component<HeaderProps> = (props) => {
     if (!session || session.status !== 'running') return null;
     return getSleepTimerInfo(session.lastActiveAt, sessionStore.preferences.sleepAfter);
   });
-  let bookmarkInputRef: HTMLInputElement | undefined;
-  let renameInputRef: HTMLInputElement | undefined;
-
-  const hasBookmarks = createMemo(() => sessionStore.presets.length > 0);
-  const canAddBookmark = createMemo(() => sessionStore.presets.length < 3);
-  const canSaveBookmark = createMemo(() =>
-    canAddBookmark()
-    && Boolean(sessionStore.activeSessionId)
-    && bookmarkName().trim().length > 0
-  );
-
-  const closeBookmarksMenu = () => {
-    setShowBookmarksMenu(false);
-    setShowCreateBookmark(false);
-    setBookmarkName('');
-    setBookmarkError(null);
-    setEditingPresetId(null);
-    setEditingPresetName('');
-  };
-
   const handleClickOutside = (e: MouseEvent) => {
     if (showUserMenu() && userMenuRef && !userMenuRef.contains(e.target as Node)) {
       setShowUserMenu(false);
     }
     if (showTimerDropdown() && timerMenuRef && !timerMenuRef.contains(e.target as Node)) {
       setShowTimerDropdown(false);
-    }
-    if (!showBookmarksMenu()) return;
-    if (bookmarksMenuRef && !bookmarksMenuRef.contains(e.target as Node)) {
-      closeBookmarksMenu();
     }
   };
 
@@ -133,97 +96,6 @@ const Header: Component<HeaderProps> = (props) => {
   onCleanup(() => {
     document.removeEventListener('mousedown', handleClickOutside);
   });
-
-  createEffect(() => {
-    if (!showBookmarksMenu() || !showCreateBookmark()) return;
-    queueMicrotask(() => {
-      bookmarkInputRef?.focus();
-      bookmarkInputRef?.select();
-    });
-  });
-
-  createEffect(() => {
-    if (editingPresetId() === null) return;
-    queueMicrotask(() => {
-      renameInputRef?.focus();
-      renameInputRef?.select();
-    });
-  });
-
-  const handleBookmarksButtonClick = () => {
-    void sessionStore.loadPresets?.();
-    setBookmarkError(null);
-
-    if (showBookmarksMenu()) {
-      closeBookmarksMenu();
-      return;
-    }
-
-    setShowBookmarksMenu(true);
-    setShowCreateBookmark(!hasBookmarks());
-  };
-
-  const handleSaveBookmark = async () => {
-    const name = bookmarkName().trim();
-    const sessionId = sessionStore.activeSessionId;
-    if (!name || !sessionId || !canAddBookmark()) return;
-
-    setBookmarkError(null);
-    const saved = await sessionStore.saveBookmarkForSession(sessionId, name);
-    if (saved) {
-      closeBookmarksMenu();
-    } else {
-      setBookmarkError(sessionStore.error || 'Failed to save bookmark');
-    }
-  };
-
-  const handleActivateBookmark = async (presetId: string) => {
-    const sessionId = sessionStore.activeSessionId;
-    if (!sessionId) return;
-    setBookmarkError(null);
-    const result = await sessionStore.applyPresetToSession(sessionId, presetId);
-    if (result) {
-      closeBookmarksMenu();
-    } else {
-      setBookmarkError(sessionStore.error || 'Failed to apply bookmark');
-    }
-  };
-
-  const handleDeleteBookmark = async (e: MouseEvent, presetId: string) => {
-    e.stopPropagation();
-    setBookmarkError(null);
-    await sessionStore.deletePreset(presetId);
-    if (sessionStore.error) {
-      setBookmarkError(sessionStore.error);
-    }
-  };
-
-  const handleStartRename = (e: MouseEvent, presetId: string, currentName: string) => {
-    e.stopPropagation();
-    setEditingPresetId(presetId);
-    setEditingPresetName(currentName);
-    setBookmarkError(null);
-  };
-
-  const handleCancelRename = () => {
-    setEditingPresetId(null);
-    setEditingPresetName('');
-  };
-
-  const handleConfirmRename = async () => {
-    const presetId = editingPresetId();
-    const newName = editingPresetName().trim();
-    if (!presetId || !newName) return;
-
-    setBookmarkError(null);
-    const result = await sessionStore.renamePreset(presetId, newName);
-    if (result) {
-      setEditingPresetId(null);
-      setEditingPresetName('');
-    } else {
-      setBookmarkError(sessionStore.error || 'Failed to rename bookmark');
-    }
-  };
 
   return (
     <header class="header animate-fadeInUp">
@@ -371,174 +243,6 @@ const Header: Component<HeaderProps> = (props) => {
             </div>
           )}
         </Show>
-
-        {/* Bookmarks button */}
-        <div class="header-bookmarks-wrapper" ref={bookmarksMenuRef}>
-          <button
-            class="header-bookmarks-button"
-            data-testid="header-bookmarks-button"
-            title="Bookmarks"
-            type="button"
-            onClick={handleBookmarksButtonClick}
-          >
-            <Icon path={mdiBookOutline} size={20} />
-          </button>
-
-          <Show when={showBookmarksMenu()}>
-            <div class="header-bookmarks-menu" data-testid="header-bookmarks-menu" style={isTouchDevice() && !showCreateBookmark() ? { bottom: `calc(env(safe-area-inset-bottom, 0px) + ${getKeyboardHeight()}px)` } : undefined}>
-              <Show when={bookmarkError()}>
-                <div class="header-bookmark-error" data-testid="header-bookmark-error">
-                  {bookmarkError()}
-                </div>
-              </Show>
-              <Show
-                when={!showCreateBookmark()}
-                fallback={
-                  <div class="header-bookmarks-create">
-                    <div class="header-bookmark-create-row">
-                      <input
-                        ref={bookmarkInputRef}
-                        type="text"
-                        class="header-bookmark-name-input"
-                        data-testid="header-bookmark-name-input"
-                        placeholder="Bookmark name"
-                        value={bookmarkName()}
-                        maxlength={50}
-                        autocomplete="off"
-                        autocorrect="off"
-                        autocapitalize="off"
-                        spellcheck={false}
-                        onInput={(e) => setBookmarkName(e.currentTarget.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            void handleSaveBookmark();
-                          }
-                          if (e.key === 'Escape') {
-                            if (hasBookmarks()) {
-                              setShowCreateBookmark(false);
-                              setBookmarkName('');
-                            } else {
-                              closeBookmarksMenu();
-                            }
-                          }
-                        }}
-                      />
-                      <button
-                        class="header-bookmark-save"
-                        data-testid="header-bookmark-save"
-                        type="button"
-                        disabled={!canSaveBookmark()}
-                        onClick={() => { void handleSaveBookmark(); }}
-                      >
-                        Save
-                      </button>
-                    </div>
-                  </div>
-                }
-              >
-                <div class="header-bookmarks-list">
-                  <For each={sessionStore.presets}>
-                    {(preset) => (
-                      <div class="header-bookmark-row">
-                        <Show
-                          when={editingPresetId() !== preset.id}
-                          fallback={
-                            <div class="header-bookmark-rename-row" data-testid={`header-bookmark-rename-row-${preset.id}`}>
-                              <input
-                                ref={renameInputRef}
-                                type="text"
-                                class="header-bookmark-name-input"
-                                data-testid={`header-bookmark-rename-input-${preset.id}`}
-                                value={editingPresetName()}
-                                maxlength={50}
-                                autocomplete="off"
-                                autocorrect="off"
-                                autocapitalize="off"
-                                spellcheck={false}
-                                onInput={(e) => setEditingPresetName(e.currentTarget.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    void handleConfirmRename();
-                                  }
-                                  if (e.key === 'Escape') {
-                                    handleCancelRename();
-                                  }
-                                }}
-                              />
-                              <button
-                                class="header-bookmark-rename-confirm"
-                                data-testid={`header-bookmark-rename-confirm-${preset.id}`}
-                                title="Confirm rename"
-                                type="button"
-                                disabled={!editingPresetName().trim()}
-                                onClick={() => { void handleConfirmRename(); }}
-                              >
-                                <Icon path={mdiCheck} size={14} />
-                              </button>
-                              <button
-                                class="header-bookmark-rename-cancel"
-                                data-testid={`header-bookmark-rename-cancel-${preset.id}`}
-                                title="Cancel rename"
-                                type="button"
-                                onClick={handleCancelRename}
-                              >
-                                <Icon path={mdiClose} size={14} />
-                              </button>
-                            </div>
-                          }
-                        >
-                          <button
-                            class="header-bookmark-item"
-                            data-testid={`header-bookmark-item-${preset.id}`}
-                            title={preset.name}
-                            type="button"
-                            onClick={() => { void handleActivateBookmark(preset.id); }}
-                          >
-                            <span class="header-bookmark-item-name">{preset.name}</span>
-                            <span class="header-bookmark-item-badge">{preset.tabs.length} tabs</span>
-                          </button>
-                          <button
-                            class="header-bookmark-rename"
-                            data-testid={`header-bookmark-rename-${preset.id}`}
-                            title="Rename bookmark"
-                            type="button"
-                            onClick={(e) => { handleStartRename(e, preset.id, preset.name); }}
-                          >
-                            <Icon path={mdiPencilOutline} size={14} />
-                          </button>
-                          <button
-                            class="header-bookmark-delete"
-                            data-testid={`header-bookmark-delete-${preset.id}`}
-                            title="Delete bookmark"
-                            type="button"
-                            onClick={(e) => { void handleDeleteBookmark(e, preset.id); }}
-                          >
-                            <Icon path={mdiDelete} size={14} />
-                          </button>
-                        </Show>
-                      </div>
-                    )}
-                  </For>
-                </div>
-
-                <Show when={canAddBookmark()}>
-                  <button
-                    class="header-bookmark-add"
-                    data-testid="header-bookmark-add-new"
-                    type="button"
-                    onClick={() => {
-                      setShowCreateBookmark(true);
-                      setBookmarkName('');
-                    }}
-                  >
-                    <Icon path={mdiPlus} size={14} />
-                    <span>Add New</span>
-                  </button>
-                </Show>
-              </Show>
-            </div>
-          </Show>
-        </div>
 
         {/* Vault button — opens the persistent SilverBullet vault in a new tab.
             Rendered only when the parent passes onVaultOpen (terminal-view +

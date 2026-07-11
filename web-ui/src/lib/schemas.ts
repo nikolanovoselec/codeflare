@@ -15,14 +15,6 @@ export const TabConfigSchema = z.object({
   label: z.string().max(50),
 });
 
-// Tab preset schema
-const TabPresetSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  tabs: z.array(TabConfigSchema),
-  createdAt: z.string(),
-});
-
 // Session mode enum
 export const SessionModeSchema = z.enum(['default', 'advanced']);
 
@@ -67,21 +59,6 @@ export const UserPreferencesSchema = z.object({
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),
   sleepAfter: z.enum(['15m', '30m', '1h', '2h', '4h']).optional(),
-});
-
-// Preset API response schemas
-export const PresetsResponseSchema = z.object({
-  presets: z.array(TabPresetSchema),
-});
-
-export const CreatePresetResponseSchema = z.object({
-  preset: TabPresetSchema,
-});
-
-export const DeletePresetResponseSchema = z.object({
-  success: z.boolean(),
-  deleted: z.boolean(),
-  id: z.string(),
 });
 
 // Shared base schema for session objects (used by response schemas below)

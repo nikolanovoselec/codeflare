@@ -428,7 +428,6 @@ const Layout: Component<LayoutProps> = (props) => {
   // Load sessions and preferences on mount
   onMount(() => {
     sessionStore.loadSessions();
-    sessionStore.loadPresets();
     sessionStore.loadPreferences();
     // Apply saved accent color
     const savedSettings = loadSettings();

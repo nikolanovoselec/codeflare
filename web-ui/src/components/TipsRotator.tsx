@@ -35,8 +35,6 @@ const ALL_TIPS: Tip[] = [
   { text: 'Accent color picker in Settings customizes the entire UI', category: 'desktop' },
   { text: 'Pre-installed terminal tools: lazygit, tmux, neovim, yazi, htop, fzf, ripgrep, gh and more', category: 'desktop' },
   // General
-  { text: 'Save your favourite terminal tab configurations with bookmark profiles', category: 'general' },
-  { text: 'Load a bookmark to restore terminal tabs and auto-launch commands', category: 'general' },
   { text: 'Coding agent credentials sync to storage for Single-Sign-On on every device', category: 'general' },
   { text: 'Your agent configuration is persisted across sessions and devices automatically', category: 'general' },
   { text: 'Enable workspace sync in Settings \u2014 never lose code changes again', category: 'general' },
