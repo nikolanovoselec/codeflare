@@ -113,13 +113,12 @@ describe('cleanupUserData', () => {
     expect(mockKV.delete).toHaveBeenCalledWith(`user:${email}`);
   });
 
-  it('deletes bucket-keyed KV entries (storage-stats, presets, preferences)', async () => {
+  it('deletes bucket-keyed KV entries (storage-stats, preferences)', async () => {
     mockKV._store.set('setup:account_id', 'test-account-id');
 
     await cleanupUserData(email, createEnv());
 
     expect(mockKV.delete).toHaveBeenCalledWith(`storage-stats:${bucketName}`);
-    expect(mockKV.delete).toHaveBeenCalledWith(`presets:${bucketName}`);
     expect(mockKV.delete).toHaveBeenCalledWith(`user-prefs:${bucketName}`);
   });
 

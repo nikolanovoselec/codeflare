@@ -32,15 +32,9 @@ vi.mock('../../stores/terminal', () => ({
 
 const sessionStoreState = vi.hoisted(() => ({
   activeSessionId: 'session-1' as string | null,
-  presets: [] as Array<{ id: string; name: string; tabs: Array<{ id: string; command: string; label: string }>; createdAt: string }>,
   error: null as string | null,
   saasMode: false as boolean,
   enterpriseMode: false as boolean,
-  loadPresets: vi.fn(async () => undefined),
-  saveBookmarkForSession: vi.fn(async () => ({ id: 'new-bookmark', name: 'My Bookmark', tabs: [], createdAt: new Date().toISOString() }) as { id: string; name: string; tabs: never[]; createdAt: string } | null),
-  applyPresetToSession: vi.fn(async () => true),
-  deletePreset: vi.fn(async () => undefined),
-  renamePreset: vi.fn(async () => ({ id: 'preset-1', name: 'Renamed', tabs: [], createdAt: new Date().toISOString() })),
 }));
 
 // Mock getUsageState - returns usage data for the header dropdown display
@@ -54,9 +48,6 @@ vi.mock('../../stores/session', () => ({
     get activeSessionId() {
       return sessionStoreState.activeSessionId;
     },
-    get presets() {
-      return sessionStoreState.presets;
-    },
     get error() {
       return sessionStoreState.error;
     },
@@ -66,16 +57,6 @@ vi.mock('../../stores/session', () => ({
     get enterpriseMode() {
       return sessionStoreState.enterpriseMode;
     },
-    loadPresets: (...args: Parameters<typeof sessionStoreState.loadPresets>) =>
-      sessionStoreState.loadPresets(...args),
-    saveBookmarkForSession: (...args: Parameters<typeof sessionStoreState.saveBookmarkForSession>) =>
-      sessionStoreState.saveBookmarkForSession(...args),
-    applyPresetToSession: (...args: Parameters<typeof sessionStoreState.applyPresetToSession>) =>
-      sessionStoreState.applyPresetToSession(...args),
-    deletePreset: (...args: Parameters<typeof sessionStoreState.deletePreset>) =>
-      sessionStoreState.deletePreset(...args),
-    renamePreset: (...args: Parameters<typeof sessionStoreState.renamePreset>) =>
-      sessionStoreState.renamePreset(...args),
   },
   getUsageState: () => usageStateMock.value,
 }));
@@ -97,7 +78,6 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStoreState.activeSessionId = 'session-1';
-    sessionStoreState.presets = [];
     sessionStoreState.error = null;
     sessionStoreState.saasMode = false;
     sessionStoreState.enterpriseMode = false;
@@ -122,9 +102,6 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
 
       const userMenu = screen.getByTestId('header-user-menu');
       expect(userMenu).toBeInTheDocument();
-
-      const bookmarksButton = screen.getByTestId('header-bookmarks-button');
-      expect(bookmarksButton).toBeInTheDocument();
     });
 
     it('should render logo with dashboard icon', () => {
@@ -255,243 +232,6 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
       const icon = userMenu.querySelector('svg');
 
       expect(icon).toBeInTheDocument();
-    });
-  });
-
-  describe('Bookmarks', () => {
-    it('opens name input and save button when clicked with no existing bookmarks', () => {
-      sessionStoreState.presets = [];
-      render(() => <Header {...defaultSessionProps} />);
-
-      const bookmarksButton = screen.getByTestId('header-bookmarks-button');
-      fireEvent.click(bookmarksButton);
-
-      expect(screen.getByTestId('header-bookmark-name-input')).toBeInTheDocument();
-      expect(screen.getByTestId('header-bookmark-save')).toBeInTheDocument();
-    });
-
-    it('saves bookmark when clicking save in create mode', async () => {
-      sessionStoreState.presets = [];
-      render(() => <Header {...defaultSessionProps} />);
-
-      fireEvent.click(screen.getByTestId('header-bookmarks-button'));
-      const input = screen.getByTestId('header-bookmark-name-input');
-      fireEvent.input(input, { target: { value: 'Workspace Tools' } });
-      fireEvent.click(screen.getByTestId('header-bookmark-save'));
-
-      expect(sessionStoreState.saveBookmarkForSession).toHaveBeenCalledWith('session-1', 'Workspace Tools');
-    });
-
-    it('saves bookmark when pressing Enter in create mode', async () => {
-      sessionStoreState.presets = [];
-      render(() => <Header {...defaultSessionProps} />);
-
-      fireEvent.click(screen.getByTestId('header-bookmarks-button'));
-      const input = screen.getByTestId('header-bookmark-name-input');
-      fireEvent.input(input, { target: { value: 'Workspace Tools' } });
-      fireEvent.keyDown(input, { key: 'Enter' });
-
-      expect(sessionStoreState.saveBookmarkForSession).toHaveBeenCalledWith('session-1', 'Workspace Tools');
-    });
-
-    it('shows saved bookmarks in dropdown and activates bookmark on row click', () => {
-      sessionStoreState.presets = [
-        {
-          id: 'preset-1',
-          name: 'Dev Stack',
-          createdAt: new Date().toISOString(),
-          tabs: [
-            { id: '2', command: 'yazi', label: 'yazi' },
-            { id: '3', command: 'lazygit', label: 'lazygit' },
-          ],
-        },
-      ];
-
-      render(() => <Header {...defaultSessionProps} />);
-
-      fireEvent.click(screen.getByTestId('header-bookmarks-button'));
-      fireEvent.click(screen.getByTestId('header-bookmark-item-preset-1'));
-
-      expect(sessionStoreState.applyPresetToSession).toHaveBeenCalledWith('session-1', 'preset-1');
-    });
-
-    it('deletes bookmark via trash button', () => {
-      sessionStoreState.presets = [
-        {
-          id: 'preset-1',
-          name: 'Dev Stack',
-          createdAt: new Date().toISOString(),
-          tabs: [{ id: '2', command: 'yazi', label: 'yazi' }],
-        },
-      ];
-
-      render(() => <Header {...defaultSessionProps} />);
-
-      fireEvent.click(screen.getByTestId('header-bookmarks-button'));
-      fireEvent.click(screen.getByTestId('header-bookmark-delete-preset-1'));
-
-      expect(sessionStoreState.deletePreset).toHaveBeenCalledWith('preset-1');
-    });
-
-    it('shows error message when save fails', async () => {
-      sessionStoreState.presets = [];
-      sessionStoreState.saveBookmarkForSession = vi.fn(async (): Promise<{ id: string; name: string; tabs: never[]; createdAt: string } | null> => {
-        sessionStoreState.error = 'Open at least one tab (2-6) before saving a bookmark';
-        return null;
-      });
-
-      render(() => <Header {...defaultSessionProps} />);
-
-      fireEvent.click(screen.getByTestId('header-bookmarks-button'));
-      const input = screen.getByTestId('header-bookmark-name-input');
-      fireEvent.input(input, { target: { value: 'My Preset' } });
-      fireEvent.click(screen.getByTestId('header-bookmark-save'));
-
-      await waitFor(() => {
-        expect(screen.getByTestId('header-bookmark-error')).toBeInTheDocument();
-        expect(screen.getByTestId('header-bookmark-error')).toBeInTheDocument();
-      });
-    });
-
-    it('shows rename input when pencil icon is clicked', () => {
-      sessionStoreState.presets = [
-        {
-          id: 'preset-1',
-          name: 'Dev Stack',
-          createdAt: new Date().toISOString(),
-          tabs: [{ id: '2', command: 'yazi', label: 'yazi' }],
-        },
-      ];
-
-      render(() => <Header {...defaultSessionProps} />);
-
-      fireEvent.click(screen.getByTestId('header-bookmarks-button'));
-      fireEvent.click(screen.getByTestId('header-bookmark-rename-preset-1'));
-
-      expect(screen.getByTestId('header-bookmark-rename-row-preset-1')).toBeInTheDocument();
-      expect(screen.getByTestId('header-bookmark-rename-input-preset-1')).toBeInTheDocument();
-      expect(screen.getByTestId('header-bookmark-rename-confirm-preset-1')).toBeInTheDocument();
-      expect(screen.getByTestId('header-bookmark-rename-cancel-preset-1')).toBeInTheDocument();
-    });
-
-    it('calls renamePreset when confirming rename', async () => {
-      sessionStoreState.presets = [
-        {
-          id: 'preset-1',
-          name: 'Dev Stack',
-          createdAt: new Date().toISOString(),
-          tabs: [{ id: '2', command: 'yazi', label: 'yazi' }],
-        },
-      ];
-
-      render(() => <Header {...defaultSessionProps} />);
-
-      fireEvent.click(screen.getByTestId('header-bookmarks-button'));
-      fireEvent.click(screen.getByTestId('header-bookmark-rename-preset-1'));
-
-      const input = screen.getByTestId('header-bookmark-rename-input-preset-1');
-      fireEvent.input(input, { target: { value: 'New Name' } });
-      fireEvent.click(screen.getByTestId('header-bookmark-rename-confirm-preset-1'));
-
-      expect(sessionStoreState.renamePreset).toHaveBeenCalledWith('preset-1', 'New Name');
-    });
-
-    it('cancels rename when cancel button is clicked', () => {
-      sessionStoreState.presets = [
-        {
-          id: 'preset-1',
-          name: 'Dev Stack',
-          createdAt: new Date().toISOString(),
-          tabs: [{ id: '2', command: 'yazi', label: 'yazi' }],
-        },
-      ];
-
-      render(() => <Header {...defaultSessionProps} />);
-
-      fireEvent.click(screen.getByTestId('header-bookmarks-button'));
-      fireEvent.click(screen.getByTestId('header-bookmark-rename-preset-1'));
-
-      // Rename row should be visible
-      expect(screen.getByTestId('header-bookmark-rename-row-preset-1')).toBeInTheDocument();
-
-      fireEvent.click(screen.getByTestId('header-bookmark-rename-cancel-preset-1'));
-
-      // Rename row should be gone, original item should be back
-      expect(screen.queryByTestId('header-bookmark-rename-row-preset-1')).not.toBeInTheDocument();
-      expect(screen.getByTestId('header-bookmark-item-preset-1')).toBeInTheDocument();
-    });
-
-    it('confirms rename via Enter key', async () => {
-      sessionStoreState.presets = [
-        {
-          id: 'preset-1',
-          name: 'Dev Stack',
-          createdAt: new Date().toISOString(),
-          tabs: [{ id: '2', command: 'yazi', label: 'yazi' }],
-        },
-      ];
-
-      render(() => <Header {...defaultSessionProps} />);
-
-      fireEvent.click(screen.getByTestId('header-bookmarks-button'));
-      fireEvent.click(screen.getByTestId('header-bookmark-rename-preset-1'));
-
-      const input = screen.getByTestId('header-bookmark-rename-input-preset-1');
-      fireEvent.input(input, { target: { value: 'New Name' } });
-      fireEvent.keyDown(input, { key: 'Enter' });
-
-      expect(sessionStoreState.renamePreset).toHaveBeenCalledWith('preset-1', 'New Name');
-    });
-
-    it('cancels rename via Escape key', () => {
-      sessionStoreState.presets = [
-        {
-          id: 'preset-1',
-          name: 'Dev Stack',
-          createdAt: new Date().toISOString(),
-          tabs: [{ id: '2', command: 'yazi', label: 'yazi' }],
-        },
-      ];
-
-      render(() => <Header {...defaultSessionProps} />);
-
-      fireEvent.click(screen.getByTestId('header-bookmarks-button'));
-      fireEvent.click(screen.getByTestId('header-bookmark-rename-preset-1'));
-
-      const input = screen.getByTestId('header-bookmark-rename-input-preset-1');
-      fireEvent.keyDown(input, { key: 'Escape' });
-
-      expect(screen.queryByTestId('header-bookmark-rename-row-preset-1')).not.toBeInTheDocument();
-      expect(screen.getByTestId('header-bookmark-item-preset-1')).toBeInTheDocument();
-    });
-
-    it('clears error when reopening bookmarks menu', async () => {
-      sessionStoreState.presets = [];
-      sessionStoreState.saveBookmarkForSession = vi.fn(async (): Promise<{ id: string; name: string; tabs: never[]; createdAt: string } | null> => {
-        sessionStoreState.error = 'Some error';
-        return null;
-      });
-
-      render(() => <Header {...defaultSessionProps} />);
-
-      // Open and trigger error
-      fireEvent.click(screen.getByTestId('header-bookmarks-button'));
-      const input = screen.getByTestId('header-bookmark-name-input');
-      fireEvent.input(input, { target: { value: 'test' } });
-      fireEvent.click(screen.getByTestId('header-bookmark-save'));
-
-      await waitFor(() => {
-        expect(screen.getByTestId('header-bookmark-error')).toBeInTheDocument();
-      });
-
-      // Close menu
-      fireEvent.click(screen.getByTestId('header-bookmarks-button'));
-
-      // Reopen menu
-      fireEvent.click(screen.getByTestId('header-bookmarks-button'));
-
-      // Error should be cleared
-      expect(screen.queryByTestId('header-bookmark-error')).not.toBeInTheDocument();
     });
   });
 

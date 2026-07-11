@@ -10,7 +10,7 @@ import { SESSION_ID_PATTERN, getMaxSessions, REQUEST_ID_PATTERN } from '../../li
 import { escapeXml, decodeXmlEntities } from '../../lib/xml-utils';
 import { getBucketName } from '../../lib/access';
 import { getContainerId } from '../../lib/container-helpers';
-import { sanitizeSessionName, getSessionKey, getSessionPrefix, getPresetsKey, getPreferencesKey } from '../../lib/kv-keys';
+import { sanitizeSessionName, getSessionKey, getSessionPrefix, getPreferencesKey } from '../../lib/kv-keys';
 import { getR2Url, parseListObjectsXml, parseInitiateMultipartUploadXml } from '../../lib/r2-client';
 import { CircuitBreaker } from '../../lib/circuit-breaker';
 import { validateKey, MAX_KEY_LENGTH } from '../../routes/storage/validation';
@@ -485,14 +485,11 @@ describe('Fuzz: KV key namespace isolation', () => {
   it('different key functions never produce colliding keys', () => {
     fc.assert(
       fc.property(validBucket, (bucket) => {
-        const presets = getPresetsKey(bucket);
         const prefs = getPreferencesKey(bucket);
         const sessionPrefix = getSessionPrefix(bucket);
         // No cross-namespace collisions
-        expect(presets).not.toBe(prefs);
-        expect(presets.startsWith('session:')).toBe(false);
         expect(prefs.startsWith('session:')).toBe(false);
-        expect(presets.startsWith(sessionPrefix)).toBe(false);
+        expect(prefs.startsWith(sessionPrefix)).toBe(false);
       }),
       { numRuns: NUM_RUNS },
     );

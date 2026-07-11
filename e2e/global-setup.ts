@@ -29,30 +29,10 @@ async function deleteAllSessions() {
   }
 }
 
-async function deleteAllPresets() {
-  try {
-    const res = await apiRequest('/api/presets');
-    if (res.ok) {
-      const data = await res.json();
-      const presets = data.presets;
-      if (Array.isArray(presets)) {
-        for (const p of presets) {
-          await apiRequest(`/api/presets/${p.id}`, { method: 'DELETE' }).catch(() => {});
-          await new Promise(r => setTimeout(r, 500));
-        }
-      }
-    }
-  } catch {
-    console.warn('E2E global setup: failed to clean presets (non-fatal)');
-  }
-}
-
 export async function setup() {
   await deleteAllSessions();
-  await deleteAllPresets();
 }
 
 export async function teardown() {
   await deleteAllSessions();
-  await deleteAllPresets();
 }

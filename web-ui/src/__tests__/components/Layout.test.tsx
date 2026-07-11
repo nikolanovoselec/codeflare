@@ -140,10 +140,8 @@ vi.mock('../../stores/session', () => ({
     renameSession: vi.fn(),
     loadPreferences: vi.fn(),
     updatePreferences: vi.fn(),
-    loadPresets: vi.fn(),
     startSessionListPolling: vi.fn(),
     stopSessionListPolling: vi.fn(),
-    presets: [],
     get preferences() { readSessionStoreVersion(); return mockPreferences; },
   },
   getUsageWarningLevel: vi.fn(() => 'none'),
@@ -1111,7 +1109,6 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       render(() => <Layout />);
 
       expect(sessionStore.loadSessions).toHaveBeenCalled();
-      expect(sessionStore.loadPresets).toHaveBeenCalled();
     });
   });
 

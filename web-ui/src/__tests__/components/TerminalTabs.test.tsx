@@ -21,10 +21,6 @@ vi.mock('../../stores/session', () => ({
     getTilingForSession: vi.fn(),
     setTilingLayout: vi.fn(),
     sessions: [],
-    savePreset: vi.fn(),
-    presets: [],
-    deletePreset: vi.fn(),
-    loadPresets: vi.fn(),
   },
 }));
 
@@ -82,22 +78,6 @@ describe('TerminalTabs Component', () => {
       render(() => <TerminalTabs sessionId={mockSessionId} />);
 
       expect(screen.getByTestId('terminal-tab-add')).toBeInTheDocument();
-    });
-
-    it('should not render bookmark button in tab bar', () => {
-      vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({
-        tabs: [
-          { id: '1', createdAt: new Date().toISOString() },
-          { id: '2', createdAt: new Date().toISOString() },
-        ],
-        activeTabId: '1',
-        tabOrder: ['1', '2'],
-        tiling: { enabled: false, layout: 'tabbed' },
-      });
-
-      render(() => <TerminalTabs sessionId={mockSessionId} />);
-
-      expect(screen.queryByTestId('terminal-tab-preset-btn')).not.toBeInTheDocument();
     });
 
     it('should not render add tab button when at max tabs', () => {

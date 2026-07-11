@@ -40,9 +40,6 @@ vi.mock('../../api/client', () => ({
   getStartupStatus: vi.fn(),
   startSession: vi.fn(),
   stopSession: vi.fn(),
-  getPresets: vi.fn().mockResolvedValue([]),
-  savePreset: vi.fn(),
-  deletePreset: vi.fn(),
   getPreferences: vi.fn().mockResolvedValue({}),
   updatePreferences: vi.fn().mockResolvedValue({}),
   getR2Status: vi.fn().mockResolvedValue({ ready: false }),
@@ -891,109 +888,6 @@ describe('Session Store', () => {
       // Original session unchanged
       const session = sessionStore.sessions.find((s: { id: string }) => s.id === 'session-1');
       expect(session?.name).toBe('Original Name');
-    });
-  });
-
-  describe('bookmarks', () => {
-    it('saveBookmarkForSession should capture ordered tabs 2-6 and infer commands from live process', async () => {
-      mockGetSessions.mockResolvedValue([
-        {
-          id: 'session-1',
-          name: 'Bookmark Session',
-          createdAt: new Date().toISOString(),
-          lastAccessedAt: new Date().toISOString(),
-          tabConfig: [{ id: '1', command: 'claude', label: 'claude' }],
-        },
-      ]);
-      await sessionStore.loadSessions();
-      sessionStore.initializeTerminalsForSession('session-1');
-      sessionStore.addTerminalTab('session-1'); // tab 2
-      sessionStore.addTerminalTab('session-1'); // tab 3
-      sessionStore.reorderTerminalTabs('session-1', ['1', '3', '2']);
-      sessionStore.updateTerminalLabel('session-1', '2', 'yazi');
-      sessionStore.updateTerminalLabel('session-1', '3', 'lazygit');
-
-      const mockSavePreset = vi.mocked(api.savePreset);
-      mockSavePreset.mockResolvedValue({
-        id: 'preset-1',
-        name: 'Dev Tools',
-        tabs: [
-          { id: '3', command: 'lazygit', label: 'lazygit' },
-          { id: '2', command: 'yazi', label: 'yazi' },
-        ],
-        createdAt: new Date().toISOString(),
-      });
-
-      await sessionStore.saveBookmarkForSession('session-1', '  Dev Tools  ');
-
-      expect(mockSavePreset).toHaveBeenCalledWith({
-        name: 'Dev Tools',
-        tabs: [
-          { id: '3', command: 'lazygit', label: 'lazygit' },
-          { id: '2', command: 'yazi', label: 'yazi' },
-        ],
-      });
-    });
-
-    it('applyPresetToSession should apply tab order, persist tabConfig, and auto-launch commands', async () => {
-      const now = new Date().toISOString();
-      mockGetSessions.mockResolvedValue([
-        {
-          id: 'session-1',
-          name: 'Bookmark Session',
-          createdAt: now,
-          lastAccessedAt: now,
-          tabConfig: [{ id: '1', command: 'claude', label: 'claude' }],
-        },
-      ]);
-      await sessionStore.loadSessions();
-      sessionStore.initializeTerminalsForSession('session-1');
-      sessionStore.addTerminalTab('session-1'); // tab 2
-      sessionStore.addTerminalTab('session-1'); // tab 3
-      sessionStore.addTerminalTab('session-1'); // tab 4 (removed by preset apply)
-
-      const preset = {
-        id: 'preset-1',
-        name: 'Workspace Tools',
-        createdAt: now,
-        tabs: [
-          { id: '2', command: 'yazi', label: 'yazi' },
-          { id: '3', command: 'lazygit', label: 'lazygit' },
-        ],
-      };
-      vi.mocked(api.getPresets).mockResolvedValue([preset]);
-      await sessionStore.loadPresets();
-
-      vi.mocked(api.updateSession).mockResolvedValue({
-        id: 'session-1',
-        name: 'Bookmark Session',
-        createdAt: now,
-        lastAccessedAt: now,
-        tabConfig: [
-          { id: '1', command: 'claude', label: 'claude' },
-          { id: '2', command: 'yazi', label: 'yazi' },
-          { id: '3', command: 'lazygit', label: 'lazygit' },
-        ],
-      });
-      mockSendInputToTerminal.mockReturnValue(true);
-
-      const applied = await sessionStore.applyPresetToSession('session-1', 'preset-1');
-
-      expect(applied).toBe(true);
-      expect(terminal.terminalStore.dispose).toHaveBeenCalledWith('session-1', '4');
-      expect(vi.mocked(api.updateSession)).toHaveBeenCalledWith('session-1', {
-        tabConfig: [
-          { id: '1', command: 'claude', label: 'claude' },
-          { id: '2', command: 'yazi', label: 'yazi' },
-          { id: '3', command: 'lazygit', label: 'lazygit' },
-        ],
-      });
-      expect(mockSendInputToTerminal).toHaveBeenCalledWith('session-1', '2', 'yazi\n');
-      expect(mockSendInputToTerminal).toHaveBeenCalledWith('session-1', '3', 'lazygit\n');
-
-      const terminals = sessionStore.getTerminalsForSession('session-1');
-      expect(terminals?.tabOrder).toEqual(['1', '2', '3']);
-      expect(terminals?.tabs.map((tab) => tab.id)).toEqual(['1', '2', '3']);
     });
   });
 

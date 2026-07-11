@@ -48,7 +48,6 @@ vi.mock('../../stores/terminal', () => ({
 
 const sessionStoreState = vi.hoisted(() => ({
   preferences: { workspaceSyncEnabled: false, fastStartEnabled: undefined, sessionMode: undefined } as Record<string, unknown>,
-  presets: [] as unknown[],
   activeSessionId: null as string | null,
   error: null as string | null,
   saasMode: false as boolean,
@@ -58,16 +57,10 @@ const sessionStoreState = vi.hoisted(() => ({
 vi.mock('../../stores/session', () => ({
   sessionStore: {
     get preferences() { return sessionStoreState.preferences; },
-    get presets() { return sessionStoreState.presets; },
     get activeSessionId() { return sessionStoreState.activeSessionId; },
     get error() { return sessionStoreState.error; },
     get saasMode() { return sessionStoreState.saasMode; },
     get enterpriseMode() { return sessionStoreState.enterpriseMode; },
-    loadPresets: vi.fn(async () => undefined),
-    saveBookmarkForSession: vi.fn(async () => null),
-    applyPresetToSession: vi.fn(async () => true),
-    deletePreset: vi.fn(async () => undefined),
-    renamePreset: vi.fn(async () => null),
     updatePreferences: vi.fn(async () => undefined),
   },
   getUsageState: () => ({ monthlySeconds: 0, monthlyQuotaSeconds: null }),
@@ -105,7 +98,6 @@ const headerProps = {
 beforeEach(() => {
   vi.clearAllMocks();
   sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined, sessionMode: undefined };
-  sessionStoreState.presets = [];
   sessionStoreState.activeSessionId = null;
   sessionStoreState.error = null;
   sessionStoreState.saasMode = false;

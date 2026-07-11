@@ -53,7 +53,6 @@ vi.mock('../../routes/session/index', () => ({ default: new Hono() }));
 vi.mock('../../routes/setup/index', () => ({ default: new Hono() }));
 vi.mock('../../routes/users', () => ({ default: new Hono() }));
 vi.mock('../../routes/storage', () => ({ default: new Hono() }));
-vi.mock('../../routes/presets', () => ({ default: new Hono() }));
 vi.mock('../../routes/preferences', () => ({ default: new Hono() }));
 vi.mock('../../routes/public/index', () => ({ default: new Hono() }));
 // Stripe webhook route: a minimal handler so we can exercise the bodyLimit
