@@ -332,7 +332,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   // We assert the gating by inspecting the prop Layout hands to Header.
   // =========================================================================
 
-  // REQ-IDE-003 AC5: the browser-IDE (OpenVSCode) button is gated like the vault
+  // REQ-IDE-003 AC6: the browser-IDE (OpenVSCode) button is gated like the vault
   // PLUS a running-session requirement. Layout passes onVscodeOpen only for an
   // active, advanced-mode, RUNNING session; otherwise the prop is undefined and
   // Header never renders the button. Asserted by inspecting the prop + the URL.

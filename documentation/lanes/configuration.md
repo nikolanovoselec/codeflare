@@ -16,6 +16,7 @@ Codeflare runs in four deployment modes. **Default mode** is self-contained — 
 - [Enterprise mode](#enterprise-mode)
 - [Reference](#reference)
 - [Related Documentation](#related-documentation)
+- [Manual verification checklist](#manual-verification-checklist)
 
 ---
 
@@ -40,6 +41,8 @@ Codeflare runs in four deployment modes. **Default mode** is self-contained — 
 | `SERVICE_AUTH_SECRET` | Worker secret for E2E/CLI service auth (`X-Service-Auth` header) | - | no | Worker secret (optional) | [REQ-AUTH-003](../../sdd/spec/authentication.md#req-auth-003-cf-access-mode-for-all-other-deployments), [REQ-SETUP-003](../../sdd/spec/setup.md#req-setup-003-three-deployment-modes) |
 | `STRESS_TEST_MODE` | `"active"` disables all rate limits (integration only) | inactive | no | Worker env var | [REQ-OPS-007](../../sdd/spec/operations.md#req-ops-007-container-specs-configurable-per-environment), [REQ-SEC-019](../../sdd/spec/security.md#req-sec-019-per-endpoint-rate-limit-policy) |
 | `ENCRYPTION_KEY` | AES-256-GCM key for `llm-keys:*`/`deploy-keys:*`/`r2token:*` KV entries and the R2 SSE-C key; also the HKDF master input for the per-bucket vault key (`HKDF-SHA256(ENCRYPTION_KEY, info=bucketName)`; vault bootstrap fails 500 if absent). | - | yes | Wrangler secret (optional) | [REQ-SEC-002](../../sdd/spec/security.md#req-sec-002-api-tokens-never-enter-containers), [REQ-SEC-005](../../sdd/spec/security.md#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key), [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) |
+
+There is no development authentication-bypass variable or separate bypass path. Development and production requests use the same identity and authorization middleware in `src/middleware/auth.ts`; admin routes additionally use `requireAdmin`.
 
 ### Container Environment
 
@@ -160,7 +163,7 @@ In non-enterprise modes a user connects their own Cloudflare account via OAuth (
 
 **Scopes.** The connect URL carries a tier (minimal/recommended/advanced); the server maps it to the OAuth `scope` using **dot-notation scope IDs** from Cloudflare's OAuth catalog (`GET /client/v4/oauth/scopes` — `<resource>.<read|write>` form, e.g. `workers-scripts.write`, `account-settings.read`, `ai.write`; **not** the colon-style API-token permission-group keys), always including `offline_access` for a refresh token, from the server-side catalog in `src/lib/oauth-scopes.ts`. The operator's OAuth client must be registered with at least the **Advanced superset**, since per-connect requests can only narrow within the registered scopes.
 
-For a per-scope dashboard display-name lookup (Cloudflare's picker shows descriptive names; the scope ID appears only after saving) and the `zone-access.write` vs `access.write` duplicate-label gotcha, see the [OAuth scope registration table](../../README.md#selecting-these-scopes-on-the-cloudflare-dashboard) in the root README.
+Cloudflare's picker shows descriptive names while the scope ID appears only after saving. Verify the saved ID: `zone-access.write` and `access.write` can display the same label but grant different access.
 
 ### GitHub Integration
 
@@ -262,7 +265,7 @@ Additional details:
 
 **`AIG_TOKEN`:** **Cloudflare API token carrying BOTH "Workers AI" and "AI Gateway: Run" permissions** (dual transport — [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api)). The interceptor sends it as `Authorization: Bearer` to the REST API (`api.cloudflare.com/.../ai/v1/*`, uses the Workers AI scope) and as `cf-aig-authorization: Bearer` to the compat fallback (`gateway.ai.cloudflare.com/.../compat/*`, uses the AI Gateway Run scope). See the warning below. Read exclusively by `LlmInterceptor`; never injected into the container.
 
-Both secrets are an **optional fallback**: the AI Gateway URL + token are normally configured in the Setup wizard and persisted in KV (`setup:aig_gateway_url` / `setup:aig_token`, see below), and `getAigConfig` resolves KV first, then these deploy secrets ([REQ-ENTERPRISE-017](../../sdd/spec/enterprise-mode.md#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard)). When neither source is set, a deployment behaves identically to a non-enterprise deployment regardless of the `ENTERPRISE_MODE` variable. See [Architecture - Enterprise LLM Routing](architecture.md#enterprise-llm-routing-enterprise-mode) and [Deployment - Enterprise Secrets](deployment.md#enterprise-mode-secrets).
+Both secrets are an **optional fallback**: the AI Gateway URL + token are normally configured in the Setup wizard and persisted in KV (`setup:aig_gateway_url` / `setup:aig_token`, see below), and `getAigConfig` resolves KV first, then these deploy secrets ([REQ-ENTERPRISE-017](../../sdd/spec/enterprise-mode.md#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard)). When neither source is set, a deployment behaves identically to a non-enterprise deployment regardless of the `ENTERPRISE_MODE` variable. See [Architecture - Enterprise LLM Routing](architecture.md#enterprise-llm-routing) and [Deployment - Enterprise Secrets](deployment.md#enterprise-mode-secrets).
 
 **AIG_TOKEN credential type — important.** Enterprise LLM traffic uses two AI Gateway transports with different auth. One Cloudflare API token must carry **both** permissions: **Workers AI** for the REST API `/ai/v1/*` (`Authorization: Bearer`) and **"AI Gateway: Run"** for the compat path (`cf-aig-authorization: Bearer`).
 

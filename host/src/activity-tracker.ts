@@ -3,8 +3,8 @@
  *
  * Tracks WebSocket client connection/disconnection events and user input
  * timestamps. The container DO polls /activity every 60s; its idle policy is
- * keyed off lastInputAt (terminal or Browser IDE input) in collectMetrics and stops the
- * container at the configured idle timeout - see src/container/index.ts.
+ * keyed off lastInputAt (terminal or Browser IDE input) in collectMetrics and
+ * stops the container at the configured idle timeout - see src/container/index.ts.
  *
  * NOTE: there is NO 30-minute (or any) disconnect-based auto-expire.
  * `disconnectedForMs` / `lastAllDisconnectedAt` are still computed here but are

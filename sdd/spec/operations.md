@@ -32,18 +32,18 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The deploy workflow triggers automatically on successful PR-check completion against the main branch. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow / REQ-OPS-005 (scheduled pentest runs against deployed worker) / REQ-SEC-001 (auth-gate pentest job) / REQ-SEC-002 (info-disclosure pentest job) / REQ-SEC-008 (security-headers pentest job verifies all headers) / REQ-SEC-009 (injection pentest job) / REQ-SEC-010 (storage-key injection pentest job) / REQ-SEC-013 (Content-Disposition pentest under injection job) / REQ-SEC-014 (SaaS auth-gate pentest job) / REQ-SEC-021 (security-headers pentest exercises redirect paths)) -->
-2. The deploy workflow also supports manual dispatch with environment selection (production or integration). <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow / REQ-OPS-005 (scheduled pentest runs against deployed worker) / REQ-SEC-001 (auth-gate pentest job) / REQ-SEC-002 (info-disclosure pentest job) / REQ-SEC-008 (security-headers pentest job verifies all headers) / REQ-SEC-009 (injection pentest job) / REQ-SEC-010 (storage-key injection pentest job) / REQ-SEC-013 (Content-Disposition pentest under injection job) / REQ-SEC-014 (SaaS auth-gate pentest job) / REQ-SEC-021 (security-headers pentest exercises redirect paths)) -->
-3. The deploy pipeline runs end-to-end: install dependencies, build, test, typecheck, build the container image, scan it, push it, deploy, and set secrets. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/workflow-files.test.js (container image pipeline / REQ-OPS-002 (image built, scanned, pushed, DO-bound) / REQ-OPS-014 (image-patch + resource-tier in deploy) / REQ-SEC-011 (Trivy scan blocks deploy on HIGH+ CVEs)) -->
-4. Dependencies are cached between runs for faster pipeline execution. <!-- @test: host/__tests__/workflow-files.test.js (deploy.yml runs backend + frontend tests + type checks before deploy (pre-deploy gate)) -->
-5. Frontend is built, and both backend and frontend tests and typechecks run before any deployment steps. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/workflow-files.test.js (deploy.yml runs backend + frontend tests + type checks before deploy (pre-deploy gate)) -->
+1. The deploy workflow triggers automatically on successful PR-check completion against the main branch. <!-- @impl: .github/workflows/deploy.yml::deploy -->
+2. The deploy workflow also supports manual dispatch to production, integration, enterprise, or enterprise integration. <!-- @impl: .github/workflows/deploy.yml::deploy -->
+3. The deploy pipeline runs end-to-end: install dependencies, build, test, typecheck, build the container image, scan it, push it, deploy, and set secrets. <!-- @impl: .github/workflows/deploy.yml::deploy -->
+4. Dependencies are cached between runs for faster pipeline execution.
+5. Frontend is built, and both backend and frontend tests and typechecks run before any deployment steps. <!-- @impl: .github/workflows/deploy.yml::deploy -->
 6. The KV namespace is resolved or created and applied to the deployment configuration. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
 
 **Notes:** Manual verification procedures are documented in the [deployment checklist](../../documentation/lanes/deployment.md#manual-verification-checklist).
 
 **Constraints:**
 
-- Two deployment environments are supported: production (auto on push to main) and integration (manual dispatch only).
+- Automatic production deployment follows a successful main-branch PR check; manual dispatch supports production, integration, enterprise, and enterprise integration.
 - The CI runner label is configurable to support self-hosted runners.
 - The deploy command, secret-setting, and post-deploy seed steps live in [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks).
 
@@ -65,11 +65,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The container image is built in the CI runner on every deploy. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/workflow-files.test.js (container image pipeline / REQ-OPS-002 (image built, scanned, pushed, DO-bound) / REQ-OPS-014 (image-patch + resource-tier in deploy) / REQ-SEC-011 (Trivy scan blocks deploy on HIGH+ CVEs)) -->
-2. The built image is scanned for HIGH and CRITICAL severity vulnerabilities. <!-- @impl: .github/workflows/deploy.yml::deploy = HIGH,CRITICAL --> <!-- @test: host/__tests__/workflow-files.test.js (container image pipeline / REQ-OPS-002 (image built, scanned, pushed, DO-bound) / REQ-OPS-014 (image-patch + resource-tier in deploy) / REQ-SEC-011 (Trivy scan blocks deploy on HIGH+ CVEs)) -->
-3. Known vulnerability exceptions are tracked in a project-level allowlist. <!-- @test: host/__tests__/workflow-files.test.js (container image pipeline / REQ-OPS-002 (image built, scanned, pushed, DO-bound) / REQ-OPS-014 (image-patch + resource-tier in deploy) / REQ-SEC-011 (Trivy scan blocks deploy on HIGH+ CVEs)) -->
-4. If the scan finds unexcepted vulnerabilities, the pipeline fails before push. <!-- @test: host/__tests__/workflow-files.test.js (container image pipeline / REQ-OPS-002 (image built, scanned, pushed, DO-bound) / REQ-OPS-014 (image-patch + resource-tier in deploy) / REQ-SEC-011 (Trivy scan blocks deploy on HIGH+ CVEs)) -->
-5. The built image is pushed to the Cloudflare container registry; the resulting registry URI is captured for downstream binding. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/workflow-files.test.js (container image pipeline / REQ-OPS-002 (image built, scanned, pushed, DO-bound) / REQ-OPS-014 (image-patch + resource-tier in deploy) / REQ-SEC-011 (Trivy scan blocks deploy on HIGH+ CVEs)) -->
+1. The container image is built in the CI runner on every deploy. <!-- @impl: .github/workflows/deploy.yml::deploy -->
+2. The built image is scanned for HIGH and CRITICAL severity vulnerabilities. <!-- @impl: .github/workflows/deploy.yml::severity = HIGH,CRITICAL -->
+3. Known vulnerability exceptions are tracked in a project-level allowlist.
+4. If the scan finds unexcepted vulnerabilities, the pipeline fails before push.
+5. The built image is pushed to the Cloudflare container registry; the resulting registry URI is captured for downstream binding. <!-- @impl: .github/workflows/deploy.yml::deploy -->
 
 **Notes:** Manual verification procedures are documented in the [deployment checklist](../../documentation/lanes/deployment.md#manual-verification-checklist).
 
@@ -95,13 +95,13 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The PR-check workflow triggers on every pull request to the main branch and on manual dispatch. <!-- @test: host/__tests__/workflow-files.test.js (shadow-pin bump workflow / REQ-OPS-020 (shadow-pin version bump automation)) -->
+1. The PR-check workflow triggers on every pull request to the main branch and on manual dispatch.
 2. The workflow runs lint on the codebase. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
-3. The workflow builds the frontend. <!-- @test: host/__tests__/workflow-files.test.js (test.yml declares a dependency-review job (REQ-OPS-009 supply-chain gate)) -->
-4. The workflow runs both backend and frontend test suites; the backend step may accept a non-zero `npm test` exit only when the log shows the known Workers-pool teardown-crash fingerprint as the single reported error, at least one test passed, and no failed-test tokens are present. <!-- @impl: .github/workflows/test.yml::test --> <!-- @test: host/__tests__/workflow-files.test.js (shadow-pin bump workflow / REQ-OPS-020 (shadow-pin version bump automation)) -->
-5. The workflow runs both backend and frontend typechecks. <!-- @test: host/__tests__/workflow-files.test.js (deploy.yml runs backend + frontend tests + type checks before deploy (pre-deploy gate)) -->
+3. The workflow builds the frontend.
+4. The workflow runs both backend and frontend test suites; the backend step may accept a non-zero `npm test` exit only when the log shows the known Workers-pool teardown-crash fingerprint as the single reported error, at least one test passed, and no failed-test tokens are present. <!-- @impl: .github/workflows/test.yml::test -->
+5. The workflow runs both backend and frontend typechecks.
 6. The workflow runs a dead-code check on the codebase. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-7. The workflow runs a high-severity security audit on production dependencies; PRs introducing dependencies with known vulnerabilities are blocked. <!-- @test: host/__tests__/workflow-files.test.js (test.yml declares a dependency-review job (REQ-OPS-009 supply-chain gate)) -->
+7. The workflow runs a high-severity security audit on production dependencies; PRs introducing dependencies with known vulnerabilities are blocked.
 
 **Notes:** Manual verification procedures are documented in the [deployment checklist](../../documentation/lanes/deployment.md#manual-verification-checklist).
 
@@ -158,9 +158,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The pentest workflow runs weekly and on manual dispatch against the configured target URL in the production environment. <!-- @impl: .github/workflows/pentest.yml::tls --> <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow / REQ-OPS-005 (scheduled pentest runs against deployed worker) / REQ-SEC-001 (auth-gate pentest job) / REQ-SEC-002 (info-disclosure pentest job) / REQ-SEC-008 (security-headers pentest job verifies all headers) / REQ-SEC-009 (injection pentest job) / REQ-SEC-010 (storage-key injection pentest job) / REQ-SEC-013 (Content-Disposition pentest under injection job) / REQ-SEC-014 (SaaS auth-gate pentest job) / REQ-SEC-021 (security-headers pentest exercises redirect paths)) -->
-2. The workflow runs six parallel probes using lightweight external tools (no active scanners) to minimize CI resource consumption. <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow / REQ-OPS-005 (scheduled pentest runs against deployed worker) / REQ-SEC-001 (auth-gate pentest job) / REQ-SEC-002 (info-disclosure pentest job) / REQ-SEC-008 (security-headers pentest job verifies all headers) / REQ-SEC-009 (injection pentest job) / REQ-SEC-010 (storage-key injection pentest job) / REQ-SEC-013 (Content-Disposition pentest under injection job) / REQ-SEC-014 (SaaS auth-gate pentest job) / REQ-SEC-021 (security-headers pentest exercises redirect paths)) -->
-3. Six probe types cover response headers, TLS posture, authentication gates, information disclosure, injection vectors, and HTTP method handling; per-probe checklists live in [documentation/lanes/security.md#penetration-testing-reference](../../documentation/lanes/security.md#penetration-testing-reference). <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow / REQ-OPS-005 (scheduled pentest runs against deployed worker) / REQ-SEC-001 (auth-gate pentest job) / REQ-SEC-002 (info-disclosure pentest job) / REQ-SEC-008 (security-headers pentest job verifies all headers) / REQ-SEC-009 (injection pentest job) / REQ-SEC-010 (storage-key injection pentest job) / REQ-SEC-013 (Content-Disposition pentest under injection job) / REQ-SEC-014 (SaaS auth-gate pentest job) / REQ-SEC-021 (security-headers pentest exercises redirect paths)) -->
+1. The pentest workflow runs weekly and on manual dispatch against the configured target URL in the production environment. <!-- @impl: .github/workflows/pentest.yml::tls -->
+2. The workflow runs six parallel probes using lightweight external tools (no active scanners) to minimize CI resource consumption.
+3. Six probe types cover response headers, TLS posture, authentication gates, information disclosure, injection vectors, and HTTP method handling; per-probe checklists live in [documentation/lanes/security.md#penetration-testing-reference](../../documentation/lanes/security.md#penetration-testing-reference).
 
 **Notes:** Manual verification procedures are documented in the [deployment checklist](../../documentation/lanes/deployment.md#manual-verification-checklist).
 
@@ -219,10 +219,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Container resource tier is configurable per deployment and accepts four values: low (0.25 vCPU / 1 GiB / 4 GB), default (1 vCPU / 3 GiB / 6 GB), saas (1 vCPU / 3 GiB / 6 GB), high (2 vCPU / 6 GiB / 12 GB). <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/workflow-files.test.js (deploy.yml patches wrangler.toml for worker name and resource tier (REQ-OPS-007 verification)) -->
-2. All tiers default to 10 concurrent instances. <!-- @test: host/__tests__/workflow-files.test.js (deploy.yml patches wrangler.toml for worker name and resource tier (REQ-OPS-007 verification)) -->
-3. The concurrent-instance cap is overridable per deployment and must be a positive integer. <!-- @test: host/__tests__/workflow-files.test.js (deploy.yml patches wrangler.toml for worker name and resource tier (REQ-OPS-007 verification)) -->
-4. Per-user concurrent session limits are configurable per deployment, with separate defaults for regular users (3) and admins (10). <!-- @impl: src/lib/constants.ts::getMaxSessions --> <!-- @test: host/__tests__/workflow-files.test.js (deploy.yml patches wrangler.toml for worker name and resource tier (REQ-OPS-007 verification)) -->
+1. Container resource tier is configurable per deployment and accepts four values: low (0.25 vCPU / 1 GiB / 4 GB), default (1 vCPU / 3 GiB / 6 GB), saas (1 vCPU / 3 GiB / 6 GB), high (2 vCPU / 6 GiB / 12 GB). <!-- @impl: .github/workflows/deploy.yml::deploy -->
+2. All tiers default to 10 concurrent instances.
+3. The concurrent-instance cap is overridable per deployment and must be a positive integer.
+4. Per-user concurrent session limits are configurable per deployment, with separate defaults for regular users (3) and admins (10). <!-- @impl: src/lib/constants.ts::getMaxSessions -->
 5. Tier and instance configuration is applied at deploy time, not at runtime. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/workflow-deploy-max-instances.test.js (REQ-OPS-012: Per-environment container concurrency limit) -->
 
 **Notes:** Manual verification procedures are documented in the [deployment checklist](../../documentation/lanes/deployment.md#manual-verification-checklist).
@@ -283,8 +283,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The OSSF Scorecard workflow runs on push to main and weekly. <!-- @test: host/__tests__/workflow-files.test.js (scorecard.yml exists and runs on schedule + push (REQ-OPS-009 supply-chain posture)) -->
-2. Scorecard results are uploaded to GitHub Security. <!-- @test: host/__tests__/workflow-files.test.js (scorecard.yml exists and runs on schedule + push (REQ-OPS-009 supply-chain posture)) -->
+1. The OSSF Scorecard workflow runs on push to main and weekly.
+2. Scorecard results are uploaded to GitHub Security.
 3. Repository-level secret scanning with push protection is enabled. This is a repository-level GitHub setting verified out of band, not from source.
 4. Dependabot security updates are enabled at the repository level. This is a repository-level GitHub setting verified out of band, not from source.
 
@@ -428,9 +428,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The deployment configuration is updated with the registry URI of the most recently pushed image so the deploy does not rebuild the container. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/workflow-files.test.js (deploy.yml builds the container image, scans with Trivy, pushes to Cloudflare registry, and pins wrangler.toml to the pushed image) -->
-2. Container resource sizing is applied per the configured tier (low, default/saas, or high). <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/workflow-files.test.js (deploy.yml patches wrangler.toml for worker name and resource tier (REQ-OPS-007 verification)) -->
-3. All tiers default to 10 concurrent instances; the cap is overridable per deployment. <!-- @test: host/__tests__/workflow-files.test.js (deploy.yml patches wrangler.toml for worker name and resource tier (REQ-OPS-007 verification)) -->
+1. The deployment configuration is updated with the registry URI of the most recently pushed image so the deploy does not rebuild the container. <!-- @impl: .github/workflows/deploy.yml::deploy -->
+2. Container resource sizing is applied per the configured tier (low, default/saas, or high). <!-- @impl: .github/workflows/deploy.yml::deploy -->
+3. All tiers default to 10 concurrent instances; the cap is overridable per deployment.
 4. The AI agent layer can be cache-busted on demand via a build variable so a fresh layer is rolled out without a full image rebuild. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
 
 **Notes:** Manual verification procedures are documented in the [deployment checklist](../../documentation/lanes/deployment.md#manual-verification-checklist).
@@ -516,7 +516,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The idle-detection layer fails safe toward preserving user work, not saving compute: when the configured idle timeout cannot be resolved (corrupt storage, a missing/garbage value, or a skipped pref-resolution path), it falls back to the maximum supported value (4h), never the minimum. <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs = SLEEP_AFTER_FALLBACK_MS = 14_400_000 --> <!-- @test: src/__tests__/lib/sleep-timer-defaults.test.ts (parseSleepAfterMs - fail-safe direction) -->
+1. The idle-detection layer fails safe toward preserving user work, not saving compute: when the configured idle timeout cannot be resolved (corrupt storage, a missing/garbage value, or a skipped pref-resolution path), it falls back to the maximum supported value (4h), never the minimum. <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @impl: src/container/container-metrics.ts::SLEEP_AFTER_FALLBACK_MS = 14_400_000 --> <!-- @test: src/__tests__/lib/sleep-timer-defaults.test.ts (parseSleepAfterMs - fail-safe direction) -->
 2. A change to the persisted idle-timeout preference takes effect within one idle-check cycle, regardless of which code path wrote it. <!-- @impl: src/container/index.ts::collectMetrics --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014: User-configurable auto-sleep timeout in Settings) -->
 3. In-memory copies of the preference do not outlive a single idle-check cycle. <!-- @impl: src/container/index.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (refreshes idleTimeoutPref from storage on every tick) -->
 4. Any code path that hands the resolved idle timeout to the container init must fail loudly when the value is missing, rather than substituting a fallback. The user's configured timer is never silently replaced by a shorter default. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
@@ -543,7 +543,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The fuzz workflow runs on PRs to `main`, weekly (Sunday 04:00 UTC), and on `workflow_dispatch`. <!-- @test: host/__tests__/workflow-files.test.js (shadow-pin bump workflow / REQ-OPS-020 (shadow-pin version bump automation)) -->
+1. The fuzz workflow runs on PRs to `main`, weekly (Sunday 04:00 UTC), and on `workflow_dispatch`.
 2. Fuzz testing uses fast-check with 50,000 iterations for property-based testing.
 
 **Notes:** Manual verification procedures are documented in the [deployment checklist](../../documentation/lanes/deployment.md#manual-verification-checklist).
@@ -570,8 +570,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. A CodeQL static-analysis workflow runs on pushes to main, on PRs to main, and on a weekly schedule. Results are uploaded to GitHub Security. <!-- @test: host/__tests__/workflow-files.test.js (shadow-pin bump workflow / REQ-OPS-020 (shadow-pin version bump automation)) -->
-2. An OSSF Scorecard workflow runs a security-posture assessment on push to main and on a weekly schedule. <!-- @test: host/__tests__/workflow-files.test.js (scorecard.yml exists and runs on schedule + push (REQ-OPS-009 supply-chain posture)) -->
+1. A CodeQL static-analysis workflow runs on pushes to main, on PRs to main, and on a weekly schedule. Results are uploaded to GitHub Security.
+2. An OSSF Scorecard workflow runs a security-posture assessment on push to main and on a weekly schedule.
 
 **Notes:** Manual verification procedures are documented in the [deployment checklist](../../documentation/lanes/deployment.md#manual-verification-checklist).
 
@@ -597,11 +597,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Watched Dockerfile binaries: zoxide, yazi, lazygit, silverbullet. Each has its own parallel job checking GitHub releases. <!-- @impl: .github/workflows/bump-shadow-pins.yml::ver --> <!-- @test: host/__tests__/workflow-files.test.js (shadow-pin bump workflow / REQ-OPS-020 (shadow-pin version bump automation)) -->
-2. The context-mode job atomically bumps its Claude-plugin and Pi-prewarm pins in one PR; build validation rejects drift. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-preseed --> <!-- @test: host/__tests__/workflow-files.test.js (shadow-pin bump workflow / REQ-OPS-020 (shadow-pin version bump automation)) -->
-3. Dedicated jobs bump the remaining Pi preseed packages, bun, consult-llm-mcp, chrome-devtools-mcp, Browser Run MCP SDK, Impeccable bundles, and Graphify plugin version and description. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-preseed --> <!-- @test: host/__tests__/workflow-files.test.js (shadow-pin bump workflow / REQ-OPS-020 (shadow-pin version bump automation)) -->
-4. SHA256 checksum is reset to a placeholder on Dockerfile bumps, causing Docker build failure until the operator verifies and updates the hash. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @test: host/__tests__/workflow-files.test.js (shadow-pin bump workflow / REQ-OPS-020 (shadow-pin version bump automation)) -->
-5. A bump branch is skipped if one already exists for that version (deduplication guard). <!-- @impl: .github/workflows/bump-shadow-pins.yml::branch --> <!-- @test: host/__tests__/workflow-files.test.js (shadow-pin bump workflow / REQ-OPS-020 (shadow-pin version bump automation)) -->
+1. Watched Dockerfile binaries: zoxide, yazi, lazygit, silverbullet. Each has its own parallel job checking GitHub releases. <!-- @impl: .github/workflows/bump-shadow-pins.yml::ver -->
+2. The context-mode job atomically bumps its Claude-plugin and Pi-prewarm pins in one PR; build validation rejects drift. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-preseed -->
+3. Dedicated jobs bump the remaining Pi preseed packages, bun, consult-llm-mcp, chrome-devtools-mcp, Browser Run MCP SDK, Impeccable bundles, and Graphify plugin version and description. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-preseed -->
+4. SHA256 checksum is reset to a placeholder on Dockerfile bumps, causing Docker build failure until the operator verifies and updates the hash. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit -->
+5. A bump branch is skipped if one already exists for that version (deduplication guard). <!-- @impl: .github/workflows/bump-shadow-pins.yml::branch -->
 
 **Constraints:** None.
 
@@ -609,6 +609,6 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** [Automated test](../../host/__tests__/workflow-files.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented

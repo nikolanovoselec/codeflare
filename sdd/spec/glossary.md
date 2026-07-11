@@ -9,6 +9,7 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | Bucket | A per-user R2 storage bucket (`codeflare-{bucketName}`) holding all persistent files. |
 | Agent | An AI coding CLI tool (Claude Code, Codex, Antigravity, Copilot, OpenCode, Pi, or plain bash). |
 | Browser IDE | A per-session OpenVSCode editor served from the session container, isolated by session and available to advanced running sessions. |
+| Editor activity | Any message sent from the Browser IDE to its session; each message refreshes the input-based idle timer without inspecting its content. |
 | Session Mode | Standard (default) or Pro (advanced). Controls which preseed configs are deployed. |
 | Preseed | Pre-configured rules, skills, agents, commands, and plugins deployed to a container on start. |
 | Tier | Subscription level (blocked, pending, free, trial, standard, advanced, max, unlimited/Custom). |

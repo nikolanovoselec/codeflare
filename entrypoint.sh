@@ -61,17 +61,20 @@ TERM=xterm-256color
 export TERM
 
 # === Fast Start: control auto-update behavior ===
-if [ "${FAST_CLI_START:-true}" = "false" ]; then
-    # Unset Dockerfile-level vars so tools CAN auto-update
-    unset DISABLE_AUTOUPDATER OPENCODE_DISABLE_AUTOUPDATE DISABLE_INSTALLATION_CHECKS PI_OFFLINE PI_SKIP_VERSION_CHECK
-else
-    # Ensure all disable vars are set (use bundled versions)
-    export DISABLE_AUTOUPDATER=1
-    export OPENCODE_DISABLE_AUTOUPDATE=1
-    export COPILOT_AUTO_UPDATE=false
-    export PI_OFFLINE=1
-    export PI_SKIP_VERSION_CHECK=1
-fi
+configure_fast_start_environment() {
+    if [ "${FAST_CLI_START:-true}" = "false" ]; then
+        # Unset Dockerfile-level vars so tools CAN auto-update
+        unset DISABLE_AUTOUPDATER OPENCODE_DISABLE_AUTOUPDATE COPILOT_AUTO_UPDATE DISABLE_INSTALLATION_CHECKS PI_OFFLINE PI_SKIP_VERSION_CHECK
+    else
+        # Ensure all disable vars are set (use bundled versions)
+        export DISABLE_AUTOUPDATER=1
+        export OPENCODE_DISABLE_AUTOUPDATE=1
+        export COPILOT_AUTO_UPDATE=false
+        export PI_OFFLINE=1
+        export PI_SKIP_VERSION_CHECK=1
+    fi
+}
+configure_fast_start_environment
 
 # User directories (local disk)
 USER_HOME="/home/user"
@@ -1238,7 +1241,7 @@ _openvscode_launch_once() {
         --accept-server-license-terms
 }
 
-# Supervisor loop: wait for the gate, launch, restart on exit. REQ-IDE-003 AC3.
+# Supervisor loop: wait for the gate, launch, restart on exit. REQ-IDE-003 AC4.
 _openvscode_supervise_loop() {
     while true; do
         if ! _openvscode_should_launch; then
@@ -2654,11 +2657,14 @@ GRAPHIFY_WRAPPER="$USER_HOME/.claude/plugins/graphify/scripts/graphify-mcp-lazy.
 # (graphify-active-repo.sh, memory-capture sonnet, vault-extract sonnet)
 # sees `command -v graphify` return false and silently noops the global-add
 # step, leaving ~/.graphify/global-graph.json unseeded.
-GRAPHIFY_BIN_SRC="/root/.local/share/uv/tools/graphifyy/bin/graphify"
-GRAPHIFY_BIN_DST="/usr/local/bin/graphify"
-if [ -x "$GRAPHIFY_BIN_SRC" ] && [ ! -e "$GRAPHIFY_BIN_DST" ]; then
-    ln -sf "$GRAPHIFY_BIN_SRC" "$GRAPHIFY_BIN_DST"
-fi
+ensure_graphify_cli_path() {
+    local graphify_bin_src="${GRAPHIFY_BIN_SRC:-/root/.local/share/uv/tools/graphifyy/bin/graphify}"
+    local graphify_bin_dst="${GRAPHIFY_BIN_DST:-/usr/local/bin/graphify}"
+    if [ -x "$graphify_bin_src" ] && [ ! -e "$graphify_bin_dst" ]; then
+        ln -sf "$graphify_bin_src" "$graphify_bin_dst"
+    fi
+}
+ensure_graphify_cli_path
 GRAPHIFY_MCP_CONFIG=$(jq -n --arg py "$GRAPHIFY_PY" --arg wrap "$GRAPHIFY_WRAPPER" '{mcpServers:{"graphify":{command:$py,args:[$wrap]}}}')
 if [ -f "$USER_CLAUDE_JSON" ]; then
     TMP_JSON=$(mktemp)
@@ -3037,17 +3043,20 @@ if [ -n "${GH_TOKEN:-}" ]; then
 fi
 
 # === Fast Start: tool-specific config files ===
-if [ "${FAST_CLI_START:-true}" != "false" ]; then
-    # Codex: dismiss version notification (excluded from rclone sync)
-    mkdir -p "$USER_HOME/.codex"
-    echo '{"dismissed_version":"999.0.0"}' > "$USER_HOME/.codex/version.json"
-else
-    # Fast Start OFF: remove Codeflare's settings-file suppressors so tools can
-    # run their normal update path.
-    if [ -f "$USER_HOME/.codex/version.json" ] && grep -q '"dismissed_version"[[:space:]]*:[[:space:]]*"999\.0\.0"' "$USER_HOME/.codex/version.json"; then
-        rm -f "$USER_HOME/.codex/version.json"
+configure_fast_start_tool_settings() {
+    if [ "${FAST_CLI_START:-true}" != "false" ]; then
+        # Codex: dismiss version notification (excluded from rclone sync)
+        mkdir -p "$USER_HOME/.codex"
+        echo '{"dismissed_version":"999.0.0"}' > "$USER_HOME/.codex/version.json"
+    else
+        # Fast Start OFF: remove Codeflare's settings-file suppressors so tools can
+        # run their normal update path.
+        if [ -f "$USER_HOME/.codex/version.json" ] && grep -q '"dismissed_version"[[:space:]]*:[[:space:]]*"999\.0\.0"' "$USER_HOME/.codex/version.json"; then
+            rm -f "$USER_HOME/.codex/version.json"
+        fi
     fi
-fi
+}
+configure_fast_start_tool_settings
 
 # REQ-GITHUB-004: one-shot repo clone at container start. Runs AFTER the git
 # credential helper above (so private repos authenticate via $GH_TOKEN, or the

@@ -41,7 +41,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 4. Injecting the pre-setup header-trust signal does not bypass authentication after setup is complete. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
 5. Transient storage failures during auth-config fetch do not permanently degrade authentication to the pre-setup trust model. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
 6. All protected API endpoints reject unauthenticated requests. <!-- @impl: src/lib/access.ts::authenticateRequest --> <!-- @test: src/__tests__/lib/access.test.ts (access.ts / REQ-AUTH-001 (two authentication modes) / REQ-AUTH-007 (JIT user provisioning in SaaS) / REQ-AUTH-012 (welcome email on provisioning)) -->
-7. The setup-status endpoint is always public and returns only configuration status, no secrets. <!-- @impl: src/routes/setup/handlers.ts::detectTokenRateLimiter --> <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow / REQ-OPS-005 (scheduled pentest runs against deployed worker) / REQ-SEC-001 (auth-gate pentest job) / REQ-SEC-002 (info-disclosure pentest job) / REQ-SEC-008 (security-headers pentest job verifies all headers) / REQ-SEC-009 (injection pentest job) / REQ-SEC-010 (storage-key injection pentest job) / REQ-SEC-013 (Content-Disposition pentest under injection job) / REQ-SEC-014 (SaaS auth-gate pentest job) / REQ-SEC-021 (security-headers pentest exercises redirect paths)) -->
+7. The setup-status endpoint is always public and returns only configuration status, no secrets. <!-- @impl: src/routes/setup/handlers.ts::detectTokenRateLimiter -->
 
 **Constraints:**
 
@@ -52,7 +52,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes), [REQ-AUTH-010](authentication.md#req-auth-010-auth-bypass-prevention)
 
-**Verification:** [Automated test](../../host/__tests__/workflow-files.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -68,7 +68,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 1. The master Cloudflare API token is never exposed inside container environments. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (r2-admin / REQ-SEC-003 (per-user R2 tokens scoped to user bucket) / REQ-SESSION-003 (R2 bucket mounted and synced on start) / REQ-STOR-001 AC4/AC5 (createBucketIfNotExists is idempotent and races safe)) -->
 2. Containers receive only per-user scoped R2 credentials (access key pair), never the master API token. <!-- @impl: src/lib/r2-admin.ts::getOrCreateScopedR2Token --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (r2-admin / REQ-SEC-003 (per-user R2 tokens scoped to user bucket) / REQ-SESSION-003 (R2 bucket mounted and synced on start) / REQ-STOR-001 AC4/AC5 (createBucketIfNotExists is idempotent and races safe)) -->
-3. The container environment never carries the master API token. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow / REQ-OPS-005 (scheduled pentest runs against deployed worker) / REQ-SEC-001 (auth-gate pentest job) / REQ-SEC-002 (info-disclosure pentest job) / REQ-SEC-008 (security-headers pentest job verifies all headers) / REQ-SEC-009 (injection pentest job) / REQ-SEC-010 (storage-key injection pentest job) / REQ-SEC-013 (Content-Disposition pentest under injection job) / REQ-SEC-014 (SaaS auth-gate pentest job) / REQ-SEC-021 (security-headers pentest exercises redirect paths)) -->
+3. The container environment never carries the master API token. <!-- @impl: src/container/container-env.ts::buildEnvVars -->
 4. R2 credentials passed to containers are scoped to the user's bucket (Object Read + Write only). <!-- @impl: src/lib/r2-admin.ts::getOrCreateScopedR2Token --> <!-- @test: src/__tests__/lib/r2-admin.test.ts (r2-admin / REQ-SEC-003 (per-user R2 tokens scoped to user bucket) / REQ-SESSION-003 (R2 bucket mounted and synced on start) / REQ-STOR-001 AC4/AC5 (createBucketIfNotExists is idempotent and races safe)) -->
 
 **Constraints:**
@@ -81,7 +81,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-003](#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket)
 
-**Verification:** [Automated test](../../host/__tests__/workflow-files.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -278,12 +278,12 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. Request bodies are validated before handler logic executes. <!-- @impl: src/lib/request-helpers.ts::parseJsonBody --> <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow / REQ-OPS-005 (scheduled pentest runs against deployed worker) / REQ-SEC-001 (auth-gate pentest job) / REQ-SEC-002 (info-disclosure pentest job) / REQ-SEC-008 (security-headers pentest job verifies all headers) / REQ-SEC-009 (injection pentest job) / REQ-SEC-010 (storage-key injection pentest job) / REQ-SEC-013 (Content-Disposition pentest under injection job) / REQ-SEC-014 (SaaS auth-gate pentest job) / REQ-SEC-021 (security-headers pentest exercises redirect paths)) -->
-2. Setup wizard inputs (domain, emails, origins) are validated with shape-specific patterns. <!-- @impl: src/routes/setup/index.ts::ConfigureBodySchema --> <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow / REQ-OPS-005 (scheduled pentest runs against deployed worker) / REQ-SEC-001 (auth-gate pentest job) / REQ-SEC-002 (info-disclosure pentest job) / REQ-SEC-008 (security-headers pentest job verifies all headers) / REQ-SEC-009 (injection pentest job) / REQ-SEC-010 (storage-key injection pentest job) / REQ-SEC-013 (Content-Disposition pentest under injection job) / REQ-SEC-014 (SaaS auth-gate pentest job) / REQ-SEC-021 (security-headers pentest exercises redirect paths)) -->
-3. Session IDs are validated against the canonical format (8-24 lowercase alphanumeric characters) on every entry point. Invalid IDs are rejected with 400 before any session-side interaction. <!-- @impl: src/lib/constants.ts::SESSION_ID_PATTERN --> <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow / REQ-OPS-005 (scheduled pentest runs against deployed worker) / REQ-SEC-001 (auth-gate pentest job) / REQ-SEC-002 (info-disclosure pentest job) / REQ-SEC-008 (security-headers pentest job verifies all headers) / REQ-SEC-009 (injection pentest job) / REQ-SEC-010 (storage-key injection pentest job) / REQ-SEC-013 (Content-Disposition pentest under injection job) / REQ-SEC-014 (SaaS auth-gate pentest job) / REQ-SEC-021 (security-headers pentest exercises redirect paths)) -->
-4. Malformed base64 inputs are rejected with 400 immediately. <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow / REQ-OPS-005 (scheduled pentest runs against deployed worker) / REQ-SEC-001 (auth-gate pentest job) / REQ-SEC-002 (info-disclosure pentest job) / REQ-SEC-008 (security-headers pentest job verifies all headers) / REQ-SEC-009 (injection pentest job) / REQ-SEC-010 (storage-key injection pentest job) / REQ-SEC-013 (Content-Disposition pentest under injection job) / REQ-SEC-014 (SaaS auth-gate pentest job) / REQ-SEC-021 (security-headers pentest exercises redirect paths)) -->
-5. API routes enforce a 64 KiB body limit (storage routes exempt for file uploads). <!-- @impl: src/index.ts::SOCIAL_IDP_TYPES --> <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow / REQ-OPS-005 (scheduled pentest runs against deployed worker) / REQ-SEC-001 (auth-gate pentest job) / REQ-SEC-002 (info-disclosure pentest job) / REQ-SEC-008 (security-headers pentest job verifies all headers) / REQ-SEC-009 (injection pentest job) / REQ-SEC-010 (storage-key injection pentest job) / REQ-SEC-013 (Content-Disposition pentest under injection job) / REQ-SEC-014 (SaaS auth-gate pentest job) / REQ-SEC-021 (security-headers pentest exercises redirect paths)) -->
-6. Email addresses are normalized before any lookup, comparison, or derivation operation. <!-- @impl: src/lib/access.ts::getBucketName --> <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow / REQ-OPS-005 (scheduled pentest runs against deployed worker) / REQ-SEC-001 (auth-gate pentest job) / REQ-SEC-002 (info-disclosure pentest job) / REQ-SEC-008 (security-headers pentest job verifies all headers) / REQ-SEC-009 (injection pentest job) / REQ-SEC-010 (storage-key injection pentest job) / REQ-SEC-013 (Content-Disposition pentest under injection job) / REQ-SEC-014 (SaaS auth-gate pentest job) / REQ-SEC-021 (security-headers pentest exercises redirect paths)) -->
+1. Request bodies are validated before handler logic executes. <!-- @impl: src/lib/request-helpers.ts::parseJsonBody -->
+2. Setup wizard inputs (domain, emails, origins) are validated with shape-specific patterns. <!-- @impl: src/routes/setup/index.ts::ConfigureBodySchema -->
+3. Session IDs are validated against the canonical format (8-24 lowercase alphanumeric characters) on every entry point. Invalid IDs are rejected with 400 before any session-side interaction. <!-- @impl: src/lib/constants.ts::SESSION_ID_PATTERN -->
+4. Malformed base64 inputs are rejected with 400 immediately.
+5. API routes enforce a 64 KiB body limit (storage routes exempt for file uploads). <!-- @impl: src/index.ts::SOCIAL_IDP_TYPES -->
+6. Email addresses are normalized before any lookup, comparison, or derivation operation. <!-- @impl: src/lib/access.ts::getBucketName -->
 
 **Notes:** Manual verification procedures are documented in the [security checklist](../../documentation/lanes/security.md#manual-verification-checklist).
 
@@ -315,7 +315,6 @@ Security requirements for authentication enforcement, credential isolation, encr
 3. Malformed URI encoding is rejected with a validation error. <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-010 AC3: malformed URI encoding throws ValidationError) -->
 4. The validator returns the decoded key so callers operate on the value the user sees, not the encoded request form. <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-010 AC4: validateKey returns decoded key for callers) -->
 5. The browse endpoint validates the prefix parameter against parent-directory traversal. <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: src/__tests__/routes/storage-browse.test.ts (rejects prefix with path traversal (..) with 400) -->
-6. Path-traversal payloads (percent-encoded, double-encoded, backslash, unicode variants) are rejected. <!-- @impl: src/routes/storage/validation.ts::validateKey --> <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow / REQ-OPS-005 (scheduled pentest runs against deployed worker) / REQ-SEC-001 (auth-gate pentest job) / REQ-SEC-002 (info-disclosure pentest job) / REQ-SEC-008 (security-headers pentest job verifies all headers) / REQ-SEC-009 (injection pentest job) / REQ-SEC-010 (storage-key injection pentest job) / REQ-SEC-013 (Content-Disposition pentest under injection job) / REQ-SEC-014 (SaaS auth-gate pentest job) / REQ-SEC-021 (security-headers pentest exercises redirect paths)) -->
 
 **Constraints:**
 
@@ -339,10 +338,10 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. Container images are scanned for HIGH and CRITICAL severity vulnerabilities in the deploy workflow. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/workflow-files.test.js (container image pipeline / REQ-OPS-002 (image built, scanned, pushed, DO-bound) / REQ-OPS-014 (image-patch + resource-tier in deploy) / REQ-SEC-011 (Trivy scan blocks deploy on HIGH+ CVEs)) -->
-2. Known vulnerability exceptions are tracked in a project-level allowlist. <!-- @test: host/__tests__/workflow-files.test.js (container image pipeline / REQ-OPS-002 (image built, scanned, pushed, DO-bound) / REQ-OPS-014 (image-patch + resource-tier in deploy) / REQ-SEC-011 (Trivy scan blocks deploy on HIGH+ CVEs)) -->
-3. The deploy pipeline fails if the scan finds a HIGH/CRITICAL vulnerability that has an available fix and is not suppressed in the project allowlist; unfixed CVEs (no upstream fix available) are excluded from the gate automatically. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/workflow-files.test.js (container image pipeline / REQ-OPS-002 (image built, scanned, pushed, DO-bound) / REQ-OPS-014 (image-patch + resource-tier in deploy) / REQ-SEC-011 (Trivy scan blocks deploy on HIGH+ CVEs)) -->
-4. Scanning occurs after image build and before push to the container registry. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/workflow-files.test.js (container image pipeline / REQ-OPS-002 (image built, scanned, pushed, DO-bound) / REQ-OPS-014 (image-patch + resource-tier in deploy) / REQ-SEC-011 (Trivy scan blocks deploy on HIGH+ CVEs)) -->
+1. Container images are scanned for HIGH and CRITICAL severity vulnerabilities in the deploy workflow. <!-- @impl: .github/workflows/deploy.yml::deploy -->
+2. Known vulnerability exceptions are tracked in a project-level allowlist.
+3. The deploy pipeline fails if the scan finds a HIGH/CRITICAL vulnerability that has an available fix and is not suppressed in the project allowlist; unfixed CVEs (no upstream fix available) are excluded from the gate automatically. <!-- @impl: .github/workflows/deploy.yml::deploy -->
+4. Scanning occurs after image build and before push to the container registry. <!-- @impl: .github/workflows/deploy.yml::deploy -->
 
 **Notes:** Manual verification procedures are documented in the [security checklist](../../documentation/lanes/security.md#manual-verification-checklist).
 
@@ -399,9 +398,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. File download responses use `Content-Disposition: attachment` with sanitized filenames. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow / REQ-OPS-005 (scheduled pentest runs against deployed worker) / REQ-SEC-001 (auth-gate pentest job) / REQ-SEC-002 (info-disclosure pentest job) / REQ-SEC-008 (security-headers pentest job verifies all headers) / REQ-SEC-009 (injection pentest job) / REQ-SEC-010 (storage-key injection pentest job) / REQ-SEC-013 (Content-Disposition pentest under injection job) / REQ-SEC-014 (SaaS auth-gate pentest job) / REQ-SEC-021 (security-headers pentest exercises redirect paths)) -->
-2. Special characters are stripped from filenames. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-013 AC2: replaces embedded double quotes (prevents ASCII filename break-out)) -->
-3. Header-injection control characters are stripped from filenames. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @test: host/__tests__/workflow-files.test.js (pentest workflow / REQ-OPS-005 (scheduled pentest runs against deployed worker) / REQ-SEC-001 (auth-gate pentest job) / REQ-SEC-002 (info-disclosure pentest job) / REQ-SEC-008 (security-headers pentest job verifies all headers) / REQ-SEC-009 (injection pentest job) / REQ-SEC-010 (storage-key injection pentest job) / REQ-SEC-013 (Content-Disposition pentest under injection job) / REQ-SEC-014 (SaaS auth-gate pentest job) / REQ-SEC-021 (security-headers pentest exercises redirect paths)) -->
+1. File download responses use `Content-Disposition: attachment` with sanitized filenames. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-013: Content-Disposition is built safely) -->
+2. Special characters are stripped from filenames. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-013: Content-Disposition is built safely) -->
+3. Header-injection control characters are stripped from filenames. <!-- @impl: src/routes/storage/download.ts::buildContentDisposition --> <!-- @test: src/__tests__/security/storage-security.test.ts (REQ-SEC-013: Content-Disposition is built safely) -->
 
 **Constraints:**
 
@@ -596,6 +595,6 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Dependencies:** [REQ-SEC-008](#req-sec-008-security-headers-on-every-response)
 
-**Verification:** [Automated test](../../host/__tests__/workflow-files.test.js)
+**Verification:** [Automated test](../../src/__tests__/redirect-with-headers.test.ts)
 
 **Status:** Implemented

@@ -21,6 +21,7 @@ export const OPENVSCODE_REQUEST_TRIGGER = '/tmp/openvscode-requested';
 // 32 MiB is a generous defensive upper bound, far above any real protocol
 // message, so no legitimate frame is ever rejected.
 const OPENVSCODE_WS_MAX_PAYLOAD = 32 * 1024 * 1024;
+const OPENVSCODE_PREOPEN_MAX_BYTES = 8 * 1024 * 1024;
 
 /** Create the no-server WebSocket endpoint used by the OpenVSCode bridge. */
 export function createVscodeWebSocketServer(): WebSocketServer {
@@ -32,25 +33,34 @@ interface QueuedVscodeFrame {
   readonly isBinary: boolean;
 }
 
+function vscodeFrameByteLength(data: RawData): number {
+  return Array.isArray(data)
+    ? data.reduce((total, part) => total + part.byteLength, 0)
+    : data.byteLength;
+}
+
 /**
  * Attach the downstream listener before the upstream handshake completes.
- * Early VS Code initialization frames are retained in order, while a fixed
- * frame cap prevents a stalled localhost server from creating an unbounded
- * queue. Every client frame is meaningful IDE activity for idle detection.
+ * Early VS Code initialization frames are retained in order, while fixed
+ * frame and byte caps prevent a stalled localhost server from exhausting
+ * memory. Every client frame is meaningful IDE activity for idle detection.
  */
 export function bridgeVscodeClientMessages(
   client: WebSocket,
   upstream: WebSocket,
   recordInput: () => void,
   maxQueuedFrames = 128,
+  maxQueuedBytes = OPENVSCODE_PREOPEN_MAX_BYTES,
 ): void {
   let queuedFrames: readonly QueuedVscodeFrame[] = [];
+  let queuedBytes = 0;
   let active = true;
 
   const cleanup = (): void => {
     if (!active) return;
     active = false;
     queuedFrames = [];
+    queuedBytes = 0;
     client.off('message', onClientMessage);
     client.off('close', cleanup);
     client.off('error', cleanup);
@@ -69,19 +79,25 @@ export function bridgeVscodeClientMessages(
       cleanup();
       return;
     }
-    if (queuedFrames.length >= maxQueuedFrames) {
+    const frameBytes = vscodeFrameByteLength(data);
+    if (
+      queuedFrames.length >= maxQueuedFrames
+      || queuedBytes + frameBytes > maxQueuedBytes
+    ) {
       cleanup();
       client.close(1013, 'upstream-not-ready');
       upstream.close(1013, 'upstream-not-ready');
       return;
     }
     queuedFrames = [...queuedFrames, { data, isBinary }];
+    queuedBytes += frameBytes;
   };
 
   const onUpstreamOpen = (): void => {
     upstream.off('open', onUpstreamOpen);
     const frames = queuedFrames;
     queuedFrames = [];
+    queuedBytes = 0;
     for (const frame of frames) {
       if (upstream.readyState !== WebSocket.OPEN) break;
       upstream.send(frame.data, { binary: frame.isBinary });
@@ -153,7 +169,7 @@ export function vscodeModeAllowed(mode: string | undefined | null): boolean {
 }
 
 /**
- * The lazy-start warming page (REQ-IDE-003 AC2). The first `/api/vscode` request
+ * The lazy-start warming page (REQ-IDE-003 AC3). The first `/api/vscode` request
  * triggers the supervisor, and the connect to `:13337` fails until OpenVSCode
  * binds (a few seconds). Rather than dumping raw JSON into a plain `_blank`
  * browser tab, serve a tiny HTML page that auto-refreshes so the tab lands on

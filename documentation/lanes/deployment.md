@@ -11,6 +11,25 @@ Development setup, project file structure, and cost analysis.
 - [Development](#development)
 - [File Structure](#file-structure)
 - [Cost Analysis](#cost-analysis)
+- [Specification Coverage](#specification-coverage)
+- [Governed Mode migration (batch-status driven)](#governed-mode-migration-batch-status-driven)
+- [Related Documentation](#related-documentation)
+- [CI and CD reference](#ci-and-cd-reference)
+- [CI and CD — CI/CD (GitHub Actions)](#ci-and-cd-cicd-github-actions)
+- [CI and CD — Testing](#ci-and-cd-testing)
+- [Stress testing reference](#stress-testing-reference)
+- [Stress testing — Prerequisites](#stress-testing-prerequisites)
+- [Stress testing — Running](#stress-testing-running)
+- [Stress testing — Test Suites](#stress-testing-test-suites)
+- [Stress testing — Session Lifecycle Rate Limits Detail](#stress-testing-session-lifecycle-rate-limits-detail)
+- [Stress testing — Think Time Model](#stress-testing-think-time-model)
+- [Stress testing — VU-to-Real-User Mapping](#stress-testing-vu-to-real-user-mapping)
+- [Stress testing — Concurrency Scaling](#stress-testing-concurrency-scaling)
+- [Stress testing — Rate Limit Bypass](#stress-testing-rate-limit-bypass)
+- [Stress testing — Configuration Reference](#stress-testing-configuration-reference)
+- [Stress testing — Workflow Architecture](#stress-testing-workflow-architecture)
+- [Stress testing — Results](#stress-testing-results)
+- [Manual verification checklist](#manual-verification-checklist)
 
 ---
 
@@ -180,11 +199,11 @@ GitHub Actions workflows, test suites, E2E infrastructure, and deployment pipeli
 
 **Audience:** Developers
 
-## CI and CD — CI/CD (GitHub Actions)
+## CI and CD: CI/CD (GitHub Actions)
 
 Workflows covering deploy, testing, fuzzing, penetration testing, stress testing, supply chain security, and dependency pin maintenance. Additionally, GitHub's built-in **secret scanning** (with push protection) and **Dependabot security updates** are enabled at the repository level.
 
-### CI and CD — Dependabot Configuration
+### CI and CD: Dependabot Configuration
 
 Dependabot runs weekly against the `develop` branch for four npm package directories (`/`, `/web-ui`, `/host`, `/landing`), Docker images, and GitHub Actions. The E2E and stress workflows install Wrangler from the root `package.json` devDependency, so the root npm Dependabot lane owns the Wrangler version rather than a second workflow-local pin.
 
@@ -211,7 +230,7 @@ Additional details:
 
 The Pi preseed job is data-driven: it diffs **every** dependency in `preseed/agents/pi/package.json` against npm latest — `@gotgenes/pi-subagents`, context-mode, and the five tool extensions (`@juicesharp/rpiv-advisor`, `@juicesharp/rpiv-ask-user-question`, `@juicesharp/rpiv-todo`, `pi-web-access`, `pi-mcp-adapter`). Each version is duplicated as a literal in entrypoint.sh (the Pi settings `required` install array — so context-mode is enabled by default and the extensions stay available regardless of the `/ctx` toggle), `codeflare-pi.ts`, the pinned-version test assertions, and the generated seed. Dependabot intentionally skips that directory, so this workflow keeps every copy aligned.
 
-### CI and CD — GitHub Environments
+### CI and CD: GitHub Environments
 
 | Environment | Used by | Trigger |
 |-------------|---------|---------|
@@ -220,7 +239,7 @@ The Pi preseed job is data-driven: it diffs **every** dependency in `preseed/age
 | `enterprise` | `deploy.yml`, `deploy-dockerhub.yml` | Manual dispatch with `enterprise` selected; deployable from any branch ([REQ-ENTERPRISE-006](../../sdd/spec/enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC7) |
 | `enterprise integration` | `deploy.yml`, `deploy-dockerhub.yml` | Manual dispatch with `enterprise integration` selected; deployable from any branch; separate concurrency group from `integration` ([REQ-ENTERPRISE-006](../../sdd/spec/enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC7) |
 
-### CI and CD — GitHub Secrets and Variables
+### CI and CD: GitHub Secrets and Variables
 
 **Secrets (repository-level):**
 
@@ -253,7 +272,7 @@ The Pi preseed job is data-driven: it diffs **every** dependency in `preseed/age
 | `PENTEST_TARGET` | - | `pentest.yml` | Base URL for penetration tests (e.g., `https://codeflare.ch`) | Set per `production` environment |
 | `STRESS_TEST_CONCURRENCY` | `0` (disabled) | `stress-test.yml` | k6 virtual user scaling factor. When >0, scales VU targets proportionally and loosens latency thresholds. | Set per `integration` environment |
 
-### CI and CD — Deploy Workflow Detail
+### CI and CD: Deploy Workflow Detail
 
 **Workflow permissions:** top-level is `contents: read` (read-only default); the `deploy` job adds `actions: write` (required only for `type=gha` BuildKit cache writes). Code-scanning least-privilege hardening (#56).
 
@@ -272,7 +291,7 @@ The Pi preseed job is data-driven: it diffs **every** dependency in `preseed/age
 11. Set worker secrets: `CLOUDFLARE_API_TOKEN`, optional `SERVICE_AUTH_SECRET` (E2E), optional `RESEND_API_KEY`
 12. Seed E2E service user in KV allowlist when `CF_ACCESS_CLIENT_SECRET` is present
 
-### CI and CD — Test Workflow Detail
+### CI and CD: Test Workflow Detail
 
 Two parallel jobs:
 - **test**:
@@ -280,7 +299,7 @@ Two parallel jobs:
     - generate Workers runtime types (`wrangler types`), typecheck both, dead code check (knip), `npm audit --audit-level=high --omit=dev` for backend and frontend
 - **dependency-review**: Runs `actions/dependency-review-action` on PRs - blocks merging if new dependencies introduce known vulnerabilities
 
-### CI and CD — E2E Workflow Detail
+### CI and CD: E2E Workflow Detail
 
 Sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop` -> `e2e-ui-mobile`:
 1. **setup** job: Sets `SERVICE_AUTH_SECRET` on target worker, seeds E2E service user in KV, smoke-tests auth with retry loop (handles KV eventual consistency ~60s)
@@ -288,7 +307,7 @@ Sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop`
 3. **e2e-ui-desktop** job (depends on `setup` + `e2e-api`): Runs UI desktop tests. Installs Chrome via `npx puppeteer browsers install chrome` + system shared libraries
 4. **e2e-ui-mobile** job (depends on `setup` + `e2e-ui-desktop`): Runs UI mobile tests with `E2E_MOBILE=1`. Failed runs upload screenshots/HTML as artifacts (5-day retention)
 
-### CI and CD — Pentest Workflow Detail
+### CI and CD: Pentest Workflow Detail
 
 Six parallel jobs, each running lightweight external probes against the production deployment using only `curl` and `openssl` (no heavy scanning tools). All jobs use the `production` GitHub environment and read `PENTEST_TARGET` from environment variables.
 
@@ -303,9 +322,9 @@ Six parallel jobs, each running lightweight external probes against the producti
 
 ---
 
-## CI and CD — Testing
+## CI and CD: Testing
 
-### CI and CD — Backend Tests
+### CI and CD: Backend Tests
 
 **Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` `cloudflareTest()` plugin - tests run in real Workers runtime (not Node.js). **Run:** `npm test` **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
 
@@ -313,19 +332,19 @@ Six parallel jobs, each running lightweight external probes against the producti
 
 Ordinary assertion failures (any `(Test Files|Tests) N failed` line) and incomplete runs fail the job immediately. No retry, no hardcoded error count. **Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise. **Notable test files:** `kv-crypto.test.ts` (KV AES-256-GCM encryption + migration), `r2-sse.test.ts` (R2 SSE-C encryption).
 
-### CI and CD — Frontend Tests
+### CI and CD: Frontend Tests
 
 **Config:** `web-ui/vitest.config.ts` with jsdom + `@solidjs/testing-library`.
 **Run:** `cd web-ui && npm test`
 **Key patterns:** SolidJS stores use getter-based exports. Test by re-importing module after `vi.resetModules()`. Use `render()` from `@solidjs/testing-library` for component tests.
 
-### CI and CD — Host Tests
+### CI and CD: Host Tests
 
 **Config:** `host/package.json` with Node.js built-in test runner (`node --test`).
 **Run:** `cd host && npm test` (also runs in CI via `node --test host/__tests__/*.test.js`)
 **Scope:** PTY pre-warm readiness (first-output detection), activity tracker disconnect + input tracking, WebSocket input classification, server prewarm integration, entrypoint sync filter validation, server security, host module extraction, host fuzz tests, memory merge/cleanup, container memory tracking, entrypoint ECC validation, entrypoint hooks merge, metrics collection, session manager lifecycle, proactive memory injection (memory-context-inject.sh), graphify SessionStart three-tier fallback, graphify discipline preseed checks.
 
-### CI and CD — Property-Based Fuzz Tests
+### CI and CD: Property-Based Fuzz Tests
 
 **Library:** [fast-check](https://github.com/dubzzz/fast-check). **CI:** `fuzz.yml` runs 50,000 iterations on PRs to main, weekly, and manual dispatch.
 **Local:** Default 1,000 iterations. Override with `FAST_CHECK_NUM_RUNS=50000`.
@@ -346,13 +365,13 @@ Ordinary assertion failures (any `(Test Files|Tests) N failed` line) and incompl
 - `prewarm-config.ts` crash on non-string tab command (`host/src/prewarm-config.ts`)
 - `toError`/`toErrorMessage` crash on objects with throwing `toString()` (`src/lib/error-types.ts`)
 
-### CI and CD — Vitest Configuration
+### CI and CD: Vitest Configuration
 
 Both root and `web-ui/` use Vitest v4.x with independent `node_modules` and separate configs. Root uses the `cloudflareTest()` plugin from `@cloudflare/vitest-pool-workers` v0.13+ (replaces the old `defineWorkersConfig()` pattern). Web-UI uses jsdom with `vite-plugin-solid`.
 
 **Reporter:** all three Vitest configs (root, `web-ui/`, `landing/`) select the reporter from `process.env.CI`: `dot` (compact, dots + summary) in CI, `default` (full per-test output) locally. The CI workerd crash guard above and its `deploy.yml` counterpart grep only the final summary block and the pool-crash fingerprint line, both of which the `dot` reporter still prints, so the guard is unaffected by the switch.
 
-### CI and CD — E2E API Tests
+### CI and CD: E2E API Tests
 
 **Dir:** `e2e/api/` - API test files.
 **Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:api`
@@ -360,7 +379,7 @@ Both root and `web-ui/` use Vitest v4.x with independent `node_modules` and sepa
 
 Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, `setup-status`, `health`, `container`, `container-lifecycle`, `error-responses`, `rate-limiting`.
 
-### CI and CD — E2E UI Tests
+### CI and CD: E2E UI Tests
 
 **Dir:** `e2e/ui/` - UI test files (run as desktop + mobile).
 **Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:ui`
@@ -369,7 +388,7 @@ Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, 
 
 Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-panel`, `storage`, `terminal-tabs`, `tiling`, `error-states`, `mobile-specific`.
 
-### CI and CD — E2E Infrastructure
+### CI and CD: E2E Infrastructure
 
 - **CF Access auth:** E2E API tests use `X-Service-Auth` header. UI tests use `CF-Access-Client-Id`/`CF-Access-Client-Secret` headers via `setExtraHTTPHeaders`. CF Access intercepts browser navigation with login page - UI tests work around this by intercepting requests.
 - **KV eventual consistency:** New KV entries take ~60s to propagate. E2E setup job includes retry loops with 15s waits. Test helpers use `waitForFunction` with generous timeouts.
@@ -377,7 +396,7 @@ Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-pan
 - **Screenshot artifacts:** Failed UI tests capture screenshots and HTML dumps to `e2e-artifacts/`. CI uploads these as artifacts with 5-day retention.
 - **Suite prefix isolation:** Each E2E suite prefixes its test sessions with a unique identifier driven by the `E2E_SUITE` env var (default: `'default'`) to avoid cross-suite interference when running in parallel.
 
-### CI and CD — E2E Service Token Setup
+### CI and CD: E2E Service Token Setup
 
 Step-by-step for running E2E tests against a deployed worker:
 
@@ -398,7 +417,7 @@ npm run test:e2e:ui     # UI desktop tests only
 E2E_MOBILE=1 npm run test:e2e:ui  # UI mobile tests only
 ```
 
-### CI and CD — E2E Test Maintenance
+### CI and CD: E2E Test Maintenance
 
 **Rule:** When modifying UI components or API routes, review and update corresponding E2E tests.
 
@@ -418,14 +437,14 @@ Implements [REQ-OPS-008](../../sdd/spec/operations.md#req-ops-008-stress-testing
 
 **Audience:** Operators
 
-## Stress testing — Prerequisites
+## Stress testing: Prerequisites
 
 1. **Integration worker deployed** with `STRESS_TEST_MODE=active` (disables all rate limits - required because all VUs share one service identity)
 2. **GitHub `integration` environment** with secrets (`CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`) and variables (`E2E_BASE_URL`, `CLOUDFLARE_WORKER_NAME`)
 3. **Repository-level secrets** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (used by setup job to push `SERVICE_AUTH_SECRET` and seed KV via wrangler)
 4. **`STRESS_TEST_CONCURRENCY`** variable set in the `integration` environment (optional, defaults to `0` which uses baseline VU counts)
 
-## Stress testing — Running
+## Stress testing: Running
 
 Go to **Actions > Stress Test > Run workflow**. Select a suite or leave as `all`.
 
@@ -438,9 +457,9 @@ To scale concurrency, set `STRESS_TEST_CONCURRENCY` in **Settings > Environments
 | `200` | 20-67x baseline VUs, minimal think times, loosened thresholds | ~4 000 users |
 | `1000` | 100-333x baseline VUs, minimal think times, loosened thresholds | ~20 000 users |
 
-## Stress testing — Test Suites
+## Stress testing: Test Suites
 
-### Stress testing — API Throughput (`api-throughput.js`)
+### Stress testing: API Throughput (`api-throughput.js`)
 
 Sustained load + spike test across read-only API endpoints simulating dashboard polling behavior.
 
@@ -460,7 +479,7 @@ Sustained load + spike test across read-only API endpoints simulating dashboard 
 
 **Think time:** `think(4, 6)` seconds between poll cycles - matches real frontend's ~5s poll interval. Per cycle: user/preferences (30% chance), storage/browse (20% chance). Remaining 50% of cycles are dashboard-only polling.
 
-### Stress testing — Session Lifecycle (`session-lifecycle.js`)
+### Stress testing: Session Lifecycle (`session-lifecycle.js`)
 
 Create-read-delete cycle testing session churn with realistic delays between operations.
 
@@ -483,7 +502,7 @@ Create-read-delete cycle testing session churn with realistic delays between ope
 
 **Think time:** `think(3, 8)` after create, `think(2, 5)` between list/get/stop, `think(5, 15)` before delete, `think(10, 30)` between full cycles. Models a user who creates a session, works for a while, then cleans up.
 
-### Stress testing — Storage Operations (`storage-operations.js`)
+### Stress testing: Storage Operations (`storage-operations.js`)
 
 Upload-browse-download-delete cycle simulating an interactive agent session with weighted random file sizes.
 
@@ -515,7 +534,7 @@ Folder delete testing: ~20% of iterations also test server-side prefix delete by
 
 **Think time:** `think(3, 8)` after upload, `think(2, 5)` between browse/download/delete, `think(5, 15)` between full cycles. Models a user editing files in an active Codeflare session. Folder prefix delete operations add `think(1, 3)` between folder setup and delete.
 
-### Stress testing — Stress Test with Rate Limits (`rate-limit-validation.js`)
+### Stress testing: Stress Test with Rate Limits (`rate-limit-validation.js`)
 
 Validates that rate limits ARE enforced when `STRESS_TEST_MODE` is **not** set. Runs a single VU that bursts session creates past the configured limit and verifies 429 responses.
 
@@ -530,7 +549,7 @@ Validates that rate limits ARE enforced when `STRESS_TEST_MODE` is **not** set. 
 
 **Prerequisite:** `STRESS_TEST_MODE` must NOT be set on the worker (or set to anything other than `"active"`).
 
-## Stress testing — Session Lifecycle Rate Limits Detail
+## Stress testing: Session Lifecycle Rate Limits Detail
 
 The session lifecycle suite hits multiple 10/min rate limits:
 
@@ -547,7 +566,7 @@ The test validates that:
 - Sessions can be deleted (204)
 - Error rates remain <15% throughout
 
-## Stress testing — Think Time Model
+## Stress testing: Think Time Model
 
 All scripts use a `think(min, max)` helper that adds realistic pauses between operations:
 
@@ -561,7 +580,7 @@ This produces uniformly distributed delays between `min` and `max` seconds, simu
 
 **Per-user behavior stays constant regardless of VU count.** Scaling `STRESS_TEST_CONCURRENCY` adds more virtual users running the same realistic interaction pattern. A single VU's think times, request sequences, and file sizes don't change - only the number of concurrent users increases.
 
-## Stress testing — VU-to-Real-User Mapping
+## Stress testing: VU-to-Real-User Mapping
 
 **50 VUs with realistic think times approximate 1 000-5 000 real concurrent users.**
 
@@ -579,7 +598,7 @@ k6 VUs use realistic think times (4-15s between actions) but hit all endpoint ty
 
 **Rule of thumb: 1 VU ≈ 20-100 real users** (varies by suite). At `STRESS_TEST_CONCURRENCY=50`, the three suites running in parallel simulate load equivalent to roughly 1 000-5 000 concurrent Codeflare users.
 
-## Stress testing — Concurrency Scaling
+## Stress testing: Concurrency Scaling
 
 All scripts use the same scaling pattern:
 
@@ -594,7 +613,7 @@ When `STRESS_TEST_CONCURRENCY=0` (default), `SCALE=1` and all VU targets remain 
 
 Think times stay constant regardless of concurrency - scaling adds more users running the same realistic behavior, not faster robots.
 
-## Stress testing — Rate Limit Bypass
+## Stress testing: Rate Limit Bypass
 
 All VUs share a single CF Access service token (single identity). Without bypass, per-user rate limits block meaningful load testing:
 
@@ -619,9 +638,9 @@ Setting `STRESS_TEST_MODE=active` on the integration worker disables all rate-li
 
 **Production must never have `STRESS_TEST_MODE` set.** The flag should only be enabled on integration workers used for load testing.
 
-## Stress testing — Configuration Reference
+## Stress testing: Configuration Reference
 
-### Stress testing — Worker environment variable
+### Stress testing: Worker environment variable
 
 | Variable | Where | Value | Purpose | Must be exact |
 |----------|-------|-------|---------|---------------|
@@ -646,7 +665,7 @@ After setting, re-deploy the worker for the variable to take effect:
 wrangler deploy --env integration
 ```
 
-### Stress testing — GitHub variables (integration environment)
+### Stress testing: GitHub variables (integration environment)
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
@@ -654,7 +673,7 @@ wrangler deploy --env integration
 | `E2E_BASE_URL` | - | Target worker URL |
 | `CLOUDFLARE_WORKER_NAME` | - | Worker name for wrangler secret/KV operations |
 
-### Stress testing — GitHub secrets
+### Stress testing: GitHub secrets
 
 **Integration environment secrets:**
 
@@ -670,7 +689,7 @@ wrangler deploy --env integration
 | `CLOUDFLARE_API_TOKEN` | Wrangler API access for `secret put` and KV operations |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account for wrangler commands |
 
-## Stress testing — Workflow Architecture
+## Stress testing: Workflow Architecture
 
 ```
 stress-test.yml (workflow_dispatch)
@@ -688,13 +707,13 @@ All 3 test jobs run in parallel after setup. The summary job downloads all resul
 
 Results are uploaded as artifacts (retained 30 days).
 
-## Stress testing — Results
+## Stress testing: Results
 
-### Stress testing — Latest Results (2026-03-07, 50 VUs)
+### Stress testing: Latest Results (2026-03-07, 50 VUs)
 
 All three suites passed every threshold at `STRESS_TEST_CONCURRENCY=50`. Run: [#22808941531](https://github.com/nikolanovoselec/codeflare/actions/runs/22808941531).
 
-#### Stress testing — API Throughput
+#### Stress testing: API Throughput
 
 | Metric | avg | p95 | max | Result |
 |--------|-----|-----|-----|--------|
@@ -705,7 +724,7 @@ All three suites passed every threshold at `STRESS_TEST_CONCURRENCY=50`. Run: [#
 | `errors` | 0.00% | - | - | PASS |
 | `checks` | 100.00% (7 729/7 729) | - | - | - |
 
-#### Stress testing — Session Lifecycle
+#### Stress testing: Session Lifecycle
 
 | Metric | avg | p95 | max | Result |
 |--------|-----|-----|-----|--------|
@@ -714,7 +733,7 @@ All three suites passed every threshold at `STRESS_TEST_CONCURRENCY=50`. Run: [#
 | `errors` | 0.00% | - | - | PASS (<15%) |
 | `checks` | 100.00% (804/804) | - | - | - |
 
-#### Stress testing — Storage Operations
+#### Stress testing: Storage Operations
 
 | Metric | avg | p95 | max | Result |
 |--------|-----|-----|-----|--------|
@@ -726,7 +745,7 @@ All three suites passed every threshold at `STRESS_TEST_CONCURRENCY=50`. Run: [#
 
 At 50 VUs with realistic think times, this represents approximately **1 000-5 000 concurrent real users** worth of load.
 
-### Stress testing — Files
+### Stress testing: Files
 
 | File | Purpose |
 |------|---------|
@@ -740,11 +759,11 @@ At 50 VUs with realistic think times, this represents approximately **1 000-5 00
 | `src/lib/rate-limit-core.ts` | Core rate-limit logic (KV + in-memory fallback) |
 | `src/lib/constants.ts` | `WS_RATE_LIMIT_*` constants |
 
-### Stress testing — Subscription and Timekeeper Considerations
+### Stress testing: Subscription and Timekeeper Considerations
 
 The subscription system introduces endpoints and a Durable Object not yet covered by existing k6 suites.
 
-#### Stress testing — Endpoints not yet stress-tested
+#### Stress testing: Endpoints not yet stress-tested
 
 | Endpoint | Method | Rate Limit | Notes |
 |----------|--------|------------|-------|
@@ -754,7 +773,7 @@ The subscription system introduces endpoints and a Durable Object not yet covere
 | `/api/admin/tiers` | GET/PUT | None | Admin tier config; low traffic |
 | `/api/auth/onboarding-config` | GET | None | Turnstile site key |
 
-#### Stress testing — Timekeeper DO load characteristics
+#### Stress testing: Timekeeper DO load characteristics
 
 The Timekeeper DO receives pings every 60 seconds from each active container session:
 
@@ -763,7 +782,7 @@ The Timekeeper DO receives pings every 60 seconds from each active container ses
 - **Session eviction:** `sessionTotals` map caps at 30 entries to prevent unbounded growth
 - **Fail-open design:** KV read failures during quota checks are non-fatal
 
-#### Stress testing — Container start quota check
+#### Stress testing: Container start quota check
 
 `validateSessionAndCheckLimits()` in `src/routes/container/lifecycle-validation.ts` performs a KV read at session start. With `STRESS_TEST_MODE=active`, usage quota enforcement is bypassed (same as rate limits).
 

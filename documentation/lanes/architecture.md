@@ -16,6 +16,75 @@ System architecture, components, data flow, and design rationale for Codeflare.
 - [Landing composition implementation](#landing-composition-implementation)
 - [Specification Coverage](#specification-coverage)
 - [Related Documentation](#related-documentation)
+- [Architecture internals reference](#architecture-internals-reference)
+- [Architecture internals — Backend Libraries](#architecture-internals-backend-libraries)
+- [Architecture internals — Code Structure (Pre-Launch Refactoring)](#architecture-internals-code-structure-pre-launch-refactoring)
+- [Architecture internals — Appendix: CF-NNN Code Index](#architecture-internals-appendix-cf-nnn-code-index)
+- [Architecture internals — SaaS UI Components](#architecture-internals-saas-ui-components)
+- [Billing reference](#billing-reference)
+- [Billing — Subscription Tiers](#billing-subscription-tiers)
+- [Billing — Stripe Payment Integration](#billing-stripe-payment-integration)
+- [Billing — Timekeeper DO (Usage Tracking)](#billing-timekeeper-do-usage-tracking)
+- [Billing — Paygate Enforcement](#billing-paygate-enforcement)
+- [Billing — Admin Subscription Management](#billing-admin-subscription-management)
+- [Billing — Email Notifications](#billing-email-notifications)
+- [Container reference](#container-reference)
+- [Container — Container Image](#container-container-image)
+- [Container — Container Startup](#container-container-startup)
+- [Container — Claude Code Integration](#container-claude-code-integration)
+- [Container — Graphify](#container-graphify-knowledge-graph-context-req-agent-023)
+- [Container — LLM Consultation](#container-llm-consultation)
+- [Container — Push & Deploy](#container-push--deploy)
+- [Mobile reference](#mobile-reference)
+- [Mobile — MultiView Availability](#mobile-multiview-availability)
+- [Mobile — Cursor Visibility](#mobile-cursor-visibility)
+- [Mobile — Keyboard Management](#mobile-keyboard-management)
+- [Mobile — Touch Input](#mobile-touch-input)
+- [Mobile — xterm 6.1 Color-Scheme Report Suppression (git: Fix 21)](#mobile-xterm-61-color-scheme-report-suppression-git-fix-21)
+- [Mobile — Scroll Stability](#mobile-scroll-stability)
+- [Mobile — WebSocket Recovery](#mobile-websocket-recovery)
+- [Mobile — Scroll-Stability Integration Test Plan](#mobile-scroll-stability-integration-test-plan)
+- [Preseed reference](#preseed-reference)
+- [Preseed — Session Modes](#preseed-session-modes)
+- [Preseed — Preseed Components](#preseed-preseed-components)
+- [Preseed — Preseed Deployment](#preseed-preseed-deployment)
+- [Preseed — Multi-Agent Preseed](#preseed-multi-agent-preseed)
+- [Preseed — Settings.json Merge](#preseed-settingsjson-merge)
+- [Preseed — Plugin Enablement](#preseed-plugin-enablement)
+- [Preseed — Third-party plugin: context-mode](#preseed-third-party-plugin-context-mode)
+- [Preseed — Graphify](#preseed-graphify-req-agent-023)
+- [Preseed — /sdd init Modes](#preseed-sdd-init-modes)
+- [Preseed — Troubleshooting](#preseed-troubleshooting)
+- [Preseed — Image-baked seed (Governed Mode delta sync)](#preseed-image-baked-seed-governed-mode-delta-sync)
+- [Storage and sync reference](#storage-and-sync-reference)
+- [Storage and sync — Storage Quota](#storage-and-sync-storage-quota-req-stor-006-req-stor-014)
+- [Storage and sync — Why rclone bisync (Not s3fs)](#storage-and-sync-why-rclone-bisync-not-s3fs)
+- [Storage and sync — Initial Sync on Startup](#storage-and-sync-initial-sync-on-startup)
+- [Storage and sync — What's Synced vs Excluded](#storage-and-sync-whats-synced-vs-excluded-req-stor-011)
+- [Storage and sync — rclone Sync Modes](#storage-and-sync-rclone-sync-modes-req-stor-003)
+- [Storage and sync — Manual Sync Triggers](#storage-and-sync-manual-sync-triggers-req-stor-015)
+- [Storage and sync — Session Transcript Cleanup](#storage-and-sync-session-transcript-cleanup)
+- [Storage and sync — Conflict Resolution](#storage-and-sync-conflict-resolution)
+- [Storage and sync — Troubleshooting](#storage-and-sync-troubleshooting)
+- [Storage and sync — File Browser](#storage-and-sync-file-browser-req-stor-016)
+- [Storage and sync — Startup & steady-state sync performance](#storage-and-sync-startup--steady-state-sync-performance)
+- [Storage and sync — Governed Mode (R2 SSE-C disabled)](#storage-and-sync-governed-mode-r2-sse-c-disabled)
+- [Vault reference](#vault-reference)
+- [Vault — Overview](#vault-overview-req-vault-001)
+- [Vault — Directory Layout](#vault-directory-layout)
+- [Vault — Capture Path](#vault-capture-path-req-vault-002)
+- [Vault — User-edit Path](#vault-user-edit-path-req-vault-003)
+- [Vault — Unified Global Graph](#vault-unified-global-graph-req-vault-004)
+- [Vault — SilverBullet Editor](#vault-silverbullet-editor-req-vault-005)
+- [Vault — Vault encryption and IDB lifecycle](#vault-vault-encryption-and-idb-lifecycle-req-vault-008-req-vault-024-req-vault-015-req-vault-021-req-vault-023)
+- [Vault — Shutdown Bisync Reliability](#vault-shutdown-bisync-reliability-req-vault-006)
+- [Vault — Preseed Integration](#vault-preseed-integration-req-vault-007)
+- [Vault — First-session Expectations](#vault-first-session-expectations)
+- [Vault — Attachment Cost Caveat](#vault-attachment-cost-caveat-req-vault-011-ac1)
+- [Vault — PDF-Ingestion E2E Plan](#vault-pdf-ingestion-e2e-plan-req-vault-011)
+- [Vault — Memory Capture System](#vault-memory-capture-system)
+- [Vault — Troubleshooting](#vault-troubleshooting)
+- [Manual verification checklist](#manual-verification-checklist)
 
 ## Architecture Overview
 
@@ -689,11 +758,11 @@ Backend library reference, code structure, and refactoring index for Codeflare.
 
 See [Architecture](architecture.md) for system overview, components, data flow, and design rationale.
 
-## Architecture internals — Backend Libraries
+## Architecture internals: Backend Libraries
 
 | File | Purpose |
 |------|---------|
-| `src/middleware/auth.ts` | Shared authentication middleware. Delegates to `authenticateRequest()` which throws `AuthError`/`ForbiddenError` on failure. Sets `c.get('user')` and `c.get('bucketName')` for downstream handlers. |
+| `src/middleware/auth.ts` | Shared authentication middleware and the owner of admin authorization through `requireAdmin`. Delegates identity checks to `authenticateRequest()`, then sets `c.get('user')` and `c.get('bucketName')` for downstream handlers. |
 | `src/lib/container-helpers.ts` | Consolidated container initialization: `getSessionIdFromQuery()` (from query param), `getContainerId()` (with validation, never fallbacks), `getContainerContext()` (full context for route handlers). |
 | `src/lib/error-types.ts` | `AppError` base class with `code`, `statusCode`, `message`, `userMessage`. Specialized: `NotFoundError` (404), `ValidationError` (400), `ContainerError` (500), `AuthError` (401), `ForbiddenError` (403), `SetupError` (400), `RateLimitError` (429), `QuotaExceededError` (402), `CircuitBreakerOpenError` (503). Utilities: `toError(unknown)`, `toErrorMessage(unknown)`. |
 | `src/lib/type-guards.ts` | Runtime type validation replacing unsafe type casts (e.g., `isBucketNameResponse()`). |
@@ -709,7 +778,7 @@ See [Architecture](architecture.md) for system overview, components, data flow, 
 | `src/lib/currency.ts` | `getCurrencyForCountry(country)` - maps a 2-letter ISO country code to a supported currency (chf/usd/eur/gbp). CH/LI -> CHF; GB plus British territories GI/GG/JE/IM -> GBP; European countries (Eurozone, other EU, non-EU European) -> EUR; all others -> USD. Implements [REQ-SUB-020](../../sdd/spec/subscription.md#req-sub-020-multi-currency-pricing). |
 | `src/types.ts` | `BillingStatus` union type with `BILLING_STATUS` const and `isBillingStatus()` guard. `ContainerConfigPayload` groups 16 container initialization params into logical sub-objects (R2 creds, LlmKeys, DeployKeys, preferences). |
 
-### Architecture internals — Setup Wizard Resilience
+### Architecture internals: Setup Wizard Resilience
 
 **Directory:** `src/routes/setup/`
 
@@ -723,7 +792,7 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 ---
 
-## Architecture internals — Code Structure (Pre-Launch Refactoring)
+## Architecture internals: Code Structure (Pre-Launch Refactoring)
 
 **Container DO extraction:** `src/container/index.ts` split into focused modules:
 - `container-env.ts`: env var construction, bucket name application, credential injection, prefs-on-restart
@@ -761,7 +830,7 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 ---
 
-## Architecture internals — Appendix: CF-NNN Code Index
+## Architecture internals: Appendix: CF-NNN Code Index
 
 | Code | Description | Source Location |
 |------|-------------|-----------------|
@@ -795,17 +864,17 @@ All Cloudflare API calls in the setup wizard are wrapped in `withSetupRetry()` (
 
 ---
 
-## Architecture internals — SaaS UI Components
+## Architecture internals: SaaS UI Components
 
 SolidJS components for the SaaS auth and subscription flow (`web-ui/src/`). These components handle login, tier selection, onboarding, and admin user management.
 
-### Architecture internals — LoginPage (`web-ui/src/components/LoginPage.tsx`)
+### Architecture internals: LoginPage (`web-ui/src/components/LoginPage.tsx`)
 
 Shown at `/` when `SAAS_MODE=active`. Detects current auth state:
 - Active tier -> redirect to `/app/`; pending -> redirect to `/app/subscribe`; blocked -> show blocked message
 - If unauthenticated, fetches providers from `/public/auth/providers` and renders GitHub login button
 
-### Architecture internals — SubscribePage (`web-ui/src/components/SubscribePage.tsx`)
+### Architecture internals: SubscribePage (`web-ui/src/components/SubscribePage.tsx`)
 
 Shown at `/app/subscribe`. Two-phase layout:
 
@@ -820,14 +889,14 @@ Shown at `/app/subscribe`. Two-phase layout:
 | Active | "Subscribed" | Green + "Continue" link |
 | Blocked | "Blocked" | Red |
 
-### Architecture internals — RootPage (`web-ui/src/App.tsx`)
+### Architecture internals: RootPage (`web-ui/src/App.tsx`)
 
 Determines deployment mode from backend:
 1. Calls `/public/auth/providers` - if providers returned, show LoginPage (SaaS mode)
 2. Calls `/public/onboarding-config` - if active, show OnboardingLanding
 3. Otherwise, redirect to `/app/` (default mode with CF Access)
 
-### Architecture internals — Admin User Management
+### Architecture internals: Admin User Management
 
 Admin users always have `unlimited` tier and advanced session mode access (`canUseAdvanced()` returns `true` for admins). Backend rejects tier changes and deletions for admin-role users. `SettingsPanel` re-fetches `/api/user` each time it opens for live tier refresh.
 
@@ -843,7 +912,7 @@ See [Authentication](security.md#authentication-reference) for auth flows. See [
 
 ---
 
-## Billing — Subscription Tiers
+## Billing: Subscription Tiers
 
 Codeflare uses a multi-tier subscription system that controls monthly compute hours, max concurrent sessions, and session modes. Tier IDs: `blocked`, `pending`, `free`, `trial`, `standard`, `advanced`, `max`, `unlimited`.
 
@@ -879,7 +948,7 @@ Prices, trial hours, and other parameters are configurable per deployment via th
 
 ---
 
-## Billing — Stripe Payment Integration
+## Billing: Stripe Payment Integration
 
 When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanced, max) require Stripe Checkout before activation. Free tier remains direct (no payment).
 
@@ -932,7 +1001,7 @@ When `STRIPE_SECRET_KEY` is set as a Worker secret, paid tiers (standard, advanc
 
 ---
 
-## Billing — Timekeeper DO (Usage Tracking)
+## Billing: Timekeeper DO (Usage Tracking)
 
 One Timekeeper Durable Object per user tracks compute usage. Container DOs ping Timekeeper every 60 seconds with monotonic `totalSeconds` per session. Timekeeper computes deltas, accumulates `pendingSeconds`, and flushes to KV via alarm every 5 minutes.
 
@@ -974,7 +1043,7 @@ interface UsageRecord {
 
 ---
 
-## Billing — Paygate Enforcement
+## Billing: Paygate Enforcement
 
 Session start (`POST /api/container/start`) checks tier-based usage quota in `validateSessionAndCheckLimits()`:
 1. Resolves user's tier from `subscriptionTier ?? accessTier`
@@ -989,7 +1058,7 @@ Frontend detects `code === 'QUOTA_EXCEEDED'` and shows upgrade CTA.
 
 ---
 
-## Billing — Admin Subscription Management
+## Billing: Admin Subscription Management
 
 Standalone admin page at `/admin/subscriptions`. Features:
 - Displays 6 editable tiers (free, trial, standard, advanced, max, unlimited; blocked/pending are read-only)
@@ -999,7 +1068,7 @@ Standalone admin page at `/admin/subscriptions`. Features:
 
 ---
 
-## Billing — Email Notifications
+## Billing: Email Notifications
 
 Notifications via Resend API (`src/lib/email.ts`, sender: `RESEND_EMAIL` secret). All sending is non-blocking and non-fatal. `RESEND_API_KEY` must be a Worker secret (`wrangler secret put`), not just a GitHub Actions secret.
 
@@ -1019,11 +1088,11 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 
 ---
 
-## Container — Container Image
+## Container: Container Image
 
 **File:** `Dockerfile` - Base: `public.ecr.aws/docker/library/node:24-bookworm-slim` (AWS ECR Public mirror; avoids Docker Hub anonymous pull rate limits on CI runners), multi-stage build (builder compiles native addons, runtime has no build tools).
 
-### Container — Installed Tools
+### Container: Installed Tools
 
 | Category | Packages |
 |----------|----------|
@@ -1034,7 +1103,7 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 | Process | procps (ps, pgrep) |
 | Utilities | jq, python3 plus `python` alias, ripgrep, fd, tree, htop, tmux, yazi, fzf, zoxide, bat |
 
-### Container — Global NPM Packages
+### Container: Global NPM Packages
 
 AI CLI packages install with `@latest` -- each deploy pulls the newest versions (`.cache-bust` layer invalidation triggers fresh installs). The Dockerfile is the source of truth for exact versions. Exception: `bun` is pinned to a specific version because context-mode autodetects it as the JS/TS subprocess runtime; an upstream regression would silently break `ctx_execute` for every user.
 
@@ -1060,7 +1129,7 @@ Additional details:
 
 **`browser-run-mcp`:** Claude Code's cheap one-shot Browser Run READ surface. Exposes `browser_markdown` / `browser_content` / `browser_scrape` as MCP tools over the Cloudflare Browser Run REST Quick Actions. Built into the image at `/opt/codeflare/browser-run-mcp/` (COPY + `npm install --omit=dev` + an import smoke test) and registered in `~/.claude.json` by `entrypoint.sh` under the same advanced-mode + CF-token gate as `chrome-devtools-mcp`. The `@modelcontextprotocol/sdk` pin is exact and shadow-pinned (the `browser-run-mcp` job in `bump-shadow-pins.yml`) — the dir has no lockfile and is invisible to Dependabot, so the workflow bumps it weekly, like the `consult-llm-mcp` Dockerfile pin. Pi's equivalent is the native `browser-run.ts` + `browser-run-helpers.ts` extension (ships via preseed, no baked image artifact). ([REQ-BROWSER-005](../../sdd/spec/browser-run.md#req-browser-005-claude-browser-run-mcp-server-read-surface-parity))
 
-### Container — Pi Extension npm Cache
+### Container: Pi Extension npm Cache
 
 Pi extensions (`@gotgenes/pi-subagents`, `context-mode`) are preinstalled at Docker build time into `/opt/codeflare/pi-agent/npm/` (see **Pi SDK version bridge** below for the install step). (Graphify tools are exposed as a first-party native Pi extension via `graphify-native.ts`, not as an npm package — see [Preseed System](architecture.md#preseed-reference).) On container boot, `warm_pi_npm_dependencies()` in `entrypoint.sh` symlinks `~/.pi/agent/npm/node_modules` to the image-local cache (instant, zero-copy). The symlink is recreated on each boot since `**/node_modules/**` is excluded from R2 sync. `PI_OFFLINE=1` prevents Pi from writing to the read-only target. The runtime npm cache (`~/.npm`) is purged at boot to reclaim ~200MB of disk from prior session installs.
 
@@ -1070,13 +1139,13 @@ Neither `entrypoint.sh` nor the preseeded `context-mode-runtime.ts` extension fo
 
 The build **fails closed**: an empty resolved version aborts before reinstall, and a post-install assertion confirms the override actually pinned the transitive copy. The committed `overrides` value in `preseed/agents/pi/package.json` is a build-time placeholder the layer overwrites on every deploy.
 
-### Container — V8 Compile Cache Warm-Up
+### Container: V8 Compile Cache Warm-Up
 
 Pi is warmed at Docker build time by running `pi --version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Go binaries (opencode, Antigravity/agy) are already natively compiled and do not need V8 cache warm-up. Claude Code ships as a native binary and is verified at build time via `claude --version`.
 
 **codex and copilot are excluded (image-size owner decision, [AD96](../decisions/README.md#ad96-deactivate-codexcopilot-v8-warm-up-and-opencode-db-pre-init-image-size)):** both warm-ups are commented out in the Dockerfile so their bytecode is not baked into the image; each pays the V8 compile cost on its own first launch instead. Re-enable by restoring the two commented `RUN` lines next to `RUN pi --version` in the Dockerfile.
 
-### Container — Pi Extension Jiti Transpile Cache Warm-Up ([AD79](../decisions/README.md#ad79-image-baked-pi-extension-transpile-cache))
+### Container: Pi Extension Jiti Transpile Cache Warm-Up ([AD79](../decisions/README.md#ad79-image-baked-pi-extension-transpile-cache))
 
 `pi --version` does **not** load extensions, so the V8 warm-up above leaves Pi's TypeScript extension set cold. A dedicated build layer pre-transpiles the full Pi extension set (npm packages + local preseed extensions) into a baked jiti cache. Without it, every fresh container paid ~9s of cold jiti transpile before Pi's first PTY output, pushing the host's pre-warm past its 20s hard cap. Mechanics:
 
@@ -1089,31 +1158,31 @@ Pi is warmed at Docker build time by running `pi --version`, which triggers V8 t
 
     The build is **fail-closed**: after the warm bake it asserts every extension in the source set produced a baked cache entry (`extensions-<base>.<hash>.mjs`), so an added, modified, or skipped extension — or a Pi CLI change that breaks the warm-up — fails the build rather than silently regressing startup in production.
 
-### Container — OpenCode Database Pre-Initialization
+### Container: OpenCode Database Pre-Initialization
 
 OpenCode uses SQLite with Goose migrations that run on first startup ("Performing one time database migration"). The DB is stored at `~/.local/share/opencode/opencode.db` (XDG data directory).
 
 **Disabled (image-size owner decision, [AD96](../decisions/README.md#ad96-deactivate-codexcopilot-v8-warm-up-and-opencode-db-pre-init-image-size)):** the Dockerfile's `opencode run "hello"` build-time warm-up is commented out — it baked ~147MB of opencode data into the image. OpenCode now runs its one-time DB migration on first interactive launch instead. Re-enable by uncommenting the `RUN ANTHROPIC_API_KEY="" ... opencode run "hello"` block in the Dockerfile.
 
-### Container — Browser Shims
+### Container: Browser Shims
 
 CLI tools (Claude Code, OpenCode, Antigravity) try to open a browser for OAuth. The Dockerfile installs shims (`open-url` for `BROWSER` env var, `xdg-open-shim` for `xdg-open`) that exit 1, forcing CLIs to print auth URLs as plain text in the PTY. The xterm.js link provider then detects and makes these URLs clickable, joining both soft-wrapped and application-newline continuation rows before offering the complete URL.
 
-### Container — OpenVSCode Server Binary
+### Container: OpenVSCode Server Binary
 
-**File:** `Dockerfile` installs `openvscode-server` (Gitpod build) at a pinned version with a `sha256sum -c` verification, mirroring the SilverBullet install block. Shadow-pinned by the `openvscode-server` job in `bump-shadow-pins.yml`. The supervisor that runs it is described under [Container Startup](#openvscode-server-browser-ide).
+**File:** `Dockerfile` installs `openvscode-server` (Gitpod build) at a pinned version with a `sha256sum -c` verification, mirroring the SilverBullet install block. Shadow-pinned by the `openvscode-server` job in `bump-shadow-pins.yml`. The supervisor that runs it is described under [Container Startup](#container-openvscode-server-browser-ide).
 
 Port: 8080 (single port architecture).
 
 ---
 
-## Container — Container Startup
+## Container: Container Startup
 
 **File:** `entrypoint.sh`
 
 Uses polling with safety timeouts: poll until success OR background process exits OR safety timeout expires. Exit immediately on success. Safety timeout `SYNC_TIMEOUT=120` (2 min) prevents infinite blocking.
 
-### Container — Startup Sequence
+### Container: Startup Sequence
 
 Port 8080 must bind before Cloudflare's container port-wait timeout (~10-15s) elapses. The entrypoint therefore starts the terminal server immediately - before R2 sync - then gates PTY pre-warm behind a flag file written only after sync and configuration complete.
 
@@ -1125,7 +1194,7 @@ flowchart TD
     D --> E["touch /tmp/codeflare-init-complete\n- releases PTY pre-warm"]
 ```
 
-**Managed Pi extension relay & background-init deprioritization ([REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake)):** After `configure_tab_autostart()` and before the background bisync `--resync` baseline, `entrypoint.sh` calls `relay_managed_pi_extensions()` **synchronously, in all deployment modes**: it re-lays the image-baked managed Pi extension bytes (`/opt/codeflare/pi-agent/extensions/*.ts`) over the post-sync `~/.pi/agent/extensions/` tree, overwriting only codeflare-owned filenames (user-added extensions and all other seed files are untouched). This keeps the on-disk extension bytes equal to the build — the content half of the jiti prewarm cache key (see [Pi Extension Jiti Transpile Cache Warm-Up](#pi-extension-jiti-transpile-cache-warm-up-ad79)) — so the cache hits at runtime instead of cold-transpiling ~2.4s/session. `cp` (no `-p`) gives a fresh mtime so the subsequent `--resync` baseline treats local as authoritative and self-heals R2.
+**Managed Pi extension relay & background-init deprioritization ([REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake)):** After `configure_tab_autostart()` and before the background bisync `--resync` baseline, `entrypoint.sh` calls `relay_managed_pi_extensions()` **synchronously, in all deployment modes**: it re-lays the image-baked managed Pi extension bytes (`/opt/codeflare/pi-agent/extensions/*.ts`) over the post-sync `~/.pi/agent/extensions/` tree, overwriting only codeflare-owned filenames (user-added extensions and all other seed files are untouched). This keeps the on-disk extension bytes equal to the build — the content half of the jiti prewarm cache key (see [Pi Extension Jiti Transpile Cache Warm-Up](#container-pi-extension-jiti-transpile-cache-warm-up-ad79)) — so the cache hits at runtime instead of cold-transpiling ~2.4s/session. `cp` (no `-p`) gives a fresh mtime so the subsequent `--resync` baseline treats local as authoritative and self-heals R2.
 
 That bisync baseline then runs in a **background subshell deprioritized to `nice 19` / `ionice -c 3` (idle I/O class)**, so it yields the single vCPU and disk to the concurrent PTY pre-warm rather than contending for the core; the scheduling class is inherited by its rclone and daemon children and is best-effort (`|| true`).
 
@@ -1135,15 +1204,15 @@ That bisync baseline then runs in a **background subshell deprioritized to `nice
 
 **Init-complete flag ([REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) AC1):** `CODEFLARE_INIT_FLAG_FILE=/tmp/codeflare-init-complete`. The terminal server polls for this file (every 250ms, up to 130s) before spawning the tab-1 PTY session. This ensures pre-warm reads the fully-restored `.claude.json`, `.bashrc`, and MCP server registrations rather than pre-sync state. If the flag does not appear within 130s (`PREWARM_INIT_WAIT_MS`), pre-warm proceeds anyway. The flag is deleted and recreated on every container start.
 
-Auto-start uses `claude --dangerously-skip-permissions` for fast boot. Auto-updates are disabled by default via `FAST_CLI_START=true` (see [Fast Start](#fast-start) below). Users can enable auto-updates via Settings.
+Auto-start uses `claude --dangerously-skip-permissions` for fast boot. Auto-updates are disabled by default via `FAST_CLI_START=true` (see [Fast Start](#container-fast-start) below). Users can enable auto-updates via Settings.
 
 **PTY PATH:** The `.bashrc` tab autostart block sets `PATH="/usr/local/bin:/usr/bin:/bin:$PATH"` so that PTY sessions can find globally installed CLI tools.
 
-### Container — OpenVSCode Server (Browser IDE)
+### Container: OpenVSCode Server (Browser IDE)
 
-**Lazy-started ([REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-lazy-start-supervised-clean-teardown)):** `entrypoint.sh`'s `start_openvscode_supervisor` runs OpenVSCode (the binary installed under [Container Image](#openvscode-server-binary)) on `127.0.0.1:13337` against the session's `~/workspace`, supervised by a crash-restart loop. It does not launch at boot: it waits until `CODEFLARE_INIT_FLAG_FILE` exists AND the host has written `/tmp/openvscode-requested` (on the container's first `/api/vscode` request), so a session that never opens the IDE never pays for it. It runs `--server-base-path=/api/vscode/<sessionId>` for session isolation and an ephemeral `--server-data-dir` under `/tmp` (never R2-synced). Advanced-mode only, armed alongside the SilverBullet supervisor. Torn down via `/tmp/openvscode.pid` on shutdown. See [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy).
+**Lazy-started ([REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability)):** `entrypoint.sh`'s `start_openvscode_supervisor` runs OpenVSCode (the binary installed under [Container Image](#container-openvscode-server-binary)) on `127.0.0.1:13337` against the session's `~/workspace`, supervised by a crash-restart loop. It does not launch at boot: it waits until `CODEFLARE_INIT_FLAG_FILE` exists AND the host has written `/tmp/openvscode-requested` (on the container's first `/api/vscode` request), so a session that never opens the IDE never pays for it. It runs `--server-base-path=/api/vscode/<sessionId>` for session isolation and an ephemeral `--server-data-dir` under `/tmp` (never R2-synced). Advanced-mode only, armed alongside the SilverBullet supervisor. Torn down via `/tmp/openvscode.pid` on shutdown. See [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy).
 
-### Container — Fast Start
+### Container: Fast Start
 
 **User preference:** `fastStartEnabled` (default: `true`) in `UserPreferences`.
 **Container env var:** `FAST_CLI_START` (default: `'true'`).
@@ -1164,7 +1233,7 @@ When enabled, `entrypoint.sh` disables auto-update checks for all AI tools, elim
 
 When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the Dockerfile-level env vars (`DISABLE_AUTOUPDATER`, `DISABLE_INSTALLATION_CHECKS`) and the entrypoint-level update suppressors (`OPENCODE_DISABLE_AUTOUPDATE`, `PI_OFFLINE`, `PI_SKIP_VERSION_CHECK`), skips setting `COPILOT_AUTO_UPDATE`, removes Codeflare-managed Codex settings-file suppressors, and runs `pi update` so Pi and Pi packages reconcile before the session starts. Fast Start ON sets `PI_OFFLINE=1`, so Pi skips startup network checks and will not install restored user-added Pi packages that are absent from the image cache until Fast Start is turned off.
 
-### Container — Auto-sleep (Configurable sleepAfter)
+### Container: Auto-sleep (Configurable sleepAfter)
 
 **User preference:** `sleepAfter` (type: `SleepAfterOption`, optional) in `UserPreferences`. Allowed values: `15m`, `30m`, `1h`, `2h`, `4h` (a pre-existing stored `5m` is still tolerated on read). Default when not set: `30m` (applied by container lifecycle route). **Free tier override:** backend forces `15m` regardless of stored preference; frontend locks dropdown and shows upgrade hint.
 
@@ -1209,13 +1278,13 @@ When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the
 
 ---
 
-## Container — Claude Code Integration
+## Container: Claude Code Integration
 
 Claude Code runs directly via the official `@anthropic-ai/claude-code` npm package (`claude` command). Containers run as root, and `IS_SANDBOX=1` (set in the Dockerfile) allows `--dangerously-skip-permissions` to work as root. No wrapper or patcher needed.
 
 **Auto-update control:** `DISABLE_AUTOUPDATER=1` prevents the CLI's internal auto-updater from running, avoiding startup delay. Updates happen at Docker build time via `.cache-bust` layer invalidation. When Fast Start is OFF, `DISABLE_AUTOUPDATER` is unset, allowing the CLI to update to latest on startup.
 
-### Container — Container Environment Variables
+### Container: Container Environment Variables
 
 **Global (Dockerfile ENV):** `NPM_CONFIG_UPDATE_NOTIFIER=false`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`, `DISABLE_AUTOUPDATER=1`, `NODE_COMPILE_CACHE=/root/.cache/node-compile-cache`, `BROWSER=/usr/local/bin/open-url`
 
@@ -1225,7 +1294,7 @@ Claude Code runs directly via the official `@anthropic-ai/claude-code` npm packa
 
 ---
 
-## Container — Graphify (Knowledge-Graph Context) (REQ-AGENT-023)
+## Container: Graphify (Knowledge-Graph Context) (REQ-AGENT-023)
 
 `graphifyy` (Apache-2.0) is installed globally at Docker build time via `uv tool install graphifyy[mcp,sql,pdf]==<VER>`. The version is pinned to `preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json` `.version`; a Dependabot bump there triggers a Dockerfile rebuild in lockstep so the runtime binary and the plugin manifest stay synchronised. The `graphify` CLI lives at `/root/.local/bin/graphify` (PATH-ready). The MCP server is invoked via the venv's own interpreter at `/root/.local/share/uv/tools/graphifyy/bin/python`, running the `graphify-mcp-lazy.py` wrapper (preseeded at `~/.claude/plugins/graphify/scripts/graphify-mcp-lazy.py`).
 
@@ -1251,7 +1320,7 @@ The semantic merge driver for `graph.json` is registered globally in the image (
 
 ---
 
-## Container — LLM Consultation
+## Container: LLM Consultation
 
 When `CODEFLARE_OPENAI_API_KEY` or `CODEFLARE_GEMINI_API_KEY` env vars are present (or the user is logged into Codex), `entrypoint.sh` (`configure_consult_llm`) configures the `consult-llm-mcp` MCP server for **both** Claude Code (`~/.claude.json`) and Pi (`~/.pi/agent/mcp.json`). Pi reaches it through the pi-mcp-adapter `mcp` proxy with `lifecycle: "lazy"`, so the server starts only when the user explicitly asks to consult an external LLM. On each start, entrypoint replaces Codeflare's owned `mcpServers["consult-llm"]` object, removing the old always-on `keep-alive` / `directTools` fields while preserving unrelated user MCP servers.
 
@@ -1282,7 +1351,7 @@ Skill definitions: `preseed/agents/claude/skills/consult-llm/SKILL.md` (Claude),
 
 ---
 
-## Container — Push & Deploy
+## Container: Push & Deploy
 
 Optional feature that lets users connect GitHub and Cloudflare accounts once in Settings. Tokens are stored in KV (`deploy-keys:{bucketName}`), validated against provider APIs on save, and injected as environment variables into every container session.
 
@@ -1318,11 +1387,11 @@ Technical reference for the mobile terminal implementation covering keyboard han
 
 ---
 
-## Mobile — MultiView Availability
+## Mobile: MultiView Availability
 
 Mobile phone viewports implement [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace) and [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow) as single-session terminal surfaces. `web-ui/src/lib/mobile.ts::getTerminalViewportClass` supplies the shared capacity class, and `web-ui/src/components/SessionDropdown.tsx::SessionDropdown` hides the MultiView control when that capacity is zero, so mobile users cannot enter MultiView selection or open tiled session panes. Existing browser-local MultiView membership is preserved while hidden; returning to tablet or desktop can show and reopen the saved `MultiView #1` if at least two member sessions are still running or initializing.
 
-## Mobile — Cursor Visibility
+## Mobile: Cursor Visibility
 
 The xterm cursor is visible (enabled as of Claude Code 1.0.12+ / Copilot 1.0.12+). Previously, the cursor was hidden via CSS `display: none` on `.xterm-cursor-block`, `.xterm-cursor-outline`, `.xterm-cursor-bar`, and `.xterm-cursor-underline`, and via transparent theme colors.
 
@@ -1336,17 +1405,17 @@ The xterm cursor is visible (enabled as of Claude Code 1.0.12+ / Copilot 1.0.12+
 
 **Historical note:** Previous versions hid the xterm cursor on mobile to avoid "orange square" duplication. The iframe compositor jail remains for the Android IME native caret problem.
 
-## Mobile — Keyboard Management
+## Mobile: Keyboard Management
 
-### Mobile — VirtualKeyboard API
+### Mobile: VirtualKeyboard API
 
 The `overlaysContent` flag must be managed carefully throughout the terminal lifecycle:
 
 - **Enable** when the terminal textarea is focused (`enableVirtualKeyboardOverlay`)
-- **Disable** on terminal exit (`disableVirtualKeyboardOverlay`) so other inputs get normal browser resizing — but NOT on a pane-to-pane focus handoff (see [Multi-pane focus handoff](#multi-pane-focus-handoff))
+- **Disable** on terminal exit (`disableVirtualKeyboardOverlay`) so other inputs get normal browser resizing — but NOT on a pane-to-pane focus handoff (see [Multi-pane focus handoff](#mobile-multi-pane-focus-handoff))
 - `overlaysContent` must be enabled BEFORE focus to beat the keyboard/layout race
 
-### Mobile — Multi-pane focus handoff
+### Mobile: Multi-pane focus handoff
 
 The virtual-keyboard signals (`vkOpen`, `keyboardHeight`) and `overlaysContent` are a single shared resource for the whole window, owned by the focused terminal pane. When several terminal panes are visible (tiling layouts, tablet MultiView) and focus moves between panes while the keyboard is open, the keyboard must stay open and the newly focused pane keeps keyboard mode rather than dropping to keyboard-closed/freescroll.
 
@@ -1358,11 +1427,11 @@ The virtual-keyboard signals (`vkOpen`, `keyboardHeight`) and `overlaysContent` 
 
 A real exit (focus on a non-terminal element, or terminal unmount) is not a handoff, so those sites — and the unconditional iframe-removal cleanup in `setupMobileInput` — still tear the keyboard down. Implements [REQ-MOB-015](../../sdd/spec/mobile.md#req-mob-015-virtual-keyboard-persists-across-terminal-pane-focus-handoff).
 
-### Mobile — Background prewarm focus safety
+### Mobile: Background prewarm focus safety
 
 Vault browser prewarm runs in a hidden same-origin iframe while the user may already be typing in the terminal. It is intentionally not delayed by terminal focus or an open virtual keyboard. Instead, `injectVaultPrewarmFocusGuard()` makes only the valid-token prewarm shell focus-inert before SilverBullet app scripts run: script `focus()`, `select()`, and `window.focus()` calls are no-ops, focus-in events inside the hidden document are blurred, and `startVaultPrewarm()` restores the previously focused terminal/input element if the outer iframe captures parent focus. Normal user-opened Vault tabs do not carry prewarm parameters and keep regular editor focus behavior. Vault browser prewarm implements [REQ-MOB-014](../../sdd/spec/mobile.md#req-mob-014-mobile-background-surface-focus-isolation) and [REQ-VAULT-020](../../sdd/spec/vault.md#req-vault-020-vault-prewarm-focus-safety).
 
-### Mobile — Samsung Internet Quirks
+### Mobile: Samsung Internet Quirks
 
 Samsung Internet's bottom navigation bar inflates viewport height, causing the VirtualKeyboard API to report incorrect dimensions.
 
@@ -1370,7 +1439,7 @@ Samsung Internet's bottom navigation bar inflates viewport height, causing the V
 
 Samsung Internet on Android has several quirks with the VirtualKeyboard API. The fixes below are minimal, event-driven patches applied on top of the stable `df1dcfc` baseline (no polling, no timers for state verification, no delayed rechecks).
 
-#### Mobile — Stale `geometrychange` Ignore Window
+#### Mobile: Stale `geometrychange` Ignore Window
 
 Samsung fires a cached stale `geometrychange` event immediately when `overlaysContent` is toggled. The stale event carries whatever `boundingRect` was last cached, which can leave the terminal at half height on re-entry (git: Fix 2).
 
@@ -1380,7 +1449,7 @@ Samsung fires a cached stale `geometrychange` event immediately when `overlaysCo
 
 Root cause of a persistent Samsung bug: on dashboard entry the enable call was a no-op (no stamp); on visibility return it was a real toggle that ate both stale and real events.
 
-#### Mobile — `baselineInnerHeight` / `viewportGrowth` Compensation
+#### Mobile: `baselineInnerHeight` / `viewportGrowth` Compensation
 
 Samsung's bottom navigation bar creates a "locked layout viewport" bug:
 - When the keyboard opens, the bottom bar hides, growing `window.innerHeight`
@@ -1389,7 +1458,7 @@ Samsung's bottom navigation bar creates a "locked layout viewport" bug:
 - `viewportGrowth` = `innerHeight - baselineInnerHeight` represents the nav bar space
 - `getKeyboardHeight()` subtracts `viewportGrowth` from `boundingRect.height` (only with bottom address bar, narrow screens)
 
-#### Mobile — `baselineInnerHeight` Immutability
+#### Mobile: `baselineInnerHeight` Immutability
 
 `baselineInnerHeight` captures `window.innerHeight` at module initialization (page load). It must NEVER be updated during keyboard close, force resets, or stale-state checks. The only exception is the Galaxy Fold screen-switch resize handler (delta > 200px) (git: Fix 4, revised).
 
@@ -1397,13 +1466,13 @@ Samsung's bottom navigation bar creates a "locked layout viewport" bug:
 
 **Fix:** Removed ALL `baselineInnerHeight` updates from keyboard-close, `forceResetKeyboardState()`, and `resetKeyboardStateIfStale()`. Baseline only changes at module initialization and the Galaxy Fold screen-switch resize handler (`delta > 200px`) which handles genuine physical screen changes.
 
-### Mobile — Samsung Focusout Handler
+### Mobile: Samsung Focusout Handler
 
 Samsung doesn't fire `geometrychange` when the back button dismisses the keyboard. Without detection, keyboard state signals stay stale (git: Fix 1).
 
-**Solution:** `useTerminal.ts` registers a `focusout` listener on the terminal input element (only on Samsung). When `focusout` fires it defers one tick for the focus transition to settle, then — only if focus has left the terminal (`isFocusOnTerminalInput()` is false, i.e. not a pane-to-pane handoff) and `isVirtualKeyboardOpen()` is true — calls `forceResetKeyboardState()` to zero all signals. A handoff to a sibling terminal pane keeps the keyboard (see [Multi-pane focus handoff](#multi-pane-focus-handoff)). The listener is cleaned up on terminal deactivation.
+**Solution:** `useTerminal.ts` registers a `focusout` listener on the terminal input element (only on Samsung). When `focusout` fires it defers one tick for the focus transition to settle, then — only if focus has left the terminal (`isFocusOnTerminalInput()` is false, i.e. not a pane-to-pane handoff) and `isVirtualKeyboardOpen()` is true — calls `forceResetKeyboardState()` to zero all signals. A handoff to a sibling terminal pane keeps the keyboard (see [Multi-pane focus handoff](#mobile-multi-pane-focus-handoff)). The listener is cleaned up on terminal deactivation.
 
-### Mobile — Visibility Return Reset
+### Mobile: Visibility Return Reset
 
 When the browser is backgrounded and returned to, keyboard state signals (`keyboardHeight`, `vkOpen`, `viewportGrowth`) can be stale because (git: Fix 6):
 - `disableVirtualKeyboardOverlay()` fires on blur (backgrounding) but does NOT reset signals
@@ -1432,7 +1501,7 @@ The 50ms delay gives SolidJS time to process the null state and run cleanup effe
 **Samsung-specific input resume:** `terminal-mobile-input.ts` `restoreFocusIfNeeded()` does NOT auto-focus on Samsung (which would open the keyboard and trigger stale `geometrychange` events). Instead, it delays `enableVirtualKeyboardOverlay()` by 300ms so the compositor settles, then leaves the keyboard closed for the user to tap when ready. The 300ms delay ensures Samsung's delayed stale `geometrychange` events (which can arrive up to ~200ms after toggle) are caught by the 50ms ignore window from the delayed toggle.
 
 
-### Mobile — FitAddon Management
+### Mobile: FitAddon Management
 
 Three code paths can trigger `fitAddon.fit()` (git: Fix 3):
 1. **Keyboard refit** (debounced 150ms)
@@ -1450,9 +1519,9 @@ A `kbDebounceTimer` variable (timer ID, not boolean) gates the ResizeObserver. W
 
 This applies to all three `fit()` paths above, plus the init-overlay refit and keyboard lifecycle refit.
 
-## Mobile — Touch Input
+## Mobile: Touch Input
 
-### Mobile — Swipe Gestures
+### Mobile: Swipe Gestures
 
 Horizontal swipe gestures (left/right arrow key simulation) use a `setInterval` repeat timer that fires every 80ms while the finger is held. `touchstart`/`touchmove` were registered in capture phase, but `touchend`/`touchcancel` were in bubble phase. When xterm.js's internal Gesture handler (on `.xterm-screen`) called `stopPropagation()` on `touchend` during its own gesture processing, the bubble-phase listener on the container never fired, leaving the repeat timer running indefinitely (git: Fix 7).
 
@@ -1464,7 +1533,7 @@ Fix: a bubble-phase `stopPropagation` "Gesture shield" for `touchstart`/`touchmo
 
 **Fullscreen alternate-buffer scroll routing (git: Fix 22).** Claude Code `/tui fullscreen` renders conversation history inside the alternate screen and captures wheel reports, so `terminal.scrollLines()` cannot move that application-owned history. Desktop wheel events already reach Claude; mobile swipes did not because the Gesture shield deliberately keeps xterm's document-level touch handler out. `attachSwipeGestures()` now detects an alternate buffer with wheel-capable mouse tracking and emits one line-mode `WheelEvent` per accumulated touch line on `terminal.element`. xterm retains ownership of mouse-protocol encoding, the route works with the keyboard open or closed, and the shield continues preserving tap-to-open-keyboard. Normal-buffer swipes still use `terminal.scrollLines()`. ([REQ-MOB-017](../../sdd/spec/mobile.md#req-mob-017-fullscreen-application-touch-scrolling) AC1)
 
-### Mobile — Input Architecture
+### Mobile: Input Architecture
 
 The mobile terminal input system uses several techniques to work around browser/OS limitations:
 
@@ -1494,7 +1563,7 @@ The mobile terminal input system uses several techniques to work around browser/
 
    The page-up and down-arrow controls query the focused terminal's live buffer type on each click. Normal-buffer controls keep xterm's `scrollPages(-1)` and `scrollToBottom()` behavior. Alternate-screen controls send the PageUp/PageDown input sequences so fullscreen applications such as Claude Code move their application-owned history instead of nonexistent terminal scrollback. The same target resolver preserves focused MultiView pane routing. ([REQ-MOB-001](../../sdd/spec/mobile.md#req-mob-001-terminal-fully-usable-on-mobile-devices) AC7)
 
-## Mobile — xterm 6.1 Color-Scheme Report Suppression (git: Fix 21)
+## Mobile: xterm 6.1 Color-Scheme Report Suppression (git: Fix 21)
 
 Not touch-related — filed here as a sibling xterm-6.1 regression (backed by `REQ-TERM-019` AC2, fixed in `useTerminal.ts`, not `touch-gestures.ts`).
 
@@ -1502,9 +1571,9 @@ xterm 6.1's default-on color-scheme reporting (upstream PR #5628) answers `CSI ?
 
 Fix: `vtExtensions: { colorSchemeQuery: false }` passed to the `Terminal` constructor in `useTerminal.ts` — a public typed xterm option that gates both the `996` reply and the `2031` push, restoring exact 6.0.0 byte behavior. Covered by `useTerminal.test.ts` (constructor contract: `vtExtensions.colorSchemeQuery === false`). ([REQ-TERM-019](../../sdd/spec/terminal.md#req-term-019-terminal-websocket-control-frames-and-protocol-guards) AC2)
 
-## Mobile — Scroll Stability
+## Mobile: Scroll Stability
 
-### Mobile — Root Cause
+### Mobile: Root Cause
 
 `@xterm/xterm` is pinned to `6.1.0-beta.288`. Its deferred viewport-DOM synchronization fixes Pi's full-scrollback flicker and its full-buffer trim preserves surviving content for a scrolled-up user. The older xterm 6.0 correction history remains relevant to bottom-following and focus resets; generic post-write distance correction stays removed, with only the configured-full zero-clamp boundary recovery described below.
 
@@ -1544,7 +1613,7 @@ xterm 6.0.0 replaced `.xterm-viewport` (native `overflow-y: scroll` with a scrol
 - `flushWriteBuffer()` leaves ordinary non-zero trim shifts to xterm 6.1. It restores distance only when an unchanged, configured-full buffer exhausts that native anchor and clamps a previously scrolled-up viewport to zero.
 - `refitAllTerminals()` skips the resize WS message if dimensions didn't change.
 
-### Mobile — Distance-Based Detection
+### Mobile: Distance-Based Detection
 
 Absolute `ydisp === 0` detection false-positived during scrollback trimming: xterm legitimately decrements ydisp as old lines are removed (399->398->...->1->0). The detector therefore compares adjacent **distance from bottom** values (`baseY - ydisp`) and only treats a direct jump from a deep viewport to zero as suspicious. During a browser focus reset, ydisp snaps to 0 while baseY stays large, causing distance to jump dramatically (git: Fix 15, supersedes Fix 14).
 
@@ -1555,13 +1624,13 @@ Absolute `ydisp === 0` detection false-positived during scrollback trimming: xte
 
 **Distance-based restoration:** Restores using `targetY = currentBaseY - savedDistanceFromBottom`, applied as a **delta** (`targetY - currentY`). This is trim-safe because it uses the user's relative position, not absolute coordinates.
 
-### Mobile — xterm 6.1 Native Full-Buffer Anchoring
+### Mobile: xterm 6.1 Native Full-Buffer Anchoring
 
 When the 1000-line scrollback is full, xterm 6.1 decrements `viewportY` as old lines trim so the same surviving content remains under a scrolled-up user. Codeflare's older generic distance guard interpreted every multi-line shift as drift and called `scrollLines` toward the former distance after each 33ms batch, repeatedly overriding xterm and pulling the viewport toward the live prompt.
 
 Removing that generic correction exposed the opposite boundary: once a dense batch trims at least the current `viewportY`, xterm's native anchor reaches zero and cannot decrement further, leaving the viewport clamped at the top. `flushWriteBuffer()` now snapshots distance only for a non-top, scrolled-up viewport whose `baseY` equals the configured scrollback cap. After parsing, it restores that distance only if `baseY` is unchanged and `viewportY` reached exactly zero. Ordinary shifts such as `500 -> 490` remain untouched, bottom followers stay owned by `useScrollCorrection()`, and no suppression counter or `scrollToBottom()` call is reintroduced.
 
-#### Mobile — Keyboard-Open Suppression
+#### Mobile: Keyboard-Open Suppression
 
 With the keyboard open, normal terminal scrollback is bottom-anchored: output auto-follows and vertical swipes send arrow keys. Fullscreen application scrolling is the deliberate exception: its wheel reports change application-owned history without moving xterm's viewport. Multiple independent xterm scroll mechanisms previously fought during keyboard-open output (git: Fix 16):
 
@@ -1575,7 +1644,7 @@ With the keyboard open, normal terminal scrollback is bottom-anchored: output au
 
 The keyboard height effect remains the source of truth for keyboard-transition refits; the pre-paint scroll-event handler preserves bottom-following output.
 
-### Mobile — Bottom-Following Re-Anchor
+### Mobile: Bottom-Following Re-Anchor
 
 Users following the prompt saw flashing when generic post-write correction competed with xterm's render and viewport synchronization (git: Fix 19). Bottom ownership therefore remains in xterm's synchronous `onScroll` path, where the terminal can distinguish a follower from a user reading scrollback before the next paint.
 
@@ -1585,7 +1654,7 @@ Users following the prompt saw flashing when generic post-write correction compe
 
 2. **Write-side recovery is boundary-only** (`terminal.ts`) -- `flushWriteBuffer()`'s write callback performs only the configured-full `viewportY > 0 -> 0` clamp recovery; every non-zero native anchor shift remains unmodified, verified by `terminal.test.ts`'s boundary-guard cases ([REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming) AC7).
 
-### Mobile — Scroll Stability Overhaul Context
+### Mobile: Scroll Stability Overhaul Context
 
 Earlier iterations introduced overlapping scroll-correction mechanisms that fought each other (oscillation on mobile with keyboard open). The overhaul (git: Fix 13) simplified to:
 - Narrowed reset detection to `ydisp === 0` (browser focus-reset always snaps to 0)
@@ -1594,26 +1663,26 @@ Earlier iterations introduced overlapping scroll-correction mechanisms that foug
 - External scroll intent API (`lib/terminal-scroll-intent.ts`) so floating buttons don't trigger the detector
 - Scrollback reduced from 10,000 to 1,000 lines; virtual scroll disabled (`CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL=1`)
 
-## Mobile — WebSocket Recovery
+## Mobile: WebSocket Recovery
 
-### Mobile — Retryable Close Codes
+### Mobile: Retryable Close Codes
 
 The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_CLOSE_CODES`) rather than only on `1006` (Abnormal Closure). This covers server shutdown (1001), unexpected conditions (1011), service restart (1012), and try-again-later (1013). Normal closure (1000) does NOT trigger retry. Custom close code **4503** (`WS_CONTAINER_STOPPED_CODE`) is sent by the Container DO and terminal route when the container is not running -- the client treats this as authoritative and stops retrying immediately. Network errors (1006) retry indefinitely; KV polling handles session status (git: Fix 5).
 
 ---
 
-## Mobile — Scroll-Stability Integration Test Plan
+## Mobile: Scroll-Stability Integration Test Plan
 
 [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output) (scroll-drop detection during burst output) and [REQ-MOB-012](../../sdd/spec/mobile.md#req-mob-012-scroll-anchoring-during-keyboard-transitions) (scroll anchoring during keyboard transitions) describe xterm.js scroll behaviour wired through module-internal helpers in `web-ui/src/stores/terminal.ts` and `web-ui/src/hooks/useTerminal.ts`. The right verification surface is a Playwright E2E suite running under `E2E_MOBILE=1` in the `e2e-ui-mobile` workflow job (extension to `e2e/ui/mobile-specific.test.ts`).
 
-### Mobile — REQ-MOB-004 test scenarios
+### Mobile: REQ-MOB-004 test scenarios
 
 1. **Burst output retains bottom anchor.** Start a session, open a terminal tab, send `for i in {1..2000}; do echo "line $i"; done` via the WS, wait for output to settle.
     - Assert `page.evaluate(() => terminal.buffer.active.viewportY >= terminal.buffer.active.baseY)` returns true (no scroll drop).
 2. **Focus loss/regain does not reset viewport.** Defocus the terminal, refocus via `page.evaluate(() => document.body.click())`, assert viewport remains at bottom (no `ydisp` drop to 0).
 3. **Viewport overflow style.** Inspect computed style of `.xterm .xterm-viewport`, assert `overflow: hidden` is present (xterm 6.0.0 `SmoothScrollableElement` invariant).
 
-### Mobile — REQ-MOB-012 test scenarios
+### Mobile: REQ-MOB-012 test scenarios
 
 1. **Keyboard-open burst pins to bottom.** Tap terminal to open the virtual keyboard, send a burst, assert viewport remains pinned to bottom with no flicker (scroll-reset detector is silent because the keyboard-open branch is taken).
 2. **Ordinary trim keeps surviving content.** Fill the 1000-line scrollback, scroll up, continue with a small output batch, and assert xterm's non-zero viewport shift is not corrected toward the bottom.
@@ -1634,7 +1703,7 @@ it gets there" content. Memory-system specifics live in
 [vault.md](architecture.md#vault-memory-capture-system); container runtime details live in
 [container.md](architecture.md#container-reference).
 
-## Preseed — Session Modes
+## Preseed: Session Modes
 
 Users choose between **Default** and **Advanced** session modes via
 Settings > Session Defaults. The mode controls which preseed files are
@@ -1712,7 +1781,7 @@ duplicate keys within a single mode.
 **No migration**: Existing users are unaffected. Changes only happen
 on explicit action.
 
-## Preseed — Preseed Components
+## Preseed: Preseed Components
 
 ECC-derived rules, agents, commands, and skills are preseeded directly
 to the agent config filesystem. No external plugins are installed.
@@ -1859,7 +1928,7 @@ the official Anthropic plugin marketplace URL for user discovery.
 **Updates**: Preseed files update when the pipeline is redeployed
 and users click "Recreate AI agent skills & rules".
 
-## Preseed — Preseed Deployment
+## Preseed: Preseed Deployment
 
 All preseed content is deployed via the manifest pipeline:
 
@@ -2305,7 +2374,7 @@ override shipped via this path. Package files deploy under `.pi/agent/npm/`.
   preinstalls Pi extension npm dependencies into an image-local cache, and
   entrypoint copies that cache into `~/.pi/agent/npm` after R2 restore.
 
-## Preseed — Multi-Agent Preseed
+## Preseed: Multi-Agent Preseed
 
 The generator produces adapted config files for all supported agents
 from CC's preseed as the default source of truth. Pi-specific runtime contracts
@@ -2430,7 +2499,7 @@ advanced mode (all rules including memory, ECC), with the same R2
 key but different content. `getPreseedKeysNotInMode()` handles this
 correctly by excluding keys that have a variant in the target mode.
 
-## Preseed — Settings.json Merge
+## Preseed: Settings.json Merge
 
 Implements [REQ-AGENT-008](../../sdd/spec/agents.md#req-agent-008-preseed-deployed-to-container-on-start) AC3 - AC5.
 
@@ -2469,7 +2538,7 @@ Handles three cases:
 - **File malformed**: Skips with warning (includes the jq error
   text), does not overwrite
 
-## Preseed — Plugin Enablement
+## Preseed: Plugin Enablement
 
 (Implements [REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session).)
 
@@ -2519,7 +2588,7 @@ context-mode is active or not. Implements
 and [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) AC1+AC2+AC4-AC7.
 Hooks registered in settings.json, scripts delivered via plugin.
 
-## Preseed — Third-party plugin: context-mode
+## Preseed: Third-party plugin: context-mode
 
 [context-mode](https://github.com/mksglu/context-mode) is registered as a Claude Code MCP server (`ctx_*` helper tools) where that runtime enables it. Pi loads context-mode by default in the settings `required` set. `/ctx off` disables the package for the current running Pi session and reloads resources; `/ctx on` re-enables it. The next Codeflare container start resets Pi back to enabled.
 
@@ -2553,9 +2622,9 @@ context-mode is licensed under [Elastic License 2.0](https://github.com/mksglu/c
 The integration is sized to stay within ELv2's permitted-use envelope.
 See [AD49](../decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) for the full design + license analysis.
 
-## Preseed — Graphify ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify))
+## Preseed: Graphify ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify))
 
-### Preseed — SessionStart context injection ([REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline) AC1)
+### Preseed: SessionStart context injection ([REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline) AC1)
 
 In advanced session mode, `graphify-session-start.sh` injects structural context from the knowledge graph as `additionalContext` on session start. Three-tier fallback:
 
@@ -2565,7 +2634,7 @@ In advanced session mode, `graphify-session-start.sh` injects structural context
 
 All tiers append tool guidance (pointing at `mcp__graphify__query_graph`, `mcp__graphify__get_node`, etc.). The hook never auto-builds a graph.
 
-### Preseed — Post-clone graph triage ([REQ-AGENT-025](../../sdd/spec/agents.md#req-agent-025-post-clone-graph-triage))
+### Preseed: Post-clone graph triage ([REQ-AGENT-025](../../sdd/spec/agents.md#req-agent-025-post-clone-graph-triage))
 
 In advanced session mode, clone triage detects real `git clone` / `gh repo clone` operations and resolves the destination from the tool result (`Cloning into '...'`) before falling back to command parsing.
 
@@ -2583,7 +2652,7 @@ Clone detection is scoped to shell-only command text: Bash `.command` fields, `c
 
 The detection regex also tolerates a leading env-var prefix (`BROWSER="" gh repo clone`, `GIT_TERMINAL_PROMPT=0 git clone`, `env BROWSER="" gh repo clone`).
 
-### Preseed — Pi native graphify tools ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) AC4-AC5)
+### Preseed: Pi native graphify tools ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) AC4-AC5)
 
 Pi has no MCP client, so Codeflare exposes `graphify_query`, `graphify_path`,
 and `graphify_explain` through `graphify-native.ts`. The extension shells the
@@ -2597,7 +2666,7 @@ can save the answer back to the same graph. If no graph exists, the tools fail
 soft with a build-graph hint. `codeflare-pi.ts` still owns active-repo context
 and clone triage; it no longer acts as the primary query retry shim.
 
-### Preseed — Build model choice ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch))
+### Preseed: Build model choice ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch))
 
 The Claude `/graphify` skill and the dedicated Pi graphify skill both dispatch
 semantic-extraction subagents for non-code files when the user chooses Full mode.
@@ -2636,7 +2705,7 @@ Model selection is runtime-specific. Claude Code's graphify skill pins its own r
 
 Subagents are dispatched in bounded waves to avoid flooding agent concurrency. Each wave runs in parallel; waves are sequential. Chunk count scales with the size of the non-code corpus.
 
-### Preseed — Git persistence ([REQ-AGENT-026](../../sdd/spec/agents.md#req-agent-026-knowledge-graph-persistence-via-git))
+### Preseed: Git persistence ([REQ-AGENT-026](../../sdd/spec/agents.md#req-agent-026-knowledge-graph-persistence-via-git))
 
 Graphify repo outputs persist in git when the user can push to the repository.
 The durable committed surface is:
@@ -2661,7 +2730,7 @@ During `/sdd init`, a graph built for enrichment is still a repo artifact. The
 scaffold or same-turn graph commit must include the durable graph files and the
 ignore/merge wiring rather than leaving them as local-only files.
 
-## Preseed — /sdd init Modes
+## Preseed: /sdd init Modes
 
 `/sdd init` is the single entry point for bootstrapping SDD on a project. It detects one of three scenarios from project state and dispatches automatically:
 
@@ -2766,9 +2835,9 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 **GitHub corpus degradation.** When Import Mode cannot reach GitHub (non-GitHub remote, `gh auth status` failure, rate-limited, air-gapped), discovery falls back to working-tree + git-log evidence only. A one-line notice naming the reason is appended to the `sdd/changes.md` import entry; triage Context fields reference whatever artifact refs are reachable.
 
-## Preseed — Troubleshooting
+## Preseed: Troubleshooting
 
-### Preseed — Common Issues
+### Preseed: Common Issues
 
 - **Attribution blocking not working**:
   - Check `~/.claude/settings.json` has `PreToolUse` hook entries pointing to `block-attributed-commits.sh`.
@@ -2778,7 +2847,7 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
   - Verify the script exists at `~/.claude/plugins/codeflare-hooks/scripts/block-attributed-commits.sh`.
   - If attribution appears via `gh pr create` in a context-mode session, re-run the entrypoint or check the `SETTINGS_CONFIG` merge in `entrypoint.sh`.
 
-- **Review-spawn enforcement not firing on push**: see [Resetting Review-Spawn Checkpoints](#resetting-review-spawn-checkpoints) below.
+- **Review-spawn enforcement not firing on push**: see [Resetting Review-Spawn Checkpoints](#preseed-resetting-review-spawn-checkpoints) below.
 
 - **Default mode has hooks**: If `settings.json` has hook entries in default mode, the entrypoint `SESSION_MODE` gating may have failed. Remove them:
   `jq 'del(.hooks)' ~/.claude/settings.json > /tmp/s.json && mv /tmp/s.json ~/.claude/settings.json`.
@@ -2801,7 +2870,7 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
   - To diagnose, check `ls ~/.claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh`.
   - If absent, re-run `entrypoint.sh` or trigger a full R2 sync to restore the complete plugin payload.
 
-### Preseed — Resetting Review-Spawn Checkpoints
+### Preseed: Resetting Review-Spawn Checkpoints
 
 The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Its transcript-based trigger surface is `git push`, `gh pr merge`, and protected-base `gh pr edit --base main|master`; `git-push-review-reminder.sh` handles the in-turn reminder path for `git push`, `gh pr create`, and protected-base `gh pr edit`.
 
@@ -2845,7 +2914,7 @@ To inspect enforcement state without reading `.git/` by hand, Pi exposes a read-
 
 ---
 
-## Preseed — Image-baked seed (Governed Mode delta sync)
+## Preseed: Image-baked seed (Governed Mode delta sync)
 
 In addition to seeding the agent config into R2 at session start, the container image **bakes** the same seed as an on-disk file tree so a [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable) container can avoid re-downloading it every boot (REQ-STOR-017, [AD90](../decisions/README.md#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync)).
 
@@ -2873,7 +2942,7 @@ R2 persistent storage, rclone bisync synchronization, sync modes, storage quotas
 
 ---
 
-## Storage and sync — Storage Quota (REQ-STOR-006, REQ-STOR-014)
+## Storage and sync: Storage Quota (REQ-STOR-006, REQ-STOR-014)
 
 Per-user R2 storage is capped by `maxStorageBytes` in `SubscriptionTierConfig`. R2 has no native per-bucket quota - enforcement is in application code.
 
@@ -2887,13 +2956,13 @@ Per-user R2 storage is capped by `maxStorageBytes` in `SubscriptionTierConfig`. 
 
 **Tier config merge:** `getTierConfig()` merges stored KV tiers with hardcoded defaults via `{ ...default, ...stored }`. New fields (like `maxStorageBytes`) backfill from defaults even when KV was saved before the field existed. Admin-saved values always take priority. The admin `PUT /api/admin/tiers` Zod schema includes `maxStorageBytes` so it persists on save.
 
-## Storage and sync — Why rclone bisync (Not s3fs)
+## Storage and sync: Why rclone bisync (Not s3fs)
 
 s3fs FUSE: every file op = network call (~340ms PUT, ~50ms HEAD), fragile on network hiccups, "Socket not connected" errors.
 
 rclone bisync: all file ops on local disk (<1ms), background daemon every 15 minutes (`sleep 900`, SIGUSR1-interruptible for manual triggers from the storage panel), final bisync on shutdown via the DO-side synchronous drain (`POST /internal/final-sync`, 120s budget) before stop. See [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers) for the cadence rationale and [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync) for the shutdown budget.
 
-## Storage and sync — Initial Sync on Startup
+## Storage and sync: Initial Sync on Startup
 
 1. One-way `rclone sync` from R2 to local (restore data) - blocking, container waits for completion (120s timeout)
 2. All file modifications run (`.claude.json`, `.codex/version.json`, tab autostart) - these complete before bisync starts to avoid hash mismatches
@@ -2905,7 +2974,7 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 
 `--max-delete 100` allows bisync to propagate bulk deletions (e.g., deleting entire workspace folders). The rclone default of 50% aborts bisync when more than half the files are deleted in one cycle - in a config-heavy sync with few files, even a single folder deletion can exceed this threshold.
 
-## Storage and sync — What's Synced vs Excluded (REQ-STOR-011)
+## Storage and sync: What's Synced vs Excluded (REQ-STOR-011)
 
 | Path | Synced | Reason |
 |------|--------|--------|
@@ -2938,7 +3007,7 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 
 The two durable `VAULT_FILTER` allow-rules precede `+ Vault/**` because rclone uses first-match semantics. `- Vault/graphify-out/**` drops derived output: `graph.json`, `graph.html`, chunks, `.graphify_labels.json`, `GRAPH_REPORT.md`, cache, and Graphify's own manifest. The published visualization remains under `Vault/Raw/Graphs/`.
 
-## Storage and sync — rclone Sync Modes (REQ-STOR-003)
+## Storage and sync: rclone Sync Modes (REQ-STOR-003)
 
 | Mode | Workspace Sync | Use Case |
 |------|---------------|----------|
@@ -2967,7 +3036,7 @@ Memory-capture counter files used to live at `~/.memory/counter/**` and required
 
 **Why `none` is the default.** Workspace directories can be large (gigabytes for compiled projects). Bisyncing the full workspace on every session start adds significant latency and R2 egress cost for content that git already tracks. The recommended pattern for workspace persistence is `git push` before stopping a session and `git clone` on the next. Enable `full` mode only for files that are genuinely hard to reproduce from source: local build artifacts, large datasets, or binary assets not committed to git. See [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers) for the cost-vs-staleness rationale behind the 15-minute cadence.
 
-## Storage and sync — Manual Sync Triggers (REQ-STOR-015)
+## Storage and sync: Manual Sync Triggers (REQ-STOR-015)
 
 Because the periodic cadence is 15 minutes, one user-driven trigger lets users pull fresh state immediately; a second trigger provides a durability guarantee at shutdown:
 
@@ -2988,13 +3057,13 @@ R2 uploads do not auto-fan-out to running containers. The user clicks Sync-now t
 
 **Hibernation note.** Triggers are best-effort. A SIGUSR1 sent while the container is sleeping never reaches the daemon (the daemon process is dead); the next container wake runs a forced baseline bisync per [REQ-STOR-004](../../sdd/spec/storage.md#req-stor-004-initial-sync-restores-files-on-container-start) AC4, which absorbs any pending trigger. The Sync-now button surfaces hibernated sessions as `'not-running'` in the per-session result so the user gets honest feedback rather than a hang.
 
-## Storage and sync — Session Transcript Cleanup
+## Storage and sync: Session Transcript Cleanup
 
 `cleanup_old_transcripts()` runs before each periodic bisync (sequential in the same loop iteration - no concurrent access). Keeps the 5 most recent session transcripts (`.claude/projects/**/*.jsonl` sorted by mtime), deletes older `.jsonl` files only - session directories are left intact so Claude Code can still resolve project paths. Deletions propagate to R2 via bisync automatically. Subagent transcripts are also excluded from bisync entirely (`--filter "- .claude/projects/**/subagents/**"`) since results are captured in the main transcript. `cleanup_old_transcripts()` is wrapped in a subshell with `|| true` so `set -euo pipefail` cannot kill the bisync daemon when cleanup encounters benign non-zero exits (e.g., empty `find` results, `xargs` with no input).
 
 `cleanup_old_pi_transcripts()` runs immediately after the Claude cleanup in the same daemon loop. Same 5-most-recent retention policy, applied to `~/.pi/agent/sessions/**/*.jsonl` (excluding `tasks/` subdirs). Unlike the Claude version, Pi transcript cleanup also deletes the companion `tasks/` subdirectory alongside each removed transcript, since Pi task logs are only meaningful in the context of their parent session. Same subshell + `|| true` error-swallowing pattern.
 
-## Storage and sync — Conflict Resolution
+## Storage and sync: Conflict Resolution
 
 Newest file wins (`--conflict-resolve newer`). `--resilient` + `--recover` handle transient bisync failures (e.g., interrupted transfers, listing mismatches) without losing deletion tracking. The sync daemon retries on the next 15-minute cycle after a failure (or sooner if SIGUSR1-triggered via the storage panel). `--max-delete 100` on ALL bisync commands (`establish_bisync_baseline` and `bisync_with_r2`) allows bulk workspace deletions to propagate. Final bisync at shutdown runs via the DO-side synchronous drain (`POST /internal/final-sync`, 120s budget) before stop — not the legacy SIGTERM-trap watchdog (see [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync)). All bisync commands use `--ignore-checksum` to prevent false hash-mismatch aborts - rclone v1.73 introduced stricter post-transfer MD5 verification that fails when files change during sync.
 
@@ -3010,7 +3079,7 @@ Newest file wins (`--conflict-resolve newer`). `--resilient` + `--recover` handl
 
 **Bisync-initialized flag on timeout:** The bisync-initialized flag (`/tmp/.bisync-initialized`) is now touched on the sync timeout path as well. Previously, if initial sync timed out, the flag was never set, causing the final shutdown sync to be skipped - losing any files created during the session.
 
-### Storage and sync — Vanishing-file recovery
+### Storage and sync: Vanishing-file recovery
 
 When bisync/resync fails because a transient file was listed but deleted before rclone could copy it (error: `failed to open source object: lstat ... no such file or directory`), the system automatically:
 1. Parses the rclone error output for the failing file path
@@ -3026,7 +3095,7 @@ The recovery filter file starts empty on every container start and is never sync
 
 ---
 
-## Storage and sync — Troubleshooting
+## Storage and sync: Troubleshooting
 
 - **Storage panel doesn't show a file I just created in the terminal**
 
@@ -3034,7 +3103,7 @@ The recovery filter file starts empty on every container start and is never sync
 - **Bisync empty listing**: Initial `establish_bisync_baseline()` uses `--resync` to create the baseline, handles this case. The periodic daemon never uses `--resync` (see [AD14](../decisions/README.md#ad14-never-auto---resync-on-bisync-failure)).
 - **`lstat: no such file or directory` bisync failure**
 
-    A transient file was listed by rclone then deleted before the copy completed. Automatically recovered: the system parses the error, adds the file to `/tmp/rclone-recovery-filters.txt`, clears bisync locks, and retries (max 3 attempts). Check `/tmp/sync.log` for `[sync-recovery] Excluded vanished file:` entries. If the failure persists beyond 3 attempts, it escalates to the normal consecutive-failure path. See [Vanishing-file recovery](#vanishing-file-recovery) and [AD43](../decisions/README.md#ad43-parse-and-exclude-vanishing-files-before-escalating-to-nuke).
+    A transient file was listed by rclone then deleted before the copy completed. Automatically recovered: the system parses the error, adds the file to `/tmp/rclone-recovery-filters.txt`, clears bisync locks, and retries (max 3 attempts). Check `/tmp/sync.log` for `[sync-recovery] Excluded vanished file:` entries. If the failure persists beyond 3 attempts, it escalates to the normal consecutive-failure path. See [Vanishing-file recovery](#storage-and-sync-vanishing-file-recovery) and [AD43](../decisions/README.md#ad43-parse-and-exclude-vanishing-files-before-escalating-to-nuke).
 - **Transfers 0 files**: Filter order indeterminacy from mixed `--include`/`--exclude`. Use `--filter` flags instead.
 - **Slow sync**: Switch to `SYNC_MODE=metadata` or manually clean large repos from R2.
 - **Missing secrets**: Check `startup-status` response `details.syncError` for the missing variable.
@@ -3047,7 +3116,7 @@ The recovery filter file starts empty on every container start and is never sync
 
 ---
 
-## Storage and sync — File Browser (REQ-STOR-016)
+## Storage and sync: File Browser (REQ-STOR-016)
 
 The storage browser reads directly from R2 via the Worker API (not the container
 filesystem) and renders as a side drawer on desktop, a bottom-sheet on mobile.
@@ -3066,7 +3135,7 @@ return an error response (4xx) rather than any listing.
 
 ---
 
-## Storage and sync — Startup & steady-state sync performance
+## Storage and sync: Startup & steady-state sync performance
 
 Four startup costs are minimized (REQ-STOR-017):
 
@@ -3075,7 +3144,7 @@ Four startup costs are minimized (REQ-STOR-017):
     Both `rclone bisync` invocations in `entrypoint.sh` (the `--resync` baseline and the steady-state cycle) pass `--use-server-modtime` and `--checkers 64`. `--use-server-modtime` compares the `LastModified` already returned by the bulk `--fast-list` instead of issuing one mtime HEAD per object, eliminating the per-cycle HEAD storm (the dominant steady-state cost). This is sound under codeflare's newest-wins bisync because the bucket is the per-user source of truth and absolute upload order is the conflict key.
 - **Governed Mode delta initial sync (AD90, Governed Mode only).**
 
-    The blocking `initial_sync_from_r2` normally re-downloads the whole agent seed (~627 files, ~9 MB) every boot because the container filesystem is ephemeral. In [Governed Mode](#governed-mode-r2-sse-c-disabled) the entrypoint lays the image-baked seed (see [Preseed](architecture.md#preseed-reference)) into the user home first, then runs the initial sync with `--checksum` (usable MD5 ETags, available only when SSE-C is off), so the unchanged seed files are skipped and only user deltas transfer. Under SSE-C (the default) the path is unchanged: `--size-only`, no lay-down.
+    The blocking `initial_sync_from_r2` normally re-downloads the whole agent seed (~627 files, ~9 MB) every boot because the container filesystem is ephemeral. In [Governed Mode](#storage-and-sync-governed-mode-r2-sse-c-disabled) the entrypoint lays the image-baked seed (see [Preseed](architecture.md#preseed-reference)) into the user home first, then runs the initial sync with `--checksum` (usable MD5 ETags, available only when SSE-C is off), so the unchanged seed files are skipped and only user deltas transfer. Under SSE-C (the default) the path is unchanged: `--size-only`, no lay-down.
 - **Managed Pi extension relay (all modes).**
 
     Before the bisync `--resync` baseline, `entrypoint.sh` calls `relay_managed_pi_extensions()` to re-lay the image-baked managed Pi extension bytes over the post-sync `~/.pi/agent/extensions/` tree. This keeps the on-disk bytes equal to the build — the content precondition for the path-sensitive jiti prewarm cache (see [Container lane](architecture.md#container-pi-extension-jiti-transpile-cache-warm-up-ad79)) to hit at runtime. Without it, a stale bucket copy of a managed extension (faithfully restored by sync) hashes differently and costs ~2.4s of cold transpile every session. Only managed (codeflare-owned) filenames are overwritten; user-added extensions are preserved.
@@ -3083,7 +3152,7 @@ Four startup costs are minimized (REQ-STOR-017):
 
     The background subshell running the bisync `--resync` baseline, vault seed, and sync/vault daemons runs at `nice 19` / `ionice -c 3` (idle I/O class), yielding the single vCPU and disk to the concurrent pi PTY pre-warm — whose latency was dominated by contention with the baseline, not by the baseline's own work.
 
-## Storage and sync — Governed Mode (R2 SSE-C disabled)
+## Storage and sync: Governed Mode (R2 SSE-C disabled)
 
 When an enterprise admin enables [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable), R2 SSE-C is disabled deployment-wide so the corporate bucket is readable/scannable. Each bucket's actual encryption regime + any in-flight migration is tracked by a per-bucket **state object** (`r2-regime:<bucket>` — `{status: ready|migrating|mixed-recovery, regime, from?, to?, generation, cursor?, phase?, drained?, leaseExpiresAt?, keyMd5?, stuckCount?, lastFailedKey?}`; it replaced the old boolean `UserPreferences.r2SseRegime` marker, a boolean being unable to describe a partially in-place-migrated bucket). Flipping the policy losslessly re-encrypts the bucket in place — a same-key server-side `CopyObject` with `MetadataDirective=REPLACE` (never a nuke) — driven in resumable chunks by the dashboard `batch-status` poll, with the regime committed only after a full verification HEAD-scan.
 
@@ -3099,7 +3168,7 @@ Persistent user-note vault, automatic conversation capture, unified graphify gra
 
 ---
 
-## Vault — Overview (REQ-VAULT-001)
+## Vault: Overview (REQ-VAULT-001)
 
 The vault lives at `/home/user/Vault/` inside every advanced-mode session container. It is rclone-bisynced to R2 alongside the rest of `/home/user/`, so anything written here is available on the next session you start.
 
@@ -3110,7 +3179,7 @@ Two parties write to the vault:
 
 A single 60s daemon polls for user edits and signals a background sonnet agent to ingest them into the unified graphify graph. Future agents query that graph via `mcp__graphify__*` and see captures + user notes + every active repo's code, merged.
 
-### Vault — Uploads and Temporary folders
+### Vault: Uploads and Temporary folders
 
 Two persistent sibling directories are created alongside the vault on every boot by `init_user_vault()`:
 
@@ -3119,7 +3188,7 @@ Two persistent sibling directories are created alongside the vault on every boot
 
 Files placed in Uploads are included in `RCLONE_FILTERS_COMMON` (`+ Uploads/**`, ordered before the global `graphify-out` exclude) and appear in the R2 storage panel.
 
-### Vault — Storage panel special folders (REQ-VAULT-001)
+### Vault: Storage panel special folders (REQ-VAULT-001)
 
 The R2 storage browser surfaces four directories as "special folders" at the bucket root. Vault, Uploads, and Temporary appear unconditionally; Workspace appears only when the workspace-sync preference is enabled. Each entry shows an info icon that reveals a tooltip:
 
@@ -3132,7 +3201,7 @@ The R2 storage browser surfaces four directories as "special folders" at the buc
 
 The tooltip shows the folder's purpose and its in-container path so users know where to look inside a session.
 
-## Vault — Directory Layout
+## Vault: Directory Layout
 
 Inside the container, three sibling directories live under `/home/user/` alongside the workspace:
 
@@ -3161,15 +3230,15 @@ Inside the container, three sibling directories live under `/home/user/` alongsi
 `-- Temporary/         <- persistent scratch space (always bisynced)
 ```
 
-`Raw/`, `Notes/`, `References/`, and `graphify-out/` are where content lives. `Notes/` and `References/` are the user-facing priority areas promoted on the SilverBullet dashboard; `graphify-out/` is updated by the vault-extract agent via a chunk-JSON merge on every user-edit tick (not a full re-extract). `.silverbullet/` is owned by the editor. `Library/Codeflare/` holds the plug files managed by Codeflare (pdf, treeview, github, graph) -- see [Preseed Integration](#preseed-integration-req-vault-007).
+`Raw/`, `Notes/`, `References/`, and `graphify-out/` are where content lives. `Notes/` and `References/` are the user-facing priority areas promoted on the SilverBullet dashboard; `graphify-out/` is updated by the vault-extract agent via a chunk-JSON merge on every user-edit tick (not a full re-extract). `.silverbullet/` is owned by the editor. `Library/Codeflare/` holds the plug files managed by Codeflare (pdf, treeview, github, graph) -- see [Preseed Integration](#vault-preseed-integration-req-vault-007).
 
 Two classes of path are hidden from the SilverBullet client listing/sync ([REQ-VAULT-015](../../sdd/spec/vault.md#req-vault-015-vault-idb-lifecycle-and-listing-filters) AC1). Generated `Raw/Graphs/*.html` visualisations stay fetchable by direct link but are removed from the listing so the object index does not try to treat multi-MB HTML graph artifacts as documents. Machine-owned session-capture memory under `Raw/Sessions/` (rewritten by the capture pipeline every ~15 prompts) is likewise hidden so IndexedDB does not churn on logs the user never opens, and client mutations to those hidden paths are rejected so a transitioning client cannot delete the on-disk memory.
 
-**Codeflare-authoritative vs user-editable.** Three root pages (`README.md`, `CONFIG.md`, `STYLES.md`) are codeflare-authoritative: `init_user_vault()` overwrites them on every boot from `/opt/silverbullet-preseed/`, gated so identical files are not rewritten. Hand-editing them inside SilverBullet is futile - changes are silently reverted on the next session start. `Index.md` also ships from preseed but is seeded create-if-missing, not force-overwritten: the SilverBullet editor normalizes and autosaves the dashboard on open, so a boot-time revert fought the client save into a perpetual `Index.conflicted:*.md` sync conflict (see [Vault initialization tiers](#vault-initialization-tiers-req-vault-001-ac3-req-vault-010-ac1ac4ac5)); once seeded it is editor-owned. User content lives in `Notes/`, `References/`, `Inbox/`, `Journal/`, `Raw/Pasted/`, and `Raw/Sessions/`, which the boot-time sync never touches.
+**Codeflare-authoritative vs user-editable.** Three root pages (`README.md`, `CONFIG.md`, `STYLES.md`) are codeflare-authoritative: `init_user_vault()` overwrites them on every boot from `/opt/silverbullet-preseed/`, gated so identical files are not rewritten. Hand-editing them inside SilverBullet is futile - changes are silently reverted on the next session start. `Index.md` also ships from preseed but is seeded create-if-missing, not force-overwritten: the SilverBullet editor normalizes and autosaves the dashboard on open, so a boot-time revert fought the client save into a perpetual `Index.conflicted:*.md` sync conflict (see [Vault initialization tiers](#vault-vault-initialization-tiers-req-vault-001-ac3--req-vault-010-ac1ac4ac5)); once seeded it is editor-owned. User content lives in `Notes/`, `References/`, `Inbox/`, `Journal/`, `Raw/Pasted/`, and `Raw/Sessions/`, which the boot-time sync never touches.
 
 **Hidden-root constraint (see [AD54](../decisions/README.md#ad54-vault-directory-must-use-a-non-hidden-basename)):** The vault directory must use a non-hidden basename. SilverBullet's disk walker (`server/disk_space_primitives.go` `FetchFileList`) aborts the directory walk when the root basename begins with `.`, returning an empty file listing even when notes are present on disk. This is why the path is `/home/user/Vault/`, not `/home/user/.user_vault/`.
 
-## Vault — Capture Path (REQ-VAULT-002)
+## Vault: Capture Path (REQ-VAULT-002)
 
 The `memory-capture.sh` UserPromptSubmit hook fires every 15 user messages, writes a `.vars` marker, and emits `additionalContext` instructing the main agent to dispatch the **memory-capture** named subagent (Task tool with `subagent_type="memory-capture"`). The subagent's frontmatter (`preseed/agents/claude/agents/memory-capture.md`) pins `model: sonnet` per [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad); the hook directive instructs the main agent not to pass a model override so the pin cannot be silently downgraded. The subagent runs `memory-agent-prompt.md` end to end:
 
@@ -3185,7 +3254,7 @@ Compaction is manual: the vault grows append-only and no automated compactor shi
 
 Linking convention enforced in the prompt: concepts go in `[[wikilinks]]` so graphify's external-label dedup unifies them across the vault and per-repo code graphs. File paths, code symbols, and PR references stay as prose -- they namespace per-project and would never auto-link meaningfully.
 
-## Vault — User-edit Path (REQ-VAULT-003)
+## Vault: User-edit Path (REQ-VAULT-003)
 
 Implements [REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) (monotonic vault graph accumulation across extractions).
 
@@ -3238,9 +3307,9 @@ The subagent runs the same canonical pipeline as Claude end to end. It authors a
 
 Committing the manifest on each turn makes the daemon's content-hash scan come up empty, so the daemon stays quiet rather than wedging Pi's trigger gate with a file Pi can never clear. A `vault-extract.pi.vars` left behind by a crashed subagent self-clears once it ages past the 30-minute in-flight TTL (`VAULT_EXTRACT_INFLIGHT_TTL_MS`).
 
-**PDFs are the exception:** the Pi Read tool cannot render PDF pages as images, so a PDF on the Pi path yields only a bare document node. The heading/title/entity extraction the Claude runtime performs (see [Attachment Cost Caveat](#attachment-cost-caveat-req-vault-011-ac1)) is Claude-only, and scanned/image-only PDFs are inherently out of reach on Pi. For markdown and plain-text files (`.md`/`.txt`/`.json`/`.yaml`/`.yml`), the text/structural output matches the Claude path. The canonical-schema and viz-publish contract these steps satisfy is [REQ-VAULT-016](../../sdd/spec/vault.md#req-vault-016-vault-graph-extraction-emits-the-canonical-shared-schema).
+**PDFs are the exception:** the Pi Read tool cannot render PDF pages as images, so a PDF on the Pi path yields only a bare document node. The heading/title/entity extraction the Claude runtime performs (see [Attachment Cost Caveat](#vault-attachment-cost-caveat-req-vault-011-ac1)) is Claude-only, and scanned/image-only PDFs are inherently out of reach on Pi. For markdown and plain-text files (`.md`/`.txt`/`.json`/`.yaml`/`.yml`), the text/structural output matches the Claude path. The canonical-schema and viz-publish contract these steps satisfy is [REQ-VAULT-016](../../sdd/spec/vault.md#req-vault-016-vault-graph-extraction-emits-the-canonical-shared-schema).
 
-## Vault — Unified Global Graph (REQ-VAULT-004)
+## Vault: Unified Global Graph (REQ-VAULT-004)
 
 `~/.graphify/global-graph.json` is the hash-keyed merge of every per-source graph plus the vault's own graph. The graphify MCP wrapper prefers this graph when present, so `mcp__graphify__*` tool calls return a unified view across vault + active repos.
 
@@ -3253,7 +3322,7 @@ Write sites that touch the global graph:
 
 All four serialise via `flock -w 5 /tmp/graphify-global.lock`. The locking is necessary because `graphify global add` rewrites the manifest + merged graph file in place; the `-w 5` bound prevents a stuck holder from hanging Bash/Edit/Write/ctx_execute tool calls indefinitely.
 
-### Vault — Single-active-repo invariant
+### Vault: Single-active-repo invariant
 
 `graphify-active-repo.sh` enforces a single-active-repo invariant for the per-repo side of the global graph: at any time the manifest holds the vault entry plus exactly one per-repo entry (the user's currently active repo). The hook is structured around a sentinel at `~/.cache/codeflare-hooks/graphify-active-cwd`:
 
@@ -3269,7 +3338,7 @@ Same-basename repo transitions skip explicit removal because the add replaces th
 
 Branch granularity is intentionally not represented in the manifest -- a repo's tag is its directory basename. Branch switches within the same repo refresh the entry via the hash-diff path once the user has rebuilt the graph on the new branch (`graphify update` or `/graphify`). Until the rebuild runs, the global graph still shows the prior branch's nodes under the same tag, an acceptable staleness window since auto-rebuild on every checkout would be too expensive.
 
-## Vault — SilverBullet Editor (REQ-VAULT-005)
+## Vault: SilverBullet Editor (REQ-VAULT-005)
 
 The Dockerfile installs the `silverbullet-server-linux-x86_64` binary at `/usr/local/bin/silverbullet`, pinned by version + SHA256. `start_silverbullet_supervisor` in entrypoint.sh runs the server on `127.0.0.1:3030` against the vault, supervised with a 5s restart loop so an editor crash never requires a container restart.
 
@@ -3317,7 +3386,7 @@ Codeflare also calls `navigator.storage.persisted()` / `persist()` / `estimate()
 
 The landing page on every Vault button click is `Index.md` (the Codeflare dashboard), set by exporting `SB_INDEX_PAGE=Index` in the supervisor before launching the binary ([REQ-VAULT-012](../../sdd/spec/vault.md#req-vault-012-vault-button-render-and-dashboard-landing) AC3). The SilverBullet Go server hardcodes the default to lowercase `"index"` (`server/cmd/server.go` in SilverBullet's source) and ignores any `indexPage` key in `.silverbullet/config.yaml` -- the env var is the only override. The dashboard leads with `Notes/` and `References/` because those are the durable user-curated areas used by note-capture and reference workflows; broader recent-content widgets remain below. The README is one click away via a link at the top of the dashboard.
 
-### Vault — Per-session `<base href>` rewrite (REQ-VAULT-013 AC1)
+### Vault: Per-session `<base href>` rewrite (REQ-VAULT-013 AC1)
 
 SilverBullet 2.x emits `<base href="/" />` in its index HTML, so under the `/api/vault/<token>/` subpath proxy every relative asset reference (e.g. `.client/client.js`) would otherwise resolve against the Worker root and 404 -- producing a white screen.
 
@@ -3331,7 +3400,7 @@ When the body is rewritten, both `Content-Length` (body length changed) and `Con
 
 Rewrite contract (regex, header hygiene, selectors): see `handleVaultRequest` in `src/routes/vault.ts`.
 
-### Vault — Service Worker registration noop bypass
+### Vault: Service Worker registration noop bypass
 
 SilverBullet's client registers a Service Worker for offline caching. Browsers may omit credentials on `navigator.serviceWorker.register()` script fetches (Chrome 76+ per spec, Samsung Internet and other Chromium forks may not), so the cookie-auth chain at `/api/vault/<sid>/service_worker.js` would return 401 and registration would fail permanently.
 
@@ -3347,7 +3416,7 @@ Without recovery, the key is gone before the shell boots and SB bounces to `.aut
 
 The verbatim upstream bytes are stored separately (`VAULT_NATIVE_SW_VERBATIM`) and SHA-256 drift-guarded so a SilverBullet version bump is caught. The only AD69 item still gated on integration observation is the `/.client/*` precache-auth exemption, reserved on [REQ-VAULT-017](../../sdd/spec/vault.md#req-vault-017-silverbullet-native-service-worker), the native-SW contract. It is needed only if those precache fetches return 401.
 
-#### Vault — Not-ready sync guard ([REQ-VAULT-025](../../sdd/spec/vault.md#req-vault-025-silverbullet-native-service-worker-runtime-graft) AC2, [REQ-VAULT-023](../../sdd/spec/vault.md#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap) AC2)
+#### Vault: Not-ready sync guard ([REQ-VAULT-025](../../sdd/spec/vault.md#req-vault-025-silverbullet-native-service-worker-runtime-graft) AC2, [REQ-VAULT-023](../../sdd/spec/vault.md#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap) AC2)
 
 `graftVaultKeyRecovery` also guards the sync engine against a not-yet-ready SilverBullet server. The sync engine treats the remote (`secondary` -- the in-container SB server) as authoritative for deletions: a file present in the persistent local `sb_files_*` store and the sync snapshot but absent from the remote `fetchFileList()` is deleted from the local store. The console line is `File deleted on secondary, deleting from primary`.
 
@@ -3355,7 +3424,7 @@ The in-container SB server takes ~1-2 min to become ready after a fresh session 
 
 The graft wraps the `o=` initializer of the full-sync cycle: it normalizes a non-array to `[]`, then throws to abort the cycle before any deletion when the remote list is empty while the local store (`s`) or snapshot (`t.files`) is non-empty. `syncSpace` rethrows; the sync `run()` loop logs a downgraded warn and retries on its ~20s interval, deferring reconciliation until the server is actually serving the real list. A genuinely empty vault (empty primary and empty snapshot) stays a safe no-op, and a real non-empty list reconciles normally. The SW therefore deletes only once it has reached SilverBullet and SilverBullet has confirmed the file list.
 
-#### Vault — Deterministic preseed mtime stops the 2nd-session 'preparing' loop
+#### Vault: Deterministic preseed mtime stops the 2nd-session 'preparing' loop
 
 Distinct from the not-ready *deletion* guard above, this addresses a spurious *change* loop ([REQ-VAULT-023](../../sdd/spec/vault.md#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap) AC3). REQ-VAULT-021's persistent client sync snapshot records each force-overwritten config page's `lastModified` from the session that built it, but bisync/cp give a byte-identical `CONFIG.md` a fresh mtime on every container boot. On a 2nd session that fresh mtime diverges from the snapshot, so SilverBullet's sync engine reports the page "changed on secondary" on every ~3s editor watch-poll, copies it, reloads, and re-enqueues one index op per cycle.
 
@@ -3367,13 +3436,13 @@ The prewarm readiness gate (`injectVaultPrewarmBridge`: index queue empty for `r
 
 The actual 2nd-start fix is moving `Index.md` into the create-if-missing tier (below): once seeded, the client's normalized copy persists via R2 to a no-conflict fixed point. `syncIgnore`-ing the config pages was rejected because it trips the worker's "shouldn't sync" branch that `deleteFile()`s them from local IDB and drops them from the `.fs/` readiness listing, breaking both cold and warm start.
 
-### Vault — PUT body forwarding contract (REQ-VAULT-009)
+### Vault: PUT body forwarding contract (REQ-VAULT-009)
 
 `maybeSynthesizeCsrfHeader` adds `X-Requested-With: XMLHttpRequest` to state-changing requests (PUT/POST/PATCH/DELETE) so `authenticateRequest`'s CSRF guard does not reject vault writes. When a request carries no `Origin` header (SilverBullet's same-origin fetch path, service-worker-controlled fetches, and CLI-style clients), the synthesis now treats the request as same-origin and proceeds rather than skipping it. A request with an Origin header that fails the allowlist still returns 403; the no-Origin fallback does not widen the allowlist. SilverBullet drag-drop attachment uploads (`PUT /api/vault/<sid>/Inbox/<file>`) were the primary trigger: the SB Inbox plug's fetch path omitted Origin, causing the prior code to skip synthesis, reach `authenticateRequest` without `X-Requested-With`, and return 401 to the user.
 
 `container.fetch` must be called with the Request returned by `maybeSynthesizeCsrfHeader`, not the original incoming `request`. The helper consumes the input body when it constructs the header-rewritten clone (Workers Fetch semantics for `new Request(input, { headers })`); forwarding the original raises `TypeError: This ReadableStream is disturbed (has already been read from)`. `handleVaultRequest` hoists `requestForAuth` to outer scope for exactly this reason, and `authenticateRequest` must read only headers (cookies, JWT assertion) -- a future body read inside the auth chain would re-introduce the same bug.
 
-## Vault — Vault encryption and IDB lifecycle (REQ-VAULT-008, REQ-VAULT-024, REQ-VAULT-015, REQ-VAULT-021, REQ-VAULT-023)
+## Vault: Vault encryption and IDB lifecycle (REQ-VAULT-008, REQ-VAULT-024, REQ-VAULT-015, REQ-VAULT-021, REQ-VAULT-023)
 
 SilverBullet 2.9.0 ships full client-side IDB encryption via `EncryptedKvPrimitives` (`client/data/encrypted_kv_primitives.ts`). Activation requires three independent conditions checked in `client/boot.ts`:
 
@@ -3420,7 +3489,7 @@ All operations are fail-safe: a missing global (SSR, fresh tab) or malformed `-i
 
 **Principled-rejection invariant (load-bearing):** the cleanup helpers MUST NEVER enumerate IDBs via `indexedDB.databases()` and never derive names from the `sb_<type>_<hash>` formula. They work exclusively from the recorded localStorage list. An earlier version parsed `parts[2]` of the IDB name as the sid and nuked every SB IDB on every Dashboard mount, forcing a full SB resync on every reopen. The new design avoids the bug entirely by recording observed names at boot rather than re-deriving them.
 
-## Vault — Shutdown Bisync Reliability (REQ-VAULT-006)
+## Vault: Shutdown Bisync Reliability (REQ-VAULT-006)
 
 The vault's persistence guarantee depends on the final bisync running to completion on session shutdown. Pre-vault, this was a known weak point: the shutdown handler had no timeout on the bisync call, and the DO destroy() SIGKILLed at 25s. A vault edit made in the last seconds before shutdown would be silently truncated if the bisync ran long, leaving R2 in a partial state. The next session loaded that partial state and looked stale, forcing a manual session delete.
 
@@ -3433,7 +3502,7 @@ The shutdown watchdog was raised from 60s in [AD57](../decisions/README.md#ad57-
 
 If the bisync exceeds 120s, the log records `TIMED OUT after 120s` -- a recognisable string for operators triaging stale-session reports.
 
-## Vault — Preseed Integration (REQ-VAULT-007)
+## Vault: Preseed Integration (REQ-VAULT-007)
 
 The vault plugin and supporting rule ship as preseed entries that land in every advanced-mode session at container boot:
 
@@ -3453,7 +3522,7 @@ The note-capture rule stays small to keep always-in-context bloat minimal; the s
 
 `scripts/generate-agent-seed.mjs` reads the manifest and emits `src/lib/agent-seed.generated.ts`, the typed payload that the container fetches and writes during preseed. The vault plugin appears in default mode's manifest only as the rule's exclusion entry; runtime files are advanced-mode gated.
 
-### Vault — Vault initialization tiers (REQ-VAULT-001 AC3 + REQ-VAULT-010 AC1/AC4/AC5)
+### Vault: Vault initialization tiers (REQ-VAULT-001 AC3 + REQ-VAULT-010 AC1/AC4/AC5)
 
 `init_user_vault()` is split into three tiers by what the user can durably change:
 
@@ -3469,9 +3538,9 @@ The note-capture rule stays small to keep always-in-context bloat minimal; the s
 
 **Always-mkdir:** runs `mkdir -p`; existing contents are untouched. User-deleted directories are recreated empty so agent hooks and SilverBullet cannot land in a broken state.
 
-**Always-overwrite:** copies from `/opt/silverbullet-preseed/`, gated so identical files are not rewritten. On every boot each page is additionally stamped with the immutable preseed source's mtime (`touch -r`), even when the content-equality skip left it untouched. The in-container SB server therefore reports a stable `lastModified` across sessions and the persistent client sync snapshot never sees a spurious "changed on secondary" ([REQ-VAULT-023](../../sdd/spec/vault.md#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap) AC3 -- see [Deterministic preseed mtime](#deterministic-preseed-mtime-stops-the-2nd-session-preparing-loop)). User edits are silently reverted on next boot; these files are Codeflare-owned because they encode SB `#meta` config, theme, and user guide.
+**Always-overwrite:** copies from `/opt/silverbullet-preseed/`, gated so identical files are not rewritten. On every boot each page is additionally stamped with the immutable preseed source's mtime (`touch -r`), even when the content-equality skip left it untouched. The in-container SB server therefore reports a stable `lastModified` across sessions and the persistent client sync snapshot never sees a spurious "changed on secondary" ([REQ-VAULT-023](../../sdd/spec/vault.md#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap) AC3 -- see [Deterministic preseed mtime](#vault-deterministic-preseed-mtime-stops-the-2nd-session-preparing-loop)). User edits are silently reverted on next boot; these files are Codeflare-owned because they encode SB `#meta` config, theme, and user guide.
 
-**Create-if-missing:** copies from `/opt/silverbullet-preseed/` only when absent, including the `for LANDING in Index.md Notes.md References.md` loop and the separate `Vault Graph.md` seed. The pages are never overwritten on subsequent boots, so user edits and deletions are preserved. `Index.md` is create-if-missing because the SilverBullet editor normalizes and autosaves the dashboard on open. A boot-time revert fought that client save into a perpetual `Index.conflicted:*.md` sync conflict that kept the prewarm index queue from draining, so the Vault button never went green on a 2nd start; see [Deterministic preseed mtime](#deterministic-preseed-mtime-stops-the-2nd-session-preparing-loop).
+**Create-if-missing:** copies from `/opt/silverbullet-preseed/` only when absent, including the `for LANDING in Index.md Notes.md References.md` loop and the separate `Vault Graph.md` seed. The pages are never overwritten on subsequent boots, so user edits and deletions are preserved. `Index.md` is create-if-missing because the SilverBullet editor normalizes and autosaves the dashboard on open. A boot-time revert fought that client save into a perpetual `Index.conflicted:*.md` sync conflict that kept the prewarm index queue from draining, so the Vault button never went green on a 2nd start; see [Deterministic preseed mtime](#vault-deterministic-preseed-mtime-stops-the-2nd-session-preparing-loop).
 
 `Vault Graph.md` seeds the `Raw/Graphs/` treeview folder on a fresh vault, because treeview is page-driven and an empty directory is invisible. `Notes.md`/`References.md` resolve `Index.md`'s bare `[[Notes]]`/`[[References]]` wikilinks to real pages instead of broken/aspiring 404s ([REQ-VAULT-023](../../sdd/spec/vault.md#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap) AC4).
 
@@ -3488,7 +3557,7 @@ The contract closes failure modes that surfaced in earlier releases:
 - An R2-restored vault that pre-dated a preseed update would carry stale pages forever, because the prior `init_user_vault()` only ran content sync inside the first-init gate.
 - A `.silverbullet/config.yaml` file from older releases gave a false sense that SB was reading bootstrap settings from it; in SB 2.x the file is dead and only env vars + `CONFIG.md` actually configure the server.
 
-### Vault — CONFIG.md and Library/Std (base_fs)
+### Vault: CONFIG.md and Library/Std (base_fs)
 
 `CONFIG.md` is a SilverBullet 2.x `#meta` page with an optional `space-lua` config block (built-in keys defined in `Library/Std/Config.md`; see [SilverBullet docs](https://silverbullet.md/Configuration)). Earlier releases used a yaml block with `libraries:` and `pageBlackList:` -- both keys are unrecognized by SB 2.x and were always no-ops.
 
@@ -3498,13 +3567,13 @@ The block hides `Library/`, `Repositories/`, `graphify-out/`, and the four top-l
 
 `Library/Std` (and its compiled `Plugs/*.plug.js`) is served by the SilverBullet binary from its built-in `client_bundle/base_fs` overlay. There is nothing to federate at runtime and nothing to preseed onto disk. The dashboard's `widgets.commandButton`, `templates.fullPageItem`, `templates.pageItem`, `templates.taskItem`, `index.contentPages()`, and `tags.page` all resolve through that overlay automatically. The first-load delay (~30 s on a fresh browser) is the SilverBullet client building its IndexedDB index of Library/Std files; subsequent loads are instant from cache.
 
-### Vault — STYLES.md and codeflare theming (REQ-VAULT-007)
+### Vault: STYLES.md and codeflare theming (REQ-VAULT-007)
 
 `STYLES.md` applies the codeflare visual theme inside SilverBullet via the `#meta/styles` tag (SilverBullet's convention for theme pages). It targets SilverBullet 2.x's CSS variable namespace under `html[data-theme="dark"]`: `--root-*`, `--ui-accent-*`, `--top-*`, `--button-*`, `--editor-*`, `--modal-*`, `--panel-*`, and `--editor-wiki-link-*`. This was verified against the 2.9.0 `client/styles/theme.scss` source.
 
 The codeflare palette tokens (`--cf-*`, zinc dark base + blue accent matching `web-ui/src/styles/design-tokens.css`) are defined locally in `:root` and consumed by the SB variables. Earlier versions of this file only defined `--cf-*` variables, which SilverBullet does not read, so the theme had no visual effect until the variable mapping was corrected. See [AD55](../decisions/README.md#ad55-codeflare-brands-the-vault-editor-via-preseed-managed-stylesmd). It is always-overwritten on boot and cannot be customised in-place; theme changes must go through `preseed/silverbullet/STYLES.md` in the repo.
 
-### Vault — SilverBullet plug preinstall (REQ-VAULT-007)
+### Vault: SilverBullet plug preinstall (REQ-VAULT-007)
 
 On every boot, `init_user_vault()` copies the plug files from `/opt/silverbullet-preseed/plugs/` into `~/Vault/Library/Codeflare/`. The copy is idempotent: each file is only overwritten when its content differs from the installed copy (using `cmp`), so a pin bump in the Dockerfile propagates on the next boot without touching user-written notes.
 
@@ -3517,9 +3586,9 @@ On every boot, `init_user_vault()` copies the plug files from `/opt/silverbullet
 
 `Library/Codeflare/` is reserved for codeflare-managed plugs. User-installed plugs go under other `Library/` subdirectories (e.g. `Library/Personal/`); the boot-time overwrite never touches those paths.
 
-## Vault — First-session Expectations
+## Vault: First-session Expectations
 
-A brand-new session boots with a pre-populated vault. `README.md`, `CONFIG.md`, and `STYLES.md` are always written from preseed on every boot. `Index.md`, `Notes.md`, and `References.md` are seeded from preseed only when absent (create-if-missing). `Index.md` is no longer force-overwritten because the editor normalizes and autosaves the dashboard, so a boot-time revert produced a perpetual `Index.conflicted:*.md` sync conflict; see [Vault initialization tiers](#vault-initialization-tiers-req-vault-001-ac3-req-vault-010-ac1ac4ac5).
+A brand-new session boots with a pre-populated vault. `README.md`, `CONFIG.md`, and `STYLES.md` are always written from preseed on every boot. `Index.md`, `Notes.md`, and `References.md` are seeded from preseed only when absent (create-if-missing). `Index.md` is no longer force-overwritten because the editor normalizes and autosaves the dashboard, so a boot-time revert produced a perpetual `Index.conflicted:*.md` sync conflict; see [Vault initialization tiers](#vault-vault-initialization-tiers-req-vault-001-ac3--req-vault-010-ac1ac4ac5).
 
 Critical subdirectories (`Raw/Sessions/`, `Raw/Pasted/`, `Raw/Graphs/`, `Notes/`, `References/`, `graphify-out/`, `.silverbullet/_plug/`) are always `mkdir -p`'d. `Raw/Graphs/Vault Graph.md` is seeded from preseed only when absent and is never overwritten. Legacy `Global Graph.md` pages from earlier installs are removed on every boot because the unified global graph is too large for useful HTML rendering; use `mcp__graphify__*` instead. `graphify-out/graph.json` is seeded as an empty stub only when absent.
 
@@ -3537,11 +3606,11 @@ Visual confirmation that the preseed theme is wired correctly: the editor render
 
 The vault-monitor daemon does not fire a spurious extraction on first boot or after a preseed update: on a first session `init_user_vault()` baselines the content-hash manifest from the current vault, and the manifest excludes the four preseed-managed pages by name, so even a genuinely-rewritten page is never treated as a user edit. A fresh session sends 5 prompts in a row with no user vault edits and the vault-extract hook fires zero times.
 
-## Vault — Attachment Cost Caveat (REQ-VAULT-011 AC1)
+## Vault: Attachment Cost Caveat (REQ-VAULT-011 AC1)
 
 SilverBullet writes pasted / drag-dropped attachments next to the note that referenced them (a Quick Note at `Inbox/2026-05-18/16-59-59.md` produces attachments at `Inbox/2026-05-18/*.pdf`, `.png`, etc.). The vault-extract agent reads PDFs via the Read tool (rendering pages as images, capped at 20 pages per PDF) and emits a `document` node plus `concept` nodes for whatever titles / headings / entities are visible. Image-only PDFs and screenshots cost vision tokens per page on every ingestion pass; be aware when pasting many images into notes you expect to query frequently. Move attachments to `Raw/Pasted/` manually if you want them grouped outside the date-folder rhythm.
 
-## Vault — PDF-Ingestion E2E Plan (REQ-VAULT-011)
+## Vault: PDF-Ingestion E2E Plan (REQ-VAULT-011)
 
 Manual verification for PDF ingestion. PDF ingestion is agent-prompt behaviour driven by `vault-extract-prompt.md`; it has no automated test, so this is the manual sign-off path.
 
@@ -3551,13 +3620,13 @@ Manual verification for PDF ingestion. PDF ingestion is agent-prompt behaviour d
 
 For AC1/AC2, the global graph should gain a `document` node for the file plus `concept` nodes for its visible titles, headings, and named entities, not skip it as opaque binary. For AC3, a citation edge should connect the PDF's document node to the wikilink concept so the two unify. For AC4, the corrupt PDF should emit only a bare document node while the healthy file still ingests and the content-hash manifest advances to include it; one unreadable PDF does not block the batch.
 
-## Vault — Memory Capture System
+## Vault: Memory Capture System
 
 Cross-session memory in codeflare lives entirely in the vault. Graphify ingests every vault file into the unified global graph; agents query it via `mcp__graphify__*`. The former MCP `@modelcontextprotocol/server-memory` subsystem has been removed. Conversation context (decisions, debugging insights, observations) survives across sessions and devices. Every 15 user prompts the agent auto-captures a structured note into `Raw/Sessions/`. Cross-device persistence requires Pro mode (the "Pro" / advanced session mode, gated by [REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode)): only Pro sessions bisync the vault subtree to R2. Default-mode sessions still run the capture hook for in-session context, but the vault never leaves the container.
 
 Implements [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-004](../../sdd/spec/memory.md#req-mem-004-vault-contents-synced-to-r2-across-sessions), [REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-MEM-008](../../sdd/spec/memory.md#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline), [REQ-MEM-010](../../sdd/spec/memory.md#req-mem-010-memory-capture-hook-plumbing).
 
-### Vault — Hook Mechanics
+### Vault: Hook Mechanics
 
 The `memory-capture.sh` script runs as a **UserPromptSubmit hook**.
 
@@ -3625,7 +3694,7 @@ catching LLM fabrications that typically drift hours. Assertion failure
 captured ISO_TS string is the single source of truth for the filename and
 `captured_at` frontmatter field; both must contain identical bytes.
 
-### Vault — Counter Storage
+### Vault: Counter Storage
 
 ```
 /tmp/.memory-counter/
@@ -3645,12 +3714,12 @@ Cross-reference: the verified Cloudflare-Containers ephemerality contract
 this design relies on is captured at `~/Vault/References/Cloudflare-Containers-Ephemerality.md`
 in the user's vault.
 
-### Vault — Specification Coverage (Memory)
+### Vault: Specification Coverage (Memory)
 
 - [REQ-MEM-012](../../sdd/spec/memory.md#req-mem-012-hard-block-tool-calls-while-memory-capture-is-deferred) - Hard-block tool calls while memory-capture is deferred
 - [REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) - Proactive memory injection on first prompt
 
-## Vault — Troubleshooting
+## Vault: Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
@@ -3708,7 +3777,7 @@ Exercise each listed UI, agent, session, storage, or container workflow in stagi
 - [ ] [REQ-TERM-008](../../sdd/spec/terminal.md#req-term-008-write-batching-at-30fps) — verify every acceptance criterion.
 - [ ] [REQ-TERM-009](../../sdd/spec/terminal.md#req-term-009-process-name-detection-via-control-messages) — verify every acceptance criterion.
 - [ ] [REQ-TERM-013](../../sdd/spec/terminal.md#req-term-013-multiview-selection-flow) — verify every acceptance criterion.
-- [ ] [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-lazy-start-supervised-clean-teardown) — verify every acceptance criterion.
+- [ ] [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-001](../../sdd/spec/agents.md#req-agent-001-support-multiple-ai-coding-agents) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-002](../../sdd/spec/agents.md#req-agent-002-agent-selection-at-session-creation) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-003](../../sdd/spec/agents.md#req-agent-003-agent-cli-auto-started-in-tab-1) — verify every acceptance criterion.
@@ -3719,13 +3788,13 @@ Exercise each listed UI, agent, session, storage, or container workflow in stagi
 - [ ] [REQ-AGENT-008](../../sdd/spec/agents.md#req-agent-008-preseed-deployed-to-container-on-start) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-009](../../sdd/spec/agents.md#req-agent-009-llm-api-key-storage-encrypted-in-kv) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-010](../../sdd/spec/agents.md#req-agent-010-deploy-credential-storage-github-pat-cf-api-token) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-011](../../sdd/spec/agents.md#req-agent-011-agent-skills-rules-manually-recreatable-from-settings) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-011](../../sdd/spec/agents.md#req-agent-011-agent-skills--rules-manually-recreatable-from-settings) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-012](../../sdd/spec/agents.md#req-agent-012-fast-cli-start-configurable) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-013](../../sdd/spec/agents.md#req-agent-013-browser-shim-for-oauth-flows) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-014](../../sdd/spec/agents.md#req-agent-014-manifest-driven-preseed-pipeline) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-017](../../sdd/spec/agents.md#req-agent-017-bubblewrap-sandbox-for-codex) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push-deploy-credential-management-ui) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push--deploy-credential-management-ui) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-019](../../sdd/spec/agents.md#req-agent-019-branded-settings-ui) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-020](../../sdd/spec/agents.md#req-agent-020-llm-api-key-management-ui) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) — verify every acceptance criterion.

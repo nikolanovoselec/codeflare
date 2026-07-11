@@ -97,7 +97,7 @@ describe('vscodeModeAllowed / REQ-IDE-003 (advanced-mode only, fail-open when un
   });
 });
 
-describe('vscodeWarmingResponse / REQ-IDE-003 AC2 (auto-refreshing warming page, not raw JSON)', () => {
+describe('vscodeWarmingResponse / REQ-IDE-003 AC3 (auto-refreshing warming page, not raw JSON)', () => {
   it('is a 503 HTML page that auto-refreshes so a plain tab lands on the editor once it is up', () => {
     const r = vscodeWarmingResponse();
     assert.equal(r.status, 503);
@@ -163,18 +163,41 @@ describe('bridgeVscodeClientMessages / REQ-IDE-004 (early-frame delivery and IDE
   it('REQ-IDE-004: closes with 1013 on bounded-queue overflow and releases bridge listeners', () => {
     const client = socket(WebSocket.OPEN);
     const upstream = socket(WebSocket.CONNECTING);
-    let recordedInputs = 0;
-    bridgeVscodeClientMessages(client, upstream, () => { recordedInputs += 1; }, 2);
+    const tracker = createActivityTracker();
+    const originalNow = Date.now;
 
-    client.emit('message', Buffer.from('one'), true);
-    client.emit('message', Buffer.from('two'), true);
-    client.emit('message', Buffer.from('overflow'), true);
+    try {
+      Date.now = () => 100;
+      bridgeVscodeClientMessages(client, upstream, () => tracker.recordInput(), 2);
+      client.emit('message', Buffer.from('one'), true);
+      client.emit('message', Buffer.from('two'), true);
+      client.emit('message', Buffer.from('overflow'), true);
+
+      assert.deepEqual(client.closes, [{ code: 1013, reason: 'upstream-not-ready' }]);
+      assert.deepEqual(upstream.closes, [{ code: 1013, reason: 'upstream-not-ready' }]);
+      assertBridgeListenersRemoved(client, upstream);
+      assert.equal(tracker.getActivityInfo(null).lastInputAt, 100);
+
+      Date.now = () => 200;
+      client.emit('message', Buffer.from('after-overflow'), true);
+      assert.equal(tracker.getActivityInfo(null).lastInputAt, 100);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+
+  it('REQ-IDE-004: closes when pending frame bytes exceed the cumulative limit', () => {
+    const client = socket(WebSocket.OPEN);
+    const upstream = socket(WebSocket.CONNECTING);
+
+    bridgeVscodeClientMessages(client, upstream, () => {}, 128, 4);
+    client.emit('message', Buffer.alloc(3), true);
+    client.emit('message', Buffer.alloc(2), true);
 
     assert.deepEqual(client.closes, [{ code: 1013, reason: 'upstream-not-ready' }]);
     assert.deepEqual(upstream.closes, [{ code: 1013, reason: 'upstream-not-ready' }]);
+    assert.deepEqual(upstream.sent, []);
     assertBridgeListenersRemoved(client, upstream);
-    client.emit('message', Buffer.from('after-overflow'), true);
-    assert.equal(recordedInputs, 3);
   });
 
   it('REQ-IDE-004: releases bridge listeners when either socket closes or errors', () => {
@@ -212,6 +235,90 @@ describe('bridgeVscodeClientMessages / REQ-IDE-004 (early-frame delivery and IDE
       assert.equal(tracker.getActivityInfo(null).lastInputAt, 250);
     } finally {
       Date.now = originalNow;
+    }
+  });
+
+  it('REQ-IDE-004: preserves immediate frames through a delayed upstream handshake', { timeout: 5000 }, async () => {
+    const upstreamHttp = http.createServer();
+    const upstreamWss = createVscodeWebSocketServer();
+    const downstreamHttp = http.createServer();
+    const downstreamWss = createVscodeWebSocketServer();
+    const tracker = createActivityTracker();
+    const received = [];
+    let browserClient;
+    let upstreamClient;
+
+    upstreamHttp.on('upgrade', (request, socket, head) => {
+      setTimeout(() => {
+        upstreamWss.handleUpgrade(request, socket, head, (ws) => {
+          upstreamWss.emit('connection', ws, request);
+        });
+      }, 75);
+    });
+
+    downstreamHttp.on('upgrade', (request, socket, head) => {
+      downstreamWss.handleUpgrade(request, socket, head, (ws) => {
+        downstreamWss.emit('connection', ws, request);
+      });
+    });
+
+    try {
+      await new Promise((resolve, reject) => {
+        upstreamHttp.once('error', reject);
+        upstreamHttp.listen(0, '127.0.0.1', resolve);
+      });
+      const upstreamPort = upstreamHttp.address().port;
+
+      const receivedFrames = new Promise((resolve, reject) => {
+        upstreamWss.once('connection', (ws) => {
+          ws.once('error', reject);
+          ws.on('message', (data, isBinary) => {
+            received.push({ data: Buffer.from(data), isBinary });
+            if (received.length === 2) resolve();
+          });
+        });
+      });
+
+      downstreamWss.on('connection', (clientSocket) => {
+        upstreamClient = new WebSocket(`ws://127.0.0.1:${upstreamPort}`);
+        bridgeVscodeClientMessages(
+          clientSocket,
+          upstreamClient,
+          () => tracker.recordInput(),
+        );
+      });
+      await new Promise((resolve, reject) => {
+        downstreamHttp.once('error', reject);
+        downstreamHttp.listen(0, '127.0.0.1', resolve);
+      });
+      const downstreamPort = downstreamHttp.address().port;
+
+      browserClient = new WebSocket(`ws://127.0.0.1:${downstreamPort}`);
+      await once(browserClient, 'open');
+      const sentAt = Date.now();
+      browserClient.send(Buffer.from('first'), { binary: true });
+      browserClient.send('second');
+
+      await receivedFrames;
+
+      assert.deepEqual(received.map(({ data }) => data.toString()), ['first', 'second']);
+      assert.deepEqual(received.map(({ isBinary }) => isBinary), [true, false]);
+      assert.ok(tracker.getActivityInfo(null).lastInputAt >= sentAt);
+    } finally {
+      browserClient?.terminate();
+      upstreamClient?.terminate();
+      for (const client of downstreamWss.clients) client.terminate();
+      for (const client of upstreamWss.clients) client.terminate();
+      await Promise.all([
+        new Promise((resolve) => downstreamWss.close(resolve)),
+        new Promise((resolve) => upstreamWss.close(resolve)),
+        new Promise((resolve, reject) => {
+          downstreamHttp.close((error) => error ? reject(error) : resolve());
+        }),
+        new Promise((resolve, reject) => {
+          upstreamHttp.close((error) => error ? reject(error) : resolve());
+        }),
+      ]);
     }
   });
 });

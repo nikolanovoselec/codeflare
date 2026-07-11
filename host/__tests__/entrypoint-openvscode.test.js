@@ -138,7 +138,7 @@ describe('_openvscode_launch_once / REQ-IDE-001, REQ-IDE-002 (session-isolated l
   });
 });
 
-describe('_openvscode_supervise_loop / REQ-IDE-003 AC1+AC3 (lazy no-launch, restart on exit)', () => {
+describe('_openvscode_supervise_loop / REQ-IDE-003 AC1+AC4 (lazy no-launch, restart on exit)', () => {
   let dir, argsFile, flag, trigger;
   beforeEach(() => {
     dir = mkTmp('ovsc-loop-');
@@ -187,7 +187,7 @@ describe('_openvscode_supervise_loop / REQ-IDE-003 AC1+AC3 (lazy no-launch, rest
   });
 });
 
-describe('kill_pidfile_subtree / REQ-IDE-003 AC4 (shutdown releases the IDE port)', () => {
+describe('kill_pidfile_subtree / REQ-IDE-003 AC5 (shutdown releases the IDE port)', () => {
   let dir, pidfile;
   beforeEach(() => {
     dir = mkTmp('ovsc-kill-');

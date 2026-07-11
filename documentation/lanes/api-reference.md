@@ -6,27 +6,8 @@ Complete API endpoint reference for the Codeflare Worker.
 
 ## Contents
 
-- [Session Management](#session-management)
-- [Container Lifecycle](#container-lifecycle)
-- [Terminal](#terminal)
-- [Vault](#vault)
-- [Browser IDE](#browser-ide)
-- [User Management](#user-management)
-- [Auth (SaaS Mode)](#auth-saas-mode)
-- [Usage](#usage)
-- [Admin](#admin)
-- [Billing](#billing)
-- [Deploy Keys](#deploy-keys)
-- [GitHub Integration](#github-integration)
-- [Cloudflare Integration](#cloudflare-integration)
-- [Public (Unauthenticated)](#public-unauthenticated)
-- [Discoverability Documents](#discoverability-documents)
-- [Setup](#setup)
-- [Storage (R2 File Browser)](#storage-r2-file-browser)
-- [Preferences](#preferences)
-- [LLM API Keys](#llm-api-keys)
-- [Public (Onboarding)](#public-onboarding)
-- [Health](#health)
+- [Related Documentation](#related-documentation)
+- [Specification Coverage](#specification-coverage)
 
 ---
 
@@ -99,9 +80,9 @@ The in-container OpenVSCode Server (full VS Code editor) is reached through the 
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET / WS | `/api/vscode/<sessionId>/*` | Session cookie (shared vault auth chain) | [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-lazy-start-supervised-clean-teardown) | Session-keyed OpenVSCode proxy, parsed before Hono so WebSocket upgrades pass through. Path forwarded unchanged. Security headers: `frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`, no CSP. WS upgrades rate-limited (30/60s, shared with terminal + vault). |
+| GET / WS | `/api/vscode/<sessionId>/*` | Session cookie (shared vault auth chain) | [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability) | Session-keyed OpenVSCode proxy, parsed before Hono so WebSocket upgrades pass through. Path forwarded unchanged. Security headers: `frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`, no CSP. WS upgrades rate-limited (30/60s, shared with terminal + vault). |
 
-**Error responses:** malformed sessionId → 400 `INVALID_SESSION`; unowned session → 404 `SESSION_NOT_FOUND`; stopped session → 503 `CONTAINER_STOPPED`; unhealthy container → 503 `CONTAINER_NOT_READY`; a non-advanced session → 409 for HTTP (host-layer HTML page, the IDE is not enabled for the session mode) and a refused upgrade for WebSocket ([REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-lazy-start-supervised-clean-teardown) AC7); while OpenVSCode is still lazy-starting, the host serves a 503 auto-refreshing HTML warming page (no JSON `code` — see `host/src/vscode-proxy.ts::vscodeWarmingResponse`). The pre-Hono, pre-auth 400 keeps the full default security-header set; every other response gets the relaxed set above.
+**Error responses:** malformed sessionId → 400 `INVALID_SESSION`; unowned session → 404 `SESSION_NOT_FOUND`; stopped session → 503 `CONTAINER_STOPPED`; unhealthy container → 503 `CONTAINER_NOT_READY`; a non-advanced session → 409 for HTTP (host-layer HTML page, the IDE is not enabled for the session mode) and a refused upgrade for WebSocket ([REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability) AC7); while OpenVSCode is still lazy-starting, the host serves a 503 auto-refreshing HTML warming page (no JSON `code` — see `host/src/vscode-proxy.ts::vscodeWarmingResponse`). The pre-Hono, pre-auth 400 keeps the full default security-header set; every other response gets the relaxed set above.
 
 ### User Management
 

@@ -39,11 +39,11 @@ Multi-agent support, preseed system, and session modes.
 
 1. Seven agent types are defined: `claude-code`, `codex`, `copilot`, `antigravity`, `opencode`, `pi`, `bash`. <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/lib/agent-config.test.ts (AGENT_COMMANDS exhaustiveness / REQ-AGENT-001 AC1/AC2 (seven agent types: claude-code, codex, copilot, antigravity, opencode, pi, bash; enforced via AgentTypeSchema)) -->
 2. The `AgentType` type is enforced via Zod schema (`AgentTypeSchema`). <!-- @impl: src/types.ts::AgentTypeSchema --> <!-- @test: src/__tests__/lib/agent-config.test.ts (AGENT_COMMANDS exhaustiveness / REQ-AGENT-001 AC1/AC2 (seven agent types: claude-code, codex, copilot, antigravity, opencode, pi, bash; enforced via AgentTypeSchema)) -->
-3. Each agent's CLI is pre-installed in the container image as a global npm package (or native binary for Go-based agents). <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-001 AC3 (Node-based agent CLIs pre-installed globally via npm)) -->
-4. Of the Node.js-based agent CLIs, only Pi is pre-warmed at image build time so V8's compile cache is populated before first interactive launch; Codex and Copilot are excluded from the warm-up block (owner decision, image-size) and pay the compile cost on first launch. <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-001 AC4: only pi warms the V8 compile cache at build, codex/copilot deactivated) -->
-5. Pi extension npm dependencies are installed into an image-local cache at build time; the entrypoint symlinks `node_modules` to the cache so Pi starts without a first-launch package install. <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-001 AC5 (Pi extension npm dependencies preinstalled in image cache)) -->
-6. A build-time version bridge pins the transitive `@earendil-works/pi-coding-agent` dependency to the exact version the global runtime agent resolved (npm override plus a lockfile-free reinstall), failing the build closed if the version cannot be read or the pin does not hold. <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-001 AC6 (Pi SDK version bridge fails closed)) -->
-7. Claude Code is verified at build time by an install-time `claude --version` smoke-test rather than the dedicated V8 compile-cache warm-up block. <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-001 AC7 (claude verified by install-time smoke-test)) -->
+3. Each agent's CLI is pre-installed in the container image as a global npm package or native binary. <!-- @impl: Dockerfile::npm -->
+4. Of the Node.js-based agent CLIs, only Pi is pre-warmed at image build time; Codex and Copilot pay the compile cost on first launch. <!-- @impl: Dockerfile::NODE_COMPILE_CACHE -->
+5. Pi extension npm dependencies are available from the image cache without overwriting restored user package metadata. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-001: Pi npm warm cache seeds dependencies without overwriting user package metadata) -->
+6. The image build fails if the pre-warmed Pi SDK cannot be pinned to the resolved runtime-agent version. <!-- @impl: Dockerfile::INSTALLED_PI_VER -->
+7. The image build verifies that Claude Code can start. <!-- @impl: Dockerfile::claude -->
 
 **Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
@@ -266,7 +266,7 @@ Multi-agent support, preseed system, and session modes.
 2. During container startup, the initial R2-to-local sync restores preseed files into each supported agent's per-user config directory before the agent launches. <!-- @impl: entrypoint.sh::lay_down_agent_seed_preseed --> <!-- @test: src/__tests__/lib/r2-seed.test.ts (seedAgentConfigs / REQ-AGENT-008 (preseed deployed to container on start) / REQ-STOR-010 (reconcileAgentConfigs deletes orphaned seed entries on tier change)) -->
 3. The container entrypoint merges agent settings using a hooks-aware merge: non-hook fields use recursive merge; hook arrays are rebuilt per event type by preserving user-added hooks and replacing managed (codeflare-owned) hooks with the current platform version. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings.json configuration / REQ-AGENT-015 (/review command)) -->
 4. In Pro mode, the settings merge includes the codeflare-owned hook registrations across the PreToolUse, PostToolUse, and UserPromptSubmit event families; Standard mode omits them. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings.json configuration / REQ-AGENT-015 (/review command)) -->
-5. The container entrypoint enables the codeflare-managed plugins in the agent's plugin configuration permanently (not mode-gated). Missing plugin files are silently skipped so a plugin removal does not break agent startup. <!-- @impl: entrypoint.sh::GRAPHIFY_BIN_DST --> <!-- @test: src/__tests__/lib/r2-seed.test.ts (seedAgentConfigs / REQ-AGENT-008 (preseed deployed to container on start) / REQ-STOR-010 (reconcileAgentConfigs deletes orphaned seed entries on tier change)) -->
+5. The container entrypoint enables the codeflare-managed plugins in the agent's plugin configuration permanently (not mode-gated). Missing plugin files are silently skipped so a plugin removal does not break agent startup. <!-- @impl: entrypoint.sh::ensure_graphify_cli_path --> <!-- @test: src/__tests__/lib/r2-seed.test.ts (seedAgentConfigs / REQ-AGENT-008 (preseed deployed to container on start) / REQ-STOR-010 (reconcileAgentConfigs deletes orphaned seed entries on tier change)) -->
 6. Settings merge handles three cases: file doesn't exist (create), file exists (recursive merge), file malformed (skip with warning). <!-- @test: src/__tests__/lib/r2-seed.test.ts (seedAgentConfigs / REQ-AGENT-008 (preseed deployed to container on start) / REQ-STOR-010 (reconcileAgentConfigs deletes orphaned seed entries on tier change)) -->
 
 **Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
@@ -395,9 +395,9 @@ Multi-agent support, preseed system, and session modes.
 **Acceptance Criteria:**
 
 1. A fast-start preference (default: enabled) controls whether agent CLIs skip auto-update checks at launch, and the user's choice is propagated into the container's runtime environment. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/routes/preferences.test.ts (sessionMode preference / REQ-MEM-011 (sessionMode preference persistence + preseed reconciliation)) -->
-2. When enabled, auto-update checks are disabled for all supported agent CLIs, eliminating 5-30s startup delay. <!-- @impl: entrypoint.sh::update_pi_when_fast_start_disabled --> <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-012 (Fast Start controls Pi update checks)) -->
-3. Every supported agent CLI has a corresponding disable mechanism: each tool's native auto-update path is suppressed by the channel that tool exposes. For settings-file tools, user customizations are preserved across container restarts. <!-- @impl: entrypoint.sh::GRAPHIFY_PY --> <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-023 AC1: copies plugin.json into image and reads the version from it) -->
-4. When the fast-start preference is disabled, the suppression channels are not applied, Codeflare-managed settings-file suppressors are removed, and each CLI runs its normal update or package-reconciliation path before the session starts. <!-- @impl: entrypoint.sh::update_pi_when_fast_start_disabled --> <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-012 (Fast Start OFF removes settings-file update suppressors)) -->
+2. When enabled, Codeflare applies the supported environment-based update suppressors before agent startup. <!-- @impl: entrypoint.sh::configure_fast_start_environment --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012: Fast Start controls Pi update suppression and the disabled update path) -->
+3. Codeflare removes only its own settings-file suppressor and preserves an operator-owned Codex version preference. <!-- @impl: entrypoint.sh::configure_fast_start_tool_settings --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012: disabled Fast Start removes only Codeflare-managed settings suppressors) -->
+4. When disabled, environment suppressors are cleared, Codeflare's Codex suppressor is removed, and Pi's normal update path runs before session startup. <!-- @impl: entrypoint.sh::configure_fast_start_environment --> <!-- @impl: entrypoint.sh::configure_fast_start_tool_settings --> <!-- @impl: entrypoint.sh::update_pi_when_fast_start_disabled --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012: Fast Start controls Pi update suppression and the disabled update path) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012: disabled Fast Start removes only Codeflare-managed settings suppressors) -->
 5. Users can toggle the preference from the session defaults area of the application settings. <!-- @test: src/__tests__/routes/preferences.test.ts (Preferences Routes) -->
 
 **Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
@@ -521,8 +521,8 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. bubblewrap (bwrap) is installed in the container image. <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-017 (bubblewrap installed in container image so Codex can sandbox its execution)) -->
-2. bubblewrap is available on the system PATH for Codex's built-in sandbox; the sandbox invocation is owned by the upstream Codex CLI, not by codeflare source. <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-017 (bubblewrap installed in container image so Codex can sandbox its execution)) -->
+1. bubblewrap (bwrap) is installed in the container image. <!-- @impl: Dockerfile::bubblewrap -->
+2. bubblewrap is available on the system PATH for Codex's built-in sandbox; the sandbox invocation is owned by the upstream Codex CLI, not by codeflare source. <!-- @impl: Dockerfile::bubblewrap -->
 
 **Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
@@ -700,7 +700,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. `graphifyy` installs in every container image with MCP, SQL, and PDF extras, pinned to one Dependabot-tracked version. Provider extras stay absent; extraction and labeling remain agent-driven. <!-- @impl: Dockerfile::graphifyy --> <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-023 AC1: copies plugin.json into image and reads the version from it) -->
+1. `graphifyy` installs in every container image with MCP, SQL, and PDF extras, pinned to one tracked version; the entrypoint restores its command path when missing without replacing an existing destination. <!-- @impl: Dockerfile::graphifyy --> <!-- @impl: entrypoint.sh::ensure_graphify_cli_path --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-023: restores a missing Graphify CLI path without replacing an existing destination) -->
 2. Claude receives the Graphify MCP server, while Pi receives native `graphify_query`/`graphify_path`/`graphify_explain` tools; both use the upstream engine. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py::LazyGraph --> <!-- @impl: preseed/agents/pi/extensions/graphify-native.ts::graphify_query --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-023: Pi native runtime assets expose first-party graphify-native tools (no MCP, no third-party wrapper)) -->
 3. AC1 and AC2 hold across all paid tiers for ambient query/build capability; advanced-mode agent orchestration keeps `/graphify` extraction context bounded via subagent chunking. <!-- @impl: Dockerfile::graphifyy --> <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md::subagent --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 4. Startup with no graph is tolerated: Claude starts empty and rebinds later; advanced-mode Pi clone triage asks before graph work. Query tools use the active repo graph after it exists. <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::graphifyCloneAction --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::fallbackGraphifyToolResult --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
@@ -721,7 +721,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-008](#req-agent-008-preseed-deployed-to-container-on-start)
 
-**Verification:** [Automated test](../../host/__tests__/entrypoint-graphify-mcp.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -803,7 +803,7 @@ None.
 **Acceptance Criteria:**
 
 1. Knowledge-graph artefacts are excluded from R2 sync, so they never round-trip through user-bucket storage. <!-- @impl: entrypoint.sh::init_recovery_filters --> <!-- @test: host/__tests__/entrypoint-graphify-bisync.test.js (entrypoint.sh rclone bisync filter for graphify (REQ-AGENT-026)) -->
-2. The container image registers the graphify semantic merge driver globally, independent of session mode. <!-- @test: host/__tests__/dockerfile-graphify.test.js (REQ-AGENT-026 AC2: registers the semantic merge driver globally (tier-independent)) -->
+2. The container image registers the graphify semantic merge driver globally, independent of session mode. <!-- @impl: Dockerfile::merge.graphify.driver -->
 3. Repo owners with push permission commit the knowledge-graph artefacts to git so contributors inherit the graph and the visualization on clone; concurrent edits to the graph artefact are auto-resolved by the registered merge driver without manual JSON conflict resolution. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 4. For repos without push permission, the graph lives in the working tree only and is ephemeral. <!-- @test: host/__tests__/skill-graphify-content.test.js (graphify SKILL.md content (REQ-AGENT-024 AC4-AC6, REQ-AGENT-026) / REQ-AGENT-043 (build mode dispatch)) -->
 
@@ -2283,7 +2283,7 @@ None.
 - Visible monitor handoff is review result delivery, not reviewer lane spawning.
 - Durable monitor claims remain the duplicate-suppression source of truth.
 - The handoff is the sole trigger for the CI monitor as well as the `review-monitor`; no separate per-push CI monitor is started ([REQ-AGENT-068](#req-agent-068-ci-monitoring-background-agent-policy)), so the two never collide.
-- Both review-monitor prompt sources pin polling near 10 seconds, preventing arbitrary multi-minute sleeps and delivering completed lane results within about 10 seconds. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/agents/review-monitor.md -->
+- Both review-monitor prompt sources pin polling near 10 seconds, preventing arbitrary multi-minute sleeps and delivering completed lane results within about 10 seconds. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/agents/review-monitor.md::sleep -->
 
 **Priority:** P1
 
