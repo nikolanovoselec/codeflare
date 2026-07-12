@@ -177,25 +177,15 @@ which delegates branched mechanics to `ci-monitoring`, `git-review-pipeline`,
 `pr-workflow`, and `deploy-credentials`.
 
 Pi CI monitoring is independent of review and owned automatically only by the root
-`git-workflow` rule ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)). After a successful head-changing push or creation of a PR targeting
-`main`/`master`, that rule resolves `owner/repo` and runs exactly once:
+`git-workflow` rule ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)). After an eligible Git action, the root launches required reviewers first, then runs exactly once:
 
 ```bash
-node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo>
+node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> cwd=<absolute-repo-root> reviewState=<launched|not-required>
 ```
 
-No stdout means no action. Otherwise the root session submits the resolver's sole
-JSON object unchanged exactly once through public `subagent`. No open main-bound PR
-produces no request. The dedicated `ci-monitor` runs one attached monitor and never
-fixes, commits, or pushes. An explicit user request is the only other launch path;
-an aborted task is not relaunched automatically. Implements
-[REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring).
+No stdout means no action. Otherwise the root submits the resolver's request unchanged once through public `subagent`. The dedicated report-only `ci-monitor` launches last without waiting for reviewer completion. An aborted task is relaunched only after a later eligible event or explicit request. Implements [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring).
 
-Pi review is separately session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). The extension resolves the session or remembered active repository and delivers a triggering root follow-up that names the required reviewer lanes; the root
-session launches those lanes together through public background `subagent` calls
-without inherited context, waits for every native completion notification, verifies
-all findings, and alone commits or pushes. Reload may discard active review or CI
-work; a later supported boundary or eligible Git action starts fresh work.
+Pi review is separately session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). Successful persisted boundaries produce a triggering root follow-up. With a valid acknowledgement, the reminder and every counted reviewer prompt carry the exact acknowledged-to-current range; unmatched calls remain in flight until native terminal notification. The root waits for all reports and alone changes the head.
 
 Claude CI monitoring remains on-demand ([REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy)): routine pushes do not start `ci-monitoring`; Claude invokes it only when the user asks or a deploy/merge gate needs a fresh CI result. When invoked, the Claude skill launches a detached temp-script monitor, prints `CI_MONITOR_STARTED head=<sha> pid=<pid> log=<path>`, requires a non-empty workflow/run fingerprint to stay stable across two polls before success, and writes terminal `CI_RESULT failure` / `CI_RESULT timeout` lines to that durable log on workflow failure or GitHub CLI access failure.
 
@@ -947,11 +937,11 @@ The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode w
 Pi uses the narrower supported command grammar in
 [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing): successful root-session Bash/`ctx_execute`/`ctx_batch_execute` surfaces recognize direct or environment-prefixed `git push`, `gh pr create`, protected-base `gh pr edit`, and `gh pr merge` only in their documented reminder or settled roles. Unsupported convenience commands, failed commands, quoted examples, child sessions, passive startup, and integration-bound PRs are inert.
 
-For Pi, the acknowledged full SHA remains at `.git/sdd-last-ack-pr-head`. If a supported boundary finds review demand, the extension lists all missing visible reviewer lanes. The root session calls those lanes together in the background without inherited context and waits for every native completion notification before advancing the acknowledgement. Reload does not advance it and may cause a later supported boundary to repeat unfinished work ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)).
+For Pi, the acknowledged full SHA remains at `.git/sdd-last-ack-pr-head`. A successful persisted boundary lists missing reviewer lanes and, when an acknowledgement exists, the exact acknowledged-to-current range. Every counted public reviewer prompt carries that range. Unmatched calls stay in flight until native notification, and only the reminder head can be acknowledged. Reload may cause a later supported boundary to repeat unfinished work ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)).
 
 The USER-ONLY `/tmp/review-bypass` sentinel and explicit user wording remain review bypass surfaces; agents must not invoke them autonomously. Claude keeps its existing Stop-hook checkpoint and bypass semantics. Pi adds no pre-command merge interceptor.
 
-Pi CI is not part of review checkpoint handling. After an eligible successful Git action, only the root Git rule runs the request resolver once; an empty response means no monitor. An interruption is intentionally left aborted until a later eligible Git action or explicit user request ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)).
+Pi CI is not part of review checkpoint handling. After an eligible successful Git action, the root launches required reviewers first, then runs the resolver once with explicit repository cwd and review launch state; CI launches last without waiting for review completion. An empty response means no monitor, and interruption remains aborted until a later eligible event or explicit request ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)).
 
 ---
 

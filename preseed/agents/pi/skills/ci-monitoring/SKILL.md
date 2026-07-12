@@ -6,13 +6,13 @@ version: 2.0.0
 
 # Independent Pi CI Monitoring
 
-The root main-session Git workflow is the sole automatic trigger. After a successful head-changing push or main/master-bound PR creation, run the resolver once:
+The root main-session Git workflow is the sole automatic trigger. After a successful head-changing push or main/master-bound PR creation, issue every required visible reviewer call first, then run the resolver once without waiting for reviewer completion:
 
 ```bash
-node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo>
+node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> cwd=<absolute-repo-root> reviewState=<launched|not-required>
 ```
 
-No stdout means no action. Otherwise parse the single JSON object and submit it exactly once to the public `subagent` tool without changing any field. It launches `ci-monitor` in the background with no inherited conversation and a two-turn limit.
+The explicit cwd makes current-branch PR lookup independent of the session's starting directory. The review state keeps CI last in launch order without coupling its execution or result to review. No stdout means no action. Otherwise parse the single JSON object and submit it exactly once to the public `subagent` tool without changing any field. It launches `ci-monitor` in the background with no inherited conversation and a two-turn limit.
 
 An explicit user request may also launch `ci-monitor` for a known open PR using this exact prompt:
 

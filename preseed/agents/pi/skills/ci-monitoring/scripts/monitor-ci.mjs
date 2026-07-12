@@ -50,8 +50,8 @@ async function readHead({ repo, pr, runner, cwd }) {
   }
 }
 
-export async function resolveCiMonitorRequest({ event, changed, repo, runner = exec, cwd } = {}) {
-  if (!['push', 'pr-create'].includes(event) || changed !== true || !repo) return null;
+export async function resolveCiMonitorRequest({ event, changed, repo, cwd, reviewState, runner = exec } = {}) {
+  if (!['push', 'pr-create'].includes(event) || changed !== true || !repo || !cwd || !['launched', 'not-required'].includes(reviewState)) return null;
 
   let result;
   try {

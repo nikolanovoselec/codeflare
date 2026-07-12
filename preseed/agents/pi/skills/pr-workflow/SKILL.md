@@ -39,11 +39,11 @@ PR review and CI monitoring are separate.
    git push -u origin HEAD
    ```
 
-7. After that successful head-changing push, follow the root Git rule's automatic CI request procedure exactly once.
+7. After that successful head-changing push, follow the root Git rule once: launch any required reviewers first, then submit the independent CI request last without waiting for review completion.
 8. Create the PR and report its URL.
-9. If the PR targets `main` or `master`, follow the root Git rule's automatic CI request procedure for `pr-create` exactly once.
-10. If the Pi extension names missing reviewer lanes, launch all listed lanes together with `run_in_background: true` and `inherit_context: false`. Wait for every named reviewer before evaluating findings or changing the head.
-11. Fix every legitimate finding unless the latest user instruction says to wait or not autofix. Only the root main session may commit or push those fixes.
+9. If the Pi extension names reviewer lanes, launch all listed lanes together with `run_in_background: true`, `inherit_context: false`, and the exact supplied `review_range` marker in every prompt.
+10. If the PR targets `main` or `master`, immediately follow those reviewer calls with the root Git rule's single `pr-create` CI request. CI is the last launch, not a review completion dependency.
+11. Wait for every named reviewer before evaluating findings or changing the head. Fix every legitimate finding unless the latest user instruction says to wait or not autofix. Only the root main session may commit or push those fixes.
 
 No open PR targeting `main`/`master`, or no JSON request from the resolver, means no automatic CI monitor. Do not relaunch an aborted monitor automatically. An explicit user request is the only other launch path.
 
@@ -70,8 +70,8 @@ Allowed and required without asking:
 
 - print the PR URL and branch/base
 - summarize what changed
-- dispatch the root Git rule's zero-or-one CI request for a `main`/`master` PR creation
-- obey a Pi review reminder or follow-up by launching every listed reviewer together and waiting for all of them
+- obey a Pi review reminder or follow-up by launching every listed reviewer together with its exact review range
+- dispatch the root Git rule's zero-or-one CI request last, immediately after reviewer calls and before waiting for their results
 - verify and fix legitimate reviewer findings in the root main session
 
 Not allowed unless explicitly requested:

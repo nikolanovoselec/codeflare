@@ -28,17 +28,18 @@ The Pi extension emits a structured reminder after a supported successful bounda
 When the reminder or follow-up lists lanes:
 
 1. Call every listed reviewer together through the public `subagent` tool.
-2. Set `run_in_background: true` and `inherit_context: false` on every call.
-3. Do not duplicate a lane already identified as in flight by the extension.
-4. Wait for every required reviewer notification, regardless of completion order.
-5. Read each reviewer's native output, verify every finding, and fix legitimate findings unless the latest user instruction says to wait or not autofix.
-6. The root main session alone commits and pushes. Reviewers and other subagents never push.
+2. Set `run_in_background: true` and `inherit_context: false` on every call. When the reminder supplies `review_range=<acknowledged>..<current>`, include that exact marker in each prompt; otherwise review the full PR against its protected base.
+3. Do not duplicate any unmatched reviewer call; it remains in flight until its native terminal notification.
+4. After all reviewer calls are issued, follow the root Git workflow rule and submit the independent CI request last without waiting for review completion.
+5. Wait for every required reviewer notification, regardless of completion order.
+6. Read each reviewer's native output, verify every finding, and fix legitimate findings unless the latest user instruction says to wait or not autofix.
+7. The root main session alone commits and pushes. Reviewers and other subagents never push.
 
 Review is session-scoped. Reload can discard active work and does not prove completion; a later supported root boundary may request the missing lanes again.
 
 ## Independence from CI
 
-Review never launches, tracks, waits for, or relaunches CI. CI never launches reviewers. The root Git workflow rule independently runs the seeded CI request resolver exactly once after an eligible successful Git action. Do not add CI actions to a review reminder or follow-up.
+Review never launches, tracks, waits for, or relaunches CI. CI never launches reviewers. The root Git workflow rule independently runs the seeded resolver exactly once after an eligible successful Git action; its only relationship to review is root-owned launch ordering, with the CI call issued after reviewer calls and before their completion.
 
 ## Finding discipline
 

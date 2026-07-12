@@ -9,6 +9,8 @@ type BoundarySurfaces = { reminder: boolean; settled: boolean };
 type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
 export type TranscriptFacts = {
   boundary?: { toolUseId: string; command: string };
+  reviewHead?: string;
+  reviewRange?: string;
   bypassed: boolean;
   closedNotified: boolean;
   lanes: Record<ReviewLane, LaneFact>;
@@ -191,19 +193,27 @@ function notificationToolId(entry: Record<string, any>): string | undefined {
   return /<tool-use-id>([^<]+)<\/tool-use-id>/.exec(entry.content)?.[1];
 }
 
+function reviewWindow(entry: Record<string, any>): { head?: string; range?: string } | undefined {
+  if (entry.type !== "custom_message" || !["pr-boundary-review-reminder", "pr-boundary-review-follow-up"].includes(entry.customType)) return undefined;
+  const head = typeof entry.details?.head === "string" ? entry.details.head : undefined;
+  const range = typeof entry.details?.reviewRange === "string" ? entry.details.reviewRange : undefined;
+  return { head, range };
+}
+
 export function reviewTranscriptFacts(input: {
   sessionFile: string;
   requiredLanes: ReviewLane[];
-  nowMs: number;
-  inFlightMs: number;
 }): TranscriptFacts {
   const entries = readEntries(input.sessionFile);
+  const successfulToolIds = new Set(entries
+    .filter((entry) => entry.type === "message" && entry.message?.role === "toolResult" && entry.message?.isError !== true)
+    .map((entry) => entry.message.toolCallId));
   let boundaryIndex = -1;
   let boundary: TranscriptFacts["boundary"];
   entries.forEach((entry, index) => {
     for (const call of toolCalls(entry)) {
       for (const command of shellCommands(call)) {
-        if (classifyReviewBoundaryCommand(command).settled) {
+        if (successfulToolIds.has(call.id) && classifyReviewBoundaryCommand(command).settled) {
           boundaryIndex = index;
           boundary = { toolUseId: call.id, command };
         }
@@ -214,25 +224,23 @@ export function reviewTranscriptFacts(input: {
   const lanes = Object.fromEntries(ALL_REVIEW_LANES.map((lane) => [lane, { state: "missing" }])) as Record<ReviewLane, LaneFact>;
   if (boundaryIndex < 0) return { bypassed: false, closedNotified: false, lanes };
   const later = entries.slice(boundaryIndex + 1);
+  const window = later.reduce<{ head?: string; range?: string } | undefined>((current, entry) => reviewWindow(entry) ?? current, undefined);
   later.forEach((entry, entryIndex) => {
     for (const call of toolCalls(entry)) {
       const lane = call.arguments?.subagent_type as ReviewLane;
-      if (call.name !== "subagent" || call.arguments?.run_in_background !== true || !input.requiredLanes.includes(lane)) continue;
+      const prompt = typeof call.arguments?.prompt === "string" ? call.arguments.prompt : "";
+      const wrongRange = window?.range && !prompt.includes(`review_range=${window.range}`);
+      if (call.name !== "subagent" || call.arguments?.run_in_background !== true || !input.requiredLanes.includes(lane) || wrongRange) continue;
       const terminal = later.slice(entryIndex + 1).some((candidate) => notificationToolId(candidate) === call.id);
       if (terminal) lanes[lane] = { state: "terminal", toolUseId: call.id };
-      else {
-        const started = Date.parse(entry.timestamp ?? "");
-        if (lanes[lane].state !== "terminal" && Number.isFinite(started) && input.nowMs - started <= input.inFlightMs) {
-          lanes[lane] = { state: "in-flight", toolUseId: call.id };
-        }
-      }
+      else if (lanes[lane].state !== "terminal") lanes[lane] = { state: "in-flight", toolUseId: call.id };
     }
   });
   const bypassed = later.some((entry) => /\bskip (?:the )?(?:review|verification)\b/i.test(userText(entry)));
   const closedNotified = later.some((entry) =>
     entry.type === "custom_message" && entry.customType === "pr-boundary-review-closed-unacknowledged",
   );
-  return { boundary, bypassed, closedNotified, lanes };
+  return { boundary, reviewHead: window?.head, reviewRange: window?.range, bypassed, closedNotified, lanes };
 }
 
 export default function () {}

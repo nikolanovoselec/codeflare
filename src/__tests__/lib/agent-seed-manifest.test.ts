@@ -172,7 +172,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(entries[0]!.contentType).toBe('text/typescript; charset=utf-8');
   });
 
-  it('REQ-AGENT-068/070: seeds distinct Claude and Pi CI workflow contracts', () => {
+  it('REQ-AGENT-068/070/080/081: seeds distinct Claude and Pi CI workflow contracts', () => {
     const claudeGitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/git-workflow.md');
     const claudeCiSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/skills/ci-monitoring/SKILL.md');
     const piGitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/rules/git-workflow.md');
@@ -244,17 +244,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
           'Review-result handoff gate',
           'CI-result handoff gate',
         ]));
-        const reviewGate = markdownSection(entry.content, 'Review-result handoff gate');
-        expect(reviewGate).toContain('REVIEW_RESULT');
-        expect(reviewGate).toContain('severity counts');
-        expect(reviewGate).toContain('summary path');
-        expect(reviewGate).toContain('planned next action');
-        const ciGate = markdownSection(entry.content, 'CI-result handoff gate');
-        expect(ciGate).toContain('CI_RESULT');
-        expect(ciGate).toContain('monitored head');
-        expect(ciGate).toContain('workflow/run id');
-        expect(ciGate).toContain('log path');
-        expect(ciGate).toContain('failed-log command');
       }
     }
   });

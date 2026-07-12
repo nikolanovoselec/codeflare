@@ -1,6 +1,7 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, readSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { recallActiveRepo } from "./codeflare-pi";
 import {
@@ -22,7 +23,6 @@ type PrState = {
 
 type Dependencies = {
   queryPr(repo: string): Promise<PrState | undefined>;
-  now(): number;
 };
 
 type ReviewContext = {
@@ -41,7 +41,7 @@ type ReviewPi = {
   ): void;
 };
 
-const IN_FLIGHT_MS = 5 * 60_000;
+const execFileAsync = promisify(execFile);
 const MAX_BLOCKS = 5;
 const BYPASS_FILE = process.env.REVIEW_BYPASS_FILE || "/tmp/review-bypass";
 
@@ -172,15 +172,25 @@ function consumeBypassSentinel(): boolean {
   }
 }
 
+function reviewContext(ctx: ReviewContext): { repo: string; file: string } | undefined {
+  const repo = isSddRepo(ctx.cwd) ? ctx.cwd : (recallActiveRepo() ?? ctx.cwd);
+  const file = sessionFile(ctx);
+  if (!file || isChildSession(ctx, file) || !isSddRepo(repo) || isReviewTransitionSuspended(repo)) return undefined;
+  return { repo, file };
+}
+
 async function currentReview(
   ctx: ReviewContext,
   dependencies: Dependencies,
 ): Promise<{ repo: string; file: string; pr: PrState } | undefined> {
-  const repo = isSddRepo(ctx.cwd) ? ctx.cwd : (recallActiveRepo() ?? ctx.cwd);
-  const file = sessionFile(ctx);
-  if (isChildSession(ctx, file) || !isSddRepo(repo) || isReviewTransitionSuspended(repo)) return undefined;
-  const pr = await dependencies.queryPr(repo);
-  return isProtectedPr(pr) ? { repo, file: file!, pr } : undefined;
+  const context = reviewContext(ctx);
+  if (!context) return undefined;
+  const pr = await dependencies.queryPr(context.repo);
+  return isProtectedPr(pr) ? { ...context, pr } : undefined;
+}
+
+function reviewRange(ackHead: string | undefined, head: string): string | undefined {
+  return fullSha(ackHead) ? `${ackHead}..${head}` : undefined;
 }
 
 export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): void {
@@ -189,34 +199,34 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const boundary = shellCommands(event).find((command) => classifyReviewBoundaryCommand(command).reminder);
     if (!boundary) return;
     const review = await currentReview(ctx, dependencies);
-    if (!review || !isEnforcedPr(review.pr) || readAck(review.repo) === review.pr.headRefOid || bypassSentinelPresent()) return;
-    const requiredLanes = requiredReviewLanes({
-      repo: review.repo,
-      ackHead: readAck(review.repo),
-      head: review.pr.headRefOid,
-    });
+    if (!review || !isEnforcedPr(review.pr) || bypassSentinelPresent()) return;
+    const ackHead = readAck(review.repo);
+    if (ackHead === review.pr.headRefOid) return;
+    const range = reviewRange(ackHead, review.pr.headRefOid);
+    const requiredLanes = requiredReviewLanes({ repo: review.repo, ackHead, head: review.pr.headRefOid });
+    const scope = range ? `Review only review_range=${range}. Include that exact marker in every reviewer prompt.` : `Review the full PR against origin/${review.pr.baseRefName}.`;
     pi.sendMessage({
       customType: "pr-boundary-review-reminder",
-      content: `PR head ${review.pr.headRefOid} requires these review agents: ${requiredLanes.join(", ")}. Launch them together with the public subagent tool, in the background without inherited context. Wait for every result before fixing, committing, or pushing.`,
+      content: `PR head ${review.pr.headRefOid} requires these review agents: ${requiredLanes.join(", ")}. ${scope} Launch them together with the public subagent tool, in the background without inherited context. Wait for every result before fixing, committing, or pushing.`,
       display: true,
-      details: { head: review.pr.headRefOid, requiredLanes },
+      details: { head: review.pr.headRefOid, ackHead, reviewRange: range, requiredLanes },
     }, { deliverAs: "followUp", triggerTurn: true });
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
+    const context = reviewContext(ctx);
+    if (!context) return;
+    const preview = reviewTranscriptFacts({ sessionFile: context.file, requiredLanes: [] });
+    if (!preview.boundary) return;
     const review = await currentReview(ctx, dependencies);
-    if (!review || readAck(review.repo) === review.pr.headRefOid) return;
-    const requiredLanes = isEnforcedPr(review.pr) ? requiredReviewLanes({
-      repo: review.repo,
-      ackHead: readAck(review.repo),
-      head: review.pr.headRefOid,
-    }) : [];
-    const facts = reviewTranscriptFacts({
-      sessionFile: review.file,
-      requiredLanes,
-      nowMs: dependencies.now(),
-      inFlightMs: IN_FLIGHT_MS,
-    });
+    if (!review) return;
+    const ackHead = readAck(review.repo);
+    if (ackHead === review.pr.headRefOid) return;
+    const range = reviewRange(ackHead, review.pr.headRefOid);
+    const requiredLanes = isEnforcedPr(review.pr)
+      ? requiredReviewLanes({ repo: review.repo, ackHead, head: review.pr.headRefOid })
+      : [];
+    const facts = reviewTranscriptFacts({ sessionFile: review.file, requiredLanes });
     if (!facts.boundary) return;
     if (review.pr.state !== "OPEN") {
       if (!facts.closedNotified && /(?:^|[;&|\n]\s*)gh\s+pr\s+merge(?:\s|$)/.test(facts.boundary.command)) {
@@ -230,6 +240,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       return;
     }
     if (facts.bypassed || consumeBypassSentinel()) return;
+    if (facts.reviewHead !== review.pr.headRefOid || facts.reviewRange !== range) return;
 
     if (requiredLanes.every((lane) => facts.lanes[lane].state === "terminal")) {
       acknowledge(review.repo, review.pr.headRefOid);
@@ -238,23 +249,24 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
 
     const missingLanes = requiredLanes.filter((lane): lane is ReviewLane => facts.lanes[lane].state === "missing");
     if (missingLanes.length === 0 || blockDecision(review.repo, review.pr.headRefOid) === "giveup") return;
+    const scope = range ? `Review only review_range=${range}. Include that exact marker in every reviewer prompt.` : `Review the full PR against origin/${review.pr.baseRefName}.`;
     pi.sendMessage({
       customType: "pr-boundary-review-follow-up",
-      content: `Launch these missing review agents together now: ${missingLanes.join(", ")}. Use public background subagent calls without inherited context, then wait for every required review before fixing, committing, or pushing.`,
+      content: `Launch these missing review agents together now: ${missingLanes.join(", ")}. ${scope} Use public background subagent calls without inherited context, then wait for every required review before fixing, committing, or pushing.`,
       display: true,
-      details: { head: review.pr.headRefOid, missingLanes },
+      details: { head: review.pr.headRefOid, ackHead, reviewRange: range, missingLanes },
     }, { deliverAs: "followUp", triggerTurn: true });
   });
 }
 
 async function queryPr(repo: string): Promise<PrState | undefined> {
   try {
-    const output = execFileSync(
+    const { stdout } = await execFileAsync(
       "gh",
       ["pr", "view", "--json", "state,baseRefName,headRefOid,headRefName,number,isDraft"],
-      { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 10_000 },
+      { cwd: repo, encoding: "utf8", timeout: 10_000 },
     );
-    const value = JSON.parse(output) as PrState;
+    const value = JSON.parse(String(stdout)) as PrState;
     return isProtectedPr(value) ? value : undefined;
   } catch {
     return undefined;
@@ -262,8 +274,5 @@ async function queryPr(repo: string): Promise<PrState | undefined> {
 }
 
 export default function reviewEnforcement(pi: ExtensionAPI): void {
-  registerReviewEnforcement(pi as unknown as ReviewPi, {
-    queryPr,
-    now: () => Date.now(),
-  });
+  registerReviewEnforcement(pi as unknown as ReviewPi, { queryPr });
 }

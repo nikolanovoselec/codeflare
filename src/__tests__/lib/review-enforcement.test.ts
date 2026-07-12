@@ -29,7 +29,7 @@ type TestContext = {
 type PlannedReviewEnforcement = {
   registerReviewEnforcement(
     pi: TestPi,
-    dependencies: { queryPr(repo: string): Promise<PrState | undefined>; now(): number },
+    dependencies: { queryPr(repo: string): Promise<PrState | undefined> },
   ): void | Promise<void>;
 };
 type TestPi = {
@@ -85,7 +85,7 @@ function assistantTool(toolUseId: string, name: string, args: Record<string, unk
   };
 }
 
-function toolResult(toolUseId: string, toolName: string): Record<string, unknown> {
+function toolResult(toolUseId: string, toolName: string, isError = false): Record<string, unknown> {
   return {
     type: 'message',
     id: nextId('result'),
@@ -95,10 +95,18 @@ function toolResult(toolUseId: string, toolName: string): Record<string, unknown
       role: 'toolResult',
       toolCallId: toolUseId,
       toolName,
-      content: [{ type: 'text', text: 'ok' }],
-      isError: false,
+      content: [{ type: 'text', text: isError ? 'failed' : 'ok' }],
+      isError,
       timestamp: Date.parse('2026-07-12T12:00:01.000Z'),
     },
+  };
+}
+
+function reviewerArgs(fixture: ReturnType<typeof makeReviewFixture>, lane: ReviewLane): Record<string, unknown> {
+  return {
+    subagent_type: lane,
+    run_in_background: true,
+    prompt: `review_range=${fixture.base}..${fixture.head}`,
   };
 }
 
@@ -180,7 +188,16 @@ function makeHarness(repo: string, sessionFile: string): {
   const sent: SentMessage[] = [];
   const pi: TestPi = {
     on: (event, handler) => handlers.set(event, [...(handlers.get(event) ?? []), handler]),
-    sendMessage: (message, options) => sent.push({ message, options }),
+    sendMessage: (message, options) => {
+      sent.push({ message, options });
+      appendSession(sessionFile, {
+        type: 'custom_message',
+        id: nextId('custom'),
+        parentId: null,
+        timestamp: new Date(NOW).toISOString(),
+        ...message,
+      });
+    },
   };
   const ctx: TestContext = {
     cwd: repo,
@@ -204,7 +221,6 @@ async function registerFixture(fixture: ReturnType<typeof makeReviewFixture>, cw
   const harness = makeHarness(cwd, fixture.sessionFile);
   await registerReviewEnforcement(harness.pi, {
     queryPr: async () => fixture.pr,
-    now: () => NOW,
   });
   return harness;
 }
@@ -228,7 +244,7 @@ afterEach(() => {
 });
 
 describe('Pi review reminder and settled enforcement', () => {
-  it('REQ-AGENT-036/REQ-AGENT-063: emits a structured reminder for a supported boundary and a follow-up for all missing lanes', async () => {
+  it('REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074: emits a ranged reminder and follow-up for all missing lanes', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -240,9 +256,14 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
         customType: 'pr-boundary-review-reminder',
-        content: expect.any(String),
+        content: expect.stringContaining(`review_range=${fixture.base}..${fixture.head}`),
         display: true,
-        details: { head: fixture.head, requiredLanes: ALL_LANES },
+        details: {
+          head: fixture.head,
+          ackHead: fixture.base,
+          reviewRange: `${fixture.base}..${fixture.head}`,
+          requiredLanes: ALL_LANES,
+        },
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
@@ -252,9 +273,14 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
         customType: 'pr-boundary-review-follow-up',
-        content: expect.any(String),
+        content: expect.stringContaining(`review_range=${fixture.base}..${fixture.head}`),
         display: true,
-        details: { head: fixture.head, missingLanes: ALL_LANES },
+        details: {
+          head: fixture.head,
+          ackHead: fixture.base,
+          reviewRange: `${fixture.base}..${fixture.head}`,
+          missingLanes: ALL_LANES,
+        },
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
@@ -272,7 +298,12 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
         customType: 'pr-boundary-review-reminder',
-        details: { head: fixture.head, requiredLanes: ALL_LANES },
+        details: {
+          head: fixture.head,
+          ackHead: fixture.base,
+          reviewRange: `${fixture.base}..${fixture.head}`,
+          requiredLanes: ALL_LANES,
+        },
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
@@ -306,36 +337,83 @@ describe('Pi review reminder and settled enforcement', () => {
     }
   });
 
-  it('REQ-AGENT-071: requests missing reviewers together but does not duplicate recent in-flight public subagent calls', async () => {
+  it('REQ-AGENT-036: performs no PR query when the transcript has no settled boundary', async () => {
+    const fixture = makeReviewFixture();
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    let queries = 0;
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async () => {
+        queries += 1;
+        return fixture.pr;
+      },
+    });
+
+    await harness.emit('agent_settled');
+
+    expect(queries).toBe(0);
+    expect(harness.sent).toEqual([]);
+  });
+
+  it('REQ-AGENT-036: ignores a failed persisted push during settled enforcement', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      assistantTool('push-failed', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-failed', 'bash', true),
+    );
+
+    await harness.emit('agent_settled');
+
+    expect(harness.sent).toEqual([]);
+    expect(ackHead(fixture.repo)).toBe(fixture.base);
+  });
+
+  it('REQ-AGENT-071/REQ-AGENT-074: requests missing reviewers together without duplicating unmatched public calls', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
-      assistantTool('code-1', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true }, '2026-07-12T12:09:00.000Z'),
-      assistantTool('spec-1', 'subagent', { subagent_type: 'spec-reviewer', run_in_background: true }, '2026-07-12T12:09:10.000Z'),
+      toolResult('push-1', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent());
+    harness.sent.splice(0);
+    appendSession(fixture.sessionFile,
+      assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer'), '2026-07-12T12:00:30.000Z'),
+      assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer'), '2026-07-12T12:00:40.000Z'),
     );
 
     await harness.emit('agent_settled');
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
         customType: 'pr-boundary-review-follow-up',
-        content: expect.any(String),
+        content: expect.stringContaining(`review_range=${fixture.base}..${fixture.head}`),
         display: true,
-        details: { head: fixture.head, missingLanes: ['doc-updater'] },
+        details: {
+          head: fixture.head,
+          ackHead: fixture.base,
+          reviewRange: `${fixture.base}..${fixture.head}`,
+          missingLanes: ['doc-updater'],
+        },
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
-  it('REQ-AGENT-053/REQ-AGENT-055: does not acknowledge partial completion and writes the fresh SHA after all lanes terminate out of order', async () => {
+  it('REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: acknowledges only the reminder head after all lanes terminate', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
-      assistantTool('code-1', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true }, '2026-07-12T12:07:00.000Z'),
-      assistantTool('spec-1', 'subagent', { subagent_type: 'spec-reviewer', run_in_background: true }, '2026-07-12T12:07:10.000Z'),
-      assistantTool('doc-1', 'subagent', { subagent_type: 'doc-updater', run_in_background: true }, '2026-07-12T12:07:20.000Z'),
+      toolResult('push-1', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent());
+    harness.sent.splice(0);
+    appendSession(fixture.sessionFile,
+      assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer'), '2026-07-12T12:07:00.000Z'),
+      assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer'), '2026-07-12T12:07:10.000Z'),
+      assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater'), '2026-07-12T12:07:20.000Z'),
       notification('doc-1'),
       notification('code-1', 'Error'),
     );
@@ -353,13 +431,41 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(existsSync(join(fixture.repo, '.git/sdd-review-pending.json'))).toBe(false);
   });
 
+  it('REQ-AGENT-053/REQ-AGENT-074: never acknowledges terminal reviews for a replacement PR head', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent());
+    harness.sent.splice(0);
+    appendSession(fixture.sessionFile,
+      assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      notification('code-1'),
+      notification('spec-1'),
+      notification('doc-1'),
+    );
+    fixture.pr.headRefOid = 'f'.repeat(40);
+
+    await harness.emit('agent_settled');
+
+    expect(ackHead(fixture.repo)).toBe(fixture.base);
+    expect(harness.sent).toEqual([]);
+  });
+
   it('REQ-AGENT-041: honors an explicit post-boundary user bypass without fabricating acknowledgement', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
-      userMessage('skip review'),
+      toolResult('push-1', 'bash'),
     );
+    await harness.emit('tool_result', boundaryEvent());
+    harness.sent.splice(0);
+    appendSession(fixture.sessionFile, userMessage('skip review'));
 
     await harness.emit('agent_settled');
     expect(harness.sent).toEqual([]);
@@ -370,13 +476,23 @@ describe('Pi review reminder and settled enforcement', () => {
   it('REQ-AGENT-041: blocks five times then latches GIVEUP for the same head without acknowledging it', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
-    appendSession(fixture.sessionFile, assistantTool('push-1', 'bash', { command: 'git push origin pi' }));
+    appendSession(fixture.sessionFile,
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent());
+    harness.sent.splice(0);
 
     for (let attempt = 1; attempt <= 5; attempt += 1) {
       harness.sent.splice(0);
       await harness.emit('agent_settled');
       expect(harness.sent).toHaveLength(1);
-      expect(harness.sent[0]?.message.details).toEqual({ head: fixture.head, missingLanes: ALL_LANES });
+      expect(harness.sent[0]?.message.details).toEqual({
+        head: fixture.head,
+        ackHead: fixture.base,
+        reviewRange: `${fixture.base}..${fixture.head}`,
+        missingLanes: ALL_LANES,
+      });
     }
 
     harness.sent.splice(0);
@@ -407,11 +523,6 @@ describe('Pi review reminder and settled enforcement', () => {
     }]);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
 
-    appendSession(fixture.sessionFile, {
-      type: 'custom_message',
-      customType: 'pr-boundary-review-closed-unacknowledged',
-      details: { head: fixture.head, state: 'MERGED' },
-    });
     harness.sent.splice(0);
     await harness.emit('agent_settled');
     expect(harness.sent).toEqual([]);

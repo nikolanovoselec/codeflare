@@ -81,24 +81,24 @@ Severity: HIGH `dual-narrative-adr`. No mechanical auto-fix; the supersedure dec
 
 ## Layout conformance
 
-The canonical SDD layout (single source of truth) is defined in `spec-driven-development` § "Spec structure (nested layout, canonical)". The layout is EXHAUSTIVE — anything not in the canonical tree is a violation.
+The canonical SDD layout (single source of truth) is defined in `spec-driven-development` § "Spec structure (nested layout, canonical)". The layout is EXHAUSTIVE: standard lanes, `api-reference-*`, and project lanes explicitly indexed by `documentation/README.md` are allowed; everything else is a violation.
 
 Detection (one walk, on every PR-boundary review and on `scope=all`):
 1. List every file under `sdd/` and `documentation/`.
 2. For each file, check membership against the canonical layout:
    - Allowed under `sdd/`: `README.md`, `spec/{domain}.md` (any name without leading `.`), `spec/glossary.md`, `spec/constraints.md`, `spec/changes.md`, `spec/config.yml`, `spec/.review-queue.md`, `spec/.init-triage.md`, `spec/changes-archive-*.md` (archive output of `/sdd clean`).
-   - Allowed under `documentation/`: `README.md`, `lanes/{lane}.md` (the seven canonical lane names + any `api-reference-*` sibling), `decisions/README.md`, `.doc-coverage.md` (audit dotfile), `.cold-read-tasks.yml` (project override).
+   - Allowed under `documentation/`: `README.md`, `lanes/{lane}.md` (the seven standard lane names + any `api-reference-*` sibling + any first-level project lane linked from `documentation/README.md`), `decisions/README.md`, `.doc-coverage.md` (audit dotfile), `.cold-read-tasks.yml` (project override).
 3. Any file outside the allowed set = HIGH `layout-violation` listing the path and the reason it doesn't fit.
 
 Common violations and auto-fix in `auto`/`unleashed`:
 - `sdd/spec/README.md`: merge any sections not already in `sdd/README.md` (Domains table, summary), then `git rm`. Commit `[doc-updater] merge sdd/spec/README.md into sdd/README.md`.
 - `documentation/lanes/README.md`: merge any sections not already in `documentation/README.md` (Jump-TOC additions), then `git rm`. Commit `[doc-updater] merge documentation/lanes/README.md into documentation/README.md`.
-- Unknown lane file (e.g. `documentation/lanes/internals.md`): escalate to `documentation/.doc-coverage.md` — the user decides whether to add the lane to the canonical set or fold its content into an existing lane.
+- Unindexed lane file (e.g. `documentation/lanes/internals.md` with no link from `documentation/README.md`): escalate to `documentation/.doc-coverage.md` — the user decides whether to index the project lane or fold its content into an existing lane.
 - Subdirectory under `sdd/spec/` or `documentation/lanes/`: escalate; nested subdirs are never auto-flattened.
 
 In `interactive`: show the proposed merge/delete per file, ask before applying.
 
-Rationale: a single positive layout spec replaces an open-ended ban-list. The check is one tree walk against one allowlist, so adding a new canonical file means updating the layout in `spec-driven-development` § "Spec structure" and the allowlist above — the only two places.
+Rationale: a positive standard layout plus the project's explicit lane index replaces an open-ended ban-list. The check walks one tree and accepts only standard names, `api-reference-*`, or first-level project lanes linked from `documentation/README.md`; adding an unindexed file still fails closed.
 
 ## Severity application
 

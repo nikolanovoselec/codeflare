@@ -14,6 +14,7 @@ const PR = 123;
 const HEAD = 'ef819ed35e9cc57d66209d1330bc8a87519736df';
 const NEXT_HEAD = '0123456789abcdef0123456789abcdef01234567';
 const POLL_MS = 15_000;
+const REQUEST_CWD = '/tmp/codeflare-request-repo';
 
 function commandResult(value, exitCode = 0) {
   return {
@@ -138,6 +139,8 @@ test('REQ-AGENT-068 AC1: eligible head-changing push returns one complete public
     event: 'push',
     changed: true,
     repo: REPO,
+    cwd: REQUEST_CWD,
+    reviewState: 'launched',
     runner: async () => commandResult(openPr()),
   });
   if (request) requests.push(request);
@@ -145,19 +148,32 @@ test('REQ-AGENT-068 AC1: eligible head-changing push returns one complete public
   assert.deepEqual(requests, [expectedRequest()]);
 });
 
-test('REQ-AGENT-068 AC1: eligible PR creation returns one complete public ci-monitor request', async () => {
+test('REQ-AGENT-068 AC1: eligible PR creation resolves from the affected repo after reviewers launch', async () => {
   const requests = [];
+  let lookupCwd;
   const request = await resolveCiMonitorRequest({
     event: 'pr-create',
     changed: true,
     repo: REPO,
-    runner: async (_command, args) => (
-      hasInvalidRepoScopedPrView(args) ? commandResult('', 1) : commandResult(openPr())
-    ),
+    cwd: REQUEST_CWD,
+    reviewState: 'launched',
+    runner: async (_command, args, options) => {
+      lookupCwd = options.cwd;
+      return hasInvalidRepoScopedPrView(args) ? commandResult('', 1) : commandResult(openPr());
+    },
   });
   if (request) requests.push(request);
 
   assert.deepEqual(requests, [expectedRequest()]);
+  assert.equal(lookupCwd, REQUEST_CWD);
+});
+
+test('REQ-AGENT-068 AC1: CI request stays gated until review launch state and repo cwd are explicit', async () => {
+  const base = { event: 'pr-create', changed: true, repo: REPO, runner: async () => commandResult(openPr()) };
+
+  assert.equal(await resolveCiMonitorRequest({ ...base, cwd: REQUEST_CWD }), null);
+  assert.equal(await resolveCiMonitorRequest({ ...base, reviewState: 'launched' }), null);
+  assert.equal(await resolveCiMonitorRequest({ ...base, cwd: REQUEST_CWD, reviewState: 'pending' }), null);
 });
 
 test('REQ-AGENT-068 AC1: unsupported, unchanged, missing, closed, and integration PR events return no request', async () => {
@@ -173,6 +189,8 @@ test('REQ-AGENT-068 AC1: unsupported, unchanged, missing, closed, and integratio
     const request = await resolveCiMonitorRequest({
       ...event,
       repo: REPO,
+      cwd: REQUEST_CWD,
+      reviewState: 'launched',
       runner: async () => commandResult(pr),
     });
     assert.equal(request, null, name);

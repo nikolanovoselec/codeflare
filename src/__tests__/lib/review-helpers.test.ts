@@ -9,6 +9,8 @@ type ReviewLane = 'code-reviewer' | 'spec-reviewer' | 'doc-updater';
 type BoundarySurfaces = { reminder: boolean; settled: boolean };
 type TranscriptFacts = {
   boundary?: { toolUseId: string; command: string };
+  reviewHead?: string;
+  reviewRange?: string;
   bypassed: boolean;
   lanes: Record<ReviewLane, { state: 'missing' | 'in-flight' | 'terminal'; toolUseId?: string }>;
 };
@@ -19,13 +21,10 @@ type PlannedReviewHelpers = {
   reviewTranscriptFacts(input: {
     sessionFile: string;
     requiredLanes: ReviewLane[];
-    nowMs: number;
-    inFlightMs: number;
   }): TranscriptFacts;
 };
 
 const ALL_LANES: ReviewLane[] = ['code-reviewer', 'spec-reviewer', 'doc-updater'];
-const NOW = Date.parse('2026-07-12T12:10:00.000Z');
 const roots: string[] = [];
 
 async function plannedHelpers(): Promise<PlannedReviewHelpers> {
@@ -90,9 +89,18 @@ function userMessage(content: string, timestamp = '2026-07-12T12:00:30.000Z'): R
   return sessionEntry('message', { timestamp, message: { role: 'user', content, timestamp: Date.parse(timestamp) } });
 }
 
-function toolResult(toolUseId: string): Record<string, unknown> {
+function toolResult(toolUseId: string, toolName = 'subagent', isError = false): Record<string, unknown> {
   return sessionEntry('message', {
-    message: { role: 'toolResult', toolCallId: toolUseId, toolName: 'subagent', content: [{ type: 'text', text: 'started' }], isError: false },
+    message: { role: 'toolResult', toolCallId: toolUseId, toolName, content: [{ type: 'text', text: isError ? 'failed' : 'ok' }], isError },
+  });
+}
+
+function reviewReminder(head: string, reviewRange: string): Record<string, unknown> {
+  return sessionEntry('custom_message', {
+    customType: 'pr-boundary-review-reminder',
+    content: `review_range=${reviewRange}`,
+    details: { head, reviewRange },
+    display: true,
   });
 }
 
@@ -212,17 +220,19 @@ describe('Claude-equivalent review boundary helpers', () => {
 });
 
 describe('native Pi transcript review facts', () => {
-  it('REQ-AGENT-055: uses only public subagent calls after the latest settled boundary', async () => {
+  it('REQ-AGENT-055: uses only public subagent calls after the latest successful settled boundary', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
     const sessionFile = writeSession([
       assistantTool('push-old', 'bash', { command: 'git push origin pi' }, '2026-07-12T12:00:00.000Z'),
+      toolResult('push-old', 'bash'),
       assistantTool('code-old', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true }, '2026-07-12T12:01:00.000Z'),
       notification('code-old'),
       assistantTool('push-new', 'bash', { command: 'gh pr merge 42' }, '2026-07-12T12:05:00.000Z'),
+      toolResult('push-new', 'bash'),
       assistantTool('doc-new', 'subagent', { subagent_type: 'doc-updater', run_in_background: true }, '2026-07-12T12:06:00.000Z'),
     ]);
 
-    const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES, nowMs: NOW, inFlightMs: 5 * 60_000 });
+    const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
     expect(facts.boundary).toEqual({ toolUseId: 'push-new', command: 'gh pr merge 42' });
     expect(facts.lanes).toEqual({
       'code-reviewer': { state: 'missing' },
@@ -231,10 +241,23 @@ describe('native Pi transcript review facts', () => {
     });
   });
 
+  it('REQ-AGENT-036: ignores failed settled boundary commands', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const sessionFile = writeSession([
+      assistantTool('push-failed', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-failed', 'bash', true),
+    ]);
+
+    const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
+    expect(facts.boundary).toBeUndefined();
+    expect(Object.values(facts.lanes).every((lane) => lane.state === 'missing')).toBe(true);
+  });
+
   it('REQ-AGENT-053/REQ-AGENT-059: correlates terminal native notifications by XML tool-use-id, not tool results or lifecycle events', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
     const sessionFile = writeSession([
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
       assistantTool('code-1', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true }),
       toolResult('code-1'),
       sessionEntry('custom', { customType: 'subagents:completed', data: { toolCallId: 'code-1' } }),
@@ -243,7 +266,7 @@ describe('native Pi transcript review facts', () => {
       notification('spec-1', 'Error'),
     ]);
 
-    const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES, nowMs: NOW, inFlightMs: 15 * 60_000 });
+    const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
     expect(facts.lanes).toEqual({
       'code-reviewer': { state: 'in-flight', toolUseId: 'code-1' },
       'spec-reviewer': { state: 'terminal', toolUseId: 'spec-1' },
@@ -251,22 +274,47 @@ describe('native Pi transcript review facts', () => {
     });
   });
 
-  it('REQ-AGENT-071: reports missing, recent in-flight, stale unmatched, and out-of-order terminal lanes independently', async () => {
+  it('REQ-AGENT-071/REQ-AGENT-074: keeps unmatched reviewer calls in flight until native terminal notification', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
     const sessionFile = writeSession([
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }, '2026-07-12T12:00:00.000Z'),
-      assistantTool('code-stale', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true }, '2026-07-12T12:00:30.000Z'),
-      assistantTool('spec-recent', 'subagent', { subagent_type: 'spec-reviewer', run_in_background: true }, '2026-07-12T12:09:30.000Z'),
-      notification('spec-recent'),
-      assistantTool('doc-recent', 'subagent', { subagent_type: 'doc-updater', run_in_background: true }, '2026-07-12T12:09:45.000Z'),
+      toolResult('push-1', 'bash'),
+      assistantTool('code-long', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true }, '2026-07-12T12:00:30.000Z'),
+      assistantTool('spec-done', 'subagent', { subagent_type: 'spec-reviewer', run_in_background: true }, '2026-07-12T12:09:30.000Z'),
+      notification('spec-done'),
+      assistantTool('doc-queued', 'subagent', { subagent_type: 'doc-updater', run_in_background: true }, '2026-07-12T12:09:45.000Z'),
     ]);
 
-    const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES, nowMs: NOW, inFlightMs: 5 * 60_000 });
+    const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
     expect(facts.lanes).toEqual({
-      'code-reviewer': { state: 'missing' },
-      'spec-reviewer': { state: 'terminal', toolUseId: 'spec-recent' },
-      'doc-updater': { state: 'in-flight', toolUseId: 'doc-recent' },
+      'code-reviewer': { state: 'in-flight', toolUseId: 'code-long' },
+      'spec-reviewer': { state: 'terminal', toolUseId: 'spec-done' },
+      'doc-updater': { state: 'in-flight', toolUseId: 'doc-queued' },
     });
+  });
+
+  it('REQ-AGENT-071: counts reviewer calls only when their prompt carries the acknowledged-to-current range', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const ackHead = 'a'.repeat(40);
+    const head = 'b'.repeat(40);
+    const reviewRange = `${ackHead}..${head}`;
+    const sessionFile = writeSession([
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+      reviewReminder(head, reviewRange),
+      assistantTool('code-range', 'subagent', {
+        subagent_type: 'code-reviewer', run_in_background: true, prompt: `review_range=${reviewRange}`,
+      }),
+      assistantTool('spec-full', 'subagent', {
+        subagent_type: 'spec-reviewer', run_in_background: true, prompt: 'review full PR against main',
+      }),
+    ]);
+
+    const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
+    expect(facts.reviewHead).toBe(head);
+    expect(facts.reviewRange).toBe(reviewRange);
+    expect(facts.lanes['code-reviewer']).toEqual({ state: 'in-flight', toolUseId: 'code-range' });
+    expect(facts.lanes['spec-reviewer']).toEqual({ state: 'missing' });
   });
 
   it('REQ-AGENT-041: recognizes an explicit user bypass only when it follows the latest boundary', async () => {
@@ -274,13 +322,15 @@ describe('native Pi transcript review facts', () => {
     const before = writeSession([
       userMessage('skip review'),
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
     ]);
     const after = writeSession([
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
       userMessage('skip verification'),
     ]);
 
-    expect(reviewTranscriptFacts({ sessionFile: before, requiredLanes: ALL_LANES, nowMs: NOW, inFlightMs: 5 * 60_000 }).bypassed).toBe(false);
-    expect(reviewTranscriptFacts({ sessionFile: after, requiredLanes: ALL_LANES, nowMs: NOW, inFlightMs: 5 * 60_000 }).bypassed).toBe(true);
+    expect(reviewTranscriptFacts({ sessionFile: before, requiredLanes: ALL_LANES }).bypassed).toBe(false);
+    expect(reviewTranscriptFacts({ sessionFile: after, requiredLanes: ALL_LANES }).bypassed).toBe(true);
   });
 });
