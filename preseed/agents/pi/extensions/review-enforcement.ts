@@ -8,6 +8,7 @@ import {
   classifyReviewBoundaryCommand,
   isReviewTransitionSuspended,
   requiredReviewLanes,
+  reviewRange,
   reviewTranscriptFacts,
   type ReviewLane,
 } from "./review-helpers";
@@ -41,7 +42,13 @@ type ReviewPi = {
   ): void;
 };
 
-const execFileAsync = promisify(execFile);
+type QueryPrRunner = (
+  command: string,
+  args: string[],
+  options: { cwd: string; encoding: "utf8"; timeout: number },
+) => Promise<{ stdout: string | Buffer }>;
+
+const execFileAsync = promisify(execFile) as unknown as QueryPrRunner;
 const MAX_BLOCKS = 5;
 const BYPASS_FILE = process.env.REVIEW_BYPASS_FILE || "/tmp/review-bypass";
 
@@ -189,10 +196,6 @@ async function currentReview(
   return isProtectedPr(pr) ? { ...context, pr } : undefined;
 }
 
-function reviewRange(ackHead: string | undefined, head: string): string | undefined {
-  return fullSha(ackHead) ? `${ackHead}..${head}` : undefined;
-}
-
 export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): void {
   pi.on("tool_result", async (event, ctx) => {
     if (!successful(event)) return;
@@ -202,7 +205,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if (!review || !isEnforcedPr(review.pr) || bypassSentinelPresent()) return;
     const ackHead = readAck(review.repo);
     if (ackHead === review.pr.headRefOid) return;
-    const range = reviewRange(ackHead, review.pr.headRefOid);
+    const range = reviewRange({ repo: review.repo, ackHead, head: review.pr.headRefOid });
     const requiredLanes = requiredReviewLanes({ repo: review.repo, ackHead, head: review.pr.headRefOid });
     const scope = range ? `Review only review_range=${range}. Include that exact marker in every reviewer prompt.` : `Review the full PR against origin/${review.pr.baseRefName}.`;
     pi.sendMessage({
@@ -222,7 +225,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if (!review) return;
     const ackHead = readAck(review.repo);
     if (ackHead === review.pr.headRefOid) return;
-    const range = reviewRange(ackHead, review.pr.headRefOid);
+    const range = reviewRange({ repo: review.repo, ackHead, head: review.pr.headRefOid });
     const requiredLanes = isEnforcedPr(review.pr)
       ? requiredReviewLanes({ repo: review.repo, ackHead, head: review.pr.headRefOid })
       : [];
@@ -259,9 +262,9 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   });
 }
 
-async function queryPr(repo: string): Promise<PrState | undefined> {
+export async function queryPr(repo: string, runner: QueryPrRunner = execFileAsync): Promise<PrState | undefined> {
   try {
-    const { stdout } = await execFileAsync(
+    const { stdout } = await runner(
       "gh",
       ["pr", "view", "--json", "state,baseRefName,headRefOid,headRefName,number,isDraft"],
       { cwd: repo, encoding: "utf8", timeout: 10_000 },

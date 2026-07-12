@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -31,6 +31,14 @@ type PlannedReviewEnforcement = {
     pi: TestPi,
     dependencies: { queryPr(repo: string): Promise<PrState | undefined> },
   ): void | Promise<void>;
+  queryPr(
+    repo: string,
+    runner?: (
+      command: string,
+      args: string[],
+      options: { cwd: string; encoding: 'utf8'; timeout: number },
+    ) => Promise<{ stdout: string }>,
+  ): Promise<PrState | undefined>;
 };
 type TestPi = {
   on(event: string, handler: ExtensionHandler): void;
@@ -244,7 +252,7 @@ afterEach(() => {
 });
 
 describe('Pi review reminder and settled enforcement', () => {
-  it('REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074: emits a ranged reminder and follow-up for all missing lanes', async () => {
+  it('REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074: valid acknowledgement emits an exact ranged reminder and follow-up', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -285,6 +293,59 @@ describe('Pi review reminder and settled enforcement', () => {
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
+  });
+
+  it('REQ-AGENT-055/REQ-AGENT-071: invalid acknowledgements request a full-PR review', async () => {
+    const cases: Array<{
+      name: string;
+      prepare(fixture: ReturnType<typeof makeReviewFixture>): string | undefined;
+    }> = [
+      {
+        name: 'missing',
+        prepare: (fixture) => {
+          rmSync(join(fixture.repo, '.git/sdd-last-ack-pr-head'), { force: true });
+          return undefined;
+        },
+      },
+      {
+        name: 'malformed',
+        prepare: (fixture) => {
+          writeFileSync(join(fixture.repo, '.git/sdd-last-ack-pr-head'), 'not-a-sha\n', 'utf8');
+          return undefined;
+        },
+      },
+      {
+        name: 'non-ancestor',
+        prepare: (fixture) => {
+          const tree = git(fixture.repo, 'rev-parse', `${fixture.base}^{tree}`);
+          const nonAncestor = git(fixture.repo, 'commit-tree', tree, '-m', 'unrelated root');
+          writeFileSync(join(fixture.repo, '.git/sdd-last-ack-pr-head'), `${nonAncestor}\n`, 'utf8');
+          return nonAncestor;
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const fixture = makeReviewFixture();
+      const expectedAck = testCase.prepare(fixture);
+      const harness = await registerFixture(fixture);
+
+      await harness.emit('tool_result', boundaryEvent());
+
+      expect(harness.sent, testCase.name).toEqual([{
+        message: expect.objectContaining({
+          customType: 'pr-boundary-review-reminder',
+          content: expect.stringContaining('Review the full PR against origin/main.'),
+          details: {
+            head: fixture.head,
+            ackHead: expectedAck,
+            reviewRange: undefined,
+            requiredLanes: ALL_LANES,
+          },
+        }),
+        options: { deliverAs: 'followUp', triggerTurn: true },
+      }]);
+    }
   });
 
   it('REQ-AGENT-036: resolves a cd-prefixed boundary through active repository memory', async () => {
@@ -335,6 +396,53 @@ describe('Pi review reminder and settled enforcement', () => {
       });
       expect(harness.sent).toHaveLength(testCase.expected);
     }
+  });
+
+  it('REQ-AGENT-036: default PR lookup returns without blocking on the GitHub process', async () => {
+    const { queryPr } = await plannedEnforcement();
+    const repo = tempRoot('pi-review-query-');
+    const bin = join(repo, 'bin');
+    mkdirSync(bin);
+    const gh = join(bin, 'gh');
+    writeFileSync(gh, `#!/bin/sh\nsleep 2\nprintf '%s\\n' '{"state":"OPEN","baseRefName":"main","headRefOid":"${'a'.repeat(40)}","headRefName":"pi","number":637}'\n`, 'utf8');
+    chmodSync(gh, 0o755);
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${bin}:${originalPath ?? ''}`;
+
+    try {
+      const startedAt = Date.now();
+      const pending = queryPr(repo);
+      expect(Date.now() - startedAt).toBeLessThan(750);
+      await expect(pending).resolves.toEqual(expect.objectContaining({ number: 637 }));
+    } finally {
+      process.env.PATH = originalPath;
+    }
+  });
+
+  it('REQ-AGENT-036: PR lookup is repository-scoped, bounded, and fail-closed', async () => {
+    const { queryPr } = await plannedEnforcement();
+    const repo = '/tmp/review-query-repo';
+    const pr: PrState = {
+      state: 'OPEN',
+      baseRefName: 'main',
+      headRefOid: 'a'.repeat(40),
+      headRefName: 'pi',
+      number: 637,
+    };
+    let observed: { command: string; args: string[]; options: { cwd: string; encoding: 'utf8'; timeout: number } } | undefined;
+    const pending = queryPr(repo, async (command, args, options) => {
+      observed = { command, args, options };
+      return { stdout: JSON.stringify(pr) };
+    });
+
+    expect(pending).toBeInstanceOf(Promise);
+    await expect(pending).resolves.toEqual(pr);
+    expect(observed).toEqual({
+      command: 'gh',
+      args: ['pr', 'view', '--json', 'state,baseRefName,headRefOid,headRefName,number,isDraft'],
+      options: { cwd: repo, encoding: 'utf8', timeout: 10_000 },
+    });
+    await expect(queryPr(repo, async () => Promise.reject(new Error('gh failed')))).resolves.toBeUndefined();
   });
 
   it('REQ-AGENT-036: performs no PR query when the transcript has no settled boundary', async () => {

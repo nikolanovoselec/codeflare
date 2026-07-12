@@ -137,17 +137,27 @@ function reviewLanesForFiles(files: string[]): ReviewLane[] {
   return [];
 }
 
-export function requiredReviewLanes(input: { repo: string; ackHead?: string; head: string }): ReviewLane[] {
-  if (!fullSha(input.ackHead) || !fullSha(input.head)) return [...ALL_REVIEW_LANES];
-  if (input.ackHead === input.head) return [];
+export function reviewRange(input: { repo: string; ackHead?: string; head: string }): string | undefined {
+  if (!fullSha(input.ackHead) || !fullSha(input.head) || input.ackHead === input.head) return undefined;
   try {
     execFileSync("git", ["merge-base", "--is-ancestor", input.ackHead, input.head], {
       cwd: input.repo,
       stdio: ["ignore", "ignore", "ignore"],
     });
+    return `${input.ackHead}..${input.head}`;
+  } catch {
+    return undefined;
+  }
+}
+
+export function requiredReviewLanes(input: { repo: string; ackHead?: string; head: string }): ReviewLane[] {
+  if (input.ackHead === input.head && fullSha(input.head)) return [];
+  const range = reviewRange(input);
+  if (!range) return [...ALL_REVIEW_LANES];
+  try {
     const output = execFileSync(
       "git",
-      ["diff", "--name-only", "--no-renames", "-z", input.ackHead, input.head],
+      ["diff", "--name-only", "--no-renames", "-z", range],
       { cwd: input.repo, encoding: "buffer", stdio: ["ignore", "pipe", "ignore"] },
     );
     const files = output.toString("utf8").split("\0").filter(Boolean);

@@ -148,7 +148,7 @@ test('REQ-AGENT-068 AC1: eligible head-changing push returns one complete public
   assert.deepEqual(requests, [expectedRequest()]);
 });
 
-test('REQ-AGENT-068 AC1: eligible PR creation resolves from the affected repo after reviewers launch', async () => {
+test('REQ-AGENT-068 AC1: eligible PR creation uses the affected repository cwd', async () => {
   const requests = [];
   let lookupCwd;
   const request = await resolveCiMonitorRequest({
@@ -168,7 +168,7 @@ test('REQ-AGENT-068 AC1: eligible PR creation resolves from the affected repo af
   assert.equal(lookupCwd, REQUEST_CWD);
 });
 
-test('REQ-AGENT-068 AC1: CI request stays gated until review launch state and repo cwd are explicit', async () => {
+test('REQ-AGENT-068 AC1: CI request requires explicit review launch state and repository cwd', async () => {
   const base = { event: 'pr-create', changed: true, repo: REPO, runner: async () => commandResult(openPr()) };
 
   assert.equal(await resolveCiMonitorRequest({ ...base, cwd: REQUEST_CWD }), null);
