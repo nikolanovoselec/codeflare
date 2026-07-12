@@ -50,41 +50,19 @@ The Pi preseed job is data-driven: it diffs **every** dependency in `preseed/age
 |-------------|---------|---------|
 | `production` | `deploy.yml`, `pentest.yml` | Auto on push to `main`, or manual dispatch with `production` selected |
 | `integration` | `deploy.yml`, `e2e.yml`, `stress-test.yml` | Manual dispatch with `integration` selected |
-| `enterprise` | `deploy.yml`, `deploy-dockerhub.yml` | Manual dispatch with `enterprise` selected; deployable from any branch ([REQ-ENTERPRISE-006](../../sdd/spec/enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC7) |
-| `enterprise integration` | `deploy.yml`, `deploy-dockerhub.yml` | Manual dispatch with `enterprise integration` selected; deployable from any branch; separate concurrency group from `integration` ([REQ-ENTERPRISE-006](../../sdd/spec/enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC7) |
+
+The non-default enterprise environments, account overrides, and dispatch procedure are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private-docs).
 
 ### GitHub Secrets and Variables
 
-**Secrets (repository-level):**
+A default deployment requires only these repository secrets:
 
-| Secret | Required | Used by | Purpose |
-|--------|----------|---------|---------|
-| `CLOUDFLARE_API_TOKEN` | Yes | `deploy.yml`, `e2e.yml` | Wrangler CLI auth, KV operations, container push, worker deploy, secret management |
-| `CLOUDFLARE_ACCOUNT_ID` | Yes | `deploy.yml`, `e2e.yml` | Identifies the Cloudflare account for all API operations |
-| `RESEND_API_KEY` | If onboarding or SaaS mode active | `deploy.yml` | Notification emails via Resend (waitlist submissions + access requests) |
-| `OAUTH_CLIENT_ID` | If onboarding or SaaS mode active | `deploy.yml` | GitHub OAuth app client id; injected as a worker `--var` for the sign-in flow |
-| `OAUTH_CLIENT_SECRET` | If onboarding or SaaS mode active | `deploy.yml` | GitHub OAuth app client secret; set as a worker secret via `wrangler secret put` |
-| `OAUTH_JWT_SECRET` | If onboarding or SaaS mode active | `deploy.yml` | Signs the post-OAuth session JWT; set as a worker secret via `wrangler secret put` |
-| `CF_ACCESS_CLIENT_ID` | For E2E | `deploy.yml`, `e2e.yml` | CF Access service token ID for E2E auth |
-| `CF_ACCESS_CLIENT_SECRET` | For E2E | `deploy.yml`, `e2e.yml` | CF Access service token secret; also used as `SERVICE_AUTH_SECRET` worker secret and KV seeding |
-| `DOCKERHUB_USERNAME` | For Docker Hub fallback | `deploy-dockerhub.yml` | Docker Hub account that owns the image repo |
-| `DOCKERHUB_TOKEN` | For Docker Hub fallback | `deploy-dockerhub.yml` | Access token (read+write+delete scope) for pushing images |
+| Secret | Used by | Purpose |
+|--------|---------|---------|
+| `CLOUDFLARE_API_TOKEN` | `deploy.yml`, `e2e.yml` | Wrangler authentication, resource setup, image push, and Worker deploy |
+| `CLOUDFLARE_ACCOUNT_ID` | `deploy.yml`, `e2e.yml` | Identifies the target Cloudflare account |
 
-**Variables:**
-
-| Variable | Default | Used by | Purpose | Default source |
-|----------|---------|---------|---------|----------------|
-| `CLOUDFLARE_WORKER_NAME` | `codeflare` | `deploy.yml`, `e2e.yml` | Worker name for deploy and E2E target resolution | Hardcoded fallback in workflow |
-| `RUNNER` | `ubuntu-latest` | All workflows | GitHub Actions runner label (self-hosted support) | Hardcoded fallback in workflow |
-| `E2E_BASE_URL` | - | `e2e.yml` | Base URL of deployed worker for E2E tests | Set per environment |
-| `ONBOARDING_LANDING_PAGE` | `inactive` | `deploy.yml` | Enables the public landing + onboarding `/login` via `--var`; when `active`, also triggers GitHub OAuth provisioning, so the three `OAUTH_*` secrets above are required | Hardcoded fallback in workflow |
-| `RESSOURCE_TIER` | unset (1 vCPU, 3 GiB, 6 GB) | `deploy.yml` | Container instance size (low/default/high/saas). All tiers default to 10 max instances | Defaults to `default` in deploy step |
-| `MAX_INSTANCES` | unset (10) | `deploy.yml` | Override container max_instances. Must be a positive integer | Passed via env to avoid shell injection |
-| `CLAUDE_CODE_CACHE_BUSTER` | `inactive` | `deploy.yml` | When `active`, writes `.cache-bust` to invalidate AI agent Docker layer | Not set by default |
-| `MAX_SESSIONS_USER` | `3` | `deploy.yml` | Per-user session cap passed via `--var` | Omitted if unset (backend default applies) |
-| `MAX_SESSIONS_ADMIN` | `10` | `deploy.yml` | Per-admin session cap passed via `--var` | Omitted if unset (backend default applies) |
-| `PENTEST_TARGET` | - | `pentest.yml` | Base URL for penetration tests (e.g., `https://codeflare.ch`) | Set per `production` environment |
-| `STRESS_TEST_CONCURRENCY` | `0` (disabled) | `stress-test.yml` | k6 virtual user scaling factor. When >0, scales VU targets proportionally and loosens latency thresholds. | Set per `integration` environment |
+Non-default mode credentials, optional deployment variables, environment overrides, fallback registries, and E2E service credentials are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private-docs). This public lane intentionally does not duplicate that operational matrix.
 
 ### Deploy Workflow Detail
 
@@ -212,24 +190,7 @@ Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-pan
 
 ### E2E Service Token Setup
 
-Step-by-step for running E2E tests against a deployed worker:
-
-1. Create a CF Access service token in Cloudflare dashboard (Access > Service Tokens)
-2. Set `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` as GitHub repository secrets (under `integration` environment for E2E)
-3. Deploy the worker (sets `SERVICE_AUTH_SECRET` automatically from `CF_ACCESS_CLIENT_SECRET`)
-4. The deploy workflow seeds `e2e-service@codeflare.local` as admin in KV allowlist
-5. Run E2E via `Actions > E2E Tests > Run workflow`
-
-For local E2E development:
-```bash
-export CF_ACCESS_CLIENT_ID="<your-service-token-id>"
-export CF_ACCESS_CLIENT_SECRET="<your-service-token-secret>"
-export E2E_BASE_URL="https://your-app.example.com"
-npm run test:e2e        # All E2E tests
-npm run test:e2e:api    # API tests only
-npm run test:e2e:ui     # UI desktop tests only
-E2E_MOBILE=1 npm run test:e2e:ui  # UI mobile tests only
-```
+The deployed-worker credential matrix, Cloudflare Access service-token procedure, environment placement, and local E2E environment setup are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private-docs). Public documentation retains the test behavior and suite structure without publishing operational credentials.
 
 ### E2E Test Maintenance
 

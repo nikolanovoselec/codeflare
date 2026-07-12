@@ -290,15 +290,7 @@ In onboarding mode, `/login` is the landing-built sign-in page: it shares landin
 
 ## Environment Variables for SaaS Mode
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `SAAS_MODE` | unset | Set to `active` to enable custom login, JIT provisioning |
-| `SAAS_EXTRA_IDPS` | unset | Comma-separated IdP UUIDs for custom OIDC providers |
-| `RESEND_API_KEY` | unset | Resend email API token for notifications |
-| `RESEND_EMAIL` | `Codeflare <onboarding@resend.dev>` | From address for notification emails |
-| `ONBOARDING_LANDING_PAGE` | unset | Set to `active` to show waitlist page at `/` |
-
-Both `SAAS_MODE` and `ONBOARDING_LANDING_PAGE` are passed to the Worker via `--var` in `deploy.yml`.
+The SaaS and onboarding activation flags, identity-provider settings, email credentials, GitHub Environment placement, and deployment procedure are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private-docs). This public lane retains authentication behavior without duplicating non-default deployment configuration.
 
 ---
 

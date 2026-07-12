@@ -18,41 +18,13 @@ Development setup, project file structure, and cost analysis.
 
 ## Enterprise Mode Secrets
 
-Enterprise Mode requires two GitHub Actions secrets in addition to the standard deploy credentials. Both are optional: when absent the deploy steps exit 0 and enterprise LLM routing is simply disabled.
-
-| GitHub Actions Secret | Wrangler secret name | Purpose |
-|-----------------------|---------------------|---------|
-| `AIG_GATEWAY_URL` | `AIG_GATEWAY_URL` | AI Gateway base URL. Pushed to the Worker as a secret by the deploy workflow. |
-| `AIG_TOKEN` | `AIG_TOKEN` | Cloudflare API token with the **Workers AI** permission — sent as `Authorization: Bearer` to the AI Gateway REST API. **Not** a gateway authentication token ("AI Gateway: Run") — see [Configuration - Enterprise Mode Secrets](configuration.md#enterprise-mode-secrets-optional) for the full warning. Pushed to the Worker as a secret by the deploy workflow. |
-
-To enable Enterprise Mode:
-
-1. Add `AIG_GATEWAY_URL` and `AIG_TOKEN` as GitHub Actions repository secrets (Settings → Secrets and variables → Actions).
-2. Set the `ENTERPRISE_MODE` GitHub Actions repository **variable** to `active` (Settings → Secrets and variables → Actions → Variables tab).
-3. Push to `main`. The deploy workflow reads `vars.ENTERPRISE_MODE` and passes it as `--var ENTERPRISE_MODE:active` to `wrangler deploy`, then pushes both secrets via `wrangler secret put`.
-
-To disable Enterprise Mode: remove or clear the `ENTERPRISE_MODE` variable. The secrets can remain; without the variable the interceptor is never wired and they are unused.
-
-> The `AIG_GATEWAY_URL` and `AIG_TOKEN` secrets are Worker secrets, not container env vars. They are never forwarded to containers. See [Security - Enterprise Mode](security.md#enterprise-mode-credential-containment-and-ca-trust) and [Configuration - Enterprise Mode Secrets](configuration.md#enterprise-mode-secrets-optional).
+The enterprise GitHub Environment layout, activation variable, account overrides, AI Gateway fallback secrets, required token permissions, and deployment procedure are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private-docs). This public lane intentionally does not duplicate non-default deployment credentials.
 
 ---
 
 ## Strict Gateway Egress (Enterprise Mode)
 
-Strict Gateway Egress ([REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress)) has two parts. The **on/off toggle** is configured at **runtime**: it lives in the enterprise setup wizard and is persisted to KV (`setup:strict_egress`), so flipping it takes effect with no redeploy and needs **no new GitHub Actions variable or secret**. The **VPC binding** that backs it is deploy-time and **enterprise-only** (below).
-
-**The VPC binding is injected automatically for enterprise deploys — no manual step.** The feature routes the container's **direct-internet** egress through a Workers VPC `[[vpc_networks]]` Fetcher binding (`binding = "EGRESS"`, `network_id = "cf1:network"`, `remote = true`); this deployment's own-account destinations (its R2 + account-scoped CF API / Browser Rendering) and the AI Gateway are exempt and egress direct, so R2 bisync does not depend on this binding; any other account's R2/CF host rides the binding/Gateway ([AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network)). It is committed **commented-out** in `wrangler.toml`, and `deploy.yml` uncomments it at deploy time **only when `ENTERPRISE_MODE=active`**.
-
-It is kept commented in source so that (a) default/fork deploys, whose accounts have no Workers VPC / `cf1:network`, still deploy, and (b) the `vitest-pool-workers` test runtime (which reads `wrangler.toml`) does not try to open a remote binding with no CI credentials. Public egress through the Gateway requires only this binding plus the account's existing Zero Trust Gateway policies. On non-enterprise deploys the binding is absent, so `env.EGRESS` is undefined and direct-internet egress fails closed (503 `EGRESS_UNAVAILABLE`); the dormant state (toggle OFF or binding absent) is inert. This makes shipping the code OFF safe.
-
-**Enable runbook (operator, not autonomous):**
-
-1. Deploy to an enterprise environment (`ENTERPRISE_MODE=active`); `deploy.yml` injects the `EGRESS` binding and `wrangler deploy` validates it. Workers VPC is enabled by default on the account — no manual `wrangler.toml` edit is required.
-2. Curate the account's existing Cloudflare Gateway policies so the container's required destinations are not caught by a block/DLP/isolate rule (codeflare never modifies these policies — see [Security](security.md#strict-gateway-egress-enterprise-mode)).
-3. Verify long streaming transfers (e.g. a large `git clone` / packfile) survive the Gateway path.
-4. Flip the wizard toggle ON (enterprise setup wizard → Strict Gateway Egress).
-
-**Rollback** at any point is flipping the wizard toggle **OFF** (KV write, no redeploy); the catch-all is un-wired on the next container start and egress returns to the direct path.
+The enterprise-only binding procedure, Gateway policy preparation, verification steps, and rollback runbook are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private-docs#strict-gateway-egress). The behavioral contract remains public in [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress).
 
 ---
 
@@ -184,28 +156,7 @@ Inspect repository settings and a staging workflow run, including job graph, log
 
 ## Governed Mode migration (batch-status driven)
 
-Enabling or disabling [Governed Mode](configuration.md#governed-mode-r2-sse-c-disable) (the R2 SSE-C toggle) is **not** a redeploy. Flipping the Setup-wizard toggle writes the KV policy immediately; each existing bucket is reconciled to the new regime **in the background, driven by the owner's dashboard `batch-status` poll** (`planRegimeReconcile` decides synchronously; `advanceMigration` scans the bucket in concurrency-6 slices under `waitUntil`, checkpointing a `start-after` key, and starts another list + slice only while one more fits before its ~22s work deadline, then releases the lease so it always exits before the ~30s platform kill), via a lossless in-place same-key server-side `CopyObject` re-encrypt with `MetadataDirective=REPLACE` ([AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile), supersedes [AD89](../decisions/README.md#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration)).
-
-It does **not** run on the container-start path, so it can never block session creation. No data is deleted. **Migrations advance only while the dashboard is open and polling** — closing the tab pauses (never corrupts) an in-flight migration; reopening resumes it from the checkpoint.
-
-Operational notes:
-
-- **Admin confirmation.** The wizard requires an explicit confirmation before flipping, because the consequence is a re-encrypt of every bucket.
-- **Sessions must stop (D1: no force-kill).**
-
-    A flip waits for a bucket's running sessions to stop before migrating that bucket (`batch-status` reports `bucketMigrationPending`); the dashboard shows the New Session button disabled with "Migrating" once the migration begins. The admin should ask users to close sessions so their buckets converge promptly.
-- **Gated + verified + self-healing.**
-
-    While a bucket migrates, every R2 writer returns `409 BUCKET_MIGRATING` and running containers are drained (best-effort), so worker-routed writes can't store the wrong regime and a stray from a failed container drain is caught by the verification rescan + read self-heal; the regime commits only after a full verification HEAD-scan; reads stay up via a dual-regime fallback and a stray cross-regime object self-heals (`mixed-recovery`). It is idempotent/resumable (a single source-regime HEAD skips already-migrated objects via its `400/403` SSE-mismatch) and the per-chunk lease self-recovers a crashed pass.
-- **Bounds.**
-
-    The migration is slice-chunked + `start-after`-resumable; each poll invocation scans in concurrency-6 slices (each object = one source HEAD + one `CopyObject`), checkpointing the last-processed key after every chunk, and starts another list + slice only while one more fits before its ~22s work deadline (checking real elapsed time, reserving one list + slice's worst case ≈ `LIST + HEAD + COPY`) — or before the subrequest ceiling (`MAX_SUBREQUESTS`) — then releases the lease so the next poll resumes from the checkpoint. `WORK_DEADLINE_MS + MIGRATE_SLICE_MS < 30s` keeps the last started slice inside the platform `waitUntil` window. Per-op R2 timeouts AbortController-cancel a hung request so it can't stall a slice.
-
-    A small-to-medium bucket completes migrate + verify in a single poll (seconds); a large bucket converges over successive polls. A single object over 5 GB (R2's single-`CopyObject` limit) is recorded and skipped so the rest of the bucket still converges, rather than wedging the pass.
-- **Rollback.** Turning the toggle OFF re-encrypts buckets back to SSE-C the same way.
-- **Recovery.**
-
-    If a bucket is left mixed by an earlier failure, the next read of a stray object self-heals it (a `mixed-recovery` scan re-encrypts every stray to the committed regime). Verify with an R2 S3 HEAD-scan: every object reads under the committed regime's SSE-C headers.
+The operator procedure, migration bounds, pause/resume behavior, verification, rollback, and recovery guidance are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private-docs#governed-mode-migration). The public state-machine rationale remains in [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile).
 
 ## Related Documentation
 - [CI/CD](ci-cd.md) - GitHub Actions workflows and testing
