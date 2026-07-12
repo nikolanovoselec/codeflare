@@ -196,6 +196,10 @@ describe('Claude-equivalent review boundary helpers', () => {
 
   it('REQ-AGENT-055: falls back to all lanes for malformed and non-ancestor acknowledgements', async () => {
     const { requiredReviewLanes } = await plannedHelpers();
+    const empty = makeRepo();
+    git(empty.repo, 'commit', '--allow-empty', '-m', 'empty');
+    expect(requiredReviewLanes({ repo: empty.repo, ackHead: empty.base, head: git(empty.repo, 'rev-parse', 'HEAD') })).toEqual(ALL_LANES);
+
     const { repo, base } = makeRepo();
     const head = commit(repo, 'documentation/review.md', 'docs\n', 'docs');
     expect(requiredReviewLanes({ repo, ackHead: 'not-a-sha', head })).toEqual(ALL_LANES);

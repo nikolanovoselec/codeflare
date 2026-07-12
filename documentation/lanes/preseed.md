@@ -176,45 +176,33 @@ Pi gets its own native `preseed/agents/pi/rules/git-workflow.md` from the Pi man
 which delegates branched mechanics to `ci-monitoring`, `git-review-pipeline`,
 `pr-workflow`, and `deploy-credentials`.
 
-Pi CI monitoring is background-agent owned and shares the review trigger. When a
-push or PR opens or syncs a PR to `main`/`master`, the review extension's visible
-main-session handoff spawns **both** the CI monitor and `review-monitor` for the
-exact head (one trigger; the CI monitor appears in the same background-agent UI as
-`review-monitor`), unless the user explicitly skips CI monitoring. Pi does not
-start a separate per-push CI monitor — that duplicate collided with the handoff's
-CI monitor — and a head with no open main-bound PR is not CI-monitored. The
-backgrounded CI monitor reports success/failure/timeout and never fixes, commits,
-or pushes
-([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC1/AC4).
+Pi CI monitoring is independent of review and owned automatically only by the root
+`git-workflow` rule ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)). After a successful head-changing push or creation of a PR targeting
+`main`/`master`, that rule resolves `owner/repo` and runs exactly once:
 
-The monitor waits for every workflow row returned for the monitored HEAD to complete
-and for the workflow/run-id fingerprint to stabilize before success. Before each poll
-and before terminal success/failure, it compares the local branch ref to the monitored
-HEAD; if a later push advanced the branch, it exits with `CI_RESULT timeout superseded ...`
-instead of reporting stale success/failure for the old head ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC2/AC3).
+```bash
+node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo>
+```
 
-After `CI_RESULT`, the main session prints the CI summary first, including monitored
-head, run/log pointers when present, and planned next action ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC6). If a CI monitor task stops, errors, or completes without a `CI_RESULT`, the
-main session starts a replacement monitor for the same exact head unless the head
-was superseded or the user explicitly skipped CI ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC1).
+No stdout means no action. Otherwise the root session submits the resolver's sole
+JSON object unchanged exactly once through public `subagent`. No open main-bound PR
+produces no request. The dedicated `ci-monitor` runs one attached monitor and never
+fixes, commits, or pushes. An explicit user request is the only other launch path;
+an aborted task is not relaunched automatically. Implements
+[REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring).
 
-Pi receives its native `preseed/agents/pi/skills/ci-monitoring/SKILL.md` entry from
-the Pi manifest instead of a Claude-transformed skill ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-Constraints). That native skill queries exact commits and reports `CI_RESULT timeout` when
-GitHub CLI access fails or no workflow rows appear for the pushed head ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC7).
+Pi review is separately session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). The extension reminder or settled follow-up names the required reviewer lanes; the root
+session launches those lanes together through public background `subagent` calls
+without inherited context, waits for every native completion notification, verifies
+all findings, and alone commits or pushes. Reload may discard active review or CI
+work; a later supported boundary or eligible Git action starts fresh work.
 
 Claude CI monitoring remains on-demand ([REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy)): routine pushes do not start `ci-monitoring`; Claude invokes it only when the user asks or a deploy/merge gate needs a fresh CI result. When invoked, the Claude skill launches a detached temp-script monitor, prints `CI_MONITOR_STARTED head=<sha> pid=<pid> log=<path>`, requires a non-empty workflow/run fingerprint to stay stable across two polls before success, and writes terminal `CI_RESULT failure` / `CI_RESULT timeout` lines to that durable log on workflow failure or GitHub CLI access failure.
 
 Monitoring and any other long-running wait/poll are background-only: no agent may
 keep the main session busy with `tail -f`, `gh run watch`, blocking `ctx_execute`,
-Bash loops, deploy-status waits, review-completion waits, or foreground polling
-([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy)
-AC5). The discipline triad (`spec-discipline`, `documentation-discipline`,
+Bash loops, deploy-status waits, or foreground polling
+([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring)). The discipline triad (`spec-discipline`, `documentation-discipline`,
 `tdd-discipline`) is advanced-only and points to the SDD workflow status,
 severity, and skill families.
 
@@ -344,8 +332,9 @@ MCP servers through the `pi-mcp-adapter`: it reaches `consult-llm` and
 `entrypoint.sh`.
 
 Extension files deploy Pi-specific runtime behavior. `codeflare-commands.ts`
-provides `/debug`, `/deploy`, and `/brainstorm`; durable review-job helpers
-enforce PR-boundary review; `startup-header.ts` replaces Pi's startup header; and
+provides `/debug`, `/deploy`, and `/brainstorm`; `review-enforcement.ts` and
+`review-helpers.ts` implement session-scoped PR-boundary review reminders and
+transcript correlation; `startup-header.ts` replaces Pi's startup header; and
 `local-statusline.ts` preserves extension status rows in default and advanced modes.
 
 `browser-run.ts` plus pure `browser-run-helpers.ts` (advanced only) register native
@@ -391,276 +380,47 @@ for `@gotgenes/pi-subagents` and to `~/.pi/agent/agents/` for persistent user-le
 overrides. `preseed/agents/pi/agents/Explore.md` is the first native Pi agent
 override shipped via this path. Package files deploy under `.pi/agent/npm/`.
 
-  These assets adapt runtime behavior to Pi primitives while rules and
-  skills still come from the Claude source tree. `/review` is deliberately
-  separate from PR-boundary enforcement: the command reviews a requested
-  scope, while `review-enforcement.ts` reacts to native GitHub workflow
-  commands that create, push, sync, update, or merge PR heads, resolves the
-  active repo from those commands, and requires durable review-job completion
-  for SDD PRs targeting `main`/`master`.
+Pi-native review and CI assets are seeded with explicit ownership:
 
-  Cross-extension repo state (the session's active repo and the repo under
-  review) is stored on `globalThis` via `Symbol.for("codeflare.activeRepo")`
-  and `Symbol.for("codeflare.reviewRepo")`. Pi 0.79.1's extension loader
-  (`createJiti` with `moduleCache:false`) gives each extension its own module
-  instance, so module-local state written by `codeflare-pi.ts` is invisible to
-  `review-enforcement.ts` and `local-statusline.ts`.
+| Source file | Modes | Deployed path | Owner |
+|---|---|---|---|
+| `preseed/agents/pi/rules/git-workflow.md` | default, advanced | `~/.pi/agent/rules/git-workflow.md` | Root session; sole automatic CI trigger |
+| `preseed/agents/pi/skills/ci-monitoring/SKILL.md` | default, advanced | `~/.pi/agent/skills/ci-monitoring/SKILL.md` | CI launch contract |
+| `preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs` | default, advanced | `~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs` | Request resolver and attached PR-check monitor |
+| `preseed/agents/pi/agents/ci-monitor.md` | default, advanced | `~/.pi/agent/agents/ci-monitor.md` | Dedicated report-only CI subagent |
+| `preseed/agents/pi/skills/pr-workflow/SKILL.md` | default, advanced | `~/.pi/agent/skills/pr-workflow/SKILL.md` | PR creation procedure |
+| `preseed/agents/pi/skills/git-review-pipeline/SKILL.md` | advanced | `~/.pi/agent/skills/git-review-pipeline/SKILL.md` | Session-scoped review procedure |
+| `preseed/agents/pi/extensions/review-enforcement.ts` | advanced | `~/.pi/agent/extensions/review-enforcement.ts` | Eligible-boundary reminder, settled missing-lane follow-up, acknowledgement |
+| `preseed/agents/pi/extensions/review-helpers.ts` | advanced | `~/.pi/agent/extensions/review-helpers.ts` | Command grammar, lane classification, transcript correlation |
 
-  The same `globalThis` pattern backs the `gh pr view` result cache
-  (`Symbol.for("codeflare.prCache")`), with an asymmetric TTL (60 s for OPEN
-  PRs, 10 s for negative/missing) keyed on repo + branch so a checkout
-  invalidates promptly. Two per-session signals then decide whether a missed
-  boundary **auto-starts** review or merely **offers** it.
+The Pi manifest is the exact mode map. `scripts/generate-agent-seed.mjs` materializes
+it into the committed generated seed at `src/lib/agent-seed.generated.ts`; the
+generated file is output, never a second ownership source.
 
-  The primary signal is `Symbol.for("codeflare.reviewBoundaryActedThisSession")`:
-  repo+branch keys for which a real boundary command ran this session. The
-  backstop is `Symbol.for("codeflare.reviewSessionBaselineHead")`: the head first
-  observed for the repo+branch in this Pi process. It auto-starts only when the
-  current enforced PR head is a descendant of, and different from, that baseline;
-  a clone/reload inherited head has `baseline === head` and is offered instead.
-  <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewBaselineContinuation -->
+`/review` remains separate from PR-boundary review: the command reviews a user-chosen
+scope, while `review-enforcement.ts` handles supported root-session boundaries for
+SDD PRs targeting `main`/`master`. The extension names required lanes; the root main
+session calls them together through public background `subagent` calls without
+inherited context, waits for all native completion notifications, fixes legitimate
+findings, and alone commits or pushes. The acknowledged full SHA is the only
+Codeflare checkpoint. Reload can discard active review work, so a later supported
+boundary may request missing lanes again. This implements
+[REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions),
+[REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation),
+[REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window),
+[REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery),
+[REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-native-review-findings-handoff),
+[REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing),
+[REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch), and
+[REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff),
+following [AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents).
 
-  The main-session transcript backstop scans complete JSONL records only: it keeps
-  the first complete record after an existing cursor (so a just-written compound
-  `git commit && git push` tool call is not skipped) and leaves incomplete trailing
-  records for the next scan. This repairs missed real pushes without changing the
-  offer-only behavior for clone/reload inherited heads. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::completeTranscriptDelta -->
-
-  Agent and subagent pushes need one more guard because their internal `git push`
-  runs inside another Pi process and never appears as a main-session Bash tool
-  event. `review-enforcement.ts` records the enforced PR head at Agent tool start
-  and compares it with the fresh head at Agent tool end. A changed, unacked,
-  enforced head is treated as a real PR-boundary event and uses the same durable
-  review-window path as a directly observed push. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reconcileAgentHeadAdvance -->
-
-  A head matching neither signal is offered once as a passive `ctx.ui.notify`
-  toast, never as a chat/transcript message, and stays merge-blocking until the
-  user runs `/review-run` or `/review-skip`. The offer is deduped per session via
-  `Symbol.for("codeflare.reviewOfferSurfacedThisSession")`, so a relaunch on a
-  still-unchosen offer re-surfaces it exactly once.
-
-  After reloads where Pi's cwd is the parent workspace, the active-repo fallback
-  can recover a nested SDD repo from remembered review state or persisted active
-  repo markers. Ctx-bearing routing prefers the current active repo over a
-  remembered review repo; the no-ctx reaper separately iterates remembered review
-  repos so all in-flight reviews can finish.
-
-  When `/review-run` cannot resolve the active repo it reports the Pi session cwd
-  and tells the user to run a command inside the target repo first, then retry.
-
-  On the `git push` / `gh pr create` boundary path specifically, enforcement fails
-  open if `gh pr view` returns an OPEN PR with an empty `baseRefName` (a transient
-  `gh`/`jq` parsing edge). The PR is treated as targeting `main`/`master`, and the
-  review window persists `"main"` as a concrete base-label fallback so the pending
-  record stays readable on reload.
-
-  That label is coarse — a `master`-based PR still records `"main"` — but harmless,
-  because the review's diff scope is anchored by the SHA `reviewBase`, never by
-  this branch label. The autonomous reconcile tick keeps the stricter non-empty-base
-  check, and the `gh pr merge` gate fails closed when `gh pr view` is unreadable
-  while an unacked review is pending for the local head.
-
-  The merge gate is **report-only and defended in depth** ([AD80](../decisions/README.md#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth)).
-  It blocks a merge until the reviewed head is **acked** — i.e. until the required
-  reviewers RAN — never on findings severity. The review lanes only report; they
-  never veto, so a clean merge is gated on coverage existing, not on a verdict.
-
-  The blocking logic is a pure, unit-tested decision (`mergeGateDecision` in
-  `review-job-helpers.ts`: allow / bypass / block) with the `onAgentStart` handler
-  reduced to thin wiring. The decision evaluates the PR the merge command **actually
-  targets**, not just the cwd branch.
-
-  `mergeCommandTarget` (`review-helpers.ts`) pulls a PR number, a `/pull/N` URL, a
-  branch, or a `--repo`/`-R` slug out of the command. The args are tokenized
-  quote-aware, so a quoted multi-word flag value is never mistaken for the selector,
-  and value-flag arguments are skipped. `gh pr merge 123` is gated against PR 123,
-  while `gh pr merge --repo OTHER/REPO` naming a foreign repository is skipped by
-  both the gate and the retroactive audit because the gate governs only this SDD
-  repo's PRs.
-
-  The gate fails CLOSED when that PR is readable-but-malformed (OPEN with an empty
-  `baseRefName`/`headRefOid`) or when `gh` is transiently unreadable while any
-  unacked merge-blocking head exists: a pending review, a latched circuit breaker,
-  or an outstanding offer. It also blocks `--auto` on an enforced unacked PR, which
-  would otherwise merge server-side after checks without re-consulting the gate.
-
-  Because the `onAgentStart` pre-block cannot intercept every wrapper form (`bash -c`,
-  `xargs`, or a server-side `--auto` that completes later), a **retroactive backstop**
-  in `onToolEnd` emits a durable `merge_completed_unreviewed` audit event plus a toast
-  whenever a PR is observed MERGED while its head was never acked. An evasion is
-  always recorded even when it could not be stopped. The pre-block is the primary
-  defense; the retroactive audit is the truth layer behind it.
-
-  The durable runner in `review-jobs.ts` writes job state under
-  `.git/codeflare-review-jobs/<head>/` and public findings under
-  `.git/sdd-review-results/<head>/`. Each result file uses a common
-  `## Findings` section followed by a severity-count Review Summary table.
-
-  While internal durable lanes run, Pi displays a compact footer status
-  (`Review code | spec | docs`, rendering only required lanes and turning a lane
-  label green when that lane finishes). Colored review status rows truncate by
-  visible width, preserve ANSI color sequences, and reset styling before the
-  ellipsis. Once durable review state says the exact head is acked, the footer
-  suppresses stale `codeflare-review` fallback strings from older extension status
-  caches ([REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer)
-  AC5). Duplicate lane-result notices are suppressed for the same repo/head/lane
-  result.
-
-  Review summaries have a second monitor delivery phase. `review-monitor` is a
-  background agent/subagent, not an extension. When a PR-boundary trigger creates
-  an active review window, the Pi extension records durable lane state and sends
-  the main session a visible monitor handoff for the exact head. That visible
-  handoff is specified by [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-visible-review-and-ci-monitor-handoff).
-
-  If the visible follow-up cannot be sent, Pi falls back to direct service-spawning of
-  `review-monitor`. The monitor waits for lane results and `summary.md`, writes
-  `monitor.completed` only after that complete set exists, then returns
-  `REVIEW_RESULT clean|findings` to the main session. Missing result files while a
-  required lane marker is still `running` are waiting state, not failure. Only an
-  explicit required-lane `status: "failed"` produces `REVIEW_RESULT failed` without
-  a completion marker, so a later retry can deliver the final summary.
-
-  The monitor's polling loop is pinned to a tight fixed cadence (`sleep 10` between
-  checks, never a coarse multi-minute sleep) so a completed review is delivered to the
-  main session within ~10s of the lanes finishing. Both monitor-prompt sources (the
-  extension's inline `reviewMonitorPrompt` and the `review-monitor` agent file) pin
-  this so the subagent cannot pick an arbitrarily coarse interval — an earlier unpinned
-  cadence let it choose multi-minute sleeps, surfacing as review results landing in the
-  main session up to ~15 minutes late.
-
-  Pi keeps the pending review window unacked until a valid `monitor.completed`
-  exists, and it does not resurrect old acked jobs after pending state is cleared.
-  `/review-results` remains the manual fallback for saved exact-head summaries.
-  <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ensureReviewWindow --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorCompletionReady --> <!-- @impl: preseed/agents/pi/agents/review-monitor.md::review-monitor -->
-
-  The disk-driven reaper that settles each lane is retry-aware: an attempt that
-  ends with `willRetry: true` (pi auto-retrying the same child after a transient
-  error such as a WebSocket drop) does not settle the lane, and that attempt's
-  error verdict is discarded so it cannot poison the retry — only a terminal
-  `agent_end` (any end without `willRetry: true`; a clean finish omits the
-  field) settles it. A lane an earlier reaper tick
-  already marked failed is self-healed back to completed (audit event
-  `lane_recovered`) if its transcript later shows a terminal clean usable
-  result, so a review that succeeded on retry is never left discarded.
-
-  After the first acknowledged review, subsequent re-reviews are scoped to the
-  incremental window between the last acked clean head and the current head
-  (`last-acked-head..current-head`), not the full PR diff. A re-review inspects only
-  the new commits instead of re-flagging the whole PR each round.
-
-  `spawnDurableLane` carries that window into each durable lane subprocess by
-  exporting `CODEFLARE_REVIEW_BASE` (last acked head), `CODEFLARE_REVIEW_HEAD`
-  (current head), and `CODEFLARE_REVIEW_BASE_REF` (base branch ref) when a prior
-  clean head was acked. On a first review none are set and the lane reviews the full
-  PR diff.
-
-  The scope limitation deliberately lives in the dispatch runtime, never in the
-  shared reviewer agent definitions or enforce skills, which Claude and other CLIs
-  also inherit. Those definitions are scope-agnostic: they review exactly the window
-  the caller provides and default to the full change set only when no window is given.
-
-  The `reviewScopeBlockReason` guard (`review-lane-guards.ts`) makes the window
-  binding. When `CODEFLARE_REVIEW_BASE` is set it blocks full-PR diff commands (`gh
-  pr diff`; a `git diff` ranging two- or three-dot against the base branch —
-  `origin/<ref>`, the base ref itself, or `main`/`master`/`develop`) while allowing
-  the window forms (`git diff <base> <head>`, a bare `<base>..<head>` SHA range,
-  `--name-only`, `-- <path>`). Implements
-  [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
-  AC8 and
-  [REQ-AGENT-060](../../sdd/spec/agents.md#req-agent-060-pi-durable-review-lane-tool-surface)
-  AC8.
-
-  After the exact-head durable review job completes and every required lane has
-  a result file, Pi writes one merged `summary.md` with `## Review Summary`,
-  `## Findings`, and `## Finding Details` sections. That summary aggregates
-  severity counts across code/spec/docs, lists all findings sorted by
-  criticality, and avoids per-lane result-file links; the per-lane `.md` files
-  remain the durable evidence store. Implements
-  [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-and-result-formatting).
-
-  Delivering that summary back into the live session is a separate monitor phase.
-  For each `(repo, head)`, the Pi extension records one durable monitor claim.
-  Valid `monitor.completed` files and fresh monitor claims suppress duplicate
-  monitor requests; reload/status refresh also consumes valid exact-head completion
-  markers when the transient pending file is already gone.
-
-  The Pi extension owns the durable claim/completion files; the monitor agent owns
-  waiting and returning `REVIEW_RESULT`. Malformed or stale monitor claim files are
-  reclaimed, so a partial `monitor.json` cannot block delivery forever. Visible
-  main-session monitor spawning and restart behavior live in [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-visible-review-and-ci-monitor-handoff).
-
-  The monitor waits for every lane result file and `summary.md`; if lane files
-  exist but `summary.md` is missing, it writes a concise merged summary from those
-  lane reports. Implements
-  [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC1/AC2/AC3; source: `review-enforcement.ts::startReviewMonitor`,
-  `review-enforcement.ts::claimReviewMonitorStart`,
-  `review-enforcement.ts::reviewMonitorCompletionReady`,
-  `review-enforcement.ts::reviewMonitorPrompt`,
-  `review-job-helpers.ts::reviewMonitorDecision`,
-  `review-job-helpers.ts::reviewMonitorSpawnDecision`, and
-  `review-job-helpers.ts::formatMergedReviewSummary`.
-
-  The monitor is the delivery wakeup. Before successful exit after complete lane
-  results and `summary.md`, it writes
-  `.git/codeflare-review-jobs/<head>/monitor.completed` as JSON containing `repo`,
-  `head`, `summaryPath`, `completedAt`, and result `clean` or `findings`.
-
-  If a lane explicitly reports failed before that complete set exists, it returns
-  `REVIEW_RESULT failed` without that marker; missing result files while a lane is
-  still running never trigger failure. Before a completion marker latches, Pi
-  rejects and deletes records whose repo/head/summaryPath/result/completedAt no
-  longer match the lane inputs, so the monitor can retry with a valid marker.
-
-  Implements
-  [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC4/AC5/AC6; source: `preseed/agents/pi/agents/review-monitor.md`,
-  `review-enforcement.ts::reviewMonitorPrompt`,
-  `review-enforcement.ts::reviewMonitorCompletionReady`,
-  `review-job-helpers.ts::reviewMonitorCompletionRejectReason`, and
-  `review-job-helpers.ts::reviewMonitorCompletionRecordReady`.
-
-  Partial lane results, failed required lanes, or a missing `summary.md` cannot
-  trigger autofix. If actionable MEDIUM/HIGH/CRITICAL findings remain after the
-  complete exact-head summary, the monitor result includes a detailed overview:
-  result line, severity counts, lane status, ranked findings, summary path,
-  monitor transcript path when available, and next action.
-
-  The monitor tells the main session to print that overview first, then read
-  `summary.md`, verify each finding, and fix only legitimate findings by default.
-  If the latest user instruction says not to autofix, wait for approval, or do not
-  push, the monitor tells the main session to stop for approval instead. There is
-  no hidden `autofix.requested` marker and no custom summary announcement channel.
-  Implements
-  [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-durable-review-fix-loop).
-
-  Task/subagent contexts may reap lane children and write durable state, but they
-  do not own review-monitor delivery. The live main session owns visible monitor
-  spawning and restart decisions after the extension's handoff; old acked jobs are
-  not resurrected after pending state is cleared. Delivery does not depend on a
-  custom transcript nonce or a summary announcement record. The `/review-results`
-  command remains the manual fallback: it displays the persisted exact-head
-  `summary.md` without mutating delivery state or claiming the head was
-  acknowledged. Implements
-  [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery)
-  AC7; source: `review-enforcement.ts::review-results`,
-  `review-job-helpers.ts::reviewResultsSummaryMessage`, and
-  `review-enforcement.ts::remember`.
-
-  The main-session visible handoff and restart rule is documented in `pr-workflow`,
-  `git-review-pipeline`, and `git-workflow`; that workflow implements
-  [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-visible-review-and-ci-monitor-handoff).
-
-  Timed-out or failed durable lanes are recorded as failed and do not produce
-  the required result file. The PR head remains unacked until a later review run
-  succeeds, per
-  [REQ-AGENT-054](../../sdd/spec/agents.md#req-agent-054-pi-durable-review-lane-failure-handling).
-
-  Merge enforcement does not depend on third-party subagent task IDs or
-  in-memory service records. Because Claude slash commands do not deploy to Pi,
-  the user-invoked `/review` workflow ships as the dedicated
-  `skills/review/SKILL.md` native skill (full 11-phase flow) rather than relying
-  only on the transformed `git-review-pipeline` enforcement skill.
+CI follows a distinct path. The root Git rule invokes the request resolver exactly
+once after each eligible successful Git action and submits its zero-or-one JSON
+request unchanged once. The dedicated agent runs one attached monitor. Review code
+has no CI action, and interruption is intentionally not recovered automatically.
+This implements [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring) and
+[AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent).
 
   Pi memory capture is driven by two deployed contracts:
   `prompts/memory-agent-prompt.md` (the capture-agent contract) and
@@ -798,13 +558,10 @@ Pi-native tool names: Graphify MCP references become `graphify_query` /
 `graphify_path` / `graphify_explain`, and context-mode MCP references become
 `ctx_*` tool names so subagents never try unavailable Claude MCP tools.
 
-Durable PR-boundary review lanes are not `@gotgenes/pi-subagents` and not
-in-process `createAgentSession` calls. `spawnDurableLane` launches detached
-headless `pi` child processes with a bounded inspection tool allowlist,
-`--no-extensions`, and explicit `-e` loading for `graphify-native.ts`,
-`review-lane-guards.ts`, plus settings-enabled context-mode. Bash remains
-available for git/gh diff inspection; `review-lane-guards.ts` blocks local build,
-test, lint, and dev-server commands in the headless lane.
+Pi PR-boundary reviewers use the public `subagent` tool and the adapted
+`.pi/agent/agents/*.md` definitions. The root main session launches every requested
+lane together in the background without inherited context; reviewers report only,
+and the root session alone applies changes or pushes.
 
 **Per-mode seeding**: Default mode seeds the core rules plus the
 universal skills; advanced mode seeds the full set (memory, ECC
@@ -881,13 +638,10 @@ additionalContext before the agent responds
 - **codeflare-hooks**: Scripts for commit attribution blocking,
   git-push review reminders, and SDD review-agent enforcement.
 
-Review dispatch is non-blocking: required code, spec, and documentation lanes
-spawn as independent background lanes. The durable summary waits for every
-required lane result; no lane depends on another lane's transcript.
-
-In-flight suppression is per lane. A fresh in-flight lane is skipped
-without masking other required lanes, while a stale uncompleted lane past
-the transcript recency bound is demanded again.
+Claude review dispatch is non-blocking: required code, spec, and documentation
+lanes spawn independently. Its Stop hook waits for every required lane's transcript
+completion; no lane depends on another lane's transcript. Claude in-flight
+suppression remains per lane, so a fresh in-flight lane does not mask missing peers.
 
 The PostToolUse nudge and Stop hook share `scripts/lib/lane-classifier.sh`.
 Generated-only `graphify-out/` diffs require no review lanes and are auto-acked
@@ -902,17 +656,13 @@ predicates) and the pipe-alternated MCP matcher
 `mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute`.
 This keeps attribution blocking and push detection effective whether
 context-mode is active or not. Implements
-[REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) AC3,
-[REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC1+AC7,
-[REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing) AC1,
-and [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) AC1+AC2+AC4-AC7.
+[REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) AC3 and
+[REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) AC1+AC2+AC4-AC7.
 Hooks registered in settings.json, scripts delivered via plugin.
 
 ## Third-party plugin: context-mode
 
 [context-mode](https://github.com/mksglu/context-mode) is registered as a Claude Code MCP server (`ctx_*` helper tools) where that runtime enables it. Pi loads context-mode by default in the settings `required` set. `/ctx off` disables the package for the current running Pi session and reloads resources; `/ctx on` re-enables it. The next Codeflare container start resets Pi back to enabled.
-
-Durable PR-boundary review lanes inherit `/ctx on` only when `spawnDurableLane` adds the settings-enabled context-mode package as an explicit `-e` argument. With `/ctx on`, the lane can expose `ctx_search`; with it off, the lane runs without ctx tools. `graphify-native.ts` and `review-lane-guards.ts` are loaded separately.
 
 The npm package is fetched by the user's own container from the npm registry on first invocation; Codeflare does not redistribute the source. Commercial users receive only the MCP server registration: no skill, rule, hook, or system-prompt nudge in our preseed instructs Claude to invoke `ctx_*` tools. The agent's tool-selection is its own.
 
@@ -1194,43 +944,14 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 
 The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Its transcript-based trigger surface is `git push`, `gh pr merge`, and protected-base `gh pr edit --base main|master`; `git-push-review-reminder.sh` handles the in-turn reminder path for `git push`, `gh pr create`, and protected-base `gh pr edit`.
 
-Pi native enforcement covers the wider local command set (`git push`, `git push --follow-tags`, `git -C <repo> push`, command-local `cd <repo>` prefixes, `gh pr create`, protected-base `gh pr edit`, `gh pr merge`, `gh pr update-branch`, and `gh repo sync`) and ignores metadata-only PR commands. Implements [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC1-AC3 and [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing) AC2-AC3; source: `review-helpers.ts::isPrBoundaryTrigger` and `review-helpers.ts::gitPushCommandTarget`.
+Pi uses the narrower supported command grammar in
+[REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing): successful root-session Bash/`ctx_execute`/`ctx_batch_execute` surfaces recognize direct or environment-prefixed `git push`, `gh pr create`, protected-base `gh pr edit`, and `gh pr merge` only in their documented reminder or settled roles. Unsupported convenience commands, failed commands, quoted examples, child sessions, passive startup, and integration-bound PRs are inert.
 
-Passive lifecycle events never create a review window solely because the current branch already has an open protected-base PR. All surfaces enforce only when the open PR targets `main` or `master`; intermediate-branch PRs are deferred until their PR-to-`main` opens.
+For Pi, the acknowledged full SHA remains at `.git/sdd-last-ack-pr-head`. If a supported boundary finds review demand, the extension lists all missing visible reviewer lanes. The root session calls those lanes together in the background without inherited context and waits for every native completion notification before advancing the acknowledgement. Reload does not advance it and may cause a later supported boundary to repeat unfinished work ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)).
 
-On Pi's boundary fast path, shell start-args are captured on both the `tool_call` and `tool_execution_start` events, keyed by the same tool id. Same-tool PR-boundary commands are remembered only when they are actual triggers and are recovered at `tool_result` if the successful end event loses command text.
+The USER-ONLY `/tmp/review-bypass` sentinel and explicit user wording remain review bypass surfaces; agents must not invoke them autonomously. Claude keeps its existing Stop-hook checkpoint and bypass semantics. Pi adds no pre-command merge interceptor.
 
-Protected-base `gh pr edit <selector>` reads that explicit PR selector, not the current branch; a foreign `--repo` target is ignored by this repo's gate. Clone-only setup is not a trigger and is never recovered as one. This is a Pi-only mechanism; the Claude `Stop` hook is unaffected because it receives the completed command from the shell.
-
-If a successful `bash` result still arrives with no recoverable command, Pi writes a deduped `boundary_tool_end_ignored` row with reason `missing_command_text_after_success` to `.git/codeflare-review-events.jsonl` and immediately forces fresh PR-state reconciliation.
-
-That reason is distinct from the `no_resolvable_head` / `dedupe_skipped` reasons stamped by the confirmed-enforced near-miss path; see [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery) AC6. Reconciliation still requires a real protected-base PR and the in-session-advance signal, so clone-only inherited PRs can offer but do not auto-start. Implements [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC7 and [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery) AC1.
-
-Pi's broader post-command backstop runs after successful shell commands that invoke `git` or `gh`, including wrapper forms such as `env VAR=value git ...`, `env -u NAME VAR=value gh ...`, and `timeout 60 gh ...`. That path bypasses the PR cache before reading GitHub PR state, so an unclassified push cannot be hidden behind a stale cached PR head. Implements [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery) AC1; source: `review-helpers.ts::postCommandReconcileDecision` and `review-enforcement.ts::reconcileOpenPrReview`.
-
-The Claude hook and Pi native enforcement both track the most recently acknowledged PR HEAD SHA in `.git/sdd-last-ack-pr-head`. Claude advances that checkpoint only after every required lane has a current-head Agent spawn with a `completed</status>` marker. A recent in-flight Claude lane suppresses re-summon noise only; it does not satisfy final acknowledgement.
-
-Pi also persists compatibility pending state in `.git/sdd-review-pending.json` and durable runner state in `.git/codeflare-review-jobs/<head>/`. Without a user bypass, Pi acknowledgement advances only when result files exist for the full required pipeline (code-reviewer + spec-reviewer + doc-updater, or the reduced lane set for doc/spec-only changes) for the current PR HEAD.
-
-When a new push lands while review is still in flight, Pi rolls the pending review window forward if the new PR head descends from the pending head, keeps the first unreviewed base for cumulative review, and does not treat a remote-tracking previous head as reviewed unless an explicit ack or completed prior review proves that coverage. This preserves earlier findings during fix-push cascades while keeping intermediate-branch PRs deferred until their PR-to-`main` review. See [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) for lane dispatch and in-flight gating, and [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-pr-boundary-review-window-advancement) for review-window roll-forward semantics.
-
-Three USER-ONLY bypass methods exist (the agent must never invoke these autonomously): the user runs `touch /tmp/review-bypass`, the user says "skip review" or "skip verification" in a message, or the user waits for the 5-strike circuit breaker to clear after 5 blocks on the same un-acknowledged PR HEAD. The sentinel is one-shot, per-session, not committed, and auto-deleted on use.
-
-In Pi, only a live review-start decision or merge gate may consume it; passive status refresh, monitor delivery, lane completion, idle reaping, already-acked heads, breaker-open heads, and existing review windows leave it untouched. Agent/subagent head-advance recovery uses the same bypass-aware start path, and `reviewBoundaryStartDecision` keeps the side-effecting dedupe token behind those no-op guards. Implements [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces) AC1/AC2/AC5/AC6/AC7; source: `review-enforcement.ts::consumeBypass`, `review-job-helpers.ts::reviewWindowStartDecision`, `review-job-helpers.ts::reviewBoundaryStartDecision`, and `enforce-review-spawn.sh`.
-
-Runtime semantics differ intentionally: Claude treats the sentinel as a one-turn Stop-hook escape that does not advance `.git/sdd-last-ack-pr-head`, while Pi consumes it as an explicit acknowledgement only after a live review-start decision or merge gate resolves the protected PR head to acknowledge. Pi task/subagent contexts leave the sentinel untouched and cannot acknowledge the bypass if consumption fails. Implements [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces) AC3/AC4; source: `review-enforcement.ts::consumeBypass`, `review-enforcement.ts::acknowledgeBypass`, `review-helpers.ts::canMainSessionConsumeReviewBypass`, and `review-helpers.ts::reviewBypassConsumeDecision`.
-
-If enforcement fires spuriously after a legitimate pipeline completed and local `HEAD` is the current PR head, preserve the acknowledgement and clear only transient runtime state:
-
-```bash
-git rev-parse HEAD > .git/sdd-last-ack-pr-head
-rm -f .git/sdd-review-block-count .git/sdd-review-pending.json
-rm -rf .git/codeflare-review-jobs/$(git rev-parse HEAD)
-```
-
-The legacy v4 timestamp file `.git/sdd-last-ack-push` (if present from a prior install) is auto-deleted on the first v5 invocation, so no manual cleanup is needed for the v4 to v5 migration path.
-
-To inspect enforcement state without reading `.git/` by hand, Pi exposes a read-only `/review-status` command ([REQ-AGENT-057](../../sdd/spec/agents.md#req-agent-057-pi-review-status-command), `review-command.ts`). It renders the canonical review state for the current repo's enforced head — PR / local / last-acked HEADs, per-lane status, overall verdict, summary readiness, monitor completion, circuit-breaker state, and the merge-gate verdict — followed by a short tail of the `.git/codeflare-review-events.jsonl` decision audit (every enforcement decision — boundary detected, review started, merge blocked, breaker opened — is appended there). The command never spawns a review, advances the ack, or mutates any enforcement state; it is purely diagnostic.
+Pi CI is not part of review checkpoint handling. After an eligible successful Git action, only the root Git rule runs the request resolver once; an empty response means no monitor. An interruption is intentionally left aborted until a later eligible Git action or explicit user request ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)).
 
 ---
 
@@ -1263,24 +984,20 @@ To inspect enforcement state without reading `.git/` by hand, Pi exposes a read-
 - [REQ-AGENT-047](../../sdd/spec/agents.md#req-agent-047-resume-mode-closure-and-review-pipeline-gate) - Resume Mode closure and review-pipeline gate
 - [REQ-AGENT-048](../../sdd/spec/agents.md#req-agent-048-audit-accumulator-surfaces) - Audit accumulator surfaces
 - [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill) - Pi-Native `/review` Workflow Skill
-- [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-durable-review-status-and-result-formatting) - Pi Durable Review Status and Result Formatting
-- [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-durable-review-fix-loop) - Pi Durable Review Fix Loop
-- [REQ-AGENT-060](../../sdd/spec/agents.md#req-agent-060-pi-durable-review-lane-tool-surface) - Pi Durable Review Lane Tool Surface
-- [REQ-AGENT-061](../../sdd/spec/agents.md#req-agent-061-pi-idle-durable-review-reaper) - Pi Idle Durable Review Reaper
-- [REQ-AGENT-062](../../sdd/spec/agents.md#req-agent-062-pi-pr-boundary-review-result-delivery) - Pi PR-Boundary Review Result Delivery
+- [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions) - PR-Boundary Review Trigger Conditions
+- [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation) - Pi Native Review Result Correlation
+- [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window) - Pi Session-Scoped Review Window
+- [REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer) - Pi Local Statusline Footer
+- [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery) - Supported Boundary Recovery
+- [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-native-review-findings-handoff) - Pi Native Review Findings Handoff
 - [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing) - PR-Boundary Command Parsing
-- [REQ-AGENT-066](../../sdd/spec/agents.md#req-agent-066-pr-boundary-command-targeting-and-failure-recovery) - PR-Boundary Command Targeting and Failure Recovery
+- [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents) - Engineering Constitution Preseeded to All Agents
 - [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior) - consult-llm Invocation and Model-Selection Behavior
-- [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-ci-monitoring-background-agent-policy) - CI Monitoring Background-Agent Policy
+- [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring) - Independent Pi CI Monitoring
 - [REQ-AGENT-069](../../sdd/spec/agents.md#req-agent-069-pi-consult-llm-mcp-lazy-wiring) - Pi consult-llm MCP lazy wiring
 - [REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy) - Claude on-demand CI monitoring policy
-- [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-pr-boundary-review-window-advancement) - Pi PR-Boundary Review Window Advancement
-- [REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer) - Pi Local Statusline Footer
-- [REQ-AGENT-057](../../sdd/spec/agents.md#req-agent-057-pi-review-status-command) - Pi Review-Status Command
-- [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents) - Engineering Constitution Preseeded to All Agents
 - [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch) - PR-Boundary Review Agent Dispatch
-- [REQ-AGENT-072](../../sdd/spec/agents.md#req-agent-072-pi-durable-review-lane-command-and-scope-guards) - Pi Durable Review Lane Command and Scope Guards
-- [REQ-AGENT-073](../../sdd/spec/agents.md#req-agent-073-pi-review-monitor-delivery-reliability) - Pi Review Monitor Delivery Reliability
+- [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff) - Pi Settled Review Handoff
 - [REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) - Proactive memory injection on first prompt
 
 ---

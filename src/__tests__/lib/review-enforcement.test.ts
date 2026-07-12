@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 type ReviewLane = 'code-reviewer' | 'spec-reviewer' | 'doc-updater';
 type PrState = {
-  state: 'OPEN';
+  state: 'OPEN' | 'CLOSED' | 'MERGED';
   baseRefName: 'main' | 'master';
   headRefOid: string;
   headRefName: string;
@@ -236,22 +236,24 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent());
     expect(harness.sent).toEqual([{
-      message: {
+      message: expect.objectContaining({
         customType: 'pr-boundary-review-reminder',
+        content: expect.any(String),
         display: true,
         details: { head: fixture.head, requiredLanes: ALL_LANES },
-      },
+      }),
       options: { triggerTurn: false },
     }]);
 
     harness.sent.splice(0);
     await harness.emit('agent_settled');
     expect(harness.sent).toEqual([{
-      message: {
+      message: expect.objectContaining({
         customType: 'pr-boundary-review-follow-up',
+        content: expect.any(String),
         display: true,
         details: { head: fixture.head, missingLanes: ALL_LANES },
-      },
+      }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
@@ -296,11 +298,12 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('agent_settled');
     expect(harness.sent).toEqual([{
-      message: {
+      message: expect.objectContaining({
         customType: 'pr-boundary-review-follow-up',
+        content: expect.any(String),
         display: true,
         details: { head: fixture.head, missingLanes: ['doc-updater'] },
-      },
+      }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
@@ -361,6 +364,38 @@ describe('Pi review reminder and settled enforcement', () => {
     await harness.emit('agent_settled');
     expect(harness.sent).toEqual([]);
     expect(readFileSync(join(fixture.repo, '.git/sdd-review-block-count'), 'utf8').trim()).toBe(`${fixture.head}:GIVEUP`);
+    expect(ackHead(fixture.repo)).toBe(fixture.base);
+  });
+
+  it('REQ-AGENT-058: reports a merged unacknowledged head once without acknowledging it', async () => {
+    const fixture = makeReviewFixture();
+    fixture.pr.state = 'MERGED';
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      assistantTool('merge-1', 'bash', { command: 'gh pr merge 42' }),
+      toolResult('merge-1', 'bash'),
+    );
+
+    await harness.emit('agent_settled');
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-review-closed-unacknowledged',
+        content: expect.any(String),
+        display: true,
+        details: { head: fixture.head, state: 'MERGED' },
+      }),
+      options: { triggerTurn: false },
+    }]);
+    expect(ackHead(fixture.repo)).toBe(fixture.base);
+
+    appendSession(fixture.sessionFile, {
+      type: 'custom_message',
+      customType: 'pr-boundary-review-closed-unacknowledged',
+      details: { head: fixture.head, state: 'MERGED' },
+    });
+    harness.sent.splice(0);
+    await harness.emit('agent_settled');
+    expect(harness.sent).toEqual([]);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 

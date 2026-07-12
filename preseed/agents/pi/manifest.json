@@ -81,8 +81,9 @@
       "advanced"
     ]
   },
-  "agents/review-monitor.md": {
+  "agents/ci-monitor.md": {
     "modes": [
+      "default",
       "advanced"
     ]
   },
@@ -138,6 +139,12 @@
     ]
   },
   "skills/ci-monitoring/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/ci-monitoring/scripts/monitor-ci.mjs": {
     "modes": [
       "default",
       "advanced"
@@ -231,22 +238,6 @@
   },
   "extensions/review-enforcement.ts": {
     "modes": [
-      "advanced"
-    ]
-  },
-  "extensions/review-jobs.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "extensions/review-lane-guards.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "extensions/review-job-helpers.ts": {
-    "modes": [
-      "default",
       "advanced"
     ]
   },

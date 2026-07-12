@@ -542,6 +542,18 @@ The one exception is **own-account R2**: the controller strips the container's p
 
 **Policy inheritance.** Egress over `cf1:network` is subject to the account's existing Cloudflare Gateway traffic policies (allow/block/isolate/DLP) unchanged; codeflare never creates or modifies them. The controller's literal-IP SSRF guard is defense-in-depth only and does not stop DNS rebinding — the Gateway policy is the authoritative egress control (see [Security](security.md#strict-gateway-egress-enterprise-mode)). When the toggle is OFF or the deployment is non-enterprise, the catch-all is never wired, the interceptor swap is inert, and the egress path is byte-identical to today.
 
+### Pi PR-Boundary Review Data Flow
+
+Pi review is session-scoped and independent of CI ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). After a supported successful root-session boundary, `review-enforcement.ts` checks fresh open-PR state, SDD eligibility, the acknowledged SHA, and the changed-file lane classification. It emits a reminder or settled follow-up listing the required `code-reviewer`, `spec-reviewer`, and `doc-updater` lanes. The root main session calls all listed lanes together through public background `subagent` calls without inherited context, waits for each correlated native terminal notification, evaluates all reviewer output, fixes legitimate findings, and alone commits or pushes. Reviewers remain independent and report-only.
+
+No Pi review execution or completion artifact survives outside the ordinary root transcript and acknowledged SHA. Reload can end active reviewers and lose unacknowledged progress; it never fabricates completion. A later supported boundary reconstructs the missing lanes and may repeat work. Pi has no pre-command merge interceptor; a merged unacknowledged head produces one visible notice without writing acknowledgement. See [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery), [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-native-review-findings-handoff), [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch), and [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff).
+
+### Pi CI Monitoring Data Flow
+
+Pi CI monitoring has a separate owner and lifecycle ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)). After a successful head-changing push or creation of a PR targeting `main`/`master`, the root Git workflow resolves `owner/repo` and invokes the seeded request resolver exactly once with `event=<push|pr-create>` and `changed=true`. No stdout means no action. A single JSON object is submitted unchanged exactly once through public `subagent`; the dedicated `ci-monitor` then runs one attached Node monitor for the resolver-supplied PR number and full `headRefOid`.
+
+The monitor reads the PR check rollup, verifies the authoritative PR head before polling and before terminal output, and reports success, failure, timeout, or supersession through Pi's native task notification. Review code never launches or recovers CI. Reload may abort active monitoring without output; there is no automatic relaunch. Only a later eligible Git action or explicit user request can start another monitor. See [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring).
+
 ---
 
 ## Module-Level Caches
@@ -689,14 +701,18 @@ Exercise each listed UI, agent, session, storage, or container workflow in stagi
 - [ ] [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-051](../../sdd/spec/agents.md#req-agent-051-pi-debug-deploy-and-brainstorm-commands) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-durable-review-fix-loop) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-061](../../sdd/spec/agents.md#req-agent-061-pi-idle-durable-review-reaper) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-native-review-findings-handoff) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-visible-review-and-ci-monitor-handoff) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-075](../../sdd/spec/agents.md#req-agent-075-cloudflare-platform-skills-bundled-into-the-advanced-seed) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) — verify every acceptance criterion.
 - [ ] [REQ-MOB-001](../../sdd/spec/mobile.md#req-mob-001-terminal-fully-usable-on-mobile-devices) — verify every acceptance criterion.

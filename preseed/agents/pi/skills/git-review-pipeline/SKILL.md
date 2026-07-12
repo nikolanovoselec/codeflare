@@ -1,70 +1,52 @@
 ---
 name: git-review-pipeline
-description: "SDD-mode PR-boundary review policy for Pi. Use to understand when review enforcement applies to PRs targeting main/master. Critical: this skill does not authorize manual Agent spawns; PR-boundary hooks/enforcement own reviewer spawning. The assistant launches review agents only when the user explicitly asks or an actual hook directive explicitly commands it."
-version: 2.0.0
+description: "SDD-mode PR-boundary review policy for Pi. The extension names required visible reviewer lanes; the root main session launches them together, waits for all, fixes legitimate findings, and alone pushes. Review is independent of CI."
+version: 3.0.0
 ---
 
 # Git Review Pipeline in Pi
 
-This skill explains the SDD review policy. It is **not** a command to spawn reviewers.
+This skill explains how the root main session handles Pi's PR-boundary review instruction.
 
-## Non-negotiable guard
+## Trigger and scope
 
-Do **not** call `Agent` for `code-reviewer`, `spec-reviewer`, or `doc-updater` merely because:
+SDD projects (`sdd/` + `sdd/README.md`) are reviewed only when work is headed to `main` or `master`. Draft PRs remain eligible. Integration-branch PRs defer review until their PR to `main`/`master`.
 
-- a PR targets `main` or `master`,
-- `sdd/` exists,
-- this skill was loaded, or
-- the PR-boundary table says review applies.
+The Pi extension emits a structured reminder after a supported successful boundary and a follow-up naming every reviewer lane still needed for the current head. Passive startup, branch existence, child sessions, failed commands, and unsupported commands do not launch review.
 
-Reviewer spawning is owned by PR-boundary enforcement hooks. The assistant must not manually spawn review agents unless one of these is true:
+| Boundary | Review behavior |
+|---|---|
+| Successful `git push` with an open PR to `main`/`master` | Extension may name the required lanes |
+| Successful `gh pr create --base main|master` | Reminder only; a later supported settled boundary reconstructs review demand |
+| Successful protected-base `gh pr edit` | Extension may name the required lanes |
+| Successful `gh pr merge` | Settled boundary only; there is no pre-command merge interceptor |
+| PR into `develop` / `staging` | Review deferred |
+| Push with no open main-bound PR | No PR-boundary review |
 
-1. The user explicitly says to run/spawn review agents.
-2. A hook/enforcement message in the current turn explicitly instructs the assistant to launch specific review agents.
+## Root main-session action
 
-If neither is true: create/push/open the PR, report the URL, and obey any `codeflare-visible-monitor-handoff` follow-up by spawning **both** the visible CI monitor and `review-monitor` for the exact head (one shared trigger; no separate per-push CI monitor). Do not spawn reviewer lane agents.
+When the reminder or follow-up lists lanes:
 
-## PR-boundary policy
+1. Call every listed reviewer together through the public `subagent` tool.
+2. Set `run_in_background: true` and `inherit_context: false` on every call.
+3. Do not duplicate a lane already identified as in flight by the extension.
+4. Wait for every required reviewer notification, regardless of completion order.
+5. Read each reviewer's native output, verify every finding, and fix legitimate findings unless the latest user instruction says to wait or not autofix.
+6. The root main session alone commits and pushes. Reviewers and other subagents never push.
 
-SDD projects (`sdd/` + `sdd/README.md`) are reviewed only when work is headed to `main` or `master`.
+Review is session-scoped. Reload can discard active work and does not prove completion; a later supported root boundary may request the missing lanes again.
 
-| Event | Base | Enforcement behavior | Assistant action |
-|---|---|---|---|
-| `gh pr create --base main` | `main` | PR-boundary enforcement may require the review pipeline | Do not spawn agents unless a hook explicitly says so |
-| `gh pr create --base master` | `master` | PR-boundary enforcement may require the review pipeline | Do not spawn agents unless a hook explicitly says so |
-| PR into `develop` / `staging` | integration branch | Review is deferred until integration-to-main PR | Do not spawn agents |
-| `git push` to branch with open PR to `main`/`master` | `main`/`master` | PR-sync enforcement may require review | Do not spawn agents unless a hook explicitly says so |
-| `git push` to branch with no main-bound PR | none | No PR-boundary review yet | Do not spawn agents |
+## Independence from CI
 
-## Execution order reference
+Review never launches, tracks, waits for, or relaunches CI. CI never launches reviewers. The root Git workflow rule independently runs the seeded CI request resolver exactly once after an eligible successful Git action. Do not add CI actions to a review reminder or follow-up.
 
-When enforcement actually launches or explicitly instructs a launch, the order is:
+## Finding discipline
 
-1. `code-reviewer` can run in parallel with the others.
-2. `spec-reviewer` runs before `doc-updater`.
-3. `doc-updater` runs after `spec-reviewer`.
+Do not act on a subset of required reviewer outputs. Wait until every required reviewer has finished, then assess all findings together. A finding's age is not a reason to skip it: fix every legitimate finding, explain false positives, and ask before destructive or irreversible changes.
 
-This order is reference material only. It is not permission to launch agents proactively.
+## Claude behavior
 
-## What to do after opening a PR or pushing a PR-boundary head
-
-1. Print the PR URL or pushed HEAD.
-2. Mention that PR-boundary enforcement may run separately if required.
-3. CI monitoring is spawned together with `review-monitor` from the PR-boundary `codeflare-visible-monitor-handoff` (a main-bound PR open/sync), not per-push; a push with no open main-bound PR is not CI-monitored.
-4. Do not start reviewer agents unless the user explicitly asks or a hook explicitly instructs it.
-5. If the extension sends a `codeflare-visible-monitor-handoff` follow-up, the **main session must spawn both the requested visible `review-monitor` and CI monitor immediately** (one shared trigger) and report both agent IDs. This is not reviewer spawning.
-6. If a review job/window exists for the exact HEAD but no handoff appears, the main session must start or verify `review-monitor` immediately. Required invariant: `.git/codeflare-review-jobs/<head>/monitor.json` exists for the same HEAD before the assistant claims review is running or stops for handoff.
-7. `monitor.json` alone is not enough when the background task stops or completes without a `REVIEW_RESULT`. If that happens, restart `review-monitor` from the existing job prompt/result paths immediately; do not wait for the full monitor TTL. If a CI monitor task stops/errors without `CI_RESULT`, restart an exact-head CI monitor unless the head was superseded or the user skipped CI.
-
-## Fixing review findings
-
-Never edit, commit, or push review-finding fixes from partial lane results. Wait until the PR-boundary review job for the exact head is complete and every required lane has a result file. If any required lane is running, pending, missing, stale, or unknown, do not fix yet; report that review is still in progress and wait for the final merged summary.
-
-A hidden autofix/follow-up request is valid only when it explicitly says to use the final merged review summary and the persisted review job is complete for the same head. If the visible statusline or durable job disagrees, trust the durable job files and do not edit until completion is clear.
-
-When a background `review-monitor` returns `REVIEW_RESULT findings`, the main session must print the review summary first, then immediately read `summary.md`, triage every MEDIUM/HIGH/CRITICAL finding, fix legitimate findings, commit, push, start CI monitoring, verify/restart `review-monitor`, and repeat until the exact head returns `REVIEW_RESULT clean`. Stop before commit/push only when the latest user instruction explicitly says not to autofix, wait for approval, or do not push.
-
-**A finding's age is never a reason to skip it.** Once the review is complete, fix every legitimate finding — whether it was introduced by this change or pre-existing, whether it sits in the diff or in adjacent code. Legitimacy is the ONLY criterion. Never exclude, defer, or ask the user about a legitimate finding because it pre-dates the change or is "out of scope." The only non-fix outcomes are: the finding is a false positive (say why), or the fix is destructive/irreversible (confirm first).
+Claude's hook-driven review pipeline is unchanged. Its own lane ordering, checkpoints, bypasses, and enforcement remain governed by the Claude rules and hooks; the Pi session-scoped flow above does not replace or reinterpret them.
 
 ## Branch-protection note
 
@@ -74,4 +56,4 @@ The intended workflow is:
 feature branch -> develop -> PR to main
 ```
 
-Branch protection on `main` should require PRs and CI, but setting branch protection is separate from opening a PR. Ask before changing branch protection.
+Branch protection on `main` should require PRs and CI, but changing branch protection is separate from opening a PR. Ask first.

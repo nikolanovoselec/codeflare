@@ -83,7 +83,7 @@ function spawn(type: string, prompt: string, description: string, model?: string
   }
 }
 
-// Subagent child sessions (review-monitor, CI monitors, memory-capture, vault-extract)
+// Subagent child sessions (visible reviewers, CI monitors, memory-capture, vault-extract)
 // load this extension too; every handler bails there so capture/extract triggers and
 // their sendUserMessage("Agent(...)") fallbacks never land in a child transcript.
 // Prong 1: the live in-memory header. Prong 2: the persisted session-file header line

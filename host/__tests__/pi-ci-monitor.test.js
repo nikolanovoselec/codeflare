@@ -225,7 +225,7 @@ test('REQ-AGENT-068 AC4: failed and cancelled arbitrary providers report failure
   }
 });
 
-test('REQ-AGENT-068 AC7: malformed and transient GitHub responses never become success', async () => {
+test('REQ-AGENT-068 AC6: malformed and transient GitHub responses never become success', async () => {
   const { output, time } = await runMonitor({
     checks: [commandResult('{not-json', 1), new Error('temporary network failure')],
     fallbackChecks: [check('still-running', 'pending')],
@@ -236,7 +236,7 @@ test('REQ-AGENT-068 AC7: malformed and transient GitHub responses never become s
   assert.ok(time.elapsed() >= 30 * 60_000);
 });
 
-test('REQ-AGENT-068 AC2: pending checks enforce the thirty-minute total timeout', async () => {
+test('REQ-AGENT-068 AC6: pending checks enforce the thirty-minute total timeout', async () => {
   const { output, time } = await runMonitor({
     fallbackChecks: [check('long-running', 'pending')],
   });

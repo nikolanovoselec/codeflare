@@ -18,12 +18,11 @@ export const VAULT_GENERATED_PREFIXES = [
 // codeflare-authoritative root pages: regenerated from preseed on boot, never user-authored.
 export const VAULT_PRESEED_ROOT_FILES = new Set(["Index.md", "README.md", "CONFIG.md", "STYLES.md"]);
 
-// Child sessions (@gotgenes/pi-subagents spawns: review-monitor, CI monitors,
+// Child sessions (@gotgenes/pi-subagents spawns: visible reviewers, CI monitors,
 // memory-capture, vault-extract, ...) always load the parent's extensions, so
 // memory-vault runs inside them too. Its capture/extract triggers must be inert
-// there: a sendUserMessage("Agent(...)") fallback injected into a monitor child's
-// transcript becomes that task's last visible output (observed as a review-monitor
-// "result" showing vault extraction instead of REVIEW_RESULT). Children are
+// there: a sendUserMessage("Agent(...)") fallback injected into a child transcript
+// can become that task's last visible output instead of the delegated result. Children are
 // identified by the parentSession pointer pi-subagents passes to newSession(),
 // exposed via sessionManager.getHeader() and persisted as the session JSONL's
 // first line. Pure predicates (no node:fs) so the Workers-pool test exercises them.

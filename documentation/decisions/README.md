@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD99](#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD99](#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), then [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -1370,7 +1370,7 @@ Alternative 2 — Self-guard `review-enforcement` to no-op when loaded in a lane
 
 
 
-**Related REQ:** [REQ-AGENT-060](../../sdd/spec/agents.md#req-agent-060-pi-durable-review-lane-tool-surface) (durable review lane tool surface), [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) (PR-boundary lane classification and dispatch), [REQ-AGENT-054](../../sdd/spec/agents.md#req-agent-054-pi-durable-review-lane-failure-handling) (durable lane failure handling).
+**Related REQ:** [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) (PR-boundary lane classification), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch) (visible reviewer dispatch), and [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) (the replacement Pi execution model).
 
 ---
 
@@ -1726,22 +1726,22 @@ Identity-driven budgets are additionally a closed beta. Net: keep `AIG_TOKEN` + 
 
 **Supersedes:** [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield)
 
-**Context:** In-process `createAgentSession` lanes could die when the spawning Pi session exited, leaving `.git/codeflare-review-jobs/<head>/` stuck `running`. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::recoverDurableReviewLaneState -->
+**Context:** In-process `createAgentSession` lanes could die when the spawning Pi session exited, leaving `.git/codeflare-review-jobs/<head>/` stuck `running`.
 
-**Decision:** Launch each durable lane as a detached `pi --mode json -p --no-session --no-extensions --no-context-files` child with stdin from `/dev/null`. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::spawnDurableLane -->
+**Decision:** Launch each durable lane as a detached `pi --mode json -p --no-session --no-extensions --no-context-files` child with stdin from `/dev/null`.
 
-Load only explicit `-e` extensions: `graphify-native.ts`, `review-lane-guards.ts`, and settings-enabled context-mode. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::laneExtensionSources -->
+Load only explicit `-e` extensions: `graphify-native.ts`, `review-lane-guards.ts`, and settings-enabled context-mode.
 
 **Consequences:**
 
-- Lanes survive the spawning session and are reaped from disk. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::reapDurableReviewLanes -->
+- Lanes survive the spawning session and are reaped from disk.
 - The idle reaper advances durable jobs without a user turn.
 
-  Completed windows start a background review monitor that reports `REVIEW_RESULT` to the main session. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview -->
+  Completed windows start a background review monitor that reports `REVIEW_RESULT` to the main session.
 - Reviewers get a bounded inspection tool allowlist: bash for git/gh inspection, graphify tools, local-build blockers, and optional `ctx_search`.
 - Lanes do not load `codeflare-pi.ts`, `review-enforcement`, or `@gotgenes/pi-subagents`.
 
-**Related:** [REQ-AGENT-054](../../sdd/spec/agents.md#req-agent-054-pi-durable-review-lane-failure-handling), [REQ-AGENT-060](../../sdd/spec/agents.md#req-agent-060-pi-durable-review-lane-tool-surface), [REQ-AGENT-061](../../sdd/spec/agents.md#req-agent-061-pi-idle-durable-review-reaper).
+**Related:** [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents), which supersedes this detached-lane architecture.
 
 ---
 
@@ -1783,30 +1783,26 @@ REQ-VAULT-017 already serves the SW credential-less inside the Worker, but Acces
 
 **Status:** Accepted (2026-06-09); amended for Pi execution by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) (2026-07-12)
 
-**Context:** At a PR-boundary the SDD pipeline dispatches three review lanes — `code-reviewer` (source), `spec-reviewer` (`sdd/`), and `doc-updater` (`documentation/` + root `README.md`). The original design ran them **sequentially**: `spec-reviewer` first, then `doc-updater`, on the rationale that the reviewers *edited* their lanes in place and `doc-updater` had to validate REQ cross-references against the spec `spec-reviewer` had just moved (the race-condition concern recorded in [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution)). Both engines encoded that ordering: Pi's `durableReviewInitialLanes` withheld `doc-updater` from the initial wave and `review-enforcement.ts` spawned it on `spec-reviewer` completion; Claude's `enforce-review-spawn.sh` demanded `doc-updater` only after `spec-reviewer` acked, sequenced via a `PIPELINE_COMPLETE` marker.
+**Context:** At a PR-boundary the SDD pipeline dispatches three review lanes — `code-reviewer` (source), `spec-reviewer` (`sdd/`), and `doc-updater` (`documentation/` + root `README.md`). The original design ran them **sequentially**: `spec-reviewer` first, then `doc-updater`, because reviewers edited their lanes in place and `doc-updater` had to validate references against the spec `spec-reviewer` had just moved. Claude encoded that order by demanding `doc-updater` only after `spec-reviewer` acknowledged a `PIPELINE_COMPLETE` marker.
 
-That auto-fix model has since been superseded: the review agents are now **report-only** — each writes findings to its own durable result file under `.git/sdd-review-results/<head>/<lane>.md` and the **main session** applies every fix. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::reviewResultPath --> With the reviewers no longer mutating the spec/docs, the ordering rationale no longer holds, yet the sequential gate remained — adding a full `spec-reviewer` round of latency to every PR-boundary before `doc-updater` even started.
+That auto-fix model was replaced by report-only reviewers whose findings return to the main session for any fixes. With reviewers no longer mutating the spec or documentation, the ordering rationale no longer holds, while the sequential gate still adds a full `spec-reviewer` round of latency. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::all_required_lanes_completed_for_current_head -->
 
-**Decision:** Dispatch all three review lanes **in parallel** at a PR-boundary. The reviewers' write targets are disjoint durable result files and read-only with respect to each other's domain, so there is no shared-write race and no ordering dependency.
+**Decision:** Dispatch all required review lanes in parallel at a PR-boundary. Reviewers are report-only and read one committed tree, so there is no shared-write race or ordering dependency. Claude's `enforce-review-spawn.sh` demands all required lanes in one parallel MISSING block and acknowledges the head only after `all_required_lanes_completed_for_current_head`; `git-push-review-reminder.sh` emits one parallel directive. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::all_required_lanes_completed_for_current_head --> Pi preserves the same policy through the session-scoped execution model in [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents). **`/sdd clean` is explicitly excluded** because it applies fixes inline and therefore keeps the [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) sequential order.
 
-Pi: `durableReviewInitialLanes` returns every lane and `durableReviewEligibleLanes` drops the doc-waits-for-spec gate; the `spec-reviewer`-completion → `doc-updater`-spawn trigger in `review-enforcement.ts` is removed (it would double-spawn). <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewInitialLanes --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewEligibleLanes --> Claude: `enforce-review-spawn.sh` demands all three in the parallel MISSING block and acks the head on `all_required_lanes_completed_for_current_head` (the per-lane `PIPELINE_COMPLETE` sequencing is gone); `git-push-review-reminder.sh` emits a single parallel directive. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::all_required_lanes_completed_for_current_head --> **`/sdd clean` is explicitly excluded** — it *applies* fixes inline (not report-only), so it keeps the AD44 sequential order (spec-enforce before doc-enforce), since doc cross-references depend on the just-fixed spec.
-
-**Rationale:** Parallelism is correct precisely because the reviewers are report-only: the only thing that made sequencing necessary (in-place edits to a shared source of truth) was removed when fix-application moved to the main session. Running the lanes concurrently cuts PR-boundary review latency from "slowest lane + spec-reviewer" to "slowest single lane" with identical coverage and zero added race surface.
+**Rationale:** Parallelism is correct precisely because the reviewers are report-only: the only reason for sequencing disappeared when fix application moved to the main session. Concurrent lanes reduce boundary latency to the slowest required lane without reducing coverage.
 
 **Alternatives considered:**
 
-- **Keep the sequential gate (rejected):** it bought nothing once the reviewers stopped editing — `doc-updater` reads the *committed* spec, not an in-flight `spec-reviewer` edit — and cost a full lane of serial latency on every PR-boundary.
-- **Parallelize `/sdd clean` too (rejected):** `/sdd clean` applies fixes inline, so doc cross-references genuinely depend on the just-fixed spec; parallelizing it would reintroduce the exact race AD44 guards against. The report-only/apply-inline distinction is the dividing line.
+- **Keep the sequential gate (rejected):** it bought nothing once reviewers stopped editing and cost a full serial lane on every boundary.
+- **Parallelize `/sdd clean` too (rejected):** its inline fixes make documentation checks depend on the just-fixed spec, so parallelism would reintroduce the race AD44 guards against.
 
 **Consequences:**
 
-- PR-boundary review completes faster; the three lane result files are produced concurrently and the main session applies fixes from all of them.
-- Pi's `pending.json` retains the now-vestigial `docPromptSent` field for backward-compat with in-flight review jobs serialized under the old sequential-dispatch model (jobs where `spec-reviewer` had completed but `doc-updater` had not yet been spawned); it is no longer read for sequencing.
-
-<!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::PendingReview -->
+- Required review lanes complete concurrently and the main session applies any fixes after all results arrive.
 - `/sdd clean` behavior is unchanged.
+- Pi execution follows AD98; Claude's hook behavior and completion anchor remain unchanged.
 
-**Related:** [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) AC4/AC5, [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) (the `/sdd clean` sequential order this decision deliberately preserves), [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes).
+**Related:** [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) AC1, [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution), and [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents).
 
 ---
 
@@ -1865,7 +1861,7 @@ Second: how strong should interception be? The Pi gate is a hard pre-block: it r
 
 **Decision:** (1) **Report-only semantics.** The gate blocks until the required reviewers have *run* (their head is acked), NOT until their findings are *addressed*. The lanes are advisory (AD78): they surface findings; acting on them is the user's call. "Merge blocked until review" means "until review *ran*", and `/review-skip` is the explicit user override. (2) **Defense in depth.** Pi keeps its hard pre-block — strengthened so it evaluates the PR the merge command actually targets (`mergeCommandTarget` → a specific number/URL/branch/`--repo`, not just the cwd branch), fails *closed* on a readable-but-malformed PR or a transient `gh` failure while any unacked review (pending, latched-breaker, or outstanding-offer head) exists, and recognises `--auto` and wrapper-prefixed (`timeout`/`env`/`command`/`nice`) forms.
 
-On TOP of the pre-block, Pi now also runs Claude's retroactive model as a backstop: after any `gh pr merge`-shaped command runs, if the PR is observed MERGED while its head was never acked, it emits a loud, durable `merge_completed_unreviewed` audit + toast. The pre-block stops the common cases; the retroactive layer catches what no anchor can (`bash -c '…'`, `xargs`, server-side `--auto`). The whole gate decision is the pure, unit-tested `mergeGateDecision`. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::mergeGateDecision --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::mergeCommandTarget --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::onAgentStart -->
+On TOP of the pre-block, Pi now also runs Claude's retroactive model as a backstop: after any `gh pr merge`-shaped command runs, if the PR is observed MERGED while its head was never acked, it emits a loud, durable `merge_completed_unreviewed` audit + toast. The pre-block stops the common cases; the retroactive layer catches what no anchor can (`bash -c '…'`, `xargs`, server-side `--auto`). The whole gate decision is the pure, unit-tested `mergeGateDecision`.
 
 **Rationale:** Verdict-gating (blocking the merge until CRITICAL/HIGH findings clear) would make the gate authoritative over a process that is deliberately advisory, would need an override path and a severity contract, and would diverge from Claude's engine — keeping both engines "reviewers ran, not findings fixed" keeps them coherent. Defense in depth is the right answer to "the regex is the gate" for merges: detection has the reconcile backstop, but a single missed merge is unreviewed, so the gate needs both a stronger pre-block AND a retroactive truth layer rather than an ever-more-baroque pre-block regex.
 
@@ -1879,10 +1875,10 @@ On TOP of the pre-block, Pi now also runs Claude's retroactive model as a backst
 
 - The merge gate's correctness is pinned by `mergeGateDecision` unit tests; the inline handler is thin wiring.
 - An unreviewed merge that bypasses the pre-block is no longer silent — it leaves a durable audit and a visible toast.
-- A subagent/Agent push is treated as an in-session PR-boundary event when the enforced PR head changes during the Agent tool call, because child Bash events are invisible to the parent session. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reconcileAgentHeadAdvance -->
+- A subagent/Agent push is treated as an in-session PR-boundary event when the enforced PR head changes during the Agent tool call, because child Bash events are invisible to the parent session.
 - A reviewed head with unaddressed CRITICAL findings can still be merged; the findings are surfaced, not enforced. If that proves too weak, AD80 is the place to revisit.
 
-**Related:** [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-pr-boundary-review-window-advancement), [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-pr-boundary-review-reconciliation-and-missed-event-recovery), [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers).
+**Related:** [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery), [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers), and [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents).
 
 ---
 
@@ -2408,7 +2404,7 @@ The manifest is baselined from current content **only when absent** (the first s
 
 **Amends:** [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers)
 
-**Context:** Pi's durable review design accumulated detached lane processes, job directories, PID recovery, monitor claims, result summaries, status rendering, and a hard merge gate. The recovery machinery became larger and less reliable than the review behavior it protected. Pi now exposes visible public subagent calls, persisted completion notifications correlated by tool-use ID, root/child session lineage, and an `agent_settled` event. Those primitives can express the same reminder and completion proof used by Claude without a second execution system.
+**Context:** Pi's durable review design accumulated detached lane processes, job directories, PID recovery, monitor claims, result summaries, status rendering, and a hard merge gate. The recovery machinery became larger and less reliable than the review behavior it protected. Pi now exposes visible public subagent calls, persisted completion notifications correlated by tool-use ID, root/child session lineage, and an `agent_settled` event. Those primitives can express the same reminder and completion proof used by Claude without a second execution system. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 
 **Decision:** Pi PR-boundary review is session-scoped. The root session emits an eligible review reminder, launches the required `code-reviewer`, `spec-reviewer`, and `doc-updater` agents through the public `subagent` tool, waits for all required results, and acknowledges the reviewed SHA only after the root transcript contains each correlated terminal notification. Review agents remain parallel and report-only. General delegated agents may edit files but no subagent pushes; the root main session alone fixes, commits, and pushes. Pi does not keep a pre-command merge gate, durable lanes, a `review-monitor`, result files, summaries, or recovery state. Reload may repeat review work but cannot fabricate completion. Claude review behavior is unchanged.
 
@@ -2426,7 +2422,7 @@ The manifest is baselined from current content **only when absent** (the first s
 
 **Status:** Accepted (2026-07-12)
 
-**Context:** Pi CI monitoring mixed three conflicting paths: a review-owned handoff, a generic agent prompt, and a detached shell embedded in a skill. Native task completion could arrive before the detached monitor finished. Historical incidents included duplicate launches, startup prompt collisions, shell and `jq` false results, workflow-name drift, PR checks missed by commit-SHA lookup, and lost delivery after reload.
+**Context:** Pi CI monitoring mixed three conflicting paths: a review-owned handoff, a generic agent prompt, and a detached shell embedded in a skill. Native task completion could arrive before the detached monitor finished. Historical incidents included duplicate launches, startup prompt collisions, shell and `jq` false results, workflow-name drift, PR checks missed by commit-SHA lookup, and lost delivery after reload. The replacement therefore needs one executable request resolver that validates the event, repository, open PR, protected base, and authoritative head before returning one native monitor request. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::resolveCiMonitorRequest -->
 
 **Decision:** CI monitoring is independent of review. The root Git workflow rule is the sole automatic trigger after an eligible push or PR creation. One executable resolver returns either no action or one public background `ci-monitor` request containing the authoritative PR number and `headRefOid`. The dedicated agent runs one attached Node process that reads the PR check rollup, verifies the PR head before polling and before terminal output, and returns `CI_RESULT` through the native task notification. It uses no generic agent, direct service API, detached child, workflow-name inventory, inferred Actions run ID, claim, PID, log, state file, or automatic restart.
 
