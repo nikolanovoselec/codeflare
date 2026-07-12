@@ -23,8 +23,11 @@ import {
   FAQ_ITEMS,
   FEATURE_TERMINALS,
   HERO,
+  IDE,
+  INFERENCE_MESH,
   METHOD,
   NAV_LINKS,
+  OPERATIONS,
   ORCHESTRATION,
   PIPELINE,
   SECURITY,
@@ -36,12 +39,14 @@ const SECTION_ORDER = [
   'shift',
   'method',
   'legacy',
+  'operations',
   'security',
   'context',
   'pipeline',
   'orchestration',
   'cost',
   'platform',
+  'ide',
   'mcp',
   'dogfood',
   'faq',
@@ -114,8 +119,8 @@ describe('landing page composition (REQ-LANDING-001)', () => {
     }
   });
 
-  it('renders exactly four folded substations (operations, e2e, tenancy, runs-everywhere)', () => {
-    expect(body.querySelectorAll('.section-head.substation')).toHaveLength(4);
+  it('renders exactly three folded substations (e2e, tenancy, runs-everywhere)', () => {
+    expect(body.querySelectorAll('.section-head.substation')).toHaveLength(3);
     for (const sub of Array.from(body.querySelectorAll('.section-head.substation'))) {
       expect(sub.querySelector('h3')).not.toBeNull();
       expect(sub.querySelector('h2')).toBeNull();
@@ -123,9 +128,9 @@ describe('landing page composition (REQ-LANDING-001)', () => {
   });
 
   it('renders the full set of terminals, each armed for the proof reveal', () => {
-    // hero + 4 feature + method gate + legacy + boundary + 2 context + board +
-    // orch + ledger + platform seed + mcp + dogfood = 16.
-    expect(body.querySelectorAll('.terminal[data-proof]')).toHaveLength(16);
+    // hero + 4 feature + method gate + legacy + boundary + operations gate + 2 context
+    // + board + orch + ledger + platform seed + ide editor + mcp + dogfood + inference mesh = 19.
+    expect(body.querySelectorAll('.terminal[data-proof]')).toHaveLength(19);
   });
 });
 
@@ -143,6 +148,16 @@ describe('hero top line (capability ticker)', () => {
     expect(words).toHaveLength(HERO.kicker.words.length);
     expect(words[0].getAttribute('data-active')).toBe('true');
     expect(Array.from(words).map((word) => word.textContent?.trim())).toEqual(HERO.kicker.words);
+  });
+
+  it('renders a single hero CTA as the shared micro-cta link from the content model, no button', () => {
+    const copy = body.querySelector('.hero-copy')!;
+    const links = copy.querySelectorAll('.micro-cta a');
+    expect(links).toHaveLength(1);
+    expect(links[0].textContent?.trim()).toBe(HERO.primaryCta.label);
+    expect(links[0].getAttribute('href')).toBe(HERO.primaryCta.href);
+    // No filled/ghost buttons remain in the hero.
+    expect(copy.querySelector('.btn')).toBeNull();
   });
 });
 
@@ -185,7 +200,10 @@ describe('feature terminals (the shift)', () => {
 
 describe('proof terminals type their last line in on view (#32)', () => {
   it('every proof transcript ends with one caret and a [data-typeline] last line', () => {
-    const proofs = body.querySelectorAll('.proof-terminal');
+    // The inference-mesh terminal reuses the proof-terminal chrome but drives a
+    // typed reel (animate='typed'), not the type-on-view cursor, so it is excluded
+    // from this cursor-line invariant and covered by the reel assertion below.
+    const proofs = body.querySelectorAll('.proof-terminal:not(.mesh-terminal)');
     expect(proofs).toHaveLength(3); // legacy + context web + context e2e
     for (const p of Array.from(proofs)) {
       const lines = p.querySelectorAll('.terminal-body .t-line');
@@ -217,6 +235,22 @@ describe('rolling-row artifacts (styler 2)', () => {
     expect(boundary.querySelector('.gate-echo')).not.toBeNull();
     expect(boundary.querySelector('.gate-step.is-deny')).not.toBeNull();
     expect(boundary.querySelector('.gate-step.is-redact')).not.toBeNull();
+  });
+
+  it('operations is a peer section (not a substation) with a governed-infra run in the gate grammar', () => {
+    const ops = body.querySelector('#operations')!;
+    expect(ops).not.toBeNull();
+    // A top-level section head (h2), not a folded substation.
+    expect(ops.querySelector('.section-head:not(.substation) h2')).not.toBeNull();
+    expect(ops.querySelector('.section-head.substation')).toBeNull();
+    // The governed infra run is a gate terminal with one row per content-model row,
+    // including at least one denied (out-of-scope) row.
+    const gate = ops.querySelector('.terminal.gate[data-proof]')!;
+    expect(gate).not.toBeNull();
+    expect(gate.querySelectorAll('.gate-steps .gate-step')).toHaveLength(OPERATIONS.run.rows.length);
+    expect(gate.querySelector('.gate-step.is-deny')).not.toBeNull();
+    // The two operations capability cards render below the run.
+    expect(ops.querySelectorAll('.feature-grid .feature-col')).toHaveLength(OPERATIONS.cards.length);
   });
 
   it('review board rolls a lane per reviewer; finding lanes show the finding -> fixed track; verdict pinned', () => {
@@ -313,5 +347,97 @@ describe('REQ-LANDING-004: dark first paint (anti-flash contract)', () => {
       .map((s) => (s.textContent ?? '').replace(/\s+/g, ''))
       .find((css) => /body\{[^}]*background-color:#[0-9a-f]{3,8}/i.test(css));
     expect(bodyPaint, 'an inline body{} rule sets the dark body background').toBeTruthy();
+  });
+});
+
+describe('inference mesh family hero (REQ-LANDING-005)', () => {
+  it('sits as a <header> directly after the primary hero and before the shift section', () => {
+    const main = body.querySelector('main')!;
+    const children = Array.from(main.children);
+    expect(children[0].classList.contains('hero')).toBe(true);
+    expect(children[1].id).toBe(INFERENCE_MESH.id);
+    expect(children[1].tagName).toBe('HEADER');
+    expect(children[2].id).toBe('shift');
+  });
+
+  it('renders the ~/inference chiplet and the plain white Inference Mesh name (no scramble)', () => {
+    const band = body.querySelector(`#${INFERENCE_MESH.id}`)!;
+    // The chiplet is the shared .kicker (CSS prepends the coral ~/), wired from the model.
+    const chiplet = band.querySelector('.mesh-hero-copy > .kicker')!;
+    expect(chiplet).not.toBeNull();
+    expect(chiplet.textContent?.trim()).toBe(INFERENCE_MESH.tag);
+    // The headline is the plain product name in white section-h2 style: no flare, no scramble.
+    const headline = band.querySelector('.mesh-hero-headline')!;
+    expect(headline.tagName).toBe('H2');
+    expect(headline.textContent?.trim()).toBe(INFERENCE_MESH.name);
+    expect(headline.querySelector('.flare')).toBeNull();
+    expect(band.querySelectorAll('[data-scramble]')).toHaveLength(0);
+    expect(band.querySelector('h1')).toBeNull();
+  });
+
+  it('renders the description verbatim from the typed content model', () => {
+    const band = body.querySelector(`#${INFERENCE_MESH.id}`)!;
+    expect(band.querySelector('.mesh-hero-def')?.textContent).toBe(INFERENCE_MESH.description);
+  });
+
+  it('renders the GitHub CTA as the shared micro-cta text link (matching the dogfood CTA), external', () => {
+    const band = body.querySelector(`#${INFERENCE_MESH.id}`)!;
+    const link = band.querySelector<HTMLAnchorElement>('.mesh-hero-copy .micro-cta a')!;
+    expect(link).not.toBeNull();
+    expect(link.textContent?.trim()).toBe(INFERENCE_MESH.primaryCta.label);
+    expect(link.getAttribute('href')).toBe(INFERENCE_MESH.primaryCta.href);
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toContain('noopener');
+    // No filled button any more.
+    expect(band.querySelector('.btn-primary')).toBeNull();
+  });
+
+  it('orders the copy chiplet -> headline -> description -> CTA, with no product subtitle line', () => {
+    const band = body.querySelector(`#${INFERENCE_MESH.id}`)!;
+    const copy = band.querySelector('.mesh-hero-copy')!;
+    expect(copy.querySelector('.mesh-hero-product')).toBeNull();
+    const order = Array.from(copy.children);
+    const chiplet = copy.querySelector('.kicker')!;
+    const headline = copy.querySelector('.mesh-hero-headline')!;
+    const def = copy.querySelector('.mesh-hero-def')!;
+    const cta = copy.querySelector('.micro-cta')!;
+    expect(order.indexOf(chiplet)).toBeLessThan(order.indexOf(headline));
+    expect(order.indexOf(headline)).toBeLessThan(order.indexOf(def));
+    expect(order.indexOf(def)).toBeLessThan(order.indexOf(cta));
+  });
+
+  it('drives the shared typed reel on the terminal command line, looping over the beats', () => {
+    const band = body.querySelector(`#${INFERENCE_MESH.id}`)!;
+    const terminal = band.querySelector('.terminal.proof-terminal.mesh-terminal[data-proof]')!;
+    expect(terminal).not.toBeNull();
+    expect(terminal.querySelector('.terminal-title')?.textContent).toBe(INFERENCE_MESH.terminal.title);
+    // The static proof lines plus exactly one typed reel command line.
+    expect(terminal.querySelectorAll('.terminal-body .t-line')).toHaveLength(
+      INFERENCE_MESH.terminal.lines.length + 1,
+    );
+    // Reel contract: the full loop rides data-ft-loop, the command line is seeded
+    // with the first beat, and it loops (no play-once) so feature-terminals.ts
+    // cycles it instead of resting.
+    expect(JSON.parse(terminal.getAttribute('data-ft-loop')!)).toEqual(INFERENCE_MESH.terminal.loop);
+    expect(terminal.querySelector('.ft-typed[data-ft-typed]')?.textContent).toBe(
+      INFERENCE_MESH.terminal.loop[0],
+    );
+    expect(terminal.hasAttribute('data-ft-once')).toBe(false);
+    expect(terminal.querySelector('.terminal-foot.tf-static')?.textContent).toContain(INFERENCE_MESH.terminal.foot);
+  });
+});
+
+describe('browser IDE continuity band (REQ-LANDING-007)', () => {
+  it('sits as a section directly after platform, built on the shared terminal frame', () => {
+    const ids = Array.from(body.querySelectorAll('main > section')).map((s) => s.id);
+    expect(ids.indexOf('ide')).toBe(ids.indexOf('platform') + 1);
+    expect(body.querySelector('#ide .terminal.code-editor')).not.toBeNull();
+  });
+
+  it('drives the integrated terminal on the shared reel (data-ft-loop seeded on the first beat)', () => {
+    const editor = body.querySelector('#ide .terminal.code-editor')!;
+    expect(JSON.parse(editor.getAttribute('data-ft-loop')!)).toEqual(IDE.stream);
+    expect(editor.querySelector('.ce-term .ft-typed[data-ft-typed]')?.textContent).toBe(IDE.stream[0]);
+    expect(editor.querySelector('.terminal-foot.ce-status')).not.toBeNull();
   });
 });

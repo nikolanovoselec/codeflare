@@ -11,14 +11,6 @@ export interface TabConfig {
   label: string;     // Display label
 }
 
-/** Saved preset for quick session creation */
-export interface TabPreset {
-  id: string;
-  name: string;
-  tabs: TabConfig[];
-  createdAt: string;
-}
-
 /** User preferences persisted across sessions */
 export type SessionMode = z.infer<typeof SessionModeSchema>;
 
@@ -26,7 +18,6 @@ export type SleepAfterOption = '15m' | '30m' | '1h' | '2h' | '4h';
 
 export interface UserPreferences {
   lastAgentType?: AgentType;
-  lastPresetId?: string;
   workspaceSyncEnabled?: boolean;
   fastStartEnabled?: boolean;
   sessionMode?: SessionMode;

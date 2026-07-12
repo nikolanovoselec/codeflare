@@ -35,12 +35,14 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. A UserPromptSubmit hook injects a short capture instruction into the active agent context on each trigger. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh --> <!-- @test: host/__tests__/memory-capture-hook.test.js (on a trigger the hook emits additionalContext carrying the capture directive and writes the .vars carrier file) -->
-2. Only real user messages are counted; tool results and synthetic agent-generated messages are excluded from the count. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh --> <!-- @test: host/__tests__/memory-capture-hook.test.js (counts only real user prompts, excluding tool_results and command wrappers) -->
-3. When triggered, a background sonnet subagent runs the three-stage capture pipeline (prefilter transcript noise, accumulate per-chunk observations, synthesise the final note) and writes the capture file into the vault's session-captures folder. <!-- @impl: preseed/agents/claude/agents/memory-capture.md --> <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/prefilter-transcript.sh --> <!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh strips tool_use/tool_result/synthetic markers, keeps real prompts + assistant text, and chunks the remainder) -->
-4. Capture-file timestamps reflect the user's local timezone, resolved per [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC4. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh --> <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (assert-iso-ts.sh resolves capture timezone from USER_TIMEZONE/TZ/etc and stamps the matching local offset) -->
-5. The capture file uses a YAML frontmatter template with session, capture-time, and capture-range fields followed by Context / Decisions / Observations / References sections. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md --> <!-- coverage-gap: the capture-file YAML frontmatter + Context/Decisions/Observations/References template lives in the LLM capture prompt (memory-agent-prompt.md); the rendered shape is produced by the capture agent, not extractable code; the rendered template has no importable symbol or jsdom-observable side effect, and asserting the prompt strings would be banned text-matching -->
-6. Graph nodes and edges are extracted from the rendered capture into a chunk, folded into the cumulative `vault-graph.json` via the shared `merge-vault-graph.py` (per [REQ-MEM-009](#req-mem-009-vault-graph-accumulates-monotonically-across-extractions)), and that cumulative graph is merged into the unified global graph under `user_vault`; the merge is serialised and atomic, so the new content is queryable on the same turn it is written. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md --> <!-- coverage-gap: the merge-vault-graph.py fold IS behaviorally tested under REQ-MEM-009 (host/__tests__/vault-extract-merge.test.js runs the real Python and asserts the cumulative graph, nx.compose dedup, and corrupt-file reset); only the prompt-driven same-turn flock-serialised `graphify global add --as user_vault` ordering is non-behaviorally-testable (it lives in the LLM prompt, with no importable symbol or jsdom-observable side effect in the test pool) -->
+1. A UserPromptSubmit hook injects a short capture instruction into the active agent context on each trigger. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::CONTEXT --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
+2. Only real user messages are counted; tool results and synthetic agent-generated messages are excluded from the count. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-001 AC2: real-user prompt counting matches Claude synthetic-wrapper filtering) -->
+3. When triggered, a background sonnet subagent runs the three-stage capture pipeline (prefilter transcript noise, accumulate per-chunk observations, synthesise the final note) and writes the capture file into the vault's session-captures folder. <!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh (REQ-MEM-001 AC3) / REQ-VAULT-002 (conversation captures land in vault as markdown)) -->
+4. Capture-file timestamps reflect the user's local timezone, resolved per [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC4.
+5. The capture file uses a YAML frontmatter template with session, capture-time, and capture-range fields followed by Context / Decisions / Observations / References sections. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
+6. Extracted chunks merge serially and atomically into cumulative `vault-graph.json`, then into the global graph under `user_vault`, making new content queryable in the same turn. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -48,14 +50,15 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 - Memory capture requires advanced session mode (the hook, plugin, and memory rule are only preseeded in advanced mode).
 - The capture agent is sonnet per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad), pinned at the subagent-definition level so the dispatching parent cannot silently downgrade the model.
 - The capture agent itself is the LLM that produces the extracted graph (the upstream headless extract CLI is not invoked) to avoid duplicating inference cost.
-- The capture subagent's pipeline must run whether or not a shell-routing gate (context-mode) is active: the subagent definition carries both the Bash tools and the context-mode execute tools and uses whichever the session permits, so a gated Bash call never silently aborts the capture.
-- The durable transcript source is per-runtime: the Claude capture reads the transcript JSONL slice the hook passes by line range; the Pi capture reads its persisted session file via `getSessionFile()` and parses the message entries. Both skip the capture when the resolved transcript is empty.
+- The capture subagent carries Bash and context-mode execution tools and uses whichever surface the session permits, so shell-routing gates cannot abort capture.
+- Claude reads the hook-provided transcript JSONL range; Pi reads message entries from the persisted session returned by `getSessionFile()`.
+- Both runtimes skip capture when the resolved transcript is empty.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown), [REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)
 
-**Verification:** [Integration test](../../host/__tests__/memory-capture-hook.test.js), [Pi behavioral tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -69,8 +72,8 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. The capture sources the conversation from the durable on-disk session transcript that each runtime already persists for session resume, never from a volatile in-memory buffer. A capture triggered immediately after a reload or resume therefore sees the full conversation; if the resolved transcript is empty the capture is skipped rather than writing a placeholder "no substantive content" note. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::default --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault reads the durable session file via getSessionFile/parseSessionMessages/readSessionMessages and skips capture when the resolved transcript is empty) -->
-2. Pi capture triggers are inert inside subagent child sessions — sessions whose header carries a parent-session pointer (review monitors, CI monitors, capture/extract subagents themselves, which always load the parent's extensions) — so a background task's transcript never receives an injected capture follow-up as its visible output. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::isChildSession --> <!-- @test: src/__tests__/lib/pi-child-session-guard.test.ts (child-session predicates: parent-session header detected, root header / non-header lines / garbage rejected) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (memory-vault handlers are inert inside subagent child sessions) -->
+1. Capture reads each runtime's durable resume transcript, never volatile memory, so reload and resume retain full history; an empty resolved transcript skips capture instead of writing a placeholder. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::default --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
+2. Pi capture triggers are inert inside subagent child sessions — sessions whose header carries a parent-session pointer (review monitors, CI monitors, capture/extract subagents themselves) — so a background task's transcript never receives an injected capture follow-up as its visible output. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::isChildSession --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-001/REQ-VAULT-003: memory-vault handlers are inert inside subagent child sessions) -->
 
 **Constraints:**
 
@@ -95,26 +98,30 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. The hook tracks the number of user messages since the last capture using a per-session counter file. The counter directory defaults to `/tmp/.memory-counter/` and is overridable via the `MEMCAP_COUNTER_DIR` environment variable for hermetic tests. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (counter directory defaults to /tmp/.memory-counter and obsolete .memory/counter bisync filter + mkdir are absent) -->
-2. On the first run for a session whose transcript contains exactly one real-user prompt (CURRENT_COUNT == 1), the hook treats this as a brand-new session: it initialises a baseline at the current transcript size, writes the counter, injects the first-message graph-query directive ([REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3), and exits without triggering capture. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh --> <!-- @test: host/__tests__/memory-capture-hook.test.js (first run on a brand-new single-prompt session baselines, writes the counter, and exits without capturing) -->
-3. If the counter file exists and the delta since the last capture is less than 15 messages, the hook exits silently. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh --> <!-- @test: host/__tests__/memory-capture-hook.test.js (does NOT trigger when only 14 new real prompts since last_count, delta < 15 boundary) -->
-4. When the delta reaches 15, the capture subagent is triggered. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh --> <!-- @test: host/__tests__/memory-capture-hook.test.js (triggers capture when 15+ new real prompts since last_count and the counter advances to start a fresh window) -->
-5. Duplicate capture triggers are suppressed while a capture is pending. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memoryVarsPending --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi shouldCapture / pending-marker logic suppresses a re-trigger while a capture is already pending) -->
-6. Pi advances the prompt counter only after the capture note exists, so a stopped capture retries instead of marking the window complete. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::captureVars --> <!-- @impl: preseed/agents/pi/prompts/memory-agent-prompt.md::Advance the counter and clear the pending marker --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi counter-after-note contract: the prompt counter advances only once the capture note exists) -->
-7. When the hook fires with no counter file and the transcript already contains more than one real-user prompt (CURRENT_COUNT > 1), it treats the session as resumed: it force-fires a capture covering the transcript from line 1 and re-emits the graph-query directive ([REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3). <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh --> <!-- @test: host/__tests__/memory-capture-hook.test.js (missing counter + transcript with >1 prompt force-fires capture from line 1; exactly-1-prompt stays brand-new with no capture) -->
+1. The hook tracks the number of user messages since the last capture using a per-session counter file. The counter directory defaults to `/tmp/.memory-counter/` and is overridable via the `MEMCAP_COUNTER_DIR` environment variable for hermetic tests. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 15 user messages)) -->
+2. A first run with exactly one user prompt initializes transcript baseline and counter, injects the first-message graph-query directive, and exits without capture. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::CONTEXT --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)) -->
+3. If the counter file exists and the delta since the last capture is less than 15 messages, the hook exits silently. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 15 user messages)) -->
+4. When the delta reaches 15, the capture subagent is triggered. <!-- @test: host/__tests__/memory-capture-hook.test.js (counter advances on capture so the next run starts a fresh window) -->
+5. Duplicate capture triggers are suppressed while a capture is pending. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memoryVarsPending --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+6. Pi advances the prompt counter only after the capture note exists, so a stopped capture retries instead of marking the window complete. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::captureVars --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-002 AC6: Pi capture counter advances only after a capture note exists) -->
+7. When the hook fires with no counter file and the transcript already contains more than one real-user prompt (CURRENT_COUNT > 1), it treats the session as resumed: it force-fires a capture covering the transcript from line 1 and re-emits the graph-query directive ([REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3). <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::CONTEXT --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
-- The counter file MUST live under an ephemeral path (default `/tmp/.memory-counter/`) so that its presence/absence reliably encodes "fresh container instance vs. mid-session continuation". Persisting the counter under `$HOME` or any R2-synced path would defeat resume detection.
-- The two first-run sub-cases (brand-new vs. resumed) are distinguished entirely by `CURRENT_COUNT`: a value of 1 means the just-submitted prompt is the only one in the transcript (brand-new); a value greater than 1 means a prior session's prompts persisted in the transcript (resumed). No timestamps, mtimes, or external sentinels are involved.
-- The in-session `/compact` case (same container, same PID, counter survives) is not detected by this hook; the 15-prompt cadence catches up within one window, and the compressed summary left by `/compact` keeps the agent oriented in the meantime. Documented as a known limitation; revisit if observed to bite in practice.
+- The counter file MUST live under an ephemeral path (default `/tmp/.memory-counter/`).
+- `CURRENT_COUNT` alone distinguishes first runs: 1 means a brand-new transcript containing only the submitted prompt; greater values mean prior prompts persisted from a resumed session.
+- Detection uses no timestamps, mtimes, or external sentinels.
+- The hook does not detect in-session `/compact`; its surviving counter catches up within the 15-prompt window while the compressed summary preserves orientation.
+- This remains an accepted limitation pending observed harm.
 - On Pi, the `.vars` carrier file is the pending-capture lock and stale retry marker.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault)
 
-**Verification:** [Automated test](../../host/__tests__/memory-capture-hook.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -128,12 +135,12 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. In advanced mode, the user's vault directory (including its own graph output) is included in R2 sync. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (slices the real VAULT_FILTER + RCLONE_FILTERS_COMMON out of entrypoint.sh, sources it under SESSION_MODE=advanced, runs the real `rclone lsf -R` against an on-disk fixture and asserts Vault/note.md AND Vault/graphify-out/vault-graph.json are INCLUDED) -->
-2. On container boot, the vault is pulled from R2 before any initialization runs so returning sessions inherit their persisted content untouched. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (establish_bisync_baseline runs before init_user_vault at boot) -->
-3. Vault directory initialization is idempotent; re-running on a populated vault creates nothing. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (init_user_vault idempotent: re-run against a populated vault clobbers nothing) -->
-4. Vault changes are pushed back to R2 on three triggers: the regular sync cadence ([REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)), the Sync-now button ([REQ-STOR-015](storage.md#req-stor-015-explicit-sync-trigger-from-ui)), and the final shutdown bisync ([REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync)). <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (the bisync daemon runs within one cadence tick and a SIGUSR1 interrupts the cadence sleep to trigger bisync immediately) -->
-5. The ephemeral unified-graph layer is rebuilt locally on every container boot and is not synced. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (runs the real filter array via rclone lsf and asserts the ephemeral .graphify/global-graph.json workspace is EXCLUDED (rebuilt on boot) and the per-run derived Vault/graphify-out/graph.json is EXCLUDED while the cumulative vault-graph.json is INCLUDED) -->
-6. The shutdown handler watchdog allows the final bisync up to 120s to drain pending writes before forced termination. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- coverage-gap: no genuine behavioral test for the 120s (108s SIGTERM + 12s SIGKILL) shutdown-watchdog budget — exercising a real 120s timeout / forced-termination path is impractical as a node:test unit -->
+1. In advanced mode, the user's vault directory and cumulative `vault-graph.json` source of truth are included in R2 sync. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: includes the vault tree AND its vault-graph.json despite the global graphify-out exclude (REQ-MEM-004 AC1 / REQ-VAULT-001 AC1)) -->
+2. On container boot, the vault is pulled from R2 before any initialization runs so returning sessions inherit their persisted content untouched. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
+3. Vault directory initialization is idempotent; re-running on a populated vault creates nothing. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (init_user_vault does not clobber existing user vault content on re-run (REQ-MEM-004 AC3)) -->
+4. Vault changes are pushed back to R2 on three triggers: the regular sync cadence ([REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)), the Sync-now button ([REQ-STOR-015](storage.md#req-stor-015-explicit-sync-trigger-from-ui)), and the final shutdown bisync ([REQ-STOR-005](storage.md#req-stor-005-graceful-shutdown-performs-final-sync)). <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (SIGUSR1 interrupts the cadence sleep and triggers bisync immediately (REQ-STOR-003 AC2 / REQ-STOR-015 AC5 / REQ-MEM-004 AC4: SIGUSR1 trigger)) -->
+5. The ephemeral unified-graph layer and derived Vault `graph.json`/`graph.html` outputs are rebuilt locally and not synced; the served visualization persists at `Vault/Raw/Graphs/vault-graph.html`. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (advanced mode: excludes the per-run derived vault graph.json but keeps the cumulative one (REQ-MEM-004 AC5: derived layer not synced)) -->
+6. The shutdown handler watchdog allows the final bisync up to 120s to drain pending writes before forced termination. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010: Graceful container shutdown preserves data) -->
 
 **Constraints:**
 
@@ -158,10 +165,12 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. In default mode, the vault directory is not preserved across container recreations: the R2 sync filters include the Vault tree only in advanced mode and explicitly exclude it in default mode, so cross-session persistence is limited to advanced-mode sessions. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (sources the real filter resolution under SESSION_MODE=default and asserts the entire Vault tree (note + graph) is positively EXCLUDED, with a paired advanced-vs-default test asserting the mode gate flips ONLY the vault verdict while Uploads/Temporary stay INCLUDED in both) -->
-2. In default mode, the capture hook still runs the in-session counter logic but vault writes are local-only. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh --> <!-- @test: src/__tests__/lib/pro-mode-gating.test.ts (CF-064: default mode receives no vault or memory machinery, capture stays local-only) -->
-3. The memory plugin, the memory rule (which carries the folded vault trigger/route content), the vault plugin, and the vault-note-capture rule are preseeded only in advanced mode. <!-- @impl: preseed/agents/claude/manifest.json --> <!-- @test: src/__tests__/lib/pro-mode-gating.test.ts (rules/memory.md, vault-note-capture rule, and all codeflare-memory/codeflare-vault plugin files are tagged modes === ['advanced']) -->
-4. Pro mode seeds a strict superset of Standard's preseed files; the memory and vault plugins/rules are part of the Pro-only delta. <!-- @impl: preseed/agents/claude/manifest.json --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts ("advanced" is a superset of "default": the advanced seed contains every default file plus the memory/vault Pro-only delta) -->
+1. In default mode, the vault directory is not preserved across container recreations: the R2 sync filters include the Vault tree only in advanced mode and explicitly exclude it in default mode, so cross-session persistence is limited to advanced-mode sessions. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2 sync) / REQ-MEM-006 (advanced-only) / REQ-VAULT-001 (vault filter order) / REQ-STOR-004 (static excludes)) -->
+2. In default mode, the capture hook still runs the in-session counter logic but vault writes are local-only. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: src/__tests__/lib/pro-mode-gating.test.ts (REQ-MEM-006 AC3: memory + vault rules and plugins are advanced-only / REQ-SUB-014 (session mode gating by tier: advanced-only preseed content delivered only to tiers permitting advanced mode)) -->
+3. The memory plugin, the memory rule (which carries the folded vault trigger/route content), the vault plugin, and the vault-note-capture rule are preseeded only in advanced mode. <!-- @test: src/__tests__/lib/pro-mode-gating.test.ts (REQ-MEM-006 AC3: memory + vault rules and plugins are advanced-only / REQ-SUB-014 (session mode gating by tier: advanced-only preseed content delivered only to tiers permitting advanced mode)) -->
+4. Pro mode seeds a strict superset of Standard's preseed files; the memory and vault plugins/rules are part of the Pro-only delta. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -171,7 +180,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-SUB-014](subscription.md#req-sub-014-session-mode-gating-by-tier)
 
-**Verification:** [Integration test](../../src/__tests__/lib/pro-mode-gating.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -185,13 +194,15 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. The capture prompt is preseeded into the session-installed memory plugin alongside its scripts. <!-- @impl: preseed/agents/claude/manifest.json --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (codeflare-memory plugin files are advanced-only - memory plugin files present in generated seed) -->
-2. The memory plugin's scripts (hook, prompt, prefilter) and the capture subagent definition (pinned to sonnet per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)) are all delivered via the manifest pipeline that seeds named subagents like architect and code-reviewer ([REQ-AGENT-008](agents.md#req-agent-008-preseed-deployed-to-container-on-start)). <!-- @impl: preseed/agents/claude/manifest.json --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (every entry has a valid key, contentType, content, and modes; all keys start with a valid agent prefix - memory plugin entries delivered through the manifest pipeline) -->
-3. All memory-plugin entries are marked advanced-only in the manifest. <!-- @impl: preseed/agents/claude/manifest.json --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (codeflare-memory plugin files are advanced-only) -->
-4. The hook script is delivered via the plugin but registered via the session settings merge, not the plugin loader. <!-- @impl: preseed/agents/claude/manifest.json --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (no standalone memory hook files remain in hooks/ directory - hook ships inside the plugin) --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (advanced mode SETTINGS_CONFIG registers memory-capture hook via jq settings merge, gated by SESSION_MODE) -->
-5. Memory-plugin source lives in the single preseed source tree. <!-- @impl: preseed/agents/claude/manifest.json --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (all keys start with a valid agent prefix; no path traversal / leading-dot / backslash in relative key portion) -->
-6. A build-time seed generator produces the runtime payload consumed by the Worker; memory-plugin files appear in that payload. <!-- @impl: scripts/generate-agent-seed.mjs --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (generated configs array is non-empty; codeflare-memory plugin files present in the generated payload) -->
-7. Claude memory plugin files are not generically adapted for non-Claude agents because they depend on Claude-specific MCP and hook surfaces; Pi receives native memory/vault runtime adapters where equivalent Pi lifecycle primitives exist, including its capture-contract and vault-extract prompt files, which ship through the Pi manifest to `~/.pi/agent/prompts/` rather than being written inline at runtime (see [REQ-MEM-014](#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever)). <!-- @impl: preseed/agents/pi/manifest.json --> <!-- @impl: preseed/agents/pi/prompts/memory-agent-prompt.md --> <!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (codeflare-memory plugin is excluded from non-Claude agents; Pi native prompt assets are seeded under .pi/agent/prompts/) -->
+1. The capture prompt is preseeded into the session-installed memory plugin alongside its scripts. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+2. The memory plugin's scripts (hook, prompt, prefilter) and the capture subagent definition (pinned to sonnet per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)) are all delivered via the manifest pipeline that seeds named subagents like architect and code-reviewer ([REQ-AGENT-008](agents.md#req-agent-008-preseed-deployed-to-container-on-start)). <!-- @impl: preseed/agents/claude/manifest.json::modes --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+3. All memory-plugin entries are marked advanced-only in the manifest. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+4. The hook script is delivered via the plugin but registered via the session settings merge, not the plugin loader. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+5. Memory-plugin source lives in the single preseed source tree. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+6. A build-time seed generator produces the runtime payload consumed by the Worker; memory-plugin files appear in that payload. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+7. Claude memory plugin files are not generically adapted for non-Claude agents. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -202,7 +213,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-AGENT-003](agents.md#req-agent-003-agent-cli-auto-started-in-tab-1)
 
-**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -216,21 +227,23 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. Every vault writer maintains a single persistent incremental vault graph (`vault-graph.json`) that survives across passes; both the vault-extract and memory-capture pipelines on both runtimes author a chunk and fold it in via the shared `merge-vault-graph.py` rather than editing `graph.json` in place. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py --> <!-- @test: host/__tests__/vault-extract-merge.test.js (script writes the cumulative vault graph back to vault_graph_path as the to_json path argument) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi vault-extract + memory prompts build the cumulative vault graph via the Pi-local merge-vault-graph.py, preseeded into .pi/agent/scripts) -->
-2. Each pass merges the new chunk's nodes/edges into the persistent graph using a hash-keyed union (existing IDs dedupe, new IDs append). <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py --> <!-- @test: host/__tests__/vault-extract-merge.test.js (script unions prior + new graphs via nx.compose hash-keyed dedup; normalises both operands to directed first) -->
-3. The global graph's vault contribution always reflects the cumulative vault content (the persistent `vault-graph.json` is fed to `graphify global add --as user_vault`, never the per-run chunk or `graph.json`), not only the most recent pass. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md --> <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md --> <!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md --> <!-- @impl: preseed/agents/pi/prompts/memory-agent-prompt.md --> <!-- @test: host/__tests__/vault-extract-merge.test.js (prompt step 5 feeds vault-graph.json to graphify global add --as user_vault) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi vault-extract + memory prompts publish the cumulative vault graph to the global graph) -->
-4. If the persistent vault graph is missing or unreadable, the pass starts a fresh one rather than crashing and writes it at the end of the run. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py --> <!-- @test: host/__tests__/vault-extract-merge.test.js (script wraps the vault-graph.json load in try/except so missing/corrupt files reset to a fresh DiGraph) -->
-5. Vault graph merges are serialised with capture-pipeline writes and active-repo hooks; a short timeout prevents indefinite blocking if the lock holder crashes (matching [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) AC7). <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md --> <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md --> <!-- @test: host/__tests__/vault-extract-merge.test.js (prompt wraps the merge invocation under flock /tmp/graphify-global.lock) -->
+1. Every vault writer maintains a single persistent incremental vault graph (`vault-graph.json`) that survives across passes; both the vault-extract and memory-capture pipelines on both runtimes author a chunk and fold it in via a shared merge step rather than editing `graph.json` in place. <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC1: script writes the cumulative vault graph back to vault_graph_path as the to_json path argument) -->
+2. Each pass merges the new chunk's nodes/edges into the persistent graph using a hash-keyed union (existing IDs dedupe, new IDs append). <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC2: script unions the prior + new graphs via nx.compose (hash-keyed dedup)) -->
+3. The global graph's vault contribution always reflects the cumulative vault content (the persistent `vault-graph.json` is fed to `graphify global add --as user_vault`, never the per-run chunk or `graph.json`), not only the most recent pass. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-VAULT-016 / REQ-MEM-009: Pi vault-extract + memory prompts build the cumulative vault graph via the Pi-local merge-vault-graph.py) -->
+4. If the persistent vault graph is missing or unreadable, the pass starts a fresh one rather than crashing and writes it at the end of the run. <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC1: script writes the cumulative vault graph back to vault_graph_path as the to_json path argument) -->
+5. Vault graph merges are serialised with capture-pipeline writes and active-repo hooks; a short timeout prevents indefinite blocking if the lock holder crashes (matching [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) AC7). <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC1: script writes the cumulative vault graph back to vault_graph_path as the to_json path argument) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
-- No HTML visualization is generated for the unified global graph; structural queries are the interface. Only the curated vault subset receives a rendered visualization shipped to users.
+- No HTML visualization is generated for the unified global graph; structural queries are the interface; Only the curated vault subset receives a rendered visualization shipped to users.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) (capture pipeline contract), [REQ-VAULT-002](vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown) (vault is always-on in the global graph)
 
-**Verification:** [Automated test](../../host/__tests__/vault-extract-merge.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -244,13 +257,15 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. The hook tolerates tilde-prefixed transcript paths. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh --> <!-- @test: host/__tests__/memory-capture-hook.test.js (expands ~ in transcript_path to $HOME) -->
-2. Variables shared between the hook and the capture subagent are passed via a small carrier file rather than inline context. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh --> <!-- @test: host/__tests__/memory-capture-hook.test.js (triggers capture when 15+ NEW real prompts since last_count - carrier-file directive emitted) -->
-3. On the first message of a session, the hook injects a graph-query directive instructing the agent to consult the unified graph before responding. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh --> <!-- @test: host/__tests__/memory-capture-hook.test.js (first run on a brand-new session baselines and emits memory-scan directive) -->
-4. The hook resolves the capture timezone from the user preference ([REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)), falling back to the container default and finally to UTC. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh --> <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (happy path UTC and Europe/Zurich real local-TZ offset accepted - resolved-timezone honored) -->
-5. The capture timestamp is validated against the current wall clock and rejected if fabricated, missing a timezone offset, or mismatching the resolved timezone. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh --> <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (happy paths UTC + Europe/Zurich exit 0; ISO_TS lacking [+-]NNNN offset suffix rejected) -->
-6. A timestamp whose offset does not match the resolved timezone is rejected; this catches dropped-timezone-wrapper bugs without false-positiving legitimately-UTC hosts. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh --> <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (Europe/Zurich + ISO_TS ending in +0000 rejected) -->
-7. A timestamp more than 30 seconds away from the current wall clock is rejected. Any assertion failure halts the capture rather than writing a confabulated timestamp to the vault. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh --> <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (year-old fabricated timestamp rejected for freshness drift) -->
+1. The hook tolerates tilde-prefixed transcript paths. <!-- @test: host/__tests__/memory-capture-hook.test.js (expands ~ in transcript_path to $HOME) -->
+2. Variables shared between the hook and the capture subagent are passed via a small carrier file rather than inline context. <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 15 user messages)) -->
+3. On the first message of a session, the hook injects a graph-query directive instructing the agent to consult the unified graph before responding. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::DELTA --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)) -->
+4. The hook resolves the capture timezone from the user preference ([REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)), falling back to the container default and finally to UTC. <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
+5. The capture timestamp is validated against the current wall clock and rejected if fabricated, missing a timezone offset, or mismatching the resolved timezone. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh::RESOLVED --> <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (assert-iso-ts.sh / REQ-MEM-010 AC5+AC6+AC7) -->
+6. A timestamp whose offset does not match the resolved timezone is rejected; this catches dropped-timezone-wrapper bugs without false-positiving legitimately-UTC hosts. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh::RESOLVED --> <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (AC6 #416 regression: Europe/Zurich + ISO_TS ending in +0000 rejected) -->
+7. A timestamp more than 30 seconds away from the current wall clock is rejected. Any assertion failure halts the capture rather than writing a confabulated timestamp to the vault. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh::RESOLVED --> <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (AC7 freshness drift: a year-old fabricated timestamp rejected) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -260,7 +275,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)
 
-**Verification:** [Automated test](../../host/__tests__/memory-capture-hook.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -274,10 +289,10 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. In default mode, only baseline agent permissions are applied; capture hooks are not registered. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (SESSION_MODE gates hook registration; default mode emits only skipDangerousModePermissionPrompt, not hook registrations) -->
-2. If no session mode has been explicitly set, the default mode applies. <!-- @impl: src/lib/session-mode.ts::resolveSessionMode --> <!-- @test: src/__tests__/lib/session-mode.test.ts (resolveSessionMode returns default when prefs unset) -->
-3. Mode changes take effect only on explicit "Recreate AI agent skills & rules" click or new bucket creation. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (reconcileAgentConfigs runs only on the new-bucket trigger, not unconditionally) -->
-4. On a mode change, preseed files are reconciled to match the new mode: mode-appropriate files are written, preseed-managed files not in the new mode are removed, and user-created files are never modified. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (reconcileAgentConfigs seeds and cleans up for default mode; skips cleanup when cleanup=false) -->
+1. In default mode, only baseline agent permissions are applied; capture hooks are not registered. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings.json configuration / REQ-AGENT-015 (/review command)) -->
+2. If no session mode has been explicitly set, the default mode applies. <!-- @impl: src/lib/session-mode.ts::resolveSessionMode --> <!-- @test: src/__tests__/lib/session-mode.test.ts (resolveSessionMode / REQ-AGENT-004 (two session modes: default and advanced; default when prefs unset; honors persisted sessionMode)) -->
+3. Mode changes take effect only on explicit "Recreate AI agent skills & rules" click or new bucket creation. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-MEM-011 AC3: reconcileAgentConfigs gated on the new-bucket trigger) -->
+4. On a mode change, preseed files are reconciled to match the new mode: mode-appropriate files are written, preseed-managed files not in the new mode are removed, and user-created files are never modified. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/preferences.test.ts (sessionMode preference / REQ-MEM-011 (sessionMode preference persistence + preseed reconciliation)) -->
 
 **Constraints:**
 
@@ -302,21 +317,23 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. The block hook intercepts every tool call in advanced session mode only. When no deferred capture is pending for the current session (the common case), the hook exits silently and the tool call proceeds. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture-block.sh --> <!-- @test: host/__tests__/memory-capture-block.test.js (common path - exits 0 when .vars does not exist, any tool allowed) -->
-2. When the hook input is missing a session identifier (defensive guard for malformed envelopes), the hook exits silently rather than blocking. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture-block.sh --> <!-- @test: host/__tests__/memory-capture-block.test.js (input gating - exits 0 when session_id is missing) -->
-3. When a deferred capture is pending AND the tool call is anything other than the permitted memory-capture subagent invocation, the hook blocks the call; the block message instructs the agent to run the memory-capture subagent (pinned to sonnet so the agent cannot downgrade the model) and points at the persisted prompt and carrier files. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture-block.sh --> <!-- @test: host/__tests__/memory-capture-block.test.js (hard block - exits 2 with stderr when .vars exists and tool is Bash/Read/Edit/Write/Grep/Glob/WebFetch; stderr carries spawn directive with PROMPT_FILE + VARS_FILE paths) -->
-4. Only an invocation of the memory-capture subagent is permitted to proceed while a deferred capture is pending; any other subagent invocation is blocked under AC3. The block clears automatically the moment the subagent runs and removes the carrier file. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture-block.sh --> <!-- @test: host/__tests__/memory-capture-block.test.js (subagent allowlist - exits 0 only for Task subagent_type=memory-capture, exits 2 for other/no subagent_type; block is unconditional with no bypass) -->
+1. The block hook intercepts every tool call in advanced session mode only. When no deferred capture is pending for the current session (the common case), the hook exits silently and the tool call proceeds. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture-block.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-block.test.js (memory-capture-block.sh - common path / REQ-MEM-012 AC1) -->
+2. When the hook input is missing a session identifier (defensive guard for malformed envelopes), the hook exits silently rather than blocking. <!-- @test: host/__tests__/memory-capture-block.test.js (memory-capture-block.sh - input gating / REQ-MEM-012 AC2) -->
+3. When a deferred capture is pending AND the tool call is anything other than the permitted memory-capture subagent invocation, the hook blocks the call; the block message instructs the agent to run the memory-capture subagent and points at the persisted prompt and carrier files. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture-block.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-block.test.js (block stderr contains spawn directive with PROMPT_FILE and VARS_FILE paths) -->
+4. Only an invocation of the memory-capture subagent is permitted to proceed while a deferred capture is pending; any other subagent invocation is blocked under AC3. The block clears automatically the moment the subagent runs and removes the carrier file. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture-block.sh::PROMPT_FILE --> <!-- @test: host/__tests__/memory-capture-block.test.js (memory-capture-block.sh - subagent allowlist / REQ-MEM-012 AC4) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
-- The block applies only in advanced session mode because the entire memory-capture pipeline is advanced-mode-only (see [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode)).
+- The block applies only in advanced session mode.
 - If a carrier file is stale beyond recovery, the user clears it manually; there is no in-hook bypass surface.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode)
 
-**Verification:** [Automated test](../../host/__tests__/memory-capture-block.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -330,23 +347,25 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. On the first user message of a session, the hook extracts keywords from the prompt and queries the unified graph for matching nodes. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh --> <!-- @test: host/__tests__/memory-context-inject.test.js (injects matched nodes from global graph on first prompt) -->
-2. Matched nodes (up to 10, ~1000 tokens) are injected as additionalContext in the UserPromptSubmit hook response. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh --> <!-- @test: host/__tests__/memory-context-inject.test.js (injects at most 10 nodes even when more match) -->
-3. The hook fires at most once per session (gated by its own atomic mkdir sentinel, claimed only after a successful graph query; independent of the memory-capture counter). <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh --> <!-- @test: host/__tests__/memory-context-inject.test.js (fires at most once per session - sentinel directory prevents re-fire) -->
-4. Prompts shorter than 20 characters are skipped (insufficient signal for keyword extraction). <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh --> <!-- @test: host/__tests__/memory-context-inject.test.js (skips prompts shorter than 20 characters) -->
+1. On the first user message of a session, the hook extracts keywords from the prompt and queries the unified graph for matching nodes. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-context-inject.test.js (AC1: injects matched nodes from global graph on first prompt) -->
+2. Matched nodes (up to 10, ~1000 tokens) are injected as additionalContext in the UserPromptSubmit hook response. <!-- @test: host/__tests__/memory-context-inject.test.js (AC2: injects at most 10 nodes even when more match) -->
+3. The hook fires at most once per session (gated by its own atomic mkdir sentinel, claimed only after a successful graph query; independent of the memory-capture counter). <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-context-inject.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-context-inject.test.js (AC3: fires at most once per session (sentinel directory prevents re-fire)) -->
+4. Prompts shorter than 20 characters are skipped (insufficient signal for keyword extraction). <!-- @test: host/__tests__/memory-context-inject.test.js (AC4: skips prompts shorter than 20 characters) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
 - The hook plugin is advanced-session-only by manifest declaration (`preseed/agents/claude/manifest.json`); standard sessions never receive the plugin.
-- The hook reads the graph JSON directly (no MCP round-trip) because the MCP server may not be ready on the first prompt.
-- The hook is fail-safe: any error exits silently with no output. A failed injection must never block the session.
+- The hook reads the graph JSON directly (no MCP round-trip).
+- The hook is fail-safe: any error exits silently with no output; A failed injection must never block the session.
 - Keyword extraction strips all non-alphanumeric characters and filters to words of 4+ characters to avoid noise.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-VAULT-004](vault.md#req-vault-004-unified-global-graph-merges-vault-and-active-repos)
 
-**Verification:** [Automated test](../../host/__tests__/memory-context-inject.test.js)
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -360,22 +379,24 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. Pi ships a full capture-contract prompt file and a vault-extract prompt file (chunk then per-chunk scratchpad then synthesise; frontmatter plus Context / Decisions / Observations / References template; verbatim REQ/ADR/SHA/PR citation discipline; wikilink shaping), replacing the prior thin inline contract that the extension wrote at runtime. <!-- @impl: preseed/agents/pi/prompts/memory-agent-prompt.md --> <!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (prompt files shipped advanced-only at deployed path, not inline) -->
-2. The Pi extension points its prompt-file constants at the deployed prompt files under `~/.pi/agent/prompts/` and no longer writes the prompt contracts inline. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::default --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (prompt files shipped advanced-only at deployed path, not inline) -->
-3. The seed generator maps `prompts/` source files to the deployed `~/.pi/agent/prompts/` location, and both prompt files are delivered advanced-only via the Pi manifest. <!-- @impl: scripts/generate-agent-seed.mjs --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (prompt files shipped advanced-only at deployed path, not inline) -->
-4. Before the transcript is handed to the capture agent, it is prefiltered to user and assistant text only - tool-use, tool-result, and thinking blocks are dropped - bounded to the last 200 turns at up to 8000 characters per turn, replacing the prior raw last-40-message JSON slice. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::compactMessages --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (compactMessages prefilter drops tool/thinking, keeps user+assistant, caps 200 turns / 8000 chars) -->
-5. The capture/extract subagent spawn accepts an optional model argument sourced from `CODEFLARE_MEMORY_MODEL`; when unset, no model name is hardcoded. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildSpawnOptions --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (buildSpawnOptions applies model only when set; no hardcoded default when CODEFLARE_MEMORY_MODEL unset) -->
-6. The Pi memory-capture agent runs in the background so main-session work cannot cancel it. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildSpawnOptions --> <!-- @impl: scripts/generate-agent-seed.mjs --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (buildSpawnOptions always carries inheritContext:false and background service options) -->
+1. Pi ships a full capture-contract prompt file and a vault-extract prompt file, replacing the prior thin inline contract that the extension wrote at runtime. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+2. The Pi extension points its prompt-file constants at the deployed prompt files under `~/.pi/agent/prompts/` and no longer writes the prompt contracts inline. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::default --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+3. The seed generator maps `prompts/` source files to the deployed `~/.pi/agent/prompts/` location, and both prompt files are delivered advanced-only via the Pi manifest. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+4. Before the transcript is handed to the capture agent, it is prefiltered to user and assistant text only - tool-use, tool-result, and thinking blocks are dropped - bounded to the last 200 turns at up to 8000 characters per turn. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::compactMessages --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
+5. The capture/extract subagent spawn accepts an optional model argument sourced from `CODEFLARE_MEMORY_MODEL`; when unset, no model name is hardcoded. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildSpawnOptions --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory model-fidelity lever / REQ-MEM-014 AC5/AC6 (buildSpawnOptions applies the model only when set; no hardcoded model)) -->
+6. The Pi memory-capture agent runs in the background so main-session work cannot cancel it. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildSpawnOptions --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+
+**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
-- The model-fidelity lever is the Pi-runtime expression of the [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) rationale (capture must cite identifiers verbatim, which benefits from a higher-fidelity model); Claude pins the model at the subagent-definition level per [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) while Pi reads it from the environment so no model name is committed.
+- The model-fidelity lever is the Pi-runtime expression of the [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) rationale; Claude pins the model at the subagent-definition level per [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) while Pi reads it from the environment so no model name is committed.
 - The prefilter mirrors the Claude prefilter rationale (drop tool/recency noise, preserve the conversational arc); it does not change the capture cadence or the dedup-gate carrier-file protocol.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-008](#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline)
 
-**Verification:** [Automated test](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** Manual check
 
 **Status:** Implemented

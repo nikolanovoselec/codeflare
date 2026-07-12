@@ -20,6 +20,16 @@ Diagnostic commands, common failure modes, and resolution steps.
 
 Frequently encountered problems grouped by symptom, with causes and resolution steps.
 
+### Browser IDE Repeatedly Disconnects with WebSocket Code 1009
+
+**Symptom:** OpenVSCode connects successfully, then the Management and Extension Host connections immediately close with code `1009` and enter a reconnect loop. Repeated reconnects can eventually receive `429` because they consume the shared WebSocket connection budget.
+
+**Cause:** The host bridge reused the terminal protocol's 64 KiB WebSocket message limit. VS Code sends protocol messages around 256 KiB, so the `ws` receiver classified normal IDE traffic as too large and closed the connection ([REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) AC7).
+
+**Fix:** Deploy a host build where `createVscodeWebSocketServer` gives the IDE its dedicated bounded payload limit. Do not raise `WS_MAX_PAYLOAD`; that 64 KiB limit still protects terminal and Vault traffic.
+
+**Verify:** In the browser console, the IDE's Management and Extension Host sockets remain connected without recurring code-`1009` close events. CI's `openvscode-proxy.test.js` also sends and echoes a 256 KiB binary protocol message through the real `ws` endpoint.
+
 ### Enterprise Containers Won't Start / Crash-Loop (Terminal Reconnect Storm)
 
 **Symptom:** In Enterprise Mode, sessions never reach a usable terminal. Worker logs (`codeflare-enterprise-<env>`) show a rapid terminal-WebSocket reconnect storm (~10+ per minute), `Error proxying request to container`, and teardown `Final sync did NOT complete on teardown … The container is not running` — i.e. the container's PID 1 keeps exiting. Plain (non-enterprise) sessions on the same image are unaffected.
@@ -54,6 +64,10 @@ Check `GET /api/setup/status` returns JSON. Verify `setup:complete` in KV is abs
 ### Auth Error After Successful Access Login
 
 Stale `setup:auth_domain` (JWT mismatch), stale `setup:access_aud`, or email casing mismatch. Re-run setup configure. Confirm user keys are lowercase.
+
+### HTTP 500 After Login
+
+Start with the response request ID and correlate it with Worker authentication logs. Then verify the active OAuth callback configuration and the deployed `OAUTH_JWT_SECRET` before retrying; these checks distinguish request handling failures, provider mismatch, and invalid session issuance without rotating credentials blindly.
 
 ### "Unable to find your Access application!"
 
@@ -119,36 +133,25 @@ Enter the new client id + creation secret in the admin Setup wizard (REQ-AGENT-0
 
 **Fix:** A connect-timeout watchdog force-closes any socket still in `CONNECTING` after `WS_CONNECT_TIMEOUT_MS` and schedules a reconnect. Reconnect now uses equal-jitter exponential backoff (`reconnectBackoffMs`, base 500ms, capped at 15000ms) that resets to attempt 1 on a successful open, and is paused while the tab is hidden — the visibility-return handler restarts it at attempt 1 so a backgrounded pane burns no battery or connect budget. Redeploy the web-ui build to pick up the fix. ([REQ-TERM-003](../../sdd/spec/terminal.md#req-term-003-automatic-websocket-reconnection-on-transient-failures))
 
-### Pi Terminal Flicker (Investigation Ongoing)
+### Pi Terminal Flicker or Scrollback Snaps to an Edge
 
-**Symptom:** In Pi sessions specifically (not Claude Code, Codex, or Antigravity, which
-share the same `Terminal.tsx`/`useTerminal.ts`/xterm stack), the terminal display
-flickers erratically during streaming output, intensifying once scrollback fills the
-1000-line cap and old lines start trimming.
+**Symptom:** Pi output no longer flickers at the 1000-line scrollback cap, but a user reading or navigating older output is pulled either toward the live prompt or abruptly to the top while Pi continues writing.
 
-**Cause:** Not yet confirmed. Suspected interaction between Pi's own output pattern
-(write volume/frequency, redraw/escape-sequence shape -- Pi uses DEC 2026 synchronized
-output without the alternate screen) and the scroll-correction stack
-(`useScrollCorrection.ts`, `flushWriteBuffer`), rather than the xterm overlay-scrollbar
-widget itself. A CSS attempt to hide the ScrollableElement `.scrollbar` widget was tried
-and reverted after live confirmation it did not fix the flicker
-([REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output)
-AC6, removed).
+**Cause:** `@xterm/xterm` `6.1.0-beta.288` includes upstream PR [#5770](https://github.com/xtermjs/xterm.js/pull/5770), which fixes synchronized-output flicker. Codeflare's former generic post-write distance guard overrode valid xterm trim shifts and pulled toward the bottom. Removing all post-write handling fixed that direction but exposed xterm's lower bound: when a dense full-buffer batch trims at least the current `viewportY`, native content anchoring clamps at zero and leaves the viewport at the top ([REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming) AC2/AC7).
 
-**Current mitigation attempt:** `@xterm/xterm` is pinned to `6.1.0-beta.288` (not
-`^6.0.0`) in `web-ui/package.json`, since that prerelease contains upstream xterm.js PR
-[#5770](https://github.com/xtermjs/xterm.js/pull/5770) ("defer viewport DOM sync during
-synchronized output (DEC 2026)"), whose own repro notes name Pi as the test subject.
-This is an unconfirmed mitigation, not a verified fix -- track root-cause status in
-`sdd/spec/changes.md` before assuming this is resolved.
+**Fix:** Keep ordinary non-zero trim shifts under xterm's ownership. Recover only when a pre-write viewport was non-top and scrolled up at the configured-full buffer, the buffer base remains unchanged, and parsing clamps `viewportY` to exactly zero. Restore its prior distance with `scrollLines`; never call `scrollToBottom()` from this path.
 
-A 2026-07-02 investigation into the `6.1.0-beta.288` bump (5-agent static analysis of both repos) confirmed and fixed two *separate* regressions introduced by the same version bump — a broken mobile keyboard tap-to-open (xterm's new document-level `Gesture` singleton, see [Mobile: Fix 20](mobile.md#touch-input)) and a `CSI ?997` echo flood in DECSET-2031 TUIs like Claude Code (see [Mobile: Fix 21](mobile.md#xterm-61-color-scheme-report-suppression-git-fix-21)) — both fixed codeflare-side while keeping the beta pin. The flicker itself was NOT implicated by that investigation and remains unconfirmed.
+**Verify:** At full scrollback, a small trim such as `500 -> 490` remains uncorrected. A dense batch that would clamp `500 -> 0` finishes at the prior distance (`viewportY = 500`) rather than either edge. CI's `terminal.test.ts` drives both cases through the WebSocket batching path and verifies the boundary guard does not run for a non-full buffer, a changed base, an already-top viewport, or a bottom follower.
 
-**Fix:** None confirmed yet. If you hit this, check whether `web-ui/package.json` still
-pins the `6.1.0-beta.288` prerelease -- npm `latest` for `@xterm/xterm` was still
-`6.0.0` as of this writing, so a routine `npm update` will silently drop the pin and
-lose the mitigation. Report reproduction details (scrollback depth, output pattern) to
-help narrow the root cause.
+### Claude Fullscreen TUI Does Not Scroll on Mobile
+
+**Symptom:** After `/tui fullscreen`, desktop wheel scrolling works but a vertical swipe on mobile does not move through Claude's conversation history.
+
+**Cause:** Fullscreen renders in xterm's alternate buffer, which has no terminal scrollback; Claude owns the history and consumes mouse-wheel reports. Codeflare's mobile gesture handler intercepted the touch first and called `terminal.scrollLines()` or sent arrow keys, while its tap-to-keyboard shield prevented xterm's native touch handler from forwarding a wheel report ([REQ-MOB-017](../../sdd/spec/mobile.md#req-mob-017-fullscreen-application-touch-scrolling) AC1).
+
+**Fix:** Deploy a web UI where `attachSwipeGestures()` (`web-ui/src/lib/touch-gestures.ts`) detects an alternate buffer with wheel-capable mouse tracking and dispatches line-mode `WheelEvent`s through xterm via its `scrollTouchLines()` helper, and where the floating page controls (`FloatingTerminalButtons.tsx`) also detect the alternate buffer and send PageUp/PageDown input instead of calling xterm scrollback APIs. Keep the Gesture shield enabled so tapping the terminal still opens the mobile keyboard. `/tui default` remains an immediate workaround on older builds. ([REQ-MOB-017](../../sdd/spec/mobile.md#req-mob-017-fullscreen-application-touch-scrolling) AC1, [REQ-MOB-001](../../sdd/spec/mobile.md#req-mob-001-terminal-fully-usable-on-mobile-devices) AC7)
+
+**Verify:** Enter `/tui fullscreen` on mobile and swipe vertically with the keyboard both closed and open, then use both floating arrow controls. Conversation history should move in each direction while horizontal swipes still navigate the prompt. CI's `touch-gestures.test.ts` verifies wheel routing, and `FloatingTerminalButtons.test.tsx` verifies PageUp/PageDown input replaces normal-buffer scrolling only in the alternate screen.
 
 ### Container Stuck at "Waiting for Services"
 
@@ -184,7 +187,7 @@ Zombie alarm loops are now prevented by two mechanisms: (1) `onStop()` calls `de
 
 ### R2 Bucket Cleanup on User Deletion
 
-`DELETE /api/users/:email` and `POST /configure` (stale user removal during reconfiguration) both call `cleanupUserData()` in `src/lib/user-cleanup.ts`, which: destroys all active containers, deletes the user KV entry and bucket-keyed KV entries (`storage-stats:`, `presets:`, `user-prefs:`), reads the scoped R2 token via `getAndDecrypt()` (required because `r2token:{email}` values are encrypted when `ENCRYPTION_KEY` is set - raw `KV.get('json')` throws `SyntaxError` on the `v1:...` ciphertext prefix), deletes the scoped R2 token, empties the R2 bucket via S3 `ListObjectsV2` + `DeleteObjects` loop (using worker-level R2 credentials via `createR2Client` + `emptyR2Bucket`), and deletes the empty bucket via Cloudflare API with retry logic (up to 3 attempts with exponential backoff for R2 eventual consistency when objects were deleted).
+`DELETE /api/users/:email` and `POST /configure` (stale user removal during reconfiguration) both call `cleanupUserData()` in `src/lib/user-cleanup.ts`, which: destroys all active containers, deletes the user KV entry and bucket-keyed KV entries (`storage-stats:`, `user-prefs:`), reads the scoped R2 token via `getAndDecrypt()` (required because `r2token:{email}` values are encrypted when `ENCRYPTION_KEY` is set - raw `KV.get('json')` throws `SyntaxError` on the `v1:...` ciphertext prefix), deletes the scoped R2 token, empties the R2 bucket via S3 `ListObjectsV2` + `DeleteObjects` loop (using worker-level R2 credentials via `createR2Client` + `emptyR2Bucket`), and deletes the empty bucket via Cloudflare API with retry logic (up to 3 attempts with exponential backoff for R2 eventual consistency when objects were deleted).
 
 If worker-level R2 credentials are not configured (e.g., setup was interrupted), the emptying step is skipped and bucket deletion may fail with `BucketNotEmpty`. This logs `logger.warn` server-side but does not block the overall cleanup. During reconfiguration, stale user cleanup is wrapped in a `runStep('cleanup_stale_users')` call for NDJSON progress visibility in the setup wizard frontend. **SaaS mode:** only admin-role users removed from the admin list are cleaned up - JIT-provisioned regular users are preserved. Each user's KV entry is checked for `role: 'admin'` before qualifying for removal.
 
@@ -543,7 +546,9 @@ wrangler tail codeflare --status error
 - [REQ-GITHUB-003](../../sdd/spec/github.md#req-github-003-enterprise-egress-injected-github-credentials) - Enterprise egress-injected GitHub credentials
 - [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session) - Clone a repository into a session
 - [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) - Broaden the panel gate beyond enterprise
-- [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output) - Scroll-drop detection during burst output (Pi terminal flicker investigation)
+- [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) - Per-session browser IDE proxy (WebSocket code-1009 reconnect loop)
+- [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output) - Scroll stability during Pi burst output and full-buffer trimming
+- [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll) - Swipe gestures send arrow keys or scroll (fullscreen alternate-buffer wheel routing for Claude Code `/tui fullscreen` on mobile)
 - [REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants) - sleepAfter fail-safe invariants
 - [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) - Container Port-Readiness Gating with Pre-Warm Pre-Condition
 - [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit) - Persisted status is authoritative on container exit

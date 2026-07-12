@@ -39,13 +39,14 @@ enforce_tdd: true
 
 # Test discovery globs — where spec-reviewer looks for REQ ID references.
 # Codeflare-specific layout: tests live in src/__tests__, host/__tests__,
-# web-ui/src/__tests__, and tests/e2e for Playwright.
+# web-ui/src/__tests__, landing/src/__tests__, and tests/e2e for Playwright.
 test_globs:
   - "src/__tests__/**/*.test.{ts,js,tsx,jsx,mjs}"
   - "src/__tests__/**/*.spec.{ts,js,tsx,jsx,mjs}"
   - "host/__tests__/**/*.test.{js,mjs}"
   - "web-ui/src/__tests__/**/*.test.{ts,tsx,jsx}"
   - "web-ui/src/__tests__/**/*.spec.{ts,tsx,jsx}"
+  - "landing/src/__tests__/**/*.test.{ts,tsx}"
   - "e2e/**/*.test.{ts,js}"
   - "e2e/**/*.spec.{ts,js}"
 
@@ -67,6 +68,7 @@ src_globs:
   - "Dockerfile"
   - "wrangler.toml"
   - ".github/workflows/*.yml"
+  - ".trivyignore"
 
 # Forbidden content allowlist — which categories are acceptable inside REQs.
 forbidden_content_allowlist:

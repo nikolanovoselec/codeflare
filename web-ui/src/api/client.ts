@@ -1,4 +1,4 @@
-import type { Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, TabPreset, UserPreferences, AuthStatus, AuthProvider } from '../types';
+import type { Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, UserPreferences, AuthStatus, AuthProvider } from '../types';
 import { logger } from '../lib/logger';
 import { STARTUP_POLL_INTERVAL_MS, SESSION_ID_DISPLAY_LENGTH, MAX_STARTUP_POLL_ERRORS, MAX_TERMINALS_PER_SESSION } from '../lib/constants';
 import { z } from 'zod';
@@ -13,9 +13,6 @@ import {
   SetupPrefillResponseSchema,
   UserEntrySchema,
   GetUsersResponseSchema,
-  PresetsResponseSchema,
-  CreatePresetResponseSchema,
-  DeletePresetResponseSchema,
   UserPreferencesSchema,
   LlmKeysResponseSchema,
   DeployKeysResponseSchema,
@@ -262,34 +259,6 @@ type SetupPrefillResponse = z.infer<typeof SetupPrefillResponseSchema>;
 
 export async function getSetupPrefill(): Promise<SetupPrefillResponse> {
   return fetchApi('/setup/prefill', {}, SetupPrefillResponseSchema);
-}
-
-// Preset API
-export async function getPresets(): Promise<TabPreset[]> {
-  const response = await fetchApi('/presets', {}, PresetsResponseSchema);
-  return response.presets;
-}
-
-export async function savePreset(data: { name: string; tabs: TabConfig[] }): Promise<TabPreset> {
-  const response = await fetchApi('/presets', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  }, CreatePresetResponseSchema);
-  return response.preset;
-}
-
-export async function deletePreset(id: string): Promise<void> {
-  await fetchApi(`/presets/${id}`, {
-    method: 'DELETE',
-  }, DeletePresetResponseSchema);
-}
-
-export async function patchPreset(id: string, data: { label: string }): Promise<TabPreset> {
-  const response = await fetchApi(`/presets/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify(data),
-  }, CreatePresetResponseSchema);
-  return response.preset;
 }
 
 // Preferences API

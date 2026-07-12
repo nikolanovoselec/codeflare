@@ -1,6 +1,5 @@
 import type { Terminal } from '@xterm/xterm';
 import { onCleanup } from 'solid-js';
-import { terminalStore } from '../stores/terminal';
 import { hasRecentScrollIntent, clearScrollIntent } from '../lib/terminal-scroll-intent';
 import { isTouchDevice, isVirtualKeyboardOpen } from '../lib/mobile';
 
@@ -40,11 +39,9 @@ export interface ScrollCorrectionParams {
  *    the viewport is restored to its previous distance from bottom.
  *
  * Both strategies are suppressed when:
- * - The store's programmatic-scroll suppression flag is active (set by
- *   `flushWriteBuffer` post-write corrections to avoid feedback loops).
  * - A recent user scroll gesture was detected (wheel, pointer, nav key, or
  *   external intent from floating UI buttons).
- * - The mobile virtual keyboard is open (the write callback handles
+ * - The mobile virtual keyboard is open (the keyboard-height effect handles
  *   `scrollToBottom` in that mode; corrections here would cause oscillation).
  */
 export function useScrollCorrection(
@@ -93,17 +90,6 @@ export function useScrollCorrection(
       return;
     }
 
-    // Skip events caused by post-write corrections in flushWriteBuffer. These
-    // are tagged with a suppression counter to prevent feedback loops during
-    // scrollback trimming. Baselines still update so the next unsuppressed
-    // event compares correctly.
-    if (terminalStore.isProgrammaticScrollSuppressed(sessionId, terminalId)) {
-      wasFollowingOutput = ydisp >= ybase;
-      previousYdisp = ydisp;
-      previousDistFromBottom = distFromBottom;
-      return;
-    }
-
     const wasFollowing = wasFollowingOutput;
     wasFollowingOutput = ydisp >= ybase;
 
@@ -129,7 +115,7 @@ export function useScrollCorrection(
     }
 
     // When the virtual keyboard is open on mobile, skip all further correction.
-    // The write callback handles scrollToBottom; corrections here fight it.
+    // The keyboard-height effect handles scrollToBottom; corrections here fight it.
     if (isTouchDevice() && isVirtualKeyboardOpen()) {
       previousYdisp = ydisp;
       previousDistFromBottom = distFromBottom;

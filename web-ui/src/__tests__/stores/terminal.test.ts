@@ -52,6 +52,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
     ({
       cols: 80,
       rows: 24,
+      options: { scrollback: 1000 },
       onData: vi.fn(() => ({ dispose: vi.fn() })),
       write: vi.fn((_data: string, cb?: () => void) => { if (cb) cb(); }),
       clear: vi.fn(),
@@ -385,7 +386,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it('REQ-TERM-011: sends queued focus before the initial resize when the WebSocket opens', async () => {
+    it('REQ-TERM-011: sends queued focus before the initial resize when the WebSocket opens / REQ-TERM-016', async () => {
       const terminal = {
         ...createMockTerminal(),
         cols: 132,
@@ -852,6 +853,131 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
+    it('REQ-TERM-014: preserves xterm viewport anchoring when full scrollback trims during a batched write', async () => {
+      const activeBuffer = { viewportY: 500, baseY: 1000 };
+      const scrollLines = vi.fn((delta: number) => {
+        activeBuffer.viewportY += delta;
+      });
+      const terminal = {
+        ...createMockTerminal(),
+        buffer: { active: activeBuffer },
+        scrollLines,
+        write: vi.fn((_data: string, callback?: () => void) => {
+          // xterm 6.1 keeps the visible content anchored while ten old lines trim.
+          activeBuffer.viewportY = 490;
+          callback?.();
+        }),
+      } as unknown as Terminal;
+
+      const OriginalWebSocket = globalThis.WebSocket;
+      let wsInstance: any;
+
+      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+        constructor(url: string) {
+          super(url);
+          wsInstance = this;
+        }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+
+      for (let line = 0; line < 10; line += 1) {
+        wsInstance._simulateMessage(`line-${line}\r\n`);
+      }
+      await vi.advanceTimersByTimeAsync(50);
+
+      expect(terminal.buffer.active.viewportY).toBe(490);
+      expect(scrollLines).not.toHaveBeenCalled();
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
+    it('REQ-TERM-014 AC7: restores distance when an unchanged full buffer clamps viewport to the top', async () => {
+      const activeBuffer = { viewportY: 500, baseY: 1000 };
+      const scrollLines = vi.fn((delta: number) => {
+        activeBuffer.viewportY += delta;
+      });
+      const scrollToBottom = vi.fn();
+      const terminal = {
+        ...createMockTerminal(),
+        buffer: { active: activeBuffer },
+        scrollLines,
+        scrollToBottom,
+        write: vi.fn((_data: string, callback?: () => void) => {
+          // A dense full-buffer trim exhausts xterm's native content anchor.
+          activeBuffer.viewportY = 0;
+          callback?.();
+        }),
+      } as unknown as Terminal;
+
+      const OriginalWebSocket = globalThis.WebSocket;
+      let wsInstance: any;
+
+      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+        constructor(url: string) {
+          super(url);
+          wsInstance = this;
+        }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+
+      wsInstance._simulateMessage('dense output that trims past the visible anchor\r\n');
+      await vi.advanceTimersByTimeAsync(50);
+
+      expect(terminal.buffer.active.viewportY).toBe(500);
+      expect(terminal.buffer.active.baseY - terminal.buffer.active.viewportY).toBe(500);
+      expect(scrollLines).toHaveBeenCalledWith(500);
+      expect(scrollToBottom).not.toHaveBeenCalled();
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
+    it.each([
+      { name: 'buffer is not full', beforeBaseY: 900, beforeY: 500, afterBaseY: 900 },
+      { name: 'base changes during write', beforeBaseY: 1000, beforeY: 500, afterBaseY: 999 },
+      { name: 'viewport was already at top', beforeBaseY: 1000, beforeY: 0, afterBaseY: 1000 },
+      { name: 'viewport was following bottom', beforeBaseY: 1000, beforeY: 1000, afterBaseY: 1000 },
+    ])('REQ-TERM-014 AC7: does not recover zero clamp when $name', async ({ beforeBaseY, beforeY, afterBaseY }) => {
+      const activeBuffer = { viewportY: beforeY, baseY: beforeBaseY };
+      const scrollLines = vi.fn((delta: number) => {
+        activeBuffer.viewportY += delta;
+      });
+      const terminal = {
+        ...createMockTerminal(),
+        buffer: { active: activeBuffer },
+        scrollLines,
+        write: vi.fn((_data: string, callback?: () => void) => {
+          activeBuffer.baseY = afterBaseY;
+          activeBuffer.viewportY = 0;
+          callback?.();
+        }),
+      } as unknown as Terminal;
+
+      const OriginalWebSocket = globalThis.WebSocket;
+      let wsInstance: any;
+
+      vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
+        constructor(url: string) {
+          super(url);
+          wsInstance = this;
+        }
+      } as unknown as typeof WebSocket);
+
+      terminalStore.connect(sessionId, terminalId, terminal);
+      await vi.advanceTimersByTimeAsync(0);
+
+      wsInstance._simulateMessage('output\r\n');
+      await vi.advanceTimersByTimeAsync(50);
+
+      expect(terminal.buffer.active.viewportY).toBe(0);
+      expect(scrollLines).not.toHaveBeenCalled();
+
+      vi.stubGlobal('WebSocket', OriginalWebSocket);
+    });
+
     it('should still write non-JSON raw terminal data to terminal', async () => {
       const terminal = createMockTerminal();
 
@@ -877,7 +1003,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       // Flush write batch (30fps throttle = 33ms setTimeout)
       await vi.advanceTimersByTimeAsync(50);
 
-      expect(terminal.write).toHaveBeenCalledWith(rawData, expect.any(Function));
+      expect(terminal.write).toHaveBeenCalledWith(rawData);
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
@@ -908,7 +1034,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       await vi.advanceTimersByTimeAsync(50);
 
       // Since pong is no longer handled, it falls through to terminal.write
-      expect(terminal.write).toHaveBeenCalledWith(pongMsg, expect.any(Function));
+      expect(terminal.write).toHaveBeenCalledWith(pongMsg);
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
@@ -939,7 +1065,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       await vi.advanceTimersByTimeAsync(50);
 
       // Should fall through to raw write
-      expect(terminal.write).toHaveBeenCalledWith(malformedJson, expect.any(Function));
+      expect(terminal.write).toHaveBeenCalledWith(malformedJson);
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });

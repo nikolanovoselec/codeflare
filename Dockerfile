@@ -91,8 +91,8 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o 
     && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
 
 # Install zoxide from GitHub releases (pinned version, not in Debian bookworm repos)
-RUN ZOXIDE_VERSION="0.9.9" && \
-    ZOXIDE_SHA256="4ff057d3c4d957946937274c2b8be7af2a9bbae7f90a1b5e9baaa7cb65a20caa" && \
+RUN ZOXIDE_VERSION="0.10.0" && \
+    ZOXIDE_SHA256="2d93385b99f3e82cf2701609a1bffcad863fbeb75aa3fe7eb6be4d29be68b1ae" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/ajeetdsouza/zoxide/releases/download/v${ZOXIDE_VERSION}/zoxide-${ZOXIDE_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o /tmp/zoxide.tar.gz && \
     echo "${ZOXIDE_SHA256}  /tmp/zoxide.tar.gz" | sha256sum -c - && \
     tar xzf /tmp/zoxide.tar.gz -C /usr/local/bin zoxide && \
@@ -108,8 +108,8 @@ RUN YAZI_VERSION="26.5.6" && \
     mv /tmp/yazi/yazi-x86_64-unknown-linux-musl/yazi /usr/local/bin/yazi && \
     chmod +x /usr/local/bin/yazi && \
     rm -rf /tmp/yazi /tmp/yazi.zip
-RUN LAZYGIT_VERSION="0.62.2" && \
-    LAZYGIT_SHA256="8b9a4c2d0969cbea92b45c956dd2a44e1ba76900c9df49f1c60984045ce77984" && \
+RUN LAZYGIT_VERSION="0.63.0" && \
+    LAZYGIT_SHA256="cf5cfa3e116d7775f3600a51ec1d9ce7ba554a08b9566c7c2da83cb0023efabf" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_linux_x86_64.tar.gz" -o /tmp/lazygit.tar.gz && \
     echo "${LAZYGIT_SHA256}  /tmp/lazygit.tar.gz" | sha256sum -c - && \
     tar xzf /tmp/lazygit.tar.gz -C /usr/local/bin lazygit && \
@@ -132,6 +132,27 @@ RUN SILVERBULLET_VERSION="2.9.0" && \
     mv /tmp/silverbullet/silverbullet /usr/local/bin/silverbullet && \
     chmod +x /usr/local/bin/silverbullet && \
     rm -rf /tmp/silverbullet /tmp/silverbullet.zip
+
+# Install OpenVSCode Server -- the upstream VS Code web server (Gitpod build),
+# run per session inside the container and reached from the codeflare UI through
+# the Worker proxy at /api/vscode/:sid/ (REQ-IDE-001). Launched lazily on first
+# use and bound to localhost:13337 by the supervisor loop in entrypoint.sh.
+#
+# Pinned + SHA-verified like the other vendored binaries; the version literal is
+# shadow-pinned by the `openvscode-server` job in bump-shadow-pins.yml because
+# Dependabot cannot see it. Unlike the SilverBullet block above, this asserts the
+# binary is executable and runs a same-layer --version smoke so a bad download or
+# an incompatible bundled Node surfaces at build time, not first launch.
+RUN OPENVSCODE_VERSION="1.109.5" && \
+    OPENVSCODE_SHA256="b433bf4f0227321a7014d8460d10a8f958adc0f45aa79bd889e84e65e8f88363" && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/gitpod-io/openvscode-server/releases/download/openvscode-server-v${OPENVSCODE_VERSION}/openvscode-server-v${OPENVSCODE_VERSION}-linux-x64.tar.gz" -o /tmp/openvscode.tar.gz && \
+    echo "${OPENVSCODE_SHA256}  /tmp/openvscode.tar.gz" | sha256sum -c - && \
+    mkdir -p /opt/openvscode-server && \
+    tar -xzf /tmp/openvscode.tar.gz -C /opt/openvscode-server --strip-components=1 && \
+    ln -sf /opt/openvscode-server/bin/openvscode-server /usr/local/bin/openvscode-server && \
+    test -x /opt/openvscode-server/bin/openvscode-server && \
+    /usr/local/bin/openvscode-server --version && \
+    rm -rf /tmp/openvscode.tar.gz
 
 # REQ-STOR-017 / AD90: bake the agent-config seed tree into the image so a Governed Mode
 # (R2 SSE-C disabled) container can lay it down locally BEFORE the initial R2 sync — the
@@ -333,6 +354,30 @@ RUN npm install -g consult-llm-mcp@2.13.4 && \
     rm -rf /root/.npm
 
 # ---------------------------------------------------------------------------
+# Browser Run interactive MCP server (chrome-devtools-mcp).
+# Claude Code does not support Pi's `lifecycle: "lazy"` process-start contract,
+# so a runtime `npx -y chrome-devtools-mcp@...` forces Claude sessions to pay a
+# cold npm resolve/download/extract path on first startup (npm cache is excluded
+# from R2 and purged at boot). Bake the pinned npx install into /opt/codeflare
+# and expose a stable bin path. The shadow-pin workflow updates ONLY
+# CHROME_DEVTOOLS_MCP_VERSION; the image rebuild then regenerates the matching
+# cache and smoke-tests the bin, so a future bump cannot ship a stale cache.
+ENV CHROME_DEVTOOLS_MCP_VERSION=1.5.0
+ENV CHROME_DEVTOOLS_MCP_NPX_CACHE=/opt/codeflare/chrome-devtools-mcp-npx-cache
+ENV CHROME_DEVTOOLS_MCP_BIN=/opt/codeflare/bin/chrome-devtools-mcp
+RUN mkdir -p "$CHROME_DEVTOOLS_MCP_NPX_CACHE" "$(dirname "$CHROME_DEVTOOLS_MCP_BIN")" && \
+    NPM_CONFIG_CACHE="$CHROME_DEVTOOLS_MCP_NPX_CACHE" \
+    NPM_CONFIG_UPDATE_NOTIFIER=false \
+    npx -y "chrome-devtools-mcp@$CHROME_DEVTOOLS_MCP_VERSION" --help >/dev/null && \
+    MCP_BIN_LINK="$(find "$CHROME_DEVTOOLS_MCP_NPX_CACHE/_npx" -path '*/node_modules/.bin/chrome-devtools-mcp' -print -quit)" && \
+    [ -n "$MCP_BIN_LINK" ] || { echo "[Dockerfile] FATAL: chrome-devtools-mcp bin missing from baked npx cache" >&2; exit 1; } && \
+    MCP_BIN="$(readlink -f "$MCP_BIN_LINK")" && \
+    [ -x "$MCP_BIN" ] || { echo "[Dockerfile] FATAL: chrome-devtools-mcp bin not executable in baked npx cache" >&2; exit 1; } && \
+    ln -sf "$MCP_BIN" "$CHROME_DEVTOOLS_MCP_BIN" && \
+    "$CHROME_DEVTOOLS_MCP_BIN" --help >/dev/null && \
+    rm -rf "$CHROME_DEVTOOLS_MCP_NPX_CACHE/_logs" /root/.npm
+
+# ---------------------------------------------------------------------------
 # Claude-side Browser Run MCP server (REQ-BROWSER-005). The analog of Pi's
 # native browser-run.ts extension: exposes the Cloudflare Browser Run REST Quick
 # Actions (markdown / content / scrape) as MCP tools so Claude has the same cheap
@@ -446,12 +491,18 @@ ENV PATH="/root/.local/bin:${PATH}"
 
 # V8 compile cache warm-up: Pre-populate Node.js V8 compile cache at Docker build time.
 # Running --version triggers V8 to compile and cache bytecode for each CLI's JavaScript.
-# This speeds up first-launch of Node.js CLIs (codex, copilot, pi) inside containers
-# by avoiding the compilation overhead on every container start.
+# This speeds up first-launch of Node.js CLIs inside containers by avoiding the
+# compilation overhead on every container start.
 # Note: Go binaries (like opencode and antigravity) don't need this — they're already natively compiled.
-RUN codex --version 2>&1 || true && \
-    copilot --version 2>&1 || true && \
-    pi --version 2>&1 || true
+#
+# Owner decision (image-size): the codex + copilot compile-cache warm-ups are
+# DEACTIVATED so their bytecode is not baked into the image (build-space saving);
+# their first launch pays the compile cost instead. Claude Code (its own --version
+# verify above) and Pi (here, plus the jiti extension warm below) keep their prewarm.
+# Re-enable by restoring the two commented lines into the RUN.
+#   codex --version 2>&1 || true && \
+#   copilot --version 2>&1 || true && \
+RUN pi --version 2>&1 || true
 
 # Pi extension warm-up: pre-transpile the full Pi extension set (npm packages +
 # local preseed extensions) into a baked jiti cache + the V8 compile cache.
@@ -514,8 +565,11 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
 # migration ("Performing one time database migration") so first interactive launch is fast.
 # Unset all provider keys so the migration runs without making an actual LLM call.
 # GitHub Actions injects GITHUB_TOKEN which OpenCode would use for GitHub Models.
-RUN ANTHROPIC_API_KEY="" OPENAI_API_KEY="" GEMINI_API_KEY="" GITHUB_TOKEN="" \
-    timeout 30 opencode run "hello" 2>&1 || true
+# Owner decision (image-size): DEACTIVATED — this warm-up baked ~147MB of opencode
+# data into the image. OpenCode now runs its one-time DB migration on first launch
+# instead. Re-enable by uncommenting the RUN below.
+# RUN ANTHROPIC_API_KEY="" OPENAI_API_KEY="" GEMINI_API_KEY="" GITHUB_TOKEN="" \
+#     timeout 30 opencode run "hello" 2>&1 || true
 
 # Verify critical tools are installed (including vim→nvim symlink)
 RUN git --version && gh --version && rclone --version && node --version && \

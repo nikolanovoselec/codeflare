@@ -44,7 +44,6 @@ vi.mock('../../stores/session', () => ({
     get preferences() { return {}; },
     get saasMode() { return usageState.saasMode; },
     loadSessions: vi.fn(),
-    loadPresets: vi.fn(),
     loadPreferences: vi.fn(),
     getActiveSession: vi.fn(() => null),
     setActiveSession: vi.fn(),

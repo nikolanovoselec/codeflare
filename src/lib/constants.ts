@@ -39,9 +39,6 @@ export const ANONYMOUS_RATE_LIMIT_KEY = 'anonymous';
 /** Timeout for container fetch operations (5 seconds for cold start) */
 export const CONTAINER_FETCH_TIMEOUT = 5000;
 
-/** Maximum number of saved presets per user */
-export const MAX_PRESETS = 3;
-
 /** Number of terminal tabs per session */
 // Keep in sync with web-ui/src/lib/constants.ts:MAX_TERMINALS_PER_SESSION
 export const MAX_TABS = 6;

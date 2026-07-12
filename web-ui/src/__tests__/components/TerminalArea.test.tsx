@@ -273,7 +273,7 @@ describe('TerminalArea', () => {
     expect(screen.queryByTestId('terminal-session-c-1')).not.toBeInTheDocument();
   });
 
-  it('REQ-TERM-012: changes MultiView pane focus without remounting terminal panes', async () => {
+  it('REQ-TERM-012: changes MultiView pane focus without remounting terminal panes / REQ-TERM-017', async () => {
     mockSessions = [
       { id: 'session-a', name: 'A', status: 'running' },
       { id: 'session-b', name: 'B', status: 'running' },

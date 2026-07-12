@@ -91,7 +91,7 @@ jobs:
       # pull_request event (not push) and are filtered out before checkout.
       # Scorecard scores the pattern 0 unconditionally because it cannot read
       # the job `if:` guards. See the rationale at lines 54-64 (prior alert #34).
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           # On workflow_run: pin to the SHA whose PR Checks just ended
           # green. Without this, actions/checkout falls back to default-
@@ -106,7 +106,7 @@ jobs:
           node-version: '22'
 
       - name: Cache root node_modules
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache-root
         with:
           path: node_modules
@@ -114,7 +114,7 @@ jobs:
           restore-keys: root-
 
       - name: Cache web-ui node_modules
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache-webui
         with:
           path: web-ui/node_modules
@@ -122,7 +122,7 @@ jobs:
           restore-keys: webui-
 
       - name: Cache landing node_modules
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache-landing
         with:
           path: landing/node_modules
@@ -308,7 +308,7 @@ jobs:
       # docker-container driver (provisioned by setup-buildx-action) does
       # and is what unlocks --cache-from / --cache-to against the
       # built-in GitHub Actions cache service. No extra registry creds.
-      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Build container image
         id: docker-build

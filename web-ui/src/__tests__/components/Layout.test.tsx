@@ -140,10 +140,8 @@ vi.mock('../../stores/session', () => ({
     renameSession: vi.fn(),
     loadPreferences: vi.fn(),
     updatePreferences: vi.fn(),
-    loadPresets: vi.fn(),
     startSessionListPolling: vi.fn(),
     stopSessionListPolling: vi.fn(),
-    presets: [],
     get preferences() { readSessionStoreVersion(); return mockPreferences; },
   },
   getUsageWarningLevel: vi.fn(() => 'none'),
@@ -333,6 +331,59 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   // In default mode the prop is undefined, so the button never renders.
   // We assert the gating by inspecting the prop Layout hands to Header.
   // =========================================================================
+
+  // REQ-IDE-003 AC6: the browser-IDE (OpenVSCode) button is gated like the vault
+  // PLUS a running-session requirement. Layout passes onVscodeOpen only for an
+  // active, advanced-mode, RUNNING session; otherwise the prop is undefined and
+  // Header never renders the button. Asserted by inspecting the prop + the URL.
+  describe('Browser IDE button gating (REQ-IDE-001 / REQ-IDE-003)', () => {
+    it('does NOT pass onVscodeOpen when the active session is default mode', () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'default' };
+
+      render(() => <Layout />);
+
+      expect((window as any).__headerProps.onVscodeOpen).toBeUndefined();
+    });
+
+    it('does NOT pass onVscodeOpen when the advanced session is initializing (not yet running)', () => {
+      // An initializing session renders the Header (the terminal view is up), so
+      // this exercises the status==='running' gate directly: the IDE button must
+      // stay hidden until the container is fully running. (A stopped session
+      // instead shows the dashboard with no Header at all -- a different path.)
+      mockSessions = [createMockSession({ status: 'initializing' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+
+      render(() => <Layout />);
+
+      expect((window as any).__headerProps.onVscodeOpen).toBeUndefined();
+    });
+
+    it('passes onVscodeOpen (IDE button shown) for an advanced, running session', () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+
+      render(() => <Layout />);
+
+      expect(typeof (window as any).__headerProps.onVscodeOpen).toBe('function');
+    });
+
+    it('the passed handler opens the session-keyed /api/vscode/<sid>/ url in a new tab (REQ-IDE-002)', () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockPreferences = { sessionMode: 'advanced' };
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      render(() => <Layout />);
+      (window as any).__headerProps.onVscodeOpen();
+
+      expect(openSpy).toHaveBeenCalledWith('/api/vscode/sess1/', '_blank', 'noopener');
+      openSpy.mockRestore();
+    });
+  });
 
   describe('Vault button gating (CF-075 / REQ-VAULT-012 / REQ-VAULT-018 / REQ-VAULT-019 / REQ-VAULT-020)', () => {
     it('does NOT pass onVaultOpen (vault button hidden) when active session is default mode', () => {
@@ -1058,7 +1109,6 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       render(() => <Layout />);
 
       expect(sessionStore.loadSessions).toHaveBeenCalled();
-      expect(sessionStore.loadPresets).toHaveBeenCalled();
     });
   });
 

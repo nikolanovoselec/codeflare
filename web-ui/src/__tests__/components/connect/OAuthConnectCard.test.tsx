@@ -30,7 +30,7 @@ describe('OAuthConnectCard', () => {
       expect(screen.queryByTestId('cloudflare-connected-badge')).not.toBeInTheDocument();
     });
 
-    it('offers the scope tiers as a segmented control + subtitle, encodes the selected tier into the connect URL, and routes changes', () => {
+    it('offers the scope tiers as a segmented control + subtitle, encodes the selected tier into the connect URL, and routes changes / REQ-AGENT-028', () => {
       const onSelect = vi.fn();
       render(() => (
         <OAuthConnectCard

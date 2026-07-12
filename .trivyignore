@@ -627,3 +627,98 @@ CVE-2026-27145
 # bundles a newer npm - not independently upgradable without bumping node/npm. Same
 # "fixed upstream but a vendored CLI hasn't rebuilt" profile as the entries above.
 CVE-2026-48815
+
+# Go stdlib os.Root in gh (Go 1.26.4), lazygit v0.60.0 (Go 1.25.10), and
+# silverbullet (Go 1.25.1): a symlink-following bug in os.Root lets filesystem
+# operations meant to be confined to a root directory traverse outside it via a
+# symlink, enabling directory traversal. Impact: NONE - all three are local,
+# single-tenant CLI/UI tools in the sandboxed container operating on the user's
+# OWN files (gh: user repos/config; lazygit: user git working trees; silverbullet:
+# the user's Vault dir behind Cloudflare Access). There is no attacker-controlled
+# symlink tree and no multi-tenant filesystem boundary for an os.Root confinement
+# escape to cross. Fix: Go 1.25.12 / 1.26.5 / 1.27.0-rc.2; gh, lazygit, and
+# silverbullet upstream have not rebuilt with the patched Go. Same vendored-binary
+# exposure profile as CVE-2026-27145 above.
+CVE-2026-39822
+
+# ============================================================================
+# OpenVSCode Server v1.109.5 (REQ-IDE-001, the per-session browser IDE): the
+# pinned, vendored Gitpod VS Code web-server build added to the container image.
+# All 22 HIGH/CRITICAL findings are reported ONLY under
+# opt/openvscode-server/{extensions,node_modules}/ (baked into the pinned
+# tarball; unfixable without rebuilding the vendored binary, and a newer
+# OpenVSCode release ships the same built-in-extension CVEs).
+#
+# SCOPE NOTE: `undici`, `diff`, and `ini` also appear elsewhere in codeflare, so
+# note where this image-wide, path-unscoped suppression can and cannot leak. The
+# Trivy gate is an IMAGE scan, and the Dockerfile does NOT copy the root /
+# web-ui / landing node_modules into the image (those ship as separate Worker /
+# Pages builds), so this allowlist can never mask a finding there — Trivy is
+# simply blind to them, regardless of their version. What IS in the scanned image
+# and shares these IDs: the baked-in pi agent tree (/opt/codeflare/pi-agent/npm),
+# the global `npm install -g` CLIs under /usr/local/lib/node_modules (e.g.
+# @earendil-works/pi-coding-agent, which carries undici/diff transitively), and
+# /opt/codeflare/browser-run-mcp. Every in-image copy is currently on a PATCHED
+# version (undici 8.3.0, diff 8.0.4, ini 1.3.8), so nothing is masked today — but
+# because suppression is by ID image-wide, if any of those IN-IMAGE trees ever
+# drift undici|diff|ini back into an affected range this allowlist would silently
+# hide it. Re-audit the in-image trees (pi agent, global CLIs, browser-run-mcp)
+# on ANY undici/diff/ini bump, not only on an OPENVSCODE_VERSION bump.
+#
+# Impact: NONE across codeflare's trust boundary. OpenVSCode binds 127.0.0.1
+# only, one instance per the user's OWN session container, reachable solely
+# through the Worker's Cloudflare Access + tier + session-ownership auth chain.
+# An AI coding agent DOES clone arbitrary repos, so untrusted workspace content
+# (Gruntfiles, package.json, .ini, .hbs, WS peers) can reach some of these
+# components — but any resulting code-execution/file-write is confined to the
+# ephemeral, single-tenant container the session occupant already fully controls
+# via their own shell, and none of these CVEs is a container-escape or
+# cross-tenant primitive. Same vendored-binary, single-tenant-sandbox acceptance
+# policy as CVE-2026-39822.
+# ----------------------------------------------------------------------------
+# Built-in language extensions. The grammar / language-config extensions
+# (handlebars, diff, ini, json) never invoke the flagged npm package at runtime
+# (no Handlebars.compile(), no INI/JSON parser on that dep) -> vulnerable path
+# unreachable. The grunt and npm extensions DO ship runtime detection JS, but
+# only shell out to the workspace's own grunt/npm on the user's own in-container
+# files (in-container-by-design, not a boundary crossing). Old CVEs inherent to
+# every VS Code / OpenVSCode build.
+#
+# extensions/handlebars — prototype-pollution / RCE via template compilation:
+CVE-2019-19919
+CVE-2021-23369
+CVE-2021-23383
+CVE-2019-20920
+GHSA-2cf5-4w76-r9qv
+GHSA-g9r4-xpmj-mj65
+GHSA-q2c6-c6pm-g3gh
+GHSA-q42p-pg8m-cqh6
+# extensions/diff — ReDoS in the diff grammar helper dep:
+GHSA-h6ch-v84p-w6p9
+# extensions/grunt — race-condition arbitrary file write / RCE via Gruntfile:
+CVE-2020-7729
+CVE-2022-1537
+# extensions/npm — symlink/bin-field arbitrary file write + permission assignment:
+CVE-2018-7408
+CVE-2019-16775
+CVE-2019-16776
+CVE-2019-16777
+# extensions/ini — prototype pollution via malicious INI file:
+CVE-2020-7788
+# extensions/json — command injection in trentm/json:
+CVE-2020-7712
+# ----------------------------------------------------------------------------
+# Server node_modules run inside the single-tenant session container only, behind
+# the Worker auth boundary, on the user's own workspace.
+#
+# node_modules/shell-quote — arbitrary code execution via command injection:
+CVE-2026-9277
+# node_modules/undici — WebSocket DoS (unbounded memory / crafted frames); the
+# IDE server uses undici as an outbound client, not an inbound parser for
+# attacker-controlled requests:
+CVE-2026-1526
+CVE-2026-1528
+CVE-2026-2229
+# node_modules/lodash-es — arbitrary code execution via untrusted template imports:
+CVE-2026-4800
+# ============================================================================

@@ -10,6 +10,7 @@ Complete API endpoint reference for the Codeflare Worker.
 - [Container Lifecycle](#container-lifecycle)
 - [Terminal](#terminal)
 - [Vault](#vault)
+- [Browser IDE](#browser-ide)
 - [User Management](#user-management)
 - [Auth (SaaS Mode)](#auth-saas-mode)
 - [Usage](#usage)
@@ -22,10 +23,10 @@ Complete API endpoint reference for the Codeflare Worker.
 - [Discoverability Documents](#discoverability-documents)
 - [Setup](#setup)
 - [Storage (R2 File Browser)](#storage-r2-file-browser)
-- [Presets](#presets)
 - [Preferences](#preferences)
 - [LLM API Keys](#llm-api-keys)
 - [Public (Onboarding)](#public-onboarding)
+- [Public (Landing)](#public-landing)
 - [Health](#health)
 
 ---
@@ -92,6 +93,16 @@ The in-container SilverBullet editor is reached through the Worker proxy. Under 
 | GET | `/api/vault/<token>/service_worker.js` | None (browser-only `service-worker` header) | [REQ-VAULT-017](../../sdd/spec/vault.md#req-vault-017-silverbullet-native-service-worker) | Auth-short-circuited native SilverBullet SW (credential-less registration fetch). |
 | GET | `/api/vault/<token>/.codeflare-bootstrap` | Session cookie | [REQ-VAULT-024](../../sdd/spec/vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) AC1, [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) | Bootstrap hop: registers native SW, posts bucket-derived key via `set-encryption-key`, sets `codeflare_vault_bootstrap` cookie, redirects to token URL. |
 | GET | `/api/vault/<token>/.vault-key` | Session cookie | [REQ-VAULT-024](../../sdd/spec/vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) AC5 | Returns `{ key }` JSON (bucket-derived HKDF key) for in-memory key recovery by the grafted SW. `Cache-Control: no-store`. |
+
+### Browser IDE
+
+The in-container OpenVSCode Server (full VS Code editor) is reached through the Worker proxy. Unlike the Vault, the IDE is **session-keyed** ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable)): OpenVSCode runs with `--server-base-path=/api/vscode/<sessionId>`, so it is base-path native — the Worker and host forward the path **unchanged** (no `/vault`-style strip, no HTML base-href graft) and its service-worker scope is session-specific. The sessionId in the URL is the sole container selector; there is no bucket-stable path.
+
+| Method | Endpoint | Auth | Implements | Description |
+|--------|----------|------|------------|-------------|
+| GET / WS | `/api/vscode/<sessionId>/*` | Session cookie (shared vault auth chain) | [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability) | Session-keyed OpenVSCode proxy, parsed before Hono so WebSocket upgrades pass through. Path forwarded unchanged. Security headers: `frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`, no CSP. WS upgrades rate-limited (30/60s, shared with terminal + vault). |
+
+**Error responses:** malformed sessionId → 400 `INVALID_SESSION`; unowned session → 404 `SESSION_NOT_FOUND`; stopped session → 503 `CONTAINER_STOPPED`; unhealthy container → 503 `CONTAINER_NOT_READY`; a non-advanced session → 409 for HTTP (host-layer HTML page, the IDE is not enabled for the session mode) and a refused upgrade for WebSocket ([REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability) AC7); while OpenVSCode is still lazy-starting, the host serves a 503 auto-refreshing HTML warming page (no JSON `code` — see `host/src/vscode-proxy.ts::vscodeWarmingResponse`). The pre-Hono, pre-auth 400 keeps the full default security-header set; every other response gets the relaxed set above.
 
 ### User Management
 
@@ -196,6 +207,14 @@ The Connect-Cloudflare callback re-derives identity from the live session, verif
 | POST | `/public/waitlist` | none | [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012-setup-wizard-step-sequence), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) | Waitlist signup with Turnstile (rate-limited 1/day by IP) |
 | GET | `/public/contact-config` | none | [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline) | Turnstile site key for the landing contact form (SaaS or onboarding mode) |
 | POST | `/public/contact` | none | [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) | Demo-request submission: Turnstile-verified, relayed to admins as email, never persisted (rate-limited 5/min) |
+
+Auth-provider discovery can be checked without a session:
+
+```sh
+curl -sS https://<worker-host>/public/auth/providers
+```
+
+The response is `{ "providers": [...] }`. Each provider contains `id`, `type`, and `name`; direct GitHub mode also includes `loginUrl`.
 
 ### Discoverability Documents
 
@@ -520,10 +539,6 @@ Note: `/api/setup/detect-token` and `/api/setup/prefill` are also subject to the
 | POST | `/api/storage/upload/complete` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Complete multipart upload |
 | POST | `/api/storage/upload/abort` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Abort multipart upload |
 
-### Presets
-
-GET `/api/presets`, POST `/api/presets`, PATCH `/api/presets/:id` (rename), DELETE `/api/presets/:id`
-
 ### Preferences
 
 GET `/api/preferences`, PATCH `/api/preferences`
@@ -533,7 +548,6 @@ GET `/api/preferences`, PATCH `/api/preferences`
 | Field | Contract |
 |---|---|
 | `lastAgentType` | Optional `AgentType`; last selected agent. |
-| `lastPresetId` | Optional string; last used preset. |
 | `workspaceSyncEnabled` | Boolean, default `false`; workspace sync toggle. |
 | `fastStartEnabled` | Boolean, default `true`; maps to `FAST_CLI_START` in the container DO. See [Fast Start](container.md#fast-start). |
 | `sessionMode` | Optional `SessionMode`; default or advanced. Changes trigger `reconcileAgentConfigs(overwrite: true, cleanup: true)`. |

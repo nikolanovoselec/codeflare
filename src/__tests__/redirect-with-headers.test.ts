@@ -13,7 +13,6 @@ vi.mock('../routes/session/index', () => ({ default: new Hono() }));
 vi.mock('../routes/setup/index', () => ({ default: new Hono() }));
 vi.mock('../routes/users', () => ({ default: new Hono() }));
 vi.mock('../routes/storage', () => ({ default: new Hono() }));
-vi.mock('../routes/presets', () => ({ default: new Hono() }));
 vi.mock('../routes/preferences', () => ({ default: new Hono() }));
 vi.mock('../routes/public/index', () => ({ default: new Hono() }));
 
@@ -21,7 +20,7 @@ import { redirectWithHeaders } from '../index';
 
 // REQ-SEC-021: HSTS coverage on redirect response paths
 
-describe('redirectWithHeaders', () => {
+describe('redirectWithHeaders / REQ-SEC-021', () => {
   it('returns a redirect response with correct status', () => {
     const res = redirectWithHeaders('/setup', 302);
     expect(res.status).toBe(302);

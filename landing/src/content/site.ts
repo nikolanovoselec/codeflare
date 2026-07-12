@@ -126,6 +126,15 @@ export const NAV_LINKS: NavLink[] = [
   { label: 'Cost', href: '#cost' },
 ];
 
+/** The header sign-in CTA. The visible text is an on-theme "Enter The Matrix"
+ *  flourish that pays off the page's Metacortex / Thomas Anderson easter egg; the
+ *  accessible name stays "Sign in" so the auth entry is unmistakable to assistive
+ *  tech and scanners. The destination is APP_LINKS.signIn (config), unchanged. */
+export const HEADER_SIGN_IN = {
+  label: 'Enter The Matrix',
+  a11y: 'Sign in',
+};
+
 /**
  * Per-section eyebrow labels ("the kicker spine"). A small uppercase accent
  * label opens every top-level section: the calm structural cue that replaced the
@@ -139,11 +148,13 @@ export const SECTION_KICKERS: Record<string, string> = {
   method: 'Quality',
   legacy: 'Adoption',
   security: 'Security',
+  operations: 'Operations',
   context: 'Context',
   pipeline: 'Control',
   orchestration: 'Observability',
   cost: 'Cost',
   platform: 'Platform',
+  ide: 'Continuity',
   mcp: 'Tooling',
   dogfood: 'Proof',
   faq: 'FAQ',
@@ -155,7 +166,7 @@ export const AGENTS = ['claude-code', 'codex', 'copilot', 'pi', 'antigravity', '
 export const HERO = {
   kicker: {
     prefix: 'The agentic',
-    words: ['coding', 'operations', 'testing', 'review', 'orchestration', 'deployment', 'toolchain', 'security'],
+    words: ['coding', 'operations', 'testing', 'review', 'orchestration', 'deployment', 'toolchain', 'security', 'inference'],
     suffix: 'engine',
   },
   headline: { plain: 'This is not', flare: 'a coding assistant.' },
@@ -167,8 +178,9 @@ export const HERO = {
     'Codeflare runs governed engineering agents inside your own estate. Each change is backed by a ' +
     'spec, proven by tests, documented, and handed to your team to approve, whether that is a ' +
     'pull request to merge or a change to run.',
-  primaryCta: { label: 'Book a demo', href: '#contact' } satisfies Cta,
-  secondaryCta: { label: 'See the shift', href: '#shift' } satisfies Cta,
+  // One CTA, rendered as the shared .micro-cta text link (same treatment as the
+  // dogfood and Inference Mesh "See it on GitHub ->" links), pointing at the contact form.
+  primaryCta: { label: 'Get in touch', href: '#contact' } satisfies Cta,
 };
 
 /**
@@ -185,6 +197,53 @@ export const SPINE = {
   user: 't.anderson',
   team: 'payments',
   service: 'payments-service',
+};
+
+// The Inference Mesh band: an OPTIONAL additional inference source Codeflare can pull
+// from (idle machines you own -> private, low-cost inference), presented as a second
+// hero directly under the primary one. NOT Codeflare's only or default inference path
+// -- every hosted provider stays first-class (see description). The proof terminal's
+// command line reuses SPINE.user (declared above) so the identity never drifts from
+// the hero terminal -- the two heroes read as one governed session.
+export const INFERENCE_MESH = {
+  id: 'inference-mesh',
+  // Section marker rendered by .kicker as "~/inference" (coral ~/ + mono), right-aligned
+  // on desktop to mirror the terminal (via .mesh-hero-copy text-align).
+  tag: 'inference',
+  // The headline is the plain product name in white section-h2 style -- no flare, no
+  // scramble -- right-aligned. "Codeflare" is deliberately not repeated (header wordmark
+  // and hero lead already establish it).
+  name: 'Inference Mesh',
+  description:
+    'Codeflare works with any inference provider. Inference Mesh is one more it can pull from. ' +
+    'It turns the idle machines you already own into private, low-cost capacity for your agents. ' +
+    'Long-running sessions stay warm, sensitive work never leaves your boundary, and every hosted ' +
+    'provider stays first-class, as your default or your fallback.',
+  primaryCta: {
+    label: 'See it on GitHub',
+    href: 'https://github.com/nikolanovoselec/codeflare-inference-mesh',
+  } satisfies Cta,
+  terminal: {
+    title: 'codeflare · inference mesh',
+    lines: [
+      { tone: 'cmd', text: `${SPINE.user}@metacortex.ai -> codeflare-mesh · Kimi-K2.7-Code-GGUF:UD-Q8_K_XL` },
+      { tone: 'agent', text: '✻ served on idle capacity you already own' },
+      { tone: 'agent', text: '✻ session pinned warm · prompt cache hot' },
+      { tone: 'ok', text: '✓ 2731 tok/s prompt · 132.71 tok/s generation' },
+      { tone: 'ok', text: '✓ 0 prompts left your network' },
+      { tone: 'ok', text: '✓ hosted providers stay first-class · default or fallback' },
+    ] satisfies TranscriptLine[],
+    // Live typed reel on the bottom command line (shared data-ft-loop machinery):
+    // active-voice mesh work that reads as a running session, deliberately
+    // distinct from the static proof lines above it. Loops in authored order.
+    loop: [
+      'sharding a large model across the mesh',
+      'streaming tokens from idle nodes',
+      'reusing warm KV across sessions',
+      'scaling out as machines join',
+    ],
+    foot: 'your capacity · warm sessions · governed spend',
+  },
 };
 
 export const TERMINAL = {
@@ -361,7 +420,7 @@ export const LEGACY = {
 
 export const SECURITY = {
   id: 'security',
-  title: 'Built on a zero-trust foundation.',
+  title: 'Built on a Zero Trust foundation.',
   lead:
     'Every dangerous path is closed at the architecture level. A session authenticates through ' +
     'your IdP, runs in an isolated container in your tenancy, and reaches models only through ' +
@@ -476,14 +535,31 @@ export const DOGFOOD = {
 
 export const OPERATIONS = {
   id: 'operations',
-  // Nested terminal-path tag: one level under the security section's own "~/security",
-  // so the path depth marks this as a sub-section (the "~/" prefix is added in CSS).
-  tag: 'security/operations',
+  // Promoted from a security substation to a peer section: the "operate" surface of the
+  // directed execution model, co-equal with the coding surface. Top-level path tag now
+  // (was the nested "security/operations").
+  tag: 'operations',
   title: 'The same agents operate your infrastructure.',
   lead:
-    'The same session model works past the repo. Agents reach approved infrastructure through ' +
-    'zero-trust tunnels to run scoped commands, apply patches, handle migrations, and drive ' +
-    'incident response, with an audit trail behind every action.',
+    'The governed harness is not only for code. On the same session model, under your own ' +
+    'identity, agents patch servers, migrate workloads, provision clusters, and configure ' +
+    'firewalls, proxies, and other appliances. They reach approved targets through your Zero ' +
+    'Trust, never a broad VPN, and every action is proposed, approved, and evidenced.',
+  // A governed infrastructure run in the same gate grammar as the security boundary, so
+  // "operate" reads as a peer receipt: reach is scoped by Zero Trust, the plan runs only on
+  // operator approval, and nothing outside scope is possible.
+  run: {
+    title: 'operations · one plan',
+    rows: [
+      { actor: 'reach', state: 'pass', label: 'scoped', text: 'prod-k8s · db-primary · edge-fw, via your Zero Trust' },
+      { actor: 'plan', state: 'work', label: 'proposed', text: 'patch 42 nodes, rotate the expiring TLS cert, drain-migrate db-primary' },
+      { actor: 'approval', state: 'pass', label: 'yours', text: 'nothing touches a host until you approve the plan' },
+      { actor: 'rollout', state: 'pass', label: 'applied', text: 'cordon, patch, rejoin · rolling, zero downtime' },
+      { actor: 'verify', state: 'pass', label: 'green', text: 'health checks pass, cert valid, migration reconciled' },
+      { actor: 'blast radius', state: 'deny', label: 'contained', text: 'no host beyond the plan · no lateral move · no standing creds' },
+    ] satisfies BoundaryRow[],
+    caption: 'Authentication is not reachability: your scope admits the session, your fabric limits its reach.',
+  },
   cards: [
     {
       title: 'Policy-scoped zero-trust tunnels',
@@ -553,6 +629,73 @@ export const PLATFORM = {
       { actor: 'any agent', label: 'one engine', text: 'identical governance whichever agent does the work' },
     ],
     caption: 'every session · same context · same controls · same isolation',
+  },
+};
+
+// The Browser IDE band: the bridge between the traditional SDLC and agentic work.
+// A familiar VS Code window where a developer watches the agent move at machine
+// speed and can take the wheel to edit directly. `stream` is the integrated
+// terminal's reel (feature-terminals.ts types/deletes/shuffles it) — the agent's
+// live activity, made legible, with the human stepping in. `code` is the calm,
+// line-numbered pane; `status` is the editor status bar. No VS Code blue: the
+// page's one locked accent tints the bar instead.
+export const IDE = {
+  id: 'ide',
+  title: 'The editor you already know',
+  lead:
+    'Visual Studio Code in your browser, running inside Codeflare: the editor you already ' +
+    "know, turned into a bird's-eye view across the agent's execution at machine speed. " +
+    'Files change, checks run, the integrated terminal streams, and you stay oriented in a ' +
+    'familiar workspace while the work moves faster than you could type it. Take the wheel ' +
+    'and edit directly whenever you want.',
+  // Real files + snippet from the public codeflare-inference-mesh repo
+  // (packages/node-agent/internal/agent/proxy.go), so the mock shows actual
+  // codebase code rather than invented sample text.
+  file: 'proxy.go',
+  fileAlt: 'runtime.go',
+  folder: 'codeflare-inference-mesh',
+  // Modified-file count shown on the source-control rail badge.
+  changes: 2,
+  // Explorer file tree (depth-indented rows). Real node-agent / router-worker
+  // files from the mesh repo; proxy.go is the active, modified file.
+  explorer: [
+    { label: 'codeflare-inference-mesh', depth: 0, kind: 'root' },
+    { label: 'packages', depth: 1, kind: 'folder-open' },
+    { label: 'node-agent', depth: 2, kind: 'folder-open' },
+    { label: 'proxy.go', depth: 3, kind: 'file', active: true, dot: true },
+    { label: 'runtime.go', depth: 3, kind: 'file' },
+    { label: 'scheduler.go', depth: 3, kind: 'file' },
+    { label: 'router-worker', depth: 2, kind: 'folder' },
+    { label: 'README.md', depth: 1, kind: 'file' },
+    { label: 'go.mod', depth: 1, kind: 'file' },
+  ],
+  code: [
+    'type ActiveCounter struct {',
+    '  value int64',
+    '}',
+    'func (c *ActiveCounter) Inc() {',
+    '  atomic.AddInt64(&c.value, 1)',
+    '}',
+  ],
+  // Resting integrated-terminal output above the live command line (calm, dim).
+  termLog: [
+    '✓ node-agent · router-worker · build · vet · test',
+    '✓ 6 review lanes · 0 findings',
+  ],
+  stream: [
+    'git push  → PR Checks · GitHub Actions',
+    'agent edits proxy.go  +12 -3',
+    'gh run watch  ✓ node-agent · router-worker',
+    'review · 6 lanes · 0 findings',
+    'you edit runtime.go · agent hands off',
+    'agent picks up at machine speed',
+  ],
+  status: {
+    branch: 'main',
+    sync: '✓ synced',
+    ci: 'Actions: passing',
+    pos: 'Ln 5, Col 3',
+    lang: 'Go',
   },
 };
 
@@ -783,6 +926,14 @@ export const FAQ_ITEMS: FaqItem[] = [
       'and provider credentials never enter the container.',
   },
   {
+    question: 'Do we have to use the Inference Mesh?',
+    answer:
+      'No. Codeflare works with any hosted inference provider as your default or your fallback, ' +
+      'routed through your AI Gateway. The Inference Mesh is one optional additional source: it turns ' +
+      'idle machines you already own into private, low-cost capacity, so long-running or sensitive ' +
+      'work can stay inside your boundary. Run entirely on hosted providers, entirely on the mesh, or mix the two per group.',
+  },
+  {
     question: 'How does authentication work with our IdP?',
     answer:
       'Through zero-trust access in front of every surface, federating to Entra ID, Okta, Google ' +
@@ -794,6 +945,14 @@ export const FAQ_ITEMS: FaqItem[] = [
       'Hard infrastructure boundaries. Each session runs in its own ephemeral container behind ' +
       'zero-trust access, with no peers to move to and no standing infrastructure to persist on. ' +
       'When the session ends, the container is destroyed.',
+  },
+  {
+    question: 'Can agents operate infrastructure, not just write code?',
+    answer:
+      'Yes. The same governed session that builds also patches servers, migrates workloads, ' +
+      'provisions clusters, and configures firewalls, proxies, and other appliances. It reaches ' +
+      'approved targets through your Zero Trust, never a broad VPN, and every action is proposed, ' +
+      'approved, and evidenced before it touches a host, with no standing credentials left behind.',
   },
   {
     question: 'Which agents are supported?',

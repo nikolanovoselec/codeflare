@@ -13,7 +13,7 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 - [Claude Code Integration](#claude-code-integration)
 - [Graphify (Knowledge-Graph Context) (REQ-AGENT-023)](#graphify-knowledge-graph-context-req-agent-023)
 - [LLM Consultation](#llm-consultation)
-- [Push & Deploy](#push-deploy)
+- [Push & Deploy](#push--deploy)
 
 ## Container Image
 
@@ -24,31 +24,33 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 | Category | Packages |
 |----------|----------|
 | Sync | rclone |
-| Version Control | git, github-cli (gh), lazygit (v0.62.1) |
+| Version Control | git, github-cli (gh), lazygit |
 | Editors | vim (symlinked to neovim), neovim, nano |
 | Network | curl, openssh-client |
 | Process | procps (ps, pgrep) |
-| Utilities | jq, python3 plus `python` alias, ripgrep, fd, tree, htop, tmux, yazi (v26.5.6), fzf, zoxide, bat |
+| Utilities | jq, python3 plus `python` alias, ripgrep, fd, tree, htop, tmux, yazi, fzf, zoxide, bat |
 
 ### Global NPM Packages
 
-AI CLI packages install with `@latest` -- each deploy pulls the newest versions (`.cache-bust` layer invalidation triggers fresh installs). The Dockerfile is the source of truth -- versions listed below are approximate and may drift between deploys. Exception: `bun` is pinned to a specific version because context-mode autodetects it as the JS/TS subprocess runtime; an upstream regression would silently break `ctx_execute` for every user.
+AI CLI packages install with `@latest` -- each deploy pulls the newest versions (`.cache-bust` layer invalidation triggers fresh installs). The Dockerfile is the source of truth for exact versions. Exception: `bun` is pinned to a specific version because context-mode autodetects it as the JS/TS subprocess runtime; an upstream regression would silently break `ctx_execute` for every user.
 
-**Known trade-off:** Installing CLIs via `@latest` means each new container may run a different CLI version. Major version jumps (e.g., Copilot 0.0.418 → 1.0.12) between deploys have caused regressions (e.g., cursor rendering, xterm integration). Users in long-lived sessions will see the old version; new sessions after a deploy will see the new version. Monitor for unexpected behavior after deploys.
+**Known trade-off:** Installing CLIs via `@latest` means each new container may run a different CLI version. Major version jumps between deploys have caused regressions (e.g., cursor rendering, xterm integration). Users in long-lived sessions will see the old version; new sessions after a deploy will see the new version. Monitor for unexpected behavior after deploys.
 
 | Package | Version | Provides |
 |---------|---------|----------|
-| `@anthropic-ai/claude-code` | latest | `claude` command. Runs with `IS_SANDBOX=1` + `--dangerously-skip-permissions` for root container support. |
-| `@openai/codex` | 0.105.0 | `codex` command |
+| `@anthropic-ai/claude-code` | `@latest` | `claude` command. Runs with `IS_SANDBOX=1` + `--dangerously-skip-permissions` for root container support. |
+| `@openai/codex` | `@latest` | `codex` command |
 | Antigravity (agy) | beta | `agy` command. Installed via `curl -fsSL https://antigravity.google/cli/install.sh \| bash` (Go-native binary, not npm). Runs with `--dangerously-skip-permissions`. |
-| `opencode-ai` | 1.2.15 | `opencode` command |
-| `@github/copilot` | 0.0.418 | `copilot` command. Post-install: non-linux-x64 prebuilds, `mxc-bin/arm64`, bundled `ripgrep/` (system `rg` used instead), and non-linux native modules (`clipboard`, `pvrecorder`, `sharp` node_modules) stripped to save ~200MB. |
-| `bun` | 1.3.14 (pinned) | JS/TS subprocess runtime. context-mode autodetects Bun for `ctx_execute` / `ctx_batch_execute`. The Dockerfile `npm install -g bun@X` literal is shadow-pinned by the `bun` job in `bump-shadow-pins.yml`; future bumps should smoke-test context-mode startup before merge. Post-install: `node_modules/` (258MB of non-linux platform binaries) stripped; only the linux-x64 binary in `bin/` is retained. |
-| `consult-llm-mcp` | 2.13.4 (pinned) | `consult-llm-mcp` command — the LLM Consultation MCP server for Claude Code + Pi. |
+| `opencode-ai` | `@latest` | `opencode` command |
+| `@github/copilot` | `@latest` | `copilot` command. Post-install: non-linux-x64 prebuilds, `mxc-bin/arm64`, bundled `ripgrep/` (system `rg` used instead), and non-linux native modules (`clipboard`, `pvrecorder`, `sharp` node_modules) stripped to save ~200MB. |
+| `bun` | pinned | JS/TS subprocess runtime autodetected by context-mode. The shadow-pin workflow owns the Dockerfile version. Image cleanup retains only the linux-x64 executable and strips non-Linux packages. |
+| `consult-llm-mcp` | pinned | `consult-llm-mcp` command — the LLM Consultation MCP server for Claude Code + Pi. |
 | `browser-run-mcp` | `@modelcontextprotocol/sdk` pinned exact in `preseed/agents/claude/browser-run-mcp/package.json` | Claude Code's cheap one-shot Browser Run READ surface. |
-| `chrome-devtools-mcp` | 1.5.0 (pinned) | Interactive Browser Run surface for Claude Code and Pi (via `pi-mcp-adapter`). Registered by `entrypoint.sh` as `npx -y chrome-devtools-mcp@1.5.0` only in advanced mode with a Cloudflare Browser Rendering token. The literal is shadow-pinned by the `chrome-devtools-mcp` job in `bump-shadow-pins.yml` because Dependabot cannot see it. ([REQ-BROWSER-001](../../sdd/spec/browser-run.md#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-006](../../sdd/spec/browser-run.md#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter)) |
+| `chrome-devtools-mcp` | pinned via `CHROME_DEVTOOLS_MCP_VERSION` | Interactive Browser Run for Claude Code and Pi. The image exposes a baked executable; advanced-mode startup registers it only with a Browser Rendering token. Shadow-pin automation owns the Dockerfile version. ([REQ-BROWSER-001](../../sdd/spec/browser-run.md#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-006](../../sdd/spec/browser-run.md#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter)) |
 
 `consult-llm-mcp` is installed `-g` and verified on `PATH` at build time so the server starts without a runtime `npx` fetch. It is pinned and shadow-pinned by the `consult-llm-mcp` job in `bump-shadow-pins.yml`; the version literal lives only in the Dockerfile `npm install -g` line, so Dependabot cannot see it.
+
+`chrome-devtools-mcp` is warmed through `npx -y chrome-devtools-mcp@$CHROME_DEVTOOLS_MCP_VERSION --help` during the Docker build, then linked to `/opt/codeflare/bin/chrome-devtools-mcp` and smoke-tested through that stable path. Runtime Browser Run config points Claude Code and Pi at the baked bin, not `npx`, so new sessions do not pay npm resolve/download/extract time. Future bumps update only the Dockerfile version env; the image rebuild regenerates the matching cache.
 
 Additional details:
 
@@ -66,7 +68,9 @@ The build **fails closed**: an empty resolved version aborts before reinstall, a
 
 ### V8 Compile Cache Warm-Up
 
-Node.js CLIs (codex, copilot) are warmed at Docker build time by running `--version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Go binaries (opencode, Antigravity/agy) are already natively compiled and do not need V8 cache warm-up. Claude Code ships as a native binary (v2.1.102+) and is verified at build time via `claude --version`.
+Pi is warmed at Docker build time by running `pi --version`, which triggers V8 to compile and cache bytecode via `NODE_COMPILE_CACHE`. This pre-populates the compile cache so that first-launch inside containers skips the JavaScript compilation overhead, resulting in faster startup times. Go binaries (opencode, Antigravity/agy) are already natively compiled and do not need V8 cache warm-up. Claude Code ships as a native binary and is verified at build time via `claude --version`.
+
+**codex and copilot are excluded (image-size owner decision, [AD96](../decisions/README.md#ad96-deactivate-codexcopilot-v8-warm-up-and-opencode-db-pre-init-image-size)):** both warm-ups are commented out in the Dockerfile so their bytecode is not baked into the image; each pays the V8 compile cost on its own first launch instead. Re-enable by restoring the two commented `RUN` lines next to `RUN pi --version` in the Dockerfile.
 
 ### Pi Extension Jiti Transpile Cache Warm-Up ([AD79](../decisions/README.md#ad79-image-baked-pi-extension-transpile-cache))
 
@@ -83,11 +87,17 @@ Node.js CLIs (codex, copilot) are warmed at Docker build time by running `--vers
 
 ### OpenCode Database Pre-Initialization
 
-OpenCode uses SQLite with Goose migrations that run on first startup ("Performing one time database migration"). The DB is stored at `~/.local/share/opencode/opencode.db` (XDG data directory). To avoid this overhead at container start, the Dockerfile runs `opencode run "hello"` at build time which triggers the migration, creating the sessions/files/messages schema so the first interactive launch is fast.
+OpenCode uses SQLite with Goose migrations that run on first startup ("Performing one time database migration"). The DB is stored at `~/.local/share/opencode/opencode.db` (XDG data directory).
+
+**Disabled (image-size owner decision, [AD96](../decisions/README.md#ad96-deactivate-codexcopilot-v8-warm-up-and-opencode-db-pre-init-image-size)):** the Dockerfile's `opencode run "hello"` build-time warm-up is commented out — it baked ~147MB of opencode data into the image. OpenCode now runs its one-time DB migration on first interactive launch instead. Re-enable by uncommenting the `RUN ANTHROPIC_API_KEY="" ... opencode run "hello"` block in the Dockerfile.
 
 ### Browser Shims
 
 CLI tools (Claude Code, OpenCode, Antigravity) try to open a browser for OAuth. The Dockerfile installs shims (`open-url` for `BROWSER` env var, `xdg-open-shim` for `xdg-open`) that exit 1, forcing CLIs to print auth URLs as plain text in the PTY. The xterm.js link provider then detects and makes these URLs clickable.
+
+### OpenVSCode Server Binary
+
+**File:** `Dockerfile` installs `openvscode-server` (Gitpod build) at a pinned version with a `sha256sum -c` verification, mirroring the SilverBullet install block. Shadow-pinned by the `openvscode-server` job in `bump-shadow-pins.yml`. The supervisor that runs it is described under [Container Startup](#openvscode-server-browser-ide).
 
 Port: 8080 (single port architecture).
 
@@ -125,6 +135,16 @@ Auto-start uses `claude --dangerously-skip-permissions` for fast boot. Auto-upda
 
 **PTY PATH:** The `.bashrc` tab autostart block sets `PATH="/usr/local/bin:/usr/bin:/bin:$PATH"` so that PTY sessions can find globally installed CLI tools.
 
+### OpenVSCode Server (Browser IDE)
+
+**Lazy-started ([REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability)):** `entrypoint.sh`'s `start_openvscode_supervisor` runs OpenVSCode (the binary installed under [Container Image](#openvscode-server-binary)) on `127.0.0.1:13337` against the session's `~/workspace`, supervised by a crash-restart loop. It does not launch at boot: it waits until `CODEFLARE_INIT_FLAG_FILE` exists AND the host has written `/tmp/openvscode-requested` (on the container's first `/api/vscode` request), so a session that never opens the IDE never pays for it. It runs `--server-base-path=/api/vscode/<sessionId>` for session isolation and an ephemeral `--server-data-dir` under `/tmp` (never R2-synced). Advanced-mode only, armed alongside the SilverBullet supervisor. Torn down via `/tmp/openvscode.pid` on shutdown. See [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy).
+
+**Startup transport ([REQ-IDE-004](../../sdd/spec/browser-ide.md#req-ide-004-resilient-editor-activity-transport)):** While the upstream editor WebSocket connects, the host retains at most 128 client frames and 8 MiB cumulatively. It preserves order and text/binary form, flushes once upstream opens, and closes with retry-later code `1013` if either limit is exceeded. Close, error, and overflow paths release listeners and retained frames. <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages -->
+
+**Idle activity ([REQ-IDE-004](../../sdd/spec/browser-ide.md#req-ide-004-resilient-editor-activity-transport)):** Every client-to-server editor frame refreshes the host's `lastInputAt` timestamp without protocol parsing. The authoritative `collectMetrics()` idle policy therefore treats continued editing as user input just like PTY keystrokes. <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages -->
+
+**Supply-chain posture:** The artifact remains upstream-clean under the explicit risk acceptance in [AD97](../decisions/README.md#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk); container isolation reduces but does not eliminate the documented editor risk.
+
 ### Fast Start
 
 **User preference:** `fastStartEnabled` (default: `true`) in `UserPreferences`.
@@ -144,7 +164,7 @@ When enabled, `entrypoint.sh` disables auto-update checks for all AI tools, elim
 
 **context-mode update notice (always disabled, not Fast-Start-gated):** context-mode is not a CLI agent but it polls `registry.npmjs.org/context-mode/latest` (MCP server on boot + hourly; CLI on each `ctx_stats`/`ctx_insight` render) and prints an "Update available ... ctx_upgrade" line into the agent chat. It exposes no env var or flag to suppress this, so the Dockerfile context-mode bundle patch (the same step that prepends the createRequire shim) repoints the probe URL at a refused local address; the version then resolves to `"unknown"`, the notice never renders, and no outbound npm traffic is generated. This disable is unconditional — a governed container is not a surface a user self-upgrades context-mode from — and is unaffected by the Fast Start toggle. See [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) AC4.
 
-When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the Dockerfile-level env vars (`DISABLE_AUTOUPDATER`, `DISABLE_INSTALLATION_CHECKS`) and the entrypoint-level update suppressors (`OPENCODE_DISABLE_AUTOUPDATE`, `PI_OFFLINE`, `PI_SKIP_VERSION_CHECK`), skips setting `COPILOT_AUTO_UPDATE`, removes Codeflare-managed Codex settings-file suppressors, and runs `pi update` so Pi and Pi packages reconcile before the session starts. Fast Start ON sets `PI_OFFLINE=1`, so Pi skips startup network checks and will not install restored user-added Pi packages that are absent from the image cache until Fast Start is turned off.
+When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the Dockerfile-level env vars (`DISABLE_AUTOUPDATER`, `DISABLE_INSTALLATION_CHECKS`) and the entrypoint-level update suppressors (`OPENCODE_DISABLE_AUTOUPDATE`, `COPILOT_AUTO_UPDATE`, `PI_OFFLINE`, `PI_SKIP_VERSION_CHECK`), removes Codeflare-managed Codex settings-file suppressors, and runs `pi update` so Pi and Pi packages reconcile before the session starts. Fast Start ON sets `PI_OFFLINE=1`, so Pi skips startup network checks and will not install restored user-added Pi packages that are absent from the image cache until Fast Start is turned off.
 
 ### Auto-sleep (Configurable sleepAfter)
 
@@ -184,7 +204,7 @@ When Fast Start is disabled (`FAST_CLI_START=false`), `entrypoint.sh` unsets the
 **Sleep timer UI (`web-ui/src/lib/sleep-timer.ts`):** Frontend displays a countdown clock icon when a session's idle timeout is approaching. Computes `remainingMs = sleepAfterMs - (now - lastActiveAt)` from batch-status data. Only visible when < 10 min remaining. Orange pulse at < 10 min, red faster pulse at < 5 min. Hidden for stopped sessions or when `lastActiveAt` is null.
 
 - **Session cards** (`SessionStatCard.tsx`): Clock icon (`mdiClockTimeEightOutline`) between status dot and menu trigger. Click shows inline tooltip with explanation text (same pattern as Workspace tooltip in `FileList.tsx`).
-- **Header toolbar** (`Header.tsx`): Clock icon between avatar and bookmarks button. Click shows dropdown with countdown bucket + explanation text.
+- **Header toolbar** (`Header.tsx`): Clock icon next to the avatar. Click shows dropdown with countdown bucket + explanation text.
 - **Data source:**
 
     `lastActiveAt` initialized to container start time by `onStart()`, then refreshed by `collectMetrics` every 60 s from the in-container `/activity` endpoint's `lastInputAt` value (the Unix timestamp of the last PTY keystroke tracked by the terminal server). This ensures the timer icon has a reference timestamp from the moment the session starts, even before any user input. Read by `batch-status` endpoint and passed to frontend via 5 s session list poll.
@@ -209,7 +229,9 @@ Claude Code runs directly via the official `@anthropic-ai/claude-code` npm packa
 
 ## Graphify (Knowledge-Graph Context) (REQ-AGENT-023)
 
-`graphifyy` (Apache-2.0) is installed globally at Docker build time via `uv tool install graphifyy[mcp,sql,pdf]==<VER>`. The version is pinned to `preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json` `.version`; a Dependabot bump there triggers a Dockerfile rebuild in lockstep so the runtime binary and the plugin manifest stay synchronised. The `graphify` CLI lives at `/root/.local/bin/graphify` (PATH-ready). The MCP server is invoked via the venv's own interpreter at `/root/.local/share/uv/tools/graphifyy/bin/python`, running the `graphify-mcp-lazy.py` wrapper (preseeded at `~/.claude/plugins/graphify/scripts/graphify-mcp-lazy.py`). System `python3` cannot import graphifyy directly because `uv tool install` keeps the package isolated. Graphify provider/backend extras are intentionally omitted; interactive semantic extraction and community labels are produced by the active agent session, and Graphify consumes `.graphify_labels.json` via local `cluster-only --no-label`. Build cost: ~220 MB.
+`graphifyy` (Apache-2.0) is installed globally at Docker build time via `uv tool install graphifyy[mcp,sql,pdf]==<VER>`. The version is pinned to `preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json` `.version`; a Dependabot bump there triggers a Dockerfile rebuild in lockstep so the runtime binary and the plugin manifest stay synchronised. The `graphify` CLI lives at `/root/.local/bin/graphify` (PATH-ready). The MCP server is invoked via the venv's own interpreter at `/root/.local/share/uv/tools/graphifyy/bin/python`, running the `graphify-mcp-lazy.py` wrapper (preseeded at `~/.claude/plugins/graphify/scripts/graphify-mcp-lazy.py`).
+
+System `python3` cannot import graphifyy directly because `uv tool install` keeps the package isolated. Graphify provider/backend extras are intentionally omitted; interactive semantic extraction and community labels are produced by the active agent session, and Graphify consumes `.graphify_labels.json` via local `cluster-only --no-label`. Build cost: ~220 MB.
 
 **Tier-split gating ([AD52](../decisions/README.md#ad52-graphify-mcp-available-everywhere-discipline-advanced-only), [AD53](../decisions/README.md#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking)):** the MCP server + `graphify-mcp-lazy.py` wrapper are registered in `~/.claude.json` for both default and advanced session modes (ambient capability). All hooks - SessionStart context-injection, PostToolUse-on-clone triage, PreToolUse graph-first nudge, and the active-repo tracker - plus `graph-first.md` and `graphify/SKILL.md` ship in advanced session mode only. Default session mode users have the capability without the proactive discipline and without multi-repo tracking precision.
 

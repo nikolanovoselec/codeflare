@@ -22,7 +22,7 @@ function ndjsonResponse(...lines: Record<string, unknown>[]): Response {
 // REQ-ENTERPRISE-022: Per-Route Context Windows for Dynamic Routes
 // REQ-SETUP-011: Setup stream completion payload contract
 
-describe('Setup Store', () => {
+describe('Setup Store / REQ-ENTERPRISE-022', () => {
   beforeEach(() => {
     mockFetch.mockReset();
     setupStore.reset();

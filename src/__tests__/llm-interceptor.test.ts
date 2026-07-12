@@ -361,7 +361,7 @@ describe('REQ-ENTERPRISE-004: streaming terminator repair (AC3 — dynamic-route
   });
 });
 
-describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE_MODEL)', () => {
+describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE_MODEL) / REQ-ENTERPRISE-007', () => {
   // Setup persists the catalog under SETUP_KEYS.DYNAMIC_ROUTES (JSON string[]) and
   // the default under SETUP_KEYS.DEFAULT_ROUTE (JSON { route, reasoning }). The
   // harness injects both via the __kv map (see makeInterceptor).

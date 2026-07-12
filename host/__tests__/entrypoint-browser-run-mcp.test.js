@@ -1,7 +1,7 @@
 // Verifies the Browser Run wiring in entrypoint.sh by executing the actual
 // block with a stubbed env + temp HOME and asserting the resulting MCP configs:
 //   REQ-BROWSER-001 AC1/AC2  - chrome-devtools registered for Claude (advanced +
-//                              token gate, CDP endpoint, bearer wsHeaders, pin).
+//                              token gate, CDP endpoint, bearer wsHeaders, baked bin).
 //   REQ-BROWSER-005 AC2      - the Claude browser-run MCP server registered.
 //   REQ-BROWSER-006 AC1/AC4  - chrome-devtools registered for Pi in mcp.json
 //                              (lazy), and nothing registered without the gate.
@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8');
+const CHROME_DEVTOOLS_MCP_BIN = '/opt/codeflare/bin/chrome-devtools-mcp';
 
 function extractBrowserBlock() {
   const start = entrypoint.indexOf('# Configure Browser Run (Cloudflare Browser Rendering)');
@@ -75,8 +76,8 @@ describe('entrypoint Browser Run MCP wiring', () => {
     const { claude } = run({});
     const cd = claude.mcpServers['chrome-devtools'];
     assert.ok(cd, 'chrome-devtools must be registered for Claude');
-    assert.equal(cd.command, 'npx');
-    assert.ok(cd.args.includes('chrome-devtools-mcp@1.5.0'), 'pins the chrome-devtools-mcp version (not @latest)');
+    assert.equal(cd.command, CHROME_DEVTOOLS_MCP_BIN, 'uses the image-baked chrome-devtools-mcp bin instead of runtime npx');
+    assert.ok(!cd.args.some((a) => a.includes('chrome-devtools-mcp@')), 'version pin stays in Dockerfile, not the runtime args');
     const wsEndpoint = cd.args.find((a) => a.startsWith('--wsEndpoint='));
     assert.ok(wsEndpoint, '--wsEndpoint arg present');
     assert.ok(wsEndpoint.includes('acct123'), 'CDP endpoint carries the account id');
@@ -100,8 +101,9 @@ describe('entrypoint Browser Run MCP wiring', () => {
     assert.ok(pi, 'Pi mcp.json must be created');
     const cd = pi.mcpServers['chrome-devtools'];
     assert.ok(cd, 'chrome-devtools must be registered for Pi');
-    assert.equal(cd.command, 'npx');
+    assert.equal(cd.command, CHROME_DEVTOOLS_MCP_BIN, 'uses the same image-baked chrome-devtools-mcp bin as Claude');
     assert.equal(cd.lifecycle, 'lazy', 'lazy so an idle session does not hold a remote browser open');
+    assert.ok(!cd.args.some((a) => a.includes('chrome-devtools-mcp@')), 'Pi runtime args do not invoke npx package resolution');
     assert.ok(cd.args.some((a) => a.startsWith('--wsEndpoint=')), 'Pi points at the same CDP endpoint');
     assert.ok(cd.args.some((a) => a.startsWith('--wsHeaders=')), 'Pi carries the bearer header');
   });

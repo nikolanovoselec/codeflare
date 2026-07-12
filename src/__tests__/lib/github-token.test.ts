@@ -43,7 +43,7 @@ afterEach(() => {
 
 // ─── Storage & status (REQ-GITHUB-001) ─────────────────────────────────────
 
-describe('github-token storage & status', () => {
+describe('github-token storage & status / REQ-GITHUB-001', () => {
   it('persists an app connection and reads it back via status + a fresh token (no network)', async () => {
     await storeGithubConnection(env(), BUCKET, {
       accessToken: 'gho_a',

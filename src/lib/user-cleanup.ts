@@ -7,7 +7,7 @@
  */
 import type { Env, Session } from '../types';
 import { getBucketName } from './access';
-import { getSessionPrefix, listAllKvKeys, getPresetsKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, getTimekeeperKey, SETUP_KEYS } from './kv-keys';
+import { getSessionPrefix, listAllKvKeys, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, getTimekeeperKey, SETUP_KEYS } from './kv-keys';
 import { getContainerId } from './container-helpers';
 import { getContainer } from '@cloudflare/containers';
 import { createR2Client, emptyR2Bucket } from './r2-client';
@@ -71,7 +71,9 @@ async function deleteUserKvEntries(normalizedEmail: string, bucketName: string, 
   // --- Block B2: Bucket-keyed KV cleanup ---
   await Promise.all([
     env.KV.delete(`storage-stats:${bucketName}`),
-    env.KV.delete(getPresetsKey(bucketName)),
+    // Legacy erasure: the removed bookmark/presets feature wrote presets:<bucket>;
+    // purge any lingering entry so account deletion leaves nothing behind.
+    env.KV.delete(`presets:${bucketName}`),
     env.KV.delete(getPreferencesKey(bucketName)),
     env.KV.delete(getLlmKeysKey(bucketName)),
     env.KV.delete(getDeployKeysKey(bucketName)),

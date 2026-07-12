@@ -15,6 +15,7 @@ Codeflare runs in four deployment modes. **Default mode** is self-contained — 
 - [SaaS mode](#saas-mode)
 - [Enterprise mode](#enterprise-mode)
 - [Reference](#reference)
+- [Manual verification checklist](#manual-verification-checklist)
 - [Related Documentation](#related-documentation)
 
 ---
@@ -40,6 +41,8 @@ Codeflare runs in four deployment modes. **Default mode** is self-contained — 
 | `SERVICE_AUTH_SECRET` | Worker secret for E2E/CLI service auth (`X-Service-Auth` header) | - | no | Worker secret (optional) | [REQ-AUTH-003](../../sdd/spec/authentication.md#req-auth-003-cf-access-mode-for-all-other-deployments), [REQ-SETUP-003](../../sdd/spec/setup.md#req-setup-003-three-deployment-modes) |
 | `STRESS_TEST_MODE` | `"active"` disables all rate limits (integration only) | inactive | no | Worker env var | [REQ-OPS-007](../../sdd/spec/operations.md#req-ops-007-container-specs-configurable-per-environment), [REQ-SEC-019](../../sdd/spec/security.md#req-sec-019-per-endpoint-rate-limit-policy) |
 | `ENCRYPTION_KEY` | AES-256-GCM key for `llm-keys:*`/`deploy-keys:*`/`r2token:*` KV entries and the R2 SSE-C key; also the HKDF master input for the per-bucket vault key (`HKDF-SHA256(ENCRYPTION_KEY, info=bucketName)`; vault bootstrap fails 500 if absent). | - | yes | Wrangler secret (optional) | [REQ-SEC-002](../../sdd/spec/security.md#req-sec-002-api-tokens-never-enter-containers), [REQ-SEC-005](../../sdd/spec/security.md#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key), [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) |
+
+There is no development authentication-bypass variable or separate bypass path. Development and production requests use the same identity and authorization middleware in `src/middleware/auth.ts`; admin routes additionally use `requireAdmin`. <!-- @impl: src/middleware/auth.ts::requireAdmin -->
 
 ### Container Environment
 
@@ -81,7 +84,7 @@ Additional details:
 
 ### Secrets
 
-Repository: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, optional `RESEND_API_KEY`
+Default deployments use `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Non-default mode credentials are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private).
 
 Worker secrets lifecycle: deploy sets `CLOUDFLARE_API_TOKEN`, setup writes `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`, Turnstile keys stored in KV. **Worker-level R2 credentials are derived from the API token** (used for bucket admin operations like create/empty/delete). Per-user scoped R2 tokens are separate - created on first login, independent of the master token but revoked when the API token changes. If the token is rotated, setup must be re-run.
 
@@ -158,7 +161,9 @@ In non-enterprise modes a user connects their own Cloudflare account via OAuth (
 
 **Client authentication method (`invalid_client` gotcha).** Codeflare exchanges the authorization code using **`client_secret_post`** (client id + secret in the form body) — Cloudflare's token endpoint supports it. The operator's OAuth Application must therefore be registered with `token_endpoint_auth_method = client_secret_post`. If the client is registered as a **public client (`none`)** or as `client_secret_basic`, Cloudflare's token endpoint rejects the exchange with `401 invalid_client` ("the client supports authentication method 'none', but 'client_secret_post' was requested; configure the client's token_endpoint_auth_method to accept 'client_secret_post'") and the connect flow stays unconnected. The exact `error_description` is now surfaced in the connect logs (previously an opaque "returned 401"). Reconfigure the client's auth method on the Cloudflare side; codeflare does not need a code change for `client_secret_post`.
 
-**Scopes.** The connect URL carries a tier (minimal/recommended/advanced); the server maps it to the OAuth `scope` using **dot-notation scope IDs** from Cloudflare's OAuth catalog (`GET /client/v4/oauth/scopes` — `<resource>.<read|write>` form, e.g. `workers-scripts.write`, `account-settings.read`, `ai.write`; **not** the colon-style API-token permission-group keys), always including `offline_access` for a refresh token, from the server-side catalog in `src/lib/oauth-scopes.ts`. The operator's OAuth client must be registered with at least the **Advanced superset**, since per-connect requests can only narrow within the registered scopes. For a per-scope dashboard display-name lookup (Cloudflare's picker shows descriptive names; the scope ID appears only after saving) and the `zone-access.write` vs `access.write` duplicate-label gotcha, see the [OAuth scope registration table](../../README.md#selecting-these-scopes-on-the-cloudflare-dashboard) in the root README.
+**Scopes.** The connect URL carries a tier (minimal/recommended/advanced); the server maps it to the OAuth `scope` using **dot-notation scope IDs** from Cloudflare's OAuth catalog (`GET /client/v4/oauth/scopes` — `<resource>.<read|write>` form, e.g. `workers-scripts.write`, `account-settings.read`, `ai.write`; **not** the colon-style API-token permission-group keys), always including `offline_access` for a refresh token, from the server-side catalog in `src/lib/oauth-scopes.ts`. The operator's OAuth client must be registered with at least the **Advanced superset**, since per-connect requests can only narrow within the registered scopes.
+
+For a per-scope dashboard display-name lookup (Cloudflare's picker shows descriptive names; the scope ID appears only after saving) and the `zone-access.write` vs `access.write` duplicate-label gotcha, see the [OAuth scope registration table](#cloudflare-api-token-user) in the root README.
 
 ### GitHub Integration
 
@@ -193,7 +198,7 @@ The env-var pairs below are the fallback provider source when no Setup config ex
 
 **Container transport** ([REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport)). In non-enterprise modes the real token flows to the container as `GH_TOKEN` via the existing deploy-keys path, unchanged. In enterprise mode the container instead receives the non-secret placeholder `GH_TOKEN` = `codeflare-enterprise` (the `ENTERPRISE_GH_TOKEN_PLACEHOLDER` code constant, **not** a configured value); the real token is injected at the container egress boundary (see the [security](security.md) and [architecture](architecture.md) lanes).
 
-**Provider registration permissions** (set at app registration, not via config). The GitHub App requests Contents R/W, Pull requests R/W, Workflows W, and Metadata R. The OAuth App's `scope` is derived per connect from the selected tier (default `repo read:org workflow`; see [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). Enterprise GitHub Apps must be **internal** to the customer's enterprise, since EMU users cannot authorize third-party apps.
+**Provider registration permissions** (set at app registration, not via config). The OAuth App's `scope` is derived per connect from the selected tier (default `repo read:org workflow`; see [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). The enterprise GitHub App's registration permissions and internal-app requirement are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private).
 
 ## Onboarding mode
 
@@ -201,16 +206,7 @@ Onboarding mode (`ONBOARDING_LANDING_PAGE` = active) serves the public waitlist 
 
 ### Onboarding variables and secrets
 
-| Variable | Purpose | Default | Required | Consumed by | Implements |
-|----------|---------|---------|----------|-------------|------------|
-| `ONBOARDING_LANDING_PAGE` | `"active"` enables public waitlist landing | inactive | no | wrangler.toml | [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012-setup-wizard-step-sequence) |
-| `TURNSTILE_SECRET_KEY` | Optional direct Turnstile secret override | - | no | Optional | [REQ-SETUP-002](../../sdd/spec/setup.md#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile), [REQ-SUB-003](../../sdd/spec/subscription.md#req-sub-003-free-tier-requires-no-payment) |
-| `RESEND_API_KEY` | Notification emails (waitlist, access requests, subscriptions, tier changes). In onboarding mode also sends the access-request admin notification and user confirmation; absent ⇒ that send is skipped without blocking the login redirect. | - | no | Optional | [REQ-AUTH-011](../../sdd/spec/authentication.md#req-auth-011-auth-resolution-order), [REQ-AUTH-012](../../sdd/spec/authentication.md#req-auth-012-welcome-email-on-first-login), [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow) |
-| `RESEND_EMAIL` | Sender identity for notification emails (default: `Codeflare <onboarding@resend.dev>`) | `Codeflare <onboarding@resend.dev>` | no | Optional | [REQ-AUTH-012](../../sdd/spec/authentication.md#req-auth-012-welcome-email-on-first-login), [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow) |
-| `OAUTH_CLIENT_ID` | GitHub OAuth app client ID for Worker-managed OAuth. | - | yes | Wrangler secret | [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth), [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow) |
-| `OAUTH_CLIENT_SECRET` | GitHub OAuth app client secret, used in the code-for-token exchange during the callback. | - | yes | Wrangler secret | [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth), [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow) |
-| `OAUTH_JWT_SECRET` | HMAC-SHA256 secret signing the session cookie and the OAuth state token. Missing value throws `AuthError` (fail-loud, no silent CF Access fallthrough). | - | yes | Wrangler secret | [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth), [REQ-AUTH-021](../../sdd/spec/authentication.md#req-auth-021-onboarding-mode-sign-in-choices-and-access-request-flow) |
-| `PUBLIC_CF_BEACON_TOKEN` | Cloudflare Web Analytics beacon token, read at landing-page build time by `landing/src/layouts/BaseLayout.astro`. When set, the beacon `<script>` (`static.cloudflareinsights.com/beacon.min.js`) is injected into every landing page; when unset, the beacon is omitted entirely. The matching CSP allowances in `src/index.ts` are unconditional (present even when the token is unset). See [security.md](./security.md#security-headers). | - | no | Landing build (`import.meta.env`) | [REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving), [REQ-SEC-008](../../sdd/spec/security.md#req-sec-008-security-headers-on-every-response) |
+The activation flag, GitHub Actions secret inventory, email settings, and operator setup steps are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane intentionally retains behavior and REQ backlinks without duplicating non-default deployment configuration.
 
 ### SEO / Discoverability
 
@@ -230,10 +226,7 @@ SaaS mode (`SAAS_MODE` = active) adds a custom login page, GitHub-OAuth auto-pro
 
 ### SaaS variables and secrets
 
-| Variable | Purpose | Default | Required | Consumed by | Implements |
-|----------|---------|---------|----------|-------------|------------|
-| `SAAS_MODE` | `"active"` enables custom login page, auto-provisioning, admin approval | inactive | yes | GitHub Actions variable -> `--var` at deploy | [REQ-AUTH-001](../../sdd/spec/authentication.md#req-auth-001-two-authentication-modes) |
-| `SAAS_EXTRA_IDPS` | Comma-separated IdP UUIDs for custom OIDC providers on login page | - | yes | GitHub Actions variable -> `--var` at deploy | [REQ-AUTH-008](../../sdd/spec/authentication.md#req-auth-008-session-cookie-auto-refresh) |
+The activation flag, OAuth, billing, email, identity-provider, and environment configuration are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane intentionally does not duplicate the SaaS deployment matrix.
 
 ## Enterprise mode
 
@@ -241,34 +234,11 @@ Enterprise mode (`ENTERPRISE_MODE` = active) forces all users to the unlimited t
 
 ### Enterprise mode variables
 
-| Variable | Purpose | Default | Required | Consumed by | Implements |
-|----------|---------|---------|----------|-------------|------------|
-| `ENTERPRISE_MODE` | `"active"` forces all users to unlimited tier + Pro mode, hides billing UI, restricts agent roster to `{copilot, pi, bash}` (OpenAI-wire-format agents only; Claude Code excluded), and enables outbound-HTTPS interception to the AI Gateway REST API. Unset = standard tier/billing behaviour unchanged. | inactive | no | GitHub Actions variable -> `--var` at deploy | [REQ-ENTERPRISE-001](../../sdd/spec/enterprise-mode.md#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-003](../../sdd/spec/enterprise-mode.md#req-enterprise-003-agent-allowlist-in-enterprise-mode) |
-| Dynamic-route catalog (`setup:dynamic_routes`, `setup:default_route`) | Enterprise only: gateway dynamic routes (`string[]`, **≥1 required** — wizard blocks Continue, `configure` returns `400` otherwise); the first route added is the default `route:reasoning`. Set in the **setup wizard**, stored in KV (no redeploy); the `LlmInterceptor` maps the slash-free handle to `dynamic/<route>` on egress. (Replaces `AIG_LANGUAGE_MODEL`.) | - | no | Setup wizard -> KV (enterprise) | [REQ-ENTERPRISE-012](../../sdd/spec/enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-007](../../sdd/spec/enterprise-mode.md#req-enterprise-007-gateway-route-pinning) |
-| Per-route context windows (`setup:route_context_windows`) | Enterprise only: JSON `{route: tokens}` map of each dynamic route's model context window (positive ints). Set per route in the **setup wizard** (prefilled with `256000`, editable + resettable), stored in KV (no redeploy), fanned as `ENTERPRISE_ROUTE_CONTEXT_WINDOWS` to Pi's `models.json`. Absent routes default to `256000`. | `256000` per route | no | Setup wizard -> KV (enterprise) | [REQ-ENTERPRISE-022](../../sdd/spec/enterprise-mode.md#req-enterprise-022-per-route-context-windows-for-dynamic-routes), [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) |
+The enterprise activation flag, GitHub Environment layout, worker naming, account overrides, and dynamic-route setup are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). Runtime behavior remains documented below and in the enterprise specification.
 
 ### Enterprise Mode Secrets (optional)
 
-| Secret | Purpose | Set via |
-|--------|---------|---------|
-| `AIG_GATEWAY_URL` | Customer AI Gateway base URL in the gateway form `https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>` (the parser reads the `/v1/{account_id}/{gateway_id}` segments). | GitHub Actions secret -> `wrangler secret put AIG_GATEWAY_URL` (deploy.yml) |
-| `AIG_TOKEN` | **Cloudflare API token carrying BOTH "Workers AI" and "AI Gateway: Run" permissions** (dual transport — [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api)). | GitHub Actions secret -> `wrangler secret put AIG_TOKEN` (deploy.yml) |
-
-Additional details:
-
-**`AIG_GATEWAY_URL`:** Customer AI Gateway base URL in the gateway form `https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>` (the parser reads the `/v1/{account_id}/{gateway_id}` segments). The `LlmInterceptor` derives the account id and gateway id from it, builds the REST API URL (`https://api.cloudflare.com/client/v4/accounts/<account_id>/ai/v1/*`) from the account id, and stamps the gateway id in the `cf-aig-gateway-id` header ([REQ-ENTERPRISE-006](../../sdd/spec/enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var)). The compat path (`gateway.ai.cloudflare.com`) is used as a 404 fallback when a provider is absent from the REST API ([AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api), dual-transport amendment). When absent or unparseable, enterprise LLM routing fails closed (503) even if `ENTERPRISE_MODE=active`.
-
-**`AIG_TOKEN`:** **Cloudflare API token carrying BOTH "Workers AI" and "AI Gateway: Run" permissions** (dual transport — [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api)). The interceptor sends it as `Authorization: Bearer` to the REST API (`api.cloudflare.com/.../ai/v1/*`, uses the Workers AI scope) and as `cf-aig-authorization: Bearer` to the compat fallback (`gateway.ai.cloudflare.com/.../compat/*`, uses the AI Gateway Run scope). See the warning below. Read exclusively by `LlmInterceptor`; never injected into the container.
-
-Both secrets are an **optional fallback**: the AI Gateway URL + token are normally configured in the Setup wizard and persisted in KV (`setup:aig_gateway_url` / `setup:aig_token`, see below), and `getAigConfig` resolves KV first, then these deploy secrets ([REQ-ENTERPRISE-017](../../sdd/spec/enterprise-mode.md#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard)). When neither source is set, a deployment behaves identically to a non-enterprise deployment regardless of the `ENTERPRISE_MODE` variable. See [Architecture - Enterprise LLM Routing](architecture.md#enterprise-llm-routing-enterprise-mode) and [Deployment - Enterprise Secrets](deployment.md#enterprise-mode-secrets).
-
-**AIG_TOKEN credential type — important.** Enterprise LLM traffic uses two AI Gateway transports with different auth. One Cloudflare API token must carry **both** permissions: **Workers AI** for the REST API `/ai/v1/*` (`Authorization: Bearer`) and **"AI Gateway: Run"** for the compat path (`cf-aig-authorization: Bearer`).
-
-A token missing either permission is rejected by the corresponding transport with `error 10000`. The REST API rejects an "AI Gateway: Run"-only token, and the compat path rejects a Workers-AI-only token; both were confirmed against the `codeflare-enterprise` gateway.
-
-The `cfut_` prefix is shared across all CF API token types and does **not** indicate scope. Verify the permission labels, not the prefix.
-
-Create the token **manually** with **both** Workers AI and AI Gateway: Run permissions. The gateway's "Authenticated Gateway" → "Create authentication token" button mints an AI-Gateway-Run-only token, which covers compat but **not** the REST API. See [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) for full rationale.
+The AI Gateway fallback-secret inventory, required token permissions, and deployment procedure are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane intentionally does not duplicate non-default deployment credentials.
 
 ### Enterprise Mode Runtime Configuration
 
@@ -309,7 +279,7 @@ Additional details:
 | `COPILOT_MODEL` | Enterprise only: fixed slash-free model handle (`codeflare`) Copilot sends; the `LlmInterceptor` rewrites it to the real gateway route on egress ([REQ-ENTERPRISE-007](../../sdd/spec/enterprise-mode.md#req-enterprise-007-gateway-route-pinning)). Prepended to `.bashrc`. | (unset off-enterprise) | no | `entrypoint.sh` (enterprise block) → `.bashrc` | [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC3 |
 | `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` | Enterprise only: prompt-token budget advertised to Copilot so it doesn't warn (`Model "codeflare" is not in the built-in catalog`) and fall back to default limits. | (unset off-enterprise) | no | `entrypoint.sh` (enterprise block) → `.bashrc` | [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC3 |
 | `COPILOT_PROVIDER_MAX_OUTPUT_TOKENS` | Enterprise only: max output tokens advertised to Copilot (`128000`, gpt-5.5). Pairs with `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` to silence the "not in catalog" warning and right-size context. Prepended to `.bashrc`. | (unset off-enterprise) | no | `entrypoint.sh` (enterprise block) → `.bashrc` | [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC3 |
-| `ENTERPRISE_ROUTE_CATALOG` | Enterprise only: JSON `string[]` of the Setup-configured dynamic-route names (`container-env.ts` fans `state._routeCatalog` when enterprise AND non-empty). `entrypoint.sh` builds Pi's `models.json` listing every route so `/model` offers the whole catalog. The credential / gateway URL / token are never fanned — the `LlmInterceptor` maps the slash-free handle → `dynamic/<route>` on egress. | (unset off-enterprise or empty catalog) | no | `entrypoint.sh` (enterprise block) | [REQ-ENTERPRISE-012](../../sdd/spec/enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC1 |
+| `ENTERPRISE_ROUTE_CATALOG` | Enterprise-only JSON route-name list. Pi exposes each route through `/model`; credentials and gateway details stay outside the container. The interceptor maps each slash-free handle to its dynamic gateway route. | (unset off-enterprise or empty catalog) | no | `entrypoint.sh` (enterprise block) | [REQ-ENTERPRISE-012](../../sdd/spec/enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC1 |
 | `ENTERPRISE_DEFAULT_ROUTE` | Enterprise only: the default route name (`state._defaultRoute`; unset ⇒ first catalog route). `entrypoint.sh` pins Pi's `defaultModel` and Copilot's `COPILOT_MODEL` to it so agents start on the configured default; a user `/model` change is re-asserted each start. | (unset off-enterprise or no default) | no | `entrypoint.sh` (enterprise block) | [REQ-ENTERPRISE-012](../../sdd/spec/enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC1 |
 | `ENTERPRISE_DEFAULT_REASONING` | Enterprise only: the default route's reasoning grade (e.g. `medium`, `off`; `state._defaultReasoning`, unset ⇒ off). `entrypoint.sh` sets Pi's `defaultThinkingLevel` from it. | (unset off-enterprise or no reasoning configured) | no | `entrypoint.sh` (enterprise block) | [REQ-ENTERPRISE-012](../../sdd/spec/enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC1 |
 | `ENTERPRISE_ROUTE_CONTEXT_WINDOWS` | Enterprise only: JSON `{route: tokens}` map of per-route context windows (`state._routeContextWindows`, fanned when enterprise AND non-empty). `entrypoint.sh` sets each Pi `models.json` model's `contextWindow` from it, defaulting to `256000` for any route absent from the map, so Pi does not fall back to its built-in 128k default. | (unset off-enterprise or empty map) | no | `entrypoint.sh` (enterprise block) | [REQ-ENTERPRISE-022](../../sdd/spec/enterprise-mode.md#req-enterprise-022-per-route-context-windows-for-dynamic-routes), [REQ-ENTERPRISE-005](../../sdd/spec/enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC1/AC4 |
@@ -530,6 +500,16 @@ Additional details:
 - [REQ-SETUP-009](../../sdd/spec/setup.md#req-setup-009-subscribe-page-with-tier-selection) - Subscribe page with tier selection
 - [REQ-SETUP-010](../../sdd/spec/setup.md#req-setup-010-social-share-preview-metadata-on-the-public-landing-page) - Social-share preview metadata on the public landing page
 - [REQ-SETUP-011](../../sdd/spec/setup.md#req-setup-011-setup-stream-completion-payload-contract) - Setup stream completion payload contract
+
+## Manual verification checklist
+
+Run the setup flow in staging from a clean configuration and again as an update; compare bindings, stored settings, public status, and idempotent outcomes with every AC.
+
+- [ ] [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth) — verify every acceptance criterion.
+- [ ] [REQ-SETUP-010](../../sdd/spec/setup.md#req-setup-010-social-share-preview-metadata-on-the-public-landing-page) — verify every acceptance criterion.
+- [ ] [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012-setup-wizard-step-sequence) — verify every acceptance criterion.
+
+---
 
 ## Related Documentation
 - [Container](container.md#auto-sleep-configurable-sleepafter) - Container startup and auto-sleep configuration

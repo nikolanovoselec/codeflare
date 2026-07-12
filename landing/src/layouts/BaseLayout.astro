@@ -26,7 +26,7 @@ interface Props {
 // REQ-LANDING-003: the landing page carries the canonical external metadata
 // for the enterprise positioning. og.png is served from the SPA asset root.
 const {
-  title = 'Codeflare: The Enterprise Agentic Engine',
+  title = 'Codeflare: The Agentic Engineering Engine',
   description = 'Not a coding assistant. Codeflare runs governed engineering agents that build, test, review, and operate inside your own estate.',
   canonical = 'https://codeflare.ch/',
   robots,
@@ -56,7 +56,7 @@ const structuredData = {
       url: 'https://codeflare.ch/',
       logo: 'https://codeflare.ch/icon-512.png',
       description:
-        'The enterprise agentic engine: governed engineering agents that build, test, review, and operate inside your own estate.',
+        'The agentic engineering engine: governed engineering agents that build, test, review, and operate inside your own estate.',
       sameAs: ['https://github.com/nikolanovoselec/codeflare'],
     },
     {
@@ -104,14 +104,14 @@ const structuredData = {
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Codeflare: the enterprise agentic engine." />
+    <meta property="og:image:alt" content="Codeflare: the agentic engineering engine." />
     <meta property="og:locale" content="en_US" />
 
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content="https://codeflare.ch/og.png" />
-    <meta name="twitter:image:alt" content="Codeflare: the enterprise agentic engine." />
+    <meta name="twitter:image:alt" content="Codeflare: the agentic engineering engine." />
 
     <script type="application/ld+json" set:html={JSON.stringify(structuredData)} />
   </head>

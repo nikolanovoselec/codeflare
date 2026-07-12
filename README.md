@@ -1,14 +1,14 @@
-# <img src="documentation/images/logo-icon.svg" width="28" align="absmiddle" alt="Codeflare logo"> Codeflare
+# <img src="assets/documentation/logo-icon.svg" width="28" align="absmiddle" alt="Codeflare logo"> Codeflare
 
-![Codeflare: the enterprise agentic engine. Governed engineering agents inside your own estate.](documentation/images/og.png)
+![Codeflare: the agentic engineering engine. Governed engineering agents inside your own estate.](assets/documentation/og.png)
 
-**Not a coding assistant. The enterprise agentic engine.**
+**Not a coding assistant. The agentic engineering engine.**
 
 Codeflare runs governed engineering agents inside your own estate. They build, test, review, and operate. The engineer specifies, steers, and judges; the agents do the rest, under your git, your CI, and your zero-trust boundary.
 
 The governance is the product. Spec-driven and test-driven development run as enforced, self-healing loops: every change is checked against its specification at the pull-request boundary, and drift is a blocking finding instead of something that ships. Each session runs in its own isolated, ephemeral container with no standing infrastructure to persist on. Model traffic never goes direct. It is intercepted at the platform layer and routed through your AI Gateway, where guardrails and DLP apply, every call is inspected, and every token of spend is attributed to a user, team, and route.
 
-![Codeflare on a foldable tablet](documentation/images/mobile-foldable.jpg)
+![Codeflare on a foldable tablet](assets/documentation/mobile-foldable.jpg)
 *One governed run, from intent to merge. Reachable from any screen with a browser, zero setup.*
 
 **Try it:** [codeflare.ch](https://codeflare.ch)
@@ -41,14 +41,14 @@ Every session comes pre-loaded with your choice of agent:
 - [Testing](#testing)
 - [CI/CD](#cicd)
 - [Documentation](#documentation)
-- [Related projects](#related-projects)
+- [Codeflare Inference Mesh](#codeflare-inference-mesh)
 - [License](#license)
 
 ---
 
 ## What Codeflare does
 
-![Dashboard](documentation/images/dashboard.png)
+![Dashboard](assets/documentation/dashboard.png)
 *Manage sessions, browse persistent storage, and monitor live resource usage — all from one view.*
 
 **Native integrations, wired in, not bolted on.**
@@ -84,17 +84,17 @@ Every session comes pre-loaded with your choice of agent:
 - **SaaS** — multi-tenant: subscriptions and billing (Stripe), tiered plans, just-in-time user provisioning, an admin approval workflow, and per-user usage metering.
 - **Enterprise** — single-tenant, end-to-end Zero Trust: browser isolation, SSO with your corporate IdP, a Secure Web Gateway, and every model call routed through your own AI Gateway with dynamic routing, DLP, and guardrails — no key or token ever inside the container.
 
-![Codeflare on a phone](documentation/images/mobile-phone.jpg)
+![Codeflare on a phone](assets/documentation/mobile-phone.jpg)
 *Strongly optimized for mobile. Swipe up/down with the keyboard open to navigate like arrow keys; swipe left/right to scroll terminal text.*
 
 ---
 
 ## Architecture
 
-![Codeflare IDE](documentation/images/hero-ide-fullscreen.png)
+![Codeflare IDE](assets/documentation/hero-ide-fullscreen.png)
 *Six terminal tabs, split tiling, and your dev tools — in a disposable container you didn't have to configure.*
 
-Each session runs in its own isolated, pre-warmed container that scales to zero when idle — no sessions, no bill — while your storage persists and usage is tracked per user. Auth defaults to Cloudflare Access, with GitHub OAuth available in the advanced modes (see [authentication.md](documentation/lanes/authentication.md)). Full internals in [architecture.md](documentation/lanes/architecture.md).
+Each session runs in its own isolated, pre-warmed container that scales to zero when idle — no sessions, no bill — while your storage persists and usage is tracked per user. Auth defaults to Cloudflare Access, with GitHub OAuth available in the advanced modes (see [authentication.md](documentation/lanes/authentication.md#authentication-modes)). Full internals in [architecture.md](documentation/lanes/architecture.md).
 
 ---
 
@@ -123,12 +123,12 @@ These two are the **only** required configuration. Everything in [Configuration]
 
 Find your worker URL at [dash.cloudflare.com](https://dash.cloudflare.com/) → **Compute → Workers & Pages →** your worker (default name: `codeflare`, so `codeflare.<your-subdomain>.workers.dev`). Open it; the wizard verifies your token, configures a custom domain and allowed users, and sets up authentication via Cloudflare Access.
 
-![Guided setup](documentation/images/guided-setup.png)
+![Guided setup](assets/documentation/guided-setup.png)
 *Connect your accounts and pick an agent. No prior Cloudflare or GitHub knowledge required.*
 
 That's it, you're live. You'll need an active subscription to at least one supported agent; log in directly from the terminal.
 
-> To let users connect their own GitHub and Cloudflare accounts (automatic `git push` / `wrangler` deploy from a session), an admin registers one OAuth app per provider and enters the credentials in the wizard — see the [private deployment docs](https://github.com/nikolanovoselec/codeflare-private-docs) (access required).
+> To let users connect their own GitHub and Cloudflare accounts (automatic `git push` / `wrangler` deploy from a session), an admin registers one OAuth app per provider and enters the credentials in the wizard — see the [private deployment docs](https://github.com/nikolanovoselec/codeflare-private) (access required).
 
 <details>
 <summary><strong id="api-token-scopes">API token scopes</strong></summary>
@@ -174,7 +174,7 @@ Most self-hosters never need anything below this line.
 
 ### Advanced deployment modes
 
-Beyond default mode, Codeflare also runs in **Onboarding**, **SaaS**, and **Enterprise** modes — see [What Codeflare does](#what-codeflare-does) for their capabilities. Setup and configuration for these modes is maintained privately: **[codeflare-private-docs](https://github.com/nikolanovoselec/codeflare-private-docs)** (access required).
+Beyond default mode, Codeflare also runs in **Onboarding**, **SaaS**, and **Enterprise** modes — see [What Codeflare does](#what-codeflare-does) for their capabilities. Setup and configuration for these modes is maintained privately: **[codeflare-private](https://github.com/nikolanovoselec/codeflare-private)** (access required).
 
 ---
 
@@ -188,7 +188,7 @@ Defense-in-depth throughout; full detail in [security.md](documentation/lanes/se
 - **Encryption at rest** *(optional, set `ENCRYPTION_KEY`)* — KV credentials (AES-256-GCM, per-value IVs, AAD-bound) and R2 files (SSE-C) are encrypted; the vault gets its own zero-UI per-session key. Existing plaintext entries migrate transparently on first read. See [Credential Encryption at Rest](documentation/lanes/security.md#credential-encryption-at-rest).
 - **Hardening** — HSTS, CSP, X-Frame-Options, and Referrer-Policy on every response; KV-backed per-user rate limits (429 + `Retry-After`); Zod input validation with a 64 KiB body limit.
 - **Supply chain** — CodeQL (with Copilot Autofix), OSSF Scorecard, `npm audit`, dependency review, Dependabot, and Trivy container scanning.
-- **Continuous testing** — a weekly CI workflow runs automated penetration tests against the auth gate, security headers, TLS, injection, and information disclosure. See [Penetration Testing](documentation/lanes/pentest.md).
+- **Continuous testing** — a weekly CI workflow runs automated penetration tests against the auth gate, security headers, TLS, injection, and information disclosure. See [Penetration Testing](documentation/lanes/pentest.md#test-results).
 
 Report a vulnerability via [SECURITY.md](SECURITY.md).
 
@@ -205,7 +205,7 @@ npm run test:e2e:ui          # E2E UI desktop (requires a deployed worker)
 npm run test:e2e:ui-mobile   # E2E UI mobile
 ```
 
-E2E tests require a deployed worker and service credentials (CF Access service tokens). See [CI/CD & Testing](documentation/lanes/ci-cd.md#testing) for the full suite and [E2E setup](documentation/lanes/ci-cd.md#e2e-service-token-setup).
+E2E tests require a deployed worker and service credentials (CF Access service tokens). See [CI/CD & Testing](documentation/lanes/ci-cd.md#testing) for the full suite and [E2E setup](documentation/lanes/authentication.md#e2e-testing-auth).
 
 ---
 
@@ -256,11 +256,9 @@ On a Cloudflare Pro plan (or higher) with Managed Rulesets enabled, the WAF may 
 
 ---
 
-## Related projects
+## Codeflare Inference Mesh
 
-- **[codeflare-inference-mesh](https://github.com/nikolanovoselec/codeflare-inference-mesh)** — the self-hosted inference layer of the Codeflare family: a private LLM inference fabric on hardware you already own.
-
-It pools the idle GPUs and CPUs across machines you already own into one private fabric and serves open LLMs on it — sharding a model too large for any single machine across several nodes and serving it as one — behind a single Gateway alias with automatic failover to external providers. The inference engine for your agents when you want prompts to stay on hardware you control.
+[Codeflare Inference Mesh](https://github.com/nikolanovoselec/codeflare-inference-mesh) pools spare GPUs and CPUs into a private LLM inference fabric. Use it to run open models on hardware you control and expose them to Codeflare agents through one endpoint.
 
 ---
 

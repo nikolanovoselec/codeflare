@@ -45,6 +45,7 @@ Codeflare is the enterprise agentic engine: it runs autonomous AI coding agents 
 | [Operations](spec/operations.md) | CI/CD, testing, deployment, cost | P1 | Active |
 | [Memory](spec/memory.md) | Vault-based cross-session memory, automatic capture, hook delivery | P2 | Active |
 | [Vault](spec/vault.md) | Persistent obsidian-style notes, unified graphify graph, SilverBullet editor | P2 | Active |
+| [Browser IDE](spec/browser-ide.md) | Per-session OpenVSCode editor, session-isolated, Worker-proxied | P2 | Active |
 
 ## Support files
 
@@ -55,10 +56,8 @@ The `sdd/spec/` directory also holds these non-domain files (no `REQ-*` of their
 | [constraints.md](spec/constraints.md) | Global `CON-*` constraints referenced by REQ Dependencies |
 | [glossary.md](spec/glossary.md) | Canonical terminology |
 | [changes.md](spec/changes.md) | Product changelog (user-facing spec changes) |
-| [pending.md](spec/pending.md) | TODOs / known gaps not yet ready to be REQs |
 | [config.yml](spec/config.yml) | SDD autonomy mode and enforcement config |
 | `.review-queue.md` | Live PR-boundary review queue (open findings only) |
-| `.review-decisions.md` | Log of resolved review decisions |
 
 ## Out of Scope
 

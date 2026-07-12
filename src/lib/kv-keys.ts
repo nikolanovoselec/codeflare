@@ -162,13 +162,6 @@ export async function getSessionOrThrow(kv: KVNamespace, key: string): Promise<S
 }
 
 /**
- * Get KV key for user presets
- */
-export function getPresetsKey(bucketName: string): string {
-  return `presets:${bucketName}`;
-}
-
-/**
  * Get KV key for user preferences
  */
 export function getPreferencesKey(bucketName: string): string {

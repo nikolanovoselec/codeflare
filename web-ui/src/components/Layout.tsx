@@ -360,6 +360,16 @@ const Layout: Component<LayoutProps> = (props) => {
     window.open(`/api/vault/${sid}/.codeflare-bootstrap`, '_blank', 'noopener');
   };
 
+  // Browser IDE: open the per-session OpenVSCode editor directly. The URL is
+  // session-keyed (REQ-IDE-002) and base-path native; the host lazily starts
+  // OpenVSCode on this first request and returns a warming state until it is up,
+  // so no client-side readiness gate is needed (unlike the vault prewarm).
+  const handleVscodeOpen = () => {
+    const sid = sessionStore.activeSessionId;
+    if (!sid) return;
+    window.open(`/api/vscode/${sid}/`, '_blank', 'noopener');
+  };
+
   const handleVaultOpen = () => {
     const sid = sessionStore.activeSessionId;
     if (!sid || untrack(vaultReadyBySession)[sid] !== true) return;
@@ -418,7 +428,6 @@ const Layout: Component<LayoutProps> = (props) => {
   // Load sessions and preferences on mount
   onMount(() => {
     sessionStore.loadSessions();
-    sessionStore.loadPresets();
     sessionStore.loadPreferences();
     // Apply saved accent color
     const savedSettings = loadSettings();
@@ -743,6 +752,11 @@ const Layout: Component<LayoutProps> = (props) => {
           onStoragePanelToggle={handleStoragePanelToggle}
           onVaultOpen={sessionStore.activeSessionId && sessionStore.preferences.sessionMode === 'advanced'
             ? handleVaultOpen
+            : undefined}
+          onVscodeOpen={sessionStore.activeSessionId
+            && sessionStore.preferences.sessionMode === 'advanced'
+            && sessionStore.getActiveSession()?.status === 'running'
+            ? handleVscodeOpen
             : undefined}
           vaultReady={vaultReady()}
           vaultStatus={vaultButtonStatus()}

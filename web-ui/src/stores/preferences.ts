@@ -3,7 +3,7 @@ import type { UserPreferences } from '../types';
 /**
  * User Preferences Store
  *
- * Handles loading and updating user preferences (lastAgentType, lastPresetId, etc.).
+ * Handles loading and updating user preferences.
  * Extracted from session.ts (FIX-13) for separation of concerns.
  * Uses dependency injection (registerPreferencesDeps) for testability.
  */

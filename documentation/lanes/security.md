@@ -29,6 +29,7 @@ For authentication modes and user identity flow, see [Authentication](authentica
 - [Body Limit](#body-limit)
 - [Credential Encryption at Rest](#credential-encryption-at-rest)
 - [Rate Limiting](#rate-limiting)
+- [Manual verification checklist](#manual-verification-checklist)
 
 ## Authentication Gate
 
@@ -38,6 +39,8 @@ All authenticated surfaces (`/app`, `/api`, `/setup`) are protected by one of tw
 - **Session-OIDC mode with GitHub OIDC (SaaS OR onboarding + `OAUTH_CLIENT_ID`):** Worker-managed session cookies (`codeflare_session`, HMAC-SHA256). CF Access is bypassed at runtime.
 
 The setup wizard skips CF Access provisioning entirely in Session-OIDC mode, mirroring the `isSessionOidcMode` guard so an onboarding deployment does not get a stray Access app.
+
+The production `codeflare_session` cookie is always emitted with `HttpOnly`, `Secure`, and `SameSite=Lax` by `src/routes/github-auth.ts` and refreshed with the same attributes in `src/index.ts`. Browser JavaScript cannot read it; authentication is carried automatically by the browser. <!-- @impl: src/routes/github-auth.ts::Set-Cookie = HttpOnly; Secure; SameSite=Lax -->
 
 In SaaS mode specifically (not all session-OIDC deployments — the guard is `isSaasModeActive`, not `isSessionOidcMode`), the Cloudflare service token (`CF-Access-Client-Id`/`CF-Access-Client-Secret`) is accepted only for unattended admin automation and is never treated as a user identity (see [AD68](../decisions/README.md#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted) and [REQ-AUTH-004](../../sdd/spec/authentication.md#req-auth-004-service-token-authentication-for-e2e-testing), [REQ-AUTH-011](../../sdd/spec/authentication.md#req-auth-011-auth-resolution-order)); user-facing surfaces still require a session cookie.
 
@@ -79,7 +82,9 @@ A dashboard **OAuth** access token (from "Connect to Cloudflare") is short-lived
 
 To close this, the same containment pattern is applied non-enterprise ([REQ-AGENT-078](../../sdd/spec/agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary)): `applyCloudflareOAuthToken` injects only the non-secret placeholder `codeflare-oauth` (`CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER`) — the real access token never enters the container — and the `CloudflareBrowserInterceptor` runs in a second **OAuth mode** for `api.cloudflare.com`, re-stamping **every** request (all paths, since the OAuth token is full-scope) with a token freshly minted by `getValidCloudflareToken(bucket)`, which refreshes via the stored per-user `refresh_token`. Both the REST surface and the CDP WebSocket upgrade ride the interceptor's existing transport, so wrangler and interactive browser-run both outlive the access token.
 
-The token is resolved **solely** from the session-bound bucket (`props.bucket`, bound at wiring), never from a request header, so no in-container request can widen resolution to another user's bucket; the interceptor fails closed `401` with no upstream call when no valid token can be minted. This mode is double-guarded off enterprise — `wireCloudflareApiInterception` acts only when `!isEnterpriseMode` **and** the container's `CLOUDFLARE_API_TOKEN` equals the OAuth placeholder (which is distinct from the enterprise `codeflare-enterprise` value) — so it can never wire or collide on that host in enterprise, and the enterprise browser-rendering branch above is unchanged. The GitHub interceptor is untouched: non-enterprise git stays direct (GitHub tokens are long-lived, so there is no expiry to refresh at the boundary). See [AD93](../decisions/README.md#ad93-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor).
+The token is resolved **solely** from the session-bound bucket (`props.bucket`, bound at wiring), never from a request header, so no in-container request can widen resolution to another user's bucket; the interceptor fails closed `401` with no upstream call when no valid token can be minted. This mode is double-guarded off enterprise — `wireCloudflareApiInterception` acts only when `!isEnterpriseMode` **and** the container's `CLOUDFLARE_API_TOKEN` equals the OAuth placeholder (which is distinct from the enterprise `codeflare-enterprise` value) — so it can never wire or collide on that host in enterprise, and the enterprise browser-rendering branch above is unchanged.
+
+The GitHub interceptor is untouched: non-enterprise git stays direct (GitHub tokens are long-lived, so there is no expiry to refresh at the boundary). See [AD93](../decisions/README.md#ad93-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor).
 
 The OAuth mode also intercepts the AI Gateway data-plane host `gateway.ai.cloudflare.com`, stamping the refreshed token as `cf-aig-authorization` ([REQ-AGENT-078](../../sdd/spec/agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary) AC5). Both intercepted hosts are TLS-terminated by a platform-mounted intercept CA (`/etc/cloudflare/certs/cloudflare-containers-ca.crt`), so the container must **trust** it or its HTTPS clients reject the connection with `SELF_SIGNED_CERT_IN_CHAIN`. `entrypoint.sh` installs the CA into the system store and exports `NODE_EXTRA_CA_CERTS`/`SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE` into the agent `.bashrc` — in a block **separate from** the enterprise CA-trust, gated on `ENTERPRISE_MODE != active` **and** the CA file's presence (AC6), so the enterprise trust path is untouched and a deploy with no interception (no CA mounted) is unchanged.
 
@@ -269,6 +274,14 @@ HSTS is also applied to all redirect responses via `redirectWithHeaders()` helpe
 **Vault proxy exemption (CSP + same-origin framing only):** Proxied SilverBullet responses under the bucket-stable serving path `/api/vault/<token>/*` do not receive the default `Content-Security-Policy: default-src 'none'` because SilverBullet serves its own HTML with inline scripts/styles, web workers, and `eval`. Instead they receive `Content-Security-Policy: frame-ancestors 'self'` and `X-Frame-Options: SAMEORIGIN`: enough to block cross-site framing while allowing the dashboard's authenticated same-origin hidden prewarm iframe. The session-keyed entry `/api/vault/<sid>/` only issues a 302 redirect (setting `cf_vault_sid`) and is not a proxied SilverBullet surface, so it retains the default security headers.
 
 The exemption covers the pre-Hono vault proxy path only: route-validation errors and the `/api/vault/<sid>/status` JSON endpoint still receive the full default set including CSP and `X-Frame-Options: DENY`. Implemented via `withSecurityHeaders(response, { csp: false, frame: 'sameorigin' })` in `src/index.ts`; see [REQ-SEC-008](../../sdd/spec/security.md#req-sec-008-security-headers-on-every-response).
+
+**Browser-IDE proxy exemption (same relaxed set as the vault):** Proxied OpenVSCode responses under the session-keyed path `/api/vscode/<sessionId>/*` receive the same relaxation — `Content-Security-Policy: frame-ancestors 'self'` and `X-Frame-Options: SAMEORIGIN` instead of the default `default-src 'none'` / `DENY` — because OpenVSCode serves its own HTML with inline scripts/styles. It is applied to every response `handleVscodeRequest` returns (200 success and 401/403/404/503 rejections alike); only the pre-Hono, pre-auth 400 `INVALID_SESSION` route-validation error keeps the full default set (`withSecurityHeaders(vscodeRouteResult.errorResponse)` with no override in `src/index.ts`). Implemented via the same `withSecurityHeaders(response, { csp: false, frame: 'sameorigin' })` call as the vault; see [REQ-SEC-008](../../sdd/spec/security.md#req-sec-008-security-headers-on-every-response) AC4 and [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy).
+
+### OpenVSCode upstream vulnerability acceptance
+
+The pinned OpenVSCode artifact ([REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy)) carries accepted known HIGH/CRITICAL package and bundled-extension findings, including command-injection and remote-code-execution classes recorded in [`.trivyignore`](../../.trivyignore). A malicious repository processed by the editor could expose the session workspace or credentials. Codeflare deliberately does not patch vendored packages, remove bundled extensions, or maintain a fork because preserving an upstream-clean artifact keeps provenance clear and allows prompt upstream version bumps. [AD97](../decisions/README.md#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk) records the alternatives, consequences, and mandatory re-review triggers.
+
+Per-session container isolation, enterprise inspection, and platform guardrails reduce blast radius and aid detection; they do not eliminate the vulnerability or RCE risk. Operators must re-evaluate the acceptance on every OpenVSCode bump or credible evidence of critical exploitation.
 
 **Cloudflare Web Analytics CSP allowance:** The default CSP permits the Web Analytics beacon with two narrow additions in `src/index.ts`: `static.cloudflareinsights.com` in `script-src` (the beacon loader `beacon.min.js`) and `cloudflareinsights.com` in `connect-src` (the beacon's telemetry POST endpoint). The beacon is injected as a manually-authored `<script src=...>` tag (gated on `PUBLIC_CF_BEACON_TOKEN`, see [configuration.md](./configuration.md#onboarding-variables-and-secrets)) specifically so the CSP does not have to be weakened with `'unsafe-inline'`: a script element with an allowlisted host is the strict-CSP-compatible alternative to Cloudflare's auto-injected inline snippet.
 
@@ -476,6 +489,12 @@ The vault editor proxy at `/api/vault/<token>/*` (the bucket-stable serving path
 
 Surface: [REQ-VAULT-005](../../sdd/spec/vault.md#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (proxy exists). Rate-limit infrastructure: [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) (shared bucket and 30/60s window).
 
+### Browser IDE Rate Limit ([REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) + [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure))
+
+The browser-IDE proxy at `/api/vscode/<sessionId>/*` (`handleVscodeRequest` in `src/routes/vscode.ts`) is long-lived-WebSocket heavy (the VS Code server protocol). IDE WebSocket upgrades are rate-limited via the same `ws-connect:<email>` bucket as terminal and vault WebSockets (30 connections per 60s window), so opening many IDE tabs cannot find a separate connection budget; over the limit returns 429 with `Retry-After`. Plain HTTP requests are authenticated and origin-checked but are not currently application-rate-limited; only WebSocket upgrades consume the shared `ws-connect:<email>` budget.
+
+Surface: [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy) (proxy exists). Rate-limit infrastructure: [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) (shared bucket and 30/60s window).
+
 ### Session Limits ([REQ-SUB-013](../../sdd/spec/subscription.md#req-sub-013-concurrent-session-limits))
 
 Per-user cap on concurrent running sessions, configurable by role via `MAX_SESSIONS_USER` (default: 3) and `MAX_SESSIONS_ADMIN` (default: 10) in `wrangler.toml`.
@@ -494,17 +513,43 @@ Browse endpoint validates prefix parameter against directory traversal (`..` rej
 
 Trivy scans Docker images for HIGH/CRITICAL vulnerabilities before deployment (in `deploy.yml` and `deploy-dockerhub.yml`). The scan runs with `ignore-unfixed: true`, so the deploy fails only on a HIGH/CRITICAL CVE that has an **available fix** and is not suppressed. Unfixed CVEs (blank Fixed Version — no upstream patch) cannot be remediated by rebuilding and are not gated; this stops the recurring breakage where a newly-published, unfixable base-image CVE would block every deploy until manually suppressed.
 
-**Suppression policy (`.trivyignore`):** With `ignore-unfixed`, the allowlist is now for **fixable** CVEs that are consciously accepted — a fix exists but cannot be applied yet (typically a vendored CLI such as rclone/lazygit/an npm CLI fixed upstream but not yet rebuilt). A CVE is added only when all of:
+**Suppression policy (`.trivyignore`):** With `ignore-unfixed`, the allowlist is now for **fixable** CVEs that are consciously accepted — a fix exists but cannot be applied yet (typically a vendored CLI such as rclone/lazygit/an npm CLI, or a vendored binary such as OpenVSCode Server, fixed upstream but not yet rebuilt). A CVE is added only when both of:
 
-1. **No untrusted-input path** — the vulnerable code is never reached with attacker-controlled input in the container (typically outbound-only CLI tools, or base-image / git-tooling dependencies never invoked on hostile archives, JSON, XML, or MIME).
-2. **Impact is limited** — DoS only (CPU/memory exhaustion or panic), with no confidentiality or integrity impact in this container's context.
-3. **The fix is not yet applicable** — it exists upstream but the vendored tool or base image has not rebuilt against it.
+1. **Impact is contained to the session owner's own privilege boundary** — either unreachable by attacker-controlled input, or reached only via input the session's own user already controls, with worst-case impact confined to that user's own container (see below).
+2. **The fix is not yet applicable** — it exists upstream but the vendored tool or base image has not rebuilt against it.
+
+Unreachable means the vulnerable code path is never reached with attacker-controlled input — typically outbound-only CLI tools, or base-image / git-tooling dependencies never invoked on hostile archives, JSON, XML, or MIME. Reached-but-confined means the path may be reached with input the session's own user controls (e.g. a cloned repo's files), but the worst case — including arbitrary-code-execution-class CVEs — is DoS or code-execution/file-write confined to the ephemeral, single-tenant container that user already fully controls via their existing shell, with no container-escape and no cross-tenant primitive, so exploiting it grants no privilege the user does not already hold.
 
 Every entry carries an inline comment recording the affected package, the impact, and which conditions apply. The allowlist is reviewed monthly and entries are removed once a fix reaches the image. (Pre-existing entries for unfixed CVEs are now redundant with `ignore-unfixed` but are left in place as a documented record.)
 
 ### Protected R2 Paths
 
 **`PROTECTED_PATHS` is now empty** (`[]` in `src/lib/constants.ts`). Previously, paths like `.claude/`, `.anthropic/`, `.ssh/`, `.config/`, `.claude.json` were blocked from the web storage API. The protection was removed - all R2 paths are now accessible via browse, upload, and delete. The `validateKey()` function in `src/routes/storage/validation.ts` still checks the array but it's a no-op with an empty list.
+
+---
+
+## Manual verification checklist
+
+Exercise each listed authentication, authorization, billing, or security flow in staging with allowed and denied inputs; compare response, persisted state, and audit output with every AC.
+
+- [ ] [REQ-ENTERPRISE-006](../../sdd/spec/enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) — verify every acceptance criterion.
+- [ ] [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing) — verify every acceptance criterion.
+- [ ] [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) — verify every acceptance criterion.
+- [ ] [REQ-ENTERPRISE-017](../../sdd/spec/enterprise-mode.md#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard) — verify every acceptance criterion.
+- [ ] [REQ-ENTERPRISE-021](../../sdd/spec/enterprise-mode.md#req-enterprise-021-governed-mode-migration-safety-and-access-boundary) — verify every acceptance criterion.
+- [ ] [REQ-AUTH-001](../../sdd/spec/authentication.md#req-auth-001-two-authentication-modes) — verify every acceptance criterion.
+- [ ] [REQ-AUTH-002](../../sdd/spec/authentication.md#req-auth-002-saas-mode-uses-direct-github-oauth) — verify every acceptance criterion.
+- [ ] [REQ-AUTH-003](../../sdd/spec/authentication.md#req-auth-003-cf-access-mode-for-all-other-deployments) — verify every acceptance criterion.
+- [ ] [REQ-AUTH-007](../../sdd/spec/authentication.md#req-auth-007-jit-user-provisioning-in-saas-mode) — verify every acceptance criterion.
+- [ ] [REQ-AUTH-008](../../sdd/spec/authentication.md#req-auth-008-session-cookie-auto-refresh) — verify every acceptance criterion.
+- [ ] [REQ-AUTH-009](../../sdd/spec/authentication.md#req-auth-009-logout-dispatches-by-mode) — verify every acceptance criterion.
+- [ ] [REQ-AUTH-014](../../sdd/spec/authentication.md#req-auth-014-auth-expiry-detection-mid-session) — verify every acceptance criterion.
+- [ ] [REQ-AUTH-015](../../sdd/spec/authentication.md#req-auth-015-guided-onboarding-flow) — verify every acceptance criterion.
+- [ ] [REQ-AUTH-019](../../sdd/spec/authentication.md#req-auth-019-user-identity-and-account-status-api) — verify every acceptance criterion.
+- [ ] [REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page) — verify every acceptance criterion.
+- [ ] [REQ-SEC-009](../../sdd/spec/security.md#req-sec-009-input-validation-at-system-boundaries) — verify every acceptance criterion.
+- [ ] [REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy) — verify every acceptance criterion.
+- [ ] [REQ-SEC-018](../../sdd/spec/security.md#req-sec-018-credential-encryption-operational-policy) — verify every acceptance criterion.
 
 ---
 

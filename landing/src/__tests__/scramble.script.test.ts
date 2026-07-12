@@ -35,14 +35,19 @@ function buildScrambleFixture(targetText: string): HTMLElement {
   return el;
 }
 
-function mockMatchMedia(prefersReducedMotion: boolean): void {
+function mockMatchMedia(prefersReducedMotion: boolean, wideViewport = true): void {
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
-    value: vi.fn().mockReturnValue({
-      matches: prefersReducedMotion,
+    // Query-aware: the reduced-motion query returns prefersReducedMotion. Any other query
+    // (a hypothetical min-width gate) returns wideViewport; the churn must run regardless of
+    // it -- it is gated only on reduced-motion, never on viewport width. Passing
+    // wideViewport=false simulates a narrow/mobile viewport as a regression guard: if a
+    // width gate is ever re-added, the churn would stop and the mobile test below would fail.
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes('prefers-reduced-motion') ? prefersReducedMotion : wideViewport,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
-    }),
+    })),
   });
 }
 
@@ -151,6 +156,105 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
     expect(el.textContent).toBe(target);
     // No scramble-word spans should exist.
     expect(document.querySelectorAll('.scramble-word').length).toBe(0);
+  });
+
+  it('REQ-LANDING-001: the churn runs at narrow (mobile) viewport width too — gated only on reduced-motion, never on width', async () => {
+    const target = 'assistant';
+    buildScrambleFixture(target);
+    // Motion is allowed and the viewport is narrow (a min-width query reports false). The
+    // footprint-stable ghost/overlay means the churn no longer reflows the headline, so it
+    // runs on mobile as well — width is not a gate. If a width gate is ever reintroduced the
+    // churn would stop under this mock and this assertion would fail.
+    mockMatchMedia(false, false);
+    mockFontsReady();
+
+    await import('../scripts/scramble');
+    await Promise.resolve();
+    vi.runAllTicks();
+
+    // The churn overlay is created and actually mutates even at mobile width.
+    const live = document.querySelector<HTMLElement>('.scramble-word');
+    expect(live).not.toBeNull();
+    let sawScramble = false;
+    for (let t = 0; t < ONE_CYCLE_MS; t += 50) {
+      vi.advanceTimersByTime(50);
+      if (live!.textContent && live!.textContent !== target) {
+        sawScramble = true;
+        break;
+      }
+    }
+    expect(sawScramble).toBe(true);
+  });
+
+  it('REQ-LANDING-001: each churning word paints on an out-of-flow .scramble-word overlay above a hidden resting-width ghost, so churn neither clips a glyph nor reflows the phrase', async () => {
+    // The reported mobile flicker: churn glyphs are wider than the resting letters, so a
+    // content-sized word grows and re-wraps the phrase every frame, shoving the page down.
+    // Width-locking the word instead clipped wide glyphs (the rejected "cut off"). The fix
+    // reserves each word's resting box with an invisible .scramble-ghost and paints the
+    // churn on an out-of-flow .scramble-word overlay: churn never resizes the box (no
+    // reflow) and is never width-constrained (no clip).
+    buildScrambleFixture('coding assistant'); // two words
+    mockMatchMedia(false);
+    mockFontsReady();
+
+    await import('../scripts/scramble');
+    await Promise.resolve();
+    vi.runAllTicks();
+
+    const boxes = [...document.querySelectorAll<HTMLElement>('.scramble-box')];
+    expect(boxes.length).toBe(2); // one layout-reserving box per word
+    const ghost = boxes[0].querySelector<HTMLElement>('.scramble-ghost');
+    const live = boxes[0].querySelector<HTMLElement>('.scramble-word');
+    expect(ghost).not.toBeNull();
+    expect(live).not.toBeNull();
+    // The ghost holds the resting text and reserves the box; the churning overlay is a
+    // separate .scramble-word sibling, so the two never share a width.
+    const restingText = ghost!.textContent;
+
+    // The overlay churns; the ghost text (the fixed layout reservation) never changes.
+    let liveDeviated = false;
+    for (let t = 0; t < ONE_CYCLE_MS; t += 50) {
+      vi.advanceTimersByTime(50);
+      if (live!.textContent && live!.textContent !== restingText) liveDeviated = true;
+      expect(ghost!.textContent).toBe(restingText);
+    }
+    expect(liveDeviated).toBe(true); // the overlay actually animated
+  });
+
+  it('REQ-LANDING-006: the hover-decode sign-in CTA locks each word span to its resting width so the header never reflows', async () => {
+    const el = document.createElement('a');
+    el.setAttribute('data-scramble-hover', '');
+    el.textContent = 'Enter The Matrix';
+    document.body.appendChild(el);
+    mockMatchMedia(false);
+    mockFontsReady();
+    // happy-dom has no layout engine, so stub the resting width the lock measures.
+    const rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 42,
+      height: 0,
+      top: 0,
+      left: 0,
+      right: 42,
+      bottom: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    await import('../scripts/scramble');
+    await Promise.resolve();
+    vi.runAllTicks();
+    vi.advanceTimersByTime(50); // fire the rAF that runs the width lock
+
+    const spans = el.querySelectorAll<HTMLElement>('.scramble-word');
+    // "Enter" + "The" + "Matrix" -> three word boxes, each pinned to its measured resting
+    // width so the per-frame glyph churn cannot resize the button and shove the nav.
+    expect(spans.length).toBe(3);
+    for (const span of spans) {
+      expect(span.style.display).toBe('inline-block');
+      expect(span.style.width).toBe('42px');
+    }
+    rectSpy.mockRestore();
   });
 
   it('REQ-LANDING-001: element with no text content is handled without error', async () => {

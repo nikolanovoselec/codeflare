@@ -1,6 +1,6 @@
 import { createStore, produce } from 'solid-js/store';
 import { createSignal } from 'solid-js';
-import type { SessionWithStatus, SessionStatus, InitProgress, SessionTerminals, AgentType, TabConfig, TabPreset, UserPreferences } from '../types';
+import type { SessionWithStatus, SessionStatus, InitProgress, SessionTerminals, AgentType, TabConfig, UserPreferences } from '../types';
 import * as api from '../api/client';
 import { recreateAgentConfigs } from '../api/storage';
 import { terminalStore } from './terminal';
@@ -27,15 +27,6 @@ import {
   updateTerminalLabel,
   cleanupTerminalsForSession,
 } from './session-tabs';
-import {
-  registerPresetsDeps,
-  loadPresets,
-  savePreset,
-  deletePreset,
-  renamePreset,
-  saveBookmarkForSession,
-  applyPresetToSession,
-} from './session-presets';
 import { updateStatsFromBatch } from './storage';
 import {
   registerR2ReadinessDeps,
@@ -72,7 +63,7 @@ export type { UsageWarningLevel, UsageState } from './session-usage';
 /**
  * Session Store — central facade for session lifecycle management.
  *
- * Delegates to: session-tabs, session-presets, session-polling,
+ * Delegates to: session-tabs, session-polling,
  * session-usage, tiling, r2-readiness, preferences.
  */
 
@@ -123,7 +114,6 @@ export interface SessionState {
   initProgressBySession: Record<string, InitProgress>;
   terminalsPerSession: Record<string, SessionTerminals>;
   sessionMetrics: Record<string, SessionMetrics>;
-  presets: TabPreset[];
   preferences: UserPreferences;
   maxSessions: number;
   preseedUpgrading: boolean;
@@ -146,7 +136,6 @@ const [state, setState] = createStore<SessionState>({
   initProgressBySession: {},
   terminalsPerSession: loadTerminalsFromStorage(),
   sessionMetrics: {},
-  presets: [],
   preferences: {},
   maxSessions: 3,
   preseedUpgrading: false,
@@ -168,13 +157,6 @@ registerTabsDeps(
   (fn) => setState(produce(fn)),
   terminalStore,
   () => saveTerminalsToStorage(state.terminalsPerSession),
-);
-
-registerPresetsDeps(
-  () => ({ sessions: state.sessions, presets: state.presets, terminalsPerSession: state.terminalsPerSession, error: state.error }),
-  (fn) => setState(produce(fn)),
-  (key, value) => setState(key, value),
-  terminalStore,
 );
 
 // Register session store access for tiling module (avoids circular imports)
@@ -629,13 +611,6 @@ export const sessionStore = {
   getTilingForSession,
   getTabOrder,
   updateTerminalLabel,
-  get presets() { return state.presets; },
-  loadPresets,
-  savePreset,
-  deletePreset,
-  renamePreset,
-  saveBookmarkForSession,
-  applyPresetToSession,
   get preferences() { return state.preferences; },
   loadPreferences,
   updatePreferences: updateUserPreferences,

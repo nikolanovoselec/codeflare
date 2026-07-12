@@ -403,21 +403,10 @@ describe('REQ-MOB-010: FitAddon fit calls are coordinated', () => {
 // ACs covered: AC1, AC2, AC3, AC4
 // ============================================================================
 
-// All REQ-MOB-012 ACs are now covered by GENUINE behavioral tests that drive
-// the real onScroll handler (and the suppression marker / keyboard gate it
-// consumes) in web-ui/src/__tests__/hooks/useScrollCorrection.test.ts:
-//   AC1 (suppression marker bracketing): "skips correction while the
-//        programmatic-scroll suppression marker is set".
-//   AC2 (keyboard-open detector skip): "skips all correction when the mobile
-//        keyboard is open" (+ the touch-AND-keyboard gate negative control).
-//   AC3 (bottom-following synchronous re-anchor): "re-anchors a bottom-following
-//        terminal when scrollback trimming displaces it".
-//   AC4 (scrolled-up relative position preserved): "restores a scrolled-up user
-//        after a browser focus reset snaps viewport to 0".
+// REQ-MOB-012 is covered by behavioral tests at the owning seams:
+//   AC1 + AC4: terminal.test.ts drives the real WebSocket/write-batching path
+//              and proves a full-buffer trim keeps xterm's visible anchor.
+//   AC2: useScrollCorrection.test.ts covers the keyboard-open detector skip.
+//   AC3: useScrollCorrection.test.ts covers the synchronous bottom re-anchor.
 // The previous source-string-matching assertions here were theater (they
 // passed even if the production hook were deleted) and have been removed.
-//
-// NOTE: the store-side begin/endProgrammaticScroll counter internals are not
-// exported (module-private in stores/terminal.ts); only the consumer-observable
-// behavior (isProgrammaticScrollSuppressed gating the detector) is unit-testable
-// without reaching into private state, which the AC1 test above does.

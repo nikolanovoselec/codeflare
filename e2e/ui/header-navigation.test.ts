@@ -130,10 +130,4 @@ describe.skipIf(!isSetup)('Header navigation', () => {
     const dashboard = await page.$('[data-testid="dashboard"]');
     expect(dashboard).toBeTruthy();
   });
-
-  it('bookmarks button is visible', async () => {
-    await navigateToSessionView(page, sessionId);
-    const bookmarksBtn = await page.$('[data-testid="header-bookmarks-button"]');
-    expect(bookmarksBtn).toBeTruthy();
-  });
 });

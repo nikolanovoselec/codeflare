@@ -1,0 +1,98 @@
+---
+/**
+ * Browser IDE band (REQ-LANDING-007): the SDLC-to-agentic bridge, shown as the
+ * full VS Code workbench a traditional developer already lives in — an activity
+ * rail, an explorer file tree, an editor tab, a line-numbered code pane, an
+ * integrated terminal, and a status bar. It is built on the shared <Terminal>
+ * chrome (the frame, border, radius, shadow, traffic-light dots), so the frame
+ * stays identical to every other artifact on the page; the workbench is the body
+ * slot. The three columns fill the width on desktop; the rail and explorer fold
+ * away on narrow viewports, leaving the editor + terminal full width.
+ *
+ * The integrated terminal's last line is the reel: feature-terminals.ts types /
+ * deletes / shuffles it (the .terminal carries data-ft-loop + data-ft-shuffle,
+ * passed through <Terminal>), streaming the agent's live activity with the human
+ * stepping in. The server-rendered first beat is the resting state, fully legible
+ * with no JS and under reduced motion. Recognition is carried by shape (rail,
+ * file tree, tab, gutter, integrated terminal, status bar); the palette stays the
+ * page's one locked coral accent, never VS Code blue. Content lives in IDE
+ * (content/site.ts); the rail icons are fixed chrome.
+ */
+import Terminal from './Terminal.astro';
+import { IDE } from '../content/site';
+---
+
+<Terminal variant="code-editor" ftLoop={JSON.stringify(IDE.stream)} ftShuffle>
+  <Fragment slot="bar">
+    <span class="ce-tab is-active">{IDE.file}<span class="ce-dot" aria-hidden="true">●</span></span>
+    <span class="ce-tab is-dim">{IDE.fileAlt}</span>
+    <span class="ce-folder">{IDE.folder}</span>
+  </Fragment>
+
+  <div class="ce-workbench">
+    <nav class="ce-rail" aria-label="Editor activity bar">
+      <span class="ce-rail-btn is-active" role="img" aria-label="Explorer">
+        <svg viewBox="0 0 16 16" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 1.5H4.2a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h7.6a1 1 0 0 0 1-1V5z"/><path d="M9.4 1.6V5h3.4"/></svg>
+      </span>
+      <span class="ce-rail-btn" role="img" aria-label="Search">
+        <svg viewBox="0 0 16 16" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.3"/><path d="M10.1 10.1 14 14"/></svg>
+      </span>
+      <span class="ce-rail-btn ce-rail-scm" role="img" aria-label={`Source Control, ${IDE.changes} changes`}>
+        <svg viewBox="0 0 16 16" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="4" cy="3.7" r="1.7"/><circle cx="4" cy="12.3" r="1.7"/><circle cx="11.6" cy="6.2" r="1.7"/><path d="M4 5.4v5.2M4 8.3h4.1a3.5 3.5 0 0 0 3.5-3.5"/></svg>
+        <span class="ce-rail-badge" aria-hidden="true">{IDE.changes}</span>
+      </span>
+      <span class="ce-rail-btn" role="img" aria-label="Run and Debug">
+        <svg viewBox="0 0 16 16" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 3.3 12 8l-7.5 4.7z"/></svg>
+      </span>
+      <span class="ce-rail-btn" role="img" aria-label="Extensions">
+        <svg viewBox="0 0 16 16" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="0.6"/><rect x="9" y="2" width="5" height="5" rx="0.6"/><rect x="2" y="9" width="5" height="5" rx="0.6"/><path d="M11.5 9v5M9 11.5h5"/></svg>
+      </span>
+    </nav>
+
+    <div class="ce-explorer">
+      <span class="ce-explorer-head">Explorer</span>
+      <ul class="ce-tree" aria-label={`${IDE.folder} files`}>
+        {IDE.explorer.map((node) => (
+          <li
+            class:list={['ce-node', `is-${node.kind}`, { 'is-active': node.active }]}
+            style={`--ce-depth:${node.depth}`}
+          >
+            <span class="ce-twist" aria-hidden="true">{node.kind === 'folder-open' ? '▾' : node.kind === 'folder' ? '▸' : ''}</span>
+            <span class="ce-node-label">{node.label}</span>
+            {node.dot && <span class="ce-dot" aria-hidden="true">●</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+
+    <div class="ce-main">
+      <ol class="ce-code" aria-label={`${IDE.file}, the agent's workspace`}>
+        {IDE.code.map((line) => (
+          <li class="ce-codeline"><span class="ce-src">{line}</span></li>
+        ))}
+      </ol>
+      <div class="ce-term">
+        <span class="ce-term-tab">TERMINAL</span>
+        <div class="terminal-body ce-term-body">
+          {IDE.termLog.map((line) => (
+            <span class="t-line t-dim">{line}</span>
+          ))}
+          <span class="t-line t-cmd"><span class="ft-typed" data-ft-typed>{IDE.stream[0]}</span><span class="t-caret" aria-hidden="true" /></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <Fragment slot="foot">
+    <div class="terminal-foot ce-status">
+      <span class="ce-stat ce-branch">
+        <svg class="ce-branch-icon" viewBox="0 0 16 16" width="11" height="11" aria-hidden="true" fill="currentColor"><path d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 019 8.5H7a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836A2.492 2.492 0 017 7h2a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.75 12a.75.75 0 100 1.5.75.75 0 000-1.5zm0-8.5a.75.75 0 100 1.5.75.75 0 000-1.5z"></path></svg>
+        {IDE.status.branch}
+      </span>
+      <span class="ce-stat">{IDE.status.sync}</span>
+      <span class="ce-stat ce-ci"><span class="ce-ci-dot" aria-hidden="true"></span>{IDE.status.ci}</span>
+      <span class="ce-stat ce-pos">{IDE.status.pos}</span>
+      <span class="ce-stat">{IDE.status.lang}</span>
+    </div>
+  </Fragment>
+</Terminal>

@@ -24,21 +24,23 @@ Dependabot runs weekly against the `develop` branch for four npm package directo
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
 | `deploy.yml` | `workflow_run` when PR Checks complete green on `main` + `workflow_dispatch` (production/integration/enterprise/enterprise integration) | Full pipeline: tests, typecheck, Docker build, Trivy vulnerability scan, wrangler deploy, worker secrets. Deploy only fires after checks pass - eliminates the parallel-trigger race where a broken merge could deploy before checks failed. |
-| `test.yml` | PRs to `main` or `develop`, push to `main` + `workflow_dispatch` | PR checks: lint (oxlint), tests, typecheck, build verification, dead code check (knip), `npm audit --omit=dev`, dependency review. Push-to-`main` provides the post-merge signal that `deploy.yml` gates on. Push-to-`develop` is intentionally absent: an open develop→main PR already fires a `pull_request` synchronize run, so a separate `push` trigger would double-run. |
+| `test.yml` | PRs to `main` or `develop`, push to `main` + `workflow_dispatch` | Runs lint, tests, typecheck, build verification, dead-code and dependency checks. The host lane installs rclone. A green push-to-main run signals deploy; the open develop-to-main PR supplies develop coverage. |
 | `e2e.yml` | `workflow_dispatch` (integration/production) | E2E tests against deployed worker - sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop` -> `e2e-ui-mobile` |
-| `codeql.yml` | Push to `main`, PRs to `main`, weekly (Monday 06:00 UTC) | CodeQL static analysis for JavaScript/TypeScript vulnerabilities, uploads SARIF to GitHub Security. Scoped by `.github/codeql/codeql-config.yml`, which excludes the vendored Impeccable copy-edit scripts (`preseed/agents/*/skills/impeccable/scripts/**`) — third-party bundle code refreshed wholesale on each shadow-pin bump, never in the production request path (the CodeQL analog of the `.trivyignore` vendored-binary acceptances). |
+| `codeql.yml` | Push to `main`, PRs to `main`, weekly (Monday 06:00 UTC) | Scans JavaScript and TypeScript and uploads SARIF. Its config excludes vendored Impeccable scripts, which are refreshed wholesale by shadow-pin bumps and do not run in the production request path. |
 | `fuzz.yml` | PRs to `main`, weekly (Sunday 04:00 UTC) + `workflow_dispatch` | Property-based fuzzing with fast-check (50,000 iterations) |
 | `scorecard.yml` | Push to `main`, weekly (Monday 06:00 UTC) + `workflow_dispatch` | OSSF Scorecard security posture assessment, publishes results and uploads SARIF |
 | `pentest.yml` | Weekly (Monday 05:00 UTC) + `workflow_dispatch` | External black-box penetration testing: security headers, TLS, auth gate, info disclosure, injection attacks, HTTP methods |
 | `stress-test.yml` | `workflow_dispatch` | k6 stress tests (API throughput, session lifecycle, storage operations, rate-limit validation) against integration worker. Configurable concurrency via `STRESS_TEST_CONCURRENCY` variable. |
 | `deploy-dockerhub.yml` | `workflow_dispatch` (production/integration/enterprise/enterprise integration) | Fallback deploy pipeline near-identical to `deploy.yml` but pushes the container image to Docker Hub instead of `registry.cloudflare.com`. |
-| `bump-shadow-pins.yml` | Weekly (Monday 06:00 UTC) + `workflow_dispatch` | Tracks non-Dependabot pins: context-mode, graphify plugin version, Dockerfile binaries, Bun, the `consult-llm-mcp` Dockerfile global-install pin, every Pi preseed npm pin, and the vendored Impeccable skill bundle for Claude Code + Pi. |
+| `bump-shadow-pins.yml` | Weekly (Monday 06:00 UTC) + `workflow_dispatch` | Tracks non-Dependabot pins: context-mode, graphify plugin version, Dockerfile binaries, Bun, the `consult-llm-mcp` Dockerfile global-install pin, the `chrome-devtools-mcp` Dockerfile baked-cache pin, every Pi preseed npm pin, and the vendored Impeccable skill bundle for Claude Code + Pi. |
 
 Additional details:
 
 **`deploy-dockerhub.yml`:** Fallback deploy pipeline near-identical to `deploy.yml` but pushes the container image to Docker Hub instead of `registry.cloudflare.com`. Used when the Cloudflare managed registry drops connections mid-upload. Before the Trivy scan it frees disk on the runner — prunes the local build cache, removes stale `*-container` images (keeping the image being scanned), and prunes dangling layers — so the scan's image export does not exhaust the Docker data root when using a persistent self-hosted runner (the `RUNNER` Actions variable; defaults to `ubuntu-latest`). The build itself caches via `type=gha`, so this does not cause cold builds. Requires `DOCKERHUB_USERNAME` + `DOCKERHUB_TOKEN` secrets.
 
-**`bump-shadow-pins.yml`:** Tracks non-Dependabot pins: context-mode, graphify plugin version, Dockerfile binaries, Bun, the `consult-llm-mcp` Dockerfile global-install pin, every Pi preseed npm pin, and the vendored Impeccable skill bundle for Claude Code + Pi. Opens one PR per bump and regenerates matching lockfiles/agent seed when duplicated literals change. SHA256 checksums are invalidated on Dockerfile-binary bumps.
+**`bump-shadow-pins.yml`:** Tracks non-Dependabot pins: context-mode, graphify plugin version, Dockerfile binaries, Bun, the `consult-llm-mcp` Dockerfile global-install pin, the `chrome-devtools-mcp` Dockerfile baked-cache pin, every Pi preseed npm pin, and the vendored Impeccable skill bundle for Claude Code + Pi. Opens one PR per bump and regenerates matching lockfiles/agent seed when duplicated literals change. SHA256 checksums are invalidated on Dockerfile-binary bumps.
+
+The OpenVSCode job validates upstream release tags against a strict version pattern before creating outputs. Its write-enabled shell steps receive the validated version and derived branch through quoted environment variables, so release metadata is never parsed as shell source ([REQ-OPS-020](../../sdd/spec/operations.md#req-ops-020-shadow-pin-version-bump-automation)).
 
 The Pi preseed job is data-driven: it diffs **every** dependency in `preseed/agents/pi/package.json` against npm latest — `@gotgenes/pi-subagents`, context-mode, and the five tool extensions (`@juicesharp/rpiv-advisor`, `@juicesharp/rpiv-ask-user-question`, `@juicesharp/rpiv-todo`, `pi-web-access`, `pi-mcp-adapter`). Each version is duplicated as a literal in entrypoint.sh (the Pi settings `required` install array — so context-mode is enabled by default and the extensions stay available regardless of the `/ctx` toggle), `codeflare-pi.ts`, the pinned-version test assertions, and the generated seed. Dependabot intentionally skips that directory, so this workflow keeps every copy aligned.
 
@@ -48,41 +50,19 @@ The Pi preseed job is data-driven: it diffs **every** dependency in `preseed/age
 |-------------|---------|---------|
 | `production` | `deploy.yml`, `pentest.yml` | Auto on push to `main`, or manual dispatch with `production` selected |
 | `integration` | `deploy.yml`, `e2e.yml`, `stress-test.yml` | Manual dispatch with `integration` selected |
-| `enterprise` | `deploy.yml`, `deploy-dockerhub.yml` | Manual dispatch with `enterprise` selected; deployable from any branch ([REQ-ENTERPRISE-006](../../sdd/spec/enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC7) |
-| `enterprise integration` | `deploy.yml`, `deploy-dockerhub.yml` | Manual dispatch with `enterprise integration` selected; deployable from any branch; separate concurrency group from `integration` ([REQ-ENTERPRISE-006](../../sdd/spec/enterprise-mode.md#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC7) |
+
+The non-default enterprise environments, account overrides, and dispatch procedure are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private).
 
 ### GitHub Secrets and Variables
 
-**Secrets (repository-level):**
+A default deployment requires only these repository secrets:
 
-| Secret | Required | Used by | Purpose |
-|--------|----------|---------|---------|
-| `CLOUDFLARE_API_TOKEN` | Yes | `deploy.yml`, `e2e.yml` | Wrangler CLI auth, KV operations, container push, worker deploy, secret management |
-| `CLOUDFLARE_ACCOUNT_ID` | Yes | `deploy.yml`, `e2e.yml` | Identifies the Cloudflare account for all API operations |
-| `RESEND_API_KEY` | If onboarding or SaaS mode active | `deploy.yml` | Notification emails via Resend (waitlist submissions + access requests) |
-| `OAUTH_CLIENT_ID` | If onboarding or SaaS mode active | `deploy.yml` | GitHub OAuth app client id; injected as a worker `--var` for the sign-in flow |
-| `OAUTH_CLIENT_SECRET` | If onboarding or SaaS mode active | `deploy.yml` | GitHub OAuth app client secret; set as a worker secret via `wrangler secret put` |
-| `OAUTH_JWT_SECRET` | If onboarding or SaaS mode active | `deploy.yml` | Signs the post-OAuth session JWT; set as a worker secret via `wrangler secret put` |
-| `CF_ACCESS_CLIENT_ID` | For E2E | `deploy.yml`, `e2e.yml` | CF Access service token ID for E2E auth |
-| `CF_ACCESS_CLIENT_SECRET` | For E2E | `deploy.yml`, `e2e.yml` | CF Access service token secret; also used as `SERVICE_AUTH_SECRET` worker secret and KV seeding |
-| `DOCKERHUB_USERNAME` | For Docker Hub fallback | `deploy-dockerhub.yml` | Docker Hub account that owns the image repo |
-| `DOCKERHUB_TOKEN` | For Docker Hub fallback | `deploy-dockerhub.yml` | Access token (read+write+delete scope) for pushing images |
+| Secret | Used by | Purpose |
+|--------|---------|---------|
+| `CLOUDFLARE_API_TOKEN` | `deploy.yml`, `e2e.yml` | Wrangler authentication, resource setup, image push, and Worker deploy |
+| `CLOUDFLARE_ACCOUNT_ID` | `deploy.yml`, `e2e.yml` | Identifies the target Cloudflare account |
 
-**Variables:**
-
-| Variable | Default | Used by | Purpose | Default source |
-|----------|---------|---------|---------|----------------|
-| `CLOUDFLARE_WORKER_NAME` | `codeflare` | `deploy.yml`, `e2e.yml` | Worker name for deploy and E2E target resolution | Hardcoded fallback in workflow |
-| `RUNNER` | `ubuntu-latest` | All workflows | GitHub Actions runner label (self-hosted support) | Hardcoded fallback in workflow |
-| `E2E_BASE_URL` | - | `e2e.yml` | Base URL of deployed worker for E2E tests | Set per environment |
-| `ONBOARDING_LANDING_PAGE` | `inactive` | `deploy.yml` | Enables the public landing + onboarding `/login` via `--var`; when `active`, also triggers GitHub OAuth provisioning, so the three `OAUTH_*` secrets above are required | Hardcoded fallback in workflow |
-| `RESSOURCE_TIER` | unset (1 vCPU, 3 GiB, 6 GB) | `deploy.yml` | Container instance size (low/default/high/saas). All tiers default to 10 max instances | Defaults to `default` in deploy step |
-| `MAX_INSTANCES` | unset (10) | `deploy.yml` | Override container max_instances. Must be a positive integer | Passed via env to avoid shell injection |
-| `CLAUDE_CODE_CACHE_BUSTER` | `inactive` | `deploy.yml` | When `active`, writes `.cache-bust` to invalidate AI agent Docker layer | Not set by default |
-| `MAX_SESSIONS_USER` | `3` | `deploy.yml` | Per-user session cap passed via `--var` | Omitted if unset (backend default applies) |
-| `MAX_SESSIONS_ADMIN` | `10` | `deploy.yml` | Per-admin session cap passed via `--var` | Omitted if unset (backend default applies) |
-| `PENTEST_TARGET` | - | `pentest.yml` | Base URL for penetration tests (e.g., `https://codeflare.ch`) | Set per `production` environment |
-| `STRESS_TEST_CONCURRENCY` | `0` (disabled) | `stress-test.yml` | k6 virtual user scaling factor. When >0, scales VU targets proportionally and loosens latency thresholds. | Set per `integration` environment |
+Non-default mode credentials, optional deployment variables, environment overrides, fallback registries, and E2E service credentials are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane intentionally does not duplicate that operational matrix.
 
 ### Deploy Workflow Detail
 
@@ -140,9 +120,9 @@ Six parallel jobs, each running lightweight external probes against the producti
 
 **Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` `cloudflareTest()` plugin - tests run in real Workers runtime (not Node.js). **Run:** `npm test` **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
 
-**CI workerd crash guard:** `@cloudflare/vitest-pool-workers` 0.16.x crashes `workerd` at pool teardown after all tests pass — a known upstream flake. The backend test step in `.github/workflows/test.yml` (and the identical pre-deploy gate in `deploy.yml`) runs `npm test` once with `NO_COLOR=1`/`FORCE_COLOR=0` so the summary is plain text, then inspects the exit code: on a non-zero exit it accepts the run only when all four conditions hold — the crash fingerprint `[vitest-pool]: Worker cloudflare-pool emitted error.` is present, the summary reports exactly `Errors 1 error`, a `Tests N passed` line exists, and no `(Test Files|Tests) N failed` line exists.
+**CI workerd crash guard:** `@cloudflare/vitest-pool-workers` 0.16.x crashes `workerd` at pool teardown after all tests pass — a known upstream flake. The backend test step in `.github/workflows/test.yml` (and the identical pre-deploy gate in `deploy.yml`) runs `npm test` once with `NO_COLOR=1`/`FORCE_COLOR=0` so the summary is plain text, then inspects the exit code: on a non-zero exit it accepts the run only when all four conditions hold — the crash fingerprint `[vitest-pool]: Worker cloudflare-pool emitted error.` is present, the summary reports an `Errors N error` line (the count is not pinned — per-file isolation emits one teardown crash per isolate, so a busy suite reports 2+), a `Tests N passed` line exists, and no `(Test Files|Tests) N failed` line exists.
 
-Ordinary assertion failures, any extra unhandled error (which makes it `Errors 2 errors`), and incomplete runs all fail the job immediately. No retry, no hardcoded counts. **Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise. **Notable test files:** `kv-crypto.test.ts` (KV AES-256-GCM encryption + migration), `r2-sse.test.ts` (R2 SSE-C encryption).
+Ordinary assertion failures (any `(Test Files|Tests) N failed` line) and incomplete runs fail the job immediately. No retry, no hardcoded error count. **Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise. **Notable test files:** `kv-crypto.test.ts` (KV AES-256-GCM encryption + migration), `r2-sse.test.ts` (R2 SSE-C encryption).
 
 ### Frontend Tests
 
@@ -181,13 +161,15 @@ Ordinary assertion failures, any extra unhandled error (which makes it `Errors 2
 
 Both root and `web-ui/` use Vitest v4.x with independent `node_modules` and separate configs. Root uses the `cloudflareTest()` plugin from `@cloudflare/vitest-pool-workers` v0.13+ (replaces the old `defineWorkersConfig()` pattern). Web-UI uses jsdom with `vite-plugin-solid`.
 
+**Reporter:** all three Vitest configs (root, `web-ui/`, `landing/`) select the reporter from `process.env.CI`: `dot` (compact, dots + summary) in CI, `default` (full per-test output) locally. The CI workerd crash guard above and its `deploy.yml` counterpart grep only the final summary block and the pool-crash fingerprint line, both of which the `dot` reporter still prints, so the guard is unaffected by the switch.
+
 ### E2E API Tests
 
 **Dir:** `e2e/api/` - API test files.
 **Run:** `E2E_BASE_URL=https://your-app.example.com npm run test:e2e:api`
 **Pattern:** Plain `fetch` via `apiRequest()` helper from `e2e/setup.ts`. No Puppeteer. Authenticates via `X-Service-Auth` header matching `SERVICE_AUTH_SECRET` worker secret.
 
-Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, `presets`, `setup-status`, `health`, `container`, `container-lifecycle`, `error-responses`, `rate-limiting`.
+Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, `setup-status`, `health`, `container`, `container-lifecycle`, `error-responses`, `rate-limiting`.
 
 ### E2E UI Tests
 
@@ -196,7 +178,7 @@ Test files: `sessions`, `storage`, `storage-operations`, `user`, `preferences`, 
 **Mobile:** `E2E_MOBILE=1 E2E_BASE_URL=... npm run test:e2e:ui`
 **Pattern:** Puppeteer + Vitest. Each suite creates a fresh page. Desktop viewport: 1280x720. Mobile viewport: 390x844 (iPhone-like).
 
-Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-panel`, `storage`, `terminal-tabs`, `tiling`, `bookmarks`, `error-states`, `mobile-specific`.
+Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-panel`, `storage`, `terminal-tabs`, `tiling`, `error-states`, `mobile-specific`.
 
 ### E2E Infrastructure
 
@@ -204,34 +186,19 @@ Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-pan
 - **KV eventual consistency:** New KV entries take ~60s to propagate. E2E setup job includes retry loops with 15s waits. Test helpers use `waitForFunction` with generous timeouts.
 - **CSS disable:** UI tests inject a `<style>` element via `evaluateOnNewDocument` that sets `transition: none !important; animation: none !important; scroll-behavior: auto !important` on all elements (`*, *::before, *::after`), disabling CSS transitions and animations for reliable element positioning in headless Chrome.
 - **Screenshot artifacts:** Failed UI tests capture screenshots and HTML dumps to `e2e-artifacts/`. CI uploads these as artifacts with 5-day retention.
-- **Suite prefix isolation:** Each E2E suite prefixes its test sessions/presets with a unique identifier driven by the `E2E_SUITE` env var (default: `'default'`) to avoid cross-suite interference when running in parallel.
+- **Suite prefix isolation:** Each E2E suite prefixes its test sessions with a unique identifier driven by the `E2E_SUITE` env var (default: `'default'`) to avoid cross-suite interference when running in parallel.
 
 ### E2E Service Token Setup
 
-Step-by-step for running E2E tests against a deployed worker:
-
-1. Create a CF Access service token in Cloudflare dashboard (Access > Service Tokens)
-2. Set `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` as GitHub repository secrets (under `integration` environment for E2E)
-3. Deploy the worker (sets `SERVICE_AUTH_SECRET` automatically from `CF_ACCESS_CLIENT_SECRET`)
-4. The deploy workflow seeds `e2e-service@codeflare.local` as admin in KV allowlist
-5. Run E2E via `Actions > E2E Tests > Run workflow`
-
-For local E2E development:
-```bash
-export CF_ACCESS_CLIENT_ID="<your-service-token-id>"
-export CF_ACCESS_CLIENT_SECRET="<your-service-token-secret>"
-export E2E_BASE_URL="https://your-app.example.com"
-npm run test:e2e        # All E2E tests
-npm run test:e2e:api    # API tests only
-npm run test:e2e:ui     # UI desktop tests only
-E2E_MOBILE=1 npm run test:e2e:ui  # UI mobile tests only
-```
+The deployed-worker credential matrix, Cloudflare Access service-token procedure, environment placement, and local E2E environment setup are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). Public documentation retains the test behavior and suite structure without publishing operational credentials.
 
 ### E2E Test Maintenance
 
 **Rule:** When modifying UI components or API routes, review and update corresponding E2E tests.
 
-- **Source -> test mapping:** Each source module has a corresponding E2E test file. Key mappings: `src/routes/session/` -> `e2e/api/sessions.test.ts`, `src/routes/storage/` -> `e2e/api/storage.test.ts`, `src/routes/setup/` -> `e2e/api/setup-status.test.ts`, `web-ui/.../Dashboard.tsx` -> `e2e/ui/dashboard.test.ts`. Run `grep -r 'data-testid' e2e/` to find all referenced test IDs.
+- **Source -> test mapping:** Session, storage, setup, and dashboard surfaces have corresponding E2E files.
+
+  Key mappings are `src/routes/session/` -> `e2e/api/sessions.test.ts`, `src/routes/storage/` -> `e2e/api/storage.test.ts`, `src/routes/setup/` -> `e2e/api/setup-status.test.ts`, and `web-ui/.../Dashboard.tsx` -> `e2e/ui/dashboard.test.ts`. Run `grep -r 'data-testid' e2e/` to find referenced test IDs.
 - **`data-testid` verification:** Every `data-testid` referenced in E2E tests must exist in the web-ui source. Grep to verify before committing.
 - **Cleanup:** `afterAll` hooks handle test cleanup. If tests fail mid-run, manually restore: `npx wrangler kv key put "setup:complete" "true" --namespace-id <id> --remote`
 

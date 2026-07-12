@@ -24,7 +24,7 @@ describe('hero kicker rotation model', () => {
   });
 
   it('builds one accessible sentence from the static parts and the rotating capability set', () => {
-    expect(buildHeroKickerLabel('The enterprise agentic', ['coding', 'operations', 'knowledge'], 'engine'))
-      .toBe('The enterprise agentic coding, operations, and knowledge engine');
+    expect(buildHeroKickerLabel('The agentic', ['coding', 'operations', 'knowledge'], 'engine'))
+      .toBe('The agentic coding, operations, and knowledge engine');
   });
 });

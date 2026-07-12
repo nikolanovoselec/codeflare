@@ -72,7 +72,7 @@ describe('REQ-ENTERPRISE-016: EgressController fail-closed guards', () => {
   });
 });
 
-describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (own account direct, all else Gateway)', () => {
+describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (own account direct, all else Gateway) / REQ-ENTERPRISE-023', () => {
   it('forwards THIS account R2 DIRECT via global fetch — never env.EGRESS', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('r2', { status: 200 }));
     const { controller, egressFetch } = makeController({}, { accountId: 'acc' });

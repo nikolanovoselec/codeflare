@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD94](#ad94-content-hash-manifest-for-vault-extract-change-detection-mtime-is-reset-by-the-r2-restore) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -105,6 +105,9 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD92](#ad92-bundle-the-official-cloudflare-skills-into-the-advanced-seed-slimmed-references-webfetch-retrieval) | Bundle the official Cloudflare skills into the advanced seed (slimmed references, WebFetch retrieval) | Agents |
 | [AD93](#ad93-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor) | Refresh the non-enterprise Cloudflare OAuth token at the api.cloudflare.com boundary, reusing the browser interceptor | Architecture, Security |
 | [AD94](#ad94-content-hash-manifest-for-vault-extract-change-detection-mtime-is-reset-by-the-r2-restore) | Content-hash manifest for vault-extract change detection (mtime is reset by the R2 restore) | Storage |
+| [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault) | Browser IDE is session-isolated (the deliberate opposite of the bucket-stable Vault) | Architecture, Security |
+| [AD96](#ad96-deactivate-codexcopilot-v8-warm-up-and-opencode-db-pre-init-image-size) | Deactivate codex/copilot V8 warm-up and OpenCode DB pre-init (image size) | Build / Container |
+| [AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk) | Keep OpenVSCode upstream-clean and accept known vulnerability risk | Security, Build / Container |
 
 ---
 
@@ -816,7 +819,9 @@ A future contributor who adds a SessionStart-style ctx_* nudge, a context-mode s
 - Runtime wiring:
 
 `entrypoint.sh` registers the `context-mode` MCP server in `~/.claude.json` (`command: "context-mode"`, no args) and appends four `context-mode hook claude-code <event>` commands to `~/.claude/settings.json` when the plugin manifest is present and `SESSION_MODE=advanced`. Mirrors the wiring path used by `codeflare-memory` and `codeflare-hooks`.
-- Build-time install: the Dockerfile runs `npm install -g context-mode@<ver>` reading the version from `preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json`, then prepends a 2-line `createRequire` shim to both `cli.bundle.mjs` and `server.bundle.mjs` in the global install.
+- Build-time install: the Dockerfile installs the context-mode version declared by the Claude plugin manifest.
+
+  It then prepends the two-line `createRequire` shim to the global `cli.bundle.mjs` and `server.bundle.mjs` files.
 - Bun for executor perf:
 
 Bun is installed globally in the image (`npm install -g bun`). context-mode autodetects Bun on first run and uses it as the JS/TS subprocess runtime for `ctx_execute` / `ctx_batch_execute`. Bun starts short-lived JS subprocesses faster than Node, which adds up across hook-heavy sessions. No spec contract on the perf delta - if a Bun release regresses, context-mode falls back to Node. Bun is a perf-only addition; the shim above is what fixes #309.
@@ -950,9 +955,13 @@ The wrapper reads `<repo>/.git/HEAD` only for an informative stderr log line on 
 an earlier draft used `G.clear()` + `G.add_nodes_from()` and crashed graphify tool handlers mid-iteration under the exact workload the wrapper was built for (`graphify update` immediately followed by `query_graph`). The atomic dict-swap pattern resolves this without forking graphify or wrapping the tool handlers.
 - Sentinel race under concurrent batch-execute hooks is acceptable: last writer wins, wrapper converges within 2 seconds. Hook only rewrites on change so mtime churn is bounded.
 
-**Alternative considered:** Spawn one MCP server per repo on first `cd` into it. Rejected because Claude Code does not natively support per-cwd MCP servers, the spawn/teardown logic would have to live in `entrypoint.sh` with `proc` watching, and the wrapper-based approach lets a single process handle every repo in the session at the cost of one short stderr log line per rebind.
+**Alternatives considered:**
 
-**Alternative considered:** Pass repo path as an explicit MCP tool argument on every call. Rejected because graphify's upstream tool handlers query G in closure and would need rewriting; relying on the agent to remember a `repo_path` arg every invocation would silently degrade in practice.
+Alternative 1 — Spawn one MCP server per repo on first `cd` into it. Rejected because Claude Code does not natively support per-cwd MCP servers, the spawn/teardown logic would have to live in `entrypoint.sh` with `proc` watching, and the wrapper-based approach lets a single process handle every repo in the session at the cost of one short stderr log line per rebind.
+
+Alternative 2 — Pass repo path as an explicit MCP tool argument on every call. Rejected because graphify's upstream tool handlers query G in closure and would need rewriting; relying on the agent to remember a `repo_path` arg every invocation would silently degrade in practice.
+
+
 
 **Issue:** [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify).
 
@@ -975,9 +984,13 @@ an earlier draft used `G.clear()` + `G.add_nodes_from()` and crashed graphify to
 - The path `/home/user/Vault/` is visible in `ls /home/user/` output (non-hidden), which is the desired UX: users can see the vault directory without `ls -a`.
 - The bisync filter gains `+ Vault/**` (replacing `+ .user_vault/**`). Filter order is preserved: vault include comes before the global `- **/graphify-out/**` exclude so the vault's own `graphify-out/` subdirectory is included in sync.
 
-**Alternative considered:** Configure SilverBullet via `SB_SPACE_FOLDER` or a command-line flag to skip the hidden-basename check. Rejected: the check is not configurable in SilverBullet 2.8's Go source; patching the binary was out of scope.
+**Alternatives considered:**
 
-**Alternative considered:** Mount the dot-prefixed directory into a non-hidden path via bind mount or symlink. Rejected: adds fragile entrypoint complexity and bisync would still see the original dot-prefixed path. A clean rename is simpler and permanent.
+Alternative 1 — Configure SilverBullet via `SB_SPACE_FOLDER` or a command-line flag to skip the hidden-basename check. Rejected: the check is not configurable in SilverBullet 2.8's Go source; patching the binary was out of scope.
+
+Alternative 2 — Mount the dot-prefixed directory into a non-hidden path via bind mount or symlink. Rejected: adds fragile entrypoint complexity and bisync would still see the original dot-prefixed path. A clean rename is simpler and permanent.
+
+
 
 **Related REQ:** [REQ-VAULT-001](../../sdd/spec/vault.md#req-vault-001-persistent-vault-directory-survives-across-sessions).
 
@@ -1000,11 +1013,17 @@ The initial implementation defined only `--cf-*`-namespaced custom properties on
 - Users who want custom styling cannot achieve it without forking the project or opening a PR to `preseed/silverbullet/STYLES.md`. This is the explicit trade-off: brand consistency over per-user theming.
 - Preseed theme updates propagate to all users on next session boot with no per-user migration.
 - The always-overwrite contract is documented in `documentation/lanes/vault.md` (three-tier durability) and in the in-vault `README.md` so users discover the constraint before hand-editing.
-- The variable-namespace lesson is preserved in-source as a header comment in `STYLES.md` so future maintainers do not regress to a `--cf-*`-only theme; visual-regression smoke is documented in `documentation/lanes/vault.md` First-session Expectations (zinc base, blue accent, Inter body, JetBrains Mono code).
+- The variable-namespace lesson is preserved in the `STYLES.md` header so maintainers do not regress to a `--cf-*`-only theme.
 
-**Alternative considered:** Ship `STYLES.md` as recreate-if-missing only, preserving user edits. Rejected: the same user who deletes `index.md` or `CONFIG.md` and expects automatic recovery (the always-overwrite contract for those files) would not expect `STYLES.md` to behave differently. Mixing tiers within the same set of preseed pages was deemed more confusing than the cost of disallowing in-place theme edits.
+  The Vault first-session expectations document the zinc base, blue accent, Inter body, and JetBrains Mono code smoke check.
 
-**Alternative considered:** Use SilverBullet's `theme:` setting in `.silverbullet/config.yaml` instead of a separate `STYLES.md` page. Rejected: the bootstrap `config.yaml` carries only the runtime essentials (indexPage, defaultMode); a 200-line CSS payload belongs in a markdown page where the `#meta/styles` tag is SilverBullet's canonical extension point.
+**Alternatives considered:**
+
+Alternative 1 — Ship `STYLES.md` as recreate-if-missing only, preserving user edits. Rejected: the same user who deletes `index.md` or `CONFIG.md` and expects automatic recovery (the always-overwrite contract for those files) would not expect `STYLES.md` to behave differently. Mixing tiers within the same set of preseed pages was deemed more confusing than the cost of disallowing in-place theme edits.
+
+Alternative 2 — Use SilverBullet's `theme:` setting in `.silverbullet/config.yaml` instead of a separate `STYLES.md` page. Rejected: the bootstrap `config.yaml` carries only the runtime essentials (indexPage, defaultMode); a 200-line CSS payload belongs in a markdown page where the `#meta/styles` tag is SilverBullet's canonical extension point.
+
+
 
 **Related REQ:** [REQ-VAULT-001](../../sdd/spec/vault.md#req-vault-001-persistent-vault-directory-survives-across-sessions) (AC7 lists the four preseed-authoritative pages including STYLES.md).
 
@@ -1047,9 +1066,13 @@ The daemon's SIGUSR1 trap is coalescing: signals received during a running bisyn
 - Storage-panel-after-terminal-write freshness widens to <=15min unless the user clicks Sync-now.
 - Tier-uniform: free, standard, advanced, max, and custom paid tiers all run on the same cadence.
 
-**Alternative considered:** inotify-driven local-flush with a 15-minute ceiling. Rejected: requires either watching the whole filesystem (Claude-projects flooding) or per-folder include lists (complexity that pure 15-min plus Sync-now avoids). The simplicity win outweighed the sub-minute convergence loss for active sessions.
+**Alternatives considered:**
 
-**Alternative considered:** Activity-gated 60s plus 15-min idle fallback. Rejected: same complexity floor as inotify without the upside; misses out-of-band writes (vault editor on host).
+Alternative 1 — inotify-driven local-flush with a 15-minute ceiling. Rejected: requires either watching the whole filesystem (Claude-projects flooding) or per-folder include lists (complexity that pure 15-min plus Sync-now avoids). The simplicity win outweighed the sub-minute convergence loss for active sessions.
+
+Alternative 2 — Activity-gated 60s plus 15-min idle fallback. Rejected: same complexity floor as inotify without the upside; misses out-of-band writes (vault editor on host).
+
+
 
 **Related REQ:** [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) (rewritten in this change), [REQ-STOR-015](../../sdd/spec/storage.md#req-stor-015-explicit-sync-trigger-from-ui) (manual trigger surface).
 
@@ -1153,11 +1176,16 @@ chunked-scratchpad introduces N+1 LLM round-trips per fire (one per chunk plus t
 - Vault notes are denser (5-10 KB typical vs 1-2 KB before). SilverBullet renders all of them fine; the unified graph picks up more concept nodes per capture, which improves cross-session retrieval recall.
 - Stale `Raw/Sessions/` files written by the old pipeline are not migrated. They remain as historical record; future captures use the new format.
 
-**Alternative considered:** Keep haiku and ratchet the prompt harder ("only cite IDs verbatim"). Rejected because haiku's confabulation is a model-level behaviour, not a prompt-comprehension issue; tightening the prompt reduces inventions on the margin but does not eliminate them, and the false-citation cost dominates the haiku cost saving.
+**Alternatives considered:**
 
-**Alternative considered:** Prefilter only (keep haiku). Rejected as a half-measure: prefilter fixes recency bias, but the citation-accuracy gap (haiku invents IDs; sonnet doesn't) remains uncovered.
+Alternative 1 — Keep haiku and ratchet the prompt harder ("only cite IDs verbatim"). Rejected because haiku's confabulation is a model-level behaviour, not a prompt-comprehension issue; tightening the prompt reduces inventions on the margin but does not eliminate them, and the false-citation cost dominates the haiku cost saving.
 
-**Alternative considered:** Capture model gated by env var (default haiku, advanced users override to sonnet). Rejected as unnecessary mechanism - capture quality is a system-wide property, and the cost difference at the actual capture cadence is negligible. Per-user opt-out can be added later if cost telemetry shows it matters.
+Alternative 2 — Prefilter only (keep haiku). Rejected as a half-measure: prefilter fixes recency bias, but the citation-accuracy gap (haiku invents IDs; sonnet doesn't) remains uncovered.
+
+Alternative 3 — Capture model gated by env var (default haiku, advanced users override to sonnet). Rejected as unnecessary mechanism - capture quality is a system-wide property, and the cost difference at the actual capture cadence is negligible. Per-user opt-out can be added later if cost telemetry shows it matters.
+
+
+
 
 **Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) (capture pipeline contract), [REQ-MEM-008](../../sdd/spec/memory.md#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline) (preseed manifest includes the new script).
 
@@ -1185,11 +1213,16 @@ chunked-scratchpad introduces N+1 LLM round-trips per fire (one per chunk plus t
 
 a future SB upstream change to the shell HTML template could break the `</head>` insertion point. The fail-safe is "return HTML unchanged" so a missed injection degrades to a passphrase prompt rather than a white screen.
 
-**Alternative considered:** Per-user passphrase derived via PBKDF2 from the codeflare password. Rejected - adds a "forgotten passphrase" recovery flow that requires the user to re-enter their vault password on every fresh device, defeating the always-on coupling to the codeflare session.
+**Alternatives considered:**
 
-**Alternative considered:** Build SilverBullet from source with native encryption support baked in. Rejected - Deno toolchain in the image adds ~400MB and locks codeflare to a fork rather than tracking SB upstream. Runtime injection through the already-text-rewriting Worker proxy is the lowest-overhead option.
+Alternative 1 — Per-user passphrase derived via PBKDF2 from the codeflare password. Rejected - adds a "forgotten passphrase" recovery flow that requires the user to re-enter their vault password on every fresh device, defeating the always-on coupling to the codeflare session.
 
-**Alternative considered:** Server-side encryption only (rclone bisync to R2 SSE-C, leave IDB plaintext). Rejected - R2 SSE-C already covers at-rest on R2; the gap is the browser cache, which is where the new requirement lives.
+Alternative 2 — Build SilverBullet from source with native encryption support baked in. Rejected - Deno toolchain in the image adds ~400MB and locks codeflare to a fork rather than tracking SB upstream. Runtime injection through the already-text-rewriting Worker proxy is the lowest-overhead option.
+
+Alternative 3 — Server-side encryption only (rclone bisync to R2 SSE-C, leave IDB plaintext). Rejected - R2 SSE-C already covers at-rest on R2; the gap is the browser cache, which is where the new requirement lives.
+
+
+
 
 **Related REQ:** [REQ-VAULT-008](../../sdd/spec/vault.md#req-vault-008-zero-ui-vault-encryption) (zero-UI vault encryption + cold-start payload + IDB lifecycle), [REQ-VAULT-005](../../sdd/spec/vault.md#req-vault-005-worker-proxy-exposes-the-in-container-vault-editor) (Worker proxy exposes vault editor).
 
@@ -1214,7 +1247,9 @@ a future SB upstream change to the shell HTML template could break the `</head>`
 
 That buffer was empty immediately after a Pi reload/resume, so the first capture-boundary prompt produced a hollow "no substantive content" note even though the full session JSONL was on disk; reading the persisted file fixed it, and a skip-empty guard now suppresses the capture rather than writing a placeholder note.
 - Later refinement ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), 2026-06-19): Pi treats the `.vars` carrier as the pending-capture lock and advances the prompt counter only after the capture note is written.
-- Capture retry impact ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages) AC5-AC6): a stopped capture leaves the old counter intact and retries after the stale pending marker clears instead of skipping the 15-prompt window; source: `preseed/agents/pi/extensions/memory-vault.ts::memoryVarsPending`, `preseed/agents/pi/extensions/memory-vault.ts::captureVars`, and `preseed/agents/pi/prompts/memory-agent-prompt.md::Advance the counter and clear the pending marker`.
+- Capture retry impact ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages) AC5-AC6): a stopped capture keeps the prior counter and retries after the stale pending marker clears.
+
+  Sources: `memory-vault.ts::memoryVarsPending`, `memory-vault.ts::captureVars`, and `memory-agent-prompt.md::Advance the counter and clear the pending marker`.
 
 **Alternative considered:** Keep the thin inline Pi contract and ratchet its prompt. Rejected for the same reason [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) rejected prompt-only tightening: recency bias is a function of feeding raw tool records to the model, not a prompt-comprehension gap, and a divergent contract drifts from the [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) source of truth over time.
 
@@ -1237,9 +1272,13 @@ That buffer was empty immediately after a Pi reload/resume, so the first capture
 - The Pi-native skill count rises to two (graphify + review); both are native overrides the generator excludes from the transformed-skill emit for Pi.
 - The review surface is split by responsibility on Pi: the native skill is the user-invoked path, `review-enforcement.ts` is the automatic PR-boundary path, and they do not duplicate each other's logic.
 
-**Alternative considered:** Transform the Claude `/review` command into a Pi instruction file. Rejected because commands are deliberately excluded from non-CC transforms, and a command is a different surface from a skill; folding command prose into the single Pi instructions file would bury an on-demand workflow in always-on context.
+**Alternatives considered:**
 
-**Alternative considered:** Rely solely on `git-review-pipeline` for both enforcement and user-invoked review on Pi. Rejected because the enforcement spine does not carry the phased user-review UX (scope flags, per-perspective passes, reality-filter), so Pi users would lose the `/review` experience entirely.
+Alternative 1 — Transform the Claude `/review` command into a Pi instruction file. Rejected because commands are deliberately excluded from non-CC transforms, and a command is a different surface from a skill; folding command prose into the single Pi instructions file would bury an on-demand workflow in always-on context.
+
+Alternative 2 — Rely solely on `git-review-pipeline` for both enforcement and user-invoked review on Pi. Rejected because the enforcement spine does not carry the phased user-review UX (scope flags, per-perspective passes, reality-filter), so Pi users would lose the `/review` experience entirely.
+
+
 
 **Related REQ:** [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review) (`/review` command for multi-perspective codebase review), [REQ-AGENT-044](../../sdd/spec/agents.md#req-agent-044-review-agent-discipline-enforcement) (review-agent discipline enforcement).
 
@@ -1261,9 +1300,13 @@ That buffer was empty immediately after a Pi reload/resume, so the first capture
 - The Claude and Pi capture paths reach the same outcome ([AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) fidelity) through runtime-appropriate mechanisms: frontmatter pin on Claude, env-var lever on Pi.
 - The lever is capture-scoped. It does not change the session's primary model and is read only by the memory/Vault-extract spawn path.
 
-**Alternative considered:** Hardcode the [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) model literal into the Pi extension. Rejected because it staleness-couples the fork to one vendor's naming and contradicts the no-hardcoded-model-name discipline; a model rename would silently break or mislabel the pin.
+**Alternatives considered:**
 
-**Alternative considered:** Reuse `SESSION_MODE` or another existing variable to imply the capture model. Rejected as overloading: `SESSION_MODE` already controls memory persistence and rclone filters, and conflating model fidelity with session mode would make both harder to reason about.
+Alternative 1 — Hardcode the [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) model literal into the Pi extension. Rejected because it staleness-couples the fork to one vendor's naming and contradicts the no-hardcoded-model-name discipline; a model rename would silently break or mislabel the pin.
+
+Alternative 2 — Reuse `SESSION_MODE` or another existing variable to imply the capture model. Rejected as overloading: `SESSION_MODE` already controls memory persistence and rclone filters, and conflating model fidelity with session mode would make both harder to reason about.
+
+
 
 **Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) (conversation context automatically captured to Vault), [REQ-AGENT-001](../../sdd/spec/agents.md#req-agent-001-support-multiple-ai-coding-agents) (support multiple AI coding agents).
 
@@ -1287,9 +1330,13 @@ Full semantic builds have Pi Agent subagents write Graphify-schema cache chunks/
 - Pi and Claude Graphify behavior converge around official Graphify flows; Pi-specific code exists only for runtime prompting, architecture-scope filtering/projection, cache production by session agents, active-repo fallback, and resource bounds.
 - The structural gate in `codeflare-pi.ts` remains fail-open: a missing or failed graph never blocks user work.
 
-**Alternative considered:** Keep the previous fail-closed/two-step Pi wrapper. Rejected because the custom post-processing duplicated upstream responsibilities and could reintroduce stale/duplicated graph structure after Graphify upgrades.
+**Alternatives considered:**
 
-**Alternative considered:** Run bare `graphify update` without a wrapper. Rejected because the 1-vCPU Codeflare container still needs bounded memory and worker defaults to avoid crashing the session.
+Alternative 1 — Keep the previous fail-closed/two-step Pi wrapper. Rejected because the custom post-processing duplicated upstream responsibilities and could reintroduce stale/duplicated graph structure after Graphify upgrades.
+
+Alternative 2 — Run bare `graphify update` without a wrapper. Rejected because the 1-vCPU Codeflare container still needs bounded memory and worker defaults to avoid crashing the session.
+
+
 
 **Related REQ:** [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify) (knowledge-graph capability via graphify), [REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch) (graphify build-mode dispatch).
 
@@ -1313,9 +1360,13 @@ A transient `gh pr view` failure once dropped the merge gate by mis-classifying 
 - `extensionsOverride` cannot substitute for this: it filters after factories have already run, so it cannot prevent the load-time global clobber.
 - graphify tools spawn bounded Python; lanes are steered (system prompt) to read-only `graphify_query/path/explain`.
 
-**Alternative considered:** Remove `noExtensions` and filter `review-enforcement` out with `extensionsOverride`. Rejected: factories run during load, so the clobber happens before the filter.
+**Alternatives considered:**
 
-**Alternative considered:** Self-guard `review-enforcement` to no-op when loaded in a lane. Rejected as the primary mechanism: it does not cover `@gotgenes/pi-subagents`' in-process coupling, and the additive allowlist is simpler and strictly scopes what a lane can load.
+Alternative 1 — Remove `noExtensions` and filter `review-enforcement` out with `extensionsOverride`. Rejected: factories run during load, so the clobber happens before the filter.
+
+Alternative 2 — Self-guard `review-enforcement` to no-op when loaded in a lane. Rejected as the primary mechanism: it does not cover `@gotgenes/pi-subagents`' in-process coupling, and the additive allowlist is simpler and strictly scopes what a lane can load.
+
+
 
 **Related REQ:** [REQ-AGENT-060](../../sdd/spec/agents.md#req-agent-060-pi-durable-review-lane-tool-surface) (durable review lane tool surface), [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) (PR-boundary lane classification and dispatch), [REQ-AGENT-054](../../sdd/spec/agents.md#req-agent-054-pi-durable-review-lane-failure-handling) (durable lane failure handling).
 
@@ -1355,9 +1406,13 @@ A transient `gh pr view` failure once dropped the merge gate by mis-classifying 
 - General limiters are unchanged and still degrade open, so a KV blip does not break read-heavy UX.
 - A future maintainer adding a limiter on an auth/mutation/unauthenticated endpoint must set `failClosed: true`; the default remains fail-open by design.
 
-**Alternative considered:** Make every limiter fail closed. Rejected because a transient KV outage would then 429 read paths and degrade UX for no security benefit on endpoints that are not abuse-sensitive.
+**Alternatives considered:**
 
-**Alternative considered:** Replace the per-isolate in-memory fallback with a Durable Object counter to keep a single global count during KV outages. Rejected as disproportionate: it adds a DO round-trip to the hot path of every limited request for a degraded-mode edge case the fail-closed flag already covers correctly.
+Alternative 1 — Make every limiter fail closed. Rejected because a transient KV outage would then 429 read paths and degrade UX for no security benefit on endpoints that are not abuse-sensitive.
+
+Alternative 2 — Replace the per-isolate in-memory fallback with a Durable Object counter to keep a single global count during KV outages. Rejected as disproportionate: it adds a DO round-trip to the hot path of every limited request for a degraded-mode edge case the fail-closed flag already covers correctly.
+
+
 
 **Related REQ:** [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) (rate-limiting infrastructure - KV primary with in-memory fallback, 429 with advisory headers).
 
@@ -1648,7 +1703,9 @@ Identity-driven budgets are additionally a closed beta. Net: keep `AIG_TOKEN` + 
 
 - Pi and Claude graphify queries share one engine — no divergent third-party reimplementation.
 - The Pi npm closure shrinks by `@gaodes/pi-graphify` (and the transitive `@gaodes/pi-utils-ui`); `bump-shadow-pins.yml` and `dependabot.yml` no longer track it.
-- Graph resolution is codified in source: the session/job cwd repo's `graphify-out/graph.json` wins, then the same-repo active sentinel graph, then the merged global graph (`~/.graphify/global-graph.json`); a graphless session fails soft with a "build a graph first" message.
+- Graph resolution prefers the current repository graph, then the same-repository active sentinel graph, then the merged global graph.
+
+  A graphless session fails softly with a "build a graph first" message.
 - Durable review lanes load `graphify-native.ts` via explicit `-e`, plus `review-lane-guards.ts` and settings-enabled context-mode, so reviewers keep graphify tools without loading `codeflare-pi.ts` or recursive review enforcement.
 - The `save-result` feedback loop is restored in both agents' graphify skills, which move to the `references/` progressive-disclosure layout.
 - Clone-time triage (detect graph, prompt build/update/skip) is unchanged in both agents — only the query-tool provider changed.
@@ -1676,7 +1733,9 @@ Load only explicit `-e` extensions: `graphify-native.ts`, `review-lane-guards.ts
 **Consequences:**
 
 - Lanes survive the spawning session and are reaped from disk. <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::reapDurableReviewLanes -->
-- The idle reaper advances durable jobs without a user turn, and completed windows start a background `review-monitor` that reports `REVIEW_RESULT` back to the main session. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview -->
+- The idle reaper advances durable jobs without a user turn.
+
+  Completed windows start a background review monitor that reports `REVIEW_RESULT` to the main session. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::autonomousReviewReaperTick --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::finalizeCompletedReview -->
 - Reviewers get a bounded inspection tool allowlist: bash for git/gh inspection, graphify tools, local-build blockers, and optional `ctx_search`.
 - Lanes do not load `codeflare-pi.ts`, `review-enforcement`, or `@gotgenes/pi-subagents`.
 
@@ -1761,7 +1820,7 @@ The host pre-warm (REQ-SESSION-015) treats first PTY output as its readiness sig
 
 **Decision:** Bake a warmed jiti cache into the image. A Dockerfile layer runs a throwaway `pi -p` at build with `TMPDIR` redirected, against an agent dir that mirrors the runtime layout (npm symlinked to the image preseed cache; package list **derived** from the preseed `package.json`, never duplicated), then moves the result to `/opt/codeflare/jiti-cache` and **fails the build if the cache is empty**.
 
-The entrypoint symlinks `/tmp/jiti` → the baked cache at boot (the same pattern as the npm preseed `node_modules` symlink). <!-- @impl: Dockerfile --> <!-- @impl: entrypoint.sh --> All coding agents — pi included — stay `@latest` (user policy: agents auto-update at every deploy); the bake remains self-consistent under `@latest` because the warm run executes with the exact pi installed in the same build, so the cache is always generated by the same pi/jiti that consumes it at runtime. (One residual cold path: a Fast-Start-disabled session runs `pi update` at start, and a pi that updates past the image version may miss the baked cache — it then transpiles cold once, which is the pre-existing Fast-Start-disabled cost profile.)
+The entrypoint symlinks `/tmp/jiti` → the baked cache at boot (the same pattern as the npm preseed `node_modules` symlink). <!-- @impl: Dockerfile::PI_CODING_AGENT_DIR --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> All coding agents — pi included — stay `@latest` (user policy: agents auto-update at every deploy); the bake remains self-consistent under `@latest` because the warm run executes with the exact pi installed in the same build, so the cache is always generated by the same pi/jiti that consumes it at runtime. (One residual cold path: a Fast-Start-disabled session runs `pi update` at start, and a pi that updates past the image version may miss the baked cache — it then transpiles cold once, which is the pre-existing Fast-Start-disabled cost profile.)
 
 **Rationale:** The bake works only when the warm run transpiles each extension at the **exact path Pi loads it from at runtime** — jiti's cache key is path-sensitive (`hash(abspath + source + jiti version)`), not content-addressed, so an entry hits only when both the path and the bytes match. (The original 2026-06-10 rationale assumed a content-only key; that was corrected 2026-06-28 under REQ-STOR-017 — see Update below.
 
@@ -1769,7 +1828,7 @@ The live "153/153 cache hits" validation at the time covered the npm packages, w
 
 **Update (2026-06-28, REQ-STOR-017):** Empirical testing proved jiti's key is path-sensitive — identical bytes at two paths produce two cache entries that never hit each other — so the original warm bake at a throwaway `TMPDIR` path never hit for the extension `.ts` files, and every advanced session cold-transpiled them (~2.4s).
 
-Three changes close this: the warm bake now runs at the real runtime paths (`PI_CODING_AGENT_DIR=/home/user/.pi/agent`, `HOME=/home/user`); `entrypoint.sh::relay_managed_pi_extensions` re-lays the image-baked managed extension bytes after each R2 restore so the content half also matches in **all** deployment modes (not just Governed); and the empty-cache guard was hardened to a per-extension fail-closed assertion — every extension must produce a baked `extensions-<base>.<hash>.mjs` entry or the build fails. <!-- @impl: Dockerfile --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
+Three changes close this: the warm bake now runs at the real runtime paths (`PI_CODING_AGENT_DIR=/home/user/.pi/agent`, `HOME=/home/user`); `entrypoint.sh::relay_managed_pi_extensions` re-lays the image-baked managed extension bytes after each R2 restore so the content half also matches in **all** deployment modes (not just Governed); and the empty-cache guard was hardened to a per-extension fail-closed assertion — every extension must produce a baked `extensions-<base>.<hash>.mjs` entry or the build fails. <!-- @impl: Dockerfile::PI_CODING_AGENT_DIR --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
 
 **Alternatives considered:**
 
@@ -1873,7 +1932,9 @@ Short-lived GitHub App tokens cap the exfiltration value there.
 
 **Context:** A request asked to key the SilverBullet (SB) vault IndexedDB to the user's R2 bucket ID instead of the session ID so the SB store would persist across sessions, and proposed achieving this by making the encryption key bucket-stable. Reading the vendored SB worker disproves the premise. SB derives its IndexedDB name as `sb_<type>_<SHA-256(`${spaceFolderPath}:${Ie}:${keyDigest}`)>`, built by `Xe(type, spaceFolderPath, Ie, key)` in `src/routes/vault-native-sw.ts` (verbatim SilverBullet code; call site `let i=t.spaceFolderPath,n=await Xe("files",i,Ie,y)`).
 
-Of the three inputs: `spaceFolderPath` is the constant `/home/user/Vault`; `keyDigest` is a digest of the per-session encryption key; and `Ie` is the service-worker/page **directory URL** — `Ie = location.href.substring(0, location.href.length - kt.length - 1)`. The vault editor and its worker are served at `/api/vault/<sid>/` and `/api/vault/<sid>/service_worker.js` (e.g. `web-ui/src/lib/vault-prewarm.ts`, `vault-local-readiness.ts`), so `Ie = https://<domain>/api/vault/<sid>` and **carries the per-session session id**. Each new session has a new `sid` → a new `Ie` → a different SHA-256 → a different DB id, regardless of the key. Therefore a bucket-stable key alone would NOT persist the SB IndexedDB across sessions; the DB id is dominated by the per-session vault URL, not the key.
+Of the three inputs: `spaceFolderPath` is the constant `/home/user/Vault`; `keyDigest` is a digest of the per-session encryption key; and `Ie` is the service-worker/page **directory URL** — `Ie = location.href.substring(0, location.href.length - kt.length - 1)`. The vault editor and its worker are served at `/api/vault/<sid>/` and `/api/vault/<sid>/service_worker.js` (e.g. `web-ui/src/lib/vault-prewarm.ts`, `vault-local-readiness.ts`), so `Ie = https://<domain>/api/vault/<sid>` and **carries the per-session session id**. Each new session has a new `sid` → a new `Ie` → a different SHA-256 → a different DB id, regardless of the key.
+
+Therefore a bucket-stable key alone would NOT persist the SB IndexedDB across sessions; the DB id is dominated by the per-session vault URL, not the key.
 
 Making the key bucket-stable would only weaken the forward-secrecy property of [AD59](#ad59-zero-ui-vault-encryption-with-per-session-do-storage-key) for no persistence gain, so it must not be done in isolation.
 
@@ -2064,7 +2125,9 @@ AD87 kept the narrowly-scoped "Browser Rendering - Edit" token in the container,
 - The real R2 key is removed from the container's blast radius:
 
 a prompt-injected read now yields only a non-secret placeholder; R2 access is gated by the worker-held key the agent cannot reach. This is the actual containment the egress boundary needs for R2.
-- The redundant per-request `KV.get` is gone; a per-op diagnostic log (`{h, sc, tx, rs, fMs}`) is shipped to attribute the ~196ms/op R2 wall time on deploy and choose the speed lever from data (it is a temporary diagnostic, removed once measured).
+- The redundant per-request `KV.get` is removed.
+
+  A temporary per-operation diagnostic (`{h, sc, tx, rs, fMs}`) attributes the measured R2 wall time so deployment data can identify the next speed improvement.
 - The placeholder trips entrypoint.sh's non-fatal "R2_ACCESS_KEY_ID contains unexpected characters (expected hex)" warning in strict mode (the placeholder is not hex); this is expected and harmless (rclone signs with the placeholder; the controller re-signs) — documented in the troubleshooting lane.
 
 **Related:** [AD86](#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network) (refined by this), [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off), [AD81](#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) (placeholder-credential containment precedent for GitHub), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token), [Security — Strict Gateway Egress](../lanes/security.md#strict-gateway-egress-enterprise-mode), [Architecture — Strict Gateway Egress](../lanes/architecture.md#strict-gateway-egress), [Configuration — Container env vars](../lanes/configuration.md), [Troubleshooting — Strict Gateway Egress](../lanes/troubleshooting.md).
@@ -2278,6 +2341,58 @@ The manifest is baselined from current content **only when absent** (the first s
 **Related:** [REQ-VAULT-026](../../sdd/spec/vault.md#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-VAULT-003](../../sdd/spec/vault.md#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s), [REQ-VAULT-001](../../sdd/spec/vault.md#req-vault-001-persistent-vault-directory-survives-across-sessions), [AD88](#ad88-bisync-compares-via-server-modtime-from-fast-list-not-per-object-mtime-heads), [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad).
 
 ---
+
+### AD95: Browser IDE is session-isolated (the deliberate opposite of the bucket-stable Vault)
+
+**Category:** Architecture, Security
+
+**Status:** Accepted (2026-07-11).
+
+**Context:** The Vault editor (SilverBullet) is deliberately **bucket-stable** ([REQ-VAULT-021](../../sdd/spec/vault.md)): it is served under `/api/vault/<bucketToken>/` (a per-R2-bucket token; the session id rides in the `cf_vault_sid` cookie, never the URL) so `location.href`, the service-worker scope, and IndexedDB store names stay identical across all of a user's sessions — one persistent notes store, no re-index every session. The new browser IDE (OpenVSCode Server, [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy)) reuses the same Worker → Container → host proxy chain, so the obvious move is to copy the vault pattern wholesale. That would be wrong: each session has a *different* `~/workspace` (different repos, branches, working state), so a bucket-stable IDE URL is ambiguous ("which session's workspace?") and would bleed one session's editor state into another.
+
+**Decision:** The IDE is **session-isolated** — the exact opposite of the vault. The sessionId is the sole container selector and appears at every layer: the route parser (`validateVscodeRoute`, session-keyed only, no bucket-token branch), the container routing (`getContainerId(bucket, sessionId)`), OpenVSCode's `--server-base-path=/api/vscode/<sessionId>` (so it builds its own asset + service-worker URLs under the per-session path), an ephemeral per-container `--server-data-dir` under `/tmp` (never R2-synced), and the header open-URL. Because `--server-base-path` makes OpenVSCode base-path native, the Worker and host forward the path **unchanged** — no `/vault`-style strip, no HTML base-href / service-worker graft (the entire `vault-html.ts` machinery is unnecessary). The auth boundary is identical to the vault: Cloudflare Access + effective-tier + session-ownership at the Worker, the container-auth Bearer injected by the container DO fetch wrapper, and a localhost-only bind with `--without-connection-token`.
+
+**Rejected — reuse the vault's bucket-stable serving ([REQ-VAULT-021](../../sdd/spec/vault.md)) for the IDE:** that layer exists to *share* one store across sessions; applied to the IDE it collapses every session's editor onto one bucket-scoped service worker + storage, so switching sessions would show the wrong workspace and leak state. Session isolation is a hard requirement, not a preference.
+
+**Rejected — run OpenVSCode at root (`--server-base-path=/`) and strip the prefix like the vault:** OpenVSCode would then build asset / service-worker URLs at `/`, which resolve against the Worker root (no handler → white screen), forcing the same HTML base-href graft the vault carries. The `--server-base-path` flag (confirmed in `microsoft/vscode`'s `serverEnvironmentService.ts`) removes the entire class of problem, so the IDE is *simpler* than the vault, not a copy of it.
+
+**Consequences:** Two sessions yield two fully isolated editors (distinct base path, service-worker scope, server-data-dir, and container); a session the user does not own is unreachable (the ownership guard 404s). The IDE lazy-starts — a supervisor gated on the init flag, a first-request trigger, and a resolved `SESSION_ID` — so sessions that never open it pay nothing, and it is advanced-mode only. Workspace edits persist via the *existing* final-sync R2 bisync (no new drain path); editor/extension state under `/tmp` is intentionally ephemeral. A future maintainer must not "unify" the two editors: keep the vault bucket-stable and the IDE session-keyed.
+
+**Related:** [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability), [REQ-VAULT-021](../../sdd/spec/vault.md), [REQ-SEC-008](../../sdd/spec/security.md).
+
+---
+
+### AD96: Deactivate codex/copilot V8 warm-up and OpenCode DB pre-init (image size)
+
+**Category:** Build / Container
+
+**Status:** Accepted (2026-07-11).
+
+**Context:** [container.md](../lanes/container.md#v8-compile-cache-warm-up) documented that `codex` and `copilot` are warmed at Docker build time via `--version`, and that `opencode run "hello"` pre-runs OpenCode's one-time Goose DB migration at build time. The OpenCode warm-up alone baked ~147MB of `opencode` data into the image.
+
+**Decision:** Both warm-ups are commented out (not deleted) in the Dockerfile. `codex` and `copilot` skip the V8 compile-cache bake; OpenCode skips the build-time DB migration. Each CLI now pays its own first-launch cost instead of paying it at build time for every image. Claude Code (its own `--version` verify) and Pi (V8 `--version` + the jiti extension warm, [AD79](#ad79-image-baked-pi-extension-transpile-cache)) keep their prewarm.
+
+**Consequences:** Smaller image (~147MB saved from the OpenCode change alone); first launch of `codex`, `copilot`, and `opencode` inside a fresh container is slower (pays JS compile / DB migration cost once per container instead of never, at build time). Re-enabling either is a Dockerfile uncomment (see inline comments next to `RUN pi --version` and the `opencode run "hello"` block).
+
+**Related:** [container.md § V8 Compile Cache Warm-Up](../lanes/container.md#v8-compile-cache-warm-up), [container.md § OpenCode Database Pre-Initialization](../lanes/container.md#opencode-database-pre-initialization).
+
+---
+
+### AD97: Keep OpenVSCode upstream-clean and accept known vulnerability risk
+
+**Category:** Security, Build / Container
+
+**Status:** Accepted (2026-07-11).
+
+**Context:** The pinned OpenVSCode release installed by the [Dockerfile](../../Dockerfile) includes upstream packages and bundled extensions reported with known HIGH/CRITICAL vulnerabilities, including command-injection and remote-code-execution classes. Repositories opened in the editor are untrusted input, and a successful exploit could access that session's workspace and credentials. Codeflare's container isolation, inspection, and platform guardrails reduce blast radius and improve detection; they do not eliminate this risk. The accepted findings remain explicit in [`.trivyignore`](../../.trivyignore) and are governed by [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy), and the [security reference](../lanes/security.md#openvscode-upstream-vulnerability-acceptance). <!-- @impl: Dockerfile::OPENVSCODE_VERSION = "1.109.5" -->
+
+**Decision:** Ship the pinned OpenVSCode artifact unchanged. Clean upstream version bumps take precedence over local vendored-package rewrites, extension removal, or a Codeflare-maintained fork because a locally modified artifact would obscure provenance, complicate verification, and make each upstream security update harder to adopt. This is an explicit acceptance of the known vulnerability and RCE risk, not a claim that session isolation makes the artifact safe.
+
+**Alternatives considered:** Disable the Browser IDE until upstream clears every finding; patch or fork OpenVSCode and its bundled packages locally; remove vulnerable bundled extensions; or publish a separately patched artifact. Each can reduce current exposure, but each either removes the approved product surface or creates a local artifact lifecycle that competes with prompt upstream upgrades.
+
+**Consequences:** Operators accept the documented editor risk while retaining reproducible, upstream-clean upgrades. Enterprise mitigations are per-session Codeflare container isolation plus enterprise inspection and guardrails; they constrain and observe the workload but cannot guarantee containment of an editor exploit. Every OpenVSCode upstream bump must re-review this decision, the scanner exceptions, and available fixed releases. Review is also required immediately when credible evidence shows critical exploitation in the wild or a materially more severe reachable exploit path. Acceptance expires at either trigger until the review records whether to upgrade, disable, or renew the decision.
+
+**Related:** [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy), [Browser IDE security](../lanes/security.md#openvscode-upstream-vulnerability-acceptance).
 
 ---
 

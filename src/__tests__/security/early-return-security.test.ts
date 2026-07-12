@@ -22,6 +22,10 @@ const vaultRouteState = vi.hoisted(() => ({
   validate: undefined as unknown,
   request: undefined as unknown,
 }));
+const vscodeRouteState = vi.hoisted(() => ({
+  validate: undefined as unknown,
+  request: undefined as unknown,
+}));
 
 vi.mock('../../routes/terminal', () => ({
   default: new Hono(),
@@ -37,13 +41,18 @@ vi.mock('../../routes/vault', () => ({
   handleVaultRequest: (...args: unknown[]) =>
     (vaultRouteState.request as (...a: unknown[]) => unknown)?.(...args),
 }));
+vi.mock('../../routes/vscode', () => ({
+  validateVscodeRoute: (req: Request) =>
+    (vscodeRouteState.validate as (r: Request) => unknown)?.(req) ?? { isVscodeRoute: false },
+  handleVscodeRequest: (...args: unknown[]) =>
+    (vscodeRouteState.request as (...a: unknown[]) => unknown)?.(...args),
+}));
 vi.mock('../../routes/user-profile', () => ({ default: new Hono() }));
 vi.mock('../../routes/container/index', () => ({ default: new Hono() }));
 vi.mock('../../routes/session/index', () => ({ default: new Hono() }));
 vi.mock('../../routes/setup/index', () => ({ default: new Hono() }));
 vi.mock('../../routes/users', () => ({ default: new Hono() }));
 vi.mock('../../routes/storage', () => ({ default: new Hono() }));
-vi.mock('../../routes/presets', () => ({ default: new Hono() }));
 vi.mock('../../routes/preferences', () => ({ default: new Hono() }));
 vi.mock('../../routes/public/index', () => ({ default: new Hono() }));
 // Stripe webhook route: a minimal handler so we can exercise the bodyLimit
@@ -79,6 +88,8 @@ function createBaseEnv() {
 describe('CF-001: security headers on pre-Hono early-return responses', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vscodeRouteState.validate = undefined;
+    vscodeRouteState.request = undefined;
     wsRouteState.validate = undefined;
     wsRouteState.upgrade = undefined;
     vaultRouteState.validate = undefined;
@@ -103,6 +114,25 @@ describe('CF-001: security headers on pre-Hono early-return responses', () => {
     // blocks. A narrow frame-ancestors policy still prevents cross-site framing
     // while allowing the dashboard's same-origin hidden prewarm iframe.
     expect(res.headers.get('Content-Security-Policy')).toBe("frame-ancestors 'self'");
+  });
+
+  // REQ-IDE-001 AC4: the browser-IDE proxy response carries the same
+  // embeddable-frame headers as the vault (SAMEORIGIN + frame-ancestors,
+  // never default-src 'none') so OpenVSCode runs in the dashboard's
+  // same-origin surface; the 101 upgrade no-op is covered by the shared
+  // withSecurityHeaders test above.
+  it('REQ-IDE-001 AC4: a vscode proxy response carries SAMEORIGIN + frame-ancestors CSP', async () => {
+    vscodeRouteState.validate = () => ({ isVscodeRoute: true, sessionId: 'abcd1234', remainingPath: '/stable/out/main.js' });
+    vscodeRouteState.request = () =>
+      new Response('ide', { status: 200, headers: { 'Content-Type': 'text/javascript' } });
+
+    const { env, ctx } = createBaseEnv();
+    const res = await worker.fetch(new Request('https://example.com/api/vscode/abcd1234/stable/out/main.js'), env, ctx);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Frame-Options')).toBe('SAMEORIGIN');
+    expect(res.headers.get('Content-Security-Policy')).toBe("frame-ancestors 'self'");
+    expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
   });
 
   // CF-001: vault validation errorResponse carries the headers
@@ -172,6 +202,8 @@ describe('CF-001: security headers on pre-Hono early-return responses', () => {
 describe('CF-003: CORS allow-headers include X-Vault-Csrf', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vscodeRouteState.validate = undefined;
+    vscodeRouteState.request = undefined;
     vaultRouteState.validate = undefined;
     vaultRouteState.request = undefined;
     wsRouteState.validate = undefined;
@@ -201,6 +233,8 @@ describe('CF-003: CORS allow-headers include X-Vault-Csrf', () => {
 describe('CF-004: stripe webhook is body-limited', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vscodeRouteState.validate = undefined;
+    vscodeRouteState.request = undefined;
     vaultRouteState.validate = undefined;
     vaultRouteState.request = undefined;
     wsRouteState.validate = undefined;

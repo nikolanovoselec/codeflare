@@ -17,7 +17,7 @@ import FeatureGrid from '../components/FeatureGrid.astro';
 import MicroCta from '../components/MicroCta.astro';
 import Header from '../components/Header.astro';
 import { dom } from './_helpers/dom';
-import { HERO, NAV_LINKS, LOGIN, type TranscriptLine } from '../content/site';
+import { HERO, NAV_LINKS, LOGIN, HEADER_SIGN_IN, type TranscriptLine } from '../content/site';
 import { APP_LINKS } from '../config';
 
 let container: AstroContainer;
@@ -302,5 +302,19 @@ describe('Header (one nav, two variants)', () => {
     expect(nav.querySelector('.login-back')?.getAttribute('href')).toBe(LOGIN.back.href);
     expect(nav.querySelector('.login-back-arrow')).not.toBeNull();
     expect(nav.querySelector('.nav-links')).toBeNull();
+  });
+});
+
+describe('header sign-in CTA (REQ-LANDING-006)', () => {
+  it('renders one Enter-the-Matrix sign-in CTA: content-model label, aria-label, unchanged href, matrix modifier + hover-scramble hooks', async () => {
+    const nav = dom(await container.renderToString(Header, { props: { variant: 'landing' } })).querySelector('.site-nav')!;
+    const signins = nav.querySelectorAll('.nav-signin');
+    expect(signins).toHaveLength(1);
+    const cta = signins[0];
+    expect(cta.textContent?.trim()).toBe(HEADER_SIGN_IN.label);
+    expect(cta.getAttribute('aria-label')).toBe(HEADER_SIGN_IN.a11y);
+    expect(cta.getAttribute('href')).toBe(APP_LINKS.signIn);
+    expect(cta.classList.contains('nav-signin--matrix')).toBe(true);
+    expect(cta.hasAttribute('data-scramble-hover')).toBe(true);
   });
 });

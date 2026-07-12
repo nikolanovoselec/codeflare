@@ -151,7 +151,7 @@ svg {
 
 .section-head {
   max-width: 44rem;
-  margin-bottom: clamp(1.75rem, 3vw, 2.5rem);
+  margin-bottom: var(--gap-copy-terminal);
 }
 
 /* Section / sub-section marker, in the page's own terminal language: a path tag
@@ -353,6 +353,11 @@ svg {
   border-radius: 3px;
   background: var(--flare-gradient);
   box-shadow: 0 0 14px rgb(var(--accent-rgb) / 0.55);
+  /* Optical alignment: "codeflare" is all-lowercase, so its visual mass (the
+     x-height letters) sits below the cap height the flex box centres the mark on,
+     making the wordmark read low against the mark. Nudge the mark down onto the
+     lowercase optical centre (between the cap-height and x-height centres). */
+  transform: translateY(0.8px);
 }
 
 .nav-links {
@@ -381,8 +386,29 @@ svg {
 
 /* "Sign in" goes to the SPA /login provider chooser (GitHub / Google / OIDC /
    one-time-pin), which starts the OAuth flow. NOT /app/ (that bounces an
-   unauthenticated visitor back to the landing). Kept lighter than the primary
-   CTA so "Book a demo" stays the lead action. Visible at every width. */
+   unauthenticated visitor back to the landing). A light nav affordance, distinct
+   from the page's primary "Get in touch" CTA. Visible at every width. */
+
+/* The sign-in CTA reads "Enter The Matrix" in the primary white (--text-primary,
+   matching body text and the Inference Mesh heading) and decodes on hover/focus
+   (scramble.ts [data-scramble-hover]). aria-label keeps it "Sign in". Solid white,
+   not the flare gradient, so the churning word spans render white instead of the
+   gradient-clip transparent. */
+.nav-signin--matrix {
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.nav-signin--matrix:hover,
+.nav-signin--matrix:focus-visible {
+  color: var(--text-primary);
+}
+
+.nav-signin--matrix .scramble-word {
+  background: none;
+  -webkit-text-fill-color: var(--text-primary);
+  color: var(--text-primary);
+}
 
 @media (min-width: 900px) {
   .nav-links {
@@ -436,9 +462,13 @@ svg {
   color: transparent;
 }
 
-/* Scramble word spans (JS-created): fixed-width boxes so the churning glyphs
-   never reflow the headline. Each carries its own gradient clip because the
-   parent's clip does not paint through child boxes. */
+/* Idle-scramble layout: a .scramble-box reserves the resting-width box via an invisible
+   .scramble-ghost copy of the word, and the churning .scramble-word paints on an absolute
+   overlay on top (see .scramble-box rules below) -- content-sized, so a churn glyph wider
+   than the resting letters paints past the box without clipping and without growing it, so
+   the phrase never reflows. The hover CTA reuses .scramble-word as a plain inline-block (no
+   box), so that scoping leaves it untouched. Each .scramble-word carries its own gradient
+   clip because a parent's clip does not paint through child boxes; nowrap keeps a word intact. */
 .scramble-word {
   display: inline-block;
   white-space: nowrap;
@@ -448,6 +478,23 @@ svg {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+
+.scramble-box {
+  position: relative;
+  display: inline-block;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+
+.scramble-ghost {
+  visibility: hidden;
+}
+
+.scramble-box .scramble-word {
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 
 /* The plain "what it is" answer directly under the headline: the terminal command
@@ -460,13 +507,6 @@ svg {
   max-width: 48ch;
   margin-top: 1.4rem;
   line-height: 1.5;
-}
-
-.hero-cta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.85rem;
-  margin-top: 2rem;
 }
 
 .hero-terminal {
@@ -506,6 +546,139 @@ svg {
   text-transform: uppercase;
   letter-spacing: 0.14em;
   color: var(--text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   Inference Mesh family hero: a second hero mirroring the primary one, directly
+   under it. Reuses .section / .section--alt rhythm + tint and existing tokens.
+   -------------------------------------------------------------------------- */
+.mesh-hero-grid {
+  display: grid;
+  /* Row-gap is the shared copy->terminal rhythm (mobile stack); column-gap is the
+     wider hero gutter on desktop. Matches .split-band so every copy+terminal pair
+     spaces identically. */
+  gap: var(--gap-copy-terminal) clamp(2rem, 5vw, 4.5rem);
+  align-items: center;
+}
+
+.mesh-hero-copy {
+  max-width: 34rem;
+}
+
+/* The headline is the plain product name "Inference Mesh" in the default white heading
+   colour (no coral flare, no scramble). It is an <h2>, so the band's .section h2 {
+   font-size: var(--fs-h2) } sizes it one tier below the primary hero's --fs-display. */
+.mesh-hero .mesh-hero-headline {
+  max-width: 18ch;
+  letter-spacing: -0.03em;
+}
+
+.mesh-hero-def {
+  font-size: var(--fs-lead);
+  color: var(--text-secondary);
+  max-width: 54ch;
+  margin-top: 1.35rem;
+  line-height: 1.55;
+}
+
+.mesh-hero-visual {
+  min-width: 0;
+}
+
+.mesh-terminal {
+  width: 100%;
+}
+
+/* Mirror the primary hero at its own 820px breakpoint: proof left, copy right.
+   DOM order stays copy-first (mobile + AT); the grid swaps the columns here. */
+@media (min-width: 820px) {
+  .mesh-hero-grid {
+    grid-template-columns: minmax(0, 1.02fr) minmax(0, 1fr);
+  }
+
+  .mesh-hero-visual {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  /* Copy sits in the right column and is flush-right, mirroring the left terminal:
+     the block and its max-width'd children hug the right edge, and text + CTA align
+     right. Mobile keeps the default left alignment for readability. */
+  .mesh-hero-copy {
+    grid-column: 2;
+    grid-row: 1;
+    margin-left: auto;
+    text-align: right;
+  }
+
+  .mesh-hero-copy .mesh-hero-headline,
+  .mesh-hero-copy .mesh-hero-def {
+    margin-left: auto;
+  }
+}
+
+/* Split band: a copy column beside a proof terminal, so a narrow-content terminal
+   fills its half instead of stretching full-width with a dead right gutter. Single
+   column on mobile (copy above the terminal); side by side from 820px. Stacked bands
+   are separated by their own vertical gap. */
+/* Desktop (>=820px): a copy column beside its proof terminal so a narrow terminal fills
+   its half instead of a dead right gutter (column-gap is the gutter; the row-gap value is
+   inert with a single row). Below 820px the band collapses to one column and switches to
+   PLAIN BLOCK FLOW (the max-width rule further down) so the copy block's own margin-bottom
+   is the copy->terminal gap and margin-collapses with the terminal margin, exactly like
+   every full-width section. A grid item can't margin-collapse, so keeping the grid on
+   mobile stacked the terminal's top margin on top of the row-gap and doubled the gap
+   (28px -> 48px). */
+.split-band {
+  display: grid;
+  gap: var(--gap-copy-terminal) clamp(1.5rem, 4vw, 2.75rem);
+  align-items: center;
+}
+.split-band > .section-head {
+  margin-bottom: 0;
+}
+.split-band + .split-band {
+  margin-top: clamp(1.75rem, 4vw, 2.75rem);
+}
+@media (min-width: 820px) {
+  .split-band {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  }
+}
+
+/* A substation sub-head that heads its own split band (context/automation under
+   context) must not also carry the full .substation top gap: the tight
+   .split-band + .split-band gap already spaces the bands, so the extra base
+   margin read as a section break between a category and its subcategory. Zero it
+   here so ~/context -> ~/context/automation sits as close as every other
+   category -> subcategory pair. */
+.split-band > .substation {
+  margin-top: 0;
+}
+
+/* Below the 820px side-by-side breakpoint, the split bands and the mesh hero collapse to
+   one column. Drop the grid there and let them lay out as plain block flow, identical to
+   every full-width section: the copy block's own margin-bottom (the shared
+   --gap-copy-terminal) is the copy->terminal gap and margin-collapses with the terminal's
+   top margin. This is the fix for the doubled mobile/tablet gap — a grid item can't
+   margin-collapse, so on the grid the terminal's 20px margin stacked on the 28px row-gap
+   (=48px); block flow collapses them back to 28px, matching a plain section exactly.
+   Scoped to max-width so desktop (>=820px, the grid side-by-side) is untouched. */
+@media (max-width: 819.98px) {
+  .split-band,
+  .mesh-hero-grid {
+    display: block;
+  }
+  .split-band > .section-head,
+  .mesh-hero-copy {
+    margin-bottom: var(--gap-copy-terminal);
+  }
+}
+
+/* The operations section pairs a governed-run gate terminal with capability cards; the
+   cards need a clear gap from the terminal above (a bare .feature-grid carries none). */
+#operations .feature-grid {
+  margin-top: clamp(2.5rem, 5vw, 3.5rem);
 }
 
 /* --------------------------------------------------------------------------
@@ -778,6 +951,308 @@ svg {
 @media (min-width: 760px) {
   .feature-terminals {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Browser IDE band (REQ-LANDING-007): the full VS Code workbench a traditional
+   developer already knows — activity rail, explorer file tree, editor tab, a
+   line-numbered code pane, an integrated terminal, and a status bar — built on
+   the shared .terminal chrome. The three-column workbench fills the width on
+   desktop; the rail and explorer fold away on narrow viewports, leaving the
+   editor + terminal full width. Recognition comes from shape; the palette stays
+   the page's one locked coral accent, never VS Code blue.
+   -------------------------------------------------------------------------- */
+.code-editor {
+  box-shadow: 0 18px 40px -28px rgb(0 0 0 / 0.6);
+}
+
+/* The .terminal-bar reads as the editor tab row. */
+.ce-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-ui);
+}
+
+/* Active tab: brighter text + a 2px top accent line (VS Code's active-tab tell;
+   a top rule, not a banned side-stripe). */
+.ce-tab.is-active {
+  color: var(--text-primary);
+  padding: 0.32rem 0.15rem 0.15rem;
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.ce-tab.is-dim {
+  color: var(--text-dimmed);
+}
+
+.ce-dot {
+  color: var(--accent);
+  font-size: 0.7em;
+}
+
+.ce-folder {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-micro);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Workbench: mobile-first single column (editor only). The activity rail appears
+   at 600px and the explorer at 860px, so the desktop band is a filled
+   three-column editor with no dead horizontal space. Columns stretch to equal
+   height, so every panel background/hairline runs the full frame. */
+.ce-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Activity rail — the vertical icon strip. Hidden until there is room. */
+.ce-rail {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.5rem 0;
+  border-right: 1px solid var(--border-subtle);
+  background: rgb(var(--white-rgb) / 0.012);
+}
+
+.ce-rail-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 0.5rem 0;
+  color: var(--text-dimmed);
+}
+
+/* Active rail item: color-only (VS Code's active-tool tell) — the icon lifts to
+   the brightest ink over a faint coral wash, no side-stripe. */
+.ce-rail-btn.is-active {
+  color: var(--text-primary);
+  background: rgb(var(--accent-rgb) / 0.08);
+}
+
+.ce-rail-scm {
+  position: relative;
+}
+
+.ce-rail-badge {
+  position: absolute;
+  top: 0.28rem;
+  right: 0.32rem;
+  min-width: 0.95rem;
+  height: 0.95rem;
+  padding: 0 0.2rem;
+  border-radius: 0.5rem;
+  background: var(--accent);
+  color: var(--bg-base);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 600;
+  line-height: 0.95rem;
+  text-align: center;
+}
+
+/* Explorer — the file tree. Hidden below desktop. */
+.ce-explorer {
+  display: none;
+  padding: 0.6rem 0 0.4rem;
+  border-right: 1px solid var(--border-subtle);
+  background: rgb(var(--white-rgb) / 0.008);
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-ui);
+  overflow: hidden;
+}
+
+.ce-explorer-head {
+  display: block;
+  padding: 0 0.9rem 0.5rem;
+  font-size: var(--fs-mono-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.ce-tree {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* One tree row. Depth indent (root at 0); the twist column keeps files aligned
+   under their folders. Folders read secondary, files muted, active file brighter. */
+.ce-node {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.16rem 0.6rem 0.16rem calc(0.6rem + var(--ce-depth) * 0.85rem);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.ce-node.is-root {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ce-node.is-file {
+  color: var(--text-muted);
+}
+
+/* Active file row: a calm coral-tinted background + brighter text (VS Code's
+   selected-row tell), not a side-stripe. */
+.ce-node.is-active {
+  background: rgb(var(--accent-rgb) / 0.1);
+  color: var(--text-primary);
+}
+
+.ce-twist {
+  flex: none;
+  width: 0.8ch;
+  color: var(--text-dimmed);
+}
+
+.ce-node-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ce-node .ce-dot {
+  margin-left: auto;
+}
+
+/* Editor main — code pane over the integrated terminal, filling the remaining
+   width. The code pane grows; the terminal is pinned to the bottom like VS Code's
+   panel, so the column never leaves a dead gap. */
+.ce-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Code pane: line-numbered source. The gutter uses a CSS counter (no numbers
+   hardcoded) and is the recognizable editor tell. Calm, static, single tone. */
+.ce-code {
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 1.1rem 1.25rem 0.9rem;
+  list-style: none;
+  counter-reset: ce-ln;
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono);
+  line-height: 1.85;
+  color: var(--text-secondary);
+  overflow-x: auto;
+}
+
+.ce-codeline {
+  counter-increment: ce-ln;
+  white-space: pre;
+}
+
+.ce-codeline::before {
+  content: counter(ce-ln);
+  display: inline-block;
+  width: 2.5ch;
+  margin-right: 1.5ch;
+  text-align: right;
+  color: var(--text-dimmed);
+}
+
+/* Integrated terminal: a panel label + a couple of calm resting output lines and
+   the live reel command. It reuses .terminal-body + .t-cmd + .ft-typed +
+   .t-caret, so the ❯ prompt, command colour, and caret match the page's other
+   terminals and feature-terminals.ts drives the loop. Pinned to the bottom. */
+.ce-term {
+  margin-top: auto;
+  border-top: 1px solid var(--border-subtle);
+  background: rgb(var(--white-rgb) / 0.012);
+}
+
+.ce-term-tab {
+  display: inline-block;
+  padding: 0.55rem 1.25rem 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-micro);
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.ce-term-body {
+  padding-top: 0.4rem;
+}
+
+/* Editor status bar (the .terminal-foot): a subtle coral-tint bar — the brand's
+   one accent standing in for VS Code's blue — carrying branch, sync, CI, and
+   caret position. Text stays on the light ramp for AA contrast over the tint. */
+.ce-status {
+  gap: 0.3rem 1.1rem;
+  background: rgb(var(--accent-rgb) / 0.14);
+  color: var(--text-secondary);
+}
+
+.ce-stat {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.ce-branch {
+  gap: 0.42rem;
+  color: var(--text-primary);
+}
+
+.ce-branch-icon {
+  flex: none;
+}
+
+.ce-ci-dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: var(--term-green);
+  margin-right: 0.42rem;
+}
+
+/* Caret position + language push right, like VS Code's status bar. */
+.ce-pos {
+  margin-left: auto;
+}
+
+/* The rail appears once there is room; the explorer at desktop. Each reveal adds
+   its column so the workbench stays filled edge to edge. */
+@media (min-width: 600px) {
+  .ce-workbench {
+    grid-template-columns: 2.85rem minmax(0, 1fr);
+  }
+  .ce-rail {
+    display: flex;
+  }
+}
+
+@media (min-width: 860px) {
+  .ce-workbench {
+    grid-template-columns: 2.85rem 13.5rem minmax(0, 1fr);
+  }
+  .ce-explorer {
+    display: block;
+  }
+}
+
+/* Phone: match the .terminal-body mobile shrink so the code pane and the
+   integrated terminal stay the same size. Code keeps `pre` + scroll (it must not
+   reflow), unlike the wrapping transcript body. */
+@media (max-width: 680px) {
+  .ce-code {
+    font-size: 0.74rem;
+    padding: 1rem 1.05rem 0.6rem;
   }
 }
 

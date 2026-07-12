@@ -36,7 +36,7 @@ Codeflare is licensed under [PolyForm Noncommercial 1.0.0](LICENSE). By submitti
 | `scripts/` | Build and maintenance utilities | Node.js |
 | `.github/workflows/` | CI/CD pipelines | GitHub Actions |
 
-For a full architecture overview, see [documentation/architecture.md](documentation/architecture.md).
+For a full architecture overview, see [documentation/lanes/architecture.md](documentation/lanes/architecture.md).
 
 ## Development
 
@@ -75,7 +75,7 @@ If you add or modify API endpoints that should be rate-limited, run:
 npm test -- src/__tests__/routes/rate-limits.test.ts
 ```
 
-See `src/middleware/rate-limit.ts` for the rate limiting implementation and [Stress Testing](documentation/lanes/stress-test.md) for load testing details.
+See `src/middleware/rate-limit.ts` for the rate limiting implementation and [Stress Testing](documentation/lanes/deployment.md#stress-testing-reference) for load testing details.
 
 ### Subscription and Usage Tests
 
@@ -143,7 +143,9 @@ Example: `fix/websocket-reconnect-race-condition`
 
 If you discover a security vulnerability, **do not open a public issue**. Report it via [GitHub's private vulnerability reporting](https://github.com/nikolanovoselec/codeflare/security/advisories/new). See [SECURITY.md](SECURITY.md) for details.
 
-An automated penetration test runs weekly against production (`pentest.yml`). If you make changes to authentication, CORS, security headers, or routing, you can trigger it manually from `Actions` > `Pentest` > `Run workflow` to verify nothing regressed. See [Penetration Testing](documentation/lanes/pentest.md) for a full breakdown of what gets tested.
+An automated penetration test runs weekly against production (`pentest.yml`). If you make changes to authentication, CORS, security headers, or routing, you can trigger it manually from `Actions` > `Pentest` > `Run workflow` to verify nothing regressed. See [Penetration Testing](documentation/lanes/security.md#penetration-testing-reference) for a full breakdown of what gets tested.
+
+**Deployment secrets and non-default configuration.** Real secrets, non-default deployment variables, and token scopes do not belong in this repository — they live in the private [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) repo. Never commit them here (code, `sdd/`, or `documentation/`); read or change them in that repo. See the [public/private documentation boundary](documentation/README.md#publicprivate-documentation-boundary).
 
 ## Questions
 
@@ -152,4 +154,4 @@ Open an issue for questions about the codebase, architecture, or contribution pr
 **Related Documentation:**
 - [Documentation](documentation/README.md) - Full technical reference
 - [README.md](README.md) - Product overview and setup
-- [Stress Testing](documentation/lanes/stress-test.md) - Load testing guide
+- [Stress Testing](documentation/lanes/deployment.md#stress-testing-reference) - Load testing guide

@@ -7,5 +7,7 @@ export default getViteConfig({
   test: {
     environment: 'node',
     include: ['src/__tests__/**/*.test.ts'],
+    // Compact per-test output in CI (dots + summary); full reporter locally.
+    reporters: process.env.CI ? ['dot'] : ['default'],
   },
 });

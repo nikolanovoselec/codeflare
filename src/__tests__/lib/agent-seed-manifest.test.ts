@@ -150,7 +150,7 @@ describe('agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin prese
 
 // REQ-AGENT-071: PR-Boundary Review Agent Dispatch
 // REQ-AGENT-073: Pi Review Monitor Delivery Reliability
-describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)', () => {
+describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape) / REQ-AGENT-071', () => {
   it('each non-Claude agent has an instructions file', () => {
     const keys = new Set(AGENTS_SEEDED_CONFIGS.map((doc) => doc.key));
     expect(keys.has('.codex/AGENTS.md')).toBe(true);
@@ -834,7 +834,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
   });
 
   it('REQ-AGENT-040: Pi review enforcement classifies lanes by changed file surface', () => {
-    expect(classifyReviewFiles(['documentation/lanes/preseed.md'])).toEqual(['doc-updater']);
+    expect(classifyReviewFiles(['documentation/lanes/architecture.md'])).toEqual(['doc-updater']);
     expect(classifyReviewFiles(['sdd/spec/agents.md'])).toEqual(['spec-reviewer', 'doc-updater']);
     expect(classifyReviewFiles(['preseed/agents/pi/extensions/review-enforcement.ts'])).toEqual(['code-reviewer', 'spec-reviewer', 'doc-updater']);
     expect(classifyReviewFiles(undefined)).toEqual(['code-reviewer', 'spec-reviewer', 'doc-updater']);
@@ -1301,12 +1301,12 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       'Fix: Mark AD64 superseded and add AD76.',
       '',
       '[HIGH] Preseed docs cite removed lane symbols',
-      'File: `documentation/lanes/preseed.md:415`',
+      'File: `documentation/lanes/architecture.md:1650`',
       'Issue: createAgentSession no longer exists.',
       'Fix: Describe spawnDurableLane instead.',
       '',
       '[MEDIUM] Lane-classifier docs omit generated-only auto-ack',
-      'File: `documentation/lanes/preseed.md:499`',
+      'File: `documentation/lanes/architecture.md:1734`',
       'Issue: The no-lane auto-ack behavior is undocumented.',
       'Fix: Document the generated-only auto-ack.',
     ].join('\n');
@@ -1327,7 +1327,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
         lane: 'doc-updater',
         severity: 'HIGH',
         title: 'Preseed docs cite removed lane symbols',
-        file: 'documentation/lanes/preseed.md:415',
+        file: 'documentation/lanes/architecture.md:1650',
         issue: 'createAgentSession no longer exists.',
         fix: 'Describe spawnDurableLane instead.',
       },
@@ -1335,7 +1335,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
         lane: 'doc-updater',
         severity: 'MEDIUM',
         title: 'Lane-classifier docs omit generated-only auto-ack',
-        file: 'documentation/lanes/preseed.md:499',
+        file: 'documentation/lanes/architecture.md:1734',
         issue: 'The no-lane auto-ack behavior is undocumented.',
         fix: 'Document the generated-only auto-ack.',
       },
@@ -1518,7 +1518,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(body.indexOf('if (remainingLanes.length === 0)')).toBeLessThan(body.indexOf('const attempts = incrementBlockCount(currentState.repo)'));
   });
 
-  it('REQ-AGENT-062: monitor startup failure message gives the main session a fallback monitor prompt', () => {
+  it('REQ-AGENT-062: monitor startup failure message gives the main session a fallback monitor prompt / REQ-AGENT-073', () => {
     const message = reviewMonitorStartupFailureMessage({
       repo: '/repo/codeflare',
       head: 'abcdef1234567890',
@@ -2240,7 +2240,7 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
   });
 });
 
-describe('REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)', () => {
+describe('REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors) / REQ-AGENT-072', () => {
   function consultLlmSkill(key: string): string {
     const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === key);
     expect(doc, `${key} must be bundled in the seed`).toBeTruthy();

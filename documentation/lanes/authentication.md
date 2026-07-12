@@ -110,7 +110,7 @@ A configured GitHub App takes precedence. With neither configured, Connect is un
 
 **Connect is decoupled from the repo panel.** `GET /api/github/connect` + callback + `POST /api/github/disconnect` are `authMiddleware`-only (any authenticated user), reachable from Guided Setup + the Settings accordion even when the advanced-gated panel is hidden; only `status`/`repos`/`clone` follow the panel gate ([REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). The same shared `OAuthConnectCard` drives connect on all three surfaces. **Cloudflare** has a parallel per-user OAuth connect in non-enterprise modes ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)); enterprise has none (`getCloudflareProvider` returns null).
 
-**Scopes / permissions:** the OAuth App's `scope` is derived per connect from the selected tier (default `repo read:org workflow`; [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). The GitHub App's equivalent permissions (Contents R/W, Pull requests R/W, Workflows W, Metadata R) are set at registration and ignore the tier. Enterprise GitHub Apps must be **internal** to the customer's enterprise - EMU managed users cannot authorize third-party apps.
+**Scopes / permissions:** the OAuth App's `scope` is derived per connect from the selected tier (default `repo read:org workflow`; [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). The enterprise GitHub App's registration permissions and internal-app requirement are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private).
 
 **At rest:** the token is encrypted (kv-crypto) and never returned to the browser. Disconnect/offboarding revokes it ([REQ-GITHUB-005](../../sdd/spec/github.md#req-github-005-disconnect-and-offboarding-revocation)). For the enterprise egress-injection security model and at-rest detail, see [Security](security.md) rather than duplicating it here.
 
@@ -290,15 +290,7 @@ In onboarding mode, `/login` is the landing-built sign-in page: it shares landin
 
 ## Environment Variables for SaaS Mode
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `SAAS_MODE` | unset | Set to `active` to enable custom login, JIT provisioning |
-| `SAAS_EXTRA_IDPS` | unset | Comma-separated IdP UUIDs for custom OIDC providers |
-| `RESEND_API_KEY` | unset | Resend email API token for notifications |
-| `RESEND_EMAIL` | `Codeflare <onboarding@resend.dev>` | From address for notification emails |
-| `ONBOARDING_LANDING_PAGE` | unset | Set to `active` to show waitlist page at `/` |
-
-Both `SAAS_MODE` and `ONBOARDING_LANDING_PAGE` are passed to the Worker via `--var` in `deploy.yml`.
+The SaaS and onboarding activation flags, identity-provider settings, email credentials, GitHub Environment placement, and deployment procedure are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane retains authentication behavior without duplicating non-default deployment configuration.
 
 ---
 
