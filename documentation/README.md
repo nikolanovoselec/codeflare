@@ -4,7 +4,7 @@ Operator and developer reference for Codeflare - an enterprise agentic engine th
 
 This documentation is organized into **lanes** - each file targets a specific audience (operator, developer, or security) and covers one operational slice of the system. Facts live in one place and are cross-referenced elsewhere. When documentation implements a specification requirement, the file links back to the relevant REQ in `sdd/` via anchor references.
 
-The specification (`sdd/`) defines what the system should do. This documentation describes public implementation behavior and default-mode operation. Non-default deployment credentials and operator runbooks live in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private-docs) (access required). Together they form a closed loop: requirements drive implementation, implementation is documented, and documentation links back to requirements.
+The specification (`sdd/`) defines what the system should do. This documentation describes public implementation behavior and default-mode operation. Together they form a closed loop: requirements drive implementation, implementation is documented, and documentation links back to requirements.
 
 ## Documentation Principles
 
@@ -18,11 +18,17 @@ The specification (`sdd/`) defines what the system should do. This documentation
 
 5. **Structure preserved** - The specialized files in the Lane Index are Codeflare's canonical documentation structure. Clean content in place; do not fold these files into generic mega-lanes or delete their referenced assets.
 
+## Public/private documentation boundary
+
+Public documentation owns default-mode setup, product behavior, architecture, and REQ/ADR backlinks. Exact non-default deployment secrets, variables, token scopes, GitHub Environments, and operator runbooks live in [private operations](https://github.com/nikolanovoselec/codeflare-private) (access required).
+
+When their public workflows or consumers change, update the private README in the same work. Public docs should link there rather than duplicate the operational matrix.
+
 ## Audience Guide
 
 | Audience | Start here |
 |----------|------------|
-| Operator | [Configuration](lanes/configuration.md), [Container](lanes/container.md), [Storage & Sync](lanes/storage-and-sync.md), [Troubleshooting](lanes/troubleshooting.md); use [private operations](https://github.com/nikolanovoselec/codeflare-private-docs) for non-default deployment |
+| Operator | [Configuration](lanes/configuration.md), [Container](lanes/container.md), [Storage & Sync](lanes/storage-and-sync.md), [Troubleshooting](lanes/troubleshooting.md); use [private operations](https://github.com/nikolanovoselec/codeflare-private) for non-default deployment |
 | Developer | [Architecture](lanes/architecture.md), [API Reference](lanes/api-reference.md), [CI/CD](lanes/ci-cd.md), [Preseed System](lanes/preseed.md) |
 | Security | [Security](lanes/security.md), [Penetration Testing](lanes/pentest.md), [Authentication](lanes/authentication.md) |
 
@@ -59,7 +65,7 @@ All significant design choices are recorded as Architecture Decision Records (AD
 | Document | Location | Description |
 |----------|----------|-------------|
 | [README](../README.md) | Repo root | Product overview and default-mode setup |
-| [Private operations](https://github.com/nikolanovoselec/codeflare-private-docs) | Private repository | Non-default deployment and operator configuration |
+| [Private operations](https://github.com/nikolanovoselec/codeflare-private) | Private repository | Non-default deployment and operator configuration |
 | [Contributing](../CONTRIBUTING.md) | Repo root | Development workflow and guidelines |
 | [Security Policy](../SECURITY.md) | Repo root | Vulnerability reporting |
 | [License](../LICENSE) | Repo root | PolyForm Noncommercial 1.0.0 |

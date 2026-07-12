@@ -128,7 +128,7 @@ Find your worker URL at [dash.cloudflare.com](https://dash.cloudflare.com/) → 
 
 That's it, you're live. You'll need an active subscription to at least one supported agent; log in directly from the terminal.
 
-> To let users connect their own GitHub and Cloudflare accounts (automatic `git push` / `wrangler` deploy from a session), an admin registers one OAuth app per provider and enters the credentials in the wizard — see the [private deployment docs](https://github.com/nikolanovoselec/codeflare-private-docs) (access required).
+> To let users connect their own GitHub and Cloudflare accounts (automatic `git push` / `wrangler` deploy from a session), an admin registers one OAuth app per provider and enters the credentials in the wizard — see the [private deployment docs](https://github.com/nikolanovoselec/codeflare-private) (access required).
 
 <details>
 <summary><strong id="api-token-scopes">API token scopes</strong></summary>
@@ -174,7 +174,7 @@ Most self-hosters never need anything below this line.
 
 ### Advanced deployment modes
 
-Beyond default mode, Codeflare also runs in **Onboarding**, **SaaS**, and **Enterprise** modes — see [What Codeflare does](#what-codeflare-does) for their capabilities. Setup and configuration for these modes is maintained privately: **[codeflare-private-docs](https://github.com/nikolanovoselec/codeflare-private-docs)** (access required).
+Beyond default mode, Codeflare also runs in **Onboarding**, **SaaS**, and **Enterprise** modes — see [What Codeflare does](#what-codeflare-does) for their capabilities. Setup and configuration for these modes is maintained privately: **[codeflare-private](https://github.com/nikolanovoselec/codeflare-private)** (access required).
 
 ---
 

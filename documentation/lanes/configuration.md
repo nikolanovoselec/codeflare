@@ -84,7 +84,7 @@ Additional details:
 
 ### Secrets
 
-Default deployments use `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Non-default mode credentials are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private-docs).
+Default deployments use `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Non-default mode credentials are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private).
 
 Worker secrets lifecycle: deploy sets `CLOUDFLARE_API_TOKEN`, setup writes `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`, Turnstile keys stored in KV. **Worker-level R2 credentials are derived from the API token** (used for bucket admin operations like create/empty/delete). Per-user scoped R2 tokens are separate - created on first login, independent of the master token but revoked when the API token changes. If the token is rotated, setup must be re-run.
 
@@ -206,7 +206,7 @@ Onboarding mode (`ONBOARDING_LANDING_PAGE` = active) serves the public waitlist 
 
 ### Onboarding variables and secrets
 
-The activation flag, GitHub Actions secret inventory, email settings, and operator setup steps are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private-docs). This public lane intentionally retains behavior and REQ backlinks without duplicating non-default deployment configuration.
+The activation flag, GitHub Actions secret inventory, email settings, and operator setup steps are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane intentionally retains behavior and REQ backlinks without duplicating non-default deployment configuration.
 
 ### SEO / Discoverability
 
@@ -226,7 +226,7 @@ SaaS mode (`SAAS_MODE` = active) adds a custom login page, GitHub-OAuth auto-pro
 
 ### SaaS variables and secrets
 
-The activation flag, OAuth, billing, email, identity-provider, and environment configuration are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private-docs). This public lane intentionally does not duplicate the SaaS deployment matrix.
+The activation flag, OAuth, billing, email, identity-provider, and environment configuration are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane intentionally does not duplicate the SaaS deployment matrix.
 
 ## Enterprise mode
 
@@ -234,11 +234,11 @@ Enterprise mode (`ENTERPRISE_MODE` = active) forces all users to the unlimited t
 
 ### Enterprise mode variables
 
-The enterprise activation flag, GitHub Environment layout, worker naming, account overrides, and dynamic-route setup are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private-docs). Runtime behavior remains documented below and in the enterprise specification.
+The enterprise activation flag, GitHub Environment layout, worker naming, account overrides, and dynamic-route setup are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). Runtime behavior remains documented below and in the enterprise specification.
 
 ### Enterprise Mode Secrets (optional)
 
-The AI Gateway fallback-secret inventory, required token permissions, and deployment procedure are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private-docs). This public lane intentionally does not duplicate non-default deployment credentials.
+The AI Gateway fallback-secret inventory, required token permissions, and deployment procedure are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane intentionally does not duplicate non-default deployment credentials.
 
 ### Enterprise Mode Runtime Configuration
 

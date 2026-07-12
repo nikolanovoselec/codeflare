@@ -290,7 +290,7 @@ In onboarding mode, `/login` is the landing-built sign-in page: it shares landin
 
 ## Environment Variables for SaaS Mode
 
-The SaaS and onboarding activation flags, identity-provider settings, email credentials, GitHub Environment placement, and deployment procedure are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private-docs). This public lane retains authentication behavior without duplicating non-default deployment configuration.
+The SaaS and onboarding activation flags, identity-provider settings, email credentials, GitHub Environment placement, and deployment procedure are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane retains authentication behavior without duplicating non-default deployment configuration.
 
 ---
 

@@ -51,7 +51,7 @@ The Pi preseed job is data-driven: it diffs **every** dependency in `preseed/age
 | `production` | `deploy.yml`, `pentest.yml` | Auto on push to `main`, or manual dispatch with `production` selected |
 | `integration` | `deploy.yml`, `e2e.yml`, `stress-test.yml` | Manual dispatch with `integration` selected |
 
-The non-default enterprise environments, account overrides, and dispatch procedure are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private-docs).
+The non-default enterprise environments, account overrides, and dispatch procedure are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private).
 
 ### GitHub Secrets and Variables
 
@@ -62,7 +62,7 @@ A default deployment requires only these repository secrets:
 | `CLOUDFLARE_API_TOKEN` | `deploy.yml`, `e2e.yml` | Wrangler authentication, resource setup, image push, and Worker deploy |
 | `CLOUDFLARE_ACCOUNT_ID` | `deploy.yml`, `e2e.yml` | Identifies the target Cloudflare account |
 
-Non-default mode credentials, optional deployment variables, environment overrides, fallback registries, and E2E service credentials are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private-docs). This public lane intentionally does not duplicate that operational matrix.
+Non-default mode credentials, optional deployment variables, environment overrides, fallback registries, and E2E service credentials are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane intentionally does not duplicate that operational matrix.
 
 ### Deploy Workflow Detail
 
@@ -190,7 +190,7 @@ Test files: `dashboard`, `session-lifecycle`, `header-navigation`, `settings-pan
 
 ### E2E Service Token Setup
 
-The deployed-worker credential matrix, Cloudflare Access service-token procedure, environment placement, and local E2E environment setup are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private-docs). Public documentation retains the test behavior and suite structure without publishing operational credentials.
+The deployed-worker credential matrix, Cloudflare Access service-token procedure, environment placement, and local E2E environment setup are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). Public documentation retains the test behavior and suite structure without publishing operational credentials.
 
 ### E2E Test Maintenance
 
