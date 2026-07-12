@@ -145,6 +145,8 @@ If you discover a security vulnerability, **do not open a public issue**. Report
 
 An automated penetration test runs weekly against production (`pentest.yml`). If you make changes to authentication, CORS, security headers, or routing, you can trigger it manually from `Actions` > `Pentest` > `Run workflow` to verify nothing regressed. See [Penetration Testing](documentation/lanes/security.md#penetration-testing-reference) for a full breakdown of what gets tested.
 
+**Deployment secrets and non-default configuration.** Real secrets, non-default deployment variables, and token scopes do not belong in this repository — they live in the private [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) repo. Never commit them here (code, `sdd/`, or `documentation/`); read or change them in that repo. See the [public/private documentation boundary](documentation/README.md#publicprivate-documentation-boundary).
+
 ## Questions
 
 Open an issue for questions about the codebase, architecture, or contribution process.

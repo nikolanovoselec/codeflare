@@ -198,7 +198,7 @@ The env-var pairs below are the fallback provider source when no Setup config ex
 
 **Container transport** ([REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport)). In non-enterprise modes the real token flows to the container as `GH_TOKEN` via the existing deploy-keys path, unchanged. In enterprise mode the container instead receives the non-secret placeholder `GH_TOKEN` = `codeflare-enterprise` (the `ENTERPRISE_GH_TOKEN_PLACEHOLDER` code constant, **not** a configured value); the real token is injected at the container egress boundary (see the [security](security.md) and [architecture](architecture.md) lanes).
 
-**Provider registration permissions** (set at app registration, not via config). The GitHub App requests Contents R/W, Pull requests R/W, Workflows W, and Metadata R. The OAuth App's `scope` is derived per connect from the selected tier (default `repo read:org workflow`; see [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). Enterprise GitHub Apps must be **internal** to the customer's enterprise, since EMU users cannot authorize third-party apps.
+**Provider registration permissions** (set at app registration, not via config). The OAuth App's `scope` is derived per connect from the selected tier (default `repo read:org workflow`; see [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise)). The enterprise GitHub App's registration permissions and internal-app requirement are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private).
 
 ## Onboarding mode
 

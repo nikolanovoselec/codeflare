@@ -24,6 +24,8 @@ Public documentation owns default-mode setup, product behavior, architecture, an
 
 When their public workflows or consumers change, update the private README in the same work. Public docs should link there rather than duplicate the operational matrix.
 
+**Agents:** to read or modify a non-default deployment secret, variable, or token scope, do it in [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) — those values are not stored in this repository. Never write a real secret, a non-default deployment variable, or a token-scope value into this public repo (code, `sdd/`, or `documentation/`); reference the private repo instead.
+
 ## Audience Guide
 
 | Audience | Start here |
