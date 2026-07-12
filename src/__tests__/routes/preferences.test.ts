@@ -80,6 +80,19 @@ describe('Preferences Routes', () => {
       expect(body.lastAgentType).toBe('codex');
       expect(body.workspaceSyncEnabled).toBe(true);
     });
+
+    it('omits the removed preset preference from legacy stored records', async () => {
+      mockKV._set('user-prefs:codeflare-test-user', {
+        lastPresetId: 'legacy-preset',
+        workspaceSyncEnabled: true,
+      });
+      const app = createTestApp();
+
+      const res = await app.request('/preferences');
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ workspaceSyncEnabled: true });
+    });
   });
 
   // REQ-SESSION-014 (PATCH merges into KV; rejects invalid types with VALIDATION_ERROR)
@@ -128,6 +141,39 @@ describe('Preferences Routes', () => {
       expect(res.status).toBe(400);
       const body = await res.json() as { code?: string };
       expect(body.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('rejects the removed preset preference', async () => {
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lastPresetId: 'legacy-preset' }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json() as { code?: string };
+      expect(body.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('removes the legacy preset field while merging current preferences', async () => {
+      mockKV._set('user-prefs:codeflare-test-user', {
+        lastAgentType: 'pi',
+        lastPresetId: 'legacy-preset',
+      });
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceSyncEnabled: true }),
+      });
+
+      expect(res.status).toBe(200);
+      const expected = { lastAgentType: 'pi', workspaceSyncEnabled: true };
+      expect(await res.json()).toEqual(expected);
+      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toEqual(expected);
     });
   });
 

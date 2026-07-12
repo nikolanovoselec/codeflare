@@ -977,7 +977,7 @@ Alternative 2 — Pass repo path as an explicit MCP tool argument on every call.
 
 **Decision:** The vault directory is renamed to `/home/user/Vault/` (non-hidden basename). All references in entrypoint.sh, bisync filters, preseed scripts, agent rules, Worker route, audits, and tests are updated in the same commit. The internal identifier `init_user_vault()` and the `--as user_vault` global-graph tag are preserved (no manifest migration needed). R2 is a clean cutover for the single existing user; prior `.user_vault/` content in R2 is abandoned rather than migrated.
 
-**Constraint (permanent):** The vault directory must never be renamed to a dot-prefixed basename. Any future relocation of the vault must preserve a non-hidden basename or the SilverBullet disk walker will silently return an empty file list. This constraint is documented in `documentation/lanes/architecture.md#vault-directory-layout` and enforced by the `host/__audits__/entrypoint-vault.audit.js` structural audit (checks that the supervisor command references `$HOME/Vault`, not `$HOME/.user_vault` or any other hidden path).
+**Constraint (permanent):** The vault directory must never be renamed to a dot-prefixed basename. Any future relocation of the vault must preserve a non-hidden basename or the SilverBullet disk walker will silently return an empty file list. This constraint is documented in `documentation/lanes/vault.md#directory-layout` and enforced by the `host/__audits__/entrypoint-vault.audit.js` structural audit (checks that the supervisor command references `$HOME/Vault`, not `$HOME/.user_vault` or any other hidden path).
 
 **Consequences:**
 - SilverBullet correctly walks and indexes all vault files after rename.
@@ -1012,7 +1012,7 @@ The initial implementation defined only `--cf-*`-namespaced custom properties on
 - The vault editor reflects codeflare branding consistently across users and sessions; switching between codeflare UI and SilverBullet feels native rather than grafted.
 - Users who want custom styling cannot achieve it without forking the project or opening a PR to `preseed/silverbullet/STYLES.md`. This is the explicit trade-off: brand consistency over per-user theming.
 - Preseed theme updates propagate to all users on next session boot with no per-user migration.
-- The always-overwrite contract is documented in `documentation/lanes/architecture.md#vault-reference` (three-tier durability) and in the in-vault `README.md` so users discover the constraint before hand-editing.
+- The always-overwrite contract is documented in `documentation/lanes/vault.md` (three-tier durability) and in the in-vault `README.md` so users discover the constraint before hand-editing.
 - The variable-namespace lesson is preserved in the `STYLES.md` header so maintainers do not regress to a `--cf-*`-only theme.
 
   The Vault first-session expectations document the zinc base, blue accent, Inter body, and JetBrains Mono code smoke check.
@@ -1263,7 +1263,7 @@ That buffer was empty immediately after a Pi reload/resume, so the first capture
 
 **Status:** Accepted (2026-05-29)
 
-**Context:** The Claude `/review` UX is a slash command (`preseed/agents/claude/commands/review.md`) carrying a multi-phase review workflow. Slash commands are a Claude Code primitive; the generator does not deploy commands to other agents (see the "Excluded from non-CC transformed assets" list in [preseed.md](../lanes/architecture.md#preseed-multi-agent-preseed)). On Pi this left the user-invoked `/review` workflow with no home: PR-boundary enforcement was covered by `review-enforcement.ts`, and the transformed `git-review-pipeline` skill carries the enforcement spine, but neither reproduces the full user-driven review flow (scope flags, phased perspectives, reality-filter triage) that the Claude command provides.
+**Context:** The Claude `/review` UX is a slash command (`preseed/agents/claude/commands/review.md`) carrying a multi-phase review workflow. Slash commands are a Claude Code primitive; the generator does not deploy commands to other agents (see the "Excluded from non-CC transformed assets" list in [preseed.md](../lanes/preseed.md#multi-agent-preseed)). On Pi this left the user-invoked `/review` workflow with no home: PR-boundary enforcement was covered by `review-enforcement.ts`, and the transformed `git-review-pipeline` skill carries the enforcement spine, but neither reproduces the full user-driven review flow (scope flags, phased perspectives, reality-filter triage) that the Claude command provides.
 
 **Decision:** Ship the Pi `/review` workflow as a dedicated Pi-native skill at `preseed/agents/pi/skills/review/SKILL.md` (full 11-phase workflow), deployed to `~/.pi/agent/skills/review/SKILL.md`. The native skill is distinct from `review-enforcement.ts` (PR-boundary HEAD watching) and from the transformed `git-review-pipeline` enforcement skill: the skill owns the user-requested review UX, while the enforcement extension owns the automatic PR-boundary gate. The Pi `review/SKILL.md` joins the Pi manifest as a native skill override so the generator does not also emit a transformed copy of any same-named Claude skill into the Pi skill set.
 
@@ -1512,7 +1512,7 @@ Note encrypted persistence itself is unaffected: `EncryptedKvPrimitives` wraps v
 
 Mitigated by integration-only rollout and keeping the shim available as a one-line revert until the native path is proven.
 
-**Related REQ:** [REQ-VAULT-008](../../sdd/spec/vault.md#req-vault-008-zero-ui-vault-encryption) (zero-UI vault encryption), [REQ-VAULT-024](../../sdd/spec/vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) (bootstrap-hop key arming and service-worker retention), [REQ-VAULT-017](../../sdd/spec/vault.md#req-vault-017-silverbullet-native-service-worker) (SilverBullet native service worker), [REQ-VAULT-025](../../sdd/spec/vault.md#req-vault-025-silverbullet-native-service-worker-runtime-graft) (native service-worker runtime graft), [REQ-VAULT-013](../../sdd/spec/vault.md#req-vault-013-silverbullet-subpath-adapter) (SilverBullet subpath adapter), [REQ-VAULT-015](../../sdd/spec/vault.md#req-vault-015-vault-idb-lifecycle-and-listing-filters) (vault IDB lifecycle). Supersedes the shim rationale documented in [vault.md - Service Worker registration noop bypass](../lanes/architecture.md#vault-service-worker-registration-noop-bypass). Tracks [codeflare#445](https://github.com/nikolanovoselec/codeflare/issues/445).
+**Related REQ:** [REQ-VAULT-008](../../sdd/spec/vault.md#req-vault-008-zero-ui-vault-encryption) (zero-UI vault encryption), [REQ-VAULT-024](../../sdd/spec/vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) (bootstrap-hop key arming and service-worker retention), [REQ-VAULT-017](../../sdd/spec/vault.md#req-vault-017-silverbullet-native-service-worker) (SilverBullet native service worker), [REQ-VAULT-025](../../sdd/spec/vault.md#req-vault-025-silverbullet-native-service-worker-runtime-graft) (native service-worker runtime graft), [REQ-VAULT-013](../../sdd/spec/vault.md#req-vault-013-silverbullet-subpath-adapter) (SilverBullet subpath adapter), [REQ-VAULT-015](../../sdd/spec/vault.md#req-vault-015-vault-idb-lifecycle-and-listing-filters) (vault IDB lifecycle). Supersedes the shim rationale documented in [vault.md - Service Worker registration noop bypass](../lanes/vault.md#service-worker-registration-noop-bypass). Tracks [codeflare#445](https://github.com/nikolanovoselec/codeflare/issues/445).
 
 ---
 
@@ -2146,7 +2146,7 @@ a prompt-injected read now yields only a non-secret placeholder; R2 access is ga
 
 **Consequences:** The per-cycle HEAD storm is eliminated, cutting the dominant steady-state sync cost. The trade-off of `--use-server-modtime` — it compares the R2 upload time rather than the source file's own mtime — is acceptable for codeflare's newest-wins bisync, where the bucket is the per-user source of truth and absolute upload order is the conflict key. Verified on deploy by the drop in HEADs/cycle in `/tmp/sync.log`.
 
-**Related:** [REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake), [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers), [Storage & Sync lane](../lanes/architecture.md#storage-and-sync-reference).
+**Related:** [REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake), [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers), [Storage & Sync lane](../lanes/storage-and-sync.md).
 
 ---
 
@@ -2187,7 +2187,7 @@ as `R2_SSE_DISABLED` (mirrors the `_strictEgress` state field): emitted only whe
 
 **Revised 2026-06-28 (post-deploy):** the migration was first placed inline at session start, which **bricked container creation** on the live enterprise-integration bucket — the synchronous per-object re-encrypt outran the request lifetime and the worker was canceled before configuring the container (the `try/catch` never logged because a cancellation is not a catchable throw; `Set bucket name` never fired). Moving it to a background first-login reconcile (`waitUntil`, off the container-start path) is the fix. **Rejected:** nuke-and-recreate (loses user content); `MetadataDirective=REPLACE` (would drop Content-Type unless re-sent); distributed migration locking (overengineered for a rarely-flipped toggle); inline-at-session-start (bricks `/start`).
 
-**Related:** [REQ-ENTERPRISE-018](../../sdd/spec/enterprise-mode.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface), [REQ-ENTERPRISE-020](../../sdd/spec/enterprise-mode.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine), [AD90](#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync), [AD13](#ad13-per-user-scoped-r2-tokens), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [Security lane](../lanes/security.md), [Configuration lane](../lanes/configuration.md), [Deployment lane](../lanes/deployment.md), [Storage & Sync lane](../lanes/architecture.md#storage-and-sync-reference).
+**Related:** [REQ-ENTERPRISE-018](../../sdd/spec/enterprise-mode.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface), [REQ-ENTERPRISE-020](../../sdd/spec/enterprise-mode.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine), [AD90](#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync), [AD13](#ad13-per-user-scoped-r2-tokens), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [Security lane](../lanes/security.md), [Configuration lane](../lanes/configuration.md), [Deployment lane](../lanes/deployment.md), [Storage & Sync lane](../lanes/storage-and-sync.md).
 
 ---
 
@@ -2213,7 +2213,7 @@ Both the lay-down and `--checksum` activate only when `R2_SSE_DISABLED=true`, be
 
 **Addendum (2026-06-29) — scope of the sibling relay:** A related mechanism in the same lay-down family, `entrypoint.sh::relay_managed_pi_extensions`, re-lays the image-baked managed Pi extension bytes before the bisync `--resync` baseline. Unlike the Governed-Mode-only seed bake above, the relay runs in **all** deployment modes: it guarantees the content half of the path-sensitive jiti prewarm cache key (see [AD79 Update](#ad79-image-baked-pi-extension-transpile-cache)) so the cache hits at runtime. In Governed Mode the subsequent `--checksum` sync then skips the unchanged relaid files; outside Governed Mode the relay simply precedes the `--size-only` sync. This is why REQ-STOR-017 entrypoint code references the relay as all-modes even though this ADR's seed-bake decision is Governed-only.
 
-**Related:** [REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake), [AD89](#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration), [AD88](#ad88-bisync-compares-via-server-modtime-from-fast-list-not-per-object-mtime-heads), [AD79](#ad79-image-baked-pi-extension-transpile-cache), [Preseed lane](../lanes/architecture.md#preseed-reference), [Storage & Sync lane](../lanes/architecture.md#storage-and-sync-reference).
+**Related:** [REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake), [AD89](#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration), [AD88](#ad88-bisync-compares-via-server-modtime-from-fast-list-not-per-object-mtime-heads), [AD79](#ad79-image-baked-pi-extension-transpile-cache), [Preseed lane](../lanes/preseed.md), [Storage & Sync lane](../lanes/storage-and-sync.md).
 
 ### AD91: Governed Mode migration is a verified, gated, chunked state machine (REPLACE copy), not a boolean-marker lazy reconcile
 
@@ -2257,7 +2257,7 @@ Reads try the committed regime then fall back once on a 400/403; a fallback hit 
 
 **Consequences:** A regime flip (both directions) is atomic from the user's view, resumable, verified, and never leaves the bucket unreadable; the prior mixed-bucket incident self-heals on next read. Residual risk: a container whose best-effort drain `destroy()` fails could write a stray during the ~tens-of-seconds window — caught by the verify-rescan and read self-heal, and bounded by the idle timeout. New modules: `src/lib/r2-regime-state.ts` (state), `src/lib/migration-containers.ts` (drain/health). Verified on enterprise-integration by an R2 S3 HEAD-scan (0 objects in the wrong regime) both directions.
 
-**Related:** [REQ-ENTERPRISE-020](../../sdd/spec/enterprise-mode.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine), [REQ-ENTERPRISE-021](../../sdd/spec/enterprise-mode.md#req-enterprise-021-governed-mode-migration-safety-and-access-boundary), [AD89](#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration), [Deployment lane](../lanes/deployment.md#governed-mode-migration-batch-status-driven), [Configuration lane](../lanes/configuration.md), [Storage & Sync lane](../lanes/architecture.md#storage-and-sync-reference), [Security lane](../lanes/security.md).
+**Related:** [REQ-ENTERPRISE-020](../../sdd/spec/enterprise-mode.md#req-enterprise-020-governed-mode-re-encrypt-migration-engine), [REQ-ENTERPRISE-021](../../sdd/spec/enterprise-mode.md#req-enterprise-021-governed-mode-migration-safety-and-access-boundary), [AD89](#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration), [Deployment lane](../lanes/deployment.md#governed-mode-migration-batch-status-driven), [Configuration lane](../lanes/configuration.md), [Storage & Sync lane](../lanes/storage-and-sync.md), [Security lane](../lanes/security.md).
 
 ---
 
@@ -2284,7 +2284,7 @@ Exclude the upstream `.mcp.json` (5 remote MCP servers — strict-egress-blocked
 
 **Consequences:** Pro agents get authoritative, retrieval-first Cloudflare guidance (platform, Workers best practices, Wrangler, Durable Objects, Agents SDK, Sandbox SDK, Turnstile, email, web-perf, Zero Trust) without growing the always-on token budget meaningfully (~+450 tok of trimmed descriptions; bodies/references load on demand) and without bloating the Worker. A `scripts/measure-seed-tokens.mjs` tool reports the always-on seed budget per mode.
 
-**Related:** [REQ-AGENT-075](../../sdd/spec/agents.md#req-agent-075-cloudflare-platform-skills-bundled-into-the-advanced-seed), [REQ-AGENT-014](../../sdd/spec/agents.md#req-agent-014-manifest-driven-preseed-pipeline), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [Configuration lane](../lanes/configuration.md), [Security lane](../lanes/security.md), [Preseed lane](../lanes/architecture.md#preseed-reference).
+**Related:** [REQ-AGENT-075](../../sdd/spec/agents.md#req-agent-075-cloudflare-platform-skills-bundled-into-the-advanced-seed), [REQ-AGENT-014](../../sdd/spec/agents.md#req-agent-014-manifest-driven-preseed-pipeline), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [Configuration lane](../lanes/configuration.md), [Security lane](../lanes/security.md), [Preseed lane](../lanes/preseed.md).
 
 ---
 
@@ -2368,13 +2368,13 @@ The manifest is baselined from current content **only when absent** (the first s
 
 **Status:** Accepted (2026-07-11).
 
-**Context:** [container.md](../lanes/architecture.md#container-v8-compile-cache-warm-up) documented that `codex` and `copilot` are warmed at Docker build time via `--version`, and that `opencode run "hello"` pre-runs OpenCode's one-time Goose DB migration at build time. The OpenCode warm-up alone baked ~147MB of `opencode` data into the image.
+**Context:** [container.md](../lanes/container.md#v8-compile-cache-warm-up) documented that `codex` and `copilot` are warmed at Docker build time via `--version`, and that `opencode run "hello"` pre-runs OpenCode's one-time Goose DB migration at build time. The OpenCode warm-up alone baked ~147MB of `opencode` data into the image.
 
 **Decision:** Both warm-ups are commented out (not deleted) in the Dockerfile. `codex` and `copilot` skip the V8 compile-cache bake; OpenCode skips the build-time DB migration. Each CLI now pays its own first-launch cost instead of paying it at build time for every image. Claude Code (its own `--version` verify) and Pi (V8 `--version` + the jiti extension warm, [AD79](#ad79-image-baked-pi-extension-transpile-cache)) keep their prewarm.
 
 **Consequences:** Smaller image (~147MB saved from the OpenCode change alone); first launch of `codex`, `copilot`, and `opencode` inside a fresh container is slower (pays JS compile / DB migration cost once per container instead of never, at build time). Re-enabling either is a Dockerfile uncomment (see inline comments next to `RUN pi --version` and the `opencode run "hello"` block).
 
-**Related:** [container.md § V8 Compile Cache Warm-Up](../lanes/architecture.md#container-v8-compile-cache-warm-up), [container.md § OpenCode Database Pre-Initialization](../lanes/architecture.md#container-opencode-database-pre-initialization).
+**Related:** [container.md § V8 Compile Cache Warm-Up](../lanes/container.md#v8-compile-cache-warm-up), [container.md § OpenCode Database Pre-Initialization](../lanes/container.md#opencode-database-pre-initialization).
 
 ---
 
@@ -2401,6 +2401,6 @@ The manifest is baselined from current content **only when absent** (the first s
 - [Architecture - System Components](../lanes/architecture.md#system-components) - Component overview
 - [Architecture - Design Rationale](../lanes/architecture.md#design-rationale) - Architectural principles
 - [Security - Authentication Gate](../lanes/security.md#authentication-gate) - Security model
-- [Authentication - Auth Modes](../lanes/security.md#authentication-authentication-modes) - CF Access vs Direct GitHub OAuth
-- [Mobile - Scroll Stability](../lanes/architecture.md#mobile-scroll-stability) - Mobile terminal design decisions
-- [Vault - Directory Layout](../lanes/architecture.md#vault-directory-layout) - Vault path, hidden-root constraint, special folders
+- [Authentication - Auth Modes](../lanes/authentication.md#authentication-modes) - CF Access vs Direct GitHub OAuth
+- [Mobile - Scroll Stability](../lanes/mobile.md#scroll-stability) - Mobile terminal design decisions
+- [Vault - Directory Layout](../lanes/vault.md#directory-layout) - Vault path, hidden-root constraint, special folders

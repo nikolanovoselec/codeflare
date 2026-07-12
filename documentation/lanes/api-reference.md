@@ -6,8 +6,27 @@ Complete API endpoint reference for the Codeflare Worker.
 
 ## Contents
 
-- [Related Documentation](#related-documentation)
-- [Specification Coverage](#specification-coverage)
+- [Session Management](#session-management)
+- [Container Lifecycle](#container-lifecycle)
+- [Terminal](#terminal)
+- [Vault](#vault)
+- [Browser IDE](#browser-ide)
+- [User Management](#user-management)
+- [Auth (SaaS Mode)](#auth-saas-mode)
+- [Usage](#usage)
+- [Admin](#admin)
+- [Billing](#billing)
+- [Deploy Keys](#deploy-keys)
+- [GitHub Integration](#github-integration)
+- [Cloudflare Integration](#cloudflare-integration)
+- [Public (Unauthenticated)](#public-unauthenticated)
+- [Discoverability Documents](#discoverability-documents)
+- [Setup](#setup)
+- [Storage (R2 File Browser)](#storage-r2-file-browser)
+- [Preferences](#preferences)
+- [LLM API Keys](#llm-api-keys)
+- [Public (Onboarding)](#public-onboarding)
+- [Health](#health)
 
 ---
 
@@ -187,6 +206,14 @@ The Connect-Cloudflare callback re-derives identity from the live session, verif
 | POST | `/public/waitlist` | none | [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012-setup-wizard-step-sequence), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) | Waitlist signup with Turnstile (rate-limited 1/day by IP) |
 | GET | `/public/contact-config` | none | [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline) | Turnstile site key for the landing contact form (SaaS or onboarding mode) |
 | POST | `/public/contact` | none | [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline), [REQ-SEC-007](../../sdd/spec/security.md#req-sec-007-rate-limiting-infrastructure) | Demo-request submission: Turnstile-verified, relayed to admins as email, never persisted (rate-limited 5/min) |
+
+Auth-provider discovery can be checked without a session:
+
+```sh
+curl -sS https://<worker-host>/public/auth/providers
+```
+
+The response is `{ "providers": [...] }`. Each provider contains `id`, `type`, and `name`; direct GitHub mode also includes `loginUrl`.
 
 ### Discoverability Documents
 
@@ -520,11 +547,10 @@ GET `/api/preferences`, PATCH `/api/preferences`
 | Field | Contract |
 |---|---|
 | `lastAgentType` | Optional `AgentType`; last selected agent. |
-| `lastPresetId` | Optional string; last used preset. |
 | `workspaceSyncEnabled` | Boolean, default `false`; workspace sync toggle. |
-| `fastStartEnabled` | Boolean, default `true`; maps to `FAST_CLI_START` in the container DO. See [Fast Start](architecture.md#container-fast-start). |
+| `fastStartEnabled` | Boolean, default `true`; maps to `FAST_CLI_START` in the container DO. See [Fast Start](container.md#fast-start). |
 | `sessionMode` | Optional `SessionMode`; default or advanced. Changes trigger `reconcileAgentConfigs(overwrite: true, cleanup: true)`. |
-| `sleepAfter` | Optional `SleepAfterOption`; auto-sleep duration. See [Auto-sleep](architecture.md#container-auto-sleep-configurable-sleepafter). |
+| `sleepAfter` | Optional `SleepAfterOption`; auto-sleep duration. See [Auto-sleep](container.md#auto-sleep-configurable-sleepafter). |
 | `userTimezone` | Optional valid IANA timezone, max 64 chars; invalid zones return `ValidationError`. |
 | `lastPreseedHash` | Optional SHA-256 prefix of preseed content at last successful reconcile; compared on dashboard load to detect release upgrades. |
 
@@ -608,14 +634,14 @@ Both endpoints return the same JSON body:
 }
 ```
 
-**`initFlagObserved`** - `true` once the server has seen `/tmp/codeflare-init-complete` written by `entrypoint.sh` at the end of R2 sync. A session where `prewarmReady: false` and `initFlagObserved: false` indicates the init-complete flag was never written (sync hung, `jq` merge failed, etc.). See [Container Startup](architecture.md#container-startup-sequence) and [Troubleshooting](troubleshooting.md#container-stuck-at-waiting-for-services).
+**`initFlagObserved`** - `true` once the server has seen `/tmp/codeflare-init-complete` written by `entrypoint.sh` at the end of R2 sync. A session where `prewarmReady: false` and `initFlagObserved: false` indicates the init-complete flag was never written (sync hung, `jq` merge failed, etc.). See [Container Startup](container.md#startup-sequence) and [Troubleshooting](troubleshooting.md#container-stuck-at-waiting-for-services).
 
 **`prewarmReady`** - `true` once the tab-1 PTY session has produced its first output (pre-warm complete).
 
 ---
 
 ## Related Documentation
-- [Authentication](security.md#authentication-three-tier-auth-middleware) - Auth middleware details
+- [Authentication](authentication.md#three-tier-auth-middleware) - Auth middleware details
 - [Security](security.md#rate-limiting) - Rate limits per endpoint
 - [Configuration](configuration.md#worker-environment) - Environment variables
 

@@ -20,7 +20,7 @@ import { redirectWithHeaders } from '../index';
 
 // REQ-SEC-021: HSTS coverage on redirect response paths
 
-describe('redirectWithHeaders', () => {
+describe('redirectWithHeaders / REQ-SEC-021', () => {
   it('returns a redirect response with correct status', () => {
     const res = redirectWithHeaders('/setup', 302);
     expect(res.status).toBe(302);

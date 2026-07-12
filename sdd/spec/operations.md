@@ -160,7 +160,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The pentest workflow runs weekly and on manual dispatch against the configured target URL in the production environment. <!-- @impl: .github/workflows/pentest.yml::tls -->
 2. The workflow runs six parallel probes using lightweight external tools (no active scanners) to minimize CI resource consumption.
-3. Six probe types cover response headers, TLS posture, authentication gates, information disclosure, injection vectors, and HTTP method handling; per-probe checklists live in [documentation/lanes/security.md#penetration-testing-reference](../../documentation/lanes/security.md#penetration-testing-reference).
+3. Six probe types cover response headers, TLS posture, authentication gates, information disclosure, injection vectors, and HTTP method handling; per-probe checklists live in [documentation/lanes/pentest.md](../../documentation/lanes/pentest.md#test-results).
 
 **Notes:** Manual verification procedures are documented in the [deployment checklist](../../documentation/lanes/deployment.md#manual-verification-checklist).
 

@@ -1,6 +1,6 @@
 /**
  * User preferences routes
- * Handles GET/PATCH for user preferences (last agent type, last preset)
+ * Handles GET/PATCH for current user preferences.
  */
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -47,7 +47,6 @@ function isValidIanaTz(tz: string): boolean {
 
 const UpdatePreferencesBody = z.object({
   lastAgentType: AgentTypeSchema.optional(),
-  lastPresetId: z.string().max(100).optional(),
   workspaceSyncEnabled: z.boolean().optional(),
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),
@@ -56,6 +55,12 @@ const UpdatePreferencesBody = z.object({
     message: 'Invalid IANA timezone',
   }).optional(),
 }).strict();
+
+function withoutLegacyPresetId(preferences: UserPreferences & { lastPresetId?: unknown }): UserPreferences {
+  return Object.fromEntries(
+    Object.entries(preferences).filter(([key]) => key !== 'lastPresetId'),
+  ) as UserPreferences;
+}
 
 const preferencesPatchRateLimiter = createRateLimiter({
   windowMs: 60_000,
@@ -74,8 +79,8 @@ app.use('*', authMiddleware);
 app.get('/', async (c) => {
   const bucketName = c.get('bucketName');
   const key = getPreferencesKey(bucketName);
-  const prefs = await c.env.KV.get<UserPreferences>(key, 'json') || {};
-  return c.json(prefs);
+  const stored = await c.env.KV.get<UserPreferences & { lastPresetId?: unknown }>(key, 'json') || {};
+  return c.json(withoutLegacyPresetId(stored));
 });
 
 /**
@@ -108,7 +113,8 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
   }
 
   const key = getPreferencesKey(bucketName);
-  const existing = await c.env.KV.get<UserPreferences>(key, 'json') || {};
+  const stored = await c.env.KV.get<UserPreferences & { lastPresetId?: unknown }>(key, 'json') || {};
+  const existing = withoutLegacyPresetId(stored);
 
   // REQ-ENTERPRISE-020: a sessionMode change triggers an R2 agent-config reconcile below;
   // refuse it while the bucket's encryption regime is migrating so configs are never written

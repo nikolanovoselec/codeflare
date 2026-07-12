@@ -15,8 +15,8 @@ Codeflare runs in four deployment modes. **Default mode** is self-contained — 
 - [SaaS mode](#saas-mode)
 - [Enterprise mode](#enterprise-mode)
 - [Reference](#reference)
-- [Related Documentation](#related-documentation)
 - [Manual verification checklist](#manual-verification-checklist)
+- [Related Documentation](#related-documentation)
 
 ---
 
@@ -42,7 +42,7 @@ Codeflare runs in four deployment modes. **Default mode** is self-contained — 
 | `STRESS_TEST_MODE` | `"active"` disables all rate limits (integration only) | inactive | no | Worker env var | [REQ-OPS-007](../../sdd/spec/operations.md#req-ops-007-container-specs-configurable-per-environment), [REQ-SEC-019](../../sdd/spec/security.md#req-sec-019-per-endpoint-rate-limit-policy) |
 | `ENCRYPTION_KEY` | AES-256-GCM key for `llm-keys:*`/`deploy-keys:*`/`r2token:*` KV entries and the R2 SSE-C key; also the HKDF master input for the per-bucket vault key (`HKDF-SHA256(ENCRYPTION_KEY, info=bucketName)`; vault bootstrap fails 500 if absent). | - | yes | Wrangler secret (optional) | [REQ-SEC-002](../../sdd/spec/security.md#req-sec-002-api-tokens-never-enter-containers), [REQ-SEC-005](../../sdd/spec/security.md#req-sec-005-r2-files-encrypted-at-rest-with-sse-c-when-operator-configures-an-encryption-key), [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) |
 
-There is no development authentication-bypass variable or separate bypass path. Development and production requests use the same identity and authorization middleware in `src/middleware/auth.ts`; admin routes additionally use `requireAdmin`.
+There is no development authentication-bypass variable or separate bypass path. Development and production requests use the same identity and authorization middleware in `src/middleware/auth.ts`; admin routes additionally use `requireAdmin`. <!-- @impl: src/middleware/auth.ts::requireAdmin -->
 
 ### Container Environment
 
@@ -72,7 +72,7 @@ There is no development authentication-bypass variable or separate bypass path. 
 | `SESSION_MODE` | Session mode (`'default'` or `'advanced'`) - controls memory persistence and rclone filters | `'default'` | no | Worker -> DO via `setBucketName` | [REQ-MEM-011](../../sdd/spec/memory.md#req-mem-011-session-mode-storage-resolution-and-propagation), [REQ-AGENT-003](../../sdd/spec/agents.md#req-agent-003-agent-cli-auto-started-in-tab-1) |
 | `NODE_COMPILE_CACHE` | V8 compile cache dir for faster Node.js CLI startup | `/root/.cache/node-compile-cache` | no | Dockerfile ENV | [REQ-AGENT-001](../../sdd/spec/agents.md#req-agent-001-support-multiple-ai-coding-agents) |
 | `BROWSER` | Points to `open-url` shim that exits 1 | `/usr/local/bin/open-url` | no | Dockerfile ENV | [REQ-AGENT-013](../../sdd/spec/agents.md#req-agent-013-browser-shim-for-oauth-flows) |
-| `SB_INDEX_PAGE` | Landing page when SilverBullet opens (case-sensitive page name, no `.md`). SB Go server defaults to `"index"` (lowercase); set to `Index` so the Codeflare dashboard loads on Vault button click. See [vault.md](./architecture.md#vault-silverbullet-editor-req-vault-005) ([REQ-VAULT-012](../../sdd/spec/vault.md#req-vault-012-vault-button-render-and-dashboard-landing) AC3). | `Index` | no | `entrypoint.sh` `start_silverbullet_supervisor` | [REQ-VAULT-012](../../sdd/spec/vault.md#req-vault-012-vault-button-render-and-dashboard-landing) |
+| `SB_INDEX_PAGE` | Landing page when SilverBullet opens (case-sensitive page name, no `.md`). SB Go server defaults to `"index"` (lowercase); set to `Index` so the Codeflare dashboard loads on Vault button click. See [vault.md](./vault.md#silverbullet-editor-req-vault-005) ([REQ-VAULT-012](../../sdd/spec/vault.md#req-vault-012-vault-button-render-and-dashboard-landing) AC3). | `Index` | no | `entrypoint.sh` `start_silverbullet_supervisor` | [REQ-VAULT-012](../../sdd/spec/vault.md#req-vault-012-vault-button-render-and-dashboard-landing) |
 | `USER_TIMEZONE` | IANA timezone string (e.g. | (absent = UTC fallback) | no | Worker -> DO via `setBucketName`; read by `entrypoint.sh` memory-capture pipeline | [REQ-SESSION-016](../../sdd/spec/session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env), [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) AC4 |
 | `CODEFLARE_MEMORY_MODEL` | Optional fidelity pin (no hardcoded model name) for the Pi memory-capture and Vault-extract subagents. | (unset = inherit session model) | no | `~/.pi/agent/extensions/memory-vault.ts` | [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault) |
 
@@ -163,7 +163,7 @@ In non-enterprise modes a user connects their own Cloudflare account via OAuth (
 
 **Scopes.** The connect URL carries a tier (minimal/recommended/advanced); the server maps it to the OAuth `scope` using **dot-notation scope IDs** from Cloudflare's OAuth catalog (`GET /client/v4/oauth/scopes` — `<resource>.<read|write>` form, e.g. `workers-scripts.write`, `account-settings.read`, `ai.write`; **not** the colon-style API-token permission-group keys), always including `offline_access` for a refresh token, from the server-side catalog in `src/lib/oauth-scopes.ts`. The operator's OAuth client must be registered with at least the **Advanced superset**, since per-connect requests can only narrow within the registered scopes.
 
-Cloudflare's picker shows descriptive names while the scope ID appears only after saving. Verify the saved ID: `zone-access.write` and `access.write` can display the same label but grant different access.
+For a per-scope dashboard display-name lookup (Cloudflare's picker shows descriptive names; the scope ID appears only after saving) and the `zone-access.write` vs `access.write` duplicate-label gotcha, see the [OAuth scope registration table](#cloudflare-api-token-user) in the root README.
 
 ### GitHub Integration
 
@@ -335,7 +335,7 @@ The hash is appended to **every** group, even one that needs no sanitizing like 
 
 The value is matched **case-sensitively** against the group name or ID exactly as it appears in the Cloudflare dashboard — a mismatch denies every user. Prefer the immutable Access group **ID** over the display name: membership is matched against the group's id, name, or email, and a display name can be renamed or reused.
 
-See [User Provisioning — Enterprise Mode Provisioning](security.md#user-provisioning-enterprise-mode-provisioning), [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) (group-gated JIT provisioning), and [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) (gateway metadata forwarding).
+See [User Provisioning — Enterprise Mode Provisioning](user-provisioning.md#enterprise-mode-provisioning), [REQ-ENTERPRISE-010](../../sdd/spec/enterprise-mode.md#req-enterprise-010-access-gated-jit-user-provisioning) (group-gated JIT provisioning), and [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) (gateway metadata forwarding).
 
 ### Admin Access Group Configuration
 
@@ -343,7 +343,7 @@ See [User Provisioning — Enterprise Mode Provisioning](security.md#user-provis
 
 Membership is resolved **live** on each admin-gated request (a single Cloudflare Access get-identity call) inside `requireAdmin`, never in the hot authentication path, and it short-circuits for a user already resolved as admin — so non-admin requests and non-admin routes carry no extra cost, and removing a user from the group revokes their admin access on the very next request. The elevation lives only on the request context (no KV `role:'admin'` record is written), and the check fails closed (treated as non-member) on any missing token, non-`*.cloudflareaccess.com` domain, or fetch error.
 
-Admin groups widen the entry gate too: when `setup:enterprise_access_group` is set, membership is tested against the **union** of user-access + admin groups, so an admin in no user-access group is still admitted; admin groups never arm the entry gate by themselves. Admin groups are **excluded from per-group routing** — only user-access groups appear in `setup:group_routing`. See [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) and [Authentication — Admin authorization](security.md#authentication-reference).
+Admin groups widen the entry gate too: when `setup:enterprise_access_group` is set, membership is tested against the **union** of user-access + admin groups, so an admin in no user-access group is still admitted; admin groups never arm the entry gate by themselves. Admin groups are **excluded from per-group routing** — only user-access groups appear in `setup:group_routing`. See [REQ-ENTERPRISE-014](../../sdd/spec/enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups) and [Authentication — Admin authorization](authentication.md).
 
 ### Governed Mode (R2 SSE-C disable)
 
@@ -536,12 +536,6 @@ Additional details:
 - [REQ-SETUP-010](../../sdd/spec/setup.md#req-setup-010-social-share-preview-metadata-on-the-public-landing-page) - Social-share preview metadata on the public landing page
 - [REQ-SETUP-011](../../sdd/spec/setup.md#req-setup-011-setup-stream-completion-payload-contract) - Setup stream completion payload contract
 
-## Related Documentation
-- [Container](architecture.md#container-auto-sleep-configurable-sleepafter) - Container startup and auto-sleep configuration
-- [Authentication](security.md#authentication-environment-variables-for-saas-mode) - SaaS mode variables
-- [Security](security.md#credential-encryption-at-rest) - Encryption key details
-- [CI/CD](deployment.md#ci-and-cd-github-secrets-and-variables) - CI secrets and variables
-
 ## Manual verification checklist
 
 Run the setup flow in staging from a clean configuration and again as an update; compare bindings, stored settings, public status, and idempotent outcomes with every AC.
@@ -549,3 +543,11 @@ Run the setup flow in staging from a clean configuration and again as an update;
 - [ ] [REQ-SETUP-005](../../sdd/spec/setup.md#req-setup-005-post-setup-reconfiguration-requires-admin-auth) — verify every acceptance criterion.
 - [ ] [REQ-SETUP-010](../../sdd/spec/setup.md#req-setup-010-social-share-preview-metadata-on-the-public-landing-page) — verify every acceptance criterion.
 - [ ] [REQ-SETUP-012](../../sdd/spec/setup.md#req-setup-012-setup-wizard-step-sequence) — verify every acceptance criterion.
+
+---
+
+## Related Documentation
+- [Container](container.md#auto-sleep-configurable-sleepafter) - Container startup and auto-sleep configuration
+- [Authentication](authentication.md#environment-variables-for-saas-mode) - SaaS mode variables
+- [Security](security.md#credential-encryption-at-rest) - Encryption key details
+- [CI/CD](ci-cd.md#github-secrets-and-variables) - CI secrets and variables

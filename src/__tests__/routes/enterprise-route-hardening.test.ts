@@ -298,12 +298,11 @@ describe('REQ-ENTERPRISE-009 AC6: PATCH /api/preferences is not fail-closed in e
     const { app } = createApp(ENTERPRISE);
     const res = await app.request('/api/preferences', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionMode: 'advanced', lastPresetId: 'preset-1' }),
+      body: JSON.stringify({ sessionMode: 'advanced' }),
     });
     expect(res.status).toBe(200);
     const body = await res.json() as Record<string, unknown>;
     expect(body.sessionMode).toBe('advanced');
-    expect(body.lastPresetId).toBe('preset-1');
   });
 });
 
@@ -362,7 +361,7 @@ describe('REQ-ENTERPRISE-009 AC7: flag unset is byte-identical to current behavi
     const { app } = createApp();
     const res = await app.request('/api/preferences', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionMode: 'advanced', lastPresetId: 'preset-2' }),
+      body: JSON.stringify({ sessionMode: 'advanced' }),
     });
     expect(res.status).toBe(200);
     const prefs = await res.json() as Record<string, unknown>;

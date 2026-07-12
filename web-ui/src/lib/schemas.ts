@@ -54,7 +54,6 @@ export const AuthProvidersResponseSchema = z.object({
 // User preferences schema
 export const UserPreferencesSchema = z.object({
   lastAgentType: AgentTypeSchema.optional(),
-  lastPresetId: z.string().optional(),
   workspaceSyncEnabled: z.boolean().optional(),
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),

@@ -253,7 +253,6 @@ export const SleepAfterOptions: SleepAfterOption[] = ['15m', '30m', '1h', '2h', 
 
 export interface UserPreferences {
   lastAgentType?: AgentType;
-  lastPresetId?: string;
   workspaceSyncEnabled?: boolean;
   fastStartEnabled?: boolean;
   sessionMode?: SessionMode;
