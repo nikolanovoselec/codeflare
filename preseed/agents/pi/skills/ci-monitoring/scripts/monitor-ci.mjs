@@ -78,7 +78,6 @@ export async function resolveCiMonitorRequest({ event, changed, repo, cwd, revie
     prompt: `repo=${repo} pr=${pr.number} head=${pr.headRefOid}`,
     run_in_background: true,
     inherit_context: false,
-    max_turns: 2,
   };
 }
 

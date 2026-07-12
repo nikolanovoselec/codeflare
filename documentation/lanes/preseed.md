@@ -183,7 +183,7 @@ Pi CI monitoring is independent of review and owned automatically only by the ro
 node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> cwd=<absolute-repo-root> reviewState=<launched|not-required>
 ```
 
-No stdout means no action. Otherwise the root submits the resolver's request unchanged once through public `subagent`. The dedicated report-only `ci-monitor` launches last without waiting for reviewer completion. An aborted task is relaunched only after a later eligible event or explicit request. Implements [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring).
+No stdout means no action. Otherwise the root submits the resolver's request unchanged once through public `subagent`. The dedicated report-only `ci-monitor` launches last without waiting for reviewer completion and relies on the bounded script rather than an agent turn cap, preserving verbatim native output. An aborted task is relaunched only after a later eligible event or explicit request. Implements [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring).
 
 Pi review is separately session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). Successful persisted boundaries produce a triggering root follow-up. With a valid acknowledgement, the reminder and every counted reviewer prompt carry the exact acknowledged-to-current range; unmatched calls remain in flight until native terminal notification. The root waits for all reports and alone changes the head.
 

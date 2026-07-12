@@ -172,7 +172,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(entries[0]!.contentType).toBe('text/typescript; charset=utf-8');
   });
 
-  it('REQ-AGENT-068/070/080/081: seeds distinct Claude and Pi CI workflow contracts', () => {
+  it('REQ-AGENT-068/070: seeds distinct Claude and Pi CI workflow contracts', () => {
     const claudeGitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/git-workflow.md');
     const claudeCiSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/skills/ci-monitoring/SKILL.md');
     const piGitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/rules/git-workflow.md');
@@ -192,14 +192,15 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       contentType: 'text/markdown; charset=utf-8',
       modes: ['default', 'advanced'],
     });
-    expect(frontmatter(piCiMonitor?.content ?? '')).toMatchObject({
+    const piCiFrontmatter = frontmatter(piCiMonitor?.content ?? '');
+    expect(piCiFrontmatter).toMatchObject({
       name: 'ci-monitor',
       tools: 'bash',
       prompt_mode: 'replace',
       run_in_background: 'true',
       inherit_context: 'false',
-      max_turns: '2',
     });
+    expect(piCiFrontmatter).not.toHaveProperty('max_turns');
     expect(piMonitorModule).toMatchObject({
       key: '.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs',
       contentType: 'text/javascript; charset=utf-8',

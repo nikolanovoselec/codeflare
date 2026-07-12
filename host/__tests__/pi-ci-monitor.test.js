@@ -66,7 +66,6 @@ function expectedRequest() {
     prompt: `repo=${REPO} pr=${PR} head=${HEAD}`,
     run_in_background: true,
     inherit_context: false,
-    max_turns: 2,
   };
 }
 

@@ -348,6 +348,22 @@ describe('Pi review reminder and settled enforcement', () => {
     }
   });
 
+  it('REQ-AGENT-055: acknowledged current head emits no review', async () => {
+    const fixture = makeReviewFixture();
+    writeFileSync(join(fixture.repo, '.git/sdd-last-ack-pr-head'), `${fixture.head}\n`, 'utf8');
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      assistantTool('push-current', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-current', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent());
+    await harness.emit('agent_settled');
+
+    expect(harness.sent).toEqual([]);
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
+  });
+
   it('REQ-AGENT-036: resolves a cd-prefixed boundary through active repository memory', async () => {
     const fixture = makeReviewFixture();
     const sessionRoot = dirname(fixture.repo);

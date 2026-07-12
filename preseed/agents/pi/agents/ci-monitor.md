@@ -5,7 +5,6 @@ tools: bash
 prompt_mode: replace
 run_in_background: true
 inherit_context: false
-max_turns: 2
 ---
 
 You are Codeflare's CI monitor. The task prompt supplies `repo`, `pr`, and full `head` values.
