@@ -26,6 +26,7 @@ Complete API endpoint reference for the Codeflare Worker.
 - [Preferences](#preferences)
 - [LLM API Keys](#llm-api-keys)
 - [Public (Onboarding)](#public-onboarding)
+- [Public (Landing)](#public-landing)
 - [Health](#health)
 
 ---

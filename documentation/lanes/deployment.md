@@ -120,7 +120,7 @@ Cost scales per ACTIVE SESSION (each session = one container; a session has up t
 
 ## Manual verification checklist
 
-Inspect repository settings and a staging workflow run, including job graph, logs, artifacts, and billing metrics where applicable; compare each observable result with every AC.
+Inspect repository settings and a staging workflow run, including job graph, logs, artifacts, and billing metrics when present; compare each observable result with every AC.
 
 - [ ] [REQ-OPS-001](../../sdd/spec/operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline) — verify every acceptance criterion.
 - [ ] [REQ-OPS-002](../../sdd/spec/operations.md#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push) — verify every acceptance criterion.
