@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { rememberActiveRepo } from '../../../preseed/agents/pi/extensions/codeflare-pi';
+
 type ReviewLane = 'code-reviewer' | 'spec-reviewer' | 'doc-updater';
 type PrState = {
   state: 'OPEN' | 'CLOSED' | 'MERGED';
@@ -197,9 +199,9 @@ function makeHarness(repo: string, sessionFile: string): {
   };
 }
 
-async function registerFixture(fixture: ReturnType<typeof makeReviewFixture>) {
+async function registerFixture(fixture: ReturnType<typeof makeReviewFixture>, cwd = fixture.repo) {
   const { registerReviewEnforcement } = await plannedEnforcement();
-  const harness = makeHarness(fixture.repo, fixture.sessionFile);
+  const harness = makeHarness(cwd, fixture.sessionFile);
   await registerReviewEnforcement(harness.pi, {
     queryPr: async () => fixture.pr,
     now: () => NOW,
@@ -242,7 +244,7 @@ describe('Pi review reminder and settled enforcement', () => {
         display: true,
         details: { head: fixture.head, requiredLanes: ALL_LANES },
       }),
-      options: { triggerTurn: false },
+      options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
 
     harness.sent.splice(0);
@@ -257,6 +259,23 @@ describe('Pi review reminder and settled enforcement', () => {
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
+  });
+
+  it('REQ-AGENT-036: resolves a cd-prefixed boundary through active repository memory', async () => {
+    const fixture = makeReviewFixture();
+    const sessionRoot = dirname(fixture.repo);
+    rememberActiveRepo(fixture.repo);
+    const harness = await registerFixture(fixture, sessionRoot);
+
+    await harness.emit('tool_result', boundaryEvent(`cd ${fixture.repo} && gh pr create --base main`));
+
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-review-reminder',
+        details: { head: fixture.head, requiredLanes: ALL_LANES },
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
   });
 
   it('REQ-AGENT-063: extracts boundaries only from supported shell tool result surfaces', async () => {

@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { recallActiveRepo } from "./codeflare-pi";
 
 const CACHE_TTL_MS = 1_000;
 
@@ -22,14 +23,6 @@ type ExtensionAPI = {
   getThinkingLevel(): string;
   on(event: string, handler: (event: unknown, ctx: ExtensionContext) => void): void;
 };
-
-const ACTIVE_REPO_KEY = Symbol.for("codeflare.activeRepo");
-type ActiveRepoMemory = { [ACTIVE_REPO_KEY]?: string };
-const activeRepoMemory = globalThis as unknown as ActiveRepoMemory;
-
-function recallActiveRepo(): string | undefined {
-  return activeRepoMemory[ACTIVE_REPO_KEY];
-}
 
 type FooterRendererFactory = (
   tui: { requestRender(): void },

@@ -191,7 +191,7 @@ fixes, commits, or pushes. An explicit user request is the only other launch pat
 an aborted task is not relaunched automatically. Implements
 [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring).
 
-Pi review is separately session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). The extension reminder or settled follow-up names the required reviewer lanes; the root
+Pi review is separately session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). The extension resolves the session or remembered active repository and delivers a triggering root follow-up that names the required reviewer lanes; the root
 session launches those lanes together through public background `subagent` calls
 without inherited context, waits for every native completion notification, verifies
 all findings, and alone commits or pushes. Reload may discard active review or CI

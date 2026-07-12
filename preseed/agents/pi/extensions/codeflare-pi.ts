@@ -78,6 +78,10 @@ export function rememberActiveRepo(repo: string | undefined): void {
   if (repo) activeRepoMemory[ACTIVE_REPO_KEY] = repo;
 }
 
+export function recallActiveRepo(): string | undefined {
+  return activeRepoMemory[ACTIVE_REPO_KEY];
+}
+
 type PiSettings = {
   packages?: Array<string | { source?: string; extensions?: string[]; skills?: string[]; [key: string]: unknown }>;
   extensions?: string[];

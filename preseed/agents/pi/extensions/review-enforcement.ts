@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, readSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { recallActiveRepo } from "./codeflare-pi";
 import {
   classifyReviewBoundaryCommand,
   isReviewTransitionSuspended,
@@ -175,7 +176,7 @@ async function currentReview(
   ctx: ReviewContext,
   dependencies: Dependencies,
 ): Promise<{ repo: string; file: string; pr: PrState } | undefined> {
-  const repo = ctx.cwd;
+  const repo = isSddRepo(ctx.cwd) ? ctx.cwd : (recallActiveRepo() ?? ctx.cwd);
   const file = sessionFile(ctx);
   if (isChildSession(ctx, file) || !isSddRepo(repo) || isReviewTransitionSuspended(repo)) return undefined;
   const pr = await dependencies.queryPr(repo);
@@ -199,7 +200,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       content: `PR head ${review.pr.headRefOid} requires these review agents: ${requiredLanes.join(", ")}. Launch them together with the public subagent tool, in the background without inherited context. Wait for every result before fixing, committing, or pushing.`,
       display: true,
       details: { head: review.pr.headRefOid, requiredLanes },
-    }, { triggerTurn: false });
+    }, { deliverAs: "followUp", triggerTurn: true });
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
