@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD99](#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -86,11 +86,11 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD73](#ad73-workersdev-enabled-on-every-deployment-for-setup-wizard-bootstrap) | workers.dev enabled on every deployment for setup-wizard bootstrap | Security |
 | [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) | Enterprise LLM transport on the AI Gateway REST API (amends [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing)) | Architecture, Security |
 | [AD75](#ad75-pi-graphify-tools-replaced-by-a-first-party-native-extension) | Pi graphify tools replaced by a first-party native extension (`graphify-native.ts`); `@gaodes/pi-graphify` removed | Architecture |
-| [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) | Durable review lanes run as detached headless Pi processes | Agents |
+| [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) | _superseded by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents)_ | (superseded) |
 | [AD77](#ad77-enterprise-vault-service-worker-reached-via-a-higher-precedence-access-bypass-app) | Enterprise vault service-worker reached via a higher-precedence Access bypass app | Architecture, Security |
-| [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers) | PR-boundary review lanes run in parallel (report-only reviewers) | Agents |
+| [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers) | PR-boundary review lanes run in parallel (report-only reviewers), amended by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) for Pi execution | Agents |
 | [AD79](#ad79-image-baked-pi-extension-transpile-cache) | Image-baked Pi extension transpile cache | Performance |
-| [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) | Pi PR-boundary merge gate is report-only and defended in depth | Agents |
+| [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) | _superseded by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents)_ | (superseded) |
 | [AD81](#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) | Reuse the container egress-injection layer for per-user GitHub tokens | Architecture, Security |
 | [AD82](#ad82-visible-terminal-panes-own-websockets-and-multiview-is-virtual) | Visible terminal panes own WebSockets, and MultiView is virtual | Architecture, UI/Frontend |
 | [AD83](#ad83-vault-indexeddb-cannot-be-persisted-across-sessions-by-keying-the-encryption-key-to-the-r2-bucket) | _superseded by [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) — vault IndexedDB IS now persisted across sessions, via a bucket-stable URL + HKDF key (not a key-only change)_ | Architecture |
@@ -108,6 +108,8 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault) | Browser IDE is session-isolated (the deliberate opposite of the bucket-stable Vault) | Architecture, Security |
 | [AD96](#ad96-deactivate-codexcopilot-v8-warm-up-and-opencode-db-pre-init-image-size) | Deactivate codex/copilot V8 warm-up and OpenCode DB pre-init (image size) | Build / Container |
 | [AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk) | Keep OpenVSCode upstream-clean and accept known vulnerability risk | Security, Build / Container |
+| [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) | Pi PR review uses visible session-scoped agents | Agents |
+| [AD99](#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent) | Pi CI monitoring uses one attached native background subagent | Agents |
 
 ---
 
@@ -1720,7 +1722,7 @@ Identity-driven budgets are additionally a closed beta. Net: keep `AIG_TOKEN` + 
 
 **Category:** Agents
 
-**Status:** Accepted (2026-06-08)
+**Status:** Superseded by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) (2026-07-12)
 
 **Supersedes:** [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield)
 
@@ -1779,7 +1781,7 @@ REQ-VAULT-017 already serves the SW credential-less inside the Worker, but Acces
 
 **Category:** Agents
 
-**Status:** Accepted (2026-06-09)
+**Status:** Accepted (2026-06-09); amended for Pi execution by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) (2026-07-12)
 
 **Context:** At a PR-boundary the SDD pipeline dispatches three review lanes — `code-reviewer` (source), `spec-reviewer` (`sdd/`), and `doc-updater` (`documentation/` + root `README.md`). The original design ran them **sequentially**: `spec-reviewer` first, then `doc-updater`, on the rationale that the reviewers *edited* their lanes in place and `doc-updater` had to validate REQ cross-references against the spec `spec-reviewer` had just moved (the race-condition concern recorded in [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution)). Both engines encoded that ordering: Pi's `durableReviewInitialLanes` withheld `doc-updater` from the initial wave and `review-enforcement.ts` spawned it on `spec-reviewer` completion; Claude's `enforce-review-spawn.sh` demanded `doc-updater` only after `spec-reviewer` acked, sequenced via a `PIPELINE_COMPLETE` marker.
 
@@ -1853,7 +1855,7 @@ coding agents auto-update at deploy is the product stance; the accepted tradeoff
 
 **Category:** Architecture
 
-**Status:** Accepted (2026-06-11)
+**Status:** Superseded by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) (2026-07-12)
 
 **Context:** A Fable-5 deep review of the Pi PR-boundary review subsystem found the merge gate was the weakest-covered layer. The gate is the `onAgentStart`/`tool_call` interceptor that blocks `gh pr merge` until the reviewed head is acked.
 
@@ -2393,6 +2395,46 @@ The manifest is baselined from current content **only when absent** (the first s
 **Consequences:** Operators accept the documented editor risk while retaining reproducible, upstream-clean upgrades. Enterprise mitigations are per-session Codeflare container isolation plus enterprise inspection and guardrails; they constrain and observe the workload but cannot guarantee containment of an editor exploit. Every OpenVSCode upstream bump must re-review this decision, the scanner exceptions, and available fixed releases. Review is also required immediately when credible evidence shows critical exploitation in the wild or a materially more severe reachable exploit path. Acceptance expires at either trigger until the review records whether to upgrade, disable, or renew the decision.
 
 **Related:** [REQ-IDE-001](../../sdd/spec/browser-ide.md#req-ide-001-per-session-browser-ide-served-through-the-worker-proxy), [REQ-SEC-011](../../sdd/spec/security.md#req-sec-011-container-image-scanned-for-cves-before-deploy), [Browser IDE security](../lanes/security.md#openvscode-upstream-vulnerability-acceptance).
+
+---
+
+### AD98: Pi PR review uses visible session-scoped agents
+
+**Category:** Agents
+
+**Status:** Accepted (2026-07-12)
+
+**Supersedes:** [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth)
+
+**Amends:** [AD78](#ad78-pr-boundary-review-lanes-run-in-parallel-report-only-reviewers)
+
+**Context:** Pi's durable review design accumulated detached lane processes, job directories, PID recovery, monitor claims, result summaries, status rendering, and a hard merge gate. The recovery machinery became larger and less reliable than the review behavior it protected. Pi now exposes visible public subagent calls, persisted completion notifications correlated by tool-use ID, root/child session lineage, and an `agent_settled` event. Those primitives can express the same reminder and completion proof used by Claude without a second execution system.
+
+**Decision:** Pi PR-boundary review is session-scoped. The root session emits an eligible review reminder, launches the required `code-reviewer`, `spec-reviewer`, and `doc-updater` agents through the public `subagent` tool, waits for all required results, and acknowledges the reviewed SHA only after the root transcript contains each correlated terminal notification. Review agents remain parallel and report-only. General delegated agents may edit files but no subagent pushes; the root main session alone fixes, commits, and pushes. Pi does not keep a pre-command merge gate, durable lanes, a `review-monitor`, result files, summaries, or recovery state. Reload may repeat review work but cannot fabricate completion. Claude review behavior is unchanged.
+
+**Alternatives considered:** Retain detached lanes and repair their recovery paths; keep only a durable checkpoint; call `SubagentsService` directly; parse reviewer findings into another state machine; or preserve the hard Pi merge interceptor. Each adds a second source of execution or completion truth. The public tool call plus root transcript already provides the required proof with fewer failure modes.
+
+**Consequences:** Review execution is visible and simple, but active reviews end with the Pi session. A later supported boundary safely reruns an unacknowledged head. AD78's parallel report-only policy remains; only Pi's durable result-file mechanics are replaced. AD76's detached lane architecture and AD80's hard merge gate no longer govern Pi.
+
+**Related:** [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff).
+
+---
+
+### AD99: Pi CI monitoring uses one attached native background subagent
+
+**Category:** Agents
+
+**Status:** Accepted (2026-07-12)
+
+**Context:** Pi CI monitoring mixed three conflicting paths: a review-owned handoff, a generic agent prompt, and a detached shell embedded in a skill. Native task completion could arrive before the detached monitor finished. Historical incidents included duplicate launches, startup prompt collisions, shell and `jq` false results, workflow-name drift, PR checks missed by commit-SHA lookup, and lost delivery after reload.
+
+**Decision:** CI monitoring is independent of review. The root Git workflow rule is the sole automatic trigger after an eligible push or PR creation. One executable resolver returns either no action or one public background `ci-monitor` request containing the authoritative PR number and `headRefOid`. The dedicated agent runs one attached Node process that reads the PR check rollup, verifies the PR head before polling and before terminal output, and returns `CI_RESULT` through the native task notification. It uses no generic agent, direct service API, detached child, workflow-name inventory, inferred Actions run ID, claim, PID, log, state file, or automatic restart.
+
+**Alternatives considered:** Repair the shared review/CI handoff; add a durable CI claim; keep the detached shell and watch its log; monitor hard-coded workflows or `gh run list --commit`; or auto-restart after reload. These retain the failures caused by conflicting ownership or disconnected lifecycles. One attached process and one native result path are sufficient.
+
+**Consequences:** CI launch and monitoring truth become behaviorally testable through one script and one tiny agent. Reload may abort a monitor without a result; a later eligible Git event or explicit user request can start a fresh one. Review never launches, tracks, waits for, or restarts CI, and CI never launches reviewers. Claude CI behavior is unchanged.
+
+**Related:** [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy).
 
 ---
 

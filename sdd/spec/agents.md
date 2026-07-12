@@ -1093,31 +1093,30 @@ None.
 
 ### REQ-AGENT-036: PR-Boundary Review Trigger Conditions
 
-**Intent:** Review agents must fire only on PR-boundary events that actually target shipping code. Trigger evaluation gates parsed boundary commands against real PR state, ignores integration-branch and no-PR work, and leaves direct `main` protection to upstream branch rules. Command parsing lives in [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing), command targeting/recovery lives in [REQ-AGENT-066](#req-agent-066-pr-boundary-command-targeting-and-failure-recovery), lane classification + agent dispatch live in [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch), and bypass surfaces live in [REQ-AGENT-041](#req-agent-041-pr-boundary-review-bypass-surfaces).
+**Intent:** Pi review must react only to supported root-session PR-boundary commands for an SDD project with an open PR targeting `main` or `master`. Draft PRs remain eligible, matching Claude; integration, closed, no-PR, transition, failed-command, and child-session states remain inert.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. PR-boundary review fires only for an open, non-draft PR targeting `main` or `master`; on the actual-command path, an open PR with a missing base fails open to review. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::isEnforcedPr --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::isEnforcedPrForPush --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prEnforcedForPush --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (prEnforcedForPush (push-path fail-open enforcement gate)) -->
-2. Only command classes parsed by [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing) can enter trigger evaluation; `gh pr merge` is merge-gate input, not a fresh review trigger. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isPrBoundaryTrigger --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isGhPrMergeCommand --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (isPrBoundaryTrigger) -->
-3. Metadata-only PR commands do not trigger review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isPrBoundaryCommand --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (isPrBoundaryTrigger) -->
-4. PRs into integration branches (`develop`, `staging`, etc.) are deferred until that branch has its own PR to `main` or `master`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::isEnforcedPr --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh — PR-SYNC trigger (base-gated)) -->
-5. During a non-draft, non-dry-run `gh pr create` metadata-visibility race, Pi may infer `main`/`master` from CLI/default base data and synthesize an open PR from local HEAD; non-protected bases remain ignored. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prCreateBoundaryBase --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prCreateCommandTarget --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::prForBoundaryCommand --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (prEnforcedForPush (push-path fail-open enforcement gate)) -->
-6. Non-triggering states never create a review window: vibe-coding projects run no agents, and passive lifecycle events never act on branch existence alone. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::isSddProject --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reconcileOpenPrReview --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-7. A successful PR-boundary command still enters review evaluation when its tool-end event loses command text. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::rememberBoundaryStartCommand --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::startedBoundaryCommandForToolEnd --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::handlePrBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::prStateFreshResult --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (recovers same-tool PR-boundary commands whose end event lost command text) -->
+1. A successful supported root-session boundary emits a structured reminder only when `sdd/README.md` exists and fresh PR state is open against `main` or `master`; draft PRs are eligible. <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: emits a structured reminder for a supported boundary and a follow-up for all missing lanes) -->
+2. Integration-base, closed, missing-PR, failed-command, and unsupported command states emit no reminder or review follow-up. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063: distinguishes Claude-supported reminder and settled command surfaces) -->
+3. Root and nested SDD layouts suppress review only while transition is true and the active triage queue contains an open item. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-045/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
+4. Passive session lifecycle and branch existence alone never start review; child sessions cannot emit reminders, follow-ups, or acknowledgement writes. <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes) -->
+5. `gh pr create` is reminder-only; settled enforcement reconstructs review from push, protected-base edit, or merge boundaries and fresh PR state. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063: distinguishes Claude-supported reminder and settled command surfaces) -->
 
 **Constraints:**
 
-None.
+- Command parsing is defined by [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing).
+- Pi adds no pre-command merge gate.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing)
 
-**Verification:** [Automated test](../../host/__tests__/git-push-review-reminder.test.js), [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [`gh pr edit` retarget trigger tests](../../src/__tests__/lib/review-trigger.test.ts)
+**Verification:** [Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts), [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts)
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -1224,61 +1223,56 @@ None.
 
 ### REQ-AGENT-040: PR-Boundary Lane Classification and Agent Dispatch
 
-**Intent:** Once a PR-boundary trigger fires ([REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)), a shared lane classifier picks the minimal correct set of review agents from the diff so the in-turn nudge and turn-end gate agree, and a fix-push cascade can advance the ack pointer without losing review coverage.
+**Intent:** One pure classifier must select the smallest safe reviewer set from the acknowledged-to-current diff so reminders and settled enforcement cannot disagree.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Layer 1 lane classification uses one internally shared classifier per runtime surface so the in-turn nudge and the turn-end gate agree on which review agents the diff requires. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh::compute_required_lanes --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewFiles --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — PR state gating) -->
-2. Lane mapping sends generated-only diffs to no lanes, docs-only to `doc-updater`, spec-only to both documentation lanes, and source changes to all three agents. Non-generated files always determine the effective lanes. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewFiles --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isGeneratedArtifactPath --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh::compute_required_lanes --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (classifyReviewFiles generated-artifact handling) -->
-3. Conservative branches (empty diff, missing prior ack, divergent merge-base) and a missing or unsourceable helper both fall back to all-three-lanes (`code-reviewer spec-reviewer doc-updater`), so a partially-deployed install never disables enforcement. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh::compute_required_lanes --> <!-- @test: host/__tests__/lane-classifier.test.js (last_ack on a divergent branch falls back to all three lanes) -->
+1. Generated-only changes require no lane, documentation-only changes require `doc-updater`, SDD-only or SDD-plus-documentation changes require `spec-reviewer` and `doc-updater`, and source, test, configuration, workflow, preseed, mixed, or unknown changes require all three lanes. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: classifies generated, docs, spec, source, and mixed commit ranges into reviewer lanes) -->
+2. Diff parsing uses NUL-delimited paths with rename detection disabled, so unusual filenames and source-to-documentation renames cannot reduce required review. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: uses NUL-safe no-renames diffing so tricky names and source-to-doc renames cannot bypass code review) -->
+3. Missing, malformed, or non-ancestor acknowledgement and uncertain or empty review ranges fall back to all three lanes; an acknowledged current head requires none. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055: falls back to all lanes for malformed and non-ancestor acknowledgements) -->
 
 **Constraints:**
 
-- The agent must not push to the PR branch or start a second review wave while any required review lane is in flight.
+- Claude's lane classifier remains unchanged.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** [Lane classifier tests](../../host/__tests__/lane-classifier.test.js), [Stop-hook behavioral tests](../../host/__tests__/enforce-review-spawn.test.js), [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** [Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts), [Claude lane classifier tests](../../host/__tests__/lane-classifier.test.js)
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
 ### REQ-AGENT-041: PR-Boundary Review Bypass Surfaces
 
-**Intent:** The user needs a small set of explicit, user-only escape hatches when a PR-boundary review gate would otherwise block legitimate work (hermetic tests, deliberate skip, repeated false-block). The assistant MUST NEVER trip these surfaces in its own output.
+**Intent:** Review enforcement needs only Claude's explicit user-controlled bypasses and bounded fail-open behavior. Bypasses skip the current boundary without falsely acknowledging its head.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A user-creatable one-shot sentinel file bypasses the current PR-boundary gate exactly once and is auto-deleted on use. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::BYPASS_FILE --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::consumeBypass --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (H1: vibe-coding project does NOT consume the /tmp/review-bypass sentinel) -->
-2. In Pi, review-start no-op decisions leave the bypass sentinel and boundary-start eligibility untouched, while live review-start or merge-gate decisions are the only decisions that may consume a pending sentinel. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewWindowStartDecision --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewBoundaryStartDecision --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBoundaryBypassForHead --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::onAgentStart --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::mergeGateDecision --> <!-- @test: src/__tests__/lib/review-state.test.ts (reviewWindowStartDecision (REQ-AGENT-041: bypass is consumed only by live review starts)) -->
-3. Claude Stop-hook enforcement treats the sentinel as a one-turn bypass without advancing the acknowledgement checkpoint; Pi native enforcement acknowledges only the current live protected PR HEAD after successful sentinel consumption. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::bypassAckHeadForStatus --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-4. Pi task/subagent sessions must leave the sentinel untouched and must not acknowledge a bypass if sentinel consumption fails. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::consumeBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::canMainSessionConsumeReviewBypass --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewBypassConsumeDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-041 / REQ-AGENT-055: Pi bypass consumption stays main-session-only and active head selection rejects stale states) -->
-5. A user-authored `skip review` or `skip verification` phrase after the candidate push line bypasses that push. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::BYPASS_FILE --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — bypass 2: magic phrase) -->
-6. A 5-strike circuit breaker exits silently for the same unacked PR HEAD until the SHA changes. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::openBreaker --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::isBreakerOpen --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (enforce-review-spawn.sh — 5-strike circuit breaker / REQ-AGENT-044 (review-agent discipline enforcement)) -->
-7. The assistant MUST NEVER create the sentinel file or write the magic phrase in its own output. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::acknowledgeBypass -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+1. A user-created one-shot sentinel is consumed only for an otherwise eligible root review boundary and bypasses once without writing acknowledgement. <!-- @test: host/__tests__/enforce-review-spawn.test.js (H1: vibe-coding project does NOT consume the /tmp/review-bypass sentinel) -->
+2. A finalized user message after the latest boundary containing `skip review` or `skip verification` bypasses that boundary; earlier user text, assistant text, and tool output do not. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-041: recognizes an explicit user bypass only when it follows the latest boundary) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041: honors an explicit post-boundary user bypass without fabricating acknowledgement) -->
+3. Child sessions never consume the sentinel, write acknowledgement, or mutate the block counter. <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes) -->
+4. Missing review blocks at most five settled turns for one head; the next attempt records `<head>:GIVEUP`, emits no further follow-up for that head, and does not acknowledge it. A different head restarts the count. <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041: blocks five times then latches GIVEUP for the same head without acknowledging it) -->
 
 **Constraints:**
 
-- These bypass surfaces apply only to PR-boundary review gates; the in-turn nudge and trigger detection in [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions) are unaffected.
-- Passive status refresh, monitor delivery, lane completion, idle reaping, already-acked heads, breaker-open heads, and existing review windows are review-start no-op decisions.
-- The bypass sentinel location is overridable for hermetic test environments.
+- Agent-authored instructions must never create the sentinel or present the bypass phrase as an action to take.
+- The sentinel path remains overridable for hermetic tests.
+- Claude bypass behavior is unchanged.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** Manual check
+**Verification:** [Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts), [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts), [Claude Stop-hook tests](../../host/__tests__/enforce-review-spawn.test.js)
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -1553,32 +1547,31 @@ None.
 
 ---
 
-### REQ-AGENT-053: Pi Durable Review Status and Result Formatting
+### REQ-AGENT-053: Pi Native Review Result Correlation
 
-**Intent:** Pi operators need consistent PR-boundary review output and a compact indication that internal durable lanes are active.
+**Intent:** Pi review completion must be proven only by visible public reviewer calls and their correlated native terminal notifications in the root transcript.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Durable PR-boundary result files use a shared `## Findings` plus severity-count Review Summary table format. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatDurableReviewResult --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-2. Pi shows compact durable-lane footer progress from persisted pending-review state while PR-boundary lanes are in flight, listing required lanes with `M:SS` elapsed time and completed-lane token counts when available. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::compactDurableReviewStatus --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatReviewElapsed --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatReviewTokens --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::laneTokensFromTranscript --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::updateReviewStatus --> <!-- @test: src/__tests__/lib/review-state.test.ts (compactDurableReviewStatus timer + token badge (footer enhancement)) -->
-3. Pi suppresses duplicate PR-boundary lane-result notices for the same repo, head, lane, and result path, and still drops deprecated summary custom message types. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::claimLaneResultNotice --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::installReviewMessageDedupe --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-4. After all required lanes complete, Pi writes a merged `summary.md` and uses the review-monitor overview instead of separate per-lane chat result blocks. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::writeReviewSummaryFromDisk --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-5. The merged chat summary reports aggregate severity counts across code, spec, and documentation lanes and renders findings sorted by criticality, without requiring per-lane result-file links in chat. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::mergedReviewSummaryModel --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::formatMergedReviewSummary --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-6. The finding extractor and the severity counter apply one byte-identical decoration rule a severity word is a finding only when decorated as `[SEVERITY]`, `**SEVERITY**`, or `SEVERITY:` at the leading position of a header line. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::findingHeaderMatches --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::extractReviewFindings --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::countReviewSeverities --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+1. Only public `subagent` calls for required reviewer types after the latest settled boundary can satisfy that boundary. Calls before it never count. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055: uses only public subagent calls after the latest settled boundary) -->
+2. A reviewer call becomes terminal only when a later persisted `subagent-notification` carries the same XML `<tool-use-id>`; tool results, lifecycle events, agent IDs, and unrelated notifications do not satisfy it. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-053/REQ-AGENT-059: correlates terminal native notifications by XML tool-use-id, not tool results or lifecycle events) -->
+3. Any correlated native terminal status counts as reviewer completion; Codeflare does not parse findings or reinterpret the native result. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-053/REQ-AGENT-059: correlates terminal native notifications by XML tool-use-id, not tool results or lifecycle events) -->
+4. A recent unmatched call is in flight, a stale unmatched call becomes missing, and each lane is evaluated independently regardless of completion order. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-071: reports missing, recent in-flight, stale unmatched, and out-of-order terminal lanes independently) -->
+5. Partial terminal results never acknowledge the head; all required terminal notifications write the fresh full SHA and create no durable job, result, pending, or summary state. <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/REQ-AGENT-055: does not acknowledge partial completion and writes the fresh SHA after all lanes terminate out of order) -->
 
 **Constraints:**
 
-None.
+- Native Pi task transcripts remain ordinary Pi history, not Codeflare review state.
 
-**Priority:** P2
+**Priority:** P1
 
 **Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
 
-**Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts) (AC1/AC3-AC6); [review-state.test.ts](../../src/__tests__/lib/review-state.test.ts) (AC2 — elapsed/token badge formatting + compact status rendering/omission)
+**Verification:** [Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts), [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts)
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -1612,32 +1605,31 @@ None.
 
 ---
 
-### REQ-AGENT-055: Pi PR-Boundary Review Window Advancement
+### REQ-AGENT-055: Pi Session-Scoped Review Window
 
-**Intent:** Pi review enforcement must keep the merge gate attached to the first unreviewed PR window across reloads, retries, and fix-push cascades without losing findings from an earlier incomplete review.
+**Intent:** Pi review must use the acknowledged SHA and latest root-transcript boundary as its complete review window, without pending JSON, roll-forward state, or a merge interceptor.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A pending review window is discarded when the readable PR has definitively closed, retargeted, or moved to an unrelated head. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewHead --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-055 AC1-AC3: review head classification separates stale, unreadable, and advanced PR heads) -->
-2. If the PR state cannot be read, the pending review window is left intact for retry. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewHead --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-3. If the readable PR head advances to a descendant while review is still in flight, Pi rolls the review window forward instead of discarding it. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewHead --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::rollForwardAdvancedReview --> <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::abandonDurableReviewLanes --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-4. A fix-push cascade preserves the first unreviewed review base for cumulative review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::selectReviewBase --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-055 AC4-AC5: Pi review enforcement selects the unreviewed incremental review base) -->
-5. Pi does not use a remote-tracking previous head as a review base unless an explicit ack or completed previous review proves the earlier PR contents were already covered. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::selectReviewBase --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-6. The merge gate requires reviewer execution for the targeted PR head, fails closed on malformed or unreadable pending heads, blocks unacked auto-merge, and audits wrapper or server-side merges completed without review; findings severity does not control acknowledgment. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::mergeGateDecision --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::mergeCommandTarget --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::onAgentStart --> <!-- @test: src/__tests__/lib/review-state.test.ts (mergeGateDecision (the gh-pr-merge last-line-of-defense)) -->
+1. A valid acknowledged full SHA equal to the current PR head requires no review; missing, malformed, or non-ancestor acknowledgement falls back to all three lanes. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055: falls back to all lanes for malformed and non-ancestor acknowledgements) -->
+2. A valid ancestor acknowledgement scopes classification to the NUL-safe, no-renames diff from that SHA to the fresh PR head. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: uses NUL-safe no-renames diffing so tricky names and source-to-doc renames cannot bypass code review) -->
+3. Only public reviewer calls after the latest settled boundary belong to the active window; an older boundary and its results cannot satisfy a newer head. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055: uses only public subagent calls after the latest settled boundary) -->
+4. Partial completion leaves acknowledgement unchanged. All required terminal notifications write the fresh full SHA and clear the block count without creating durable review artifacts. <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/REQ-AGENT-055: does not acknowledge partial completion and writes the fresh SHA after all lanes terminate out of order) -->
+5. Child sessions, shutdown, and reload never acknowledge active review. After reload, the next supported root boundary reconstructs the window and may repeat work. <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes) -->
 
 **Constraints:**
 
-None.
+- Pi has no hard pre-command merge gate; `gh pr merge` is only a settled transcript boundary.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch), [REQ-AGENT-054](#req-agent-054-pi-durable-review-lane-failure-handling)
+**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch), [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation)
 
-**Verification:** [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts); the merge-gate decision and merge-command-target parsing are unit-tested in [review-state.test.ts](../../src/__tests__/lib/review-state.test.ts) (`mergeGateDecision`) and [review-trigger.test.ts](../../src/__tests__/lib/review-trigger.test.ts) (`mergeCommandTarget`). The roll-forward lane abandonment (AC3), the retroactive `merge_completed_unreviewed` audit, and the `onAgentStart` gate wiring that consumes the pure decision are verified by inspection plus a bundled-jiti load-check (the repo's runtime-coverage convention for the seeded extensions).
+**Verification:** [Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts), [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts)
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -1698,64 +1690,56 @@ None.
 
 ---
 
-### REQ-AGENT-058: PR-Boundary Review Reconciliation and Missed-Event Recovery
+### REQ-AGENT-058: Supported Boundary Recovery
 
-**Intent:** Review initiation must not depend solely on capturing a transient tool event. A missed or mis-parsed boundary command must not silently skip review: an open enforced PR whose head was never reviewed is recoverable on a later turn, the start path is shared with the boundary path so the two cannot drift, and every near-miss leaves a durable diagnostic so a skipped review is detectable instead of silent.
+**Intent:** Pi must recover review demand from the root transcript at settled time instead of depending on durable reconciliation, passive polling, or child-command visibility.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Reconciliation reads fresh PR state on lifecycle ticks and after successful `git`/`gh` commands; transcript cursors keep the first complete post-cursor record and ignore incomplete JSONL. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reconcileOpenPrReview --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::completeTranscriptDelta --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::postCommandReconcileDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-2. An unacknowledged protected PR head advanced during the current session starts a durable review automatically. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::shouldReconcileOpenPr --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewInSessionContinuation --> <!-- @test: src/__tests__/lib/review-state.test.ts (reviewInSessionContinuation (boundaryActed primary, baseline backstop)) -->
-3. An inherited protected PR head is offered once and remains merge-blocking until the user starts or skips review. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reconcileBoundaryAction --> <!-- @test: src/__tests__/lib/review-state.test.ts (noops on a re-offer of the same already-offered clone head (offered once, not twice)) -->
-4. Boundary-command and reconciliation paths call one shared routine, so windows match in lanes, base, durable job, and audit trail. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::ensureReviewWindow --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-5. Head resolution tolerates GitHub metadata lag only for a pushed local head on the PR branch. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::resolveEnforcedHead --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::enforcedHeadDecision --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (enforcedHeadDecision (REQ-AGENT-058 AC3)) -->
-6. Skipped boundary candidates and PR-URL fallback events leave durable audit entries, so missed review starts are diagnosable. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::onToolEnd --> <!-- @impl: preseed/agents/pi/extensions/review-jobs.ts::appendReviewEvent --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prUrlFromText --> <!-- @test: src/__tests__/lib/review-state.test.ts (reviewInSessionContinuation (boundaryActed primary, baseline backstop)) -->
-7. If an Agent/subagent tool advances the enforced PR head, Pi starts the same PR-boundary review even though the subagent's internal `git push` was not visible as a main-session Bash tool event. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::rememberAgentStartHead --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reconcileAgentHeadAdvance --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::isAgentSpawnerToolEvent --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::agentHeadAdvanceRequiresReview --> <!-- @test: src/__tests__/lib/review-state.test.ts (isAgentSpawnerToolEvent / agentHeadAdvanceRequiresReview (REQ-AGENT-058 AC7)) -->
+1. Settled enforcement reconstructs the latest supported root boundary from persisted shell tool calls and queries fresh PR state before deciding lanes or acknowledgement. <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: emits a structured reminder for a supported boundary and a follow-up for all missing lanes) -->
+2. Calls and results before the latest boundary cannot satisfy it; missing lanes are derived again from the current acknowledgement and PR head. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055: uses only public subagent calls after the latest settled boundary) -->
+3. Passive startup, branch existence, and child-session activity never start or complete review. <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes) -->
 
 **Constraints:**
 
-- Reconciliation is gated on a real open enforced PR, never on branch existence; clone-only setup never becomes an autostart signal.
-- Integration-branch PRs stay deferred until their own PR-to-`main`.
+- Pushes performed outside the active root Pi session are detected only when a later supported root boundary appears.
+- Pi creates no review audit/event ledger.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch), [REQ-AGENT-055](#req-agent-055-pi-pr-boundary-review-window-advancement)
+**Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-055](#req-agent-055-pi-session-scoped-review-window)
 
-**Verification:** Unit tests: [review-state.test.ts](../../src/__tests__/lib/review-state.test.ts), [review-trigger.test.ts](../../src/__tests__/lib/review-trigger.test.ts), [agent-seed-manifest.test.ts](../../src/__tests__/lib/agent-seed-manifest.test.ts). Runtime wiring is verified by inspection and the bundled-jiti harness.
+**Verification:** [Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts), [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts)
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
-### REQ-AGENT-059: Pi Durable Review Fix Loop
+### REQ-AGENT-059: Pi Native Review Findings Handoff
 
-**Intent:** Pi operators need completed PR-boundary review findings to produce a visible overview and then start a fix pass by default, while still honoring an explicit user instruction to wait for approval.
+**Intent:** Reviewer findings must reach the main session through each native subagent result, without Codeflare-owned result files, summaries, severity parsing, or an automatic fix state machine.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Pi requests a fix pass only after every required exact-head lane result file exists, `summary.md` exists, no required lane failed, and at least one actionable `MEDIUM`/`HIGH`/`CRITICAL` finding remains. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-2. After `REVIEW_RESULT`, the main session first prints a detailed overview, then reads `summary.md`, verifies actionable findings, and fixes only legitimate findings by default. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::ENGINEERING_CONSTITUTION --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-3. If the latest user instruction says not to autofix, wait for approval, or do not push, the monitor result tells the main session to stop for approval instead of starting the fix pass. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-4. Partial lane result sets, missing `summary.md`, or failed required lanes never trigger an autofix request. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-5. The fix loop is driven by the background review-monitor completion result, not by a hidden `autofix.requested` marker or custom summary announcement channel. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+1. The root transcript correlates each native reviewer notification by tool-use ID and leaves the reviewer result intact for the main session; Codeflare does not parse findings or count severity. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-053/REQ-AGENT-059: correlates terminal native notifications by XML tool-use-id, not tool results or lifecycle events) -->
+2. Review completion creates no job directory, pending JSON, result directory, or merged summary; all required native terminal notifications are the only completion proof. <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/REQ-AGENT-055: does not acknowledge partial completion and writes the fresh SHA after all lanes terminate out of order) -->
 
 **Constraints:**
 
-None.
+- Main-session rules require waiting for every required reviewer before fixing, committing, or pushing.
+- The main session verifies and fixes legitimate findings unless the latest user instruction says to wait or not autofix.
 
-**Priority:** P2
+**Priority:** P1
 
-**Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-durable-review-status-and-result-formatting), [REQ-AGENT-062](#req-agent-062-pi-pr-boundary-review-result-delivery)
+**Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
 
-**Verification:** Manual check
+**Verification:** [Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts), [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts)
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -1878,33 +1862,29 @@ None.
 
 ### REQ-AGENT-063: PR-Boundary Command Parsing
 
-**Intent:** PR-boundary trigger code needs a deterministic shell-command parser that recognizes real boundary commands across Pi tool surfaces without treating source-code literals or PR body text as commands.
+**Intent:** Pi must copy Claude's narrow boundary grammar across supported shell tool-result surfaces without treating examples, source literals, or unsupported convenience commands as boundaries.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Command text is extracted only from shell execution surfaces: Bash `.command`, `ctx_execute` shell `.code`, and `ctx_batch_execute` `.commands[].command`. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::commandTextFromEvent --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-2. Local push parsing recognizes `git push`, `git -C <repo> push`, ssh/https remotes, environment-prefix forms, command wrappers, and local `cd <repo>` prefixes. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isGitPushOnlyCommand --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::cwdFromBoundaryCommand --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (command target parsing for PR-boundary recovery (REQ-AGENT-063 / REQ-AGENT-066)) -->
-3. GitHub CLI parsing recognizes `gh pr create`, `gh pr merge`, `gh pr update-branch`, `gh repo sync`, and protected-base `gh pr edit`, including edit commands with value-bearing flags before the PR selector. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isPrBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prEditBoundaryBase --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::prEditCommandTarget --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (isPrBoundaryTrigger) -->
-4. Here-doc bodies are stripped before command tokenization so markdown PR bodies cannot hide a following boundary command. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::stripHeredocs --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (isPrBoundaryTrigger) -->
-5. Non-advancing push forms (`--dry-run`, `-n`, `--delete`, `-d`, tag-only pushes, and delete-only refspecs) are excluded. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::gitPushCommandTarget --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isGitPushOnlyCommand --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (command target parsing for PR-boundary recovery (REQ-AGENT-063 / REQ-AGENT-066)) -->
-6. Quoted text and non-shell tool bodies containing boundary-looking strings are ignored. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::commandTextFromEvent -->
-7. Command wrappers are parsed structurally rather than with wrapper-heavy regular expressions. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::unwrapCommandWords --> <!-- @test: src/__tests__/lib/review-trigger.test.ts (command target parsing for PR-boundary recovery (REQ-AGENT-063 / REQ-AGENT-066)) -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+1. Command text is extracted only from successful Bash `.command`, `ctx_execute` shell `.code`, and each `ctx_batch_execute` `.commands[].command`; non-shell code and failed tool results are ignored. <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-063: extracts boundaries only from supported shell tool result surfaces) -->
+2. Reminder classification recognizes direct or environment-prefixed `git push`, `gh pr create`, and `gh pr edit --base main|master`; settled classification recognizes push, protected-base edit, and `gh pr merge`. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063: distinguishes Claude-supported reminder and settled command surfaces) -->
+3. Commands are recognized only at shell command boundaries in compound text; quoted mentions are ignored. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063: distinguishes Claude-supported reminder and settled command surfaces) -->
+4. Pi-specific additions such as `git -C ... push`, `gh pr update-branch`, and `gh repo sync` are unsupported and do not trigger review. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063: distinguishes Claude-supported reminder and settled command surfaces) -->
 
 **Constraints:**
 
-None.
+- `gh pr create` is reminder-only, and `gh pr merge` is settled-only.
+- Claude hook grammar remains unchanged.
 
 **Priority:** P1
 
 **Dependencies:** None
 
-**Verification:** Manual check
+**Verification:** [Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts), [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts)
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -2090,36 +2070,36 @@ None.
 
 ---
 
-### REQ-AGENT-068: CI Monitoring Background-Agent Policy
+### REQ-AGENT-068: Independent Pi CI Monitoring
 
-**Intent:** Pi agents must monitor CI whenever a PR to `main`/`master` is open — the CI monitor is spawned together with the `review-monitor` from the PR-boundary handoff (one shared trigger), so no second per-push CI monitor is started and the two can never collide — without blocking the main session or turning the monitor into an implementation worker. A push with no open main-bound PR is not CI-monitored. Claude keeps its baseline (on-demand, per-push) git workflow rule.
+**Intent:** Pi CI monitoring must have one owner and one result path. The root Git workflow launches one dedicated background agent for an eligible main-bound PR, and that agent runs one attached deterministic monitor whose native task result is independent of PR review.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. When a Pi push or PR opens or syncs a PR to `main`/`master`, an exact-head CI monitor is spawned together with the `review-monitor` from the PR-boundary handoff and kept active until `CI_RESULT`, unless skipped or superseded. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-ci-route --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::visibleMonitorHandoffRequest --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-074: visible monitor handoff requests review and CI monitors for the exact head) -->
-2. The CI monitor reports success only after every workflow row for the monitored HEAD is complete and the workflow/run-id fingerprint is stable. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 AC2: ci monitor waits for a stable workflow/run set before success) -->
-3. If the local branch ref no longer points at the monitored HEAD before any terminal success/failure, the monitor reports `CI_RESULT timeout superseded` instead of success/failure for the stale head. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 AC3: ci monitor re-checks superseded status before terminal success) -->
-4. CI failures are report-only: the background agent reports the failed workflow/run/log pointer and never fixes, commits, or pushes. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 AC4: ci monitor reports failed workflow rows) -->
-5. Long-running waits, monitors, or polls never keep the main session busy; agents start backgrounded work, report how to check it, and stop. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-068 AC1/AC5: ci monitor launcher starts detached work and returns immediately) -->
-6. After `CI_RESULT`, the main session prints the CI summary before any other work. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::ENGINEERING_CONSTITUTION --> <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-7. The native Pi CI monitor queries GitHub Actions by exact pushed HEAD and reports a timeout blocker when GitHub CLI access fails or no workflow rows appear for that HEAD within five minutes. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/SKILL.md::ci-monitor-detached-script --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+1. The executable request resolver returns exactly one public background `ci-monitor` request with repository, PR number, and full `headRefOid` after an eligible head-changing push or main-bound PR creation; unsupported or unchanged events and missing, closed, or integration-bound PRs return no request. <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC1: eligible head-changing push returns one complete public ci-monitor request) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC1: eligible PR creation returns one complete public ci-monitor request) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC1: unsupported, unchanged, missing, closed, and integration PR events return no request) -->
+2. The attached monitor reads `gh pr checks` buckets, tolerates valid JSON with pending/failure exit statuses, waits for delayed rows, and reports success only after the same non-empty all-`pass`/`skipping` identity fingerprint appears in two terminal polls. <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC2: empty check rows retry and time out after five minutes without success) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC2: valid check JSON is parsed despite gh exit statuses 1 and 8) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC2: pending checks wait for a stable pass and skipping fingerprint) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC2: a changed terminal fingerprint resets the stability requirement) -->
+3. The monitor verifies the authoritative PR `headRefOid` before querying checks and again before terminal success or failure; a mismatch reports `CI_RESULT timeout superseded`. <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC3: a superseded head stops before checks are queried) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC3: a superseded head prevents terminal success) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC3/AC4: a superseded head prevents terminal failure) -->
+4. Failed and cancelled checks report `CI_RESULT failure` with provider names, states, and links; the CI agent is report-only and never fixes, commits, or pushes. <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC4: failed and cancelled arbitrary providers report failure with links) -->
+5. CI polling remains attached to one background native task and creates no Codeflare claim, PID, state, result, or log files. <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC5: monitoring creates no Codeflare state, log, or PID files) -->
+6. Empty checks time out after five minutes, the full monitor times out after thirty minutes, and malformed or transient GitHub responses never become success. <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC2: empty check rows retry and time out after five minutes without success) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC2: pending checks enforce the thirty-minute total timeout) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC7: malformed and transient GitHub responses never become success) -->
+7. Review code never launches or restarts CI. Session shutdown may abort a monitor without `CI_RESULT`; only a later eligible Git event or explicit user request can launch another monitor. <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC1: unsupported, unchanged, missing, closed, and integration PR events return no request) -->
 
 **Constraints:**
 
-- For Pi, when a main-bound PR is open, an explicit user skip instruction is the only reason to skip CI monitoring; a push with no open main-bound PR is intentionally not monitored.
-- Pi CI monitoring shares the PR-boundary trigger with the `review-monitor` ([REQ-AGENT-074](#req-agent-074-pi-visible-review-and-ci-monitor-handoff)): it is spawned together with it from the handoff and not per-push, so there is never a second CI monitor to collide with the handoff's.
-- Pi receives native `git-workflow` and `ci-monitoring` files from the Pi manifest in every mode; it does not inherit the Claude git-workflow or Claude-transformed CI skill.
-- The main session owns any fix, commit, or push after a reported CI failure.
+- The root Pi Git workflow rule is the sole automatic trigger; review handoffs and recovery rules contain no CI action.
+- Both the dedicated agent and monitor script are seeded in Standard and Pro modes.
+- The main session owns any fix, commit, or push after a reported failure.
+- Claude CI behavior in [REQ-AGENT-070](#req-agent-070-claude-on-demand-ci-monitoring-policy) is unchanged.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
 
-**Verification:** [Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [CI monitoring skill tests](../../host/__tests__/ci-monitoring-skill.test.js)
+**Verification:** [Pi CI monitor behavioral tests](../../host/__tests__/pi-ci-monitor.test.js)
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -2169,11 +2149,11 @@ None.
 
 **Constraints:**
 
-- This does not change Pi's PR-boundary CI-monitoring trigger in [REQ-AGENT-068](#req-agent-068-ci-monitoring-background-agent-policy).
+- Claude monitoring remains independent of Pi's automatic policy in [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring).
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-068](#req-agent-068-ci-monitoring-background-agent-policy)
+**Dependencies:** [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring)
 
 **Verification:** Manual check
 
@@ -2183,29 +2163,30 @@ None.
 
 ### REQ-AGENT-071: PR-Boundary Review Agent Dispatch
 
-**Intent:** Once lane classification ([REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)) determines the required review agents, the initial review wave starts every required report-only lane together and in parallel, suppresses re-summoning per lane while a spawn is in flight (bounded by transcript recency), and scopes each follow-up re-review to the incremental window so a round inspects only new commits.
+**Intent:** The main Pi session must launch the minimal required report-only reviewers together through visible public subagent calls and must not mistake one slow lane for completion of its peers.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The initial review wave starts every required lane together (`code-reviewer`, `spec-reviewer`, and `doc-updater`) — all three reviewers are report-only and write to disjoint lane files, so there is no inter-lane ordering. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewInitialLanes --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-2. `doc-updater` dispatches in parallel with `spec-reviewer`, not after it: every required lane is eligible immediately, since the reviewers report findings to a triage file and the main session applies fixes — no shared-write race. <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::durableReviewEligibleLanes --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-3. Review agents are dispatched with `run_in_background: true` so the main session stays interactive; the turn-end gate suppresses re-summoning per lane, so a slow in-flight lane never masks demand for other lanes nor satisfies acknowledgement without current-head completion. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::lane_in_flight --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::all_required_lanes_completed_for_current_head --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (suppresses an in-flight lane without masking missing peer lanes) -->
-4. In-flight suppression is bounded by transcript recency: an uncompleted spawn that falls behind the transcript tail is treated as orphaned, demanded again, and cannot suppress its lane indefinitely. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::lane_in_flight --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (re-demands an orphaned in-flight lane after the transcript recency bound) -->
-5. After the first acknowledged review, a follow-up review is dispatched scoped to the incremental window (last-acked clean head -> current head), so a re-review inspects only the new commits instead of re-reviewing the entire PR each round. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::docUpdaterPrompt --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+1. Settled enforcement requests every missing required lane together; code, spec, and documentation reviewers remain independent and report-only. <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: emits a structured reminder for a supported boundary and a follow-up for all missing lanes) -->
+2. A recent unmatched public call suppresses only its own lane while other missing lanes are still requested. <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-071: requests missing reviewers together but does not duplicate recent in-flight public subagent calls) -->
+3. A stale unmatched call becomes missing again, and terminal lanes remain terminal regardless of completion order. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-071: reports missing, recent in-flight, stale unmatched, and out-of-order terminal lanes independently) -->
+4. A valid prior acknowledgement scopes the next reviewer request to the incremental acknowledged-to-current window. <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: classifies generated, docs, spec, source, and mixed commit ranges into reviewer lanes) -->
 
 **Constraints:**
 
-- The agent must not push to the PR branch or start a second review wave while any required review lane is in flight.
+- Reviewer calls use `run_in_background: true` and `inherit_context: false`.
+- Review agents never edit or push; general delegated agents may edit but never push.
+- The root main session waits for every required result before fixing, committing, or pushing.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
+**Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch), [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation)
 
-**Verification:** [Lane classifier tests](../../host/__tests__/lane-classifier.test.js), [Stop-hook behavioral tests](../../host/__tests__/enforce-review-spawn.test.js), [Pi review helper behavior tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** [Pi review helper tests](../../src/__tests__/lib/review-helpers.test.ts), [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts)
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -2262,36 +2243,31 @@ None.
 
 ---
 
-### REQ-AGENT-074: Pi Visible Review and CI Monitor Handoff
+### REQ-AGENT-074: Pi Settled Review Handoff
 
-**Intent:** After a PR-boundary review starts, the main Pi session must own visible background monitor tasks for both review delivery and CI so failures can be seen and restarted. The handoff is the **single** trigger for both monitors, so CI is not also spawned per-push — the previous double-spawn (git-workflow per-push CI plus the handoff's CI) collided as "Agent is already processing a prompt" and killed the first CI monitor.
+**Intent:** Pi's settled event must hand only missing review lanes back to the main session and acknowledge only transcript-proven completion. It owns no review monitor, CI action, durable claim, or restart path.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. Review startup sends a main-session follow-up containing exact-head `review-monitor` and CI monitor requests; this handoff is the single spawn trigger for both. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendVisibleMonitorHandoff --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::visibleMonitorHandoffRequest --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-074: visible monitor handoff requests review and CI monitors for the exact head) -->
-2. If the visible handoff cannot be sent, Pi may start one hidden fallback monitor without creating duplicate durable claims. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::startReviewMonitor --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::BACKGROUND_SUBAGENT_SPAWN --> <!-- @impl: preseed/agents/pi/extensions/review-job-helpers.ts::reviewMonitorSpawnDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-074: visible monitor handoff requests review and CI monitors for the exact head) -->
-3. After a main/master SDD PR opens or syncs, the main session obeys the handoff by spawning missing exact-head monitors. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations -->
-4. The main session reports visible monitor agent IDs for the exact head after spawning them. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-074: visible monitor handoff requests review and CI monitors for the exact head) -->
-5. The main session restarts any CI/review monitor task that stops or completes without `CI_RESULT`/`REVIEW_RESULT`. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::git-workflow-hard-obligations --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-074: visible monitor handoff requests review and CI monitors for the exact head) -->
-
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+1. An eligible boundary emits a structured reminder, and `agent_settled` emits one follow-up containing all currently missing lanes for the fresh head. <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063: emits a structured reminder for a supported boundary and a follow-up for all missing lanes) -->
+2. Recent in-flight public reviewer calls are not duplicated, while missing peers are requested together. <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-071: requests missing reviewers together but does not duplicate recent in-flight public subagent calls) -->
+3. Partial terminal completion emits no acknowledgement; all required terminal notifications write the current full SHA and clear block state. <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-053/REQ-AGENT-055: does not acknowledge partial completion and writes the fresh SHA after all lanes terminate out of order) -->
+4. Child sessions are inert, and shutdown or reload writes no acknowledgement or replacement request. <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes) -->
 
 **Constraints:**
 
-- Visible monitor handoff is review result delivery, not reviewer lane spawning.
-- Durable monitor claims remain the duplicate-suppression source of truth.
-- The handoff is the sole trigger for the CI monitor as well as the `review-monitor`; no separate per-push CI monitor is started ([REQ-AGENT-068](#req-agent-068-ci-monitoring-background-agent-policy)), so the two never collide.
-- Both review-monitor prompt sources pin polling near 10 seconds, preventing arbitrary multi-minute sleeps and delivering completed lane results within about 10 seconds. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewMonitorPrompt --> <!-- @impl: preseed/agents/pi/agents/review-monitor.md::sleep -->
+- The handoff requests reviewer lanes directly; it never requests a `review-monitor` or CI monitor.
+- No hidden fallback spawn or automatic restart exists.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-062](#req-agent-062-pi-pr-boundary-review-result-delivery), [REQ-AGENT-068](#req-agent-068-ci-monitoring-background-agent-policy)
+**Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-055](#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
 
-**Verification:** Manual check
+**Verification:** [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts)
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 

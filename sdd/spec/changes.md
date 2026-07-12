@@ -2,6 +2,12 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-07-12
+
+- **Pi PR-boundary review is being replaced with visible session-scoped reviewers** ([REQ-AGENT-036](agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-053](agents.md#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-055](agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-071](agents.md#req-agent-071-pr-boundary-review-agent-dispatch), and [REQ-AGENT-074](agents.md#req-agent-074-pi-settled-review-handoff); Planned; [AD98](../../documentation/decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). Durable lanes, the review monitor, result files, and the hard Pi merge gate are replaced by public subagent calls, root-transcript completion proof, and SHA acknowledgement; Claude review remains unchanged.
+
+- **Pi CI monitoring is being separated from review behind one executable contract** ([REQ-AGENT-068](agents.md#req-agent-068-independent-pi-ci-monitoring); Planned; [AD99](../../documentation/decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)). The root Git rule becomes the only automatic trigger, a dedicated background agent runs one attached PR-check monitor, and native task delivery replaces the generic-agent/detached-log path; Claude CI remains unchanged.
+
 ## 2026-07-11
 
 - **Browser IDE startup and active-editing reliability improved** ([REQ-IDE-004](browser-ide.md#req-ide-004-resilient-editor-activity-transport) added; Implemented). Editor input sent during connection start-up is no longer dropped, and continued editing now refreshes the session idle timer. Stalled start-up connections retain at most 128 messages or 8 MiB before closing with retry-later behavior. The OpenVSCode artifact remains upstream-clean under the explicit known-vulnerability acceptance in [AD97](../../documentation/decisions/README.md#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk), preserving straightforward upstream security upgrades.
