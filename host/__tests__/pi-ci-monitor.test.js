@@ -33,6 +33,20 @@ function openPr(patch = {}) {
   };
 }
 
+function hasInvalidRepoScopedPrView(args) {
+  if (args[0] !== 'pr' || args[1] !== 'view' || !args.includes('--repo')) return false;
+
+  const valueFlags = new Set(['--repo', '--json', '--jq', '--template']);
+  for (let index = 2; index < args.length; index += 1) {
+    if (valueFlags.has(args[index])) {
+      index += 1;
+      continue;
+    }
+    if (!args[index].startsWith('-')) return false;
+  }
+  return true;
+}
+
 function check(name, bucket, patch = {}) {
   return {
     name,
@@ -137,7 +151,9 @@ test('REQ-AGENT-068 AC1: eligible PR creation returns one complete public ci-mon
     event: 'pr-create',
     changed: true,
     repo: REPO,
-    runner: async () => commandResult(openPr()),
+    runner: async (_command, args) => (
+      hasInvalidRepoScopedPrView(args) ? commandResult('', 1) : commandResult(openPr())
+    ),
   });
   if (request) requests.push(request);
 

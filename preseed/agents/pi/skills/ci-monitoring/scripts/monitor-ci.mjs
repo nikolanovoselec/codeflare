@@ -57,7 +57,7 @@ export async function resolveCiMonitorRequest({ event, changed, repo, runner = e
   try {
     result = await runner(
       'gh',
-      ['pr', 'view', '--repo', repo, '--json', 'number,state,baseRefName,headRefOid'],
+      ['pr', 'view', '--json', 'number,state,baseRefName,headRefOid'],
       { cwd },
     );
   } catch {
