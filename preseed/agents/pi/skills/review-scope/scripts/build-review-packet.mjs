@@ -34,6 +34,16 @@ function nulList(buffer) {
   return buffer.toString('utf8').split('\0').filter(Boolean).sort();
 }
 
+function changedHunks(repo, range, path) {
+  const patch = String(git(repo, ['diff', '--no-renames', '--unified=0', range, '--', path]));
+  return [...patch.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)].map((match) => ({
+    oldStart: Number(match[1]),
+    oldLines: match[2] === undefined ? 1 : Number(match[2]),
+    newStart: Number(match[3]),
+    newLines: match[4] === undefined ? 1 : Number(match[4]),
+  }));
+}
+
 function validateRange(repo, range) {
   const [base, head, extra] = String(range ?? '').split('..');
   if (extra !== undefined || !FULL_SHA.test(base ?? '') || !FULL_SHA.test(head ?? '')) {
@@ -71,13 +81,16 @@ export function buildReviewPacket({ repo, scope, range, lane }) {
   const patch = files.length === 0
     ? ''
     : String(git(repo, ['diff', '--no-renames', '--unified=3', validRange, '--', ...files]));
+  const changedInputs = changed
+    .filter((path) => !files.includes(path))
+    .map((path) => ({ path, hunks: changedHunks(repo, validRange, path) }));
   return {
     scope,
     workSet: 'changed-hunks-and-direct-invalidations',
     lane,
     range: validRange,
     files,
-    changedInputs: changed.filter((path) => !files.includes(path)),
+    changedInputs,
     patch,
   };
 }

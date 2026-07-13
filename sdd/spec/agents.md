@@ -2288,16 +2288,19 @@ None.
 
 1. Indexed batch retrieval is unavailable to every reviewer. <!-- @impl: preseed/agents/pi/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/pi/agents/doc-updater.md::tools --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085: generated reviewer tools prevent indexed specification evidence retrieval) -->
 2. Every reviewer exposes direct context execution when context-mode is available. <!-- @impl: preseed/agents/pi/agents/code-reviewer.md::tools = ctx_execute, bash --> <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::tools = ctx_execute, bash --> <!-- @impl: preseed/agents/pi/agents/doc-updater.md::tools = ctx_execute, bash --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085: generated reviewer tools prevent indexed specification evidence retrieval) -->
-3. Every reviewer retains Bash as the non-indexed fallback when context-mode is unavailable. <!-- @impl: preseed/agents/pi/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085: generated reviewer tools prevent indexed specification evidence retrieval) -->
+3. Every reviewer retains Bash as the non-indexed fallback, rooted in the caller-supplied repository, when context-mode is unavailable. <!-- @impl: preseed/agents/pi/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @impl: preseed/agents/pi/extensions/review-tool-guard.ts::registerReviewerToolGuard --> <!-- @test: src/__tests__/lib/review-tool-guard.test.ts (REQ-AGENT-085: roots Bash-first fallback in the reviewer repository) -->
 4. Marked reviewer calls discard `ctx_execute.intent` before tool execution without changing ordinary root-session calls. <!-- @impl: preseed/agents/pi/extensions/review-tool-guard.ts::registerReviewerToolGuard --> <!-- @test: src/__tests__/lib/review-tool-guard.test.ts (REQ-AGENT-085: strips intent only from marked reviewer direct execution) -->
+5. Cross-lane changed inputs carry exact old/new hunk ranges, and path equality alone never invalidates unrelated anchored symbols or named tests. <!-- @impl: preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs::buildReviewPacket --> <!-- @test: host/__tests__/pi-review-workset.test.js (REQ-AGENT-085: changed inputs expose exact hunk ranges) -->
+6. Context-mode and Bash consume the same executable packet contract in one processing call without persisted packet state. <!-- @impl: preseed/agents/pi/skills/review-scope/SKILL.md::Build the lane packet once --> <!-- @test: host/__tests__/pi-review-workset.test.js (REQ-AGENT-085: CLI and module produce identical worksets without persistence) -->
 
 **Constraints:**
 
 - Review scope, manifest coverage, evidence truth, and severity remain unchanged.
 - Evidence already returned is never recovered through global index searches or marker-only commands.
 - The reviewer runtime guard removes `intent`, so evidence cannot silently switch to indexed retrieval.
-- Reviewers consume the complete lane patch once, consolidate independent checks, and continue only for named unresolved candidates.
-- Commands inspect the complete scoped work set internally while emitting compact counts, failures, and candidate snippets; redirected raw logs are not reread.
+- Reviewers build and consume the packet once in memory, consolidate independent checks, and continue only for named unresolved candidates.
+- Context-mode and Bash invoke the same seeded CLI and apply identical changed-hunk intersection semantics.
+- Commands inspect the complete scoped work set internally while emitting compact counts, failures, and candidate snippets; packet files and redirected raw logs are never persisted or reread.
 - Generated seed is reviewed through canonical preseed plus deterministic identity verification, not repeated generated-line searches.
 - No token, turn, output-size, or concurrency cap substitutes for complete scoped review.
 
@@ -2305,7 +2308,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-pi-reviewer-policy-preloading)
 
-**Verification:** [Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [reviewer tool-guard tests](../../src/__tests__/lib/review-tool-guard.test.ts)
+**Verification:** [Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [reviewer tool-guard tests](../../src/__tests__/lib/review-tool-guard.test.ts), [review work-set tests](../../host/__tests__/pi-review-workset.test.js)
 
 **Status:** Implemented
 

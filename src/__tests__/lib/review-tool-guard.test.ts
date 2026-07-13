@@ -23,6 +23,23 @@ function makeHarness() {
 }
 
 describe('reviewer direct-execution guard', () => {
+  it('REQ-AGENT-085: roots Bash-first fallback in the reviewer repository', async () => {
+    const harness = makeHarness();
+    const reviewerPrompt = AGENTS_SEEDED_CONFIGS.find((doc) =>
+      doc.key === '.pi/agent/agents/code-reviewer.md',
+    )?.content ?? '';
+    await harness.emit('session_start', {});
+    await harness.emit('before_agent_start', {
+      systemPrompt: reviewerPrompt,
+      prompt: 'repo=/home/user/workspace/codeflare scope=diff',
+    });
+    const input = { command: 'git status --short' };
+
+    await harness.emit('tool_call', { toolName: 'bash', input });
+
+    expect(input.command).toBe("cd '/home/user/workspace/codeflare' && git status --short");
+  });
+
   it('REQ-AGENT-085: strips intent only from marked reviewer direct execution', async () => {
     const harness = makeHarness();
     const reviewerPrompts = ['code-reviewer', 'spec-reviewer', 'doc-updater'].map((reviewer) =>

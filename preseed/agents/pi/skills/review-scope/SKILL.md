@@ -33,22 +33,22 @@ For `all`, omit `--range` and pass `--scope all`. The packet contains:
 
 - `files`: lane-owned changed files (`diff`) or tracked lane files (`all`);
 - `patch`: lane-owned changed hunks for `diff`, empty for `all`;
-- `changedInputs`: changed files owned by other lanes, available only as direct-impact leads;
+- `changedInputs`: cross-lane inputs as `{ path, hunks }`, where each hunk carries exact old/new line ranges;
 - the normalized scope, work set, lane, and ancestry-validated range.
 
-Use a context-processing tool when the JSON or patch is large. A direct packet call returns the complete lane-owned patch once, not only filenames or hunk headers that force a later diff dump. Derive this packet once; do not rebuild or repeatedly dump the same diff.
+Build and consume the packet in the same tool call. With `ctx_execute`, execute the seeded script inside the processing program and parse its stdout in memory. Without context-mode, the reviewer guard roots Bash in the caller-supplied repository before the command pipes the same CLI stdout into the equivalent Bash/Node processing program. Never persist the packet, return a packet path, or rebuild it in a later call. Both transports consume the same JSON contract and must emit identical scoped evidence.
 
-Prefer `ctx_execute` when it is active. The reviewer runtime guard deletes `intent` from every marked reviewer call before execution, so review evidence cannot switch to indexed retrieval; Bash executes the same derivation when context-mode is unavailable. The program may inspect the complete scoped input internally, but it emits only the packet patch needed for reasoning plus compact manifest counts, failures, and candidate snippets. If a native command overproduces and its output is redirected to a temporary log, rerun a derivation that prints the missing failure evidence; never read the raw log back into context.
+A changed input path alone does not invalidate every anchor in that file. Resolve the anchored implementation symbol or named test block and follow it only when its old or new line range intersects a packet hunk. Added or removed files use their non-zero side. Commands inspect the complete scoped packet internally and emit compact manifest failures and candidate snippets, not successful manifests or raw packet JSON.
 
 ## `scope=diff` execution
 
 Use gather-then-reason evidence processing instead of alternating one read or search with one reasoning turn:
 
-1. Build the lane packet exactly once. When context-mode is available, run the packet script through guarded `ctx_execute` so its complete lane patch enters reviewer context directly; otherwise run the same derivation with `bash`. Every canonical policy is already embedded, so no policy retrieval call is needed. Each packet section enters context once.
-2. Derive the pending manifest and concrete direct-impact candidates from that result. Consolidate independent deterministic checks into one evidence wave. A `ctx_execute` program inspects the complete work set and prints compact counts and failures; without context-mode, one or more consolidated shell programs perform the equivalent reads, searches, and anchor checks. Context-mode changes transport only; the scoped checks, evidence, and dispositions are identical.
+1. Build and parse the lane packet exactly once inside the first processing call. `ctx_execute` and Bash invoke the same seeded CLI and apply the same hunk-intersection rule; context-mode changes transport only. Every canonical policy is already embedded, so no policy retrieval call is needed.
+2. Derive the pending manifest and direct-impact candidates in that same evidence wave. Emit compact counts, failures, and snippets for every lane hunk and only anchor targets intersecting `changedInputs[].hunks`; do not emit raw packet JSON.
 3. If the returned evidence exposes candidates that genuinely need more context, collect every unresolved candidate in one focused wave, batching independent lookups together. Never re-query policy text, packet sections, or evidence already retrieved. This cadence is not a turn limit: continue only when a named candidate still lacks concrete evidence, and state what evidence is missing before the next call.
 4. Never use `ctx_batch_execute`, `ctx_search`, `query_scope=global`, or marker-only commands to store and retrieve reviewer evidence. They duplicate prior output and can return incomplete search windows instead of the exact packet.
-5. Inspect the packet's lane-owned hunks first. Follow only direct invalidations: changed callers/importers, schemas or contracts, behavioral tests, REQ anchors, and owner documentation affected by a concrete candidate.
+5. Inspect lane-owned hunks first. Follow a changed caller, contract, test, REQ anchor, or owner document only when its resolved symbol/block overlaps a changed-input hunk or a concrete lane candidate identifies the dependency. File-path equality alone is not direct invalidation.
 6. Read a whole file only after a hunk or direct invalidation identifies a candidate that cannot be verified from focused context. Treat generated seed files as derived output: review their canonical preseed source and use one deterministic source-to-seed identity check instead of searching generated lines repeatedly.
 7. Finalize every manifest row and give each candidate one direct-impact disposition. Do not recursively explore unrelated callers or graph communities.
 8. Stop when every lane-owned hunk, manifest row, and direct candidate has one disposition. Do not report unchanged baseline debt.
