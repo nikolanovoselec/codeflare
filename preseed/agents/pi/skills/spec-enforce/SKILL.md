@@ -1,6 +1,6 @@
 ---
 name: spec-enforce
-description: Pi-native SDD enforcement spine with explicit diff and all scopes. Used by spec-reviewer and /sdd clean.
+description: Pi-native SDD enforcement spine with explicit diff and all scopes. Used by spec-reviewer and inline by the root-owned /sdd clean workflow.
 version: 3.0.0
 ---
 

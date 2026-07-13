@@ -1,6 +1,6 @@
 ---
 name: spec-enforce
-description: SDD spec enforcement orchestrator. Runs the 23-row execution manifest against the current diff (or full spec on scope=all). Detects forbidden content, REQ-shape violations, status drift, meta-leakage, changelog drift, backlog state, source-anchor truth-check (CQ-SOURCE — always runs), and per-AC test-anchor coverage at parity with source anchors (CQ-TEST — gated by enforce_tdd). Conditionally invokes spec-enforce-ac (when ACs touched) and spec-enforce-truth (when Implemented or Partial REQs touched or scope=all — Partial included so CQ-SOURCE can validate anchors). Invoked by spec-reviewer on every PR-boundary trigger and by /sdd clean.
+description: SDD spec enforcement orchestrator. Runs the 23-row execution manifest against the current diff (or full spec on scope=all). Detects forbidden content, REQ-shape violations, status drift, meta-leakage, changelog drift, backlog state, source-anchor truth-check (CQ-SOURCE — always runs), and per-AC test-anchor coverage at parity with source anchors (CQ-TEST — gated by enforce_tdd). Conditionally invokes spec-enforce-ac (when ACs touched) and spec-enforce-truth (when Implemented or Partial REQs touched or scope=all — Partial included so CQ-SOURCE can validate anchors). Invoked by spec-reviewer on every PR-boundary trigger and inline by the root-owned /sdd clean workflow.
 version: 2.1.0
 ---
 

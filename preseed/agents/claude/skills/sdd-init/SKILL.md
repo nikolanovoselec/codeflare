@@ -6,6 +6,10 @@ version: 1.1.0
 
 # /sdd init — bootstrapping a project
 
+## Execution ownership (binding)
+
+`/sdd init` is a root-session mutation workflow in every mode. The root performs discovery and enforcement inline, writes the scaffold with its own file tools, and owns the scaffold commit. Never spawn PR-boundary `spec-reviewer` or `doc-updater` agents to create or repair the scaffold.
+
 Three scenarios, auto-detected:
 
 1. **Greenfield**: empty project, no existing code. Bootstrap from prose.

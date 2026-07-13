@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import { dispatchReview, reviewCommandDecision, reviewWorkflowDecision } from '../../../preseed/agents/pi/extensions/review-command';
 import { scopeContract } from '../../../preseed/agents/pi/extensions/review-scope';
-import { sddCommandDecision, sddWorkflowScopeText } from '../../../preseed/agents/pi/extensions/sdd-helpers';
+import { sddCommandDecision, sddWorkflowExecutionText, sddWorkflowScopeText } from '../../../preseed/agents/pi/extensions/sdd-helpers';
 
 const reviewRootResolver = fileURLToPath(new URL(
   '../../../preseed/agents/pi/skills/review/scripts/resolve-project-root.mjs',
@@ -90,6 +90,35 @@ describe('REQ-AGENT-059: Pi review scope entry points', () => {
       }]);
     } finally {
       rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it('REQ-AGENT-021/REQ-AGENT-037: keeps SDD mutation workflows in the root session', () => {
+    const init = sddCommandDecision('init new project', {
+      dirty: false,
+      hasSdd: false,
+      hasOpenInitTriage: false,
+    });
+    const clean = sddCommandDecision('clean --unleashed', {
+      dirty: false,
+      hasSdd: true,
+      hasOpenInitTriage: false,
+    });
+
+    for (const decision of [init, clean]) {
+      expect(decision).toMatchObject({
+        kind: 'workflow',
+        execution: {
+          owner: 'root',
+          allowsMutations: true,
+          reviewerAgents: false,
+        },
+      });
+      if (decision.kind === 'workflow') {
+        expect(sddWorkflowExecutionText(decision)).toBe(
+          'Execution owner: root session; file and Git mutations allowed; invoke enforcement skills inline; do not spawn PR-boundary reviewer agents.',
+        );
+      }
     }
   });
 

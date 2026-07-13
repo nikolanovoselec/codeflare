@@ -1,6 +1,6 @@
 ---
 name: doc-enforce
-description: Pi-native documentation enforcement spine with explicit diff and all scopes. Used by doc-updater and /sdd clean.
+description: Pi-native documentation enforcement spine with explicit diff and all scopes. Used by doc-updater and inline by the root-owned /sdd clean workflow.
 version: 3.0.0
 ---
 

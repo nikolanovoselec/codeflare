@@ -14,6 +14,8 @@ The full enforcement layer lives in the `spec-discipline` rule (loaded automatic
 
 The user runs `/sdd init` once to bootstrap. After that, they "vibe code" — write code, push, walk away. The `spec-reviewer` and `doc-updater` agents auto-detect the `sdd/` folder and enforce discipline on every PR-boundary event, in the mode set by `sdd/config.yml` (`interactive`, `auto`, or `unleashed`).
 
+**Mutation ownership:** every `/sdd` sub-command executes in the root session. `/sdd init` and `/sdd clean` invoke enforcement skills inline and use the root's file and Git tools; they never spawn report-only PR-boundary reviewer agents to apply changes. Reviewer autonomy mode affects findings at review boundaries, not mutation ownership.
+
 The user only invokes `/sdd` directly to:
 - Bootstrap a new project (`/sdd init` → invokes the `sdd-init` skill)
 - Manually add or modify requirements (`/sdd edit`, `/sdd add` — body below)

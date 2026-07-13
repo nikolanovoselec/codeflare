@@ -8,10 +8,22 @@ export type SddRepoState = {
   hasOpenInitTriage: boolean;
 };
 
+export type SddWorkflowExecution = {
+  owner: "root";
+  allowsMutations: true;
+  reviewerAgents: false;
+};
+
 export type SddCommandDecision =
   | { kind: "help"; message: string }
   | { kind: "error"; message: string }
-  | { kind: "workflow"; subcommand: SddSubcommand; skill: string; normalizedCommand: string; scope?: ReviewScopeContract };
+  | { kind: "workflow"; subcommand: SddSubcommand; skill: string; normalizedCommand: string; execution: SddWorkflowExecution; scope?: ReviewScopeContract };
+
+const ROOT_SDD_EXECUTION: SddWorkflowExecution = {
+  owner: "root",
+  allowsMutations: true,
+  reviewerAgents: false,
+};
 
 const SDD_SUBCOMMANDS = new Set(["init", "edit", "add", "clean", "mode"]);
 
@@ -83,10 +95,19 @@ export function sddCommandDecision(args: string, state: SddRepoState): SddComman
     subcommand,
     skill: sddSkillForSubcommand(subcommand),
     normalizedCommand: `/sdd ${trimmed}`,
+    execution: { ...ROOT_SDD_EXECUTION },
     ...(scope ? { scope } : {}),
   };
 }
 
 export function sddWorkflowScopeText(decision: Extract<SddCommandDecision, { kind: "workflow" }>): string {
   return decision.scope ? `Resolved scope: ${JSON.stringify(decision.scope)}` : "";
+}
+
+export function sddWorkflowExecutionText(decision: Extract<SddCommandDecision, { kind: "workflow" }>): string {
+  const mutationAccess = decision.execution.allowsMutations ? "allowed" : "blocked";
+  const reviewerDispatch = decision.execution.reviewerAgents
+    ? "reviewer-agent dispatch allowed"
+    : "do not spawn PR-boundary reviewer agents";
+  return `Execution owner: ${decision.execution.owner} session; file and Git mutations ${mutationAccess}; invoke enforcement skills inline; ${reviewerDispatch}.`;
 }

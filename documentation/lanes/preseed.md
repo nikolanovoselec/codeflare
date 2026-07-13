@@ -413,6 +413,15 @@ SDD PRs targeting `main`/`master`. Both use `review-scope`: PR-boundary review a
 `/review --diff` inspect changed hunks plus direct invalidations; `/review --all`
 and `/sdd clean --all` are exhaustive.
 
+`/sdd init` and `/sdd clean` are root-session mutation workflows, not reviewer
+invocations. The root keeps file and Git ownership; cleanup resolves the shared
+scope, runs `spec-enforce` and then `doc-enforce` inline, and applies or pushes
+mode-authorized changes itself. This remains true for `--unleashed`; report-only
+PR-boundary reviewers are never spawned to mutate the project. This implements
+[REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
+AC6 and [REQ-AGENT-037](../../sdd/spec/agents.md#req-agent-037-sdd-clean-rescue-and-autonomy-modes)
+AC6.
+
 At invocation, `/review` prefers the Git repository containing the command cwd,
 including a linked worktree, then falls back to remembered active-repository state.
 An executable resolver validates the root without changing valid path whitespace or

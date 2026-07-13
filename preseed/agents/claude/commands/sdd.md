@@ -4,6 +4,10 @@ Turn rough product ideas into structured specifications. Keep the spec honest as
 
 **Route:** invoke the `spec-driven-development` skill. It carries the full workflow for every sub-command (init, edit, add, clean, mode), the canonical REQ render, the Phase 5 enrichment pass, the templates, and the mode semantics.
 
+## Execution ownership (binding)
+
+Every sub-command stays in the current root session. The root retains Read/Write/Edit/Bash and Git ownership. For `init` and `clean`, invoke the named enforcement skills inline; never dispatch `spec-reviewer` or `doc-updater` agents to mutate the project.
+
 ## When the user types `/sdd` with no arguments
 
 Print this help screen and exit. Do not invoke any sub-command.
