@@ -635,9 +635,9 @@ lay_down_agent_seed_preseed() {
 # differently and defeats that cache — ~2.4s of cold transpile EVERY session.
 # Re-lay the image-baked managed extensions for the session mode so their bytes always equal
 # the build → the prewarm cache always hits, in ALL deployment modes (not just Governed).
-# Surgical: copies only the codeflare-owned .pi/agent/extensions tree, so user-ADDED
-# extensions (other filenames the sync restored) are preserved and user-editable seed
-# docs/rules are untouched. Uses cp -r (not -p) so the relaid files carry a current mtime —
+# Surgical: copies only the codeflare-owned .pi/agent/extensions tree and prunes explicitly
+# retired Codeflare review extensions, so user-ADDED extensions are preserved and
+# user-editable seed docs/rules are untouched. Uses cp -r (not -p) so the relaid files carry a current mtime —
 # the subsequent bisync then treats local as authoritative and self-heals R2 instead of
 # pulling the stale copy back. Idempotent and mode-aware.
 relay_managed_pi_extensions() {
@@ -656,7 +656,10 @@ relay_managed_pi_extensions() {
         return 0
     fi
     [ -d "$dest" ] || return 0
-    local relaid=0 f base
+    local relaid=0 f base retired
+    for retired in review-job-helpers.ts review-jobs.ts review-lane-guards.ts; do
+        rm -f "$dest/$retired"
+    done
     for f in "$warm_src"/*.ts; do
         [ -e "$f" ] || continue
         base="$(basename "$f")"

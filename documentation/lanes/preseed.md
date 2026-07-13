@@ -403,7 +403,7 @@ boundary may request missing lanes again. This implements
 [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing),
 [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch), and
 [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff),
-following [AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents).
+following [AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents). The post-sync managed-extension relay removes the three retired durable-review extensions before Pi loads runtime code, while preserving user-added extensions ([REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake) AC4).
 
 CI follows a distinct path. The root Git rule invokes the request resolver exactly
 once after each eligible successful Git action and submits its zero-or-one JSON

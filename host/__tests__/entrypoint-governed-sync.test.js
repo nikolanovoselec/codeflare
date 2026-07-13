@@ -215,6 +215,27 @@ describe('REQ-STOR-017 / AD90: post-sync managed Pi extension relay (entrypoint.
     assert.equal(readFileSync(join(destExt, 'my-custom.ts'), 'utf8'), '// USER addition\n');
   });
 
+  it('REQ-STOR-017 AC4: removes retired durable-review extensions without deleting user additions', () => {
+    const retired = ['review-job-helpers.ts', 'review-jobs.ts', 'review-lane-guards.ts'];
+    const warmFiles = Object.fromEntries([
+      ['codeflare-pi.ts', '// IMAGE codeflare-pi\n'],
+      ...retired.map((name) => [name, '// RETIRED IMAGE COPY\n']),
+    ]);
+    const destFiles = Object.fromEntries([
+      ['codeflare-pi.ts', '// STALE\n'],
+      ['my-custom.ts', '// USER addition\n'],
+      ...retired.map((name) => [name, '// STALE R2 COPY\n']),
+    ]);
+
+    const { code, stderr, destExt } = runRelay({ warmFiles, destFiles });
+
+    assert.equal(code, 0, `relay exited non-zero: ${stderr}`);
+    assert.ok(existsSync(join(destExt, 'my-custom.ts')), 'user-added extension was deleted');
+    for (const name of retired) {
+      assert.ok(!existsSync(join(destExt, name)), `${name} survived managed-extension retirement`);
+    }
+  });
+
   it('sources from the unfiltered image dir so an advanced-only extension present in the runtime is fixed', () => {
     // codeflare-pi/browser-run are advanced-only — the bug was a mode-filtered source omitting them.
     const { code, stderr, destExt } = runRelay({
