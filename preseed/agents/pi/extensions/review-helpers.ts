@@ -150,6 +150,13 @@ function commandWords(command: string): ShellWords[] {
   });
 }
 
+function gitSubcommand(words: ShellWords): string | undefined {
+  if (words[0] !== "git") return undefined;
+  let index = 1;
+  while (words[index] === "-C" && words[index + 1]) index += 2;
+  return words[index];
+}
+
 function protectedEdit(words: ShellWords): boolean {
   if (words[0] !== "gh" || words[1] !== "pr" || words[2] !== "edit") return false;
   return words.some((word, index) =>
@@ -163,12 +170,12 @@ export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces
   let settled = false;
   let event: ReviewBoundaryEvent | undefined;
   for (const words of commandWords(command)) {
-    if (words[0] === "git" && words[1] === "push") {
+    if (gitSubcommand(words) === "push") {
       reminder = settled = true;
       event = "push";
     }
     if (words[0] === "gh" && words[1] === "pr" && words[2] === "create") {
-      reminder = true;
+      reminder = settled = true;
       event = "pr-create";
     }
     if (protectedEdit(words)) {
@@ -280,9 +287,12 @@ function userText(entry: Record<string, any>): string {
   return Array.isArray(content) ? content.filter((part) => part?.type === "text").map((part) => part.text).join("\n") : "";
 }
 
-function notificationToolId(entry: Record<string, any>): string | undefined {
+function nativeNotification(entry: Record<string, any>): { toolUseId: string; succeeded: boolean } | undefined {
   if (entry.type !== "custom_message" || entry.customType !== "subagent-notification" || typeof entry.content !== "string") return undefined;
-  return /<tool-use-id>([^<]+)<\/tool-use-id>/.exec(entry.content)?.[1];
+  const toolUseId = /<tool-use-id>([^<]+)<\/tool-use-id>/.exec(entry.content)?.[1];
+  if (!toolUseId) return undefined;
+  const status = /<status>([^<]+)<\/status>/.exec(entry.content)?.[1]?.trim() ?? "";
+  return { toolUseId, succeeded: /^(?:Done|Completed)$/i.test(status) };
 }
 
 function reviewWindow(entry: Record<string, any>): { head?: string; range?: string } | undefined {
@@ -329,8 +339,13 @@ export function reviewTranscriptFacts(input: {
       const prompt = typeof call.arguments?.prompt === "string" ? call.arguments.prompt : "";
       const wrongRange = window?.range && !prompt.includes(`review_range=${window.range}`);
       if (call.name !== "subagent" || call.arguments?.run_in_background !== true || call.arguments?.inherit_context !== false || !input.requiredLanes.includes(lane) || wrongRange) continue;
-      const terminal = later.slice(entryIndex + 1).some((candidate) => notificationToolId(candidate) === call.id);
+      const notifications = later.slice(entryIndex + 1)
+        .map(nativeNotification)
+        .filter((candidate) => candidate?.toolUseId === call.id);
+      const terminal = notifications.some((candidate) => candidate?.succeeded === true);
+      const failed = notifications.some((candidate) => candidate?.succeeded === false);
       if (terminal) lanes[lane] = { state: "terminal", toolUseId: call.id };
+      else if (failed && lanes[lane].state !== "terminal") lanes[lane] = { state: "missing" };
       else if (lanes[lane].state !== "terminal") lanes[lane] = { state: "in-flight", toolUseId: call.id };
     }
   });

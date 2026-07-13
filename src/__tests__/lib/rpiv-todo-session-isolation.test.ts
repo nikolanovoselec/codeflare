@@ -4,13 +4,12 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { installRpivTodoSessionIsolation } from '../../../preseed/agents/pi/npm/rpiv-todo-session-isolation/install.mjs';
+import { registerSessionStateLifecycle } from '../../../preseed/agents/pi/npm/rpiv-todo-session-isolation/state/lifecycle';
 import {
   __resetState,
   commitState,
-  evictSession,
   getRenderState,
   getState,
-  replaceState,
   setActiveRenderSession,
 } from '../../../preseed/agents/pi/npm/rpiv-todo-session-isolation/state/store';
 
@@ -29,13 +28,32 @@ afterEach(() => {
 });
 
 describe('REQ-AGENT-081: rpiv-todo session isolation patch', () => {
-  it('keeps foreground tasks intact when a child session replays, mutates, and shuts down', () => {
-    replaceState('foreground', taskState('foreground task'));
-    setActiveRenderSession('foreground');
+  it('keeps foreground tasks intact when a child session replays, mutates, and shuts down', async () => {
+    type Handler = (event: unknown, ctx: { sessionManager: { getSessionId(): string } }) => unknown;
+    const handlers = new Map<string, Handler[]>();
+    const pi = {
+      on: (event: string, handler: Handler) => handlers.set(event, [...(handlers.get(event) ?? []), handler]),
+    };
+    let activeSession = '';
+    registerSessionStateLifecycle(pi, {
+      replayFromBranch: (ctx) => taskState(`${ctx.sessionManager.getSessionId()} task`),
+      onSessionStart: (sessionId) => {
+        if (activeSession) return;
+        activeSession = sessionId;
+        setActiveRenderSession(sessionId);
+      },
+      onForegroundReplay: () => undefined,
+      onActiveShutdown: () => { activeSession = ''; },
+    });
+    const context = (sessionId: string) => ({ sessionManager: { getSessionId: () => sessionId } });
+    const emit = async (event: string, sessionId: string) => {
+      for (const handler of handlers.get(event) ?? []) await handler({}, context(sessionId));
+    };
 
-    replaceState('child', taskState('child task'));
+    await emit('session_start', 'foreground');
+    await emit('session_start', 'child');
     commitState('child', { tasks: [], nextId: 2 });
-    evictSession('child');
+    await emit('session_shutdown', 'child');
 
     expect(getState('foreground').tasks.map((task) => task.subject)).toEqual(['foreground task']);
     expect(getRenderState().tasks.map((task) => task.subject)).toEqual(['foreground task']);
@@ -48,7 +66,7 @@ describe('REQ-AGENT-081: rpiv-todo session isolation patch', () => {
     mkdirSync(packageRoot, { recursive: true });
     writeFileSync(join(packageRoot, 'package.json'), '{"version":"1.20.0"}\n', 'utf8');
     const payloadRoot = join(root, 'payload');
-    const payloadFiles = ['index.ts', 'todo.ts', 'todo-overlay.ts', 'state/store.ts'];
+    const payloadFiles = ['index.ts', 'todo.ts', 'todo-overlay.ts', 'state/lifecycle.ts', 'state/store.ts'];
     for (const relativePath of payloadFiles) {
       const payloadPath = join(payloadRoot, relativePath);
       mkdirSync(dirname(payloadPath), { recursive: true });

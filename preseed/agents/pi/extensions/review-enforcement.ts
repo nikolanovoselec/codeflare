@@ -119,6 +119,14 @@ function readAck(repo: string): string | undefined {
   }
 }
 
+function clearAck(repo: string): void {
+  try {
+    unlinkSync(ackPath(repo));
+  } catch {
+    // Missing acknowledgement is the normal unreviewed state.
+  }
+}
+
 function clearCount(repo: string): void {
   try {
     unlinkSync(countPath(repo));
@@ -278,6 +286,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
 
     const skipReview = bypassSentinelPresent();
     if (skipReview && !boundary.classification.settled) consumeBypassSentinel();
+    if (boundary.classification.event === "pr-edit" && reviewEnabled(review.repo)) clearAck(review.repo);
     const ackHead = readAck(review.repo);
     const range = reviewRange({ repo: review.repo, ackHead, head: review.pr.headRefOid });
     const requiredLanes = reviewEnabled(review.repo) && !skipReview && ackHead !== review.pr.headRefOid

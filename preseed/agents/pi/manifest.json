@@ -331,6 +331,12 @@
       "advanced"
     ]
   },
+  "npm/rpiv-todo-session-isolation/install.d.mts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "npm/rpiv-todo-session-isolation/install.mjs": {
     "modes": [
       "default",
@@ -350,6 +356,12 @@
     ]
   },
   "npm/rpiv-todo-session-isolation/todo-overlay.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "npm/rpiv-todo-session-isolation/state/lifecycle.ts": {
     "modes": [
       "default",
       "advanced"

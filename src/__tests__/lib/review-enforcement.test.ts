@@ -290,7 +290,6 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-plan',
-        content: expect.stringContaining(`review_range=${fixture.base}..${fixture.head}`),
         display: true,
         details: {
           head: fixture.head,
@@ -310,7 +309,6 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-follow-up',
-        content: expect.stringContaining(`review_range=${fixture.base}..${fixture.head}`),
         display: true,
         details: {
           head: fixture.head,
@@ -366,7 +364,6 @@ describe('Pi review reminder and settled enforcement', () => {
       expect(harness.sent, testCase.name).toEqual([{
         message: expect.objectContaining({
           customType: 'pr-boundary-launch-plan',
-          content: expect.stringContaining('scope=diff. Review the full PR against origin/main.'),
           details: {
             head: fixture.head,
             ackHead: expectedAck,
@@ -409,6 +406,30 @@ describe('Pi review reminder and settled enforcement', () => {
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
     expect(ackHead(fixture.repo)).toBe(fixture.head);
+  });
+
+  it('REQ-AGENT-055/REQ-AGENT-082: protected-base retarget invalidates same-head acknowledgement', async () => {
+    const fixture = makeReviewFixture();
+    writeFileSync(join(fixture.repo, '.git/sdd-last-ack-pr-head'), `${fixture.head}\n`, 'utf8');
+    const harness = await registerFixture(fixture);
+    const command = 'gh pr edit 42 --base main';
+    appendSession(fixture.sessionFile,
+      assistantTool('retarget-1', 'bash', { command }),
+      toolResult('retarget-1', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command));
+
+    expect(existsSync(join(fixture.repo, '.git/sdd-last-ack-pr-head'))).toBe(false);
+    expect(harness.sent[0]?.message.details).toEqual({
+      head: fixture.head,
+      ackHead: undefined,
+      reviewRange: undefined,
+      scope: diffScope(),
+      requiredLanes: ALL_LANES,
+      launchWaves: launchWaves(ALL_LANES, false),
+      ciEvent: undefined,
+    });
   });
 
   it('REQ-AGENT-068: emits a CI-only launch plan in default session mode', async () => {
@@ -556,6 +577,56 @@ describe('Pi review reminder and settled enforcement', () => {
     }
   });
 
+  it('REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-068: dispatches a git -C push from the workspace parent', async () => {
+    const fixture = makeReviewFixture();
+    const sessionRoot = dirname(fixture.repo);
+    rememberActiveRepo(sessionRoot);
+    const harness = await registerFixture(fixture, sessionRoot);
+    const command = `git -C "${fixture.repo}" push origin pi`;
+    appendSession(fixture.sessionFile,
+      assistantTool('push-1', 'bash', { command }),
+      toolResult('push-1', 'bash'),
+    );
+    const previousMode = process.env.SESSION_MODE;
+    process.env.SESSION_MODE = 'default';
+
+    try {
+      await harness.emit('tool_result', boundaryEvent(command));
+      expect(harness.sent[0]?.message.details).toMatchObject({
+        head: fixture.head,
+        requiredLanes: [],
+        ciEvent: 'push',
+      });
+    } finally {
+      if (previousMode === undefined) delete process.env.SESSION_MODE;
+      else process.env.SESSION_MODE = previousMode;
+    }
+  });
+
+  it('REQ-AGENT-036/REQ-AGENT-055: PR creation completion acknowledges its review window', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    const command = 'gh pr create --base main --title review';
+    appendSession(fixture.sessionFile,
+      assistantTool('create-1', 'bash', { command }),
+      toolResult('create-1', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent(command));
+    harness.sent.splice(0);
+    appendSession(fixture.sessionFile,
+      assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      notification('code-1'),
+      notification('spec-1'),
+      notification('doc-1'),
+    );
+
+    await harness.emit('agent_settled');
+
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
+  });
+
   it('REQ-AGENT-063: extracts boundaries only from supported shell tool result surfaces', async () => {
     const cases = [
       { toolName: 'bash', input: { command: 'git push origin pi' }, isError: false, expected: 1 },
@@ -681,7 +752,6 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-plan',
-        content: expect.stringContaining(`review_range=${fixture.base}..${fixture.head}`),
         details: {
           head: fixture.head,
           ackHead: fixture.base,
@@ -729,7 +799,6 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-follow-up',
-        content: expect.stringContaining(`review_range=${fixture.base}..${fixture.head}`),
         display: true,
         details: {
           head: fixture.head,
@@ -793,7 +862,7 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater'), '2026-07-12T12:07:20.000Z'),
       assistantTool('ci-1', 'subagent', ciArgs(fixture.head), '2026-07-12T12:07:30.000Z'),
       notification('doc-1'),
-      notification('code-1', 'Error'),
+      notification('code-1'),
     );
 
     await harness.emit('agent_settled');
@@ -807,6 +876,35 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(existsSync(join(fixture.repo, '.git/codeflare-review-jobs'))).toBe(false);
     expect(existsSync(join(fixture.repo, '.git/sdd-review-results'))).toBe(false);
     expect(existsSync(join(fixture.repo, '.git/sdd-review-pending.json'))).toBe(false);
+  });
+
+  it('REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: failed reviewer notification remains unacknowledged and recoverable', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent());
+    harness.sent.splice(0);
+    appendSession(fixture.sessionFile,
+      assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      assistantTool('ci-1', 'subagent', ciArgs(fixture.head)),
+      notification('code-1', 'Error'),
+      notification('spec-1'),
+      notification('doc-1'),
+    );
+
+    await harness.emit('agent_settled');
+
+    expect(ackHead(fixture.repo)).toBe(fixture.base);
+    expect(harness.sent[0]?.message.details).toMatchObject({
+      head: fixture.head,
+      missingLanes: ['code-reviewer'],
+      ciEvent: undefined,
+    });
   });
 
   it('REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: delayed completion acknowledges the reviewed PR head after reload and new local work', async () => {

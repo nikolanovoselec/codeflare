@@ -447,15 +447,12 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(extensions.map((d) => d.key)).toContain('.pi/agent/extensions/local-statusline.ts');
     expect(extensions.map((d) => d.key)).toContain('.pi/agent/extensions/context-mode-runtime.ts');
     const codeReviewer = agents.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
-    expect(codeReviewer?.content).toContain('tools: read, grep, find, bash, write');
-    // context-mode helper tools are kept (Pi-native names), inert when context-mode is off
-    expect(codeReviewer?.content).toContain('ctx_execute');
-    expect(codeReviewer?.content).toContain('ctx_batch_execute');
-    expect(codeReviewer?.content).toContain('graphify_query');
-    expect(codeReviewer?.content).toContain('graphify_explain');
-    expect(codeReviewer?.content).toContain('prompt_mode: replace');
-    expect(codeReviewer?.content).toContain('extensions: true');
-    expect(codeReviewer?.content).toContain('skills: true');
+    expect(frontmatter(codeReviewer?.content ?? '')).toMatchObject({
+      tools: 'read, grep, bash, ctx_batch_execute, graphify_query, graphify_explain, graphify_path',
+      prompt_mode: 'replace',
+      extensions: 'true',
+    });
+    expect(frontmatter(codeReviewer?.content ?? '')).not.toHaveProperty('skills');
     // Pi subagents crash when inherit_context is forced through frontmatter; foreground/background
     // defaults are left to the caller except for explicitly background-only agents.
     expect(codeReviewer?.content).not.toContain('inherit_context: true');
@@ -1510,13 +1507,9 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
 
 });
 
-describe('Reviewer agents can invoke their enforce skills (Skill tool grant vs Pi skills flag)', () => {
-  // The reviewer/guide agent bodies bind them to invoke spec-enforce / doc-enforce /
-  // tdd-enforce as their first action. On Claude that requires the Skill tool in the
-  // agent's tools array (without it the agent physically cannot invoke the skill and
-  // self-reports enforcement-skill-not-invoked). On Pi there is no Skill tool — access
-  // is granted by the `skills: true` frontmatter flag — so a transformed agent must NOT
-  // carry a (nonexistent) Skill tool. These fail if either grant regresses.
+describe('Reviewer agents can access their enforce policy', () => {
+  // Claude invokes enforce skills through its Skill tool. Pi has no equivalent tool;
+  // its generated reviewer system prompts embed the canonical policy documents.
   const CLAUDE_REVIEWERS = ['spec-reviewer', 'doc-updater', 'code-reviewer', 'tdd-guide'];
 
   it('every Claude reviewer/guide agent grants the Skill tool so its enforce skill is invocable', () => {
@@ -1528,12 +1521,12 @@ describe('Reviewer agents can invoke their enforce skills (Skill tool grant vs P
     }
   });
 
-  it('transformed runtimes never inherit the Claude-only Skill tool (Pi uses skills: true instead)', () => {
+  it('transformed runtimes never inherit the Claude-only Skill tool', () => {
     const piCr = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
     expect(piCr).toBeTruthy();
-    const piTools = piCr!.content.match(/^tools:.*$/m)?.[0] ?? '';
-    expect(piTools.toLowerCase()).not.toContain('skill'); // no Skill tool on Pi
-    expect(piCr!.content).toContain('skills: true'); // access granted via the flag instead
+    const piFrontmatter = frontmatter(piCr!.content);
+    expect(piFrontmatter.tools.split(/,\s*/)).not.toContain('Skill');
+    expect(piFrontmatter).not.toHaveProperty('skills');
     const gemCr = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.gemini/agents/code-reviewer.md');
     expect(gemCr, '.gemini/agents/code-reviewer.md should be seeded').toBeTruthy();
     const gemTools = gemCr!.content.match(/^tools:.*$/m)?.[0] ?? '';

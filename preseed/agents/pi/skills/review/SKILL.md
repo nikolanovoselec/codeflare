@@ -120,14 +120,15 @@ Step 1a - parse the injected command line into four variables. Use word-boundary
 - `$VERIFY_HIGH` = `true` if `--verify-high` is a standalone token, else `false`.
 - `$SCOPE_HINT` = the free text remaining after stripping the four known flags (`--all`, `--diff`, `--deep`, `--verify-high`). Empty string if nothing is left. This is passed to every Phase 2 subagent.
 
-Step 1b - resolve the project root and create the run directory:
+Step 1b - use the absolute `Repository root:` from the injected workflow contract and create the run directory. Validate that exact path instead of deriving the project from the Pi process cwd:
 
 ```bash
-PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-if [ -z "$PROJECT_ROOT" ]; then
-  echo "ERROR: /review must be invoked from inside a git repository." >&2
+PROJECT_ROOT='<absolute Repository root from the workflow contract>'
+if [ ! -d "$PROJECT_ROOT/.git" ]; then
+  echo "ERROR: /review repository root is unavailable." >&2
   exit 1
 fi
+cd "$PROJECT_ROOT"
 HAS_SDD=0
 [ -d "$PROJECT_ROOT/sdd" ] && HAS_SDD=1
 HAS_DOCS=0

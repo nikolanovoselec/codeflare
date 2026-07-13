@@ -22,14 +22,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { I18N_NAMESPACE } from "./state/i18n-bridge.js";
 import { replayFromBranch } from "./state/replay.js";
-import {
-	clearActiveRenderSession,
-	evictSession,
-	getActiveRenderSession,
-	replaceState,
-	setActiveRenderSession,
-	sid,
-} from "./state/store.js";
+import { registerSessionStateLifecycle } from "./state/lifecycle.js";
+import { getActiveRenderSession, setActiveRenderSession } from "./state/store.js";
 import { registerTodosCommand, registerTodoTool, TOOL_NAME } from "./todo.js";
 import { TodoOverlay } from "./todo-overlay.js";
 
@@ -51,13 +45,6 @@ try {
 	// SDK absent — extension still loads with English-only UI.
 }
 
-// pi-core's ExtensionRunner throws this exact phrase from an invalidated ctx
-// proxy after session replacement/reload. Match the stable substring so genuine
-// replay bugs still propagate instead of being silently swallowed.
-function isStaleCtxError(e: unknown): boolean {
-	return /stale after session replacement/.test(String(e));
-}
-
 export default function (pi: ExtensionAPI) {
 	// Todo overlay widget — constructed lazily at the first session_start with UI.
 	let todoOverlay: TodoOverlay | undefined;
@@ -65,61 +52,27 @@ export default function (pi: ExtensionAPI) {
 	registerTodoTool(pi);
 	registerTodosCommand(pi);
 
-	const replayAndRefresh = (ctx: Parameters<typeof sid>[0] & Parameters<typeof replayFromBranch>[0]): void => {
-		let isForeground = false;
-		try {
-			const sessionId = sid(ctx);
-			replaceState(sessionId, replayFromBranch(ctx));
-			isForeground = sessionId === getActiveRenderSession();
-		} catch (e) {
-			if (!isStaleCtxError(e)) throw e;
-		}
-		if (isForeground) {
+	registerSessionStateLifecycle(pi, {
+		replayFromBranch,
+		onSessionStart: (sessionId, ctx) => {
+			if (!ctx.hasUI) return;
+			if (todoOverlay === undefined) {
+				todoOverlay = new TodoOverlay();
+				setActiveRenderSession(sessionId);
+			}
+			if (sessionId !== getActiveRenderSession()) return;
+			todoOverlay.setUICtx(ctx.ui);
+			todoOverlay.resetCompletedDisplayState();
+			todoOverlay.update();
+		},
+		onForegroundReplay: () => {
 			todoOverlay?.resetCompletedDisplayState();
 			todoOverlay?.update();
-		}
-	};
-
-	pi.on("session_start", async (_event, ctx) => {
-		let sessionId: string;
-		try {
-			sessionId = sid(ctx);
-			replaceState(sessionId, replayFromBranch(ctx));
-		} catch (e) {
-			if (!isStaleCtxError(e)) throw e;
-			return;
-		}
-		if (!ctx.hasUI) return;
-		if (todoOverlay === undefined) {
-			todoOverlay = new TodoOverlay();
-			setActiveRenderSession(sessionId);
-		}
-		if (sessionId !== getActiveRenderSession()) return;
-		todoOverlay.setUICtx(ctx.ui);
-		todoOverlay.resetCompletedDisplayState();
-		todoOverlay.update();
-	});
-
-	pi.on("session_compact", async (_event, ctx) => replayAndRefresh(ctx));
-	pi.on("session_tree", async (_event, ctx) => replayAndRefresh(ctx));
-
-	pi.on("session_shutdown", async (_event, ctx) => {
-		let sessionId: string;
-		try {
-			sessionId = sid(ctx);
-		} catch (e) {
-			if (!isStaleCtxError(e)) throw e;
-			sessionId = "";
-		}
-		evictSession(sessionId);
-		if (sessionId === "" || sessionId === getActiveRenderSession()) {
-			try {
-				todoOverlay?.dispose();
-			} finally {
-				todoOverlay = undefined;
-				clearActiveRenderSession();
-			}
-		}
+		},
+		onActiveShutdown: () => {
+			todoOverlay?.dispose();
+			todoOverlay = undefined;
+		},
 	});
 
 	// Reads getTodos() at render time; do NOT call replayFromBranch here

@@ -160,10 +160,10 @@ function adaptPaths(content, agentId) {
 }
 
 // Claude-Code-only tools that have no equivalent in any transformed runtime and must be
-// dropped from every transform. `Skill` invokes a Claude skill via the Skill tool; Pi
-// grants skill access through the `skills: true` frontmatter flag instead (added below),
-// and codex/gemini/copilot/opencode have no skill-invocation tool at all — so leaving
-// `Skill` in a transformed tools array would declare a tool that does not exist there.
+// dropped from every transform. `Skill` invokes a Claude skill via the Skill tool;
+// codex/gemini/copilot/opencode have no equivalent, while native Pi reviewers receive
+// canonical policy through generated system-prompt inclusion. Leaving `Skill` in a
+// transformed tools array would declare a tool that does not exist there.
 const CLAUDE_ONLY_TOOLS = new Set(['Skill']);
 
 /** Remap a Claude tools array to the target agent's tool names. Deduplicates. */
@@ -268,7 +268,6 @@ function adaptAgentFrontmatter(content, agentId) {
     if (!sawTools) newLines.push('tools: read, grep, find, ls, bash, edit, write');
     newLines.push('prompt_mode: replace');
     newLines.push('extensions: true');
-    newLines.push('skills: true');
     if (/^name:\s*memory-capture\s*$/m.test(frontmatter)) newLines.push('run_in_background: true');
   }
 
@@ -369,6 +368,36 @@ function piNativeKey(withinPi) {
   throw new Error(`Cannot map Pi native preseed file: ${withinPi}`);
 }
 
+const PI_SKILL_INCLUDE_PATTERN = /^<!-- @include-skill ([a-z0-9-]+) -->$/gm;
+
+function expandPiSkillIncludes(content, withinPi, piSkillContents) {
+  const directives = [...content.matchAll(PI_SKILL_INCLUDE_PATTERN)];
+  if (directives.length === 0) return content;
+  if (!withinPi.startsWith('agents/')) {
+    throw new Error(`Pi skill includes are only valid in agent definitions: ${withinPi}`);
+  }
+
+  const included = new Set();
+  let expanded = content;
+  for (const directive of directives) {
+    const skillName = directive[1];
+    const skillContent = piSkillContents.get(skillName);
+    if (included.has(skillName)) {
+      throw new Error(`Duplicate Pi skill include "${skillName}" in ${withinPi}`);
+    }
+    if (skillContent === undefined) {
+      throw new Error(`Pi agent ${withinPi} includes unseeded skill "${skillName}"`);
+    }
+
+    expanded = expanded.replace(
+      directive[0],
+      `<embedded-skill name="${skillName}">\n${skillContent}</embedded-skill>`,
+    );
+    included.add(skillName);
+  }
+  return expanded;
+}
+
 /** Ensure no duplicate (key, mode) pairs across all documents. */
 function validateDocuments(documents) {
   const seen = new Map();
@@ -461,11 +490,24 @@ async function generate() {
   const piNativeAgentKeys = new Set();
   const piNativeRuleKeys = new Set();
   const piNativeRuleFiles = [];
+  const piSkillContents = new Map();
+  for (const file of sourceFiles) {
+    const skillName = file.withinClaude.match(/^skills\/([^/]+)\/SKILL\.md$/)?.[1];
+    if (file.category === 'skill' && skillName && !isClaudeOnlySkill(file.withinClaude)) {
+      piSkillContents.set(skillName, adaptSkillContent(file.content, 'pi', file.withinClaude));
+    }
+  }
   try {
     const piManifest = JSON.parse(await fs.readFile(piManifestPath, 'utf8'));
     validateModes(piManifest, 'Pi');
     for (const withinPi of Object.keys(piManifest)) {
-      if (withinPi.startsWith('skills/')) piNativeSkillKeys.add(withinPi.slice('skills/'.length));
+      if (withinPi.startsWith('skills/')) {
+        piNativeSkillKeys.add(withinPi.slice('skills/'.length));
+        const skillName = withinPi.match(/^skills\/([^/]+)\/SKILL\.md$/)?.[1];
+        if (skillName) {
+          piSkillContents.set(skillName, await fs.readFile(path.join(piDir, withinPi), 'utf8'));
+        }
+      }
       if (withinPi.startsWith('agents/')) piNativeAgentKeys.add(withinPi.slice('agents/'.length));
       if (withinPi.startsWith('rules/')) piNativeRuleKeys.add(withinPi);
     }
@@ -477,6 +519,7 @@ async function generate() {
       } catch {
         throw new Error(`Pi manifest references "${withinPi}" but file does not exist`);
       }
+      content = expandPiSkillIncludes(content, withinPi, piSkillContents);
       if (withinPi.startsWith('rules/')) {
         piNativeRuleFiles.push({ withinClaude: withinPi, content, modes: entry.modes, category: 'rule' });
       }

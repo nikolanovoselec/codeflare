@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const EXPECTED_VERSION = '1.20.0';
 const PAYLOAD_ROOT = dirname(fileURLToPath(import.meta.url));
-const FILES = ['index.ts', 'todo.ts', 'todo-overlay.ts', 'state/store.ts'];
+const FILES = ['index.ts', 'todo.ts', 'todo-overlay.ts', 'state/lifecycle.ts', 'state/store.ts'];
 
 export function installRpivTodoSessionIsolation(npmRoot = process.cwd(), payloadRoot = PAYLOAD_ROOT) {
   const packageRoot = join(npmRoot, 'node_modules/@juicesharp/rpiv-todo');

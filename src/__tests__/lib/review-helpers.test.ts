@@ -128,7 +128,7 @@ afterEach(() => {
 });
 
 describe('Claude-equivalent review boundary helpers', () => {
-  it('REQ-AGENT-063: distinguishes Claude-supported reminder and settled command surfaces', async () => {
+  it('REQ-AGENT-063: distinguishes supported reminder and settled command surfaces', async () => {
     const { classifyReviewBoundaryCommand } = await plannedHelpers();
     const push = { reminder: true, settled: true, event: 'push' as const };
     const none = { reminder: false, settled: false };
@@ -144,12 +144,12 @@ describe('Claude-equivalent review boundary helpers', () => {
       ['cat <<EOF-TEXT\ngit push origin pi\nEOF-TEXT', none],
       ['cat <<A <<B\nfirst\nA\ngit push origin pi\nB\ngit push origin pi', push],
       ['printf done; git push origin pi', push],
-      ['gh pr create --base main --title review', { reminder: true, settled: false, event: 'pr-create' }],
+      ['gh pr create --base main --title review', { reminder: true, settled: true, event: 'pr-create' }],
       ['gh pr edit 42 --base master', { reminder: true, settled: true, event: 'pr-edit' }],
       ['gh pr merge 42', { reminder: false, settled: true, event: 'pr-merge' }],
       ['gh pr edit 42 --base develop', none],
       ['gh pr update-branch 42', none],
-      ['git -C /tmp/repo push origin pi', none],
+      ['git -C /tmp/repo push origin pi', push],
     ];
 
     expect(cases.map(([command, expected]) => [command, classifyReviewBoundaryCommand(command), expected]))
@@ -265,7 +265,7 @@ describe('native Pi transcript review facts', () => {
     expect(Object.values(facts.lanes).every((lane) => lane.state === 'missing')).toBe(true);
   });
 
-  it('REQ-AGENT-053/REQ-AGENT-059: correlates terminal native notifications by XML tool-use-id, not tool results or lifecycle events', async () => {
+  it('REQ-AGENT-053/REQ-AGENT-059: correlates successful native notifications by XML tool-use-id', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
     const sessionFile = writeSession([
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
@@ -281,7 +281,7 @@ describe('native Pi transcript review facts', () => {
     const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
     expect(facts.lanes).toEqual({
       'code-reviewer': { state: 'in-flight', toolUseId: 'code-1' },
-      'spec-reviewer': { state: 'terminal', toolUseId: 'spec-1' },
+      'spec-reviewer': { state: 'missing' },
       'doc-updater': { state: 'missing' },
     });
   });

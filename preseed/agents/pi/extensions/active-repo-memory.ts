@@ -19,7 +19,7 @@ export function recallActiveRepo(): string | undefined {
   return activeRepoMemory[ACTIVE_REPO_KEY];
 }
 
-function findGitRoot(startDir: string): string | undefined {
+export function findGitRoot(startDir: string): string | undefined {
   let current = resolve(startDir);
   while (true) {
     if (existsSync(join(current, ".git"))) return current;
@@ -72,7 +72,7 @@ export function rememberActiveRepoFromToolResult(event: any, sessionCwd: string)
 }
 
 export default function activeRepoMemoryExtension(pi: ExtensionAPI): void {
-  pi.on("tool_result", (event, ctx) => {
+  pi.on("tool_result", (event: any, ctx: any) => {
     rememberActiveRepoFromToolResult(event, ctx.cwd);
   });
 }

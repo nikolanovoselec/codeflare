@@ -1,6 +1,10 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { reviewCommandDecision } from '../../../preseed/agents/pi/extensions/review-command';
+import { reviewCommandDecision, reviewWorkflowDecision } from '../../../preseed/agents/pi/extensions/review-command';
 import { scopeContract } from '../../../preseed/agents/pi/extensions/review-scope';
 import { sddCommandDecision, sddWorkflowScopeText } from '../../../preseed/agents/pi/extensions/sdd-helpers';
 
@@ -16,6 +20,32 @@ describe('REQ-AGENT-059: Pi review scope entry points', () => {
       command: '/review --all',
       scope: scopeContract('all'),
     });
+  });
+
+  it('REQ-AGENT-036/REQ-AGENT-083: resolves /review repository context and fails when absent', () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'pi-review-command-'));
+    const cwdRepo = join(workspace, 'cwd-repo');
+    const rememberedRepo = join(workspace, 'remembered-repo');
+    mkdirSync(cwdRepo);
+    mkdirSync(rememberedRepo);
+    execFileSync('git', ['init', '-q'], { cwd: cwdRepo });
+    execFileSync('git', ['init', '-q'], { cwd: rememberedRepo });
+
+    try {
+      expect(reviewWorkflowDecision('--diff', cwdRepo, rememberedRepo)).toMatchObject({ kind: 'workflow', repo: cwdRepo });
+      expect(reviewWorkflowDecision('--diff', workspace, rememberedRepo)).toEqual({
+        kind: 'workflow',
+        command: '/review --diff',
+        scope: scopeContract('diff'),
+        repo: rememberedRepo,
+      });
+      expect(reviewWorkflowDecision('--diff', workspace, undefined)).toEqual({
+        kind: 'error',
+        message: '/review needs an active Git repository.',
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
   });
 
   it('AC4: resolves /sdd clean scope flags through the same contract', () => {
