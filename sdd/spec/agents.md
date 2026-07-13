@@ -2294,6 +2294,10 @@ None.
 
 - Review scope, manifest coverage, evidence truth, and severity remain unchanged.
 - Evidence already returned is never recovered through global index searches or marker-only commands.
+- Direct context execution omits `intent`, so evidence cannot silently switch to indexed retrieval.
+- Reviewers consume the complete lane patch once, consolidate independent checks, and continue only for named unresolved candidates.
+- Commands inspect the complete scoped work set internally while emitting compact counts, failures, and candidate snippets; redirected raw logs are not reread.
+- Generated seed is reviewed through canonical preseed plus deterministic identity verification, not repeated generated-line searches.
 - No token, turn, output-size, or concurrency cap substitutes for complete scoped review.
 
 **Priority:** P1

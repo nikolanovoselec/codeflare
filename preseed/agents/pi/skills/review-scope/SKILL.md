@@ -36,18 +36,20 @@ For `all`, omit `--range` and pass `--scope all`. The packet contains:
 - `changedInputs`: changed files owned by other lanes, available only as direct-impact leads;
 - the normalized scope, work set, lane, and ancestry-validated range.
 
-Use a context-processing tool when the JSON or patch is large. Derive this packet once; do not rebuild or repeatedly dump the same diff.
+Use a context-processing tool when the JSON or patch is large. A direct packet call returns the complete lane-owned patch once, not only filenames or hunk headers that force a later diff dump. Derive this packet once; do not rebuild or repeatedly dump the same diff.
+
+When using `ctx_execute`, never pass `intent`: review evidence must return directly, not switch to indexed retrieval. The program may inspect the complete scoped input internally, but it emits only the packet patch needed for reasoning plus compact manifest counts, failures, and candidate snippets. If a native command overproduces and its output is redirected to a temporary log, rerun a derivation that prints the missing failure evidence; never read the raw log back into context.
 
 ## `scope=diff` execution
 
 Use gather-then-reason evidence processing instead of alternating one read or search with one reasoning turn:
 
-1. Build the lane packet exactly once. When context-mode is available, run the packet script through `ctx_execute` so its output enters reviewer context directly; otherwise run the same script with `bash`. Load any policy not already embedded through parallel `read` calls. Each policy file and packet section enters context once.
-2. Derive the pending manifest and concrete direct-impact candidates from that result. Run deterministic checks through one `ctx_execute` program that prints compact counts and failures; without context-mode, issue the equivalent `read`, `grep`, and `bash` calls together. Context-mode changes transport only; the scoped checks, evidence, and dispositions are identical.
-3. If the returned evidence exposes candidates that genuinely need more context, collect every unresolved candidate in one additional focused tool wave. Never re-query policy text, packet sections, or evidence already retrieved.
+1. Build the lane packet exactly once. When context-mode is available, run the packet script through `ctx_execute` without `intent` so its complete lane patch enters reviewer context directly; otherwise run the same script with `bash`. Load any policy not already embedded through parallel `read` calls. Each policy file and packet section enters context once.
+2. Derive the pending manifest and concrete direct-impact candidates from that result. Consolidate independent deterministic checks into one evidence wave. A `ctx_execute` program inspects the complete work set and prints compact counts and failures; without context-mode, issue the equivalent independent `read`, `grep`, and `bash` calls together. Context-mode changes transport only; the scoped checks, evidence, and dispositions are identical.
+3. If the returned evidence exposes candidates that genuinely need more context, collect every unresolved candidate in one focused wave, batching independent lookups together. Never re-query policy text, packet sections, or evidence already retrieved. This cadence is not a turn limit: continue only when a named candidate still lacks concrete evidence, and state what evidence is missing before the next call.
 4. Never use `ctx_batch_execute`, `ctx_search`, `query_scope=global`, or marker-only commands to store and retrieve reviewer evidence. They duplicate prior output and can return incomplete search windows instead of the exact packet.
 5. Inspect the packet's lane-owned hunks first. Follow only direct invalidations: changed callers/importers, schemas or contracts, behavioral tests, REQ anchors, and owner documentation affected by a concrete candidate.
-6. Read a whole file only after a hunk or direct invalidation identifies a candidate that cannot be verified from focused context.
+6. Read a whole file only after a hunk or direct invalidation identifies a candidate that cannot be verified from focused context. Treat generated seed files as derived output: review their canonical preseed source and use one deterministic source-to-seed identity check instead of searching generated lines repeatedly.
 7. Finalize every manifest row and give each candidate one direct-impact disposition. Do not recursively explore unrelated callers or graph communities.
 8. Stop when every lane-owned hunk, manifest row, and direct candidate has one disposition. Do not report unchanged baseline debt.
 
