@@ -486,13 +486,12 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. `/review` launches 6 parallel specialist agents (security, architecture, code quality, dead code, test gaps, documentation), followed by a sequential Reality Filter pass that re-evaluates findings against repeat-offender, memory, cluster-aggregation, user-impact, and spec-vs-shipped questions.
+1. `/review` launches 6 parallel specialist agents (security, architecture, code quality, dead code, test gaps, documentation), followed by a sequential Reality Filter; a no-surface documentation reviewer returns a one-line no-op report that the root persists. <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings.json configuration / REQ-AGENT-015 (/review command)) -->
 2. Results cross-referenced and deduplicated.
 3. Findings filtered against architecture decisions.
 4. Optional LLM verification of HIGH/CRITICAL findings.
 5. Interactive triage with fix/AD/defer/ignore options. Defer/Ignore/Tech-Debt decisions persist to `sdd/.review-decisions.md` so subsequent runs do not re-surface the same noise.
-6. When `doc-updater` is invoked on a project with no `sdd/` or no `documentation/` surface (vibe-coding mode), it writes a one-line no-op header to its output file. <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings.json configuration / REQ-AGENT-015 (/review command)) -->
-7. Findings reported in interactive triage are never auto-applied by `/review`; the user explicitly confirms each fix. The `auto` and `unleashed` modes that auto-apply spec/doc fixes are scoped to the PR-boundary review pipeline and `/sdd clean`, not to interactive `/review` invocations.
+6. Findings reported in interactive triage are never auto-applied by `/review`; the user explicitly confirms each fix. At PR boundaries and during `/sdd clean`, the root applies mode-authorized spec/doc fixes rather than delegating mutation to reviewers.
 
 **Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
@@ -2307,5 +2306,35 @@ None.
 **Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-pi-reviewer-policy-preloading)
 
 **Verification:** [Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [reviewer tool-guard tests](../../src/__tests__/lib/review-tool-guard.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-086: Claude Reviewer Direct Evidence and Root Handoff
+
+**Intent:** Claude PR reviewers must complete exact scoped reviews through direct evidence while leaving every file and Git mutation to the root session.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Claude `code-reviewer`, `spec-reviewer`, and `doc-updater` expose only `Skill`, Bash fallback, and direct context execution. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::tools --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086: Claude PR reviewers expose only skills and direct evidence execution) -->
+2. Indexed retrieval, Graphify discovery, external-LLM calls, and file mutation tools are unavailable to those reviewers. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Direct evidence transport (binding) --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::Direct evidence transport (binding) --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::Direct evidence transport (binding) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086: Claude PR reviewers expose only skills and direct evidence execution) -->
+3. PR-boundary reviewers return structured findings to the root, which alone persists triage content and applies fixes. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (emits legacy all-3 directive when ACK->HEAD diff contains source files) -->
+
+**Constraints:**
+
+- Exact-head checkpoints, ancestry-derived ranges, lane classification, parallel launch, and completion correlation remain unchanged.
+- Review scope, enforcement manifests, severity, and evidence truth remain complete.
+- Reviewers inspect the complete scoped work set internally and return compact direct results without token, turn, output-size, evidence, or concurrency caps.
+- `/review` persists returned Phase 2/4/5/6 reports in the root; external verification, triage history, ADR updates, and issue creation are root-owned.
+- Context-mode is optional transport; Bash preserves the same work set and findings.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-015](#req-agent-015-review-command-for-multi-perspective-codebase-review)
+
+**Verification:** [Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [Claude review reminder tests](../../host/__tests__/git-push-review-reminder.test.js)
 
 **Status:** Implemented

@@ -63,7 +63,7 @@ PHASES
   5   AD filtering against documentation/decisions/README.md
   6   Reality Filter (Q1-Q6)
   7   LLM verification (only when --verify-high)
-  8   Interactive triage (only phase in main session context)
+  8   Interactive triage (root session)
   9   Save triage + append to sdd/.review-decisions.md
   10  Update ADs + create tech-debt GitHub issues
   11  Plan mode for Fix decisions
@@ -71,7 +71,7 @@ PHASES
 OUTPUT
   Each run writes to /home/user/Temporary/Review/<timestamp>/, with
   /home/user/Temporary/Review/latest symlinked to the most recent run.
-  Phase outputs: 01-06 (Phase 2 agent reports), 07-req-verify-NN (one
+  Phase outputs: 01-06 (Phase 2 reports returned by agents and written by the root), 07-req-verify-NN (one
   file per Phase 3 batch, only when --deep), 08 (cross-ref), 09 (active
   after AD filter), 10 (real findings after Reality Filter), 11 (LLM-
   verified, only when --verify-high), 12 (triage decisions).
@@ -89,16 +89,9 @@ SIBLINGS
 
 ## Context Preservation (load-bearing)
 
-The main session agent is primarily an orchestrator. All source-code analysis and all reading of files `01-12` and `documentation/decisions/README.md` MUST be delegated to Task agents.
+The root session orchestrates analysis and owns every write. Phase 2/4/5/6 agents return complete reports; the root writes those bytes to the mapped review files without asking reviewers to persist them.
 
-The main agent may read only:
-- After Phase 5: the first ~20 lines of `09-active-findings.md`
-- After Phase 6: the first ~30 lines of `10-real-findings.md`
-- After Phase 7: the first ~30 lines of `11-llm-verified.md`
-- Phase 8: the `## Real Findings` and `## Tech-Debt Surfaced` sections of `10-real-findings.md` (or `11-llm-verified.md` if Phase 7 ran) for triage
-- Phase 11: the `## Fix` section of `12-triage-results.md` to enter plan mode
-
-Never read source files, `01-08`, or `documentation/decisions/README.md` directly.
+The root does not repeat reviewer source analysis. It may read the exact report sections required for external verification, interactive triage, triage persistence, ADR updates, issue creation, and plan mode. It reads `documentation/decisions/README.md` only when Phase 10 must apply a user-approved AD.
 
 ## Shell execution
 
@@ -158,14 +151,12 @@ Step 1d — print the run summary so the user knows what's happening:
 
 Use `$REVIEW_DIR` for ALL output files and `$REVIEW_DIR/.scope.txt` for scope plumbing in every subsequent phase.
 
-Step 1e — refresh the graphify graph so every downstream phase queries current code. Per REQ-AGENT-023, graphify is ambient infrastructure in every codeflare container; per REQ-AGENT-025 the post-clone hook ensures a graph exists. Before Phase 2 spawns any agent:
+Step 1e — refresh the graphify graph for graph-capable Phase 2 specialists and optional deep reviewers. Per REQ-AGENT-023, graphify is ambient infrastructure in every codeflare container; per REQ-AGENT-025 the post-clone hook ensures a graph exists. Before Phase 2 spawns any agent:
 
 ```bash
 if [ -f "$PROJECT_ROOT/graphify-out/graph.json" ]; then
-  # AST-only refresh, free, ~5-15s on medium repos; ensures graph reflects current HEAD.
-  # If the refresh fails, the on-disk graph may be stale relative to HEAD — Q6 graph-orphan
-  # would then false-positive-DROP real findings. Set the no-graph marker on failure so
-  # downstream phases use the safer grep-style fallback instead of trusting stale state.
+  # AST-only refresh, free, ~5-15s on medium repos; ensures graph-capable specialists
+  # do not consume stale structure. Code/spec/doc reviewers still use direct evidence.
   if ! (cd "$PROJECT_ROOT" && timeout 180 bash /home/user/.claude/plugins/graphify/scripts/safe-graphify-update.sh . 2>>"$REVIEW_DIR/.graphify-update.log"); then
     echo "Note: graphify update . failed or timed out at $(date -Iseconds). Graph at $PROJECT_ROOT/graphify-out/graph.json may be stale; treating as no-graph to avoid stale-orphan false positives. See .graphify-update.log for details." > "$REVIEW_DIR/.no-graph.notice"
   fi
@@ -178,7 +169,7 @@ The update runs at most once per `/review` invocation, with a 180s hard timeout 
 
 ## Phase 2: Parallel Agent Dispatch (6 Task agents)
 
-Launch **all 6 agents in parallel** using the Task tool. Each agent reviews per the parsed `$SCOPE` (`all` = entire codebase; `diff` = the diff against `origin/$BASE_REF`) plus the optional `$SCOPE_HINT`, then writes structured findings to its output file.
+Launch **all 6 agents in parallel** using the Task tool. Each agent reviews the parsed `$SCOPE` plus the optional `$SCOPE_HINT` and returns one complete structured report. After all six complete, the root session writes each returned report to its designated output file.
 
 | # | Agent subagent_type | Output File | Focus |
 |---|---------------------|-------------|-------|
@@ -194,11 +185,11 @@ Launch **all 6 agents in parallel** using the Task tool. Each agent reviews per 
 Each agent prompt MUST include:
 
 1. The project root path
-2. The exact `$REVIEW_DIR` path for output
+2. The exact `$REVIEW_DIR` path as context only; the reviewer must not write there
 3. Any additional context from $ARGUMENTS (excluding `--verify-high`)
 4. The severity rating schema
 5. The output format specification
-6. Instruction to write output to its designated file using the Write tool
+6. Instruction to return the complete report to the root session
 
 Use this prompt structure for each agent (adjust focus area per agent type):
 
@@ -212,10 +203,10 @@ Scope mode: [SCOPE]    ([SCOPE_DESCRIPTION])
 
 [SCOPE_HINT if provided, e.g., "Within that scope, focus on src/routes/."]
 
-[For SCOPE = diff: Use the DIFF_CMD output to identify changed files; Read each one fully and Read directly-related files for context. Do NOT review files outside the diff unless they are imported by changed files.]
-[For SCOPE = all:  Use Glob and Grep to explore; Read to examine files.]
+[For SCOPE = diff: Use the DIFF_CMD output to identify changed files; inspect each changed file and only directly-related files needed for context.]
+[For SCOPE = all: inspect the complete requested tree using the tools granted to your agent.]
 
-For structural lookups - "what calls X", "what depends on Y", "where is Z used", "is this dead code", "what does this symbol connect to" - PREFER the `mcp__graphify__*` MCP tools (`get_node`, `get_neighbors`, `query_graph`, `shortest_path`, `god_nodes`, `get_community`, `graph_stats`) over Grep / ctx_search. The graph at `[PROJECT_ROOT]/graphify-out/graph.json` was refreshed at the start of this `/review` run (Phase 1 Step 1e). Graphify MCP tools work identically under both Bash and context-mode environments. If the graph is unavailable or stale (`$REVIEW_DIR/.no-graph.notice` is present), fall back to Grep / ctx_search.
+Use only the tools granted by your agent definition. Do not retrieve policy or evidence through a global index, and do not widen the supplied scope.
 
 Rate each finding with one of these severities:
 - CRITICAL: Security vulnerabilities, data loss risks, production-breaking issues
@@ -223,7 +214,7 @@ Rate each finding with one of these severities:
 - MEDIUM: Code smells, minor design issues, moderate improvements needed
 - LOW: Style issues, minor suggestions, nice-to-haves
 
-Write your findings to [OUTPUT_FILE] using the Write tool. Use this format for each finding:
+Return your complete findings report to the root session; do not write `[OUTPUT_FILE]` or any project/triage file. The root writes the returned bytes to `[OUTPUT_FILE]`. Use this format for each finding:
 
 ## [SEVERITY] Short descriptive title
 
@@ -234,7 +225,7 @@ Write your findings to [OUTPUT_FILE] using the Write tool. Use this format for e
 - **Description:** What the issue is and why it matters
 - **Suggestion:** How to fix it
 
-At the top of the file, include:
+At the top of the returned report, include:
 # [REVIEW_TYPE] Review
 **Scope:** [SCOPE] ([all-codebase | diff vs origin/BASE_REF])
 **Findings:** [total count]
@@ -242,7 +233,7 @@ At the top of the file, include:
 Focus on: [AGENT-SPECIFIC FOCUS AREA]
 
 Skill invocation override for /review mode (when applicable to your agent type):
-- **doc-updater**: invoke `doc-enforce` skill with `scope=[SCOPE]` as your first action. The skill conditionally invokes doc-enforce-lanes / doc-enforce-shape / doc-enforce-truth as needed. If your repo has no `sdd/` or no `documentation/` (vibe-coding mode), write a one-line "no-op (vibe-coding mode: no sdd/ or no documentation/ — doc-enforce has no surface to check)" header to your output file and return — do not leave the file empty.
+- **doc-updater**: invoke `doc-enforce` skill with `scope=[SCOPE]` as your first action. If the repo has no `sdd/` or no `documentation/`, return the one-line header `no-op (vibe-coding mode: no sdd/ or no documentation/ — doc-enforce has no surface to check)`.
 - **tdd-guide**: invoke `tdd-enforce` skill with `scope=[SCOPE]` against the [test files in the diff | every test file in the codebase] as your first action.
 - **code-reviewer**: when your scope includes test files, invoke `tdd-enforce` with `scope=[SCOPE]`.
 
@@ -261,11 +252,11 @@ Agent ID prefixes: SEC (security), ARCH (architecture), QUAL (code-quality), DEA
 
 ### CRITICAL: All 6 agents MUST be launched in a SINGLE message with 6 parallel Task tool calls.
 
-Note: this is `/review`'s own orchestration. It is deliberately divergent from the PR-boundary protocol (code+spec parallel, then doc-updater sequentially) because `/review` Phase 2 agents write only to `$REVIEW_DIR/0N-*.md` report files - not to `sdd/` or `documentation/` - so the filesystem-race rationale for sequential spec→doc does not apply here.
+The six agents are immutable, report-only workers. They return reports in parallel; the root session writes `$REVIEW_DIR/0N-*.md` after every result arrives.
 
 If the environment does not support 6 parallel Task calls, launch in batches of 3. If any agent fails, retry once. If it still fails, continue with successful reports and note the missing report in the summary.
 
-Wait for all 6 agents to complete. Then:
+Wait for all 6 agents to complete. Write each complete returned report to its table-mapped output file in the root session; for a terminally failed agent, write a one-line missing-report record. Then:
 - If `$DEEP` is `true`: proceed to Phase 3.
 - If `$DEEP` is `false`: skip Phase 3 entirely and proceed to Phase 4.
 
@@ -397,12 +388,12 @@ Launch a single Task agent (`code-reviewer` type). The agent:
 3. Identifies **cross-domain findings** - issues flagged by 2+ agents from different angles (elevate confidence)
 4. Identifies **false positives** - findings that contradict each other or are explained by context in other reports
 5. Identifies **emergent patterns** - systemic issues only visible when combining perspectives
-6. Writes consolidated output to `$REVIEW_DIR/08-cross-reference.md`
+6. Returns the complete consolidated markdown to the root, which writes `$REVIEW_DIR/08-cross-reference.md`
 
 Task agent prompt:
 
 ```
-List the existing review files at [REVIEW_DIR]/0*.md (use Glob). Expected files:
+List existing `[REVIEW_DIR]/0*.md` files with direct `ctx_execute` or Bash evidence. Expected files:
 - 01-security.md through 06-documentation.md (Phase 2 outputs)
 - 07-req-verify-NN.md (one per Phase 3 batch; ABSENT if --deep was not passed)
 Read ONLY the files that actually exist. Some review agents may have failed - do not attempt to read missing files.
@@ -429,7 +420,7 @@ Perform cross-referencing analysis:
 4. EMERGENT PATTERNS: Identify systemic issues only visible when combining multiple review perspectives.
    Example: "all 3 API routes lack validation" or "test gaps align with the most complex modules."
 
-Write output to [REVIEW_DIR]/08-cross-reference.md using this format:
+Return the complete report in this format; do not write files. The root writes it to `[REVIEW_DIR]/08-cross-reference.md`:
 
 # Cross-Reference Analysis
 
@@ -455,6 +446,8 @@ Write output to [REVIEW_DIR]/08-cross-reference.md using this format:
 - Emergent patterns identified: X
 ```
 
+The root writes the complete returned response to `$REVIEW_DIR/08-cross-reference.md`.
+
 ## Phase 5: AD Filtering (Task agent)
 
 Launch a single Task agent (`code-reviewer` type) to perform architecture decision filtering.
@@ -465,7 +458,7 @@ Task agent prompt:
 You are filtering codebase review findings against documented architecture decisions.
 
 1. Read [REVIEW_DIR]/08-cross-reference.md - canonical findings are the primary source of truth.
-2. Search documentation/decisions/README.md in the project root for architecture decisions. If documentation/decisions/README.md does not exist or contains no architecture decision entries, write [REVIEW_DIR]/09-active-findings.md with ALL canonical findings marked active (zero AD-guarded) and stop.
+2. Search documentation/decisions/README.md in the project root for architecture decisions. If it does not exist or contains no decision entries, return all canonical findings as active with zero AD-guarded.
 3. You may read CLAUDE.md files for implementation context, but ONLY documentation/decisions/README.md has authority to justify AD-guarding. Do not AD-guard a finding based solely on CLAUDE.md.
 4. For each canonical finding, check if an architecture decision in documentation/decisions/README.md explicitly justifies the flagged pattern.
 
@@ -481,7 +474,7 @@ Each AD-guarded finding must record:
 - The exact AD title/heading from documentation/decisions/README.md
 - The relevant quote from the AD
 
-5. Write the filtered active findings list to [REVIEW_DIR]/09-active-findings.md.
+5. Return the complete filtered active-findings report; do not write files. The root writes it to `[REVIEW_DIR]/09-active-findings.md`.
 
 Format for 09-active-findings.md:
 
@@ -521,13 +514,13 @@ Review mode: static analysis only
 - **Suggestion:** ...
 ```
 
-After the Task agent completes, read the first ~20 lines of `$REVIEW_DIR/09-active-findings.md` and print them to the user. Phase 6 still runs even if Active = 0 - the cycle counter and audit log are useful artifacts even on clean cycles.
+After the Task agent completes, the root writes its complete response to `$REVIEW_DIR/09-active-findings.md`, then reads the first ~20 lines and prints them to the user. Phase 6 still runs even if Active = 0 - the cycle counter and audit log are useful artifacts even on clean cycles.
 
 ## Phase 6: Reality Filter (Task agent)
 
-The Reality Filter re-evaluates every Phase-5-active finding against six questions, using prior triage history (`sdd/.review-decisions.md`), ADR bodies, the unified global graph (cross-session feedback + user preferences + project conventions), recent git log, `sdd/changes.md`, and the project-local code-knowledge graph at `[PROJECT_ROOT]/graphify-out/graph.json`. It produces a SHORT list of real findings the user actually triages, an audit log of every drop, and a Tech-Debt-Surfaced section for findings that don't clear the user-impact bar. Q3 clustering, Q5 chain validation, and Q6 graph-orphan use the project-local graph; Q2 memory-says-no uses the unified graph.
+The Reality Filter re-evaluates every Phase-5-active finding against six questions using direct local evidence: persisted triage history, ADR bodies, a compact current-session decision packet written by the root, recent Git history, specification changes, and current source. It returns the complete real-findings report and an audit reason for every drop or demotion.
 
-Launch a single Task agent (`code-reviewer` type). The agent has access to the graphify MCP tools (`mcp__graphify__query_graph`, `mcp__graphify__get_node`, `mcp__graphify__get_neighbors`, `mcp__graphify__get_community`, `mcp__graphify__shortest_path`, `mcp__graphify__god_nodes`, `mcp__graphify__graph_stats`). If the project-local graph is missing (`$REVIEW_DIR/.no-graph.notice` exists), Q3 falls back to category-only grouping and Q6 is inert this cycle. If the unified graph is unreachable, Q2 produces no drops.
+Before launch, the root writes only explicit user decisions relevant to this review from the current conversation to `$REVIEW_DIR/.root-decisions.md`; write `_No relevant current-session decisions._` when none exist. Launch one `code-reviewer` Task agent. It uses direct `ctx_execute` or Bash evidence only and returns its report without writing files.
 
 Task agent prompt:
 
@@ -553,24 +546,12 @@ the questions, surface all N.
 4. Recent git activity: cd [PROJECT_ROOT] && git log --since="30 days ago" --oneline --no-merges
 5. Spec changes: [PROJECT_ROOT]/sdd/changes.md and [PROJECT_ROOT]/sdd/README.md
    - If `HAS_SDD=0` or either file is missing, treat as empty.
-6. Unified global graph (cross-session feedback + project conventions): call
-   `mcp__graphify__query_graph` against the unified graph (vault + active repos,
-   merged at `~/.graphify/global-graph.json`) with each of these queries:
-     - "code review feedback"
-     - "user preferences"
-     - "<project name> conventions" (substitute the project's actual name)
-   For findings whose category overlaps a returned node, drill into the node's
-   neighbourhood via `mcp__graphify__get_node` and `mcp__graphify__get_neighbors`.
-   If the unified graph is unreachable, skip this input — Q2 produces no drops
-   this cycle.
+6. Current-session decisions: [REVIEW_DIR]/.root-decisions.md
+   - This file is written by the root from explicit user statements already present in the active conversation.
+   - It is not a global or indexed search result. If it contains the no-decisions marker, Q2 produces no drops.
 7. (Optional) [PROJECT_ROOT]/pending.md if present - explains in-flight work that may
    make a "missing feature" finding actually a known gap.
-8. Graphify code-knowledge graph at [PROJECT_ROOT]/graphify-out/graph.json — queried
-   via mcp__graphify__get_community (Q3 cluster grouping), mcp__graphify__shortest_path
-   (Q5 chain validation), mcp__graphify__get_node (Q6 graph-orphan check). If
-   [REVIEW_DIR]/.no-graph.notice is present, the graph is unavailable or stale: Q3
-   falls back to category-only grouping, Q5 skips the graph step and keeps original
-   severity, Q6 is inert this cycle.
+8. Current repository evidence gathered directly from tracked files and Git. Use path/module grouping for Q3, direct source/spec checks for Q5, and filesystem plus literal-symbol checks for Q6.
 
 ## The six questions, applied per finding (DROP, KEEP, DOWNGRADE, or DEMOTE-to-Tech-Debt)
 
@@ -588,18 +569,13 @@ Use literal file path matching. Renames are rare; if a file was renamed, the pri
 decision will simply not match and the finding gets surfaced fresh - the audit log
 makes this visible and the user can re-defer if appropriate.
 
-### Q2: Memory-says-no drop
+### Q2: Explicit-memory-says-no drop
 
-If the finding contradicts a node in the unified global graph returned by Phase
-6 input #6 (e.g. a feedback node says "prefer concrete duplication over premature
-abstraction" and the finding says "extract this into a helper"):
-  -> DROP. Audit reason: "Q2: contradicts graph node '<label>' (source: <src_file>): <one-line summary>."
-
-If input #6 was skipped (unified graph unreachable), Q2 produces no drops.
+If the finding directly contradicts an explicit user decision in `[REVIEW_DIR]/.root-decisions.md`, drop it and quote that decision in the audit reason. Do not infer preferences or search an index. If the root supplied the no-decisions marker, Q2 produces no drops.
 
 ### Q3: Cluster aggregation
 
-Group surviving (post-Q1, post-Q2) findings by **(category, community)** where community is the graphify community membership of the finding's cited file/symbol. Call `mcp__graphify__get_community(<node>)` for each finding's location; group findings that share both category and community. If `[PROJECT_ROOT]/graphify-out/graph.json` is missing (`$REVIEW_DIR/.no-graph.notice` exists), fall back to category-only grouping.
+Group surviving findings by **(category, path module)**. Derive the module from the nearest shared source directory or package boundary in the cited paths. Use category-only grouping for repository-wide findings.
 
 If a group has 3 or more findings, AND none of them have a Q1 match in sdd/.review-decisions.md (i.e. this is the first cycle this rule is producing violations):
   -> COLLAPSE the group into ONE cluster finding listing all locations.
@@ -611,16 +587,15 @@ If a group has 3 or more findings, AND none of them have a Q1 match in sdd/.revi
      expands clusters to per-location entries keyed by (file:line, category)),
      so cross-cycle stability is not required.
   -> Severity = max severity in the group.
-  -> Description: "<rule short name>: <count> instances in <community-label>. <one-line shared description>"
-  -> Suggestion: "Sweep PR across the <community-label> cluster. Or AD-justify the pattern."
-  -> Audit reason per absorbed finding: "Q3: clustered into CF-NNN-cluster (community: <community-label>)."
+  -> Description: "<rule short name>: <count> instances in <module-label>. <one-line shared description>"
+  -> Suggestion: "Sweep the <module-label> paths or AD-justify the pattern."
+  -> Audit reason per absorbed finding: "Q3: clustered into CF-NNN-cluster (module: <module-label>)."
 
 The user triages the cluster ONCE. The triage decision (Phase 8) writes ONE
 .review-decisions entry PER LOCATION in the cluster, so Q1's per-location lookup
 works in cycle N+1.
 
-Threshold rationale: 3 is the smallest "this is a pattern, not individual issues"
-count. 1 or 2 instances are individual problems; 3+ deserves a sweep decision. Community-aware grouping prevents two unrelated 3-instance patterns from collapsing into one false cluster just because they share a category label.
+Threshold rationale: 3 is the smallest "this is a pattern, not individual issues" count. Path-module grouping prevents unrelated instances from collapsing merely because they share a category label.
 
 ### Q4: User-impact bar (DEMOTE to Tech-Debt-Surfaced)
 
@@ -665,35 +640,24 @@ If source confirms finding:
   -> KEEP at the original severity (often HIGH or CRITICAL for doc drift on
      security or billing). Add evidence: "Verified at <file:line>: <quote>."
 
-When the finding claims a spec-to-implementation chain ("REQ-X-NNN says the auth endpoint validates X but `routes/auth.ts:42` does not"), additionally call `mcp__graphify__shortest_path(<REQ-or-AC-node>, <cited-symbol>)` to confirm the structural chain exists. If `$REVIEW_DIR/.no-graph.notice` exists, skip this graph-aware step and keep the finding at its original severity (the source-read check above is sufficient). If the graph is present and `shortest_path` returns no path, the cited mapping may be stale (the symbol was renamed or moved). In that case, downgrade to MEDIUM with audit reason "Q5: graph chain not found; cited symbol may be stale." If the graph returns a path: keep at original severity and record the path as evidence.
+When a finding claims a spec-to-implementation chain, resolve the REQ's literal `@impl` anchor and inspect the cited symbol directly. If the anchor no longer resolves, downgrade to MEDIUM with audit reason `Q5: source anchor no longer resolves; cited symbol may be stale.` Record all Q5 downgrades in both Real Findings and the audit log.
 
-Q5 downgrades to MEDIUM (from a no-path shortest_path result) appear in the "Real Findings" section at the downgraded severity AND in the audit log under "Q5 downgrades" — they are NOT silent. See output schema below.
+### Q6: Direct orphan check
 
-### Q6: Graph-orphan check (graphify-aware)
-
-For any finding citing a specific code symbol or file (not "repository-wide", not "multiple files"), confirm the cited node exists in the graphify graph via `mcp__graphify__get_node(<symbol-or-file>)`.
-
-If the node is missing AND `[PROJECT_ROOT]/graphify-out/graph.json` exists (i.e. graph is current, not stale): the cited location has been removed or renamed since the finding was generated. Audit reason: "Q6: graph-orphan; cited <symbol-or-file> not present in current graph."
-  -> DROP.
-
-If the graph is missing (`$REVIEW_DIR/.no-graph.notice` exists): Q6 is inert this cycle.
-
-This catches the class of findings produced by agents who looked at a stale checkout, an older commit, or a deleted-since-but-still-named-in-memory symbol.
+For a finding citing a specific file or symbol, verify the file exists at the reviewed head and the literal symbol resolves in that file or its direct export surface. Drop stale findings with audit reason `Q6: cited file or symbol is absent at the reviewed head.` Repository-wide and multi-file findings are exempt.
 
 ## Hard rules
 
 - Be ruthless, not aggressive. The point is to drop findings that ARE noise. Erring
   on the side of dropping is correct because anything mistakenly dropped resurfaces
   next cycle if it's real.
-- Every KEEP must cite at least one piece of concrete evidence: file:line, commit
-  SHA, AD ref, `.review-decisions` entry, unified-graph node label, or
-  `sdd/changes.md` date.
+- Every KEEP must cite direct evidence: file:line, commit SHA, AD ref, `.review-decisions` entry, explicit root-supplied decision, or `sdd/changes.md` date.
 - Every DROP and DEMOTE must have a one-line reason in the audit log keyed by which
   question dropped it.
 - Read actual source for any finding you keep with severity HIGH or CRITICAL.
-- Do not retry graphify calls if they fail; skip the affected input and continue.
+- Do not query Graphify or any global/indexed retrieval surface.
 
-## Output: ONE file at [REVIEW_DIR]/10-real-findings.md
+## Output: return one complete report for the root to write to [REVIEW_DIR]/10-real-findings.md
 
 Format:
 
@@ -742,8 +706,8 @@ will treat these as Tech-Debt by default unless the user upgrades them.]
 ### Q1: Repeat-offender drops (X)
 - CF-NNN at <location> (<category>): prior <Defer|Ignore|Tech-Debt> recorded <date>, no commits since.
 
-### Q2: Memory-says-no drops (X)
-- CF-NNN at <location> (<category>): contradicts graph node "<label>".
+### Q2: Explicit-memory-says-no drops (X)
+- CF-NNN at <location> (<category>): contradicts root-supplied user decision "<quote>".
 
 ### Q3: Cluster collapses (X absorbed into Y clusters)
 - CF-NNN-cluster covers: CF-A, CF-B, CF-C, ... at <locations>.
@@ -755,32 +719,27 @@ will treat these as Tech-Debt by default unless the user upgrades them.]
 - CF-NNN at <location>: cited <file:line>; actual code <quote>; finding's premise contradicted.
 
 ### Q5: Downgrades to MEDIUM (X) [also listed in Real Findings at downgraded severity]
-- CF-NNN at <location>: original severity HIGH/CRITICAL; mcp__graphify__shortest_path found no chain to <cited-symbol>; cited mapping may be stale.
+- CF-NNN at <location>: original severity HIGH/CRITICAL; literal source anchor did not resolve.
 
-### Q6: Graph-orphan drops (X)
-- CF-NNN at <location>: cited symbol/file not present in current graphify graph; likely removed or renamed.
+### Q6: Direct orphan drops (X)
+- CF-NNN at <location>: cited file or symbol absent at the reviewed head.
 
-## Memory mode
+## Execution contract
 
-Cost contract: this whole phase MUST be ONE Task agent. Do not spawn additional
-sub-agents. Read files directly via Read; query the unified graph directly via the
-granted graphify tools. The Auto-Filtered audit section is mandatory output - if it
-is missing or empty when DROP/DEMOTE counts are non-zero, the phase failed.
+This whole phase uses one Task agent and direct evidence only. Return the complete report without writing files. The Auto-Filtered audit section is mandatory when any DROP or DEMOTE count is non-zero.
 ```
 
-After the Task agent completes, read the first ~30 lines of `$REVIEW_DIR/10-real-findings.md` and print them to the user.
+After the Task agent completes, the root writes its complete response to `$REVIEW_DIR/10-real-findings.md`, then reads the first ~30 lines and prints them to the user.
 
 **Orchestrator check:** Parse the "Real findings (after Q1-Q6)" count and the "Tech-Debt surfaced" count from the header. If both are 0, output "Clean review - no actionable findings after Reality Filter" and STOP. Do not proceed to Phase 7 or beyond.
 
 If `--verify-high` is NOT in $ARGUMENTS, skip Phase 7 and proceed to Phase 8.
 
-## Phase 7: LLM Verification (Task agent - only when --verify-high is present)
+## Phase 7: LLM Verification (root session - only when --verify-high is present)
 
-Launch a single Task agent (`code-reviewer` type) to verify ALL HIGH and CRITICAL findings with external LLMs in **2 batched calls total** (one per LLM, ALL findings in a single prompt). Never one-call-per-finding - the cost scales linearly with finding count and burns the orchestrator's context with N×2 LLM responses when one batched response per LLM carries the same information.
+The root session verifies all HIGH and CRITICAL findings with exactly two batched `consult_llm` calls, one per provider family. Reviewer agents do not receive external-LLM tools and do not write this phase's artifacts.
 
-Task agent prompt:
-
-```
+Main-session procedure:
 You are verifying HIGH and CRITICAL real findings using external LLMs.
 Your goal: 2 consult_llm calls TOTAL (one to GPT, one to Gemini), each containing
 ALL findings batched into a single prompt with all relevant source files attached
@@ -886,11 +845,9 @@ via the `files` parameter. Do NOT call consult_llm once per finding.
 7. Delete [REVIEW_DIR]/.llm-verify-prompt.md (it was scratch).
 
 Cost contract: this whole phase MUST be exactly 2 consult_llm calls regardless of
-how many findings there are. If you find yourself about to call consult_llm a 3rd
-time, stop and re-batch.
-```
+how many findings there are. If you are about to call consult_llm a third time, stop and re-batch.
 
-After the Task agent completes, read the first ~30 lines of `$REVIEW_DIR/11-llm-verified.md` and print them to the user.
+After the root writes `$REVIEW_DIR/11-llm-verified.md`, read its first ~30 lines and print them to the user.
 
 **Orchestrator check:** If the surviving Real Findings count is 0 AND Tech-Debt-Surfaced is 0, output "Clean review - no actionable findings after LLM verification" and STOP.
 
@@ -969,17 +926,13 @@ After all triage questions are answered, collect the decisions into a strict JSO
 
 For cluster findings whose decision is NOT Split, the cluster ID maps to a single decision; Phase 9 expands it to one entry per location when writing `sdd/.review-decisions.md`.
 
-Pass this EXACT JSON string as the decisions mapping to the Phase 9 Task agent.
+Retain this exact JSON mapping for the root-owned Phase 9.
 
-## Phase 9: Save Triage Results + Append to .review-decisions (Task agent)
+## Phase 9: Save Triage Results + Append to .review-decisions (root session)
 
-Launch a single Task agent (`code-reviewer` type) to write the consolidated triage results AND append per-finding triage history to `sdd/.review-decisions.md`.
+The root session writes the consolidated triage report and appends per-finding history to `sdd/.review-decisions.md`.
 
-Pass the triage decisions JSON mapping and `$REVIEW_DIR` path in the prompt.
-
-Task agent prompt:
-
-```
+Root-session procedure:
 You are saving triage results from a codebase review AND updating the persistent
 triage history file used by future Reality Filter runs.
 
@@ -1113,15 +1066,12 @@ ran) header - i.e. one greater than the value the file showed before this run.
 Append the run date as "Last cycle: M (YYYY-MM-DD)". The next `/review` invocation
 will read this M, treat its run as M+1, and the cycle counter advances
 monotonically across cycles.
-```
 
-## Phase 10: Update Architecture Decisions + Create Tech Debt Issues (Task agent)
+## Phase 10: Update Architecture Decisions + Create Tech Debt Issues (root session)
 
-Launch a single Task agent (`code-reviewer` type) to update documentation/decisions/README.md with AD entries and create GitHub issues for tech debt.
+The root session updates architecture decisions and creates confirmed technical-debt issues.
 
-Task agent prompt:
-
-```
+Root-session procedure:
 You are updating architecture decisions and creating GitHub issues from a codebase review.
 
 1. Read [REVIEW_DIR]/12-triage-results.md - specifically the "Record as AD" and "Technical Debt" sections.
@@ -1138,11 +1088,10 @@ You are updating architecture decisions and creating GitHub issues from a codeba
    - Do NOT write tech debt to any documentation file
 
 IMPORTANT: Read documentation/decisions/README.md fully before editing. Use the Edit tool for AD insertions.
-```
 
 ## Phase 11: Enter Plan Mode (main agent)
 
-After Phase 10 Task agent completes:
+After the root completes Phase 10:
 
 1. Read ONLY the `## Fix` section from `$REVIEW_DIR/12-triage-results.md`
 2. If there are zero Fix findings, report "No fixes requested - review complete" and stop
@@ -1163,8 +1112,8 @@ After Phase 10 Task agent completes:
 - **NEVER run builds, tests, or linters locally** - the container is resource-constrained
 - All 6 Phase 2 agents MUST launch in a single message (parallel Task calls)
 - Phase 3 deep-reviewer agents (when --deep is set) also launch in parallel — up to 5 per wave; sequential at wave boundaries when ceil(N/15) > 5
-- Phases 4, 5, 6, 7, 9, 10 each run as a single Task agent - main agent waits for completion before proceeding
-- Phase 8 is the ONLY phase that runs in the main session context (requires AskUserQuestion)
+- Phases 4, 5, and 6 each use one report-only Task agent whose returned report is persisted by the root
+- Phases 7, 9, and 10 run in the root session; Phase 8 is the root's interactive AskUserQuestion phase
 - Phase 3 is opt-in via `--deep` flag
 - Phase 7 is opt-in via `--verify-high` flag
 - After Phase 6: check if Real Findings + Tech-Debt-Surfaced totals are 0 - if so, STOP and report clean review. After Phase 7: re-check the LLM-verified totals.

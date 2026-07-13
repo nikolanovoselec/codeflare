@@ -689,6 +689,14 @@ lanes spawn independently. Its Stop hook waits for every required lane's transcr
 completion; no lane depends on another lane's transcript. Claude in-flight
 suppression remains per lane, so a fresh in-flight lane does not mask missing peers.
 
+Each Claude PR reviewer exposes only `Skill`, Bash, and direct
+`mcp__context-mode__ctx_execute`. Indexed/global retrieval, Graphify, external
+consultation, and file mutation are unavailable. Reviewers return complete structured
+reports; the root persists triage content and applies fixes. `/review` follows the
+same ownership boundary: the root writes returned phase reports and owns external
+verification, triage history, ADR updates, and issue creation. This implements
+[REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff).
+
 The PostToolUse nudge and Stop hook share `scripts/lib/lane-classifier.sh`.
 Generated-only `graphify-out/` diffs require no review lanes and are auto-acked
 with a durable audit event; generated artifacts never suppress review for mixed
@@ -710,7 +718,7 @@ Hooks registered in settings.json, scripts delivered via plugin.
 
 [context-mode](https://github.com/mksglu/context-mode) is registered as a Claude Code MCP server (`ctx_*` helper tools) where that runtime enables it. Pi loads context-mode by default in the settings `required` set. `/ctx off` disables the package for the current running Pi session and reloads resources; `/ctx on` re-enables it. The next Codeflare container start resets Pi back to enabled.
 
-The npm package is fetched by the user's own container from the npm registry on first invocation; Codeflare does not redistribute the source. Commercial users receive only the MCP server registration: no skill, rule, hook, or system-prompt nudge in our preseed instructs Claude to invoke `ctx_*` tools. The agent's tool-selection is its own.
+The npm package is fetched by the user's own container from the npm registry on first invocation; Codeflare does not redistribute the source. Commercial users receive the MCP registration. Claude's three PR reviewer definitions may call direct `ctx_execute` for compact, non-indexed evidence and retain Bash fallback; other tool selection remains agent-controlled.
 
 Codeflare no longer ships the former Bash/WebFetch/Grep deny-gate
 (`enforce-ctx-mode.sh`) in the context-mode plugin. Context-mode is

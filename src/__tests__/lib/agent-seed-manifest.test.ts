@@ -1535,6 +1535,15 @@ describe('Reviewer agents can access their enforce policy', () => {
     }
   });
 
+  it('REQ-AGENT-086: Claude PR reviewers expose only skills and direct evidence execution', () => {
+    const expectedTools = ['Skill', 'Bash', 'mcp__context-mode__ctx_execute'];
+    for (const name of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
+      const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === `.claude/agents/${name}.md`);
+      expect(doc, `.claude/agents/${name}.md should be seeded`).toBeTruthy();
+      expect(JSON.parse(frontmatter(doc!.content).tools)).toEqual(expectedTools);
+    }
+  });
+
   it('transformed runtimes never inherit the Claude-only Skill tool', () => {
     const piCr = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
     expect(piCr).toBeTruthy();
