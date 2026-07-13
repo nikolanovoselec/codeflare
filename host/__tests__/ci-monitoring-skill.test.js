@@ -201,7 +201,7 @@ test('REQ-AGENT-070 AC5: Claude ci monitor reports failed workflow rows', () => 
   assert.match(result.log, /CI_RESULT failure/);
 });
 
-test('REQ-AGENT-070 AC5: Claude ci monitor reports gh access failures in the durable log', () => {
+test('REQ-AGENT-070 AC6: Claude ci monitor reports gh access failures in the durable log', () => {
   const dir = mkdtempSync(join(tmpdir(), 'claude-ci-monitor-gh-fail-'));
   const bin = join(dir, 'bin');
   const repo = join(dir, 'repo');

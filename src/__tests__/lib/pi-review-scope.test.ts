@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { reviewCommandDecision, reviewWorkflowDecision } from '../../../preseed/agents/pi/extensions/review-command';
+import { dispatchReview, reviewCommandDecision, reviewWorkflowDecision } from '../../../preseed/agents/pi/extensions/review-command';
 import { scopeContract } from '../../../preseed/agents/pi/extensions/review-scope';
 import { sddCommandDecision, sddWorkflowScopeText } from '../../../preseed/agents/pi/extensions/sdd-helpers';
 
@@ -26,13 +26,17 @@ describe('REQ-AGENT-059: Pi review scope entry points', () => {
     const workspace = mkdtempSync(join(tmpdir(), 'pi-review-command-'));
     const cwdRepo = join(workspace, 'cwd-repo');
     const rememberedRepo = join(workspace, 'remembered-repo');
+    const linkedWorktree = join(workspace, 'linked-worktree');
     mkdirSync(cwdRepo);
     mkdirSync(rememberedRepo);
     execFileSync('git', ['init', '-q'], { cwd: cwdRepo });
+    execFileSync('git', ['-c', 'user.name=Codeflare Test', '-c', 'user.email=codeflare-test@users.noreply.github.com', 'commit', '--allow-empty', '-qm', 'fixture'], { cwd: cwdRepo });
+    execFileSync('git', ['worktree', 'add', '-qb', 'linked-worktree', linkedWorktree], { cwd: cwdRepo });
     execFileSync('git', ['init', '-q'], { cwd: rememberedRepo });
 
     try {
       expect(reviewWorkflowDecision('--diff', cwdRepo, rememberedRepo)).toMatchObject({ kind: 'workflow', repo: cwdRepo });
+      expect(reviewWorkflowDecision('--diff', linkedWorktree, rememberedRepo)).toMatchObject({ kind: 'workflow', repo: linkedWorktree });
       expect(reviewWorkflowDecision('--diff', workspace, rememberedRepo)).toEqual({
         kind: 'workflow',
         command: '/review --diff',
@@ -43,6 +47,33 @@ describe('REQ-AGENT-059: Pi review scope entry points', () => {
         kind: 'error',
         message: '/review needs an active Git repository.',
       });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it('REQ-AGENT-083: suppresses /review workflow dispatch when no repository resolves', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'pi-review-dispatch-'));
+    const messages: string[] = [];
+    const notifications: Array<{ message: string; level: string }> = [];
+
+    try {
+      await dispatchReview(
+        { sendUserMessage: (message: string) => { messages.push(message); } } as never,
+        '--diff',
+        {
+          cwd: workspace,
+          waitForIdle: async () => undefined,
+          ui: { notify: (message: string, level: string) => { notifications.push({ message, level }); } },
+        } as never,
+        (args, cwd) => reviewWorkflowDecision(args, cwd, undefined),
+      );
+
+      expect(messages).toEqual([]);
+      expect(notifications).toEqual([{
+        message: '/review needs an active Git repository.',
+        level: 'error',
+      }]);
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }

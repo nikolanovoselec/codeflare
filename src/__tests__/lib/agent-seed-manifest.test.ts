@@ -138,8 +138,7 @@ describe('agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin prese
 });
 
 // REQ-AGENT-071: PR-Boundary Review Agent Dispatch
-// REQ-AGENT-073: Pi Review Monitor Delivery Reliability
-describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape) / REQ-AGENT-071', () => {
+describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)', () => {
   it('each non-Claude agent has an instructions file', () => {
     const keys = new Set(AGENTS_SEEDED_CONFIGS.map((doc) => doc.key));
     expect(keys.has('.codex/AGENTS.md')).toBe(true);
@@ -188,15 +187,23 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('REQ-AGENT-085: generated reviewers grant direct context execution without indexed batch retrieval', () => {
-    for (const reviewer of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
-      const document = AGENTS_SEEDED_CONFIGS.find(
-        (entry) => entry.key === `.pi/agent/agents/${reviewer}.md`,
-      );
-      const tools = frontmatter(document?.content ?? '').tools.split(/,\s*/);
-      expect(tools).toEqual(expect.arrayContaining(['read', 'grep', 'bash', 'ctx_execute']));
+  it('REQ-AGENT-085: generated reviewer tools prevent indexed specification evidence retrieval', () => {
+    const reviewerTools = Object.fromEntries(
+      ['code-reviewer', 'spec-reviewer', 'doc-updater'].map((reviewer) => {
+        const document = AGENTS_SEEDED_CONFIGS.find(
+          (entry) => entry.key === `.pi/agent/agents/${reviewer}.md`,
+        );
+        return [reviewer, frontmatter(document?.content ?? '').tools.split(/,\s*/)];
+      }),
+    );
+
+    for (const tools of Object.values(reviewerTools)) {
+      expect(tools).toEqual(expect.arrayContaining(['read', 'grep', 'bash']));
       expect(tools).not.toContain('ctx_batch_execute');
     }
+    expect(reviewerTools['spec-reviewer']).not.toContain('ctx_execute');
+    expect(reviewerTools['code-reviewer']).toContain('ctx_execute');
+    expect(reviewerTools['doc-updater']).toContain('ctx_execute');
   });
 
   it('REQ-AGENT-068/070: seeds distinct Claude and Pi CI workflow contracts', () => {
@@ -1234,7 +1241,7 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
   });
 });
 
-describe('REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors) / REQ-AGENT-072', () => {
+describe('REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)', () => {
   function consultLlmSkill(key: string): string {
     const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === key);
     expect(doc, `${key} must be bundled in the seed`).toBeTruthy();

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 type ReviewLane = 'code-reviewer' | 'spec-reviewer' | 'doc-updater';
 type BoundaryEvent = 'push' | 'pr-create' | 'pr-edit' | 'pr-merge';
-type BoundarySurfaces = { reminder: boolean; settled: boolean; event?: BoundaryEvent };
+type BoundarySurfaces = { reminder: boolean; settled: boolean; event?: BoundaryEvent; protectedRetarget?: true };
 type TranscriptFacts = {
   boundary?: { toolUseId: string; command: string };
   reviewHead?: string;
@@ -145,7 +145,8 @@ describe('Claude-equivalent review boundary helpers', () => {
       ['cat <<A <<B\nfirst\nA\ngit push origin pi\nB\ngit push origin pi', push],
       ['printf done; git push origin pi', push],
       ['gh pr create --base main --title review', { reminder: true, settled: true, event: 'pr-create' }],
-      ['gh pr edit 42 --base master', { reminder: true, settled: true, event: 'pr-edit' }],
+      ['gh pr edit 42 --base master', { reminder: true, settled: true, event: 'pr-edit', protectedRetarget: true }],
+      ['gh pr edit 42 --base main && git push origin pi', { reminder: true, settled: true, event: 'push', protectedRetarget: true }],
       ['gh pr merge 42', { reminder: false, settled: true, event: 'pr-merge' }],
       ['gh pr edit 42 --base develop', none],
       ['gh pr update-branch 42', none],

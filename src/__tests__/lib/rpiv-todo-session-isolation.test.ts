@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { installRpivTodoSessionIsolation } from '../../../preseed/agents/pi/npm/rpiv-todo-session-isolation/install.mjs';
-import { registerSessionStateLifecycle } from '../../../preseed/agents/pi/npm/rpiv-todo-session-isolation/state/lifecycle';
+import { disposeSessionOverlay, registerSessionStateLifecycle } from '../../../preseed/agents/pi/npm/rpiv-todo-session-isolation/state/lifecycle';
 import {
   __resetState,
   commitState,
@@ -57,6 +57,16 @@ describe('REQ-AGENT-081: rpiv-todo session isolation patch', () => {
 
     expect(getState('foreground').tasks.map((task) => task.subject)).toEqual(['foreground task']);
     expect(getRenderState().tasks.map((task) => task.subject)).toEqual(['foreground task']);
+  });
+
+  it('clears the active overlay reference even when disposal fails', () => {
+    let cleared = false;
+
+    expect(() => disposeSessionOverlay(
+      { dispose: () => { throw new Error('dispose failed'); } },
+      () => { cleared = true; },
+    )).toThrow('dispose failed');
+    expect(cleared).toBe(true);
   });
 
   it('installs the supported override and fails closed before writing to an unsupported version', () => {

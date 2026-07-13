@@ -432,6 +432,32 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
+  it('REQ-AGENT-055/REQ-AGENT-082: protected retarget invalidation survives compound commands and disabled review mode', async () => {
+    const fixture = makeReviewFixture();
+    writeFileSync(join(fixture.repo, '.git/sdd-last-ack-pr-head'), `${fixture.head}\n`, 'utf8');
+    const harness = await registerFixture(fixture);
+    const command = 'gh pr edit 42 --base main && git push origin pi';
+    appendSession(fixture.sessionFile,
+      assistantTool('retarget-push-1', 'bash', { command }),
+      toolResult('retarget-push-1', 'bash'),
+    );
+    const previousMode = process.env.SESSION_MODE;
+    process.env.SESSION_MODE = 'default';
+
+    try {
+      await harness.emit('tool_result', boundaryEvent(command));
+      expect(existsSync(join(fixture.repo, '.git/sdd-last-ack-pr-head'))).toBe(false);
+      expect(harness.sent[0]?.message.details).toMatchObject({
+        ackHead: undefined,
+        requiredLanes: [],
+        ciEvent: 'push',
+      });
+    } finally {
+      if (previousMode === undefined) delete process.env.SESSION_MODE;
+      else process.env.SESSION_MODE = previousMode;
+    }
+  });
+
   it('REQ-AGENT-068: emits a CI-only launch plan in default session mode', async () => {
     const fixture = makeReviewFixture();
     const previousMode = process.env.SESSION_MODE;

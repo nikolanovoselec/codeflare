@@ -22,7 +22,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { I18N_NAMESPACE } from "./state/i18n-bridge.js";
 import { replayFromBranch } from "./state/replay.js";
-import { registerSessionStateLifecycle } from "./state/lifecycle.js";
+import { disposeSessionOverlay, registerSessionStateLifecycle } from "./state/lifecycle.js";
 import { getActiveRenderSession, setActiveRenderSession } from "./state/store.js";
 import { registerTodosCommand, registerTodoTool, TOOL_NAME } from "./todo.js";
 import { TodoOverlay } from "./todo-overlay.js";
@@ -70,8 +70,9 @@ export default function (pi: ExtensionAPI) {
 			todoOverlay?.update();
 		},
 		onActiveShutdown: () => {
-			todoOverlay?.dispose();
-			todoOverlay = undefined;
+			disposeSessionOverlay(todoOverlay, () => {
+				todoOverlay = undefined;
+			});
 		},
 	});
 

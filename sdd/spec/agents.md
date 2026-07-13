@@ -200,7 +200,7 @@ Multi-agent support, preseed system, and session modes.
 2. A declarative manifest maps each preseed file to its applicable session modes (default, advanced, or both). <!-- @impl: scripts/generate-agent-seed.mjs::validateModes --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
 3. A build-time seed generator reads the manifest and source files, producing the runtime payload the Worker ships to the container. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
 4. The generator ignores files absent from the manifest. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (agent-seed manifest.json / REQ-VAULT-007 (vault rules and plugin preseeded into every advanced session) / REQ-AGENT-006 (preseed generated from manifest.json + generate-agent-seed.mjs into agent-seed.generated.ts as single source of truth) / REQ-AGENT-014 (manifest declares modes per preseed key; default subset is strict subset of advanced)) -->
-5. The generator produces output for all supported agents (Claude Code plus generated lanes for Codex, Copilot, OpenCode, Antigravity, and Pi). <!-- @impl: scripts/generate-agent-seed.mjs::AGENT_CONFIGS --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape) / REQ-AGENT-071) -->
+5. The generator produces output for all supported agents (Claude Code plus generated lanes for Codex, Copilot, OpenCode, Antigravity, and Pi). <!-- @impl: scripts/generate-agent-seed.mjs::AGENT_CONFIGS --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 6. Shared operational gate sections are present in every generated non-Claude instruction surface. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (preseeds work continuity, review push, and result handoff gates into every generated instruction surface) -->
 
 **Constraints:**
@@ -1389,13 +1389,14 @@ None.
 
 **Acceptance Criteria:**
 
-1. Resolving the final open triage item clears transition and records closure totals. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-047: Resume Mode closure and review-pipeline gate) -->
-2. Transition closure leaves `enforce_tdd` unchanged. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off -->
-3. Transition closure preserves the triage file as its audit record. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off -->
-4. Open transition triage suppresses the Claude PR-review hooks. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::requires_lane --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh - lane-aware emission (compute_required_lanes integration)) -->
-5. Open transition triage suppresses Pi PR review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-045/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
+1. Resolving the final open triage item clears transition. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-047: Resume Mode closure and review-pipeline gate) -->
+2. Transition closure records resolved and lost entry totals. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off -->
+3. Transition closure leaves `enforce_tdd` unchanged. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off -->
+4. Transition closure preserves the triage file as its audit record. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off -->
+5. Open transition triage suppresses the Claude PR-review hooks. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::requires_lane --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh - lane-aware emission (compute_required_lanes integration)) -->
+6. Open transition triage suppresses Pi PR review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-045/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
 
-**Notes:** AC2-AC3 are manually verified through the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+**Notes:** AC2-AC4 are manually verified through the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:** None.
 
@@ -1970,9 +1971,10 @@ None.
 
 1. Routine pushes do not auto-start Claude `ci-monitoring`. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Hard obligations --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 2. Claude invokes `ci-monitoring` only for an explicit request or a fresh deploy/merge gate. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Hard obligations --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
-3. The Claude monitor launcher returns its detached process identity and durable log path. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::The monitor launcher --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC3: Claude ci monitor launcher starts detached work and returns a durable log path) -->
-4. Claude success requires a stable non-empty workflow fingerprint. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Reading the result --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC4: Claude ci monitor waits for a stable workflow/run set before success) -->
-5. Claude writes terminal provider failure to its durable log. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Reading the result --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC5: Claude ci monitor reports failed workflow rows) -->
+3. The Claude monitor launcher returns the monitored head, detached process identity, and durable log path. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::The monitor launcher --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC3: Claude ci monitor launcher starts detached work and returns a durable log path) -->
+4. Claude success requires a non-empty workflow/run fingerprint that remains stable across two polls. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Reading the result --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC4: Claude ci monitor waits for a stable workflow/run set before success) -->
+5. A failed workflow row writes a terminal failure result to the durable log. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Reading the result --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC5: Claude ci monitor reports failed workflow rows) -->
+6. Unavailable GitHub CLI access writes a terminal timeout result to the durable log. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Reading the result --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC6: Claude ci monitor reports gh access failures in the durable log) -->
 
 **Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
@@ -2172,7 +2174,8 @@ None.
 1. Missing, malformed, or non-ancestor acknowledgement falls back to all review lanes. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewRange --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055: falls back to all lanes for malformed and non-ancestor acknowledgements) -->
 2. Enforcement renders invalid acknowledgement as full protected-base PR scope. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-071: invalid acknowledgements request a full-PR review) -->
 3. A valid ancestor acknowledgement classifies every changed path through the fresh PR head. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: classifies tricky filenames and source-to-doc renames without bypassing code review) -->
-4. A protected-base retarget invalidates same-head acknowledgement and requests a full-PR review. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::clearAck --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-082: protected-base retarget invalidates same-head acknowledgement) -->
+4. A protected-base retarget invalidates same-head acknowledgement, including inside a compound command or while review is temporarily disabled. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::protectedRetarget --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::clearAck --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-082: protected retarget invalidation survives compound commands and disabled review mode) -->
+5. After retarget invalidation, enforcement derives full protected-base PR scope. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-082: protected-base retarget invalidates same-head acknowledgement) -->
 
 **Constraints:**
 
@@ -2201,7 +2204,7 @@ None.
 1. `/review` prefers a Git repository containing the command cwd. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::reviewWorkflowDecision --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-036/REQ-AGENT-083: resolves /review repository context and fails when absent) -->
 2. Outside Git, `/review` resolves the remembered active repository. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::reviewWorkflowDecision --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-036/REQ-AGENT-083: resolves /review repository context and fails when absent) -->
 3. The workflow contract carries the validated absolute repository root. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::dispatchReview --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Phase 1: Parse arguments + create run directory (main session) --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-036/REQ-AGENT-083: resolves /review repository context and fails when absent) -->
-4. `/review` fails before dispatch when neither repository source resolves. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::reviewWorkflowDecision --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-036/REQ-AGENT-083: resolves /review repository context and fails when absent) -->
+4. `/review` fails before dispatch when neither repository source resolves. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::dispatchReview --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-083: suppresses /review workflow dispatch when no repository resolves) -->
 
 **Constraints:**
 
@@ -2228,6 +2231,7 @@ None.
 1. Child replay, mutation, and shutdown leave foreground task state unchanged. <!-- @impl: preseed/agents/pi/npm/rpiv-todo-session-isolation/state/lifecycle.ts::registerSessionStateLifecycle --> <!-- @impl: preseed/agents/pi/npm/rpiv-todo-session-isolation/state/store.ts::slotFor --> <!-- @test: src/__tests__/lib/rpiv-todo-session-isolation.test.ts (keeps foreground tasks intact when a child session replays, mutates, and shuts down) -->
 2. Context-free todo rendering reads only the foreground session's slot. <!-- @impl: preseed/agents/pi/npm/rpiv-todo-session-isolation/state/store.ts::getRenderState --> <!-- @test: src/__tests__/lib/rpiv-todo-session-isolation.test.ts (keeps foreground tasks intact when a child session replays, mutates, and shuts down) -->
 3. The compatibility guard fails closed before changing package files when the installed dependency version is unsupported. <!-- @impl: preseed/agents/pi/npm/rpiv-todo-session-isolation/install.mjs::installRpivTodoSessionIsolation --> <!-- @test: src/__tests__/lib/rpiv-todo-session-isolation.test.ts (installs the supported override and fails closed before writing to an unsupported version) -->
+4. Session shutdown clears the active overlay reference even when overlay disposal fails. <!-- @impl: preseed/agents/pi/npm/rpiv-todo-session-isolation/state/lifecycle.ts::disposeSessionOverlay --> <!-- @test: src/__tests__/lib/rpiv-todo-session-isolation.test.ts (clears the active overlay reference even when disposal fails) -->
 
 **Constraints:**
 
@@ -2248,14 +2252,15 @@ None.
 
 ### REQ-AGENT-084: Pi Reviewer Policy Preloading
 
-**Intent:** Pi reviewers must begin with their canonical scope and enforcement policies in the system prompt instead of spending review turns discovering and retrieving them.
+**Intent:** Pi reviewers must begin every run with complete canonical scope and enforcement policy already available, without spending review turns on policy discovery.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. Generated code, specification, and documentation reviewer prompts embed their declared canonical policy documents without unsupported skill-access frontmatter. <!-- @impl: scripts/generate-agent-seed.mjs::expandPiSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
-2. An embedded policy is byte-identical to its separately seeded canonical skill document. <!-- @impl: scripts/generate-agent-seed.mjs::expandPiSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
+1. Code, specification, and documentation reviewers begin with every declared canonical policy available before their first tool call. <!-- @impl: scripts/generate-agent-seed.mjs::expandPiSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
+2. Reviewer configuration omits unsupported skill-access declarations. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
+3. Policy available to each reviewer is identical to its separately seeded canonical policy. <!-- @impl: scripts/generate-agent-seed.mjs::expandPiSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
 
 **Constraints:**
 
@@ -2275,14 +2280,15 @@ None.
 
 ### REQ-AGENT-085: Pi Reviewer Direct Evidence Transport
 
-**Intent:** Pi reviewers must consume exact scoped evidence directly instead of storing it in and repeatedly retrieving it from context-mode's indexed search.
+**Intent:** Pi reviewers must consume exact scoped evidence without recovering prior output through indexed searches.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. Generated code, specification, and documentation reviewer tool contracts provide direct context execution and omit indexed batch execution. <!-- @impl: preseed/agents/pi/agents/code-reviewer.md::ctx_execute --> <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::ctx_execute --> <!-- @impl: preseed/agents/pi/agents/doc-updater.md::ctx_execute --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085: generated reviewers grant direct context execution without indexed batch retrieval) -->
-2. With context-mode disabled, those reviewer contracts retain native read, grep, and shell execution for identical scoped checks. <!-- @impl: preseed/agents/pi/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085: generated reviewers grant direct context execution without indexed batch retrieval) -->
+1. Indexed batch retrieval is unavailable to every reviewer. <!-- @impl: preseed/agents/pi/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/pi/agents/doc-updater.md::tools --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085: generated reviewer tools prevent indexed specification evidence retrieval) -->
+2. Specification review uses only non-indexed evidence tools. <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::tools --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085: generated reviewer tools prevent indexed specification evidence retrieval) -->
+3. Every reviewer retains a non-indexed fallback when context-mode is unavailable. <!-- @impl: preseed/agents/pi/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085: generated reviewer tools prevent indexed specification evidence retrieval) -->
 
 **Constraints:**
 

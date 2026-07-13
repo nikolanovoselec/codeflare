@@ -6,7 +6,7 @@ export const ALL_REVIEW_LANES = ["code-reviewer", "spec-reviewer", "doc-updater"
 export type ReviewLane = (typeof ALL_REVIEW_LANES)[number];
 
 export type ReviewBoundaryEvent = "push" | "pr-create" | "pr-edit" | "pr-merge";
-type BoundarySurfaces = { reminder: boolean; settled: boolean; event?: ReviewBoundaryEvent };
+type BoundarySurfaces = { reminder: boolean; settled: boolean; event?: ReviewBoundaryEvent; protectedRetarget?: true };
 type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
 export type TranscriptFacts = {
   boundary?: { toolUseId: string; command: string };
@@ -168,6 +168,7 @@ function protectedEdit(words: ShellWords): boolean {
 export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces {
   let reminder = false;
   let settled = false;
+  let protectedRetarget = false;
   let event: ReviewBoundaryEvent | undefined;
   for (const words of commandWords(command)) {
     if (gitSubcommand(words) === "push") {
@@ -180,6 +181,7 @@ export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces
     }
     if (protectedEdit(words)) {
       reminder = settled = true;
+      protectedRetarget = true;
       event = "pr-edit";
     }
     if (words[0] === "gh" && words[1] === "pr" && words[2] === "merge") {
@@ -187,7 +189,12 @@ export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces
       event = "pr-merge";
     }
   }
-  return { reminder, settled, ...(event ? { event } : {}) };
+  return {
+    reminder,
+    settled,
+    ...(event ? { event } : {}),
+    ...(protectedRetarget ? { protectedRetarget: true as const } : {}),
+  };
 }
 
 function firstExisting(paths: string[]): string | undefined {

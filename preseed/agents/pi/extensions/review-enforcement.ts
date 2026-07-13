@@ -286,7 +286,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
 
     const skipReview = bypassSentinelPresent();
     if (skipReview && !boundary.classification.settled) consumeBypassSentinel();
-    if (boundary.classification.event === "pr-edit" && reviewEnabled(review.repo)) clearAck(review.repo);
+    if (boundary.classification.protectedRetarget) clearAck(review.repo);
     const ackHead = readAck(review.repo);
     const range = reviewRange({ repo: review.repo, ackHead, head: review.pr.headRefOid });
     const requiredLanes = reviewEnabled(review.repo) && !skipReview && ackHead !== review.pr.headRefOid

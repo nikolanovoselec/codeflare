@@ -186,7 +186,9 @@ node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push
 
 No stdout means no action. Otherwise the root submits the resolver's request unchanged once through public `subagent`. The report-only `ci-monitor` remains independent from review acknowledgement and relies on the bounded script rather than an agent turn cap, preserving verbatim native output. Non-SDD repositories and default-mode sessions receive CI-only plans. An aborted task is relaunched only after a later plan or explicit request. Implements [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring).
 
-Pi review is session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). Successful persisted boundaries produce a triggering root launch plan. With a valid acknowledgement, the plan and every counted reviewer prompt carry the exact acknowledged-to-current range; unmatched calls remain in flight until native terminal notification. A delayed notification can acknowledge its reviewed PR head after reload or newer unpublished local work only while GitHub still reports that same authoritative head. Generated reviewer system prompts embed their canonical scope and enforcement skills, so reviewers build the lane packet directly without retrieving policy first. Reviewers run packet and deterministic evidence commands through direct `ctx_execute` processing, or equivalent native tools when context-mode is disabled; indexed batch/global retrieval is not part of the reviewer tool surface. The root waits for all reports and alone changes the head.
+Pi review is session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). Successful persisted boundaries produce a triggering root launch plan. With a valid acknowledgement, the plan and every counted reviewer prompt carry the exact acknowledged-to-current range; unmatched calls remain in flight until native terminal notification. A delayed notification can acknowledge its reviewed PR head after reload or newer unpublished local work only while GitHub still reports that same authoritative head.
+
+Generated reviewer system prompts embed their canonical scope and enforcement skills, so reviewers build the lane packet without retrieving policy first. Code and documentation reviewers may use direct context processing with native fallbacks; specification review uses only non-indexed evidence tools. Indexed batch/global retrieval is unavailable to all three lanes. The root waits for every report and alone changes the head.
 
 Claude CI monitoring remains on-demand ([REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy)): routine pushes do not start `ci-monitoring`; Claude invokes it only when the user asks or a deploy/merge gate needs a fresh CI result. When invoked, the Claude skill launches a detached temp-script monitor, prints `CI_MONITOR_STARTED head=<sha> pid=<pid> log=<path>`, requires a non-empty workflow/run fingerprint to stay stable across two polls before success, and writes terminal `CI_RESULT failure` / `CI_RESULT timeout` lines to that durable log on workflow failure or GitHub CLI access failure.
 
@@ -406,7 +408,7 @@ The generated file is output, never a second ownership source.
 scope, while `review-enforcement.ts` handles supported root-session boundaries for
 SDD PRs targeting `main`/`master`. Both use `review-scope`: PR-boundary review and
 `/review --diff` inspect changed hunks plus direct invalidations, while
-`/review --all` and `/sdd clean --all` are exhaustive. `/sdd clean` rejects conflicting or unsupported scope flags and places the resolved work-set contract in the dispatched workflow message. The default- and advanced-mode active-repository extension resolves shell `cd` and tool-level cwd context before eligibility, so CI-only default-mode plans do not depend on the advanced main extension. The extension names required lanes only after the authoritative PR head matches the local pushed checkout; settled recovery retries while GitHub propagates the head. The root main session calls
+`/review --all` and `/sdd clean --all` are exhaustive. At invocation, `/review` prefers the Git repository containing the command cwd, falls back to remembered active-repository state, passes the validated absolute root without changing the process cwd, and dispatches nothing when neither source resolves. `/sdd clean` rejects conflicting or unsupported scope flags and places the resolved work-set contract in the dispatched workflow message. The default- and advanced-mode active-repository extension resolves shell `cd` and tool-level cwd context before eligibility, so CI-only default-mode plans do not depend on the advanced main extension. The extension names required lanes only after the authoritative PR head matches the local pushed checkout; settled recovery retries while GitHub propagates the head. The root main session calls
 reviewers together through public background `subagent` calls without inherited
 context, waits for all native completion notifications, fixes legitimate
 findings, and alone commits or pushes. The acknowledged full SHA is the only
@@ -424,6 +426,7 @@ This implements
 [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff),
 [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan),
 [REQ-AGENT-082](../../sdd/spec/agents.md#req-agent-082-pi-review-range-selection),
+[REQ-AGENT-083](../../sdd/spec/agents.md#req-agent-083-user-invoked-pi-review-repository-context),
 [REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-pi-reviewer-policy-preloading), and
 [REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport),
 following [AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents).
@@ -1023,6 +1026,9 @@ Pi CI is not part of review completion or acknowledgement. After an eligible suc
 - [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan) - Unified Pi PR-Boundary Launch Plan
 - [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation) - rpiv-todo Session Isolation
 - [REQ-AGENT-082](../../sdd/spec/agents.md#req-agent-082-pi-review-range-selection) - Pi Review Range Selection
+- [REQ-AGENT-083](../../sdd/spec/agents.md#req-agent-083-user-invoked-pi-review-repository-context) - User-Invoked Pi Review Repository Context
+- [REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-pi-reviewer-policy-preloading) - Pi Reviewer Policy Preloading
+- [REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport) - Pi Reviewer Direct Evidence Transport
 - [REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) - Proactive memory injection on first prompt
 
 ---

@@ -23,6 +23,17 @@ function isStaleCtxError(error: unknown): boolean {
 	return /stale after session replacement/.test(String(error));
 }
 
+export function disposeSessionOverlay(
+	overlay: { dispose(): void } | undefined,
+	clearReference: () => void,
+): void {
+	try {
+		overlay?.dispose();
+	} finally {
+		clearReference();
+	}
+}
+
 export function registerSessionStateLifecycle(pi: SessionPi, dependencies: LifecycleDependencies): void {
 	const replayAndRefresh = (ctx: SessionContext): void => {
 		let isForeground = false;

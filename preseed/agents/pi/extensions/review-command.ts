@@ -74,8 +74,13 @@ export function reviewWorkflowDecision(
   return { ...decision, repo };
 }
 
-async function dispatchReview(pi: ExtensionAPI, args: string, ctx: ExtensionCommandContext): Promise<void> {
-  const decision = reviewWorkflowDecision(args, ctx.cwd);
+export async function dispatchReview(
+  pi: ExtensionAPI,
+  args: string,
+  ctx: ExtensionCommandContext,
+  decide: (args: string, cwd: string) => ReviewWorkflowDecision = reviewWorkflowDecision,
+): Promise<void> {
+  const decision = decide(args, ctx.cwd);
   if (decision.kind === "help") {
     ctx.ui.notify(helpText(), "warning");
     return;

@@ -124,10 +124,11 @@ Step 1b - use the absolute `Repository root:` from the injected workflow contrac
 
 ```bash
 PROJECT_ROOT='<absolute Repository root from the workflow contract>'
-if [ ! -d "$PROJECT_ROOT/.git" ]; then
+RESOLVED_PROJECT_ROOT=$(git -C "$PROJECT_ROOT" rev-parse --show-toplevel 2>/dev/null) || {
   echo "ERROR: /review repository root is unavailable." >&2
   exit 1
-fi
+}
+PROJECT_ROOT=$RESOLVED_PROJECT_ROOT
 cd "$PROJECT_ROOT"
 HAS_SDD=0
 [ -d "$PROJECT_ROOT/sdd" ] && HAS_SDD=1
