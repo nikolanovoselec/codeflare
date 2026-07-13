@@ -31,13 +31,24 @@ describe('reviewer direct-execution guard', () => {
     await harness.emit('session_start', {});
     await harness.emit('before_agent_start', {
       systemPrompt: reviewerPrompt,
-      prompt: 'You are reviewing the project.\nProject root: /home/user/workspace/codeflare\nreview_mode=report-only',
+      prompt: 'You are reviewing the project.\nProject root: /home/user/workspace/codeflare review \nrepo=/home/user/workspace/codeflare review \nreview_mode=report-only',
     });
     const input = { command: 'git status --short' };
 
     await harness.emit('tool_call', { toolName: 'bash', input });
 
-    expect(input.command).toBe("cd '/home/user/workspace/codeflare' && git status --short");
+    expect(input.command).toBe("cd '/home/user/workspace/codeflare review ' && git status --short");
+
+    await harness.emit('session_start', {});
+    await harness.emit('before_agent_start', {
+      systemPrompt: reviewerPrompt,
+      prompt: 'repo=/home/user/workspace/codeflare scope=diff review_range=base..head',
+    });
+    const compactInput = { command: 'git diff --stat' };
+
+    await harness.emit('tool_call', { toolName: 'bash', input: compactInput });
+
+    expect(compactInput.command).toBe("cd '/home/user/workspace/codeflare' && git diff --stat");
   });
 
   it('REQ-AGENT-085: strips intent only from marked reviewer direct execution', async () => {

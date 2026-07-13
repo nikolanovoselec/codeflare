@@ -15,6 +15,10 @@ Parse scope and flags from that line, then run the phases below. This is the use
 
 **Review mode:** static analysis only. Never run builds, tests, or linters - the container is resource-constrained. Read and analyze code only.
 
+## Review ownership (binding)
+
+Every `/review` subagent runs with `review_mode=report-only` and returns its complete report to the root. The root persists every returned report, records triage/ADR/issue decisions, and applies a fix only after the user approves it. No subagent writes source, tests, specifications, documentation, triage, or review artifacts.
+
 ## Pi tool mapping (load-bearing)
 
 - **Subagents:** spawn via Pi's `subagent` tool with `subagent_type` set to the agent name (`security-reviewer`, `architect`, `code-reviewer`, `refactor-cleaner`, `tdd-guide`, `doc-updater`, `deep-reviewer`). There is no "Task tool" on Pi.
@@ -25,7 +29,7 @@ Parse scope and flags from that line, then run the phases below. This is the use
   graphify explain "X" --graph <repo>/graphify-out/graph.json
   ```
 - **Plan entry:** Pi has no EnterPlanMode primitive. Invoke the `Plan` agent OR produce an explicit written plan and wait for explicit user approval before any source/test/config edit.
-- **User prompts (Phase 8 only):** ask the user directly in the main session and wait for their answer. Phase 8 is the ONLY phase that runs in the main session; every other phase uses the `subagent` tool.
+- **Root-owned phases:** Phase 7 external verification (when available), Phase 8 user triage, and Phase 9-10 persistence/mutations run in the main session. All reviewer phases use report-only subagents and return their reports to the root.
 - **Shell:** in context-mode sessions route shell through `ctx_execute` / `ctx_batch_execute`; otherwise use Bash directly. Both produce identical output.
 
 ## Context preservation

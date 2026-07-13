@@ -72,8 +72,8 @@ test('REQ-AGENT-085 AC5/AC6: changed inputs expose exact hunk ranges and enforce
       path: 'src/value.test.ts',
       hunks: [{ oldStart: 2, oldLines: 1, newStart: 2, newLines: 1 }],
     });
-    assert.equal(changedInputIntersects(input, { oldStart: 1, oldEnd: 1 }), true);
-    assert.equal(changedInputIntersects(input, { oldStart: 2, oldEnd: 2 }), false);
+    assert.equal(changedInputIntersects(input, { oldStart: 1, oldEnd: 1 }), false);
+    assert.equal(changedInputIntersects(input, { oldStart: 2, oldEnd: 2 }), true);
     assert.equal(changedInputIntersects(input, { newStart: 1, newEnd: 3 }), true);
     assert.equal(changedInputIntersects(input, { newStart: 5, newEnd: 7 }), false);
   } finally {

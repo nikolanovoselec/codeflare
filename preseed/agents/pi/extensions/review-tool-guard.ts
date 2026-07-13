@@ -9,9 +9,11 @@ function mutableInput(value: unknown): Record<string, unknown> | undefined {
 }
 
 function repositoryFromPrompt(prompt: string | undefined): string | undefined {
-  const explicit = prompt?.match(/(?:^|\s)repo=(\/\S+)/)?.[1];
-  if (explicit) return explicit;
-  return prompt?.match(/(?:^|\n)(?:Project|Repository) root:\s*(\/[^\r\n]+)/)?.[1]?.trim();
+  const labeled = prompt?.match(/(?:^|\n)(?:Project|Repository) root:[ \t]*(\/[^\r\n]+)/)?.[1];
+  if (labeled) return labeled;
+  return prompt?.match(
+    /(?:^|\n)repo=(\/[^\r\n]*?)(?=[ \t]+(?:scope|review_range|pr|head)=|$)/m,
+  )?.[1];
 }
 
 function shellQuote(value: string): string {

@@ -4,6 +4,10 @@ Run a full codebase review from 6 specialized perspectives using parallel agents
 
 **Review mode:** static analysis only - no runtime, build, or test validation performed.
 
+## Review ownership (binding)
+
+Every `/review` subagent runs with `review_mode=report-only` and returns its complete report to the root. The root persists every returned report, records triage/ADR/issue decisions, and applies a fix only after the user approves it. No subagent writes source, tests, specifications, documentation, triage, or review artifacts.
+
 ## When the user types `/review` with no scope flag
 
 If $ARGUMENTS does NOT contain `--all` or `--diff`, print this help screen and exit. Do not invoke any phases. The scope flag is mandatory.

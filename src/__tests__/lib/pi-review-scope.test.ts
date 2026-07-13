@@ -67,14 +67,17 @@ describe('REQ-AGENT-059: Pi review scope entry points', () => {
   });
 
   it('REQ-AGENT-050 AC7: resolves the documentation lane to a stable no-surface report', () => {
-    expect(reviewDocumentationSurfaceDecision(false, true)).toEqual({
+    const noSurface = {
       kind: 'no-op',
       report: 'no-op (vibe-coding mode: no sdd/ or no documentation/)',
-    });
+    };
+    expect(reviewDocumentationSurfaceDecision(false, true)).toEqual(noSurface);
+    expect(reviewDocumentationSurfaceDecision(true, false)).toEqual(noSurface);
+    expect(reviewDocumentationSurfaceDecision(false, false)).toEqual(noSurface);
     expect(reviewDocumentationSurfaceDecision(true, true)).toEqual({ kind: 'review' });
   });
 
-  it('REQ-AGENT-015/REQ-AGENT-050 AC1: dispatches the dedicated /review workflow contract', async () => {
+  it('REQ-AGENT-050 AC1/REQ-AGENT-088 AC1: dispatches the dedicated /review workflow contract', async () => {
     const messages: string[] = [];
     await dispatchReview(
       { sendUserMessage: (message: string) => { messages.push(message); } } as never,
