@@ -46,7 +46,9 @@ type TestPi = {
 };
 
 const ALL_LANES: ReviewLane[] = ['code-reviewer', 'spec-reviewer', 'doc-updater'];
+const REVIEW_BYPASS_FILE = join(tmpdir(), `pi-review-bypass-${process.pid}`);
 const NOW = Date.parse('2026-07-12T12:10:00.000Z');
+process.env.REVIEW_BYPASS_FILE = REVIEW_BYPASS_FILE;
 const roots: string[] = [];
 let entrySequence = 0;
 
@@ -114,6 +116,7 @@ function reviewerArgs(fixture: ReturnType<typeof makeReviewFixture>, lane: Revie
   return {
     subagent_type: lane,
     run_in_background: true,
+    inherit_context: false,
     prompt: `review_range=${fixture.base}..${fixture.head}`,
   };
 }
@@ -248,6 +251,7 @@ function ackHead(repo: string): string {
 }
 
 afterEach(() => {
+  rmSync(REVIEW_BYPASS_FILE, { force: true });
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -607,7 +611,41 @@ describe('Pi review reminder and settled enforcement', () => {
     await harness.emit('agent_settled');
 
     expect(ackHead(fixture.repo)).toBe(fixture.base);
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-review-reminder',
+        content: expect.stringContaining('Review the full PR against origin/main.'),
+        details: {
+          head: fixture.pr.headRefOid,
+          ackHead: fixture.base,
+          reviewRange: undefined,
+          requiredLanes: ALL_LANES,
+        },
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
+  });
+
+  it('REQ-AGENT-041: consumes a one-shot bypass on reminder-only PR creation', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    writeFileSync(REVIEW_BYPASS_FILE, '', 'utf8');
+    appendSession(fixture.sessionFile,
+      assistantTool('create-1', 'bash', { command: 'gh pr create --base main' }),
+      toolResult('create-1', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent('gh pr create --base main'));
     expect(harness.sent).toEqual([]);
+    expect(existsSync(REVIEW_BYPASS_FILE)).toBe(false);
+
+    appendSession(fixture.sessionFile,
+      assistantTool('push-2', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-2', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent());
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0]?.message.customType).toBe('pr-boundary-review-reminder');
   });
 
   it('REQ-AGENT-041: honors an explicit post-boundary user bypass without fabricating acknowledgement', async () => {
@@ -661,7 +699,7 @@ describe('Pi review reminder and settled enforcement', () => {
     fixture.pr.state = 'MERGED';
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
-      assistantTool('merge-1', 'bash', { command: 'gh pr merge 42' }),
+      assistantTool('merge-1', 'bash', { command: 'env GH_TOKEN=x gh pr merge 42' }),
       toolResult('merge-1', 'bash'),
     );
 

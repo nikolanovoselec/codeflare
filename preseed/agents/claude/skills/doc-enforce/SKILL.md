@@ -15,6 +15,8 @@ This skill is the spine for SDD documentation enforcement. It runs the 16-row ex
 - `mode`: `interactive` | `auto` | `unleashed` (read from `sdd/spec/config.yml` when nested layout exists, else `sdd/config.yml` on flat layout)
 - `layout`: `nested` | `flat` (auto-detected via `test -d documentation/lanes`)
 
+<!-- PR_REVIEW_DIFF_BOUNDARY --> **Diff finding boundary (binding).** Baseline debt is not a finding under `scope=diff`. Every pass still runs and may inspect unchanged content, but it reports, counts, or blocks only an issue introduced by a changed hunk or directly caused by the diff invalidating unchanged content. Compare against the base revision when uncertain. Only `scope=all` reports pre-existing whole-documentation debt.
+
 **Layout-awareness.** All file globs in this skill respect the detected layout:
 - Lane files: `documentation/lanes/**/*.md` (nested) OR `documentation/*.md` excluding `README.md` (flat)
 - ADR ledger: `documentation/decisions/README.md` (both layouts; unchanged)

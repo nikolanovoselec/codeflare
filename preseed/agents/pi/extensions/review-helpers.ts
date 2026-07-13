@@ -18,12 +18,32 @@ export type TranscriptFacts = {
 
 type ShellWords = string[];
 
+function stripHeredocBodies(command: string): string {
+  const executable: string[] = [];
+  let delimiter = "";
+  let stripTabs = false;
+  for (const line of command.split(/\r?\n/)) {
+    if (delimiter) {
+      const candidate = stripTabs ? line.replace(/^\t+/, "") : line;
+      if (candidate === delimiter) delimiter = "";
+      continue;
+    }
+    executable.push(line);
+    const match = line.match(/<<(-?)\s*(['"]?)([A-Za-z0-9_]+)\2/);
+    if (match) {
+      stripTabs = match[1] === "-";
+      delimiter = match[3] ?? "";
+    }
+  }
+  return executable.join("\n");
+}
+
 function shellSegments(command: string): string[] {
   const segments: string[] = [];
   let current = "";
   let quote = "";
   let escaped = false;
-  for (const char of command) {
+  for (const char of stripHeredocBodies(command)) {
     if (escaped) {
       current += char;
       escaped = false;
@@ -75,8 +95,8 @@ function shellWords(segment: string): ShellWords {
 
 function commandWords(command: string): ShellWords[] {
   return shellSegments(command).map(shellWords).map((words) => {
-    let index = 0;
-    while (/^[A-Za-z_][A-Za-z0-9_]*=\S*$/.test(words[index] ?? "")) index += 1;
+    let index = words[0] === "env" ? 1 : 0;
+    while (/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(words[index] ?? "")) index += 1;
     return words.slice(index);
   });
 }
@@ -240,7 +260,7 @@ export function reviewTranscriptFacts(input: {
       const lane = call.arguments?.subagent_type as ReviewLane;
       const prompt = typeof call.arguments?.prompt === "string" ? call.arguments.prompt : "";
       const wrongRange = window?.range && !prompt.includes(`review_range=${window.range}`);
-      if (call.name !== "subagent" || call.arguments?.run_in_background !== true || !input.requiredLanes.includes(lane) || wrongRange) continue;
+      if (call.name !== "subagent" || call.arguments?.run_in_background !== true || call.arguments?.inherit_context !== false || !input.requiredLanes.includes(lane) || wrongRange) continue;
       const terminal = later.slice(entryIndex + 1).some((candidate) => notificationToolId(candidate) === call.id);
       if (terminal) lanes[lane] = { state: "terminal", toolUseId: call.id };
       else if (lanes[lane].state !== "terminal") lanes[lane] = { state: "in-flight", toolUseId: call.id };

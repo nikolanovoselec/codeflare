@@ -202,7 +202,11 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const boundary = shellCommands(event).find((command) => classifyReviewBoundaryCommand(command).reminder);
     if (!boundary) return;
     const review = await currentReview(ctx, dependencies);
-    if (!review || !isEnforcedPr(review.pr) || bypassSentinelPresent()) return;
+    if (!review || !isEnforcedPr(review.pr)) return;
+    if (bypassSentinelPresent()) {
+      if (!classifyReviewBoundaryCommand(boundary).settled) consumeBypassSentinel();
+      return;
+    }
     const ackHead = readAck(review.repo);
     if (ackHead === review.pr.headRefOid) return;
     const range = reviewRange({ repo: review.repo, ackHead, head: review.pr.headRefOid });
@@ -232,7 +236,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const facts = reviewTranscriptFacts({ sessionFile: review.file, requiredLanes });
     if (!facts.boundary) return;
     if (review.pr.state !== "OPEN") {
-      if (!facts.closedNotified && /(?:^|[;&|\n]\s*)gh\s+pr\s+merge(?:\s|$)/.test(facts.boundary.command)) {
+      if (!facts.closedNotified && classifyReviewBoundaryCommand(facts.boundary.command).settled) {
         pi.sendMessage({
           customType: "pr-boundary-review-closed-unacknowledged",
           content: `PR head ${review.pr.headRefOid} is ${review.pr.state} without review acknowledgement. No acknowledgement was written.`,

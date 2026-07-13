@@ -637,7 +637,7 @@ The PostToolUse nudge and Stop hook share `scripts/lib/lane-classifier.sh`.
 Generated-only `graphify-out/` diffs require no review lanes and are auto-acked
 with a durable audit event; generated artifacts never suppress review for mixed
 diffs. Doc-only pushes spawn only `doc-updater`; `sdd/`-only pushes spawn
-`spec-reviewer` then `doc-updater`; source pushes spawn all three; non-SDD
+`spec-reviewer` and `doc-updater` in parallel; source pushes spawn all three; non-SDD
 projects fire no review agents.
 
 Each tool-gated hook is registered on two matcher entries covering three

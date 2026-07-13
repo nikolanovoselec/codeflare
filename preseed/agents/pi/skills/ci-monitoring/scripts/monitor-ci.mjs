@@ -5,9 +5,9 @@ import { fileURLToPath } from 'node:url';
 const POLL_MS = 15_000, EMPTY_LIMIT_MS = 5 * 60_000, TOTAL_LIMIT_MS = 30 * 60_000;
 const CHECK_FIELDS = 'bucket,link,name,state,workflow';
 
-function exec(command, args, options = {}) {
+export function runCommand(command, args, options = {}) {
   return new Promise((done) => {
-    execFile(command, args, { cwd: options.cwd, encoding: 'utf8' }, (error, stdout, stderr) => {
+    execFile(command, args, { cwd: options.cwd, encoding: 'utf8', timeout: options.timeout ?? 60_000 }, (error, stdout, stderr) => {
       done({ stdout: stdout ?? '', stderr: stderr ?? '',
         exitCode: typeof error?.code === 'number' ? error.code : error ? 1 : 0 });
     });
@@ -50,7 +50,7 @@ async function readHead({ repo, pr, runner, cwd }) {
   }
 }
 
-export async function resolveCiMonitorRequest({ event, changed, repo, cwd, reviewState, runner = exec } = {}) {
+export async function resolveCiMonitorRequest({ event, changed, repo, cwd, reviewState, runner = runCommand } = {}) {
   if (!['push', 'pr-create'].includes(event) || changed !== true || !repo || !cwd || !['launched', 'not-required'].includes(reviewState)) return null;
 
   let result;
@@ -85,7 +85,7 @@ export async function monitorCi({
   repo,
   pr,
   head,
-  runner = exec,
+  runner = runCommand,
   cwd,
   clock = { now: Date.now },
   sleep = (milliseconds) => new Promise((done) => setTimeout(done, milliseconds)),

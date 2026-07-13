@@ -66,6 +66,7 @@ When invoked:
    fi
    ```
    The PR-base-aware default matters because feature branches typically PR into `develop`, not `main` — diffing against `origin/main` would show too much (every commit on `develop` you don't have locally). Always prefer `gh pr view --json baseRefName` first; the fallback chain handles non-PR contexts. Always read the actual diff lines — never substitute `git log --oneline` (subjects only) for the real diff.
+   <!-- PR_REVIEW_DIFF_BOUNDARY --> **Diff finding boundary (binding).** Baseline debt is not a finding under `scope=diff`. You may inspect unchanged files for context, but report an issue only when a changed hunk introduces it or the diff directly invalidates unchanged behavior. Compare against the base revision when uncertain. Only `scope=all` reports pre-existing whole-tree debt.
 2. **Understand scope** — Identify which files changed, what feature/fix they relate to, and how they connect.
 3. **Read surrounding code** — Don't review changes in isolation. Read the full file and understand imports, dependencies, and call sites.
 4. **Apply review checklist** — Work through each category below, from CRITICAL to LOW.

@@ -130,7 +130,11 @@ describe('Claude-equivalent review boundary helpers', () => {
     const cases: Array<[string, BoundarySurfaces]> = [
       ['git push origin pi', { reminder: true, settled: true }],
       ['CI=1 git push origin pi', { reminder: true, settled: true }],
+      ['env GH_TOKEN=x git push origin pi', { reminder: true, settled: true }],
+      ['MESSAGE="review later" git push origin pi', { reminder: true, settled: true }],
       ["printf '%s' 'git push origin pi'", { reminder: false, settled: false }],
+      ['cat <<EOF\ngit push origin pi\nEOF', { reminder: false, settled: false }],
+      ['cat <<EOF\ngit push origin pi\nEOF\ngit push origin pi', { reminder: true, settled: true }],
       ['printf done; git push origin pi', { reminder: true, settled: true }],
       ['gh pr create --base main --title review', { reminder: true, settled: false }],
       ['gh pr edit 42 --base master', { reminder: true, settled: true }],
@@ -229,7 +233,7 @@ describe('native Pi transcript review facts', () => {
       notification('code-old'),
       assistantTool('push-new', 'bash', { command: 'gh pr merge 42' }, '2026-07-12T12:05:00.000Z'),
       toolResult('push-new', 'bash'),
-      assistantTool('doc-new', 'subagent', { subagent_type: 'doc-updater', run_in_background: true }, '2026-07-12T12:06:00.000Z'),
+      assistantTool('doc-new', 'subagent', { subagent_type: 'doc-updater', run_in_background: true, inherit_context: false }, '2026-07-12T12:06:00.000Z'),
     ]);
 
     const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
@@ -258,11 +262,11 @@ describe('native Pi transcript review facts', () => {
     const sessionFile = writeSession([
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
       toolResult('push-1', 'bash'),
-      assistantTool('code-1', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true }),
+      assistantTool('code-1', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false }),
       toolResult('code-1'),
       sessionEntry('custom', { customType: 'subagents:completed', data: { toolCallId: 'code-1' } }),
       notification('different-id'),
-      assistantTool('spec-1', 'subagent', { subagent_type: 'spec-reviewer', run_in_background: true }),
+      assistantTool('spec-1', 'subagent', { subagent_type: 'spec-reviewer', run_in_background: true, inherit_context: false }),
       notification('spec-1', 'Error'),
     ]);
 
@@ -279,10 +283,10 @@ describe('native Pi transcript review facts', () => {
     const sessionFile = writeSession([
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }, '2026-07-12T12:00:00.000Z'),
       toolResult('push-1', 'bash'),
-      assistantTool('code-long', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true }, '2026-07-12T12:00:30.000Z'),
-      assistantTool('spec-done', 'subagent', { subagent_type: 'spec-reviewer', run_in_background: true }, '2026-07-12T12:09:30.000Z'),
+      assistantTool('code-long', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false }, '2026-07-12T12:00:30.000Z'),
+      assistantTool('spec-done', 'subagent', { subagent_type: 'spec-reviewer', run_in_background: true, inherit_context: false }, '2026-07-12T12:09:30.000Z'),
       notification('spec-done'),
-      assistantTool('doc-queued', 'subagent', { subagent_type: 'doc-updater', run_in_background: true }, '2026-07-12T12:09:45.000Z'),
+      assistantTool('doc-queued', 'subagent', { subagent_type: 'doc-updater', run_in_background: true, inherit_context: false }, '2026-07-12T12:09:45.000Z'),
     ]);
 
     const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
@@ -303,10 +307,10 @@ describe('native Pi transcript review facts', () => {
       toolResult('push-1', 'bash'),
       reviewReminder(head, reviewRange),
       assistantTool('code-range', 'subagent', {
-        subagent_type: 'code-reviewer', run_in_background: true, prompt: `review_range=${reviewRange}`,
+        subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false, prompt: `review_range=${reviewRange}`,
       }),
       assistantTool('spec-full', 'subagent', {
-        subagent_type: 'spec-reviewer', run_in_background: true, prompt: 'review full PR against main',
+        subagent_type: 'spec-reviewer', run_in_background: true, inherit_context: false, prompt: 'review full PR against main',
       }),
     ]);
 
@@ -315,6 +319,29 @@ describe('native Pi transcript review facts', () => {
     expect(facts.reviewRange).toBe(reviewRange);
     expect(facts.lanes['code-reviewer']).toEqual({ state: 'in-flight', toolUseId: 'code-range' });
     expect(facts.lanes['spec-reviewer']).toEqual({ state: 'missing' });
+  });
+
+  it('REQ-AGENT-071: rejects reviewer calls that inherit or omit parent context isolation', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const sessionFile = writeSession([
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+      assistantTool('code-inherited', 'subagent', {
+        subagent_type: 'code-reviewer', run_in_background: true, inherit_context: true,
+      }),
+      notification('code-inherited'),
+      assistantTool('spec-unspecified', 'subagent', {
+        subagent_type: 'spec-reviewer', run_in_background: true,
+      }),
+      notification('spec-unspecified'),
+    ]);
+
+    const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
+    expect(facts.lanes).toEqual({
+      'code-reviewer': { state: 'missing' },
+      'spec-reviewer': { state: 'missing' },
+      'doc-updater': { state: 'missing' },
+    });
   });
 
   it('REQ-AGENT-041: recognizes an explicit user bypass only when it follows the latest boundary', async () => {

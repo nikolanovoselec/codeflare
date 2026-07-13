@@ -7,6 +7,7 @@ import test from 'node:test';
 import {
   monitorCi,
   resolveCiMonitorRequest,
+  runCommand,
 } from '../../preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs';
 
 const REPO = 'codeflare/codeflare';
@@ -131,6 +132,16 @@ function assertResult(output, status) {
   assert.match(output, new RegExp(`head=${HEAD}(?:\\s|$)`));
   return lines;
 }
+
+test('REQ-AGENT-068 AC6: command execution is bounded when a provider hangs', async () => {
+  const result = await runCommand(
+    process.execPath,
+    ['-e', 'setTimeout(() => {}, 200)'],
+    { timeout: 20 },
+  );
+
+  assert.equal(result.exitCode, 1);
+});
 
 test('REQ-AGENT-068 AC1: eligible head-changing push returns one complete public ci-monitor request', async () => {
   const requests = [];

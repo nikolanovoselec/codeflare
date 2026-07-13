@@ -1695,7 +1695,7 @@ Identity-driven budgets are additionally a closed beta. Net: keep `AIG_TOKEN` + 
 
 **Category:** Architecture
 
-**Status:** Accepted (2026-06-08)
+**Status:** Accepted (2026-06-08); amended for Pi reviewer execution by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) (2026-07-12)
 
 **Context:** Pi has no MCP client, so the graphify query tools (`graphify_query`/`graphify_path`/`graphify_explain`) were exposed on Pi through the third-party `@gaodes/pi-graphify` npm wrapper plus a never-consumed `mcp.json`. The wrapper re-implemented graphify query logic independently of the Claude MCP-server path, so Pi and Claude could diverge in ranking/output from the same graph, and it added an npm dependency (plus the transitive `@gaodes/pi-utils-ui`) that `bump-shadow-pins.yml` had to track and that re-baked the image on every upstream bump. <!-- @impl: preseed/agents/pi/extensions/graphify-native.ts::resolveGraph -->
 
@@ -1708,13 +1708,13 @@ Identity-driven budgets are additionally a closed beta. Net: keep `AIG_TOKEN` + 
 - Graph resolution prefers the current repository graph, then the same-repository active sentinel graph, then the merged global graph.
 
   A graphless session fails softly with a "build a graph first" message.
-- Durable review lanes load `graphify-native.ts` via explicit `-e`, plus `review-lane-guards.ts` and settings-enabled context-mode, so reviewers keep graphify tools without loading `codeflare-pi.ts` or recursive review enforcement.
+- Pi reviewers run as visible session-scoped public subagents using the native Graphify tool surface.
 - The `save-result` feedback loop is restored in both agents' graphify skills, which move to the `references/` progressive-disclosure layout.
 - Clone-time triage (detect graph, prompt build/update/skip) is unchanged in both agents — only the query-tool provider changed.
 
 **Implements:** [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline).
 
-**Related:** [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) (durable review lanes run detached).
+**Related:** [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) (Pi reviewers run as visible session-scoped public subagents).
 
 ---
 
@@ -1783,26 +1783,28 @@ REQ-VAULT-017 already serves the SW credential-less inside the Worker, but Acces
 
 **Status:** Accepted (2026-06-09); amended for Pi execution by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) (2026-07-12)
 
-**Context:** At a PR-boundary the SDD pipeline dispatches three review lanes — `code-reviewer` (source), `spec-reviewer` (`sdd/`), and `doc-updater` (`documentation/` + root `README.md`). The original design ran them **sequentially**: `spec-reviewer` first, then `doc-updater`, because reviewers edited their lanes in place and `doc-updater` had to validate references against the spec `spec-reviewer` had just moved. Claude encoded that order by demanding `doc-updater` only after `spec-reviewer` acknowledged a `PIPELINE_COMPLETE` marker.
+**Context:** At a PR-boundary the SDD pipeline dispatches three review lanes — `code-reviewer` (source), `spec-reviewer` (`sdd/`), and `doc-updater` (`documentation/` + root `README.md`). The original design ran them **sequentially**: `spec-reviewer` first, then `doc-updater`, on the rationale that the reviewers *edited* their lanes in place and `doc-updater` had to validate REQ cross-references against the spec `spec-reviewer` had just moved (the race-condition concern recorded in [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution)). Both engines encoded that ordering: Pi's `durableReviewInitialLanes` withheld `doc-updater` from the initial wave and `review-enforcement.ts` spawned it on `spec-reviewer` completion; Claude's `enforce-review-spawn.sh` demanded `doc-updater` only after `spec-reviewer` acked, sequenced via a `PIPELINE_COMPLETE` marker.
 
-That auto-fix model was replaced by report-only reviewers whose findings return to the main session for any fixes. With reviewers no longer mutating the spec or documentation, the ordering rationale no longer holds, while the sequential gate still adds a full `spec-reviewer` round of latency. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::all_required_lanes_completed_for_current_head -->
+That auto-fix model has since been superseded: the review agents are now **report-only** — each writes findings to its own durable result file under `.git/sdd-review-results/<head>/<lane>.md` and the **main session** applies every fix. With the reviewers no longer mutating the spec/docs, the ordering rationale no longer holds, yet the sequential gate remained — adding a full `spec-reviewer` round of latency to every PR-boundary before `doc-updater` even started.
 
-**Decision:** Dispatch all required review lanes in parallel at a PR-boundary. Reviewers are report-only and read one committed tree, so there is no shared-write race or ordering dependency. Claude's `enforce-review-spawn.sh` demands all required lanes in one parallel MISSING block and acknowledges the head only after `all_required_lanes_completed_for_current_head`; `git-push-review-reminder.sh` emits one parallel directive. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::all_required_lanes_completed_for_current_head --> Pi preserves the same policy through the session-scoped execution model in [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents). **`/sdd clean` is explicitly excluded** because it applies fixes inline and therefore keeps the [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution) sequential order.
+**Decision:** Dispatch all three review lanes **in parallel** at a PR-boundary. The reviewers' write targets are disjoint durable result files and read-only with respect to each other's domain, so there is no shared-write race and no ordering dependency.
 
-**Rationale:** Parallelism is correct precisely because the reviewers are report-only: the only reason for sequencing disappeared when fix application moved to the main session. Concurrent lanes reduce boundary latency to the slowest required lane without reducing coverage.
+Pi: `durableReviewInitialLanes` returns every lane and `durableReviewEligibleLanes` drops the doc-waits-for-spec gate; the `spec-reviewer`-completion → `doc-updater`-spawn trigger in `review-enforcement.ts` is removed (it would double-spawn). Claude: `enforce-review-spawn.sh` demands all three in the parallel MISSING block and acks the head on `all_required_lanes_completed_for_current_head` (the per-lane `PIPELINE_COMPLETE` sequencing is gone); `git-push-review-reminder.sh` emits a single parallel directive. **`/sdd clean` is explicitly excluded** — it *applies* fixes inline (not report-only), so it keeps the AD44 sequential order (spec-enforce before doc-enforce), since doc cross-references depend on the just-fixed spec.
+
+**Rationale:** Parallelism is correct precisely because the reviewers are report-only: the only thing that made sequencing necessary (in-place edits to a shared source of truth) was removed when fix-application moved to the main session. Running the lanes concurrently cuts PR-boundary review latency from "slowest lane + spec-reviewer" to "slowest single lane" with identical coverage and zero added race surface.
 
 **Alternatives considered:**
 
-- **Keep the sequential gate (rejected):** it bought nothing once reviewers stopped editing and cost a full serial lane on every boundary.
-- **Parallelize `/sdd clean` too (rejected):** its inline fixes make documentation checks depend on the just-fixed spec, so parallelism would reintroduce the race AD44 guards against.
+- **Keep the sequential gate (rejected):** it bought nothing once the reviewers stopped editing — `doc-updater` reads the *committed* spec, not an in-flight `spec-reviewer` edit — and cost a full lane of serial latency on every PR-boundary.
+- **Parallelize `/sdd clean` too (rejected):** `/sdd clean` applies fixes inline, so doc cross-references genuinely depend on the just-fixed spec; parallelizing it would reintroduce the exact race AD44 guards against. The report-only/apply-inline distinction is the dividing line.
 
 **Consequences:**
 
-- Required review lanes complete concurrently and the main session applies any fixes after all results arrive.
+- PR-boundary review completes faster; the three lane result files are produced concurrently and the main session applies fixes from all of them.
+- Pi's `pending.json` retains the now-vestigial `docPromptSent` field for backward-compat with in-flight review jobs serialized under the old sequential-dispatch model (jobs where `spec-reviewer` had completed but `doc-updater` had not yet been spawned); it is no longer read for sequencing.
 - `/sdd clean` behavior is unchanged.
-- Pi execution follows AD98; Claude's hook behavior and completion anchor remain unchanged.
 
-**Related:** [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) AC1, [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution), and [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents).
+**Related:** [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) AC1, [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution), [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), and [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents).
 
 ---
 
