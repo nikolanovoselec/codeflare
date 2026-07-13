@@ -13,7 +13,7 @@ Invoked by `spec-enforce` with its already-resolved in-scope REQ set.
 - `scope=diff`: inspect only changed AC/Constraint hunks and the complete parent REQ needed to judge coherence, cap, and numbering. Follow references only when a proposed split/renumber would invalidate them.
 - `scope=all`: inspect every AC and Constraint.
 
-Return evidence for manifest rows 5-11. In review purpose, report only. In clean purpose, apply only mechanical edits allowed by mode.
+Consume the parent packet's in-scope REQ set without reconstructing the diff. Return compact counts and failures for manifest rows 5-11. In review purpose, report only. In clean purpose, apply only mechanical edits allowed by mode.
 
 ## AC contract
 
@@ -50,7 +50,7 @@ If an AC must be rewritten semantically, the boundary is judgment: report/escala
 
 ## Output
 
-Return one entry per finding with REQ, AC, trigger, severity, cross-reference blast radius, and proposed smallest action. Evidence rows:
+Return one entry per finding with REQ, AC, trigger, severity, cross-reference blast radius, and proposed smallest action. Inspect each parent REQ once and stop after every changed AC has a disposition. Evidence rows:
 
 - AC granularity + accretion
 - AC verbosity + Constraints

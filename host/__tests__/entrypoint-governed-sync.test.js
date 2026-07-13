@@ -330,7 +330,7 @@ describe('REQ-STOR-017 AC6: retired Pi review extensions stay outside R2 sync', 
   }
 
   it('applies the common filter set to initial sync and both bisync calls', () => {
-    const calls = [...entrypoint.matchAll(/rclone (?:sync "r2:\$R2_BUCKET_NAME\/" "\$USER_HOME\/"|bisync "\$USER_HOME\/" "r2:\$R2_BUCKET_NAME\/")[\s\S]*?2>&1; then/g)]
+    const calls = [...entrypoint.matchAll(/rclone (?:sync "r2:\$R2_BUCKET_NAME\/" "\$USER_HOME\/"|bisync "\$USER_HOME\/" "r2:\$R2_BUCKET_NAME\/")[\s\S]*?2>&1(?: \| tee -a \/tmp\/sync\.log)?; then/g)]
       .map((match) => match[0]);
     assert.equal(calls.length, 3, 'expected initial sync, baseline bisync, and steady-state bisync');
     for (const call of calls) {
@@ -347,7 +347,7 @@ describe('REQ-STOR-017 AC6: retired Pi review extensions stay outside R2 sync', 
 // ---------------------------------------------------------------------------
 
 // Slice each `rclone bisync ...` invocation (start → its `2>&1; then` terminator).
-// There are exactly two: the --resync baseline and the steady-state cycle.
+// There are exactly two: the retrying --resync baseline and steady-state cycle.
 function bisyncInvocations() {
   const calls = [];
   let from = 0;
@@ -363,7 +363,7 @@ function bisyncInvocations() {
 }
 
 describe('REQ-STOR-017 / AD88: bisync uses server-modtime + wider checkers (entrypoint.sh)', () => {
-  it('has exactly two bisync invocations (baseline + steady-state)', () => {
+  it('has exactly two bisync invocations (retrying baseline + steady-state)', () => {
     assert.equal(bisyncInvocations().length, 2);
   });
 

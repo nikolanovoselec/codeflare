@@ -514,13 +514,13 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. Both bisync invocations (the `--resync` baseline and the steady-state cycle) compare object freshness via R2 `LastModified` from the bulk `--fast-list` (`--use-server-modtime`) instead of a per-object mtime HEAD, and run with `--checkers 64`, eliminating the per-file HEAD storm. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 / AD88: bisync uses server-modtime + wider checkers (entrypoint.sh)) -->
+1. Both bisync invocations (the retrying `--resync` baseline and steady-state cycle) compare object freshness via R2 `LastModified` from the bulk `--fast-list` (`--use-server-modtime`) instead of a per-object mtime HEAD, and run with `--checkers 64`, eliminating the per-file HEAD storm. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 / AD88: bisync uses server-modtime + wider checkers (entrypoint.sh)) -->
 2. The container image bakes the agent seed as an on-disk file tree, materialized from the single generated seed source, byte-identical to the set seeded to R2 for each session mode (the tier-gated context-mode subtree is excluded — it delta-syncs from R2). <!-- @impl: scripts/materialize-agent-seed.mjs::CONTEXT_MODE_KEY_PREFIX --> <!-- @test: src/__tests__/lib/agent-seed-bake.test.ts (agent-seed bake byte-identity (REQ-STOR-017 / AD90)) -->
 3. In Governed Mode (R2 SSE-C disabled), the entrypoint lays the mode-appropriate baked seed into the user home before the initial sync, and the initial sync compares by `--checksum` (usable MD5 ETags) so it skips the unchanged seed files and transfers only user deltas. <!-- @impl: entrypoint.sh::lay_down_agent_seed_preseed --> <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 / AD90: image-baked agent-seed lay-down (entrypoint.sh lay_down_agent_seed_preseed)) -->
 4. Pi's jiti prewarm cache hits in every deployment mode: entrypoint relays existing managed extensions from the unfiltered image while preserving mode gates. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 / AD90: post-sync managed Pi extension relay (entrypoint.sh relay_managed_pi_extensions)) -->
 5. The background-init subshell runs concurrently with the PTY pre-warm on the single vCPU, so it self-deprioritizes so pi pre-warm preempts it for CPU and disk. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017: background init yields CPU/disk to pi pre-warm (entrypoint.sh)) -->
 6. Every R2 sync excludes the exact retired Pi durable-review extension paths, so stale persisted copies cannot return before runtime initialization. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 AC6: retired Pi review extensions stay outside R2 sync) -->
-7. The managed-extension relay prunes retired names locally while preserving user-added extensions. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 AC7: removes retired durable-review extensions without deleting user additions) -->
+7. The managed-extension relay prunes the exact retired durable-review filenames locally before Pi loads. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 AC7: removes retired durable-review extensions without deleting user additions) -->
 
 **Constraints:**
 
@@ -528,6 +528,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 - The bake is derived in-image from the committed, freshness-enforced `src/lib/agent-seed.generated.ts`, so it never drifts from the seed and needs no host.
 - The jiti prewarm cache key is `hash(absolute path + source + version)` — path-sensitive, not content-only — so both the warm-bake path and the relayed runtime content must match the build for a cache hit.
 - The jiti bake is a fail-closed build gate: after the warm bake the image asserts every extension in the source dir produced a baked cache.
+- Retired-name pruning is exact and preserves every unrelated user-added extension.
 
 **Priority:** P2
 

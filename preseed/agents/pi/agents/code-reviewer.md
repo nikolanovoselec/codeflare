@@ -21,7 +21,7 @@ Load `review-scope` and treat its result as a hard boundary:
 
 If a prompt is ambiguous, default to `scope=diff` and state the resolved range. Never invent a broader range.
 
-For `scope=diff`, read each changed file enough to understand its hunk. Use `graphify_query`, `graphify_explain`, or `graphify_path` only to trace direct impact from changed symbols. If the graph is absent or stale, use focused searches. Do not explore unrelated communities.
+Build the `code-reviewer` packet exactly once with `review-scope`'s seeded script. Start from its lane-owned hunks; do not separately dump or reconstruct the full diff. Inspect `changedInputs` only when a concrete code candidate requires a directly invalidated contract. Use `graphify_query`, `graphify_explain`, or `graphify_path` only once per candidate to trace direct impact from changed symbols. If the graph is absent or stale, use one focused search. Do not explore unrelated communities.
 
 ## 2. Transition and repository gates
 
@@ -46,12 +46,15 @@ Check, where applicable:
 - immutable updates and JSON serialization (`undefined` silently disappears);
 - API/server/client schema agreement;
 - shell quoting, heredocs, missing input, swallowed errors, and structural rather than substring command matching;
-- repeated UI structures, accessibility, responsive defaults, and reduced motion;
-- SDD alignment and source-anchor breakage caused by changed symbols.
+- repeated UI structures, accessibility, responsive defaults, and reduced motion.
+
+Specification quality and documentation prose belong to their own reviewer lanes. Do not read or re-review `sdd/` or `documentation/` prose. Report a source/test defect here; let the spec or documentation reviewer own its prose correction.
 
 When test files are in scope, load `tdd-enforce` before judging them. Apply it only to in-scope tests for `scope=diff`, and to every test for `scope=all`. A useful test fails when its implementation is gutted; prose matching and tautologies are not coverage.
 
-Before an architectural or stylistic finding, check the nearest project rules and accepted decisions. Never use an ADR to excuse a correctness or security defect.
+Before an architectural or stylistic finding, check only the nearest directly applicable project rule or accepted decision. Never read a whole ADR ledger for a candidate, and never use an ADR to excuse a correctness or security defect.
+
+Batch deterministic checks once and emit only counts plus failures; never print successful manifests or full file contents. Read a whole file only after a hunk identifies a candidate that focused context cannot verify. Give each candidate one direct-impact verification pass, then report or dismiss it. Stop when every packet hunk and candidate has one disposition.
 
 ## 4. Finding threshold
 

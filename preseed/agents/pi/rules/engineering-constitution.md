@@ -24,7 +24,7 @@ Scope changes what is inspected, never the severity or truth standard. Reviewers
 
 ## Review and CI handoff
 
-PR-boundary reviewers are visible, independent, report-only background subagents. Launch every required reviewer first with inherited context disabled, then launch independent CI last. Wait for every required native reviewer notification before evaluating findings, editing, committing, or pushing. The root main session verifies and fixes legitimate findings and alone owns Git writes.
+The Pi boundary extension emits one ordered launch plan and is the sole automatic dispatcher. PR-boundary reviewers are visible, independent, report-only background subagents. Launch every required reviewer first with inherited context disabled, then launch the same plan's independent CI wave last. Do not infer a second CI trigger from the Git command. Wait for every required native reviewer notification before evaluating findings, editing, committing, or pushing. The root main session verifies and fixes legitimate findings and alone owns Git writes.
 
 Do not duplicate an unmatched reviewer call. Do not fabricate completion after reload. Review and CI never launch, track, or recover each other.
 

@@ -18,7 +18,7 @@ This is the authoritative Pi documentation spine. It is independent of Claude's 
 
 ## Scope contract
 
-Load `review-scope`; its resolved scope and range are binding.
+Load `review-scope`; its resolved scope and range are binding. Build the `doc-updater` packet once. In `purpose=review`, do not reconstruct the diff after the packet exists.
 
 ### `scope=diff`
 
@@ -65,14 +65,15 @@ Pending or bare rows are HIGH findings.
 
 ## Orchestration
 
-1. Resolve layout from `documentation/README.md`, exact range, changed hunks, and direct-impact file set.
-2. Run passes 1, 2, 13, 14, and 16 inline over scope.
+1. Resolve layout from `documentation/README.md`, then derive changed hunks and direct-impact files from the packet.
+2. Run passes 1, 2, 13, 14, and 16 once in a batched deterministic pass over scope.
 3. Invoke `doc-enforce-lanes` for every in-scope doc file, or every file under `scope=all`.
 4. Invoke `doc-enforce-shape` when canonical/index/API shape is in scope, or `scope=all`.
 5. Invoke `doc-enforce-truth` when docs or source changes directly affect anchors/contracts, or `scope=all`. Pass 15 is never gated.
-6. Aggregate evidence.
+6. Aggregate evidence as counts and failures; keep full successful output out of context.
 7. For review, return report only. For clean, apply after spec fixes under mode policy and preserve removed content.
-8. Finalize every row.
+8. Finalize every row with compact counts or an inert reason.
+9. Give each candidate one direct-impact verification pass. Stop after every packet hunk, owner-lane candidate, and manifest failure has one disposition.
 
 ## Core contracts
 
@@ -86,4 +87,4 @@ Pending or bare rows are HIGH findings.
 
 Security/user-facing contract lies, orphaned anchors, missing required owner docs, or broken canonical shape are HIGH. Lane, section, budget, and authoring defects are MEDIUM unless they hide a contract. LOW is reserved for non-blocking clarity.
 
-Return each finding with doc location, conflicting source/spec evidence, severity, and smallest fix, plus all 16 evidence rows. In clean mode, every fired MEDIUM/HIGH is fixed, escalated with blast radius, or deferred to user confirmation only in interactive mode.
+Return each finding with doc location, conflicting source/spec evidence, severity, and smallest fix, plus one compact count/failure line for each of the 16 evidence rows. In clean mode, every fired MEDIUM/HIGH is fixed, escalated with blast radius, or deferred to user confirmation only in interactive mode.

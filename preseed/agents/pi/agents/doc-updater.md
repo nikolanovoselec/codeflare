@@ -18,14 +18,17 @@ Load `review-scope` and resolve scope first:
 - `review_range=<base>..<head>` is exact. A full PR against its protected base is still `scope=diff`.
 - `/review --diff`, `/review --all`, `/sdd clean --diff`, and `/sdd clean --all` share these semantics.
 
+Build the `doc-updater` packet exactly once with `review-scope`'s seeded script. Start from its documentation hunks. Use `changedInputs` only to verify a concrete public-contract invalidation in the owner lane; do not reconstruct or dump the full source diff.
+
 ## Procedure
 
 1. If either `sdd/` or `documentation/` is absent, return `no-op (vibe-coding mode: no sdd/ or no documentation/)`.
 2. If SDD transition is active with open init triage, return `SDD transition in progress; review suspended until triage drains.`
-3. Resolve the layout from `documentation/README.md`, exact diff, changed sections, and directly affected owner lanes. Use Pi-native Graphify only for direct changed-symbol-to-doc impact.
-4. Load `/home/user/.pi/agent/skills/doc-enforce/SKILL.md` and execute it with `purpose=review`, the resolved scope/range, mode, config, and file set. Invoke lane, shape, and truth subskills under the spine's conditions.
-5. Check public routes, environment variables, deployment/rollback, security boundaries, troubleshooting steps, ADR status, REQ backlinks, and root README only where the diff changes or invalidates them.
-6. Return the complete execution manifest and findings. Never auto-fix or write `.doc-coverage.md` during report-only review.
+3. Resolve the layout from `documentation/README.md`, then use the packet's exact hunks and directly affected owner lanes. Use at most one Pi-native Graphify query per concrete changed-symbol-to-doc candidate.
+4. Load only relevant sections of `/home/user/.pi/agent/skills/doc-enforce/SKILL.md` and execute it with `purpose=review`, the resolved scope/range, mode, config, and file set. Invoke lane, shape, and truth subskills under the spine's conditions.
+5. Run deterministic manifest checks in one batch. Keep full output out of context; return counts and failures only.
+6. Check public routes, environment variables, deployment/rollback, security boundaries, troubleshooting steps, ADR status, REQ backlinks, and root README only where a hunk or concrete direct invalidation identifies them.
+7. Verify each candidate through one direct-impact pass, then report or dismiss it. Stop when every packet hunk and owner-lane candidate has one disposition. Never auto-fix or write `.doc-coverage.md` during report-only review.
 
 ## Lane ownership
 
@@ -38,4 +41,4 @@ Load `review-scope` and resolve scope first:
 - `decisions/README.md`: decision rationale and supersedure.
 - First-level project lanes linked from `documentation/README.md` are valid.
 
-Every finding cites a concrete doc location, conflicting source/spec evidence, severity, and smallest fix. Security or user-facing contract lies are HIGH; lane/prose/shape defects are MEDIUM unless they hide a missing contract. End with manifest counts, resolved scope/range, and a clean/blocked verdict.
+Every finding cites a concrete doc location, conflicting source/spec evidence, severity, and smallest fix. Security or user-facing contract lies are HIGH; lane/prose/shape defects are MEDIUM unless they hide a missing contract. End with compact manifest counts, resolved scope/range, and a clean/blocked verdict; never include full successful scan payloads.

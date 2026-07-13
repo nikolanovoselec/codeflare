@@ -216,6 +216,14 @@ sudo apt-get install -yqq --no-install-recommends \
 
 **Fix:** Disable Fast Start in Settings, restart the session so `pi update` runs, then re-enable Fast Start.
 
+### Pi Todo Tasks Disappear After Subagent Activity
+
+**Symptom:** The foreground `/todos` list resets to `No tasks` after a background reviewer or other child session starts, compacts, changes tree, or shuts down, even though an earlier valid todo snapshot remains in the foreground transcript.
+
+**Cause:** Images with unpatched `@juicesharp/rpiv-todo` 1.20.0 use one module-level task cell for every Pi session. A child lifecycle replay can overwrite the foreground cell with the child's empty list ([AD100](../decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix)).
+
+**Fix:** Redeploy an image containing [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation). The image applies the version-gated session-isolation override during npm prewarm. If the build fails with `expected @juicesharp/rpiv-todo 1.20.0`, review the newer upstream package and remove or update the temporary override rather than bypassing the version guard.
+
 ### Pi Web Search Crashed the Session
 
 **Symptom:** Asking Pi to search the web killed the whole session (process exited) on an older image.
@@ -516,6 +524,7 @@ wrangler tail codeflare --status error
 - [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring) - Independent Pi CI Monitoring
 - [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) - Connect to Cloudflare via OAuth (token-exchange `invalid_client`: auth-method vs. broken secret rotation)
 - [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) - Pi context-mode enablement and tool-extension defaults (bridge idle-reaper: global override removed, subagent helpers self-release)
+- [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation) - rpiv-todo Session Isolation
 - [REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page) - Session-expiry on resume → clean redirect, never a blank page
 - [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token) - Enterprise admin-configured Browser Rendering token
 - [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) - Outbound-interception LLM routing (enterprise CA trust, interceptor wiring)

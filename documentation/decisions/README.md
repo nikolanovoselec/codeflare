@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD99](#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), then [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD100](#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), then [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -110,6 +110,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk) | Keep OpenVSCode upstream-clean and accept known vulnerability risk | Security, Build / Container |
 | [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) | Pi PR review uses visible session-scoped agents | Agents |
 | [AD99](#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent) | Pi CI monitoring uses one attached native background subagent | Agents |
+| [AD100](#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) | Pin the upstream rpiv-todo session-isolation fix | Agents |
 
 ---
 
@@ -2428,13 +2429,31 @@ Pi owns native reviewer agents, engineering rules, and spec/document enforcement
 
 **Context:** Pi CI monitoring mixed three conflicting paths: a review-owned handoff, a generic agent prompt, and a detached shell embedded in a skill. Native task completion could arrive before the detached monitor finished. Historical incidents included duplicate launches, startup prompt collisions, shell and `jq` false results, workflow-name drift, PR checks missed by commit-SHA lookup, and lost delivery after reload. The replacement therefore needs one executable request resolver that validates the event, repository, open PR, protected base, and authoritative head before returning one native monitor request. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::resolveCiMonitorRequest -->
 
-**Decision:** CI monitoring is independent of review ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring)). After an eligible push or PR creation, the root Git workflow issues required reviewer calls first, then invokes the sole automatic CI resolver with the affected repository cwd and explicit review launch state. CI launches last without waiting for review completion. The resolver returns no action or one public background `ci-monitor` request for the authoritative PR number and `headRefOid`. The dedicated agent runs one attached Node process and returns `CI_RESULT` through native task notification; the script timeout bounds runtime, and no agent turn cap may replace the verbatim result with a wrapper summary.
+**Decision:** CI monitoring is independent of review completion and acknowledgement ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring)). After an eligible push or PR creation, the PR-boundary extension emits one ordered launch plan: required reviewer calls first and an independent CI request second. The root follows that plan exactly once, invoking the resolver with the affected repository cwd and explicit review launch state immediately after reviewer calls and without waiting for review completion. The resolver returns no action or one public background `ci-monitor` request for the authoritative PR number and `headRefOid`. The dedicated agent runs one attached Node process and returns `CI_RESULT` through native task notification; the script timeout bounds runtime, and no agent turn cap may replace the verbatim result with a wrapper summary.
 
 **Alternatives considered:** Repair the shared review/CI handoff; add a durable CI claim; keep the detached shell and watch its log; monitor hard-coded workflows or `gh run list --commit`; or auto-restart after reload. These retain the failures caused by conflicting ownership or disconnected lifecycles. One attached process and one native result path are sufficient.
 
-**Consequences:** CI launch and monitoring truth become behaviorally testable through one script and one tiny agent. Reload may abort a monitor without a result; a later eligible Git event or explicit user request can start a fresh one. Review never launches, tracks, waits for, or restarts CI, and CI never launches reviewers. Claude CI behavior is unchanged.
+**Consequences:** CI launch and monitoring truth become behaviorally testable through one boundary plan, one resolver script, and one tiny agent. The separate root-rule trigger is removed, so a Git command cannot create a duplicate launch. Non-SDD repositories and default-mode sessions receive CI-only plans. Reload may abort a monitor without a result; a later eligible boundary plan or explicit user request can start a fresh one. Review and CI never track, wait for, or restart each other, and CI never becomes a review lane. Claude CI behavior is unchanged.
 
 **Related:** [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy).
+
+---
+
+### AD100: Pin the upstream rpiv-todo session-isolation fix
+
+**Category:** Agents
+
+**Status:** Accepted (2026-07-13)
+
+**Context:** `@juicesharp/rpiv-todo` 1.20.0 stores every Pi session's tasks in one module-level cell. Foreground snapshots remained in transcript ancestry, but child/subagent `session_start`, `session_compact`, and `session_tree` replayed into that shared cell and replaced the foreground list with the child's state. Live history showed valid lists of one, five, and four tasks followed by `No tasks`; a background CI-log agent reproduced the reset during this fix. Upstream main already partitions state by session ID and gates the render pointer to the foreground session, but no npm release contains that correction. <!-- @impl: preseed/agents/pi/npm/rpiv-todo-session-isolation/install.mjs::installRpivTodoSessionIsolation -->
+
+**Decision:** Keep rpiv-todo's session-scoped transcript semantics rather than replace it with a global disk-backed task product. While npm remains at 1.20.0, Codeflare applies a minimal source override after install: task state is keyed by Pi session ID, lifecycle replay mutates only that session's slot, child shutdown evicts only its slot, and context-free rendering reads the foreground slot. The installer fails closed on any package version other than 1.20.0 so a future upstream release must be reviewed instead of silently overwritten.
+
+**Alternatives considered:** `pi-tasklists` has the same session-replay shape and does not solve child isolation. `armory-todo` persists one global cross-session list, changing the desired session-local semantics. A Codeflare-global task database would add ownership, migration, and recovery machinery for a defect upstream has already fixed.
+
+**Consequences:** Reload and branch replay keep their existing task semantics, while subagent lifecycle events cannot erase foreground tasks. The image prewarm and generated Pi npm seed carry the same patch payload. The temporary override adds four pinned source files and must be removed when a reviewed upstream release ships the fix.
+
+**Related:** [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation), [Pi preseed](../lanes/preseed.md#agent-seed-system).
 
 ---
 

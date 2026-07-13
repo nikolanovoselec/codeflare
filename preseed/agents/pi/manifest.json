@@ -4,6 +4,12 @@
       "advanced"
     ]
   },
+  "extensions/active-repo-memory.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "rules/git-workflow.md": {
     "modes": [
       "default",
@@ -163,6 +169,11 @@
       "advanced"
     ]
   },
+  "skills/review-scope/scripts/build-review-packet.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/spec-enforce/SKILL.md": {
     "modes": [
       "advanced"
@@ -298,15 +309,65 @@
   },
   "extensions/review-enforcement.ts": {
     "modes": [
+      "default",
       "advanced"
     ]
   },
   "extensions/review-helpers.ts": {
     "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "extensions/review-scope.ts": {
+    "modes": [
+      "default",
       "advanced"
     ]
   },
   "package-lock.json": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "npm/rpiv-todo-session-isolation/install.mjs": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "npm/rpiv-todo-session-isolation/index.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "npm/rpiv-todo-session-isolation/todo.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "npm/rpiv-todo-session-isolation/todo-overlay.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "npm/rpiv-todo-session-isolation/state/store.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "npm/rpiv-todo-session-isolation/state/state.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "npm/rpiv-todo-session-isolation/tool/types.ts": {
     "modes": [
       "default",
       "advanced"

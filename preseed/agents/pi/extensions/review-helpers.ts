@@ -5,13 +5,15 @@ import { join } from "node:path";
 export const ALL_REVIEW_LANES = ["code-reviewer", "spec-reviewer", "doc-updater"] as const;
 export type ReviewLane = (typeof ALL_REVIEW_LANES)[number];
 
-type BoundarySurfaces = { reminder: boolean; settled: boolean };
+export type ReviewBoundaryEvent = "push" | "pr-create" | "pr-edit" | "pr-merge";
+type BoundarySurfaces = { reminder: boolean; settled: boolean; event?: ReviewBoundaryEvent };
 type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
 export type TranscriptFacts = {
   boundary?: { toolUseId: string; command: string };
   reviewHead?: string;
   reviewRange?: string;
   bypassed: boolean;
+  ciLaunched: boolean;
   closedNotified: boolean;
   lanes: Record<ReviewLane, LaneFact>;
 };
@@ -159,13 +161,26 @@ function protectedEdit(words: ShellWords): boolean {
 export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces {
   let reminder = false;
   let settled = false;
+  let event: ReviewBoundaryEvent | undefined;
   for (const words of commandWords(command)) {
-    if (words[0] === "git" && words[1] === "push") reminder = settled = true;
-    if (words[0] === "gh" && words[1] === "pr" && words[2] === "create") reminder = true;
-    if (protectedEdit(words)) reminder = settled = true;
-    if (words[0] === "gh" && words[1] === "pr" && words[2] === "merge") settled = true;
+    if (words[0] === "git" && words[1] === "push") {
+      reminder = settled = true;
+      event = "push";
+    }
+    if (words[0] === "gh" && words[1] === "pr" && words[2] === "create") {
+      reminder = true;
+      event = "pr-create";
+    }
+    if (protectedEdit(words)) {
+      reminder = settled = true;
+      event = "pr-edit";
+    }
+    if (words[0] === "gh" && words[1] === "pr" && words[2] === "merge") {
+      settled = true;
+      event = "pr-merge";
+    }
   }
-  return { reminder, settled };
+  return { reminder, settled, ...(event ? { event } : {}) };
 }
 
 function firstExisting(paths: string[]): string | undefined {
@@ -271,7 +286,12 @@ function notificationToolId(entry: Record<string, any>): string | undefined {
 }
 
 function reviewWindow(entry: Record<string, any>): { head?: string; range?: string } | undefined {
-  if (entry.type !== "custom_message" || !["pr-boundary-review-reminder", "pr-boundary-review-follow-up"].includes(entry.customType)) return undefined;
+  if (entry.type !== "custom_message" || ![
+    "pr-boundary-launch-plan",
+    "pr-boundary-launch-follow-up",
+    "pr-boundary-review-reminder",
+    "pr-boundary-review-follow-up",
+  ].includes(entry.customType)) return undefined;
   const head = typeof entry.details?.head === "string" ? entry.details.head : undefined;
   const range = typeof entry.details?.reviewRange === "string" ? entry.details.reviewRange : undefined;
   return { head, range };
@@ -280,6 +300,7 @@ function reviewWindow(entry: Record<string, any>): { head?: string; range?: stri
 export function reviewTranscriptFacts(input: {
   sessionFile: string;
   requiredLanes: ReviewLane[];
+  ciHead?: string;
 }): TranscriptFacts {
   const entries = readEntries(input.sessionFile);
   const successfulToolIds = new Set(entries
@@ -299,7 +320,7 @@ export function reviewTranscriptFacts(input: {
   });
 
   const lanes = Object.fromEntries(ALL_REVIEW_LANES.map((lane) => [lane, { state: "missing" }])) as Record<ReviewLane, LaneFact>;
-  if (boundaryIndex < 0) return { bypassed: false, closedNotified: false, lanes };
+  if (boundaryIndex < 0) return { bypassed: false, ciLaunched: false, closedNotified: false, lanes };
   const later = entries.slice(boundaryIndex + 1);
   const window = later.reduce<{ head?: string; range?: string } | undefined>((current, entry) => reviewWindow(entry) ?? current, undefined);
   later.forEach((entry, entryIndex) => {
@@ -313,11 +334,19 @@ export function reviewTranscriptFacts(input: {
       else if (lanes[lane].state !== "terminal") lanes[lane] = { state: "in-flight", toolUseId: call.id };
     }
   });
+  const ciLaunched = Boolean(input.ciHead && later.some((entry) => toolCalls(entry).some((call) => {
+    const prompt = typeof call.arguments?.prompt === "string" ? call.arguments.prompt : "";
+    return call.name === "subagent"
+      && call.arguments?.subagent_type === "ci-monitor"
+      && call.arguments?.run_in_background === true
+      && call.arguments?.inherit_context === false
+      && prompt.split(/\s+/).includes(`head=${input.ciHead}`);
+  })));
   const bypassed = later.some((entry) => /\bskip (?:the )?(?:review|verification)\b/i.test(userText(entry)));
   const closedNotified = later.some((entry) =>
     entry.type === "custom_message" && entry.customType === "pr-boundary-review-closed-unacknowledged",
   );
-  return { boundary, reviewHead: window?.head, reviewRange: window?.range, bypassed, closedNotified, lanes };
+  return { boundary, reviewHead: window?.head, reviewRange: window?.range, bypassed, ciLaunched, closedNotified, lanes };
 }
 
 export default function () {}

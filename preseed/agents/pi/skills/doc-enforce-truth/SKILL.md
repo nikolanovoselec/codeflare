@@ -6,7 +6,7 @@ version: 3.0.0
 
 # Pi Documentation Truth Enforcement
 
-Operate on the direct-impact set from `doc-enforce`; `scope=all` supplies the full corpus. Pass 15 always runs whenever an in-scope doc or changed source can affect an anchor.
+Operate on the direct-impact set from `doc-enforce`; `scope=all` supplies the full corpus. Consume the parent packet without reconstructing the diff or printing whole files. Pass 15 always runs whenever an in-scope doc or changed source can affect an anchor.
 
 ## Pass 8: verification truth
 
@@ -47,4 +47,4 @@ Flag weasel words, unverifiable superlatives, unsupported performance/security c
 
 ## Output
 
-Return evidence for Passes 8-12 and 15: docs inspected, anchors verified, drift, orphaned, unanchored, tasks cold-read, and findings. Each finding cites doc location and contradicting source/REQ evidence. Review purpose reports only; clean purpose may fix unambiguous drift but escalates uncertain truth.
+Return compact counts and failures for Passes 8-12 and 15: docs inspected, anchors verified, drift, orphaned, unanchored, tasks cold-read, and findings. Each finding cites doc location and contradicting source/REQ evidence. Give each candidate one direct verification pass. Review purpose reports only; clean purpose may fix unambiguous drift but escalates uncertain truth.

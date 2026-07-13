@@ -20,7 +20,7 @@ This is the authoritative Pi spine. It is independent of Claude's enforcement pr
 
 ## Scope contract
 
-Load `review-scope` and resolve scope before creating the manifest.
+Load `review-scope`, resolve scope, and build the `spec-reviewer` packet once before creating the manifest. In `purpose=review`, do not reconstruct the diff after the packet exists.
 
 ### `scope=diff`
 
@@ -70,12 +70,12 @@ Create all 23 rows as `pending`, then finalize each with evidence counts. Pendin
 | 22 | Backlog re-triage | In-scope/open items directly tied to changed REQs | Every open item |
 | 23 | Commit prefix + round limit | Commits in the exact range | Last six relevant commits |
 
-Evidence format is `ran (N items, M findings)` or a row-specific count. `inert` must name the absent trigger.
+Evidence format is `ran (N items, M findings)` or a row-specific count. `inert` must name the absent trigger. Run deterministic rows in one batch and keep raw successful output out of context; the returned manifest contains counts and failures only.
 
 ## Orchestration
 
-1. Parse the exact range and build the in-scope set.
-2. Run inline rows 1-4, 12-15, and 19-23 over that set.
+1. Parse the packet's exact range and build the in-scope set from its SDD hunks and direct anchor invalidations.
+2. Run inline rows 1-4, 12-15, and 19-23 once over that set in a batched deterministic pass.
 3. Invoke `spec-enforce-ac` when an in-scope AC or Constraint changed, or when `scope=all`.
 4. Invoke `spec-enforce-truth` when an in-scope Implemented/Partial REQ changed, a source/test change directly invalidates an anchor, or `scope=all`.
 5. Merge subskill evidence into the manifest.
@@ -83,7 +83,8 @@ Evidence format is `ran (N items, M findings)` or a row-specific count. `inert` 
    - `interactive`: ask before edits;
    - `auto`: apply mechanical CRITICAL/HIGH/MEDIUM fixes; escalate judgment;
    - `unleashed`: also apply LOW mechanical fixes; escalate truth/judgment.
-7. Finalize every row.
+7. Finalize every row with compact counts/failures.
+8. Give each finding candidate one direct-impact verification pass. Stop after every packet hunk, invalidated anchor, and manifest failure has one disposition; do not reopen unrelated graph or source neighborhoods.
 
 ## Binding rules
 

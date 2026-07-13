@@ -1,3 +1,5 @@
+import { resolveReviewScope, scopeContract, type ReviewScopeContract } from "./review-scope";
+
 export type SddSubcommand = "init" | "edit" | "add" | "clean" | "mode";
 
 export type SddRepoState = {
@@ -9,7 +11,7 @@ export type SddRepoState = {
 export type SddCommandDecision =
   | { kind: "help"; message: string }
   | { kind: "error"; message: string }
-  | { kind: "workflow"; subcommand: SddSubcommand; skill: string; normalizedCommand: string };
+  | { kind: "workflow"; subcommand: SddSubcommand; skill: string; normalizedCommand: string; scope?: ReviewScopeContract };
 
 const SDD_SUBCOMMANDS = new Set(["init", "edit", "add", "clean", "mode"]);
 
@@ -70,10 +72,14 @@ export function sddCommandDecision(args: string, state: SddRepoState): SddComman
     };
   }
 
+  const scope = subcommand === "clean"
+    ? scopeContract(resolveReviewScope(trimmed) ?? "diff")
+    : undefined;
   return {
     kind: "workflow",
     subcommand,
     skill: sddSkillForSubcommand(subcommand),
     normalizedCommand: `/sdd ${trimmed}`,
+    ...(scope ? { scope } : {}),
   };
 }

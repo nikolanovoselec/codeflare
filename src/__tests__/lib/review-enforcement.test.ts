@@ -29,7 +29,12 @@ type TestContext = {
 type PlannedReviewEnforcement = {
   registerReviewEnforcement(
     pi: TestPi,
-    dependencies: { queryPr(repo: string): Promise<PrState | undefined> },
+    dependencies: {
+      queryPr(repo: string): Promise<PrState | undefined>;
+      queryHead?(repo: string): Promise<string | undefined>;
+      sleep?(delayMs: number): Promise<void>;
+      headRetryDelaysMs?: number[];
+    },
   ): void | Promise<void>;
   queryPr(
     repo: string,
@@ -119,6 +124,23 @@ function reviewerArgs(fixture: ReturnType<typeof makeReviewFixture>, lane: Revie
     inherit_context: false,
     prompt: `review_range=${fixture.base}..${fixture.head}`,
   };
+}
+
+function ciArgs(head: string): Record<string, unknown> {
+  return {
+    subagent_type: 'ci-monitor',
+    run_in_background: true,
+    inherit_context: false,
+    prompt: `repo=owner/repo pr=42 head=${head}`,
+  };
+}
+
+function launchWaves(reviewers: ReviewLane[], includeCi: boolean): Array<string[]> {
+  return [reviewers, ...(includeCi ? [['ci-monitor']] : [])];
+}
+
+function diffScope() {
+  return { mode: 'diff', workSet: 'changed-hunks-and-direct-invalidations' };
 }
 
 function userMessage(content: string): Record<string, unknown> {
@@ -256,7 +278,7 @@ afterEach(() => {
 });
 
 describe('Pi review reminder and settled enforcement', () => {
-  it('REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074: valid acknowledgement emits an exact ranged reminder and follow-up', async () => {
+  it('REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074: emits one ordered reviewer-then-CI launch plan', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -267,14 +289,17 @@ describe('Pi review reminder and settled enforcement', () => {
     await harness.emit('tool_result', boundaryEvent());
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
-        customType: 'pr-boundary-review-reminder',
+        customType: 'pr-boundary-launch-plan',
         content: expect.stringContaining(`review_range=${fixture.base}..${fixture.head}`),
         display: true,
         details: {
           head: fixture.head,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
+          scope: diffScope(),
           requiredLanes: ALL_LANES,
+          launchWaves: launchWaves(ALL_LANES, true),
+          ciEvent: 'push',
         },
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
@@ -284,7 +309,7 @@ describe('Pi review reminder and settled enforcement', () => {
     await harness.emit('agent_settled');
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
-        customType: 'pr-boundary-review-follow-up',
+        customType: 'pr-boundary-launch-follow-up',
         content: expect.stringContaining(`review_range=${fixture.base}..${fixture.head}`),
         display: true,
         details: {
@@ -292,6 +317,8 @@ describe('Pi review reminder and settled enforcement', () => {
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
           missingLanes: ALL_LANES,
+          launchWaves: launchWaves(ALL_LANES, true),
+          ciEvent: 'push',
         },
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
@@ -338,13 +365,16 @@ describe('Pi review reminder and settled enforcement', () => {
 
       expect(harness.sent, testCase.name).toEqual([{
         message: expect.objectContaining({
-          customType: 'pr-boundary-review-reminder',
+          customType: 'pr-boundary-launch-plan',
           content: expect.stringContaining('scope=diff. Review the full PR against origin/main.'),
           details: {
             head: fixture.head,
             ackHead: expectedAck,
             reviewRange: undefined,
+            scope: diffScope(),
             requiredLanes: ALL_LANES,
+            launchWaves: launchWaves(ALL_LANES, true),
+            ciEvent: 'push',
           },
         }),
         options: { deliverAs: 'followUp', triggerTurn: true },
@@ -352,7 +382,7 @@ describe('Pi review reminder and settled enforcement', () => {
     }
   });
 
-  it('REQ-AGENT-055: acknowledged current head emits no review', async () => {
+  it('REQ-AGENT-055/REQ-AGENT-068: acknowledged current head emits a CI-only plan', async () => {
     const fixture = makeReviewFixture();
     writeFileSync(join(fixture.repo, '.git/sdd-last-ack-pr-head'), `${fixture.head}\n`, 'utf8');
     const harness = await registerFixture(fixture);
@@ -362,10 +392,75 @@ describe('Pi review reminder and settled enforcement', () => {
     );
 
     await harness.emit('tool_result', boundaryEvent());
-    await harness.emit('agent_settled');
 
-    expect(harness.sent).toEqual([]);
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-launch-plan',
+        details: {
+          head: fixture.head,
+          ackHead: fixture.head,
+          reviewRange: undefined,
+          scope: diffScope(),
+          requiredLanes: [],
+          launchWaves: launchWaves([], true),
+          ciEvent: 'push',
+        },
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
     expect(ackHead(fixture.repo)).toBe(fixture.head);
+  });
+
+  it('REQ-AGENT-068: emits a CI-only launch plan in default session mode', async () => {
+    const fixture = makeReviewFixture();
+    const previousMode = process.env.SESSION_MODE;
+    process.env.SESSION_MODE = 'default';
+    try {
+      const harness = await registerFixture(fixture);
+      appendSession(fixture.sessionFile,
+        assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+        toolResult('push-1', 'bash'),
+      );
+
+      await harness.emit('tool_result', boundaryEvent());
+
+      expect(harness.sent[0]?.message.details).toMatchObject({
+        requiredLanes: [],
+        launchWaves: launchWaves([], true),
+        ciEvent: 'push',
+      });
+    } finally {
+      if (previousMode === undefined) delete process.env.SESSION_MODE;
+      else process.env.SESSION_MODE = previousMode;
+    }
+  });
+
+  it('REQ-AGENT-068: emits a CI-only launch plan outside SDD mode', async () => {
+    const fixture = makeReviewFixture();
+    rmSync(join(fixture.repo, 'sdd'), { recursive: true, force: true });
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent());
+
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-launch-plan',
+        details: {
+          head: fixture.head,
+          ackHead: fixture.base,
+          reviewRange: `${fixture.base}..${fixture.head}`,
+          scope: diffScope(),
+          requiredLanes: [],
+          launchWaves: launchWaves([], true),
+          ciEvent: 'push',
+        },
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
   });
 
   it('REQ-AGENT-036: resolves a cd-prefixed boundary through active repository memory', async () => {
@@ -378,12 +473,15 @@ describe('Pi review reminder and settled enforcement', () => {
 
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
-        customType: 'pr-boundary-review-reminder',
+        customType: 'pr-boundary-launch-plan',
         details: {
           head: fixture.head,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
+          scope: diffScope(),
           requiredLanes: ALL_LANES,
+          launchWaves: launchWaves(ALL_LANES, true),
+          ciEvent: 'pr-create',
         },
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
@@ -483,36 +581,47 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toEqual([]);
   });
 
-  it('REQ-AGENT-058: settled recovery emits one reminder after PR head propagation lag', async () => {
+  it('REQ-AGENT-058: one boundary lifecycle retries bounded PR-head propagation and emits one plan', async () => {
     const fixture = makeReviewFixture();
     const staleHead = fixture.head;
     write(fixture.repo, 'src/review-follow-up.ts', 'export {};\n');
     git(fixture.repo, 'add', 'src/review-follow-up.ts');
     git(fixture.repo, 'commit', '-m', 'follow-up boundary');
     fixture.head = git(fixture.repo, 'rev-parse', 'HEAD');
-    fixture.pr.headRefOid = staleHead;
-    const harness = await registerFixture(fixture);
+    const harness = makeHarness(fixture.repo, fixture.sessionFile);
+    const delays: number[] = [];
+    let queries = 0;
+    const { registerReviewEnforcement } = await plannedEnforcement();
+    await registerReviewEnforcement(harness.pi, {
+      queryPr: async () => ({
+        ...fixture.pr,
+        headRefOid: ++queries < 3 ? staleHead : fixture.head,
+      }),
+      queryHead: async () => fixture.head,
+      sleep: async (delayMs) => { delays.push(delayMs); },
+      headRetryDelaysMs: [0, 10, 20],
+    });
     appendSession(fixture.sessionFile,
       assistantTool('push-lagged', 'bash', { command: 'git push origin pi' }),
       toolResult('push-lagged', 'bash'),
     );
 
     await harness.emit('tool_result', boundaryEvent());
-    await harness.emit('agent_settled');
-    expect(harness.sent).toEqual([]);
 
-    fixture.pr.headRefOid = fixture.head;
-    await harness.emit('agent_settled');
-
+    expect(queries).toBe(3);
+    expect(delays).toEqual([10, 20]);
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
-        customType: 'pr-boundary-review-reminder',
+        customType: 'pr-boundary-launch-plan',
         content: expect.stringContaining(`review_range=${fixture.base}..${fixture.head}`),
         details: {
           head: fixture.head,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
+          scope: diffScope(),
           requiredLanes: ALL_LANES,
+          launchWaves: launchWaves(ALL_LANES, true),
+          ciEvent: 'push',
         },
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
@@ -545,12 +654,13 @@ describe('Pi review reminder and settled enforcement', () => {
     appendSession(fixture.sessionFile,
       assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer'), '2026-07-12T12:00:30.000Z'),
       assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer'), '2026-07-12T12:00:40.000Z'),
+      assistantTool('ci-1', 'subagent', ciArgs(fixture.head), '2026-07-12T12:00:50.000Z'),
     );
 
     await harness.emit('agent_settled');
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
-        customType: 'pr-boundary-review-follow-up',
+        customType: 'pr-boundary-launch-follow-up',
         content: expect.stringContaining(`review_range=${fixture.base}..${fixture.head}`),
         display: true,
         details: {
@@ -558,11 +668,46 @@ describe('Pi review reminder and settled enforcement', () => {
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
           missingLanes: ['doc-updater'],
+          launchWaves: launchWaves(['doc-updater'], false),
+          ciEvent: undefined,
         },
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
+  });
+
+  it('REQ-AGENT-068/REQ-AGENT-074: requests a missing CI launch without duplicating in-flight reviewers', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+    await harness.emit('tool_result', boundaryEvent());
+    harness.sent.splice(0);
+    appendSession(fixture.sessionFile,
+      assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+    );
+
+    await harness.emit('agent_settled');
+
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-launch-follow-up',
+        details: {
+          head: fixture.head,
+          ackHead: fixture.base,
+          reviewRange: `${fixture.base}..${fixture.head}`,
+          missingLanes: [],
+          launchWaves: launchWaves([], true),
+          ciEvent: 'push',
+        },
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
   });
 
   it('REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: acknowledges only the reminder head after all lanes terminate', async () => {
@@ -578,6 +723,7 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer'), '2026-07-12T12:07:00.000Z'),
       assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer'), '2026-07-12T12:07:10.000Z'),
       assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater'), '2026-07-12T12:07:20.000Z'),
+      assistantTool('ci-1', 'subagent', ciArgs(fixture.head), '2026-07-12T12:07:30.000Z'),
       notification('doc-1'),
       notification('code-1', 'Error'),
     );
@@ -630,8 +776,23 @@ describe('Pi review reminder and settled enforcement', () => {
     );
 
     await harness.emit('tool_result', boundaryEvent('gh pr create --base main'));
-    expect(harness.sent).toEqual([]);
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-launch-plan',
+        details: {
+          head: fixture.head,
+          ackHead: fixture.base,
+          reviewRange: `${fixture.base}..${fixture.head}`,
+          scope: diffScope(),
+          requiredLanes: [],
+          launchWaves: launchWaves([], true),
+          ciEvent: 'pr-create',
+        },
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
     expect(existsSync(REVIEW_BYPASS_FILE)).toBe(false);
+    harness.sent.splice(0);
 
     appendSession(fixture.sessionFile,
       assistantTool('push-2', 'bash', { command: 'git push origin pi' }),
@@ -639,7 +800,7 @@ describe('Pi review reminder and settled enforcement', () => {
     );
     await harness.emit('tool_result', boundaryEvent());
     expect(harness.sent).toHaveLength(1);
-    expect(harness.sent[0]?.message.customType).toBe('pr-boundary-review-reminder');
+    expect(harness.sent[0]?.message.customType).toBe('pr-boundary-launch-plan');
   });
 
   it('REQ-AGENT-041: honors an explicit post-boundary user bypass without fabricating acknowledgement', async () => {
@@ -654,7 +815,20 @@ describe('Pi review reminder and settled enforcement', () => {
     appendSession(fixture.sessionFile, userMessage('skip review'));
 
     await harness.emit('agent_settled');
-    expect(harness.sent).toEqual([]);
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-launch-follow-up',
+        details: {
+          head: fixture.head,
+          ackHead: fixture.base,
+          reviewRange: `${fixture.base}..${fixture.head}`,
+          missingLanes: [],
+          launchWaves: launchWaves([], true),
+          ciEvent: 'push',
+        },
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
     expect(existsSync(join(fixture.repo, '.git/sdd-review-block-count'))).toBe(false);
   });
@@ -668,6 +842,7 @@ describe('Pi review reminder and settled enforcement', () => {
     );
     await harness.emit('tool_result', boundaryEvent());
     harness.sent.splice(0);
+    appendSession(fixture.sessionFile, assistantTool('ci-1', 'subagent', ciArgs(fixture.head)));
 
     for (let attempt = 1; attempt <= 5; attempt += 1) {
       harness.sent.splice(0);
@@ -678,6 +853,8 @@ describe('Pi review reminder and settled enforcement', () => {
         ackHead: fixture.base,
         reviewRange: `${fixture.base}..${fixture.head}`,
         missingLanes: ALL_LANES,
+        launchWaves: launchWaves(ALL_LANES, false),
+        ciEvent: undefined,
       });
     }
 

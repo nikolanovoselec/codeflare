@@ -172,6 +172,22 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(entries[0]!.contentType).toBe('text/typescript; charset=utf-8');
   });
 
+  it('REQ-AGENT-080 AC3: seeds the boundary dispatcher in both modes but reviewers only in advanced', () => {
+    for (const key of [
+      '.pi/agent/extensions/active-repo-memory.ts',
+      '.pi/agent/extensions/review-enforcement.ts',
+      '.pi/agent/extensions/review-helpers.ts',
+      '.pi/agent/extensions/review-scope.ts',
+    ]) {
+      const document = AGENTS_SEEDED_CONFIGS.find((entry) => entry.key === key);
+      expect(document?.modes).toEqual(['default', 'advanced']);
+    }
+    for (const reviewer of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
+      const document = AGENTS_SEEDED_CONFIGS.find((entry) => entry.key === `.pi/agent/agents/${reviewer}.md`);
+      expect(document?.modes).toEqual(['advanced']);
+    }
+  });
+
   it('REQ-AGENT-068/070: seeds distinct Claude and Pi CI workflow contracts', () => {
     const claudeGitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/git-workflow.md');
     const claudeCiSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/skills/ci-monitoring/SKILL.md');
@@ -361,6 +377,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     const scripts = piDocs.filter((d) => d.key.startsWith('.pi/agent/scripts/'));
     expect(skills.length).toBeGreaterThan(0);
     expect(extensions.map((d) => d.key).sort()).toEqual([
+      '.pi/agent/extensions/active-repo-memory.ts',
       '.pi/agent/extensions/browser-run-helpers.ts',
       '.pi/agent/extensions/browser-run.ts',
       '.pi/agent/extensions/codeflare-commands.ts',
@@ -375,6 +392,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/review-command.ts',
       '.pi/agent/extensions/review-enforcement.ts',
       '.pi/agent/extensions/review-helpers.ts',
+      '.pi/agent/extensions/review-scope.ts',
       '.pi/agent/extensions/sdd-helpers.ts',
       '.pi/agent/extensions/startup-header.ts',
       '.pi/agent/extensions/vault-manifest-fs.ts',
@@ -390,6 +408,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       expect(skills.filter((doc) => doc.key === `.pi/agent/skills/${skill}/SKILL.md`)).toHaveLength(1);
     }
     expect(skills.map((d) => d.key).filter((key) => key === '.pi/agent/skills/graphify/SKILL.md')).toHaveLength(1);
+    expect(skills.map((d) => d.key)).toContain('.pi/agent/skills/review-scope/scripts/build-review-packet.mjs');
     for (const skill of ['spec-driven-development', 'sdd-init', 'sdd-clean']) {
       const doc = skills.find((d) => d.key === `.pi/agent/skills/${skill}/SKILL.md`);
       expect(doc, `REQ-AGENT-021 ${skill} skill`).toBeDefined();

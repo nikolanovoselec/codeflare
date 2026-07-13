@@ -6,12 +6,14 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 type ReviewLane = 'code-reviewer' | 'spec-reviewer' | 'doc-updater';
-type BoundarySurfaces = { reminder: boolean; settled: boolean };
+type BoundaryEvent = 'push' | 'pr-create' | 'pr-edit' | 'pr-merge';
+type BoundarySurfaces = { reminder: boolean; settled: boolean; event?: BoundaryEvent };
 type TranscriptFacts = {
   boundary?: { toolUseId: string; command: string };
   reviewHead?: string;
   reviewRange?: string;
   bypassed: boolean;
+  ciLaunched: boolean;
   lanes: Record<ReviewLane, { state: 'missing' | 'in-flight' | 'terminal'; toolUseId?: string }>;
 };
 type PlannedReviewHelpers = {
@@ -21,6 +23,7 @@ type PlannedReviewHelpers = {
   reviewTranscriptFacts(input: {
     sessionFile: string;
     requiredLanes: ReviewLane[];
+    ciHead?: string;
   }): TranscriptFacts;
 };
 
@@ -97,7 +100,7 @@ function toolResult(toolUseId: string, toolName = 'subagent', isError = false): 
 
 function reviewReminder(head: string, reviewRange: string): Record<string, unknown> {
   return sessionEntry('custom_message', {
-    customType: 'pr-boundary-review-reminder',
+    customType: 'pr-boundary-launch-plan',
     content: `review_range=${reviewRange}`,
     details: { head, reviewRange },
     display: true,
@@ -127,24 +130,26 @@ afterEach(() => {
 describe('Claude-equivalent review boundary helpers', () => {
   it('REQ-AGENT-063: distinguishes Claude-supported reminder and settled command surfaces', async () => {
     const { classifyReviewBoundaryCommand } = await plannedHelpers();
+    const push = { reminder: true, settled: true, event: 'push' as const };
+    const none = { reminder: false, settled: false };
     const cases: Array<[string, BoundarySurfaces]> = [
-      ['git push origin pi', { reminder: true, settled: true }],
-      ['CI=1 git push origin pi', { reminder: true, settled: true }],
-      ['env GH_TOKEN=x git push origin pi', { reminder: true, settled: true }],
-      ['MESSAGE="review later" git push origin pi', { reminder: true, settled: true }],
-      ["printf '%s' 'git push origin pi'", { reminder: false, settled: false }],
-      ['cat <<EOF\ngit push origin pi\nEOF', { reminder: false, settled: false }],
-      ['cat <<EOF\ngit push origin pi\nEOF\ngit push origin pi', { reminder: true, settled: true }],
-      ["printf '%s' 'example <<EOF'\ngit push origin pi", { reminder: true, settled: true }],
-      ['cat <<EOF-TEXT\ngit push origin pi\nEOF-TEXT', { reminder: false, settled: false }],
-      ['cat <<A <<B\nfirst\nA\ngit push origin pi\nB\ngit push origin pi', { reminder: true, settled: true }],
-      ['printf done; git push origin pi', { reminder: true, settled: true }],
-      ['gh pr create --base main --title review', { reminder: true, settled: false }],
-      ['gh pr edit 42 --base master', { reminder: true, settled: true }],
-      ['gh pr merge 42', { reminder: false, settled: true }],
-      ['gh pr edit 42 --base develop', { reminder: false, settled: false }],
-      ['gh pr update-branch 42', { reminder: false, settled: false }],
-      ['git -C /tmp/repo push origin pi', { reminder: false, settled: false }],
+      ['git push origin pi', push],
+      ['CI=1 git push origin pi', push],
+      ['env GH_TOKEN=x git push origin pi', push],
+      ['MESSAGE="review later" git push origin pi', push],
+      ["printf '%s' 'git push origin pi'", none],
+      ['cat <<EOF\ngit push origin pi\nEOF', none],
+      ['cat <<EOF\ngit push origin pi\nEOF\ngit push origin pi', push],
+      ["printf '%s' 'example <<EOF'\ngit push origin pi", push],
+      ['cat <<EOF-TEXT\ngit push origin pi\nEOF-TEXT', none],
+      ['cat <<A <<B\nfirst\nA\ngit push origin pi\nB\ngit push origin pi', push],
+      ['printf done; git push origin pi', push],
+      ['gh pr create --base main --title review', { reminder: true, settled: false, event: 'pr-create' }],
+      ['gh pr edit 42 --base master', { reminder: true, settled: true, event: 'pr-edit' }],
+      ['gh pr merge 42', { reminder: false, settled: true, event: 'pr-merge' }],
+      ['gh pr edit 42 --base develop', none],
+      ['gh pr update-branch 42', none],
+      ['git -C /tmp/repo push origin pi', none],
     ];
 
     expect(cases.map(([command, expected]) => [command, classifyReviewBoundaryCommand(command), expected]))
@@ -322,6 +327,25 @@ describe('native Pi transcript review facts', () => {
     expect(facts.reviewRange).toBe(reviewRange);
     expect(facts.lanes['code-reviewer']).toEqual({ state: 'in-flight', toolUseId: 'code-range' });
     expect(facts.lanes['spec-reviewer']).toEqual({ state: 'missing' });
+  });
+
+  it('REQ-AGENT-068: recognizes one matching CI launch independently of reviewer completion', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const head = 'b'.repeat(40);
+    const sessionFile = writeSession([
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+      assistantTool('ci-old', 'subagent', {
+        subagent_type: 'ci-monitor', run_in_background: true, inherit_context: false, prompt: `head=${'a'.repeat(40)}`,
+      }),
+      assistantTool('ci-current', 'subagent', {
+        subagent_type: 'ci-monitor', run_in_background: true, inherit_context: false, prompt: `repo=owner/repo pr=42 head=${head}`,
+      }),
+    ]);
+
+    const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES, ciHead: head });
+    expect(facts.ciLaunched).toBe(true);
+    expect(Object.values(facts.lanes).every((lane) => lane.state === 'missing')).toBe(true);
   });
 
   it('REQ-AGENT-071: rejects reviewer calls that inherit or omit parent context isolation', async () => {

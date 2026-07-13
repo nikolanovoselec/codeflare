@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { recallActiveRepo } from "./codeflare-pi";
+import { recallActiveRepo } from "./active-repo-memory";
 
 const CACHE_TTL_MS = 1_000;
 

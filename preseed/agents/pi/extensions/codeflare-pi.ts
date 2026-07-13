@@ -10,7 +10,10 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync,
 import { basename, dirname, join, resolve } from "node:path";
 import { cloneTargetPath, effectiveCwdForCommand, ENV_PREFIX, graphifyClonePromptDecision, isFailedToolExecution, renderGraphifyCloneDirective } from "./graphify-helpers";
 import { sddCommandDecision, type SddRepoState, SDD_HELP_TEXT } from "./sdd-helpers";
+import { recallActiveRepo, rememberActiveRepo } from "./active-repo-memory";
 import { attributionBlockReason, localBuildBlockReason } from "./guard-helpers";
+
+export { recallActiveRepo, rememberActiveRepo } from "./active-repo-memory";
 
 // Pi extension SDK surface, declared inline instead of imported from
 // "@earendil-works/pi-coding-agent" so this file typechecks in Codeflare's
@@ -69,18 +72,6 @@ const ENGINEERING_CONSTITUTION = [
   "Plan gate: present no plan without a Success-criteria/verification section covering these four. Fix legitimate findings in-session.",
   "</codeflare_constitution>",
 ].join("\n");
-
-const ACTIVE_REPO_KEY = Symbol.for("codeflare.activeRepo");
-type ActiveRepoMemory = { [ACTIVE_REPO_KEY]?: string };
-const activeRepoMemory = globalThis as unknown as ActiveRepoMemory;
-
-export function rememberActiveRepo(repo: string | undefined): void {
-  if (repo) activeRepoMemory[ACTIVE_REPO_KEY] = repo;
-}
-
-export function recallActiveRepo(): string | undefined {
-  return activeRepoMemory[ACTIVE_REPO_KEY];
-}
 
 type PiSettings = {
   packages?: Array<string | { source?: string; extensions?: string[]; skills?: string[]; [key: string]: unknown }>;

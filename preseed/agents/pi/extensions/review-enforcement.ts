@@ -3,15 +3,17 @@ import { closeSync, existsSync, openSync, readFileSync, readSync, unlinkSync, wr
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { recallActiveRepo } from "./codeflare-pi";
+import { recallActiveRepo } from "./active-repo-memory";
 import {
   classifyReviewBoundaryCommand,
   isReviewTransitionSuspended,
   requiredReviewLanes,
   reviewRange,
   reviewTranscriptFacts,
+  type ReviewBoundaryEvent,
   type ReviewLane,
 } from "./review-helpers";
+import { scopeContract } from "./review-scope";
 
 type PrState = {
   state: "OPEN" | "CLOSED" | "MERGED";
@@ -25,6 +27,8 @@ type PrState = {
 type Dependencies = {
   queryPr(repo: string): Promise<PrState | undefined>;
   queryHead?(repo: string): Promise<string | undefined>;
+  sleep?(delayMs: number): Promise<void>;
+  headRetryDelaysMs?: number[];
 };
 
 type ReviewContext = {
@@ -180,66 +184,143 @@ function consumeBypassSentinel(): boolean {
   }
 }
 
-function reviewContext(ctx: ReviewContext): { repo: string; file: string } | undefined {
-  const repo = isSddRepo(ctx.cwd) ? ctx.cwd : (recallActiveRepo() ?? ctx.cwd);
+function boundaryContext(ctx: ReviewContext): { repo: string; file: string } | undefined {
+  const repo = existsSync(join(ctx.cwd, ".git")) ? ctx.cwd : (recallActiveRepo() ?? ctx.cwd);
   const file = sessionFile(ctx);
-  if (!file || isChildSession(ctx, file) || !isSddRepo(repo) || isReviewTransitionSuspended(repo)) return undefined;
+  if (!file || isChildSession(ctx, file)) return undefined;
   return { repo, file };
+}
+
+function reviewEnabled(repo: string): boolean {
+  return process.env.SESSION_MODE !== "default"
+    && isSddRepo(repo)
+    && !isReviewTransitionSuspended(repo);
+}
+
+function defaultSleep(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 async function currentReview(
   ctx: ReviewContext,
   dependencies: Dependencies,
 ): Promise<{ repo: string; file: string; pr: PrState } | undefined> {
-  const context = reviewContext(ctx);
+  const context = boundaryContext(ctx);
   if (!context) return undefined;
-  const pr = await dependencies.queryPr(context.repo);
-  if (!isProtectedPr(pr)) return undefined;
   const head = await (dependencies.queryHead ?? queryHead)(context.repo);
-  return head === pr.headRefOid ? { ...context, pr } : undefined;
+  if (!head) return undefined;
+  const delays = dependencies.headRetryDelaysMs ?? [0, 250, 1_000];
+  const sleep = dependencies.sleep ?? defaultSleep;
+  for (const delayMs of delays) {
+    if (delayMs > 0) await sleep(delayMs);
+    const pr = await dependencies.queryPr(context.repo);
+    if (isProtectedPr(pr) && head === pr.headRefOid) return { ...context, pr };
+  }
+  return undefined;
+}
+
+type CiBoundaryEvent = "push" | "pr-create";
+
+type LaunchMessage = {
+  phase: "plan" | "follow-up";
+  repo: string;
+  pr: PrState;
+  ackHead?: string;
+  range?: string;
+  reviewers: ReviewLane[];
+  ciEvent?: CiBoundaryEvent;
+};
+
+function ciBoundaryEvent(event: ReviewBoundaryEvent | undefined): CiBoundaryEvent | undefined {
+  return event === "push" || event === "pr-create" ? event : undefined;
+}
+
+function scopeInstruction(pr: PrState, range: string | undefined): string {
+  return range
+    ? `scope=diff. Review only review_range=${range}. Include that exact marker in every reviewer prompt.`
+    : `scope=diff. Review the full PR against origin/${pr.baseRefName}.`;
+}
+
+function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
+  const reviewerWave = input.reviewers.length > 0
+    ? `Wave 1: launch these review agents together with public background subagent calls and inherit_context=false: ${input.reviewers.join(", ")}. ${scopeInstruction(input.pr, input.range)}`
+    : "Wave 1: no review-agent launch is required.";
+  const ciWave = input.ciEvent
+    ? `Wave 2: immediately after the reviewer calls, without waiting for them to finish, run the ci-monitoring request resolver for event=${input.ciEvent}, changed=true, cwd=${input.repo}, and reviewState=${input.reviewers.length > 0 ? "launched" : "not-required"}; submit its returned public ci-monitor subagent request unchanged exactly once. CI is independent of review acknowledgement.`
+    : "Wave 2: no CI launch is required for this boundary.";
+  const details: Record<string, unknown> = {
+    head: input.pr.headRefOid,
+    ackHead: input.ackHead,
+    reviewRange: input.range,
+    ...(input.phase === "plan" ? { scope: scopeContract("diff") } : {}),
+    [input.phase === "plan" ? "requiredLanes" : "missingLanes"]: input.reviewers,
+    launchWaves: [input.reviewers, ...(input.ciEvent ? [["ci-monitor"]] : [])],
+    ciEvent: input.ciEvent,
+  };
+  pi.sendMessage({
+    customType: input.phase === "plan" ? "pr-boundary-launch-plan" : "pr-boundary-launch-follow-up",
+    content: `${reviewerWave} ${ciWave}${input.reviewers.length > 0 ? " Wait for every required reviewer result before evaluating findings, fixing, committing, or pushing." : ""}`,
+    display: true,
+    details,
+  }, { deliverAs: "followUp", triggerTurn: true });
 }
 
 export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): void {
   pi.on("tool_result", async (event, ctx) => {
     if (!successful(event)) return;
-    const boundary = shellCommands(event).find((command) => classifyReviewBoundaryCommand(command).reminder);
+    const boundary = shellCommands(event)
+      .map((command) => ({ command, classification: classifyReviewBoundaryCommand(command) }))
+      .find(({ classification }) => classification.reminder);
     if (!boundary) return;
     const review = await currentReview(ctx, dependencies);
     if (!review || !isEnforcedPr(review.pr)) return;
-    if (bypassSentinelPresent()) {
-      if (!classifyReviewBoundaryCommand(boundary).settled) consumeBypassSentinel();
-      return;
-    }
+
+    const skipReview = bypassSentinelPresent();
+    if (skipReview && !boundary.classification.settled) consumeBypassSentinel();
     const ackHead = readAck(review.repo);
-    if (ackHead === review.pr.headRefOid) return;
     const range = reviewRange({ repo: review.repo, ackHead, head: review.pr.headRefOid });
-    const requiredLanes = requiredReviewLanes({ repo: review.repo, ackHead, head: review.pr.headRefOid });
-    const scope = range ? `scope=diff. Review only review_range=${range}. Include that exact marker in every reviewer prompt.` : `scope=diff. Review the full PR against origin/${review.pr.baseRefName}.`;
-    pi.sendMessage({
-      customType: "pr-boundary-review-reminder",
-      content: `PR head ${review.pr.headRefOid} requires these review agents: ${requiredLanes.join(", ")}. ${scope} Launch them together with the public subagent tool, in the background without inherited context. Wait for every result before fixing, committing, or pushing.`,
-      display: true,
-      details: { head: review.pr.headRefOid, ackHead, reviewRange: range, requiredLanes },
-    }, { deliverAs: "followUp", triggerTurn: true });
+    const requiredLanes = reviewEnabled(review.repo) && !skipReview && ackHead !== review.pr.headRefOid
+      ? requiredReviewLanes({ repo: review.repo, ackHead, head: review.pr.headRefOid })
+      : [];
+    const ciEvent = ciBoundaryEvent(boundary.classification.event);
+    if (requiredLanes.length === 0 && !ciEvent) return;
+
+    sendLaunchMessage(pi, {
+      phase: "plan",
+      repo: review.repo,
+      pr: review.pr,
+      ackHead,
+      range,
+      reviewers: requiredLanes,
+      ciEvent,
+    });
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
-    const context = reviewContext(ctx);
+    const context = boundaryContext(ctx);
     if (!context) return;
     const preview = reviewTranscriptFacts({ sessionFile: context.file, requiredLanes: [] });
     if (!preview.boundary) return;
     const review = await currentReview(ctx, dependencies);
     if (!review) return;
     const ackHead = readAck(review.repo);
-    if (ackHead === review.pr.headRefOid) return;
     const range = reviewRange({ repo: review.repo, ackHead, head: review.pr.headRefOid });
-    const requiredLanes = isEnforcedPr(review.pr)
+    const bypassed = preview.bypassed || consumeBypassSentinel();
+    const shouldReview = isEnforcedPr(review.pr)
+      && reviewEnabled(review.repo)
+      && !bypassed
+      && ackHead !== review.pr.headRefOid;
+    const requiredLanes = shouldReview
       ? requiredReviewLanes({ repo: review.repo, ackHead, head: review.pr.headRefOid })
       : [];
-    const facts = reviewTranscriptFacts({ sessionFile: review.file, requiredLanes });
+    const facts = reviewTranscriptFacts({
+      sessionFile: review.file,
+      requiredLanes,
+      ciHead: review.pr.headRefOid,
+    });
     if (!facts.boundary) return;
     if (review.pr.state !== "OPEN") {
-      if (!facts.closedNotified && classifyReviewBoundaryCommand(facts.boundary.command).settled) {
+      if (reviewEnabled(review.repo) && !facts.closedNotified && classifyReviewBoundaryCommand(facts.boundary.command).settled) {
         pi.sendMessage({
           customType: "pr-boundary-review-closed-unacknowledged",
           content: `PR head ${review.pr.headRefOid} is ${review.pr.state} without review acknowledgement. No acknowledgement was written.`,
@@ -249,32 +330,45 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       }
       return;
     }
-    if (facts.bypassed || consumeBypassSentinel()) return;
-    if (facts.reviewHead !== review.pr.headRefOid || facts.reviewRange !== range) {
-      const scope = range ? `scope=diff. Review only review_range=${range}. Include that exact marker in every reviewer prompt.` : `scope=diff. Review the full PR against origin/${review.pr.baseRefName}.`;
-      pi.sendMessage({
-        customType: "pr-boundary-review-reminder",
-        content: `PR head ${review.pr.headRefOid} requires these review agents: ${requiredLanes.join(", ")}. ${scope} Launch them together with the public subagent tool, in the background without inherited context. Wait for every result before fixing, committing, or pushing.`,
-        display: true,
-        details: { head: review.pr.headRefOid, ackHead, reviewRange: range, requiredLanes },
-      }, { deliverAs: "followUp", triggerTurn: true });
+
+    const ciEvent = facts.ciLaunched
+      ? undefined
+      : ciBoundaryEvent(classifyReviewBoundaryCommand(facts.boundary.command).event);
+    if (shouldReview && requiredLanes.length === 0) acknowledge(review.repo, review.pr.headRefOid);
+
+    if (shouldReview && requiredLanes.length > 0
+      && (facts.reviewHead !== review.pr.headRefOid || facts.reviewRange !== range)) {
+      sendLaunchMessage(pi, {
+        phase: "plan",
+        repo: review.repo,
+        pr: review.pr,
+        ackHead,
+        range,
+        reviewers: requiredLanes,
+        ciEvent,
+      });
       return;
     }
 
-    if (requiredLanes.every((lane) => facts.lanes[lane].state === "terminal")) {
-      acknowledge(review.repo, review.pr.headRefOid);
-      return;
-    }
+    const allReviewersTerminal = requiredLanes.length > 0
+      && requiredLanes.every((lane) => facts.lanes[lane].state === "terminal");
+    if (allReviewersTerminal) acknowledge(review.repo, review.pr.headRefOid);
 
-    const missingLanes = requiredLanes.filter((lane): lane is ReviewLane => facts.lanes[lane].state === "missing");
-    if (missingLanes.length === 0 || blockDecision(review.repo, review.pr.headRefOid) === "giveup") return;
-    const scope = range ? `scope=diff. Review only review_range=${range}. Include that exact marker in every reviewer prompt.` : `scope=diff. Review the full PR against origin/${review.pr.baseRefName}.`;
-    pi.sendMessage({
-      customType: "pr-boundary-review-follow-up",
-      content: `Launch these missing review agents together now: ${missingLanes.join(", ")}. ${scope} Use public background subagent calls without inherited context, then wait for every required review before fixing, committing, or pushing.`,
-      display: true,
-      details: { head: review.pr.headRefOid, ackHead, reviewRange: range, missingLanes },
-    }, { deliverAs: "followUp", triggerTurn: true });
+    const missingLanes = allReviewersTerminal || !shouldReview
+      ? []
+      : requiredLanes.filter((lane): lane is ReviewLane => facts.lanes[lane].state === "missing");
+    if (missingLanes.length === 0 && !ciEvent) return;
+    if (missingLanes.length > 0 && blockDecision(review.repo, review.pr.headRefOid) === "giveup") return;
+
+    sendLaunchMessage(pi, {
+      phase: "follow-up",
+      repo: review.repo,
+      pr: review.pr,
+      ackHead,
+      range,
+      reviewers: missingLanes,
+      ciEvent,
+    });
   });
 }
 

@@ -13,7 +13,7 @@ Truth checks never rely on self-attestation.
 - `scope=diff`: verify changed Implemented/Partial REQs plus any unchanged REQ whose `@impl` or `@test` anchor directly targets a changed/renamed source symbol, source file, test file, or named block. Do not judge unrelated REQs.
 - `scope=all`: verify every eligible REQ and anchor.
 
-`purpose=review` reports only. `purpose=clean` may retrofit an unambiguous anchor but never silently rewrite a truth mismatch.
+`purpose=review` reports only. `purpose=clean` may retrofit an unambiguous anchor but never silently rewrite a truth mismatch. Consume the parent packet and in-scope anchor list; do not rescan or print whole source/test files.
 
 ## Source anchors (always enabled)
 
@@ -27,7 +27,7 @@ Canonical form:
 For every in-scope anchor:
 
 1. file exists;
-2. symbol resolves, using `graphify_explain`/`graphify_query` first when the current graph is available and focused search otherwise;
+2. symbol resolves, using one focused `graphify_explain`/`graphify_query` call when the current graph is available and one focused search otherwise;
 3. optional literal contract value exists in the symbol body;
 4. AC behavior overlaps the implementation rather than merely sharing a name.
 
@@ -63,4 +63,4 @@ When `enforce_tdd: false`, source truth remains blocking; test gaps are informat
 
 ## Output
 
-Return manifest evidence for CQ-TEST, CQ-SOURCE, and CQ-1/2/3 with verified, orphaned, drifted, and unanchored counts. Every finding names REQ, AC, anchor, searched evidence, severity, and correction. Truth mismatches are escalated, never guessed away.
+Return compact manifest evidence for CQ-TEST, CQ-SOURCE, and CQ-1/2/3 with verified, orphaned, drifted, and unanchored counts plus failures only. Every finding names REQ, AC, anchor, searched evidence, severity, and correction. Give each anchor one direct verification pass; truth mismatches are escalated, never guessed away.
