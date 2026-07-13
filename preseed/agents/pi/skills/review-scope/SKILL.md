@@ -38,7 +38,7 @@ For `all`, omit `--range` and pass `--scope all`. The packet contains:
 
 Build and consume the packet in the same tool call. With `ctx_execute`, execute the seeded script inside the processing program and parse its stdout in memory. Without context-mode, the reviewer guard roots Bash in the caller-supplied repository before the command pipes the same CLI stdout into the equivalent Bash/Node processing program. Never persist the packet, return a packet path, or rebuild it in a later call. Both transports consume the same JSON contract and must emit identical scoped evidence.
 
-A changed input path alone does not invalidate every anchor in that file. Resolve the anchored implementation symbol or named test block and follow it only when its old or new line range intersects a packet hunk. Added or removed files use their non-zero side. Commands inspect the complete scoped packet internally and emit compact manifest failures and candidate snippets, not successful manifests or raw packet JSON.
+A changed input path alone does not invalidate every anchor in that file. Resolve the anchored implementation symbol or named test block and pass its old/new line range to the packet module's exported `changedInputIntersects(input, range)` predicate; follow it only when that predicate returns true. Added or removed files use their non-zero side. Commands inspect the complete scoped packet internally and emit compact manifest failures and candidate snippets, not successful manifests or raw packet JSON.
 
 ## `scope=diff` execution
 

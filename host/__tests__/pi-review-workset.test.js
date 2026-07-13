@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { buildReviewPacket } from '../../preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs';
+import { buildReviewPacket, changedInputIntersects } from '../../preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs';
 
 const packetScript = fileURLToPath(new URL(
   '../../preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs',
@@ -62,7 +62,7 @@ test('REQ-AGENT-059 AC6: diff packets contain only lane-owned changed hunks', ()
   }
 });
 
-test('REQ-AGENT-085: changed inputs expose exact hunk ranges', () => {
+test('REQ-AGENT-085 AC5/AC6: changed inputs expose exact hunk ranges and enforce intersection', () => {
   const { repo, base, head } = fixture();
   try {
     const packet = buildReviewPacket({ repo, scope: 'diff', range: `${base}..${head}`, lane: 'spec-reviewer' });
@@ -72,11 +72,10 @@ test('REQ-AGENT-085: changed inputs expose exact hunk ranges', () => {
       path: 'src/value.test.ts',
       hunks: [{ oldStart: 2, oldLines: 1, newStart: 2, newLines: 1 }],
     });
-    const touches = (start, end) => input.hunks.some((hunk) =>
-      hunk.newLines > 0 && hunk.newStart <= end && hunk.newStart + hunk.newLines - 1 >= start,
-    );
-    assert.equal(touches(1, 3), true);
-    assert.equal(touches(5, 7), false);
+    assert.equal(changedInputIntersects(input, { oldStart: 1, oldEnd: 1 }), true);
+    assert.equal(changedInputIntersects(input, { oldStart: 2, oldEnd: 2 }), false);
+    assert.equal(changedInputIntersects(input, { newStart: 1, newEnd: 3 }), true);
+    assert.equal(changedInputIntersects(input, { newStart: 5, newEnd: 7 }), false);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

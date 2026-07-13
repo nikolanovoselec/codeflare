@@ -693,9 +693,14 @@ Each Claude PR reviewer exposes only `Skill`, Bash, and direct
 `mcp__context-mode__ctx_execute`. Indexed/global retrieval, Graphify, external
 consultation, and file mutation are unavailable. Reviewers return complete structured
 reports; the root persists triage content and applies fixes. `/review` follows the
-same ownership boundary: the root writes returned phase reports and owns external
-verification, triage history, ADR updates, and issue creation. This implements
-[REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff).
+same ownership boundary without adding agent types: its existing `refactor-cleaner`,
+`tdd-guide`, and `deep-reviewer` definitions treat `review_mode=report-only` as a
+binding override of their normal write/output behavior. Claude and Pi review
+subagents return every phase report; the root writes those artifacts and owns
+external verification, triage history, ADR updates, issue creation, and approved
+fixes. This implements [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review),
+[REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill),
+and [REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff).
 
 The PostToolUse nudge and Stop hook share `scripts/lib/lane-classifier.sh`.
 Generated-only `graphify-out/` diffs require no review lanes and are auto-acked

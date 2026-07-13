@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { dispatchReview, reviewCommandDecision, reviewWorkflowDecision } from '../../../preseed/agents/pi/extensions/review-command';
+import { dispatchReview, reviewCommandDecision, reviewDocumentationSurfaceDecision, reviewWorkflowDecision } from '../../../preseed/agents/pi/extensions/review-command';
 import { scopeContract } from '../../../preseed/agents/pi/extensions/review-scope';
 import { sddCommandDecision, sddWorkflowExecutionText, sddWorkflowScopeText } from '../../../preseed/agents/pi/extensions/sdd-helpers';
 
@@ -66,6 +66,43 @@ describe('REQ-AGENT-059: Pi review scope entry points', () => {
     }
   });
 
+  it('REQ-AGENT-050 AC7: resolves the documentation lane to a stable no-surface report', () => {
+    expect(reviewDocumentationSurfaceDecision(false, true)).toEqual({
+      kind: 'no-op',
+      report: 'no-op (vibe-coding mode: no sdd/ or no documentation/)',
+    });
+    expect(reviewDocumentationSurfaceDecision(true, true)).toEqual({ kind: 'review' });
+  });
+
+  it('REQ-AGENT-015/REQ-AGENT-050 AC1: dispatches the dedicated /review workflow contract', async () => {
+    const messages: string[] = [];
+    await dispatchReview(
+      { sendUserMessage: (message: string) => { messages.push(message); } } as never,
+      '--diff',
+      {
+        cwd: '/home/user/workspace/codeflare',
+        waitForIdle: async () => undefined,
+        ui: { notify: () => undefined },
+      } as never,
+      () => ({
+        kind: 'workflow',
+        command: '/review --diff',
+        scope: scopeContract('diff'),
+        repo: '/home/user/workspace/codeflare',
+      }),
+    );
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain('# Pi Review Workflow');
+    expect(messages[0]).toContain('This is the user-invoked /review command');
+    const executionLine = messages[0].split('\n').find((line) => line.startsWith('Review execution: '));
+    expect(JSON.parse(executionLine?.slice('Review execution: '.length) ?? '')).toEqual({
+      mode: 'report-only',
+      persistenceOwner: 'root',
+      sourceMutations: false,
+    });
+  });
+
   it('REQ-AGENT-083: suppresses /review workflow dispatch when no repository resolves', async () => {
     const workspace = mkdtempSync(join(tmpdir(), 'pi-review-dispatch-'));
     const messages: string[] = [];
@@ -99,24 +136,36 @@ describe('REQ-AGENT-059: Pi review scope entry points', () => {
       hasSdd: false,
       hasOpenInitTriage: false,
     });
-    const clean = sddCommandDecision('clean --unleashed', {
-      dirty: false,
-      hasSdd: true,
-      hasOpenInitTriage: false,
+    expect(init).toMatchObject({
+      kind: 'workflow',
+      execution: {
+        owner: 'root',
+        allowsMutations: true,
+        reviewerAgents: false,
+        enforcementOrder: ['spec-enforce', 'doc-enforce'],
+        pushTarget: 'none',
+      },
     });
 
-    for (const decision of [init, clean]) {
-      expect(decision).toMatchObject({
+    for (const mode of ['--auto', '--unleashed']) {
+      const clean = sddCommandDecision(`clean ${mode}`, {
+        dirty: false,
+        hasSdd: true,
+        hasOpenInitTriage: false,
+      });
+      expect(clean).toMatchObject({
         kind: 'workflow',
         execution: {
           owner: 'root',
           allowsMutations: true,
           reviewerAgents: false,
+          enforcementOrder: ['spec-enforce', 'doc-enforce'],
+          pushTarget: 'current-branch',
         },
       });
-      if (decision.kind === 'workflow') {
-        expect(sddWorkflowExecutionText(decision)).toBe(
-          'Execution owner: root session; file and Git mutations allowed; invoke enforcement skills inline; do not spawn PR-boundary reviewer agents.',
+      if (clean.kind === 'workflow') {
+        expect(sddWorkflowExecutionText(clean)).toBe(
+          'Execution owner: root session; file and Git mutations allowed; enforcement order: spec-enforce then doc-enforce; push target: current-branch; do not spawn PR-boundary reviewer agents.',
         );
       }
     }

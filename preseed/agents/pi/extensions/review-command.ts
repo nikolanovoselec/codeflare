@@ -50,6 +50,25 @@ export type ReviewCommandDecision =
   | { kind: "help" }
   | { kind: "workflow"; command: string; scope: ReviewScopeContract };
 
+export type ReviewDocumentationSurfaceDecision =
+  | { kind: "review" }
+  | { kind: "no-op"; report: string };
+
+export const REVIEW_EXECUTION = {
+  mode: "report-only",
+  persistenceOwner: "root",
+  sourceMutations: false,
+} as const;
+
+export function reviewDocumentationSurfaceDecision(
+  hasSdd: boolean,
+  hasDocumentation: boolean,
+): ReviewDocumentationSurfaceDecision {
+  return hasSdd && hasDocumentation
+    ? { kind: "review" }
+    : { kind: "no-op", report: "no-op (vibe-coding mode: no sdd/ or no documentation/)" };
+}
+
 export type ReviewWorkflowDecision =
   | { kind: "help" }
   | { kind: "error"; message: string }
@@ -90,11 +109,18 @@ export async function dispatchReview(
     return;
   }
 
+  const documentationSurface = reviewDocumentationSurfaceDecision(
+    existsSync(join(decision.repo, "sdd")),
+    existsSync(join(decision.repo, "documentation")),
+  );
   const reviewInstructions = [
     skillPrompt("review", "Run the Codeflare multi-phase review workflow for the requested scope and report findings."),
     "",
     "This is the user-invoked /review command, not the PR-boundary enforcement hook.",
-    `Repository root: ${decision.repo}`,
+    `Project root: ${decision.repo}`,
+    `repo=${decision.repo}`,
+    `Review execution: ${JSON.stringify(REVIEW_EXECUTION)}`,
+    `Documentation lane: ${JSON.stringify(documentationSurface)}`,
     `Resolved scope: ${JSON.stringify(decision.scope)}`,
     `User command: ${decision.command}`,
   ].join("\n");

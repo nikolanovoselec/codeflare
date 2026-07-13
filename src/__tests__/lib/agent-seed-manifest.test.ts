@@ -203,7 +203,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('REQ-AGENT-071: generated reviewers use provider-neutral medium thinking', () => {
+  it('REQ-AGENT-087: generated reviewers use provider-neutral medium thinking', () => {
     for (const reviewer of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
       const document = AGENTS_SEEDED_CONFIGS.find(
         (entry) => entry.key === `.pi/agent/agents/${reviewer}.md`,

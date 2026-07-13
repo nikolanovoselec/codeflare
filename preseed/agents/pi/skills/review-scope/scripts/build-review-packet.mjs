@@ -57,6 +57,21 @@ function validateRange(repo, range) {
   return `${base}..${head}`;
 }
 
+function intersects(start, lines, rangeStart, rangeEnd) {
+  return lines > 0 && start <= rangeEnd && start + lines - 1 >= rangeStart;
+}
+
+export function changedInputIntersects(input, range) {
+  return input.hunks.some((hunk) =>
+    (range.oldStart !== undefined
+      && range.oldEnd !== undefined
+      && intersects(hunk.oldStart, hunk.oldLines, range.oldStart, range.oldEnd))
+    || (range.newStart !== undefined
+      && range.newEnd !== undefined
+      && intersects(hunk.newStart, hunk.newLines, range.newStart, range.newEnd)),
+  );
+}
+
 export function buildReviewPacket({ repo, scope, range, lane }) {
   if (scope !== 'diff' && scope !== 'all') throw new Error('scope must be diff or all');
   if (!LANES.has(lane)) throw new Error('lane must be code-reviewer, spec-reviewer, or doc-updater');

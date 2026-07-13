@@ -12,6 +12,8 @@ export type SddWorkflowExecution = {
   owner: "root";
   allowsMutations: true;
   reviewerAgents: false;
+  enforcementOrder: readonly [] | readonly ["spec-enforce", "doc-enforce"];
+  pushTarget: "none" | "current-branch";
 };
 
 export type SddCommandDecision =
@@ -19,11 +21,16 @@ export type SddCommandDecision =
   | { kind: "error"; message: string }
   | { kind: "workflow"; subcommand: SddSubcommand; skill: string; normalizedCommand: string; execution: SddWorkflowExecution; scope?: ReviewScopeContract };
 
-const ROOT_SDD_EXECUTION: SddWorkflowExecution = {
-  owner: "root",
-  allowsMutations: true,
-  reviewerAgents: false,
-};
+function rootSddExecution(subcommand: SddSubcommand): SddWorkflowExecution {
+  const enforcesSpecAndDocs = subcommand === "init" || subcommand === "clean";
+  return {
+    owner: "root",
+    allowsMutations: true,
+    reviewerAgents: false,
+    enforcementOrder: enforcesSpecAndDocs ? ["spec-enforce", "doc-enforce"] : [],
+    pushTarget: subcommand === "clean" ? "current-branch" : "none",
+  };
+}
 
 const SDD_SUBCOMMANDS = new Set(["init", "edit", "add", "clean", "mode"]);
 
@@ -95,7 +102,7 @@ export function sddCommandDecision(args: string, state: SddRepoState): SddComman
     subcommand,
     skill: sddSkillForSubcommand(subcommand),
     normalizedCommand: `/sdd ${trimmed}`,
-    execution: { ...ROOT_SDD_EXECUTION },
+    execution: rootSddExecution(subcommand),
     ...(scope ? { scope } : {}),
   };
 }
@@ -109,5 +116,8 @@ export function sddWorkflowExecutionText(decision: Extract<SddCommandDecision, {
   const reviewerDispatch = decision.execution.reviewerAgents
     ? "reviewer-agent dispatch allowed"
     : "do not spawn PR-boundary reviewer agents";
-  return `Execution owner: ${decision.execution.owner} session; file and Git mutations ${mutationAccess}; invoke enforcement skills inline; ${reviewerDispatch}.`;
+  const enforcementOrder = decision.execution.enforcementOrder.length > 0
+    ? decision.execution.enforcementOrder.join(" then ")
+    : "none";
+  return `Execution owner: ${decision.execution.owner} session; file and Git mutations ${mutationAccess}; enforcement order: ${enforcementOrder}; push target: ${decision.execution.pushTarget}; ${reviewerDispatch}.`;
 }

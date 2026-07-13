@@ -2,6 +2,14 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-07-14
+
+- **Existing `/review` agents are report-only while SDD mutation stays root-owned** ([REQ-AGENT-015](agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review), [REQ-AGENT-021](agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-037](agents.md#req-agent-037-sdd-clean-rescue-and-autonomy-modes), [REQ-AGENT-050](agents.md#req-agent-050-pi-native-review-workflow-skill), and [REQ-AGENT-086](agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff); stay Implemented). `/review` reuses its existing specialist agents under a binding report-only mode, with every report, triage record, ADR update, issue, and approved fix persisted by the root. `/sdd init` and `/sdd clean` remain root-session workflows; cleanup applies specification repair before documentation repair and pushes auto/unleashed changes only to the current branch.
+
+- **Reviewer evidence requirements now separate packet production from changed-hunk consumption** ([REQ-AGENT-085](agents.md#req-agent-085-pi-reviewer-direct-evidence-transport) AC5-AC7 corrected; stays Implemented). The packet builder exposes exact old/new hunk ranges, a production intersection predicate excludes path-only anchor matches, and context-mode/Bash parity no longer overclaims an unverified one-call property.
+
+- **Reviewer thinking is a focused execution-profile requirement** ([REQ-AGENT-087](agents.md#req-agent-087-pi-reviewer-execution-profile) added; [REQ-AGENT-071](agents.md#req-agent-071-pr-boundary-review-agent-dispatch) narrowed to dispatch; both Implemented). Code, specification, and documentation reviewers retain provider-neutral `medium` thinking without pushing dispatch past the seven-criterion requirement cap.
+
 ## 2026-07-13
 
 - **Pi reviewers use a provider-neutral medium thinking profile** ([REQ-AGENT-071](agents.md#req-agent-071-pr-boundary-review-agent-dispatch) AC8 added; Implemented). Code, specification, and documentation reviewers no longer inherit the root session's reasoning level; Pi maps `medium` to the selected model's supported controls without changing scope, tools, or enforcement policy.

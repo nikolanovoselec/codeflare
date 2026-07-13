@@ -1264,16 +1264,16 @@ That buffer was empty immediately after a Pi reload/resume, so the first capture
 
 **Category:** Architecture
 
-**Status:** Accepted (2026-05-29)
+**Status:** Accepted (2026-05-29); amended for root-owned report persistence (2026-07-14)
 
 **Context:** The Claude `/review` UX is a slash command (`preseed/agents/claude/commands/review.md`) carrying a multi-phase review workflow. Slash commands are a Claude Code primitive; the generator does not deploy commands to other agents (see the "Excluded from non-CC transformed assets" list in [preseed.md](../lanes/preseed.md#multi-agent-preseed)). On Pi this left the user-invoked `/review` workflow with no home: PR-boundary enforcement was covered by `review-enforcement.ts`, and the transformed `git-review-pipeline` skill carries the enforcement spine, but neither reproduces the full user-driven review flow (scope flags, phased perspectives, reality-filter triage) that the Claude command provides.
 
-**Decision:** Ship the Pi `/review` workflow as a dedicated Pi-native skill at `preseed/agents/pi/skills/review/SKILL.md` (full 11-phase workflow), deployed to `~/.pi/agent/skills/review/SKILL.md`. The native skill is distinct from `review-enforcement.ts` (PR-boundary HEAD watching) and from the transformed `git-review-pipeline` enforcement skill: the skill owns the user-requested review UX, while the enforcement extension owns the automatic PR-boundary gate. The Pi `review/SKILL.md` joins the Pi manifest as a native skill override so the generator does not also emit a transformed copy of any same-named Claude skill into the Pi skill set.
+**Decision:** Ship the Pi `/review` workflow as a dedicated Pi-native skill at `preseed/agents/pi/skills/review/SKILL.md` (full 11-phase workflow), deployed to `~/.pi/agent/skills/review/SKILL.md`. The native skill is distinct from `review-enforcement.ts` (PR-boundary HEAD watching) and from the transformed `git-review-pipeline` enforcement skill: the skill owns the user-requested review UX, while the enforcement extension owns the automatic PR-boundary gate. The Pi `review/SKILL.md` joins the Pi manifest as a native skill override so the generator does not also emit a transformed copy of any same-named Claude skill into the Pi skill set. Every `/review` subagent runs in binding report-only mode and returns its report; the root owns report persistence, external verification, triage/ADR/issue mutations, and approved fixes.
 
 **Consequences:**
 - Pi users get the full `/review` flow at parity with the Claude command, expressed in Pi-native tool and subagent vocabulary.
-- The Pi-native skill count rises to two (graphify + review); both are native overrides the generator excludes from the transformed-skill emit for Pi.
-- The review surface is split by responsibility on Pi: the native skill is the user-invoked path, `review-enforcement.ts` is the automatic PR-boundary path, and they do not duplicate each other's logic.
+- No duplicate review-only agent types are introduced: existing specialist definitions honor `review_mode=report-only` for this workflow and retain their normal behavior outside it.
+- The review surface is split by responsibility on Pi: the native skill is the user-invoked path, `review-enforcement.ts` is the automatic PR-boundary path, and the root is the sole mutation owner.
 
 **Alternatives considered:**
 
@@ -1283,7 +1283,7 @@ Alternative 2 — Rely solely on `git-review-pipeline` for both enforcement and 
 
 
 
-**Related REQ:** [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review) (`/review` command for multi-perspective codebase review), [REQ-AGENT-044](../../sdd/spec/agents.md#req-agent-044-review-agent-discipline-enforcement) (review-agent discipline enforcement).
+**Related REQ:** [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review) (`/review` command for multi-perspective codebase review), [REQ-AGENT-044](../../sdd/spec/agents.md#req-agent-044-review-agent-discipline-enforcement) (review-agent discipline enforcement), [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill) (Pi-native workflow).
 
 ---
 

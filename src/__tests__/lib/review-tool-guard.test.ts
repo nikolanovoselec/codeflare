@@ -31,7 +31,7 @@ describe('reviewer direct-execution guard', () => {
     await harness.emit('session_start', {});
     await harness.emit('before_agent_start', {
       systemPrompt: reviewerPrompt,
-      prompt: 'repo=/home/user/workspace/codeflare scope=diff',
+      prompt: 'You are reviewing the project.\nProject root: /home/user/workspace/codeflare\nreview_mode=report-only',
     });
     const input = { command: 'git status --short' };
 

@@ -196,6 +196,10 @@ Use this prompt structure for each agent (adjust focus area per agent type):
 ```
 You are conducting a [SCOPE_DESCRIPTION] review of the project at [PROJECT_ROOT].
 
+review_mode=report-only
+Project root: [PROJECT_ROOT]
+The root session persists every report and applies approved fixes.
+
 Scope mode: [SCOPE]    ([SCOPE_DESCRIPTION])
 [If SCOPE = diff]: review only what appears in `git diff origin/[BASE_REF]...HEAD`.
                    Read $REVIEW_DIR/.scope.txt for BASE_REF + DIFF_CMD.
@@ -339,8 +343,9 @@ Each agent's prompt:
 ```
 You are deep-reviewer batch [BATCH_ID] of [BATCH_COUNT] for /review run [REVIEW_DIR].
 
+review_mode=report-only
 Project root: [PROJECT_ROOT]
-Output file:  [REVIEW_DIR]/07-req-verify-[BATCH_ID].md
+Report path for the root: [REVIEW_DIR]/07-req-verify-[BATCH_ID].md
 Scope:        [SCOPE]   (diff -> base ref origin/[BASE_REF])
 Scope hint:   [SCOPE_HINT or "(none)"]
 
@@ -348,8 +353,8 @@ REQ list for your batch: [REVIEW_DIR]/.deep/batch-[BATCH_ID]
 Read it and verify every REQ ID it contains.
 
 Follow your standard verification procedure (read REQ, identify impl, read impl,
-read tests, judge per AC, suggest fix type for mismatches). Write findings to
-your OUTPUT_FILE in the format defined in your agent definition.
+read tests, judge per AC, suggest fix type for mismatches). Return the complete
+report to the root in the format defined in your agent definition; write no file.
 
 For REQ-to-impl mapping and AC-to-symbol chain verification, PREFER the
 `mcp__graphify__*` MCP tools (`get_node`, `get_neighbors`, `shortest_path`,
@@ -368,12 +373,12 @@ reserved for cosmetic drift.
 
 Hard rules: one finding per mismatch/unclear AC (not per REQ); every finding
 carries a file:line evidence anchor; the "Verified Clean" section listing
-fully-matching REQs is MANDATORY; never edit any file other than OUTPUT_FILE.
+fully-matching REQs is MANDATORY; write no file.
 ```
 
-### Step 3d — Wait + verify outputs
+### Step 3d — Wait + persist outputs
 
-After all agents return, verify each `$REVIEW_DIR/07-req-verify-[BATCH_ID].md` exists. If any batch produced no file or an empty file, log the failure to `$REVIEW_DIR/.deep/failures.txt` and continue — the downstream pipeline tolerates partial coverage and will note the gap.
+After all agents return, the root writes each complete response to `$REVIEW_DIR/07-req-verify-[BATCH_ID].md`. If any batch returned no report, the root logs the failure to `$REVIEW_DIR/.deep/failures.txt` and continues — the downstream pipeline tolerates partial coverage and will note the gap.
 
 Read NOTHING from the batch files in the main agent. Phase 4 (cross-reference) does the consolidated read.
 
