@@ -198,15 +198,12 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     );
 
     for (const tools of Object.values(reviewerTools)) {
-      expect(tools).toEqual(expect.arrayContaining(['read', 'grep', 'bash']));
+      expect(tools).toContain('bash');
       expect(tools).not.toContain('ctx_batch_execute');
     }
-    expect(reviewerTools['spec-reviewer']).not.toContain('ctx_execute');
-    expect(reviewerTools['spec-reviewer']).toEqual(expect.arrayContaining([
-      'graphify_query', 'graphify_explain', 'graphify_path',
-    ]));
-    expect(reviewerTools['code-reviewer']).toContain('ctx_execute');
-    expect(reviewerTools['doc-updater']).toContain('ctx_execute');
+    expect(reviewerTools['spec-reviewer']).toEqual(['bash']);
+    expect(reviewerTools['code-reviewer']).toEqual(expect.arrayContaining(['read', 'grep', 'ctx_execute']));
+    expect(reviewerTools['doc-updater']).toEqual(expect.arrayContaining(['read', 'grep', 'ctx_execute']));
   });
 
   it('REQ-AGENT-068/070: seeds distinct Claude and Pi CI workflow contracts', () => {
@@ -434,9 +431,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     for (const skill of ['spec-driven-development', 'sdd-init', 'sdd-clean']) {
       const doc = skills.find((d) => d.key === `.pi/agent/skills/${skill}/SKILL.md`);
       expect(doc, `REQ-AGENT-021 ${skill} skill`).toBeDefined();
-      expect(doc!.content).toContain('Pi runtime compatibility');
-      expect(doc!.content).toContain('graphify_query');
-      expect(doc!.content).toContain('Agent');
     }
     expect(extensions.map((d) => d.key)).toContain('.pi/agent/extensions/sdd-helpers.ts');
     expect(scripts.map((d) => d.key)).toContain('.pi/agent/scripts/safe-graphify-update.sh');

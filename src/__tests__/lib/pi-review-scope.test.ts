@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, URL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { dispatchReview, reviewCommandDecision, reviewWorkflowDecision } from '../../../preseed/agents/pi/extensions/review-command';
@@ -33,17 +33,21 @@ describe('REQ-AGENT-059: Pi review scope entry points', () => {
     const cwdRepo = join(workspace, 'cwd-repo');
     const rememberedRepo = join(workspace, 'remembered-repo');
     const linkedWorktree = join(workspace, 'linked-worktree');
+    const trailingSpaceRepo = join(workspace, 'trailing-space ');
     mkdirSync(cwdRepo);
     mkdirSync(rememberedRepo);
+    mkdirSync(trailingSpaceRepo);
     execFileSync('git', ['init', '-q'], { cwd: cwdRepo });
     execFileSync('git', ['-c', 'user.name=Codeflare Test', '-c', 'user.email=codeflare-test@users.noreply.github.com', 'commit', '--allow-empty', '-qm', 'fixture'], { cwd: cwdRepo });
     execFileSync('git', ['worktree', 'add', '-qb', 'linked-worktree', linkedWorktree], { cwd: cwdRepo });
     execFileSync('git', ['init', '-q'], { cwd: rememberedRepo });
+    execFileSync('git', ['init', '-q'], { cwd: trailingSpaceRepo });
 
     try {
       expect(reviewWorkflowDecision('--diff', cwdRepo, rememberedRepo)).toMatchObject({ kind: 'workflow', repo: cwdRepo });
       expect(reviewWorkflowDecision('--diff', linkedWorktree, rememberedRepo)).toMatchObject({ kind: 'workflow', repo: linkedWorktree });
-      expect(execFileSync(process.execPath, [reviewRootResolver, linkedWorktree], { encoding: 'utf8' }).trim()).toBe(linkedWorktree);
+      expect(execFileSync(process.execPath, [reviewRootResolver, linkedWorktree], { encoding: 'utf8' })).toBe(`${linkedWorktree}\n`);
+      expect(execFileSync(process.execPath, [reviewRootResolver, trailingSpaceRepo], { encoding: 'utf8' })).toBe(`${trailingSpaceRepo}\n`);
       const invalidRoot = spawnSync(process.execPath, [reviewRootResolver, workspace], { encoding: 'utf8' });
       expect(invalidRoot.status).toBe(1);
       expect(invalidRoot.stderr).toBe('ERROR: /review repository root is unavailable.\n');

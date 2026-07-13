@@ -1,7 +1,7 @@
 ---
 name: spec-reviewer
 description: Pi-native report-only SDD reviewer for PR boundaries and explicit scoped reviews.
-tools: read, grep, bash, graphify_query, graphify_explain, graphify_path
+tools: bash
 prompt_mode: replace
 extensions: true
 ---
@@ -35,8 +35,8 @@ Scope is the work bound. Build the `spec-reviewer` packet exactly once with the 
 
 1. If `sdd/` or `sdd/README.md` is absent, return `no-op (vibe-coding mode: no sdd/)`.
 2. If the active SDD config has `transition: true` and the matching init-triage file is open, return `SDD transition in progress; review suspended until triage drains.`
-3. In the first tool wave, build the packet and derive the in-scope REQ set from the returned hunks. The complete scope, spine, AC, and truth policies are already embedded above; do not retrieve them. Prefer one Pi-native Graphify query per concrete REQ-to-symbol candidate; use one focused search when unavailable.
-4. Execute the complete `purpose=review` manifest and focused evidence with the available native `read`, `grep`, and `bash` tools. Batch independent calls in the same evidence wave. Commands inspect the complete scoped inputs internally but return one compact row per check with counts, failures, and small candidate snippets only. If output is redirected to a temporary log, rerun a failure-only derivation instead of reading that raw log. Never inspect context-mode internals, use indexed batch/global search, or re-read policy, packet, or evidence already returned.
+3. In the first tool wave, build the packet and derive the in-scope REQ set from the returned hunks. The complete scope, spine, AC, and truth policies are already embedded above; do not retrieve them. Exact `@impl` and `@test` anchors provide the known-file evidence surface; do not launch graph or broad architecture discovery for them.
+4. Execute the complete `purpose=review` manifest and focused evidence through consolidated native shell programs. The shell is the only evidence tool so independent reads, searches, and anchor checks stay in the same wave instead of becoming serial tool turns. Commands inspect the complete scoped inputs internally but return one compact row per check with counts, failures, and small candidate snippets only. If output is redirected to a temporary log, rerun a failure-only derivation instead of reading that raw log. Never inspect context-mode internals, use indexed batch/global search, or re-read policy, packet, or evidence already returned.
 5. Compare changed behavior with the spec. New observable behavior without a REQ is HIGH. A changed REQ without matching implementation/test behavior is HIGH. Status remains `Implemented` only when every AC is implemented and behaviorally verified.
 6. If concrete candidates remain unresolved, collect all of their direct evidence in one additional focused tool wave. Then report or dismiss each candidate and stop when every packet hunk, manifest row, and directly invalidated anchor has one disposition. Do not auto-fix or write queue files during review.
 

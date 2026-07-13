@@ -188,7 +188,7 @@ No stdout means no action. Otherwise the root submits the resolver's request unc
 
 Pi review is session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). Successful persisted boundaries produce a triggering root launch plan. With a valid acknowledgement, the plan and every counted reviewer prompt carry the exact acknowledged-to-current range; unmatched calls remain in flight until native terminal notification. A delayed notification can acknowledge its reviewed PR head after reload or newer unpublished local work only while GitHub still reports that same authoritative head.
 
-Generated reviewer system prompts embed their canonical scope and enforcement skills, so reviewers build the lane packet without retrieving policy first. Code and documentation reviewers may use direct context processing with native fallbacks. Specification review exposes no context-mode execution or retrieval tool; focused Graphify queries remain available for symbol resolution, not packet recovery. Indexed batch/global retrieval is unavailable to all three lanes. The root waits for every report and alone changes the head.
+Generated reviewer system prompts embed their canonical scope and enforcement skills, so reviewers build the lane packet without retrieving policy first. Code and documentation reviewers may use direct context processing with native fallbacks. Specification review exposes only native shell execution, consolidating exact anchor reads and searches instead of creating serial retrieval turns. Indexed batch/global retrieval is unavailable to all three lanes. The root waits for every report and alone changes the head.
 
 Reviewer evidence follows one cadence: return the complete lane patch once, consolidate independent deterministic checks, then batch unresolved candidate lookups. Direct context calls omit `intent`; native commands inspect the complete work set internally but emit compact failures rather than successful evidence, and redirected raw logs are not reread. Generated seed is reviewed through canonical preseed plus one identity check. These rules reduce repeated context without narrowing scope, manifest coverage, severity, or evidence truth.
 
@@ -414,8 +414,8 @@ and `/sdd clean --all` are exhaustive.
 
 At invocation, `/review` prefers the Git repository containing the command cwd,
 including a linked worktree, then falls back to remembered active-repository state.
-An executable resolver validates the root without changing the process cwd, and the
-command dispatches nothing when neither source resolves. `/sdd clean` rejects invalid
+An executable resolver validates the root without changing valid path whitespace or
+the process cwd, and the command dispatches nothing when neither source resolves. `/sdd clean` rejects invalid
 scope flags and sends the resolved work-set contract. The active-repository extension
 resolves shell `cd` and tool-level cwd context before boundary eligibility. It is seeded
 in both modes, so default-mode CI plans do not depend on the advanced main extension.

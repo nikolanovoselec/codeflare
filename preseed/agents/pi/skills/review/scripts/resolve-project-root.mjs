@@ -10,7 +10,7 @@ export function resolveProjectRoot(candidate) {
   return execFileSync('git', ['-C', candidate, 'rev-parse', '--show-toplevel'], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
-  }).trim();
+  }).replace(/\r?\n$/, '');
 }
 
 function main() {

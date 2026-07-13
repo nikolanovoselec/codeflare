@@ -245,6 +245,7 @@ Only `accept` and `correct` promote anything to the official spec. Each decision
 - `transition: true` is cleared from `sdd/spec/config.yml`
 - A closure entry appends to `sdd/spec/changes.md` (e.g., `SDD transition complete. {Total} triage items resolved ({R} accepted, {C} corrected, {L} lost).`)
 - `enforce_tdd` is NOT changed (user flips manually when ready)
+- `sdd/spec/.init-triage.md` is preserved as the transition audit record
 - Agent enters Plan Mode for the first feature work on top of the now-real spec
 
 ## Tool surface compatibility (binding for every `/sdd` sub-command)
