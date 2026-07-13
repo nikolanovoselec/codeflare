@@ -243,7 +243,16 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       return;
     }
     if (facts.bypassed || consumeBypassSentinel()) return;
-    if (facts.reviewHead !== review.pr.headRefOid || facts.reviewRange !== range) return;
+    if (facts.reviewHead !== review.pr.headRefOid || facts.reviewRange !== range) {
+      const scope = range ? `Review only review_range=${range}. Include that exact marker in every reviewer prompt.` : `Review the full PR against origin/${review.pr.baseRefName}.`;
+      pi.sendMessage({
+        customType: "pr-boundary-review-reminder",
+        content: `PR head ${review.pr.headRefOid} requires these review agents: ${requiredLanes.join(", ")}. ${scope} Launch them together with the public subagent tool, in the background without inherited context. Wait for every result before fixing, committing, or pushing.`,
+        display: true,
+        details: { head: review.pr.headRefOid, ackHead, reviewRange: range, requiredLanes },
+      }, { deliverAs: "followUp", triggerTurn: true });
+      return;
+    }
 
     if (requiredLanes.every((lane) => facts.lanes[lane].state === "terminal")) {
       acknowledge(review.repo, review.pr.headRefOid);

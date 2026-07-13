@@ -479,6 +479,36 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toEqual([]);
   });
 
+  it('REQ-AGENT-058: settled recovery emits the reminder after PR head propagation lag', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      assistantTool('push-lagged', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-lagged', 'bash'),
+    );
+    fixture.pr.headRefOid = fixture.base;
+
+    await harness.emit('tool_result', boundaryEvent());
+    expect(harness.sent).toEqual([]);
+
+    fixture.pr.headRefOid = fixture.head;
+    await harness.emit('agent_settled');
+
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-review-reminder',
+        content: expect.stringContaining(`review_range=${fixture.base}..${fixture.head}`),
+        details: {
+          head: fixture.head,
+          ackHead: fixture.base,
+          reviewRange: `${fixture.base}..${fixture.head}`,
+          requiredLanes: ALL_LANES,
+        },
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
+  });
+
   it('REQ-AGENT-036: ignores a failed persisted push during settled enforcement', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
