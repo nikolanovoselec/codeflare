@@ -188,6 +188,17 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
+  it('REQ-AGENT-085: generated reviewers grant direct context execution without indexed batch retrieval', () => {
+    for (const reviewer of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
+      const document = AGENTS_SEEDED_CONFIGS.find(
+        (entry) => entry.key === `.pi/agent/agents/${reviewer}.md`,
+      );
+      const tools = frontmatter(document?.content ?? '').tools.split(/,\s*/);
+      expect(tools).toEqual(expect.arrayContaining(['read', 'grep', 'bash', 'ctx_execute']));
+      expect(tools).not.toContain('ctx_batch_execute');
+    }
+  });
+
   it('REQ-AGENT-068/070: seeds distinct Claude and Pi CI workflow contracts', () => {
     const claudeGitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/git-workflow.md');
     const claudeCiSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/skills/ci-monitoring/SKILL.md');
@@ -448,7 +459,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(extensions.map((d) => d.key)).toContain('.pi/agent/extensions/context-mode-runtime.ts');
     const codeReviewer = agents.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
     expect(frontmatter(codeReviewer?.content ?? '')).toMatchObject({
-      tools: 'read, grep, bash, ctx_batch_execute, graphify_query, graphify_explain, graphify_path',
+      tools: 'read, grep, bash, ctx_execute, graphify_query, graphify_explain, graphify_path',
       prompt_mode: 'replace',
       extensions: 'true',
     });

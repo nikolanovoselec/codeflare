@@ -40,12 +40,12 @@ Use a context-processing tool when the JSON or patch is large. Derive this packe
 
 ## `scope=diff` execution
 
-Use gather-then-reason evidence waves instead of alternating one read or search with one reasoning turn:
+Use gather-then-reason evidence processing instead of alternating one read or search with one reasoning turn:
 
-1. In the first tool wave, build the lane packet while parallel `read` calls load the lane's complete enforcement spine plus every conditionally applicable subskill. When context-mode is available, use one `ctx_batch_execute` call whose `queries` surface lane hunks and direct-impact leads. When it is unavailable or disabled, run the packet script with `bash` and issue the same independent policy reads together. Each policy file and packet section is loaded once.
-2. Derive the pending manifest and concrete direct-impact candidates from that result. Gather every deterministic check and focused evidence read in one evidence wave: use one `ctx_batch_execute` call when available, otherwise issue the equivalent bounded `read`, `grep`, and `bash` calls together. Context-mode changes transport only; the scoped checks, evidence, and dispositions are identical.
-3. If the returned evidence exposes candidates that genuinely need more context, collect every unresolved candidate into one additional batched evidence call. Never re-query policy text, packet sections, or evidence already retrieved.
-4. The batches may contain as many commands and queries as the scoped work requires; batching never permits dropping a hunk, manifest row, anchor, or candidate.
+1. Build the lane packet exactly once. When context-mode is available, run the packet script through `ctx_execute` so its output enters reviewer context directly; otherwise run the same script with `bash`. Load any policy not already embedded through parallel `read` calls. Each policy file and packet section enters context once.
+2. Derive the pending manifest and concrete direct-impact candidates from that result. Run deterministic checks through one `ctx_execute` program that prints compact counts and failures; without context-mode, issue the equivalent `read`, `grep`, and `bash` calls together. Context-mode changes transport only; the scoped checks, evidence, and dispositions are identical.
+3. If the returned evidence exposes candidates that genuinely need more context, collect every unresolved candidate in one additional focused tool wave. Never re-query policy text, packet sections, or evidence already retrieved.
+4. Never use `ctx_batch_execute`, `ctx_search`, `query_scope=global`, or marker-only commands to store and retrieve reviewer evidence. They duplicate prior output and can return incomplete search windows instead of the exact packet.
 5. Inspect the packet's lane-owned hunks first. Follow only direct invalidations: changed callers/importers, schemas or contracts, behavioral tests, REQ anchors, and owner documentation affected by a concrete candidate.
 6. Read a whole file only after a hunk or direct invalidation identifies a candidate that cannot be verified from focused context.
 7. Finalize every manifest row and give each candidate one direct-impact disposition. Do not recursively explore unrelated callers or graph communities.
@@ -55,6 +55,6 @@ Code review does not re-review SDD or documentation prose. Spec and documentatio
 
 ## `scope=all` execution
 
-Walk every packet file in the requested corpus and execute every applicable enforcement row. A zero-finding result means the entire declared tree was inspected. Partition large all-scope evidence by packet files, process each partition once, and never re-read completed partitions. Batch deterministic scans and emit compact counts/failures rather than full-file output.
+Walk every packet file in the requested corpus and execute every applicable enforcement row. A zero-finding result means the entire declared tree was inspected. Process each packet file once, never re-read completed evidence, and use direct execution to emit compact counts and failures rather than full-file output.
 
 Scope controls breadth only. It does not change severity, evidence, truth, or report-only restrictions. Never impose token, turn, tool, or concurrency limits as a substitute for scope.

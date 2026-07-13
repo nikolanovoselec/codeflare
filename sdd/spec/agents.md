@@ -2270,3 +2270,30 @@ None.
 **Verification:** [Pi-native review asset tests](../../host/__tests__/pi-native-review-assets.test.js)
 
 **Status:** Implemented
+
+---
+
+### REQ-AGENT-085: Pi Reviewer Direct Evidence Transport
+
+**Intent:** Pi reviewers must consume exact scoped evidence directly instead of storing it in and repeatedly retrieving it from context-mode's indexed search.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Generated code, specification, and documentation reviewer tool contracts provide direct context execution and omit indexed batch execution. <!-- @impl: preseed/agents/pi/agents/code-reviewer.md::ctx_execute --> <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::ctx_execute --> <!-- @impl: preseed/agents/pi/agents/doc-updater.md::ctx_execute --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085: generated reviewers grant direct context execution without indexed batch retrieval) -->
+2. With context-mode disabled, those reviewer contracts retain native read, grep, and shell execution for identical scoped checks. <!-- @impl: preseed/agents/pi/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085: generated reviewers grant direct context execution without indexed batch retrieval) -->
+
+**Constraints:**
+
+- Review scope, manifest coverage, evidence truth, and severity remain unchanged.
+- Evidence already returned is never recovered through global index searches or marker-only commands.
+- No token, turn, output-size, or concurrency cap substitutes for complete scoped review.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-pi-reviewer-policy-preloading)
+
+**Verification:** [Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+
+**Status:** Implemented

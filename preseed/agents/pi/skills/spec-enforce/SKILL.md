@@ -70,17 +70,17 @@ Create all 23 rows as `pending`, then finalize each with evidence counts. Pendin
 | 22 | Backlog re-triage | In-scope/open items directly tied to changed REQs | Every open item |
 | 23 | Commit prefix + round limit | Commits in the exact range | Last six relevant commits |
 
-Evidence format is `ran (N items, M findings)` or a row-specific count. `inert` must name the absent trigger. Run deterministic rows in one batch and keep raw successful output out of context; the returned manifest contains counts and failures only.
+Evidence format is `ran (N items, M findings)` or a row-specific count. `inert` must name the absent trigger. Run deterministic rows through one direct execution and keep raw successful output out of context; the returned manifest contains counts and failures only.
 
 ## Orchestration
 
 For `purpose=review`, the caller loads this spine and every triggered AC/truth subskill once in its initial policy-and-packet tool wave. Policy text is never fetched again during the review.
 
 1. Parse the packet's exact range and build the in-scope set from its SDD hunks and direct anchor invalidations.
-2. Gather the deterministic commands for inline rows 1-4, 12-15, and 19-23 plus every focused evidence read needed by triggered AC/truth rows in one evidence wave. Use one `ctx_batch_execute` call and its `queries` array when context-mode is available; otherwise issue equivalent bounded `read`, `grep`, and `bash` calls together. The same rows and evidence execute in either mode.
-3. Execute `spec-enforce-ac` when an in-scope AC or Constraint changed, or when `scope=all`, using the evidence from that batch.
-4. Execute `spec-enforce-truth` when an in-scope Implemented/Partial REQ changed, a source/test change directly invalidates an anchor, or `scope=all`, using the evidence from that batch.
-5. Merge subskill evidence into the manifest. If concrete findings still need direct evidence, collect all unresolved candidates in one additional batched call; never re-read policy, packet sections, or completed evidence.
+2. Gather the deterministic commands for inline rows 1-4, 12-15, and 19-23 plus every focused evidence read needed by triggered AC/truth rows in one evidence wave. Use one `ctx_execute` program that prints counts and failures when context-mode is available; otherwise issue equivalent `read`, `grep`, and `bash` calls together. The same rows and evidence execute in either mode.
+3. Execute `spec-enforce-ac` when an in-scope AC or Constraint changed, or when `scope=all`, using the evidence from that execution.
+4. Execute `spec-enforce-truth` when an in-scope Implemented/Partial REQ changed, a source/test change directly invalidates an anchor, or `scope=all`, using the evidence from that execution.
+5. Merge subskill evidence into the manifest. If concrete findings still need direct evidence, collect all unresolved candidates in one additional focused tool wave; never re-read policy, packet sections, or completed evidence.
 6. For `review`, return findings and evidence only. For `clean`, apply mode policy:
    - `interactive`: ask before edits;
    - `auto`: apply mechanical CRITICAL/HIGH/MEDIUM fixes; escalate judgment;

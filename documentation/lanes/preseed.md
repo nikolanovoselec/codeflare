@@ -186,7 +186,7 @@ node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push
 
 No stdout means no action. Otherwise the root submits the resolver's request unchanged once through public `subagent`. The report-only `ci-monitor` remains independent from review acknowledgement and relies on the bounded script rather than an agent turn cap, preserving verbatim native output. Non-SDD repositories and default-mode sessions receive CI-only plans. An aborted task is relaunched only after a later plan or explicit request. Implements [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring).
 
-Pi review is session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). Successful persisted boundaries produce a triggering root launch plan. With a valid acknowledgement, the plan and every counted reviewer prompt carry the exact acknowledged-to-current range; unmatched calls remain in flight until native terminal notification. A delayed notification can acknowledge its reviewed PR head after reload or newer unpublished local work only while GitHub still reports that same authoritative head. Generated reviewer system prompts embed their canonical scope and enforcement skills, so reviewers build the lane packet directly without retrieving policy first. They then batch scoped manifest checks and focused evidence. The root waits for all reports and alone changes the head.
+Pi review is session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). Successful persisted boundaries produce a triggering root launch plan. With a valid acknowledgement, the plan and every counted reviewer prompt carry the exact acknowledged-to-current range; unmatched calls remain in flight until native terminal notification. A delayed notification can acknowledge its reviewed PR head after reload or newer unpublished local work only while GitHub still reports that same authoritative head. Generated reviewer system prompts embed their canonical scope and enforcement skills, so reviewers build the lane packet directly without retrieving policy first. Reviewers run packet and deterministic evidence commands through direct `ctx_execute` processing, or equivalent native tools when context-mode is disabled; indexed batch/global retrieval is not part of the reviewer tool surface. The root waits for all reports and alone changes the head.
 
 Claude CI monitoring remains on-demand ([REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy)): routine pushes do not start `ci-monitoring`; Claude invokes it only when the user asks or a deploy/merge gate needs a fresh CI result. When invoked, the Claude skill launches a detached temp-script monitor, prints `CI_MONITOR_STARTED head=<sha> pid=<pid> log=<path>`, requires a non-empty workflow/run fingerprint to stay stable across two polls before success, and writes terminal `CI_RESULT failure` / `CI_RESULT timeout` lines to that durable log on workflow failure or GitHub CLI access failure.
 
@@ -423,8 +423,9 @@ This implements
 [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch),
 [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff),
 [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan),
-[REQ-AGENT-082](../../sdd/spec/agents.md#req-agent-082-pi-review-range-selection), and
-[REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-pi-reviewer-policy-preloading),
+[REQ-AGENT-082](../../sdd/spec/agents.md#req-agent-082-pi-review-range-selection),
+[REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-pi-reviewer-policy-preloading), and
+[REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport),
 following [AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents).
 
 At startup, R2 sync excludes the three retired durable-review extension paths. The

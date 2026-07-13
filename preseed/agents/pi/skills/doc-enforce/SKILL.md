@@ -68,11 +68,11 @@ Pending or bare rows are HIGH findings.
 For `purpose=review`, the caller loads this spine and every triggered lane/shape/truth subskill once in its initial policy-and-packet tool wave. Policy text is never fetched again during the review.
 
 1. Resolve layout from `documentation/README.md`, then derive changed hunks and direct-impact files from the packet.
-2. Gather deterministic commands for passes 1, 2, 13, 14, and 16 plus every focused evidence read needed by triggered lane/shape/truth passes in one evidence wave. Use one `ctx_batch_execute` call and its `queries` array when context-mode is available; otherwise issue equivalent bounded `read`, `grep`, and `bash` calls together. The same passes and evidence execute in either mode.
-3. Execute `doc-enforce-lanes` for every in-scope doc file, or every file under `scope=all`, using the evidence from that batch.
-4. Execute `doc-enforce-shape` when canonical/index/API shape is in scope, or `scope=all`, using the evidence from that batch.
-5. Execute `doc-enforce-truth` when docs or source changes directly affect anchors/contracts, or `scope=all`, using the evidence from that batch. Pass 15 is never gated.
-6. Aggregate evidence as counts and failures; keep full successful output out of context. If concrete findings still need direct evidence, collect all unresolved candidates in one additional batched call; never re-read policy, packet sections, or completed evidence.
+2. Gather deterministic commands for passes 1, 2, 13, 14, and 16 plus every focused evidence read needed by triggered lane/shape/truth passes in one evidence wave. Use one `ctx_execute` program that prints counts and failures when context-mode is available; otherwise issue equivalent `read`, `grep`, and `bash` calls together. The same passes and evidence execute in either mode.
+3. Execute `doc-enforce-lanes` for every in-scope doc file, or every file under `scope=all`, using the evidence from that execution.
+4. Execute `doc-enforce-shape` when canonical/index/API shape is in scope, or `scope=all`, using the evidence from that execution.
+5. Execute `doc-enforce-truth` when docs or source changes directly affect anchors/contracts, or `scope=all`, using the evidence from that execution. Pass 15 is never gated.
+6. Aggregate evidence as counts and failures; keep full successful output out of context. If concrete findings still need direct evidence, collect all unresolved candidates in one additional focused tool wave; never re-read policy, packet sections, or completed evidence.
 7. For review, return report only. For clean, apply after spec fixes under mode policy and preserve removed content.
 8. Finalize every row with compact counts or an inert reason.
 9. Give each candidate one direct-impact verification pass. Stop after every packet hunk, owner-lane candidate, and manifest failure has one disposition.
