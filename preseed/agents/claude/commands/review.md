@@ -57,7 +57,7 @@ EXAMPLES
 PHASES
   1   Argument parse + run directory
   2   Parallel agent dispatch (6 agents: security, architect, code-
-      reviewer, refactor-cleaner, tdd-guide, doc-updater)
+      reviewer, dead-code review, test-gap review, doc-updater)
   3   REQ behavioral verification (only when --deep)
   4   Cross-reference + dedup
   5   AD filtering against documentation/decisions/README.md
@@ -176,8 +176,8 @@ Launch **all 6 agents in parallel** using the Task tool. Each agent reviews the 
 | 1 | `security-reviewer` | `$REVIEW_DIR/01-security.md` | Secrets, injection, auth, OWASP top 10, dependency vulns |
 | 2 | `architect` | `$REVIEW_DIR/02-architecture.md` | System design, modularity, coupling, scalability, patterns |
 | 3 | `code-reviewer` | `$REVIEW_DIR/03-code-quality.md` | Code quality, naming, error handling, readability, complexity |
-| 4 | `refactor-cleaner` | `$REVIEW_DIR/04-dead-code.md` | Dead code, unused exports, duplication, consolidation opportunities |
-| 5 | `tdd-guide` | `$REVIEW_DIR/05-test-gaps.md` | Test coverage gaps, untested critical paths, test quality |
+| 4 | `code-reviewer` | `$REVIEW_DIR/04-dead-code.md` | Dead code, unused exports, duplication, consolidation opportunities |
+| 5 | `code-reviewer` | `$REVIEW_DIR/05-test-gaps.md` | Test coverage gaps, untested critical paths, test quality |
 | 6 | `doc-updater` | `$REVIEW_DIR/06-documentation.md` | Missing/outdated docs, stale comments, README gaps, API doc coverage |
 
 ### Agent Prompt Template
@@ -340,7 +340,7 @@ Each agent's prompt:
 You are deep-reviewer batch [BATCH_ID] of [BATCH_COUNT] for /review run [REVIEW_DIR].
 
 Project root: [PROJECT_ROOT]
-Output file:  [REVIEW_DIR]/07-req-verify-[BATCH_ID].md
+Root output destination: [REVIEW_DIR]/07-req-verify-[BATCH_ID].md
 Scope:        [SCOPE]   (diff -> base ref origin/[BASE_REF])
 Scope hint:   [SCOPE_HINT or "(none)"]
 
@@ -348,8 +348,8 @@ REQ list for your batch: [REVIEW_DIR]/.deep/batch-[BATCH_ID]
 Read it and verify every REQ ID it contains.
 
 Follow your standard verification procedure (read REQ, identify impl, read impl,
-read tests, judge per AC, suggest fix type for mismatches). Write findings to
-your OUTPUT_FILE in the format defined in your agent definition.
+read tests, judge per AC, suggest fix type for mismatches). Return one complete
+report in the format defined in your agent definition; do not write files.
 
 For REQ-to-impl mapping and AC-to-symbol chain verification, PREFER the
 `mcp__graphify__*` MCP tools (`get_node`, `get_neighbors`, `shortest_path`,
@@ -368,12 +368,12 @@ reserved for cosmetic drift.
 
 Hard rules: one finding per mismatch/unclear AC (not per REQ); every finding
 carries a file:line evidence anchor; the "Verified Clean" section listing
-fully-matching REQs is MANDATORY; never edit any file other than OUTPUT_FILE.
+fully-matching REQs is MANDATORY; never edit files.
 ```
 
 ### Step 3d — Wait + verify outputs
 
-After all agents return, verify each `$REVIEW_DIR/07-req-verify-[BATCH_ID].md` exists. If any batch produced no file or an empty file, log the failure to `$REVIEW_DIR/.deep/failures.txt` and continue — the downstream pipeline tolerates partial coverage and will note the gap.
+After all agents return, the root writes each batch response to `$REVIEW_DIR/07-req-verify-[BATCH_ID].md`. If a batch returns no report, log it to `$REVIEW_DIR/.deep/failures.txt`; downstream phases note the gap.
 
 Read NOTHING from the batch files in the main agent. Phase 4 (cross-reference) does the consolidated read.
 

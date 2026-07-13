@@ -30,7 +30,7 @@ Apply the embedded `review-scope` policy and treat its result as a hard boundary
 
 If a prompt is ambiguous, default to `scope=diff` and state the resolved range. Never invent a broader range.
 
-Build the `code-reviewer` packet exactly once with the embedded `review-scope` policy's seeded script. Its first direct result must carry the complete lane-owned patch, not a header-only summary followed by a second raw diff. Prefer `ctx_execute`; its reviewer guard strips `intent` before execution so evidence remains direct. Use consolidated Bash programs only when context-mode is unavailable. Run independent deterministic checks together, then batch every genuinely unresolved candidate into one focused evidence wave rather than alternating individual reads and searches. Print compact failures rather than successful evidence. Inspect `changedInputs` only when a concrete code candidate requires a directly invalidated contract. Treat `src/lib/agent-seed.generated.ts` as derived output: inspect canonical preseed and verify source-to-seed identity once instead of probing generated lines repeatedly. Resolve direct impact with one focused known-file search per candidate; do not explore unrelated graph communities.
+Build the `code-reviewer` packet once. Its compact result points to the exact persisted `packetPath`; process that file internally instead of printing or rebuilding the raw diff. Prefer `ctx_execute`; Bash is the fallback. Run deterministic checks together, then collect all unresolved-candidate evidence in one focused wave. Never retry an unchanged command, request `--unified` above 3, or retrieve overlapping hunks. Treat generated seed as derived output and verify identity once.
 
 ## 2. Transition and repository gates
 

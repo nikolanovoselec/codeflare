@@ -1544,6 +1544,14 @@ describe('Reviewer agents can access their enforce policy', () => {
     }
   });
 
+  it('REQ-AGENT-086: deep /review verification cannot write artifacts', () => {
+    const doc = AGENTS_SEEDED_CONFIGS.find((entry) => entry.key === '.claude/agents/deep-reviewer.md');
+    expect(doc).toBeTruthy();
+    const tools = JSON.parse(frontmatter(doc!.content).tools) as string[];
+    expect(tools).not.toContain('Write');
+    expect(tools).not.toContain('Edit');
+  });
+
   it('transformed runtimes never inherit the Claude-only Skill tool', () => {
     const piCr = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
     expect(piCr).toBeTruthy();

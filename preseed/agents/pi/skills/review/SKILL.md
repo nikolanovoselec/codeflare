@@ -223,8 +223,8 @@ You are conducting a [SCOPE_DESCRIPTION] review of the project at [PROJECT_ROOT]
 
 Scope mode: [SCOPE]    ([SCOPE_DESCRIPTION])
 Work set and exact range: read [REVIEW_DIR]/.scope.txt.
-Packet: read/process [PACKET_FILE] exactly once. In diff scope, start from its
-lane-owned hunks and follow only concrete direct invalidations. In all scope,
+Packet descriptor: read [PACKET_FILE], then process its `packetPath` exactly once.
+In diff scope, start from lane-owned hunks and follow only concrete direct invalidations. In all scope,
 walk every file listed by the packet. Do not reconstruct or dump the full diff.
 Read a whole file only after a packet hunk identifies a candidate that focused
 context cannot verify. Give each candidate one direct-impact pass, then report
@@ -363,7 +363,7 @@ Project root: [PROJECT_ROOT]
 Output file:  [REVIEW_DIR]/07-req-verify-[BATCH_ID].md
 Scope:        [SCOPE]   (diff -> exact RANGE in .scope.txt)
 Scope hint:   [SCOPE_HINT or "(none)"]
-Scope packet: [REVIEW_DIR]/.packet-spec-reviewer.json
+Scope packet descriptor: [REVIEW_DIR]/.packet-spec-reviewer.json
 
 REQ list for your batch: [REVIEW_DIR]/.deep/batch-[BATCH_ID]
 Process the packet once, then verify every listed REQ from its hunks and direct

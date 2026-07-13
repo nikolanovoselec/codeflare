@@ -190,7 +190,7 @@ Pi review is session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-use
 
 Generated reviewer system prompts embed their canonical scope and enforcement skills, so reviewers build the lane packet without retrieving policy first. All three reviewers prefer direct context execution when context-mode is active and retain Bash as the non-indexed fallback. Standalone read, grep, Graphify, and indexed batch/global retrieval are unavailable to the lanes. The root waits for every report and alone changes the head.
 
-Reviewer evidence follows one cadence: return the complete lane patch once, consolidate independent deterministic checks, then batch unresolved candidate lookups. A reviewer-only runtime guard deletes `ctx_execute.intent` before execution, while ordinary root-session calls remain unchanged. Commands inspect the complete work set internally but emit compact failures rather than successful evidence, and redirected raw logs are not reread. Generated seed is reviewed through canonical preseed plus one identity check. These rules reduce repeated context without narrowing scope, manifest coverage, severity, or evidence truth.
+Reviewer packets persist under `/tmp` and return compact direct descriptors, so oversized patches remain exact without becoming index markers. The runtime guard removes `ctx_execute.intent` and keeps Bash fallback rooted in the captured repository. Reviewers process the stored packet once without raw diff dumps.
 
 Claude CI monitoring remains on-demand ([REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy)): routine pushes do not start `ci-monitoring`; Claude invokes it only when the user asks or a deploy/merge gate needs a fresh CI result. When invoked, the Claude skill launches a detached temp-script monitor, prints `CI_MONITOR_STARTED head=<sha> pid=<pid> log=<path>`, requires a non-empty workflow/run fingerprint to stay stable across two polls before success, and writes terminal `CI_RESULT failure` / `CI_RESULT timeout` lines to that durable log on workflow failure or GitHub CLI access failure.
 
@@ -419,7 +419,6 @@ scope, runs `spec-enforce` and then `doc-enforce` inline, and applies or pushes
 mode-authorized changes itself. This remains true for `--unleashed`; report-only
 PR-boundary reviewers are never spawned to mutate the project. This implements
 [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
-AC6 and [REQ-AGENT-037](../../sdd/spec/agents.md#req-agent-037-sdd-clean-rescue-and-autonomy-modes)
 AC6.
 
 At invocation, `/review` prefers the Git repository containing the command cwd,
@@ -690,11 +689,10 @@ completion; no lane depends on another lane's transcript. Claude in-flight
 suppression remains per lane, so a fresh in-flight lane does not mask missing peers.
 
 Each Claude PR reviewer exposes only `Skill`, Bash, and direct
-`mcp__context-mode__ctx_execute`. Indexed/global retrieval, Graphify, external
-consultation, and file mutation are unavailable. Reviewers return complete structured
-reports; the root persists triage content and applies fixes. `/review` follows the
-same ownership boundary: the root writes returned phase reports and owns external
-verification, triage history, ADR updates, and issue creation. This implements
+`mcp__context-mode__ctx_execute`. Reviewers return structured reports; the root
+persists triage content and applies fixes. `/review` uses report-only code-reviewer
+instances for dead-code and test-gap perspectives, while deep verification returns
+its report for root persistence. This implements
 [REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff).
 
 The PostToolUse nudge and Stop hook share `scripts/lib/lane-classifier.sh`.

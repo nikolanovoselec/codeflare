@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const LANES = new Set(['code-reviewer', 'spec-reviewer', 'doc-updater']);
@@ -82,6 +86,25 @@ export function buildReviewPacket({ repo, scope, range, lane }) {
   };
 }
 
+export function persistReviewPacket(packet, { directory = join(tmpdir(), 'codeflare-review-packets') } = {}) {
+  const serialized = JSON.stringify(packet);
+  const digest = createHash('sha256').update(serialized).digest('hex');
+  mkdirSync(directory, { recursive: true });
+  const packetPath = join(directory, `${digest}.json`);
+  writeFileSync(packetPath, `${serialized}\n`, { encoding: 'utf8', mode: 0o600 });
+  return {
+    scope: packet.scope,
+    workSet: packet.workSet,
+    lane: packet.lane,
+    range: packet.range,
+    packetPath,
+    packetSha256: digest,
+    patchBytes: Buffer.byteLength(packet.patch ?? ''),
+    fileCount: packet.files.length,
+    changedInputCount: packet.changedInputs.length,
+  };
+}
+
 function parseArgs(argv) {
   const values = {};
   for (let index = 0; index < argv.length; index += 1) {
@@ -102,7 +125,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
       range: args.range,
       lane: args.lane,
     });
-    process.stdout.write(`${JSON.stringify(packet)}\n`);
+    process.stdout.write(`${JSON.stringify(persistReviewPacket(packet))}\n`);
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;

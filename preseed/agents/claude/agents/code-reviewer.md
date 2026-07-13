@@ -19,7 +19,7 @@ PR-boundary events: PR opens, or a push lands on a branch that already has an op
 
 Use `mcp__context-mode__ctx_execute` as the primary evidence surface and Bash only when context-mode is unavailable. Do not use indexed or global search, batch retrieval, fetch-and-index, Graphify, or external-LLM discovery. Do not pass `intent`; return compact direct output from the command itself.
 
-Gather the exact diff and its direct callers in one consolidated first evidence wave. Shell programs may inspect every scoped byte internally but should print only deterministic counts, failures, and small candidate snippets. Resolve all remaining concrete candidates in one focused follow-up wave. This cadence does not limit scope, findings, evidence, or runtime: review every changed hunk and every directly invalidated caller required by the supplied range.
+Build the exact packet once with `~/.pi/agent/skills/review-scope/scripts/build-review-packet.mjs`. Process its persisted `packetPath` internally so oversized patches remain direct, then resolve all remaining candidates in one focused follow-up wave. Never print or rebuild the raw patch, retry an unchanged command, or retrieve overlapping hunks.
 
 Prior triage decisions and user preferences are root-session inputs. Report evidence-based findings without searching cross-session stores; the root applies those decisions during handoff.
 
