@@ -188,7 +188,7 @@ No stdout means no action. Otherwise the root submits the resolver's request unc
 
 Pi review is session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). Successful persisted boundaries produce a triggering root launch plan. With a valid acknowledgement, the plan and every counted reviewer prompt carry the exact acknowledged-to-current range; unmatched calls remain in flight until native terminal notification. A delayed notification can acknowledge its reviewed PR head after reload or newer unpublished local work only while GitHub still reports that same authoritative head.
 
-Generated reviewer system prompts embed their canonical scope and enforcement skills, so reviewers build the lane packet without retrieving policy first. Code and documentation reviewers may use direct context processing with native fallbacks; specification review uses only non-indexed evidence tools. Indexed batch/global retrieval is unavailable to all three lanes. The root waits for every report and alone changes the head.
+Generated reviewer system prompts embed their canonical scope and enforcement skills, so reviewers build the lane packet without retrieving policy first. Code and documentation reviewers may use direct context processing with native fallbacks. Specification review exposes no context-mode execution or retrieval tool; focused Graphify queries remain available for symbol resolution, not packet recovery. Indexed batch/global retrieval is unavailable to all three lanes. The root waits for every report and alone changes the head.
 
 Claude CI monitoring remains on-demand ([REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy)): routine pushes do not start `ci-monitoring`; Claude invokes it only when the user asks or a deploy/merge gate needs a fresh CI result. When invoked, the Claude skill launches a detached temp-script monitor, prints `CI_MONITOR_STARTED head=<sha> pid=<pid> log=<path>`, requires a non-empty workflow/run fingerprint to stay stable across two polls before success, and writes terminal `CI_RESULT failure` / `CI_RESULT timeout` lines to that durable log on workflow failure or GitHub CLI access failure.
 
@@ -407,14 +407,24 @@ The generated file is output, never a second ownership source.
 `/review` remains separate from PR-boundary review: the command reviews a user-chosen
 scope, while `review-enforcement.ts` handles supported root-session boundaries for
 SDD PRs targeting `main`/`master`. Both use `review-scope`: PR-boundary review and
-`/review --diff` inspect changed hunks plus direct invalidations, while
-`/review --all` and `/sdd clean --all` are exhaustive. At invocation, `/review` prefers the Git repository containing the command cwd, falls back to remembered active-repository state, passes the validated absolute root without changing the process cwd, and dispatches nothing when neither source resolves. `/sdd clean` rejects conflicting or unsupported scope flags and places the resolved work-set contract in the dispatched workflow message. The default- and advanced-mode active-repository extension resolves shell `cd` and tool-level cwd context before eligibility, so CI-only default-mode plans do not depend on the advanced main extension. The extension names required lanes only after the authoritative PR head matches the local pushed checkout; settled recovery retries while GitHub propagates the head. The root main session calls
-reviewers together through public background `subagent` calls without inherited
-context, waits for all native completion notifications, fixes legitimate
-findings, and alone commits or pushes. The acknowledged full SHA is the only
-Codeflare checkpoint. Reload alone proves nothing, but a persisted delayed terminal
-notification may acknowledge its reviewed head while that head remains authoritative;
-unfinished or replaced work is requested again only by a later supported boundary.
+`/review --diff` inspect changed hunks plus direct invalidations; `/review --all`
+and `/sdd clean --all` are exhaustive.
+
+At invocation, `/review` prefers the Git repository containing the command cwd,
+including a linked worktree, then falls back to remembered active-repository state.
+An executable resolver validates the root without changing the process cwd, and the
+command dispatches nothing when neither source resolves. `/sdd clean` rejects invalid
+scope flags and sends the resolved work-set contract. The active-repository extension
+resolves shell `cd` and tool-level cwd context before boundary eligibility. It is seeded
+in both modes, so default-mode CI plans do not depend on the advanced main extension.
+
+For PR boundaries, required lanes are named only after GitHub's authoritative PR head
+matches the pushed checkout; settled recovery retries during propagation. The root
+launches reviewers together without inherited context, waits for every native terminal
+notification, fixes legitimate findings, and alone commits or pushes. The acknowledged
+full SHA is the checkpoint. A delayed terminal notification may acknowledge its reviewed
+head after reload or newer unpublished work only while that head remains authoritative.
+Unfinished or replaced work is requested again only by a later supported boundary.
 This implements
 [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions),
 [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation),

@@ -1,12 +1,18 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { dispatchReview, reviewCommandDecision, reviewWorkflowDecision } from '../../../preseed/agents/pi/extensions/review-command';
 import { scopeContract } from '../../../preseed/agents/pi/extensions/review-scope';
 import { sddCommandDecision, sddWorkflowScopeText } from '../../../preseed/agents/pi/extensions/sdd-helpers';
+
+const reviewRootResolver = fileURLToPath(new URL(
+  '../../../preseed/agents/pi/skills/review/scripts/resolve-project-root.mjs',
+  import.meta.url,
+));
 
 describe('REQ-AGENT-059: Pi review scope entry points', () => {
   it('AC3: resolves /review diff and all into executable work-set contracts', () => {
@@ -37,6 +43,10 @@ describe('REQ-AGENT-059: Pi review scope entry points', () => {
     try {
       expect(reviewWorkflowDecision('--diff', cwdRepo, rememberedRepo)).toMatchObject({ kind: 'workflow', repo: cwdRepo });
       expect(reviewWorkflowDecision('--diff', linkedWorktree, rememberedRepo)).toMatchObject({ kind: 'workflow', repo: linkedWorktree });
+      expect(execFileSync(process.execPath, [reviewRootResolver, linkedWorktree], { encoding: 'utf8' }).trim()).toBe(linkedWorktree);
+      const invalidRoot = spawnSync(process.execPath, [reviewRootResolver, workspace], { encoding: 'utf8' });
+      expect(invalidRoot.status).toBe(1);
+      expect(invalidRoot.stderr).toBe('ERROR: /review repository root is unavailable.\n');
       expect(reviewWorkflowDecision('--diff', workspace, rememberedRepo)).toEqual({
         kind: 'workflow',
         command: '/review --diff',

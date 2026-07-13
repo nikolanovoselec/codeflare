@@ -232,6 +232,11 @@
       "advanced"
     ]
   },
+  "skills/review/scripts/resolve-project-root.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/rpiv-ask-user-question/SKILL.md": {
     "modes": [
       "default",

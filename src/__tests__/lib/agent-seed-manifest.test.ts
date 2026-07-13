@@ -202,6 +202,9 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       expect(tools).not.toContain('ctx_batch_execute');
     }
     expect(reviewerTools['spec-reviewer']).not.toContain('ctx_execute');
+    expect(reviewerTools['spec-reviewer']).toEqual(expect.arrayContaining([
+      'graphify_query', 'graphify_explain', 'graphify_path',
+    ]));
     expect(reviewerTools['code-reviewer']).toContain('ctx_execute');
     expect(reviewerTools['doc-updater']).toContain('ctx_execute');
   });
@@ -427,6 +430,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
     expect(skills.map((d) => d.key).filter((key) => key === '.pi/agent/skills/graphify/SKILL.md')).toHaveLength(1);
     expect(skills.map((d) => d.key)).toContain('.pi/agent/skills/review-scope/scripts/build-review-packet.mjs');
+    expect(skills.map((d) => d.key)).toContain('.pi/agent/skills/review/scripts/resolve-project-root.mjs');
     for (const skill of ['spec-driven-development', 'sdd-init', 'sdd-clean']) {
       const doc = skills.find((d) => d.key === `.pi/agent/skills/${skill}/SKILL.md`);
       expect(doc, `REQ-AGENT-021 ${skill} skill`).toBeDefined();

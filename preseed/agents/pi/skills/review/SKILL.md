@@ -124,10 +124,7 @@ Step 1b - use the absolute `Repository root:` from the injected workflow contrac
 
 ```bash
 PROJECT_ROOT='<absolute Repository root from the workflow contract>'
-RESOLVED_PROJECT_ROOT=$(git -C "$PROJECT_ROOT" rev-parse --show-toplevel 2>/dev/null) || {
-  echo "ERROR: /review repository root is unavailable." >&2
-  exit 1
-}
+RESOLVED_PROJECT_ROOT=$(node "$HOME/.pi/agent/skills/review/scripts/resolve-project-root.mjs" "$PROJECT_ROOT") || exit 1
 PROJECT_ROOT=$RESOLVED_PROJECT_ROOT
 cd "$PROJECT_ROOT"
 HAS_SDD=0
