@@ -2288,14 +2288,15 @@ None.
 **Acceptance Criteria:**
 
 1. Indexed batch retrieval is unavailable to every reviewer. <!-- @impl: preseed/agents/pi/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/pi/agents/doc-updater.md::tools --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085: generated reviewer tools prevent indexed specification evidence retrieval) -->
-2. Specification review exposes only native shell execution for evidence collection. <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::tools: bash --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085: generated reviewer tools prevent indexed specification evidence retrieval) -->
-3. Every reviewer retains a non-indexed fallback when context-mode is unavailable. <!-- @impl: preseed/agents/pi/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085: generated reviewer tools prevent indexed specification evidence retrieval) -->
+2. Every reviewer exposes direct context execution when context-mode is available. <!-- @impl: preseed/agents/pi/agents/code-reviewer.md::tools: ctx_execute, bash --> <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::tools: ctx_execute, bash --> <!-- @impl: preseed/agents/pi/agents/doc-updater.md::tools: ctx_execute, bash --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085: generated reviewer tools prevent indexed specification evidence retrieval) -->
+3. Every reviewer retains Bash as the non-indexed fallback when context-mode is unavailable. <!-- @impl: preseed/agents/pi/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085: generated reviewer tools prevent indexed specification evidence retrieval) -->
+4. Marked reviewer calls discard `ctx_execute.intent` before tool execution without changing ordinary root-session calls. <!-- @impl: preseed/agents/pi/extensions/review-tool-guard.ts::registerReviewerToolGuard --> <!-- @test: src/__tests__/lib/review-tool-guard.test.ts (REQ-AGENT-085: strips intent only from marked reviewer direct execution) -->
 
 **Constraints:**
 
 - Review scope, manifest coverage, evidence truth, and severity remain unchanged.
 - Evidence already returned is never recovered through global index searches or marker-only commands.
-- Direct context execution omits `intent`, so evidence cannot silently switch to indexed retrieval.
+- The reviewer runtime guard removes `intent`, so evidence cannot silently switch to indexed retrieval.
 - Reviewers consume the complete lane patch once, consolidate independent checks, and continue only for named unresolved candidates.
 - Commands inspect the complete scoped work set internally while emitting compact counts, failures, and candidate snippets; redirected raw logs are not reread.
 - Generated seed is reviewed through canonical preseed plus deterministic identity verification, not repeated generated-line searches.
@@ -2305,6 +2306,6 @@ None.
 
 **Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-pi-reviewer-policy-preloading)
 
-**Verification:** [Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+**Verification:** [Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [reviewer tool-guard tests](../../src/__tests__/lib/review-tool-guard.test.ts)
 
 **Status:** Implemented

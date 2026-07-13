@@ -312,6 +312,11 @@
       "advanced"
     ]
   },
+  "extensions/review-tool-guard.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "extensions/review-enforcement.ts": {
     "modes": [
       "default",

@@ -198,12 +198,9 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     );
 
     for (const tools of Object.values(reviewerTools)) {
-      expect(tools).toContain('bash');
+      expect(tools).toEqual(['ctx_execute', 'bash']);
       expect(tools).not.toContain('ctx_batch_execute');
     }
-    expect(reviewerTools['spec-reviewer']).toEqual(['bash']);
-    expect(reviewerTools['code-reviewer']).toEqual(expect.arrayContaining(['read', 'grep', 'ctx_execute']));
-    expect(reviewerTools['doc-updater']).toEqual(expect.arrayContaining(['read', 'grep', 'ctx_execute']));
   });
 
   it('REQ-AGENT-068/070: seeds distinct Claude and Pi CI workflow contracts', () => {
@@ -411,6 +408,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/review-enforcement.ts',
       '.pi/agent/extensions/review-helpers.ts',
       '.pi/agent/extensions/review-scope.ts',
+      '.pi/agent/extensions/review-tool-guard.ts',
       '.pi/agent/extensions/sdd-helpers.ts',
       '.pi/agent/extensions/startup-header.ts',
       '.pi/agent/extensions/vault-manifest-fs.ts',
