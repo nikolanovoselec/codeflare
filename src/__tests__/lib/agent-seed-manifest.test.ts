@@ -203,6 +203,15 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
+  it('REQ-AGENT-071: generated reviewers use provider-neutral medium thinking', () => {
+    for (const reviewer of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
+      const document = AGENTS_SEEDED_CONFIGS.find(
+        (entry) => entry.key === `.pi/agent/agents/${reviewer}.md`,
+      );
+      expect(frontmatter(document?.content ?? '').thinking).toBe('medium');
+    }
+  });
+
   it('REQ-AGENT-068/070: seeds distinct Claude and Pi CI workflow contracts', () => {
     const claudeGitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/git-workflow.md');
     const claudeCiSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/skills/ci-monitoring/SKILL.md');

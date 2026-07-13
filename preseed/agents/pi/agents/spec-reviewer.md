@@ -2,6 +2,7 @@
 name: spec-reviewer
 description: Pi-native report-only SDD reviewer for PR boundaries and explicit scoped reviews.
 tools: ctx_execute, bash
+thinking: medium
 prompt_mode: replace
 extensions: true
 ---

@@ -2006,6 +2006,7 @@ None.
 5. A valid prior acknowledgement scopes lane selection to its acknowledged-to-current range. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: classifies generated, docs, spec, source, and mixed commit ranges into reviewer lanes) -->
 6. Each counted reviewer prompt carries the exact valid acknowledged-to-current range. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewRange --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-071: counts reviewer calls only when their prompt carries the acknowledged-to-current range) -->
 7. Missing, malformed, or non-ancestor acknowledgement requests full-PR review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewRange --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-071: invalid acknowledgements request a full-PR review) -->
+8. Reviewer agents use Pi's provider-neutral `medium` thinking level instead of inheriting the root session's level. <!-- @impl: preseed/agents/pi/agents/code-reviewer.md::thinking = medium --> <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::thinking = medium --> <!-- @impl: preseed/agents/pi/agents/doc-updater.md::thinking = medium --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-071: generated reviewers use provider-neutral medium thinking) -->
 
 **Constraints:**
 
@@ -2014,6 +2015,7 @@ None.
 - Each reviewer loads its lane packet once.
 - Batching never truncates scoped rows or hunks.
 - Review agents never edit or push.
+- Pi maps `medium` to each selected model's supported reasoning controls without pinning a provider.
 - The root waits for every required result before changing the head.
 
 **Priority:** P1

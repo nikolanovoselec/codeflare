@@ -2,6 +2,7 @@
 name: code-reviewer
 description: Pi-native report-only code reviewer for PR boundaries, /review, and explicit audits.
 tools: ctx_execute, bash
+thinking: medium
 prompt_mode: replace
 extensions: true
 ---

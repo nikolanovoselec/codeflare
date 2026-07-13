@@ -2,6 +2,7 @@
 name: doc-updater
 description: Pi-native report-only documentation reviewer for PR boundaries and /review scopes.
 tools: ctx_execute, bash
+thinking: medium
 prompt_mode: replace
 extensions: true
 ---

@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-07-13
 
+- **Pi reviewers use a provider-neutral medium thinking profile** ([REQ-AGENT-071](agents.md#req-agent-071-pr-boundary-review-agent-dispatch) AC8 added; Implemented). Code, specification, and documentation reviewers no longer inherit the root session's reasoning level; Pi maps `medium` to the selected model's supported controls without changing scope, tools, or enforcement policy.
+
 - **Claude reviewers use direct evidence and return findings to the root** ([REQ-AGENT-086](agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff) added; [REQ-AGENT-015](agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review) corrected; Implemented). Code, specification, and documentation reviewers now expose only enforcement skills, direct context execution, and Bash fallback; indexed retrieval, Graphify discovery, external consultation, and file mutation are unavailable. PR-boundary and `/review` orchestration preserve exact scope and complete enforcement while the root persists reports, triage history, ADRs, and fixes.
 
 - **SDD bootstrap and cleanup retain root-session mutation ownership** ([REQ-AGENT-021](agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) AC6 added; [REQ-AGENT-037](agents.md#req-agent-037-sdd-clean-rescue-and-autonomy-modes) AC6 corrected and its obsolete reviewer-mutation round AC removed; stay Implemented). `/sdd init` and every `/sdd clean` mode, including `--unleashed`, keep file and Git tools in the root workflow, run specification then documentation enforcement inline, and never delegate changes to report-only PR-boundary reviewers.
