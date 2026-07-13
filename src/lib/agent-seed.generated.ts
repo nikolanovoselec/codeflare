@@ -9,7 +9,7 @@ type SeedDocument = {
   modes: ('default' | 'advanced')[];
 };
 
-export const PRESEED_CONTENT_HASH = '3418af2662ec26e3';
+export const PRESEED_CONTENT_HASH = 'd40e484c93170c30';
 
 export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
@@ -2951,7 +2951,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   {
     "key": ".pi/agent/extensions/review-tool-guard.ts",
     "contentType": "text/typescript; charset=utf-8",
-    "content": "import type { ExtensionAPI } from \"@earendil-works/pi-coding-agent\";\n\nexport const REVIEWER_RUNTIME_MARKER = \"<!-- codeflare-reviewer-runtime -->\";\n\nfunction mutableInput(value: unknown): Record<string, unknown> | undefined {\n  return value !== null && typeof value === \"object\"\n    ? value as Record<string, unknown>\n    : undefined;\n}\n\nexport function registerReviewerToolGuard(pi: ExtensionAPI): void {\n  let reviewerSession = false;\n\n  pi.on(\"session_start\", () => {\n    reviewerSession = false;\n  });\n\n  pi.on(\"before_agent_start\", (event) => {\n    reviewerSession = event.systemPrompt.includes(REVIEWER_RUNTIME_MARKER);\n  });\n\n  pi.on(\"tool_call\", (event) => {\n    if (!reviewerSession || event.toolName !== \"ctx_execute\") return;\n    const input = mutableInput(event.input);\n    if (!input || !Object.prototype.hasOwnProperty.call(input, \"intent\")) return;\n    // Pi's tool_call contract applies in-place input mutations to execution.\n    delete input.intent;\n  });\n}\n\nexport default registerReviewerToolGuard;\n",
+    "content": "import type { ExtensionAPI } from \"@earendil-works/pi-coding-agent\";\n\nexport const REVIEWER_RUNTIME_MARKER = \"<!-- codeflare-reviewer-runtime -->\";\n\nfunction mutableInput(value: unknown): Record<string, unknown> | undefined {\n  return value !== null && typeof value === \"object\"\n    ? value as Record<string, unknown>\n    : undefined;\n}\n\nexport function registerReviewerToolGuard(pi: ExtensionAPI): void {\n  let reviewerSession = false;\n\n  pi.on(\"session_start\", () => {\n    reviewerSession = false;\n  });\n\n  pi.on(\"before_agent_start\", (event: { systemPrompt: string }) => {\n    reviewerSession = event.systemPrompt.includes(REVIEWER_RUNTIME_MARKER);\n  });\n\n  pi.on(\"tool_call\", (event: { toolName: string; input: unknown }) => {\n    if (!reviewerSession || event.toolName !== \"ctx_execute\") return;\n    const input = mutableInput(event.input);\n    if (!input || !Object.prototype.hasOwnProperty.call(input, \"intent\")) return;\n    // Pi's tool_call contract applies in-place input mutations to execution.\n    delete input.intent;\n  });\n}\n\nexport default registerReviewerToolGuard;\n",
     "modes": [
       "advanced"
     ]

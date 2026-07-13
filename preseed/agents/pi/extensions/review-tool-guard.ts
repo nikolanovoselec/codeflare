@@ -15,11 +15,11 @@ export function registerReviewerToolGuard(pi: ExtensionAPI): void {
     reviewerSession = false;
   });
 
-  pi.on("before_agent_start", (event) => {
+  pi.on("before_agent_start", (event: { systemPrompt: string }) => {
     reviewerSession = event.systemPrompt.includes(REVIEWER_RUNTIME_MARKER);
   });
 
-  pi.on("tool_call", (event) => {
+  pi.on("tool_call", (event: { toolName: string; input: unknown }) => {
     if (!reviewerSession || event.toolName !== "ctx_execute") return;
     const input = mutableInput(event.input);
     if (!input || !Object.prototype.hasOwnProperty.call(input, "intent")) return;
