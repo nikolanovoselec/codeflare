@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 
-import { buildReviewPacket, persistReviewPacket } from '../../preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs';
+import { buildReviewPacket } from '../../preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs';
 
 function git(repo, ...args) {
   return execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim();
@@ -49,25 +49,6 @@ test('REQ-AGENT-059 AC6: diff packets contain only lane-owned changed hunks', ()
     assert.doesNotMatch(code.patch, /sdd\/|documentation\//);
     assert.deepEqual(spec.files, ['sdd/spec/value.md']);
     assert.deepEqual(docs.files, ['documentation/lanes/value.md']);
-  } finally {
-    rmSync(repo, { recursive: true, force: true });
-  }
-});
-
-test('REQ-AGENT-085/REQ-AGENT-086: large packets persist behind a compact direct descriptor', () => {
-  const { repo, head: base } = fixture();
-  try {
-    write(repo, 'src/large.ts', Array.from({ length: 900 }, (_, index) => `export const value${index} = ${index};`).join('\n') + '\n');
-    git(repo, 'add', '.');
-    git(repo, 'commit', '-m', 'large change');
-    const head = git(repo, 'rev-parse', 'HEAD');
-    const packet = buildReviewPacket({ repo, scope: 'diff', range: `${base}..${head}`, lane: 'code-reviewer' });
-    const summary = persistReviewPacket(packet, { directory: join(repo, '.review-packets') });
-
-    assert.ok(packet.patch.length > 5_000);
-    assert.ok(JSON.stringify(summary).length < 5_000);
-    assert.equal('patch' in summary, false);
-    assert.deepEqual(JSON.parse(readFileSync(summary.packetPath, 'utf8')), packet);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

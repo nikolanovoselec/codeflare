@@ -486,12 +486,12 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. `/review` launches 6 parallel specialist perspectives (security, architecture, code quality, dead code, test gaps, documentation), followed by a sequential Reality Filter.
+1. `/review` launches 6 parallel specialist agents (security, architecture, code quality, dead code, test gaps, documentation), followed by a sequential Reality Filter; a no-surface documentation reviewer returns a one-line no-op report that the root persists. <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings.json configuration / REQ-AGENT-015 (/review command)) -->
 2. Results cross-referenced and deduplicated.
 3. Findings filtered against architecture decisions.
 4. Optional LLM verification of HIGH/CRITICAL findings.
-5. Interactive triage offers fix/AD/defer/ignore options, requires explicit confirmation for fixes, and persists Defer/Ignore/Tech-Debt decisions to `sdd/.review-decisions.md`.
-6. A documentation lane without both `sdd/` and `documentation/` returns the stable no-op report that the root persists. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::reviewDocumentationSurfaceDecision --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-015: returns a stable no-surface documentation report) -->
+5. Interactive triage with fix/AD/defer/ignore options. Defer/Ignore/Tech-Debt decisions persist to `sdd/.review-decisions.md` so subsequent runs do not re-surface the same noise.
+6. Findings reported in interactive triage are never auto-applied by `/review`; the user explicitly confirms each fix. At PR boundaries and during `/sdd clean`, the root applies mode-authorized spec/doc fixes rather than delegating mutation to reviewers.
 
 **Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
@@ -637,7 +637,7 @@ None.
 3. Large discovery commands use Pi-native discovery tools when context-mode is absent. <!-- @impl: scripts/generate-agent-seed.mjs::PI_SDD_COMPATIBILITY_NOTE -->
 4. Pi-transformed SDD skills use Pi-native graphify tools and `Agent`/`Plan` terminology. <!-- @impl: scripts/generate-agent-seed.mjs::PI_SDD_COMPATIBILITY_NOTE -->
 5. The native `/sdd` command enforces command-file hard gates before workflow dispatch. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::sddRepoState --> <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddCommandDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (native /sdd hard gates / REQ-AGENT-021 AC5 (the native /sdd command enforces command-file hard gates before workflow dispatch)) -->
-6. `/sdd init` and `/sdd clean` remain root-session workflows and never dispatch PR-boundary reviewer agents. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddCommandDecision --> <!-- @impl: preseed/agents/claude/commands/sdd.md::Execution ownership (binding) --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-021/REQ-AGENT-037: keeps SDD mutation workflows in the root session) -->
+6. `/sdd init` and `/sdd clean` execute as root-session mutation workflows: file and Git tools remain available, enforcement skills run inline, and report-only PR-boundary reviewer agents are not dispatched. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddWorkflowExecutionText --> <!-- @impl: preseed/agents/claude/commands/sdd.md::Execution ownership (binding) --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-021/REQ-AGENT-037: keeps SDD mutation workflows in the root session) -->
 
 **Notes:** AC3 and AC4 are manually verified through the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
@@ -1132,14 +1132,13 @@ None.
 3. `unleashed` mode applies SAFE + RISKY + JUDGMENT fixes on the current branch via per-category `[sdd-clean]` commits and uses conservative JUDGMENT auto-resolution that never overwrites intent. <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-037: /sdd clean rescue and autonomy modes) -->
 4. `unleashed` refuses when `enforce_tdd: false`; users must enable TDD or use `auto`. It creates no branch or PR, and per-category commits remain independently revertible. <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-037: /sdd clean rescue and autonomy modes) -->
 5. `/sdd clean` rescues rotted specs with conservative JUDGMENT auto-resolution that never overwrites spec intent (mark Partial + Notes, move to Out of Scope, shrink in place). <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-037: /sdd clean rescue and autonomy modes) -->
-
+6. In `auto` and `unleashed` modes, the root `/sdd clean` workflow applies changes and pushes to the current branch after running `spec-enforce` and then `doc-enforce` inline; it never delegates mutation or Git ownership to report-only reviewer agents. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddWorkflowExecutionText --> <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Execution ownership (binding) --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-021/REQ-AGENT-037: keeps SDD mutation workflows in the root session) -->
 
 **Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
 - Status semantics, `Deprecated` requirements, the spec-discipline enforcement layer, and the `enforce_tdd` test-coverage rule follow `rules/spec-discipline.md`.
-- Root mutation ownership follows [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) AC6.
 
 **Priority:** P1
 
@@ -2291,8 +2290,6 @@ None.
 2. Every reviewer exposes direct context execution when context-mode is available. <!-- @impl: preseed/agents/pi/agents/code-reviewer.md::tools = ctx_execute, bash --> <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::tools = ctx_execute, bash --> <!-- @impl: preseed/agents/pi/agents/doc-updater.md::tools = ctx_execute, bash --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085: generated reviewer tools prevent indexed specification evidence retrieval) -->
 3. Every reviewer retains Bash as the non-indexed fallback when context-mode is unavailable. <!-- @impl: preseed/agents/pi/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085: generated reviewer tools prevent indexed specification evidence retrieval) -->
 4. Marked reviewer calls discard `ctx_execute.intent` before tool execution without changing ordinary root-session calls. <!-- @impl: preseed/agents/pi/extensions/review-tool-guard.ts::registerReviewerToolGuard --> <!-- @test: src/__tests__/lib/review-tool-guard.test.ts (REQ-AGENT-085: strips intent only from marked reviewer direct execution) -->
-5. Large packets persist behind compact direct descriptors. <!-- @impl: preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs::persistReviewPacket --> <!-- @test: host/__tests__/pi-review-workset.test.js (REQ-AGENT-085/REQ-AGENT-086: large packets persist behind a compact direct descriptor) -->
-6. Bash fallback runs from the repository captured by direct execution. <!-- @impl: preseed/agents/pi/extensions/review-tool-guard.ts::registerReviewerToolGuard --> <!-- @test: src/__tests__/lib/review-tool-guard.test.ts (roots Bash fallback in the repository captured from direct execution) -->
 
 **Constraints:**
 
@@ -2324,9 +2321,7 @@ None.
 
 1. Claude `code-reviewer`, `spec-reviewer`, and `doc-updater` expose only `Skill`, Bash fallback, and direct context execution. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::tools --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086: Claude PR reviewers expose only skills and direct evidence execution) -->
 2. Indexed retrieval, Graphify discovery, external-LLM calls, and file mutation tools are unavailable to those reviewers. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Direct evidence transport (binding) --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::Direct evidence transport (binding) --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::Direct evidence transport (binding) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086: Claude PR reviewers expose only skills and direct evidence execution) -->
-3. PR-boundary reviewers return structured findings without writing project or triage files. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (emits legacy all-3 directive when ACK->HEAD diff contains source files) -->
-4. The root persists reviewer findings and owns resulting fixes. <!-- @impl: preseed/agents/claude/skills/git-review-pipeline/SKILL.md::Execution order when SDD is bootstrapped (full parallelism) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (emits legacy all-3 directive when ACK->HEAD diff contains source files) -->
-5. Oversized reviewer packets persist behind compact direct descriptors instead of indexed recovery markers. <!-- @impl: preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs::persistReviewPacket --> <!-- @test: host/__tests__/pi-review-workset.test.js (REQ-AGENT-085/REQ-AGENT-086: large packets persist behind a compact direct descriptor) -->
+3. PR-boundary reviewers return structured findings to the root, which alone persists triage content and applies fixes. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (emits legacy all-3 directive when ACK->HEAD diff contains source files) -->
 
 **Constraints:**
 

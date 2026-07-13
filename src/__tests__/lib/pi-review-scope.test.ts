@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { dispatchReview, reviewCommandDecision, reviewDocumentationSurfaceDecision, reviewWorkflowDecision } from '../../../preseed/agents/pi/extensions/review-command';
+import { dispatchReview, reviewCommandDecision, reviewWorkflowDecision } from '../../../preseed/agents/pi/extensions/review-command';
 import { scopeContract } from '../../../preseed/agents/pi/extensions/review-scope';
 import { sddCommandDecision, sddWorkflowExecutionText, sddWorkflowScopeText } from '../../../preseed/agents/pi/extensions/sdd-helpers';
 
@@ -64,14 +64,6 @@ describe('REQ-AGENT-059: Pi review scope entry points', () => {
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
-  });
-
-  it('REQ-AGENT-015: returns a stable no-surface documentation report', () => {
-    expect(reviewDocumentationSurfaceDecision(false, false)).toEqual({
-      kind: 'no-op',
-      report: 'no-op (vibe-coding mode: no sdd/ or no documentation/)',
-    });
-    expect(reviewDocumentationSurfaceDecision(true, true)).toEqual({ kind: 'review' });
   });
 
   it('REQ-AGENT-083: suppresses /review workflow dispatch when no repository resolves', async () => {

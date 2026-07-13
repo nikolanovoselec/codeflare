@@ -33,13 +33,13 @@ Apply the embedded `review-scope` policy and resolve scope first:
 - `review_range=<base>..<head>` is exact. A full PR against its protected base is still `scope=diff`.
 - `/review --diff` and `/review --all` share these semantics. Root-owned `/sdd clean` resolves the same scopes before invoking enforcement inline.
 
-Build the `doc-updater` packet once and process its persisted `packetPath` internally instead of printing the raw patch. Apply the embedded enforcement family in one consolidated wave and collect all unresolved-candidate evidence together. Use `changedInputs` only for a concrete public-contract invalidation.
+Build the `doc-updater` packet exactly once with the embedded `review-scope` policy's seeded script and follow its evidence cadence. The direct result carries the complete documentation patch once. Apply the embedded enforcement family, consolidate independent manifest checks, and collect all genuinely unresolved candidates in one focused tool wave instead of alternating individual reads and searches. Start from documentation hunks. Use `changedInputs` only to verify a concrete public-contract invalidation in the owner lane; do not reconstruct or dump the full source diff.
 
 ## Procedure
 
 1. If either `sdd/` or `documentation/` is absent, return `no-op (vibe-coding mode: no sdd/ or no documentation/)`.
 2. If SDD transition is active with open init triage, return `SDD transition in progress; review suspended until triage drains.`
-3. In the first tool wave, build the packet and process its persisted `packetPath` without printing the raw patch. The complete scope, spine, lane, shape, and truth policies are already embedded above; do not retrieve them. Resolve the layout from `documentation/README.md`, then derive the exact hunks and owner-lane candidates through focused known-file evidence.
+3. In the first tool wave, build the packet. The complete scope, spine, lane, shape, and truth policies are already embedded above; do not retrieve them. Resolve the layout from `documentation/README.md`, then derive the exact hunks and owner-lane candidates through focused known-file evidence.
 4. Prefer `ctx_execute`; its reviewer guard strips `intent` before execution so evidence remains direct. Use consolidated Bash programs only when context-mode is unavailable. Inspect the full scoped inputs internally, but return counts, failures, and small candidate snippets only. Never use indexed batch/global search, reread an auto-saved raw log, or re-read policy, packet, or evidence already returned.
 5. Check public routes, environment variables, deployment/rollback, security boundaries, troubleshooting steps, ADR status, REQ backlinks, and root README only where a hunk or concrete direct invalidation identifies them.
 6. If concrete candidates remain unresolved, collect all of their direct evidence in one additional focused tool wave. Then report or dismiss each candidate and stop when every packet hunk, manifest row, and owner-lane candidate has one disposition. Never auto-fix or write `.doc-coverage.md` during report-only review.

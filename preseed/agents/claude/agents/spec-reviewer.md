@@ -46,7 +46,7 @@ Autonomy mode changes disposition wording, not mutation ownership: this agent re
 
 Use `mcp__context-mode__ctx_execute` as the primary evidence surface and Bash only when context-mode is unavailable. Do not use indexed or global search, batch retrieval, fetch-and-index, Graphify, or external-LLM discovery. Do not pass `intent`; return compact direct output from the command itself.
 
-Build the exact packet once with `~/.pi/agent/skills/review-scope/scripts/build-review-packet.mjs`. Process its persisted `packetPath` internally so oversized patches remain direct, complete enforcement in one consolidated wave, then resolve all remaining candidates together. Never print or rebuild the raw patch.
+Gather the exact SDD patch, changed implementation and test inputs, and deterministic enforcement rows in one consolidated first evidence wave. Shell programs may inspect every scoped byte internally but should print only counts, failures, and small candidate snippets. Resolve all remaining concrete candidates in one focused follow-up wave. This cadence never limits scope, findings, evidence, or runtime: complete every applicable manifest row and directly invalidated anchor in the supplied work set.
 
 Prior triage decisions and user preferences are root-session inputs. Report evidence-based findings without searching cross-session stores; the root applies those decisions and persists any deferred item during handoff.
 
