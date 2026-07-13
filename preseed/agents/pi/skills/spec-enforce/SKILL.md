@@ -74,11 +74,13 @@ Evidence format is `ran (N items, M findings)` or a row-specific count. `inert` 
 
 ## Orchestration
 
+For `purpose=review`, the caller loads this spine and every triggered AC/truth subskill once in its initial policy-and-packet tool wave. Policy text is never fetched again during the review.
+
 1. Parse the packet's exact range and build the in-scope set from its SDD hunks and direct anchor invalidations.
-2. Run inline rows 1-4, 12-15, and 19-23 once over that set in a batched deterministic pass.
-3. Invoke `spec-enforce-ac` when an in-scope AC or Constraint changed, or when `scope=all`.
-4. Invoke `spec-enforce-truth` when an in-scope Implemented/Partial REQ changed, a source/test change directly invalidates an anchor, or `scope=all`.
-5. Merge subskill evidence into the manifest.
+2. Submit one `ctx_batch_execute` call containing the deterministic commands for inline rows 1-4, 12-15, and 19-23 plus every focused evidence read needed by triggered AC/truth rows. Put all retrieval questions in that call's `queries` array.
+3. Execute `spec-enforce-ac` when an in-scope AC or Constraint changed, or when `scope=all`, using the evidence from that batch.
+4. Execute `spec-enforce-truth` when an in-scope Implemented/Partial REQ changed, a source/test change directly invalidates an anchor, or `scope=all`, using the evidence from that batch.
+5. Merge subskill evidence into the manifest. If concrete findings still need direct evidence, collect all unresolved candidates in one additional batched call; never re-read policy, packet sections, or completed evidence.
 6. For `review`, return findings and evidence only. For `clean`, apply mode policy:
    - `interactive`: ask before edits;
    - `auto`: apply mechanical CRITICAL/HIGH/MEDIUM fixes; escalate judgment;

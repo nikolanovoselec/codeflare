@@ -186,7 +186,7 @@ node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push
 
 No stdout means no action. Otherwise the root submits the resolver's request unchanged once through public `subagent`. The report-only `ci-monitor` remains independent from review acknowledgement and relies on the bounded script rather than an agent turn cap, preserving verbatim native output. Non-SDD repositories and default-mode sessions receive CI-only plans. An aborted task is relaunched only after a later plan or explicit request. Implements [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring).
 
-Pi review is session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). Successful persisted boundaries produce a triggering root launch plan. With a valid acknowledgement, the plan and every counted reviewer prompt carry the exact acknowledged-to-current range; unmatched calls remain in flight until native terminal notification. The root waits for all reports and alone changes the head.
+Pi review is session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). Successful persisted boundaries produce a triggering root launch plan. With a valid acknowledgement, the plan and every counted reviewer prompt carry the exact acknowledged-to-current range; unmatched calls remain in flight until native terminal notification. A delayed notification can acknowledge its reviewed PR head after reload or newer unpublished local work only while GitHub still reports that same authoritative head. Reviewers keep the complete enforcement families and gather policy/packet inputs once before batching scoped manifest checks and focused evidence. The root waits for all reports and alone changes the head.
 
 Claude CI monitoring remains on-demand ([REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy)): routine pushes do not start `ci-monitoring`; Claude invokes it only when the user asks or a deploy/merge gate needs a fresh CI result. When invoked, the Claude skill launches a detached temp-script monitor, prints `CI_MONITOR_STARTED head=<sha> pid=<pid> log=<path>`, requires a non-empty workflow/run fingerprint to stay stable across two polls before success, and writes terminal `CI_RESULT failure` / `CI_RESULT timeout` lines to that durable log on workflow failure or GitHub CLI access failure.
 
@@ -410,8 +410,10 @@ settled recovery retries while GitHub propagates the head. The root main session
 reviewers together through public background `subagent` calls without inherited
 context, waits for all native completion notifications, fixes legitimate
 findings, and alone commits or pushes. The acknowledged full SHA is the only
-Codeflare checkpoint. Reload can discard active review work, so a later supported
-boundary may request missing lanes again. This implements
+Codeflare checkpoint. Reload alone proves nothing, but a persisted delayed terminal
+notification may acknowledge its reviewed head while that head remains authoritative;
+unfinished or replaced work is requested again only by a later supported boundary.
+This implements
 [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions),
 [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation),
 [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window),
@@ -964,7 +966,7 @@ The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode w
 Pi uses the narrower supported command grammar in
 [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing): successful root-session Bash/`ctx_execute`/`ctx_batch_execute` surfaces recognize direct or environment-prefixed `git push`, `gh pr create`, protected-base `gh pr edit`, and `gh pr merge` only in their documented reminder or settled roles. Unsupported convenience commands, failed commands, quoted examples, child sessions, passive startup, and integration-bound PRs are inert.
 
-For Pi, the acknowledged full SHA remains at `.git/sdd-last-ack-pr-head`. A successful persisted boundary lists missing reviewer lanes and, when an acknowledgement exists, the exact acknowledged-to-current range. Every counted public reviewer prompt carries that range. Unmatched calls stay in flight until native notification, and only the reminder head can be acknowledged. Reload may cause a later supported boundary to repeat unfinished work ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)).
+For Pi, the acknowledged full SHA remains at `.git/sdd-last-ack-pr-head`. A successful persisted boundary lists missing reviewer lanes and, when an acknowledgement exists, the exact acknowledged-to-current range. Every counted public reviewer prompt carries that range. Unmatched calls stay in flight until native notification, and only the reminder head can be acknowledged. A delayed persisted notification can acknowledge that head after reload or newer unpublished local work while the PR still points to it; unfinished or replaced work may repeat at a later boundary ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)).
 
 The USER-ONLY `/tmp/review-bypass` sentinel and explicit user wording remain review bypass surfaces; agents must not invoke them autonomously. Claude keeps its existing Stop-hook checkpoint and bypass semantics. Pi adds no pre-command merge interceptor.
 

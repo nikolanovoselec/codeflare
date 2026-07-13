@@ -65,12 +65,14 @@ Pending or bare rows are HIGH findings.
 
 ## Orchestration
 
+For `purpose=review`, the caller loads this spine and every triggered lane/shape/truth subskill once in its initial policy-and-packet tool wave. Policy text is never fetched again during the review.
+
 1. Resolve layout from `documentation/README.md`, then derive changed hunks and direct-impact files from the packet.
-2. Run passes 1, 2, 13, 14, and 16 once in a batched deterministic pass over scope.
-3. Invoke `doc-enforce-lanes` for every in-scope doc file, or every file under `scope=all`.
-4. Invoke `doc-enforce-shape` when canonical/index/API shape is in scope, or `scope=all`.
-5. Invoke `doc-enforce-truth` when docs or source changes directly affect anchors/contracts, or `scope=all`. Pass 15 is never gated.
-6. Aggregate evidence as counts and failures; keep full successful output out of context.
+2. Submit one `ctx_batch_execute` call containing deterministic commands for passes 1, 2, 13, 14, and 16 plus every focused evidence read needed by triggered lane/shape/truth passes. Put all retrieval questions in that call's `queries` array.
+3. Execute `doc-enforce-lanes` for every in-scope doc file, or every file under `scope=all`, using the evidence from that batch.
+4. Execute `doc-enforce-shape` when canonical/index/API shape is in scope, or `scope=all`, using the evidence from that batch.
+5. Execute `doc-enforce-truth` when docs or source changes directly affect anchors/contracts, or `scope=all`, using the evidence from that batch. Pass 15 is never gated.
+6. Aggregate evidence as counts and failures; keep full successful output out of context. If concrete findings still need direct evidence, collect all unresolved candidates in one additional batched call; never re-read policy, packet sections, or completed evidence.
 7. For review, return report only. For clean, apply after spec fixes under mode policy and preserve removed content.
 8. Finalize every row with compact counts or an inert reason.
 9. Give each candidate one direct-impact verification pass. Stop after every packet hunk, owner-lane candidate, and manifest failure has one disposition.

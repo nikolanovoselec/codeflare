@@ -301,6 +301,33 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if (!context) return;
     const preview = reviewTranscriptFacts({ sessionFile: context.file, requiredLanes: [] });
     if (!preview.boundary) return;
+
+    const reviewedPr = await dependencies.queryPr(context.repo);
+    const reviewedHead = preview.reviewHead;
+    const reviewedAck = readAck(context.repo);
+    if (isEnforcedPr(reviewedPr)
+      && reviewEnabled(context.repo)
+      && !preview.bypassed
+      && !bypassSentinelPresent()
+      && fullSha(reviewedHead)
+      && reviewedHead === reviewedPr.headRefOid
+      && reviewedAck !== reviewedHead) {
+      const reviewedRange = reviewRange({ repo: context.repo, ackHead: reviewedAck, head: reviewedHead });
+      const reviewedLanes = requiredReviewLanes({ repo: context.repo, ackHead: reviewedAck, head: reviewedHead });
+      const reviewedFacts = reviewTranscriptFacts({
+        sessionFile: context.file,
+        requiredLanes: reviewedLanes,
+        ciHead: reviewedHead,
+      });
+      const allReviewedLanesTerminal = reviewedLanes.length > 0
+        && reviewedLanes.every((lane) => reviewedFacts.lanes[lane].state === "terminal");
+      if (reviewedFacts.reviewHead === reviewedHead
+        && reviewedFacts.reviewRange === reviewedRange
+        && allReviewedLanesTerminal) {
+        acknowledge(context.repo, reviewedHead);
+      }
+    }
+
     const review = await currentReview(ctx, dependencies);
     if (!review) return;
     const ackHead = readAck(review.repo);

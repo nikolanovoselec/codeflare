@@ -1,7 +1,7 @@
 ---
 name: doc-updater
 description: Pi-native report-only documentation reviewer for PR boundaries and /review scopes.
-tools: read, grep, find, bash, write, ctx_search, ctx_batch_execute, ctx_execute, ctx_execute_file, graphify_query, graphify_explain, graphify_path
+tools: read, grep, bash, ctx_batch_execute, graphify_query, graphify_explain, graphify_path
 prompt_mode: replace
 extensions: true
 skills: true
@@ -18,17 +18,16 @@ Load `review-scope` and resolve scope first:
 - `review_range=<base>..<head>` is exact. A full PR against its protected base is still `scope=diff`.
 - `/review --diff`, `/review --all`, `/sdd clean --diff`, and `/sdd clean --all` share these semantics.
 
-Build the `doc-updater` packet exactly once with `review-scope`'s seeded script. Start from its documentation hunks. Use `changedInputs` only to verify a concrete public-contract invalidation in the owner lane; do not reconstruct or dump the full source diff.
+Build the `doc-updater` packet exactly once with `review-scope`'s seeded script and follow its gather-then-reason evidence waves. Load the full applicable enforcement family once, run the manifest and focused reads in one batched evidence call, and batch all genuinely unresolved candidates once more instead of alternating individual reads and searches. Start from documentation hunks. Use `changedInputs` only to verify a concrete public-contract invalidation in the owner lane; do not reconstruct or dump the full source diff.
 
 ## Procedure
 
 1. If either `sdd/` or `documentation/` is absent, return `no-op (vibe-coding mode: no sdd/ or no documentation/)`.
 2. If SDD transition is active with open init triage, return `SDD transition in progress; review suspended until triage drains.`
-3. Resolve the layout from `documentation/README.md`, then use the packet's exact hunks and directly affected owner lanes. Use at most one Pi-native Graphify query per concrete changed-symbol-to-doc candidate.
-4. Load only relevant sections of `/home/user/.pi/agent/skills/doc-enforce/SKILL.md` and execute it with `purpose=review`, the resolved scope/range, mode, config, and file set. Invoke lane, shape, and truth subskills under the spine's conditions.
-5. Run deterministic manifest checks in one batch. Keep full output out of context; return counts and failures only.
-6. Check public routes, environment variables, deployment/rollback, security boundaries, troubleshooting steps, ADR status, REQ backlinks, and root README only where a hunk or concrete direct invalidation identifies them.
-7. Verify each candidate through one direct-impact pass, then report or dismiss it. Stop when every packet hunk and owner-lane candidate has one disposition. Never auto-fix or write `.doc-coverage.md` during report-only review.
+3. In the first tool wave, build the packet and load `/home/user/.pi/agent/skills/doc-enforce/SKILL.md` plus every conditionally applicable lane/shape/truth subskill. Resolve the layout from `documentation/README.md`, then derive the exact hunks and owner-lane candidates. Use at most one Pi-native Graphify query per concrete changed-symbol-to-doc candidate.
+4. Execute the complete `purpose=review` manifest and all focused evidence reads in one `ctx_batch_execute` call. Keep raw successful output out of context and return counts and failures only. Do not re-read policy, packet, or evidence already returned.
+5. Check public routes, environment variables, deployment/rollback, security boundaries, troubleshooting steps, ADR status, REQ backlinks, and root README only where a hunk or concrete direct invalidation identifies them.
+6. If concrete candidates remain unresolved, collect all of their direct evidence in one additional batch. Then report or dismiss each candidate and stop when every packet hunk, manifest row, and owner-lane candidate has one disposition. Never auto-fix or write `.doc-coverage.md` during report-only review.
 
 ## Lane ownership
 

@@ -40,17 +40,21 @@ Use a context-processing tool when the JSON or patch is large. Derive this packe
 
 ## `scope=diff` execution
 
-1. Inspect the packet's lane-owned hunks first.
-2. Follow only direct invalidations: changed callers/importers, schemas or contracts, behavioral tests, REQ anchors, and owner documentation affected by a concrete candidate.
-3. Read a whole file only after a hunk or direct invalidation identifies a candidate that cannot be verified from focused context.
-4. Run deterministic manifest/enforcement checks in one batched command and return only counts plus failures. Never print full source files or full successful manifests.
-5. Verify each candidate through one direct-impact pass, then report or dismiss it. Do not recursively explore unrelated callers or graph communities.
-6. Stop when every lane-owned hunk and direct candidate has one disposition. Do not report unchanged baseline debt.
+Use gather-then-reason evidence waves instead of alternating one read or search with one reasoning turn:
+
+1. In the first tool wave, build the lane packet through `ctx_batch_execute` while parallel `read` calls load the lane's complete enforcement spine plus every conditionally applicable subskill. The batch's `queries` surface the lane files/hunks and direct-impact leads; each policy file and packet section is loaded once.
+2. Derive the pending manifest and concrete direct-impact candidates from that result. Then issue one `ctx_batch_execute` containing every deterministic check and focused evidence read needed for the packet. Put all retrieval questions in that call's `queries` array so the raw command output stays out of context.
+3. If the returned evidence exposes candidates that genuinely need more context, collect every unresolved candidate into one additional batched evidence call. Never re-query policy text, packet sections, or evidence already retrieved.
+4. The batches may contain as many commands and queries as the scoped work requires; batching never permits dropping a hunk, manifest row, anchor, or candidate.
+5. Inspect the packet's lane-owned hunks first. Follow only direct invalidations: changed callers/importers, schemas or contracts, behavioral tests, REQ anchors, and owner documentation affected by a concrete candidate.
+6. Read a whole file only after a hunk or direct invalidation identifies a candidate that cannot be verified from focused context.
+7. Finalize every manifest row and give each candidate one direct-impact disposition. Do not recursively explore unrelated callers or graph communities.
+8. Stop when every lane-owned hunk, manifest row, and direct candidate has one disposition. Do not report unchanged baseline debt.
 
 Code review does not re-review SDD or documentation prose. Spec and documentation reviewers may use `changedInputs` only to verify anchors or owned contract impact.
 
 ## `scope=all` execution
 
-Walk every packet file in the requested corpus and execute every applicable enforcement row. A zero-finding result means the entire declared tree was inspected. Batch deterministic scans and emit compact counts/failures rather than full-file output.
+Walk every packet file in the requested corpus and execute every applicable enforcement row. A zero-finding result means the entire declared tree was inspected. Partition large all-scope evidence by packet files, process each partition once, and never re-read completed partitions. Batch deterministic scans and emit compact counts/failures rather than full-file output.
 
 Scope controls breadth only. It does not change severity, evidence, truth, or report-only restrictions. Never impose token, turn, tool, or concurrency limits as a substitute for scope.

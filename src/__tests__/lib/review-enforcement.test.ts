@@ -741,6 +741,34 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(existsSync(join(fixture.repo, '.git/sdd-review-pending.json'))).toBe(false);
   });
 
+  it('REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: delayed completion acknowledges the reviewed PR head after reload and new local work', async () => {
+    const fixture = makeReviewFixture();
+    const initialHarness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+    await initialHarness.emit('tool_result', boundaryEvent());
+    appendSession(fixture.sessionFile,
+      assistantTool('code-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('doc-1', 'subagent', reviewerArgs(fixture, 'doc-updater')),
+      notification('code-1'),
+      notification('doc-1'),
+    );
+
+    write(fixture.repo, 'src/follow-up.ts', 'export {};\n');
+    git(fixture.repo, 'add', 'src/follow-up.ts');
+    git(fixture.repo, 'commit', '-m', 'unpublished follow-up');
+
+    const reloadedHarness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile, notification('spec-1'));
+    await reloadedHarness.emit('agent_settled');
+
+    expect(ackHead(fixture.repo)).toBe(fixture.head);
+    expect(reloadedHarness.sent).toEqual([]);
+  });
+
   it('REQ-AGENT-053/REQ-AGENT-074: never acknowledges terminal reviews for a replacement PR head', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
