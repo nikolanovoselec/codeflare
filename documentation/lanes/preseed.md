@@ -290,7 +290,9 @@ search-first, spec-driven-development (+ reference templates for /sdd init
 scaffolding), sdd-init, sdd-clean, vault-operations, vault-note-capture,
 spec-enforce, spec-enforce-ac, spec-enforce-truth, doc-enforce,
 doc-enforce-lanes, doc-enforce-shape, doc-enforce-truth, tdd-enforce,
-git-review-pipeline, graphify, and browser-run + browser-e2e for both agents.
+git-review-pipeline, graphify, and browser-run + browser-e2e. Pi owns native
+reviewer and spec/doc enforcement overrides; Claude retains its original agents
+and enforcement skills.
 
 The design skills are emil-design-eng and design-taste-frontend for all agents,
 plus impeccable for Claude + Pi only. Impeccable ships the design skill and offline
@@ -351,7 +353,7 @@ factory alongside their named exports, or Pi aborts startup with
 
 Native skill overrides include graphify
 ([REQ-AGENT-043](../../sdd/spec/agents.md#req-agent-043-graphify-build-mode-dispatch)
-AC7) and `review`.
+AC7), `review`, `review-scope`, and the Pi spec/doc enforcement families.
 
 Capture-contract prompts include `memory-agent-prompt.md` and
 `vault-extract-prompt.md`.
@@ -361,14 +363,14 @@ Pi graphify scripts include `build-graphify-architecture.sh`,
 `local-graphify-labels.sh`.
 
 The generator maps each manifest key by directory prefix: `extensions/` to
-`.pi/agent/extensions/`, `skills/` to `.pi/agent/skills/`, `scripts/` to
-`.pi/agent/scripts/`, `prompts/` to `.pi/agent/prompts/`, and `agents/` to
-`.pi/agent/agents/`.
+`.pi/agent/extensions/`, `skills/` to `.pi/agent/skills/`, `rules/` to
+`.pi/agent/rules/`, `scripts/` to `.pi/agent/scripts/`, `prompts/` to
+`.pi/agent/prompts/`, and `agents/` to `.pi/agent/agents/`.
 
 The `agents/` prefix maps both to `.pi/agent/agents/` for session-local overrides
 for `@gotgenes/pi-subagents` and to `~/.pi/agent/agents/` for persistent user-level
-overrides. `preseed/agents/pi/agents/Explore.md` is the first native Pi agent
-override shipped via this path. Package files deploy under `.pi/agent/npm/`.
+overrides. Native Pi definitions include Explore plus the code, spec, and
+documentation reviewers. Package files deploy under `.pi/agent/npm/`.
 
 Pi-native review and CI assets are seeded with explicit ownership:
 
@@ -380,18 +382,28 @@ Pi-native review and CI assets are seeded with explicit ownership:
 | `preseed/agents/pi/agents/ci-monitor.md` | default, advanced | `~/.pi/agent/agents/ci-monitor.md` | Dedicated report-only CI subagent |
 | `preseed/agents/pi/skills/pr-workflow/SKILL.md` | default, advanced | `~/.pi/agent/skills/pr-workflow/SKILL.md` | PR creation procedure |
 | `preseed/agents/pi/skills/git-review-pipeline/SKILL.md` | advanced | `~/.pi/agent/skills/git-review-pipeline/SKILL.md` | Session-scoped review procedure |
+| `preseed/agents/pi/rules/engineering-constitution.md` | advanced | `~/.pi/agent/rules/engineering-constitution.md` | Pi planning, TDD/SDD, and review gates |
+| `preseed/agents/pi/skills/review-scope/SKILL.md` | advanced | `~/.pi/agent/skills/review-scope/SKILL.md` | Shared `diff`/`all` scope resolver |
+| `preseed/agents/pi/agents/{code-reviewer,spec-reviewer,doc-updater}.md` | advanced | `~/.pi/agent/agents/` | Native report-only review lanes |
+| `preseed/agents/pi/skills/{spec-enforce*,doc-enforce*}/SKILL.md` | advanced | `~/.pi/agent/skills/` | Native scoped SDD enforcement |
 | `preseed/agents/pi/extensions/review-enforcement.ts` | advanced | `~/.pi/agent/extensions/review-enforcement.ts` | Eligible-boundary reminder, settled missing-lane follow-up, acknowledgement |
 | `preseed/agents/pi/extensions/review-helpers.ts` | advanced | `~/.pi/agent/extensions/review-helpers.ts` | Command grammar, lane classification, transcript correlation |
 
 The Pi manifest is the exact mode map. `scripts/generate-agent-seed.mjs` materializes
-it into the committed generated seed at `src/lib/agent-seed.generated.ts`; the
-generated file is output, never a second ownership source.
+it into the committed generated seed at `src/lib/agent-seed.generated.ts`. When a
+native Pi path matches a transformed Claude path, the generator emits only the Pi
+bytes for that target key and mode. The generated file is output, never a second
+ownership source.
 
 `/review` remains separate from PR-boundary review: the command reviews a user-chosen
 scope, while `review-enforcement.ts` handles supported root-session boundaries for
-SDD PRs targeting `main`/`master`. The extension names required lanes; the root main
-session calls them together through public background `subagent` calls without
-inherited context, waits for all native completion notifications, fixes legitimate
+SDD PRs targeting `main`/`master`. Both use `review-scope`: PR-boundary review and
+`/review --diff` inspect changed hunks plus direct invalidations, while
+`/review --all` and `/sdd clean --all` are exhaustive. The extension names
+required lanes only after the authoritative PR head matches the local pushed checkout;
+settled recovery retries while GitHub propagates the head. The root main session calls
+reviewers together through public background `subagent` calls without inherited
+context, waits for all native completion notifications, fixes legitimate
 findings, and alone commits or pushes. The acknowledged full SHA is the only
 Codeflare checkpoint. Reload can discard active review work, so a later supported
 boundary may request missing lanes again. This implements
@@ -403,7 +415,13 @@ boundary may request missing lanes again. This implements
 [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing),
 [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch), and
 [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff),
-following [AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents). The post-sync managed-extension relay removes the three retired durable-review extensions before Pi loads runtime code, while preserving user-added extensions ([REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake) AC4).
+following [AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents).
+
+At startup, R2 sync excludes the three retired durable-review extension paths. The
+managed-extension relay also removes local copies before Pi loads runtime code while
+preserving user-added extensions
+([REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake)
+AC6–AC7).
 
 CI follows a distinct path. The root Git rule invokes the request resolver exactly
 once after each eligible successful Git action and submits its zero-or-one JSON

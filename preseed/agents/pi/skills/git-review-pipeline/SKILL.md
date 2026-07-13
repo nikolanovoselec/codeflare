@@ -10,6 +10,8 @@ This skill explains how the root main session handles Pi's PR-boundary review in
 
 ## Trigger and scope
 
+Use the `review-scope` skill as the canonical scope contract.
+
 SDD projects (`sdd/` + `sdd/README.md`) are reviewed only when work is headed to `main` or `master`. Draft PRs remain eligible. Integration-branch PRs defer review until their PR to `main`/`master`.
 
 The Pi extension emits a structured reminder after a supported successful boundary and a follow-up naming every reviewer lane still needed for the current head. Passive startup, branch existence, child sessions, failed commands, and unsupported commands do not launch review.
@@ -28,7 +30,7 @@ The Pi extension emits a structured reminder after a supported successful bounda
 When the reminder or follow-up lists lanes:
 
 1. Call every listed reviewer together through the public `subagent` tool.
-2. Set `run_in_background: true` and `inherit_context: false` on every call. When the reminder supplies `review_range=<acknowledged>..<current>`, include that exact marker in each prompt; otherwise review the full PR against its protected base.
+2. Set `run_in_background: true` and `inherit_context: false` on every call. Every reviewer prompt carries `scope=diff`: a PR review is a change-set review, never whole-tree enforcement. When the reminder supplies `review_range=<acknowledged>..<current>`, include that exact marker in each prompt; otherwise use the full protected-base PR diff.
 3. Do not duplicate any unmatched reviewer call; it remains in flight until its native terminal notification.
 4. After all reviewer calls are issued, follow the root Git workflow rule and submit the independent CI request last without waiting for review completion.
 5. Wait for every required reviewer notification, regardless of completion order.
@@ -42,6 +44,8 @@ Review is session-scoped. Reload can discard active work and does not prove comp
 Review never launches, tracks, waits for, or relaunches CI. CI never launches reviewers. The root Git workflow rule independently runs the seeded resolver exactly once after an eligible successful Git action; its only relationship to review is root-owned launch ordering, with the CI call issued after reviewer calls and before their completion.
 
 ## Finding discipline
+
+In `scope=diff`, reviewers inspect changed hunks and only directly invalidated callers, anchors, tests, and owner documentation. They do not run whole-tree manifests or report unchanged baseline debt. `scope=all` is reserved for explicit `/review --all` and `/sdd clean --all` requests.
 
 Do not act on a subset of required reviewer outputs. Wait until every required reviewer has finished, then assess all findings together. A finding's age is not a reason to skip it: fix every legitimate finding, explain false positives, and ask before destructive or irreversible changes.
 

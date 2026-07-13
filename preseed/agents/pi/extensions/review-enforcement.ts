@@ -24,6 +24,7 @@ type PrState = {
 
 type Dependencies = {
   queryPr(repo: string): Promise<PrState | undefined>;
+  queryHead?(repo: string): Promise<string | undefined>;
 };
 
 type ReviewContext = {
@@ -193,7 +194,9 @@ async function currentReview(
   const context = reviewContext(ctx);
   if (!context) return undefined;
   const pr = await dependencies.queryPr(context.repo);
-  return isProtectedPr(pr) ? { ...context, pr } : undefined;
+  if (!isProtectedPr(pr)) return undefined;
+  const head = await (dependencies.queryHead ?? queryHead)(context.repo);
+  return head === pr.headRefOid ? { ...context, pr } : undefined;
 }
 
 export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): void {
@@ -211,7 +214,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if (ackHead === review.pr.headRefOid) return;
     const range = reviewRange({ repo: review.repo, ackHead, head: review.pr.headRefOid });
     const requiredLanes = requiredReviewLanes({ repo: review.repo, ackHead, head: review.pr.headRefOid });
-    const scope = range ? `Review only review_range=${range}. Include that exact marker in every reviewer prompt.` : `Review the full PR against origin/${review.pr.baseRefName}.`;
+    const scope = range ? `scope=diff. Review only review_range=${range}. Include that exact marker in every reviewer prompt.` : `scope=diff. Review the full PR against origin/${review.pr.baseRefName}.`;
     pi.sendMessage({
       customType: "pr-boundary-review-reminder",
       content: `PR head ${review.pr.headRefOid} requires these review agents: ${requiredLanes.join(", ")}. ${scope} Launch them together with the public subagent tool, in the background without inherited context. Wait for every result before fixing, committing, or pushing.`,
@@ -248,7 +251,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     }
     if (facts.bypassed || consumeBypassSentinel()) return;
     if (facts.reviewHead !== review.pr.headRefOid || facts.reviewRange !== range) {
-      const scope = range ? `Review only review_range=${range}. Include that exact marker in every reviewer prompt.` : `Review the full PR against origin/${review.pr.baseRefName}.`;
+      const scope = range ? `scope=diff. Review only review_range=${range}. Include that exact marker in every reviewer prompt.` : `scope=diff. Review the full PR against origin/${review.pr.baseRefName}.`;
       pi.sendMessage({
         customType: "pr-boundary-review-reminder",
         content: `PR head ${review.pr.headRefOid} requires these review agents: ${requiredLanes.join(", ")}. ${scope} Launch them together with the public subagent tool, in the background without inherited context. Wait for every result before fixing, committing, or pushing.`,
@@ -265,7 +268,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
 
     const missingLanes = requiredLanes.filter((lane): lane is ReviewLane => facts.lanes[lane].state === "missing");
     if (missingLanes.length === 0 || blockDecision(review.repo, review.pr.headRefOid) === "giveup") return;
-    const scope = range ? `Review only review_range=${range}. Include that exact marker in every reviewer prompt.` : `Review the full PR against origin/${review.pr.baseRefName}.`;
+    const scope = range ? `scope=diff. Review only review_range=${range}. Include that exact marker in every reviewer prompt.` : `scope=diff. Review the full PR against origin/${review.pr.baseRefName}.`;
     pi.sendMessage({
       customType: "pr-boundary-review-follow-up",
       content: `Launch these missing review agents together now: ${missingLanes.join(", ")}. ${scope} Use public background subagent calls without inherited context, then wait for every required review before fixing, committing, or pushing.`,
@@ -273,6 +276,20 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       details: { head: review.pr.headRefOid, ackHead, reviewRange: range, missingLanes },
     }, { deliverAs: "followUp", triggerTurn: true });
   });
+}
+
+export async function queryHead(repo: string, runner: QueryPrRunner = execFileAsync): Promise<string | undefined> {
+  try {
+    const { stdout } = await runner(
+      "git",
+      ["rev-parse", "HEAD"],
+      { cwd: repo, encoding: "utf8", timeout: 10_000 },
+    );
+    const value = String(stdout).trim();
+    return fullSha(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function queryPr(repo: string, runner: QueryPrRunner = execFileAsync): Promise<PrState | undefined> {

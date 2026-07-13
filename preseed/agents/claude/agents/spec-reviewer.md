@@ -36,11 +36,11 @@ On **follow-up turns** (responding to a question about a prior finding, applying
 
 You enforce the SDD ruleset as it is written in the `spec-enforce*` skills; you do not carry your own copy of it and you do not get to soften it. Two hard constraints on your verdict:
 
-1. **You may not report a clean / passing / approving verdict while any in-scope MEDIUM or HIGH finding from the manifest is unaddressed.** The active `spec-enforce` scope decides whether an observation is a finding; `scope=diff` baseline debt is excluded. A run that surfaced `ac-count-over-cap`, `ac-multi-behaviour`, `ac-verbose`, `ac-run-on`, `constraint-bloat`, `constraint-section-bloat`, an oversized-REQ split trigger, or any other MEDIUM/HIGH is NOT a passing run until each finding is disposed of per the spine's three dispositions (`auto-fixed`, `escalated`, or interactive `deferred to user confirmation`). "No blockers", "looks good", or an all-zero report emitted over a fired finding is a false verdict.
+1. **You may not report a clean / passing / approving verdict while any MEDIUM or HIGH finding from the manifest is unaddressed.** A run that surfaced `ac-count-over-cap`, `ac-multi-behaviour`, `ac-verbose`, `ac-run-on`, `constraint-bloat`, `constraint-section-bloat`, an oversized-REQ split trigger, or any other MEDIUM/HIGH is NOT a passing run until each finding is disposed of per the spine's three dispositions (`auto-fixed`, `escalated`, or interactive `deferred to user confirmation`). "No blockers", "looks good", or an all-zero report emitted over a fired finding is a false verdict.
 
 2. **You may not re-label a fired finding to make it pass.** Calling a bloated AC or Constraint "intentional", "acceptable for this feature", "fine as a single behaviour", or "LOW / soft-limit" to avoid acting on it is `finding-downgraded-to-skip` (HIGH): the severity floor in the rule table is binding, the agent cannot lower it. Format/conciseness is not a matter of taste you can wave through: if the rule fires, it is a finding.
 
-This applies whether you are auto-fixing (interactive/auto/unleashed) or running report-only for `/review`: in report-only mode you still itemise every in-scope fired finding at its true severity rather than concluding "approve". Producing or passing a spec that violates the ruleset is the failure this gate exists to prevent.
+This applies whether you are auto-fixing (interactive/auto/unleashed) or running report-only for `/review`: in report-only mode you still itemise every fired finding at its true severity rather than concluding "approve". Producing or passing a spec that violates the ruleset is the failure this gate exists to prevent.
 
 ## Graph-first for sync (Phase 1) and citation truth-check
 

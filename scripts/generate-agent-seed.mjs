@@ -82,7 +82,6 @@ const TOOL_MAP = {
 
 const CLAUDE_ONLY_CATEGORIES = new Set(['hook', 'command', 'plugin']);
 const CLAUDE_ONLY_FILES = new Set(['rules/memory.md']);
-const PI_EXCLUDED_CLAUDE_FILES = new Set(['rules/git-workflow.md']);
 // impeccable is Claude-only in the transform fan-out: it ships a large offline/live
 // detector bundle, so embedding it into codex/gemini/opencode would bloat the seed for
 // agents that won't use it. Pi gets a DEDICATED native copy (preseed/agents/pi/skills/
@@ -458,12 +457,16 @@ async function generate() {
   const piManifestPath = path.join(piDir, 'manifest.json');
   let piNativeCount = 0;
   const piNativeSkillKeys = new Set();
+  const piNativeAgentKeys = new Set();
+  const piNativeRuleKeys = new Set();
   const piNativeRuleFiles = [];
   try {
     const piManifest = JSON.parse(await fs.readFile(piManifestPath, 'utf8'));
     validateModes(piManifest, 'Pi');
     for (const withinPi of Object.keys(piManifest)) {
       if (withinPi.startsWith('skills/')) piNativeSkillKeys.add(withinPi.slice('skills/'.length));
+      if (withinPi.startsWith('agents/')) piNativeAgentKeys.add(withinPi.slice('agents/'.length));
+      if (withinPi.startsWith('rules/')) piNativeRuleKeys.add(withinPi);
     }
     for (const [withinPi, entry] of Object.entries(piManifest)) {
       const absolutePath = path.join(piDir, withinPi);
@@ -498,7 +501,7 @@ async function generate() {
             f.category === 'rule' &&
             f.modes.includes(mode) &&
             !isClaudeOnlyFile(f.withinClaude) &&
-            !(agentId === 'pi' && PI_EXCLUDED_CLAUDE_FILES.has(f.withinClaude))
+            !(agentId === 'pi' && piNativeRuleKeys.has(f.withinClaude))
         ),
         ...(agentId === 'pi' ? piNativeRuleFiles.filter((f) => f.modes.includes(mode)) : []),
       ];
@@ -537,6 +540,7 @@ async function generate() {
         if (file.category !== 'agent') continue;
 
         const fileName = file.withinClaude.slice('agents/'.length);
+        if (agentId === 'pi' && piNativeAgentKeys.has(fileName)) continue;
         const baseName = fileName.replace(/\.md$/, '');
         const key = `${config.agentsPrefix}/${baseName}${config.agentExtension}`;
 

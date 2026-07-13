@@ -10,6 +10,11 @@
       "advanced"
     ]
   },
+  "rules/engineering-constitution.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "extensions/browser-run.ts": {
     "modes": [
       "advanced"
@@ -81,6 +86,21 @@
       "advanced"
     ]
   },
+  "agents/code-reviewer.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "agents/spec-reviewer.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "agents/doc-updater.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "agents/ci-monitor.md": {
     "modes": [
       "default",
@@ -134,6 +154,46 @@
     ]
   },
   "skills/git-review-pipeline/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/review-scope/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-enforce/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-enforce-ac/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-enforce-truth/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/doc-enforce/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/doc-enforce-lanes/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/doc-enforce-shape/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/doc-enforce-truth/SKILL.md": {
     "modes": [
       "advanced"
     ]

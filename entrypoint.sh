@@ -410,6 +410,12 @@ RCLONE_FILTERS_COMMON=(
     # Main session JSONL transcripts ARE synced for --resume; only task subdirs are excluded.
     --filter "- .pi/agent/sessions/**/tasks/**"
 
+    # Pi — retired Codeflare review extensions. Exclude exact managed paths so stale
+    # R2 copies cannot be restored after the local startup migration removes them.
+    --filter "- .pi/agent/extensions/review-job-helpers.ts"
+    --filter "- .pi/agent/extensions/review-jobs.ts"
+    --filter "- .pi/agent/extensions/review-lane-guards.ts"
+
     # Pi — context-mode FTS5 store (equivalent to .claude/context-mode/**)
     --filter "- .pi/context-mode/**"
 

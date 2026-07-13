@@ -339,7 +339,7 @@ describe('Pi review reminder and settled enforcement', () => {
       expect(harness.sent, testCase.name).toEqual([{
         message: expect.objectContaining({
           customType: 'pr-boundary-review-reminder',
-          content: expect.stringContaining('Review the full PR against origin/main.'),
+          content: expect.stringContaining('scope=diff. Review the full PR against origin/main.'),
           details: {
             head: fixture.head,
             ackHead: expectedAck,
@@ -483,16 +483,22 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toEqual([]);
   });
 
-  it('REQ-AGENT-058: settled recovery emits the reminder after PR head propagation lag', async () => {
+  it('REQ-AGENT-058: settled recovery emits one reminder after PR head propagation lag', async () => {
     const fixture = makeReviewFixture();
+    const staleHead = fixture.head;
+    write(fixture.repo, 'src/review-follow-up.ts', 'export {};\n');
+    git(fixture.repo, 'add', 'src/review-follow-up.ts');
+    git(fixture.repo, 'commit', '-m', 'follow-up boundary');
+    fixture.head = git(fixture.repo, 'rev-parse', 'HEAD');
+    fixture.pr.headRefOid = staleHead;
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
       assistantTool('push-lagged', 'bash', { command: 'git push origin pi' }),
       toolResult('push-lagged', 'bash'),
     );
-    fixture.pr.headRefOid = fixture.base;
 
     await harness.emit('tool_result', boundaryEvent());
+    await harness.emit('agent_settled');
     expect(harness.sent).toEqual([]);
 
     fixture.pr.headRefOid = fixture.head;
@@ -611,19 +617,7 @@ describe('Pi review reminder and settled enforcement', () => {
     await harness.emit('agent_settled');
 
     expect(ackHead(fixture.repo)).toBe(fixture.base);
-    expect(harness.sent).toEqual([{
-      message: expect.objectContaining({
-        customType: 'pr-boundary-review-reminder',
-        content: expect.stringContaining('Review the full PR against origin/main.'),
-        details: {
-          head: fixture.pr.headRefOid,
-          ackHead: fixture.base,
-          reviewRange: undefined,
-          requiredLanes: ALL_LANES,
-        },
-      }),
-      options: { deliverAs: 'followUp', triggerTurn: true },
-    }]);
+    expect(harness.sent).toEqual([]);
   });
 
   it('REQ-AGENT-041: consumes a one-shot bypass on reminder-only PR creation', async () => {

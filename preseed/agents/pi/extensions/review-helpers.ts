@@ -18,22 +18,69 @@ export type TranscriptFacts = {
 
 type ShellWords = string[];
 
+type Heredoc = { delimiter: string; stripTabs: boolean };
+
+function heredocRedirections(line: string): Heredoc[] {
+  const found: Heredoc[] = [];
+  let quote = "";
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index] ?? "";
+    if (quote) {
+      if (char === "\\" && quote === '"') index += 1;
+      else if (char === quote) quote = "";
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === "\\") {
+      index += 1;
+      continue;
+    }
+    if (char !== "<" || line[index + 1] !== "<" || line[index + 2] === "<") continue;
+
+    let cursor = index + 2;
+    const stripTabs = line[cursor] === "-";
+    if (stripTabs) cursor += 1;
+    while (line[cursor] === " " || line[cursor] === "\t") cursor += 1;
+
+    let delimiter = "";
+    let delimiterQuote = "";
+    while (cursor < line.length) {
+      const token = line[cursor] ?? "";
+      if (delimiterQuote) {
+        if (token === delimiterQuote) delimiterQuote = "";
+        else if (token === "\\" && delimiterQuote === '"' && cursor + 1 < line.length) {
+          cursor += 1;
+          delimiter += line[cursor] ?? "";
+        } else delimiter += token;
+      } else if (token === "'" || token === '"') delimiterQuote = token;
+      else if (token === "\\" && cursor + 1 < line.length) {
+        cursor += 1;
+        delimiter += line[cursor] ?? "";
+      } else if (/\s/.test(token) || ";&|<>".includes(token)) break;
+      else delimiter += token;
+      cursor += 1;
+    }
+    if (delimiter) found.push({ delimiter, stripTabs });
+    index = cursor - 1;
+  }
+  return found;
+}
+
 function stripHeredocBodies(command: string): string {
   const executable: string[] = [];
-  let delimiter = "";
-  let stripTabs = false;
+  const pending: Heredoc[] = [];
   for (const line of command.split(/\r?\n/)) {
-    if (delimiter) {
-      const candidate = stripTabs ? line.replace(/^\t+/, "") : line;
-      if (candidate === delimiter) delimiter = "";
+    const heredoc = pending[0];
+    if (heredoc) {
+      const candidate = heredoc.stripTabs ? line.replace(/^\t+/, "") : line;
+      if (candidate === heredoc.delimiter) pending.shift();
       continue;
     }
     executable.push(line);
-    const match = line.match(/<<(-?)\s*(['"]?)([A-Za-z0-9_]+)\2/);
-    if (match) {
-      stripTabs = match[1] === "-";
-      delimiter = match[3] ?? "";
-    }
+    pending.push(...heredocRedirections(line));
   }
   return executable.join("\n");
 }

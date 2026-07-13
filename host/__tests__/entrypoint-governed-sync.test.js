@@ -215,7 +215,7 @@ describe('REQ-STOR-017 / AD90: post-sync managed Pi extension relay (entrypoint.
     assert.equal(readFileSync(join(destExt, 'my-custom.ts'), 'utf8'), '// USER addition\n');
   });
 
-  it('REQ-STOR-017 AC4: removes retired durable-review extensions without deleting user additions', () => {
+  it('REQ-STOR-017 AC7: removes retired durable-review extensions without deleting user additions', () => {
     const retired = ['review-job-helpers.ts', 'review-jobs.ts', 'review-lane-guards.ts'];
     const warmFiles = Object.fromEntries([
       ['codeflare-pi.ts', '// IMAGE codeflare-pi\n'],
@@ -303,6 +303,39 @@ describe('REQ-STOR-017 / AD90: initial-sync compare flag (entrypoint.sh initial_
     const { code, stderr, out } = runCompareFlag({ r2SseDisabled: false });
     assert.equal(code, 0, `compare-flag fragment exited non-zero: ${stderr}`);
     assert.equal(out, '--size-only');
+  });
+});
+
+function commonRcloneFilters() {
+  const start = entrypoint.indexOf('RCLONE_FILTERS_COMMON=(');
+  const end = entrypoint.indexOf('\n)', start);
+  if (start === -1 || end === -1) throw new Error('RCLONE_FILTERS_COMMON block not found');
+  const script = `${entrypoint.slice(start, end + 2)}\nprintf '%s\\n' "\${RCLONE_FILTERS_COMMON[@]}"`;
+  const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  assert.equal(result.status, 0, `filter block exited non-zero: ${result.stderr}`);
+  return result.stdout.trim().split('\n');
+}
+
+describe('REQ-STOR-017 AC6: retired Pi review extensions stay outside R2 sync', () => {
+  const retired = ['review-job-helpers.ts', 'review-jobs.ts', 'review-lane-guards.ts'];
+  const filters = commonRcloneFilters();
+
+  for (const name of retired) {
+    it(`excludes ${name}`, () => {
+      assert.ok(
+        filters.includes(`- .pi/agent/extensions/${name}`),
+        `${name} can be restored from stale R2 state`,
+      );
+    });
+  }
+
+  it('applies the common filter set to initial sync and both bisync calls', () => {
+    const calls = [...entrypoint.matchAll(/rclone (?:sync "r2:\$R2_BUCKET_NAME\/" "\$USER_HOME\/"|bisync "\$USER_HOME\/" "r2:\$R2_BUCKET_NAME\/")[\s\S]*?2>&1; then/g)]
+      .map((match) => match[0]);
+    assert.equal(calls.length, 3, 'expected initial sync, baseline bisync, and steady-state bisync');
+    for (const call of calls) {
+      assert.match(call, /"\$\{RCLONE_FILTERS\[@\]\}"/, 'R2 sync omitted the retired-extension exclusions');
+    }
   });
 });
 

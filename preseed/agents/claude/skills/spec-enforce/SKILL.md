@@ -15,8 +15,6 @@ This skill is the spine for SDD spec enforcement. It runs the 23-row execution m
 - `mode`: `interactive` | `auto` | `unleashed` (read from `sdd/spec/config.yml` when nested layout exists, else `sdd/config.yml` on flat layout)
 - `layout`: `nested` | `flat` (auto-detected via `test -d sdd/spec`)
 
-<!-- PR_REVIEW_DIFF_BOUNDARY --> **Diff finding boundary (binding).** Baseline debt is not a finding under `scope=diff`. Every pass still runs and may inspect unchanged content, but it reports, counts, or blocks only an issue introduced by a changed hunk or directly caused by the diff invalidating unchanged content. Compare against the base revision when uncertain. Only `scope=all` reports pre-existing whole-spec debt.
-
 **Layout-awareness.** All file globs in this skill respect the detected layout:
 - Spec files: `sdd/spec/**/*.md` (nested) OR `sdd/*.md` excluding `README.md` (flat)
 - Config: `sdd/spec/config.yml` (nested) OR `sdd/config.yml` (flat)

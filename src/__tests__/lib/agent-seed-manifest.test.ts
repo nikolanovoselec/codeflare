@@ -380,9 +380,15 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/vault-manifest-fs.ts',
     ]);
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/Explore.md');
-    expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/code-reviewer.md');
-    expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/spec-reviewer.md');
-    expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/doc-updater.md');
+    for (const reviewer of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
+      expect(agents.filter((doc) => doc.key === `.pi/agent/agents/${reviewer}.md`)).toHaveLength(1);
+    }
+    for (const skill of [
+      'review-scope', 'spec-enforce', 'spec-enforce-ac', 'spec-enforce-truth',
+      'doc-enforce', 'doc-enforce-lanes', 'doc-enforce-shape', 'doc-enforce-truth',
+    ]) {
+      expect(skills.filter((doc) => doc.key === `.pi/agent/skills/${skill}/SKILL.md`)).toHaveLength(1);
+    }
     expect(skills.map((d) => d.key).filter((key) => key === '.pi/agent/skills/graphify/SKILL.md')).toHaveLength(1);
     for (const skill of ['spec-driven-development', 'sdd-init', 'sdd-clean']) {
       const doc = skills.find((d) => d.key === `.pi/agent/skills/${skill}/SKILL.md`);

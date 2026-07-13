@@ -47,27 +47,33 @@ complete what you were doing first.
 
 Do not push while a PR-boundary review is running, pending, missing, stale, or otherwise
 not complete for the current head, unless the user explicitly authorizes pushing despite
-that active/incomplete review. Wait for every required reviewer result for the exact head,
+that active/incomplete review. Wait for the final merged review summary for the exact head,
 then fix legitimate findings before pushing another head.
 
 ## Review-result handoff gate
 
-Do not act on a partial reviewer set. After the final required visible reviewer notification
-for the exact head, the next assistant response starts with a user-facing review summary
-covering every lane's result and the planned next action. Verify each finding and fix every
-legitimate one before the next push unless the latest user instruction says to wait, not
-autofix, or not push. A stopped reviewer without a native terminal notification is not
-completion; a later supported boundary may request that missing lane again.
+When a background `review-monitor` completes with `REVIEW_RESULT`, the very next
+assistant response MUST start by printing a detailed user-facing review summary before
+analysis, excuses, tool calls, todo updates, or fixes. Include the exact result line,
+severity counts, lane status, ranked findings, summary path, monitor transcript path if
+available, and the planned next action. If the result is `findings`, then immediately read
+`summary.md`, verify every MEDIUM/HIGH/CRITICAL finding, fix legitimate findings, commit,
+push, start CI monitoring, verify/restart `review-monitor`, and iterate until the exact
+head returns `REVIEW_RESULT clean`. Stop before commit/push only if the latest user
+instruction says not to autofix, wait for approval, or do not push. If a review-monitor
+task stops, errors, or completes without `REVIEW_RESULT` for the active head, restart it
+from the durable job prompt/result paths instead of treating the review as delivered.
 
 ## CI-result handoff gate
 
 When a background CI monitor completes with `CI_RESULT`, the very next assistant response
 MUST start by printing a user-facing CI summary before analysis, tool calls, todo updates,
-fixes, deploys, or pushes. Include the exact result line, monitored head, check links or
-workflow URL when present, and planned next action. Only after that summary may you inspect
-failures or edit code. A task that stops without `CI_RESULT` is not completion and is not
-automatically restarted; a later eligible Git action or explicit user request may launch a
-fresh monitor.
+review-status checks, fixes, deploys, or pushes. Include the exact result line, monitored
+head, workflow/run id and URL when present, log path, failed-log command when present, and
+planned next action. Only after that summary may you inspect logs or edit code. If a
+CI monitor task stops, errors, or completes without `CI_RESULT` for the active head,
+restart an exact-head CI monitor unless the head was superseded or the user explicitly
+skipped CI monitoring.
 
 ## Hard gates
 
