@@ -22,6 +22,21 @@ export function resolveReviewScope(args: string): ReviewScopeMode | undefined {
   return modes.size === 1 ? [...modes][0] : undefined;
 }
 
+export function reviewScopeFlagError(args: string): string | undefined {
+  const tokens = args.trim().split(/\s+/).filter(Boolean);
+  const invalid = tokens.find((token) => token.startsWith("--scope=")
+    && token !== "--scope=diff"
+    && token !== "--scope=all");
+  if (invalid) return `Unsupported review scope: ${invalid}`;
+
+  const modes = new Set<ReviewScopeMode>();
+  for (const token of tokens) {
+    if (token === "--diff" || token === "--scope=diff") modes.add("diff");
+    if (token === "--all" || token === "--scope=all") modes.add("all");
+  }
+  return modes.size > 1 ? "Conflicting review scope flags: choose diff or all." : undefined;
+}
+
 export default function reviewScopeExtension(_pi?: unknown): void {
   // Shared pure scope contract imported by Pi command and boundary extensions.
 }

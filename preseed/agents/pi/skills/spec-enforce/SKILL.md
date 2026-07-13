@@ -77,7 +77,7 @@ Evidence format is `ran (N items, M findings)` or a row-specific count. `inert` 
 For `purpose=review`, the caller loads this spine and every triggered AC/truth subskill once in its initial policy-and-packet tool wave. Policy text is never fetched again during the review.
 
 1. Parse the packet's exact range and build the in-scope set from its SDD hunks and direct anchor invalidations.
-2. Submit one `ctx_batch_execute` call containing the deterministic commands for inline rows 1-4, 12-15, and 19-23 plus every focused evidence read needed by triggered AC/truth rows. Put all retrieval questions in that call's `queries` array.
+2. Gather the deterministic commands for inline rows 1-4, 12-15, and 19-23 plus every focused evidence read needed by triggered AC/truth rows in one evidence wave. Use one `ctx_batch_execute` call and its `queries` array when context-mode is available; otherwise issue equivalent bounded `read`, `grep`, and `bash` calls together. The same rows and evidence execute in either mode.
 3. Execute `spec-enforce-ac` when an in-scope AC or Constraint changed, or when `scope=all`, using the evidence from that batch.
 4. Execute `spec-enforce-truth` when an in-scope Implemented/Partial REQ changed, a source/test change directly invalidates an anchor, or `scope=all`, using the evidence from that batch.
 5. Merge subskill evidence into the manifest. If concrete findings still need direct evidence, collect all unresolved candidates in one additional batched call; never re-read policy, packet sections, or completed evidence.

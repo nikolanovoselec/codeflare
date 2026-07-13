@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { reviewCommandDecision } from '../../../preseed/agents/pi/extensions/review-command';
 import { scopeContract } from '../../../preseed/agents/pi/extensions/review-scope';
-import { sddCommandDecision } from '../../../preseed/agents/pi/extensions/sdd-helpers';
+import { sddCommandDecision, sddWorkflowScopeText } from '../../../preseed/agents/pi/extensions/sdd-helpers';
 
 describe('REQ-AGENT-059: Pi review scope entry points', () => {
   it('AC3: resolves /review diff and all into executable work-set contracts', () => {
@@ -31,6 +31,20 @@ describe('REQ-AGENT-059: Pi review scope entry points', () => {
       subcommand: 'clean',
       scope: scopeContract('all'),
     });
+  });
+
+  it('dispatches the resolved /sdd clean work set and rejects ambiguous scope flags', () => {
+    const state = { dirty: false, hasSdd: true, hasOpenInitTriage: false };
+    const decision = sddCommandDecision('clean --scope=all', state);
+
+    expect(decision.kind).toBe('workflow');
+    if (decision.kind === 'workflow') {
+      expect(sddWorkflowScopeText(decision)).toBe(
+        'Resolved scope: {"mode":"all","workSet":"whole-requested-tree"}',
+      );
+    }
+    expect(sddCommandDecision('clean --diff --all', state)).toMatchObject({ kind: 'error' });
+    expect(sddCommandDecision('clean --scope=somewhere', state)).toMatchObject({ kind: 'error' });
   });
 
   it('uses changed hunks plus direct invalidations for diff and the whole tree for all', () => {

@@ -68,7 +68,7 @@ Pending or bare rows are HIGH findings.
 For `purpose=review`, the caller loads this spine and every triggered lane/shape/truth subskill once in its initial policy-and-packet tool wave. Policy text is never fetched again during the review.
 
 1. Resolve layout from `documentation/README.md`, then derive changed hunks and direct-impact files from the packet.
-2. Submit one `ctx_batch_execute` call containing deterministic commands for passes 1, 2, 13, 14, and 16 plus every focused evidence read needed by triggered lane/shape/truth passes. Put all retrieval questions in that call's `queries` array.
+2. Gather deterministic commands for passes 1, 2, 13, 14, and 16 plus every focused evidence read needed by triggered lane/shape/truth passes in one evidence wave. Use one `ctx_batch_execute` call and its `queries` array when context-mode is available; otherwise issue equivalent bounded `read`, `grep`, and `bash` calls together. The same passes and evidence execute in either mode.
 3. Execute `doc-enforce-lanes` for every in-scope doc file, or every file under `scope=all`, using the evidence from that batch.
 4. Execute `doc-enforce-shape` when canonical/index/API shape is in scope, or `scope=all`, using the evidence from that batch.
 5. Execute `doc-enforce-truth` when docs or source changes directly affect anchors/contracts, or `scope=all`, using the evidence from that batch. Pass 15 is never gated.

@@ -25,6 +25,14 @@ function extractBetween(startMarker, endMarker, label) {
   return entrypoint.slice(start, end + endMarker.length);
 }
 
+function extractBefore(startMarker, nextMarker, label) {
+  const start = entrypoint.indexOf(startMarker);
+  if (start === -1) throw new Error(`${label}: start marker not found in entrypoint.sh`);
+  const end = entrypoint.indexOf(nextMarker, start);
+  if (end === -1) throw new Error(`${label}: next marker not found in entrypoint.sh`);
+  return entrypoint.slice(start, end);
+}
+
 const createRcloneConfig = () =>
   extractBetween(
     'create_rclone_config() {',
@@ -306,78 +314,91 @@ describe('REQ-STOR-017 / AD90: initial-sync compare flag (entrypoint.sh initial_
   });
 });
 
-function commonRcloneFilters() {
-  const start = entrypoint.indexOf('RCLONE_FILTERS_COMMON=(');
-  const end = entrypoint.indexOf('\n)', start);
-  if (start === -1 || end === -1) throw new Error('RCLONE_FILTERS_COMMON block not found');
-  const script = `${entrypoint.slice(start, end + 2)}\nprintf '%s\\n' "\${RCLONE_FILTERS_COMMON[@]}"`;
+function runRcloneFilterWiring() {
+  const home = mkdtempSync(join(tmpdir(), 'rclone-filter-home-'));
+  const callsFile = join(home, 'rclone-calls.txt');
+  const recoveryFile = join(home, 'recovery-filters.txt');
+  writeFileSync(recoveryFile, '');
+  const filterSetup = extractBefore(
+    'RCLONE_FILTERS_COMMON=(',
+    '# ============================================================================\n# Recovery filter for vanishing files',
+    'rclone filter setup',
+  );
+  const initialSync = extractBefore(
+    'initial_sync_from_r2() {',
+    '# REQ-STOR-017 / AD90: lay down the image-baked agent seed',
+    'initial_sync_from_r2',
+  );
+  const baseline = extractBefore(
+    'establish_bisync_baseline() {',
+    '# Regular bisync (after baseline is established)',
+    'establish_bisync_baseline',
+  );
+  const steadyState = extractBefore(
+    'bisync_with_r2() {',
+    '# Cleanup old Claude Code session transcripts',
+    'bisync_with_r2',
+  );
+  const script = [
+    'set -euo pipefail',
+    `USER_HOME='${home}'`,
+    `HOME='${home}'`,
+    "R2_BUCKET_NAME='bucket'",
+    `RCLONE_CONFIG='${join(home, 'rclone.conf')}'`,
+    `RECOVERY_FILTER_FILE='${recoveryFile}'`,
+    "SYNC_MODE='full'",
+    'VAULT_FILTER=()',
+    'timeout() { shift; "$@"; }',
+    `rclone() { { printf '%s\\n' '__CALL__'; printf '%s\\n' "$@"; } >> '${callsFile}'; return 0; }`,
+    'pgrep() { return 1; }',
+    'find() { return 0; }',
+    'recover_vanished_files() { return 1; }',
+    filterSetup,
+    initialSync,
+    baseline,
+    steadyState,
+    'initial_sync_from_r2',
+    'establish_bisync_baseline',
+    'bisync_with_r2 ""',
+  ].join('\n');
   const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
-  assert.equal(result.status, 0, `filter block exited non-zero: ${result.stderr}`);
-  return result.stdout.trim().split('\n');
+  const rawCalls = existsSync(callsFile) ? readFileSync(callsFile, 'utf8') : '';
+  const calls = rawCalls.split('__CALL__\n').slice(1).map((block) => block.trim().split('\n'));
+  return { code: result.status, stderr: result.stderr, calls };
 }
 
 describe('REQ-STOR-017 AC6: retired Pi review extensions stay outside R2 sync', () => {
   const retired = ['review-job-helpers.ts', 'review-jobs.ts', 'review-lane-guards.ts'];
-  const filters = commonRcloneFilters();
 
-  for (const name of retired) {
-    it(`excludes ${name}`, () => {
-      assert.ok(
-        filters.includes(`- .pi/agent/extensions/${name}`),
-        `${name} can be restored from stale R2 state`,
-      );
-    });
-  }
-
-  it('applies the common filter set to initial sync and both bisync calls', () => {
-    const calls = [...entrypoint.matchAll(/rclone (?:sync "r2:\$R2_BUCKET_NAME\/" "\$USER_HOME\/"|bisync "\$USER_HOME\/" "r2:\$R2_BUCKET_NAME\/")[\s\S]*?2>&1(?: \| tee -a \/tmp\/sync\.log)?; then/g)]
-      .map((match) => match[0]);
-    assert.equal(calls.length, 3, 'expected initial sync, baseline bisync, and steady-state bisync');
+  it('passes every retired-extension exclusion to initial sync and both bisync calls', () => {
+    const { code, stderr, calls } = runRcloneFilterWiring();
+    assert.equal(code, 0, `rclone sync fixture exited non-zero: ${stderr}`);
+    assert.deepEqual(calls.map((call) => call[0]), ['sync', 'bisync', 'bisync']);
     for (const call of calls) {
-      assert.match(call, /"\$\{RCLONE_FILTERS\[@\]\}"/, 'R2 sync omitted the retired-extension exclusions');
+      for (const name of retired) {
+        const pattern = `- .pi/agent/extensions/${name}`;
+        assert.ok(
+          call.some((arg, index) => arg === '--filter' && call[index + 1] === pattern),
+          `${call[0]} omitted ${pattern}`,
+        );
+      }
     }
   });
+
 });
 
-// ---------------------------------------------------------------------------
-// REQ-STOR-017 (a) / AD88: bisync HEAD-storm fix — both bisync invocations must
-// compare via R2 LastModified from --fast-list (--use-server-modtime) instead of
-// per-object mtime HEADs, with --checkers 64. Contract-value assertions on each
-// bisync function body (rclone flags are functional config, not copy).
-// ---------------------------------------------------------------------------
-
-// Slice each `rclone bisync ...` invocation (start → its `2>&1; then` terminator).
-// There are exactly two: the retrying --resync baseline and steady-state cycle.
-function bisyncInvocations() {
-  const calls = [];
-  let from = 0;
-  for (;;) {
-    const start = entrypoint.indexOf('rclone bisync "$USER_HOME/"', from);
-    if (start === -1) break;
-    const end = entrypoint.indexOf('2>&1; then', start);
-    if (end === -1) throw new Error('bisync invocation terminator not found');
-    calls.push(entrypoint.slice(start, end));
-    from = end + 1;
-  }
-  return calls;
-}
-
 describe('REQ-STOR-017 / AD88: bisync uses server-modtime + wider checkers (entrypoint.sh)', () => {
-  it('has exactly two bisync invocations (retrying baseline + steady-state)', () => {
-    assert.equal(bisyncInvocations().length, 2);
+  it('passes server-modtime and 64 checkers to both bisync calls', () => {
+    const { code, stderr, calls } = runRcloneFilterWiring();
+    assert.equal(code, 0, `rclone sync fixture exited non-zero: ${stderr}`);
+    const bisyncCalls = calls.filter((call) => call[0] === 'bisync');
+    assert.equal(bisyncCalls.length, 2, 'expected baseline and steady-state bisync calls');
+    for (const call of bisyncCalls) {
+      assert.ok(call.includes('--use-server-modtime'), 'bisync omitted --use-server-modtime');
+      assert.ok(call.some((arg, index) => arg === '--checkers' && call[index + 1] === '64'), 'bisync omitted --checkers 64');
+      assert.ok(!call.some((arg, index) => arg === '--checkers' && call[index + 1] === '32'), 'bisync regressed to --checkers 32');
+    }
   });
-
-  const labels = ['baseline', 'steady-state'];
-  for (const [i, body] of bisyncInvocations().entries()) {
-    const label = labels[i] ?? `bisync#${i}`;
-    it(`${label} bisync passes --use-server-modtime`, () => {
-      assert.match(body, /--use-server-modtime/, `${label} bisync missing --use-server-modtime (HEAD-storm reintroduced)`);
-    });
-    it(`${label} bisync uses --checkers 64 (not the old 32)`, () => {
-      assert.match(body, /--checkers 64/, `${label} bisync not on --checkers 64`);
-      assert.ok(!/--checkers 32/.test(body), `${label} bisync regressed to --checkers 32`);
-    });
-  }
 });
 
 // ---------------------------------------------------------------------------

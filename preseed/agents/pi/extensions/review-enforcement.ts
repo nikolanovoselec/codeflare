@@ -3,7 +3,7 @@ import { closeSync, existsSync, openSync, readFileSync, readSync, unlinkSync, wr
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { recallActiveRepo } from "./active-repo-memory";
+import { recallActiveRepo, rememberActiveRepoFromToolResult } from "./active-repo-memory";
 import {
   classifyReviewBoundaryCommand,
   isReviewTransitionSuspended,
@@ -268,6 +268,7 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
 export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): void {
   pi.on("tool_result", async (event, ctx) => {
     if (!successful(event)) return;
+    rememberActiveRepoFromToolResult(event, ctx.cwd);
     const boundary = shellCommands(event)
       .map((command) => ({ command, classification: classifyReviewBoundaryCommand(command) }))
       .find(({ classification }) => classification.reminder);

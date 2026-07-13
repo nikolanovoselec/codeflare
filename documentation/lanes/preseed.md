@@ -53,7 +53,7 @@ deployed on Recreate or new bucket creation.
 
 The Custom-tier column reflects the extra Claude Code delivery surface for users on the `unlimited` subscription tier in Advanced mode. Pi starts with context-mode **enabled** by default (its `ctx_*` tools and the bash-curl-redirect hook are active without `/ctx on`); the Codeflare Pi extension provides `/ctx status`, `/ctx on`, and `/ctx off` for per-session control. The next Codeflare container start resets Pi back to enabled. Neither `entrypoint.sh` nor the Pi-native `context-mode-runtime.ts` extension force-sets `CONTEXT_MODE_BRIDGE_IDLE_MS=0` at session start; context-mode's own foreground/subagent split (upstream `#868`) keeps the interactive bridge quiet on its own, while non-foreground/subagent bridge helpers keep the default idle reaper and self-release instead of accumulating ([REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) AC6).
 
-The five Pi tool extensions are installed in the settings `required` set, so they load in every Pi session independently of the context-mode toggle. `@juicesharp/rpiv-advisor` adds the user-invoked `advisor` tool and user-only `/advisor` configuration command; Codeflare overrides the package's prompt guidance at startup so assistants must not call `advisor`, run `/advisor`, or suggest `/advisor` unless the user's current message explicitly asks for advisor. `pi-web-access` adds `web_search`/`fetch_content`; both authenticate through Pi's own model registry / zero-config Exa MCP, so neither needs a per-user API key.
+The five Pi tool extensions are installed in the settings `required` set, so they load in every Pi session independently of the context-mode toggle. Every Pi skill treats `ctx_*` tools as optional: `/ctx off` switches review, SDD, web retrieval, and other workflows to their documented native `read`/`grep`/`bash`, `fetch_content`, or equivalent fallback without narrowing work. `@juicesharp/rpiv-advisor` adds the user-invoked `advisor` tool and user-only `/advisor` configuration command; Codeflare overrides the package's prompt guidance at startup so assistants must not call `advisor`, run `/advisor`, or suggest `/advisor` unless the user's current message explicitly asks for advisor. `pi-web-access` adds `web_search`/`fetch_content`; both authenticate through Pi's own model registry / zero-config Exa MCP, so neither needs a per-user API key.
 
 `@juicesharp/rpiv-todo` remains pinned at 1.20.0 but receives Codeflare's temporary [AD100](../decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) source override after npm install. The override mirrors the unreleased upstream session-isolation correction: task state is keyed by Pi session ID and context-free rendering stays bound to the foreground slot. The installer refuses any other package version. Its payload is present both in the image prewarm directory and in `.pi/agent/npm/rpiv-todo-session-isolation/`, so rebuilt containers and generated user seed converge on the same bytes ([REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation)).
 
@@ -216,7 +216,7 @@ stopping point unless the user says to stop, pause, or reprioritize.
 
 The stricter PR-boundary review push gate is present in default+advanced
 `git-workflow` and repeated in advanced `engineering-constitution`, so generated
-agent instructions receive it through [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) AC7 and advanced sessions also receive the constitution copy through [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents). Source: `preseed/agents/claude/rules/git-workflow.md::Review push gate` and `preseed/agents/claude/rules/engineering-constitution.md::Review push gate`.
+agent instructions receive it through [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) AC6 and advanced sessions also receive the constitution copy through [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents). Source: `preseed/agents/claude/rules/git-workflow.md::Review push gate` and `preseed/agents/claude/rules/engineering-constitution.md::Review push gate`.
 ECC-derived language rules in `{common,typescript,python,golang,swift}/` subdirs
 are advanced-only. `common/coding-style.md` covers shared style; per-language
 `security.md` files stand alone after `common/security.md` removal.
@@ -404,9 +404,7 @@ ownership source.
 scope, while `review-enforcement.ts` handles supported root-session boundaries for
 SDD PRs targeting `main`/`master`. Both use `review-scope`: PR-boundary review and
 `/review --diff` inspect changed hunks plus direct invalidations, while
-`/review --all` and `/sdd clean --all` are exhaustive. The extension names
-required lanes only after the authoritative PR head matches the local pushed checkout;
-settled recovery retries while GitHub propagates the head. The root main session calls
+`/review --all` and `/sdd clean --all` are exhaustive. `/sdd clean` rejects conflicting or unsupported scope flags and places the resolved work-set contract in the dispatched workflow message. The default- and advanced-mode active-repository extension resolves shell `cd` and tool-level cwd context before eligibility, so CI-only default-mode plans do not depend on the advanced main extension. The extension names required lanes only after the authoritative PR head matches the local pushed checkout; settled recovery retries while GitHub propagates the head. The root main session calls
 reviewers together through public background `subagent` calls without inherited
 context, waits for all native completion notifications, fixes legitimate
 findings, and alone commits or pushes. The acknowledged full SHA is the only
@@ -688,8 +686,9 @@ The npm package is fetched by the user's own container from the npm registry on 
 Codeflare no longer ships the former Bash/WebFetch/Grep deny-gate
 (`enforce-ctx-mode.sh`) in the context-mode plugin. Context-mode is
 MCP/indexing only: agents may call the `ctx_*` tools when available, but
-native Bash, WebFetch, and grep-class tools are not blocked by a
-context-mode routing hook. Entrypoint reconciliation prunes stale copies
+every seeded Pi skill names an equivalent non-context fallback and remains
+fully operable after `/ctx off`. Native Bash, WebFetch, and grep-class tools
+are not blocked by a context-mode routing hook. Entrypoint reconciliation prunes stale copies
 of the old deny-gate from managed hook settings so restored containers do
 not retain obsolete hard-routing behavior.
 

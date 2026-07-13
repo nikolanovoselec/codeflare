@@ -8,7 +8,7 @@ const EXPECTED_VERSION = '1.20.0';
 const PAYLOAD_ROOT = dirname(fileURLToPath(import.meta.url));
 const FILES = ['index.ts', 'todo.ts', 'todo-overlay.ts', 'state/store.ts'];
 
-export function installRpivTodoSessionIsolation(npmRoot = process.cwd()) {
+export function installRpivTodoSessionIsolation(npmRoot = process.cwd(), payloadRoot = PAYLOAD_ROOT) {
   const packageRoot = join(npmRoot, 'node_modules/@juicesharp/rpiv-todo');
   const packageJson = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
   if (packageJson.version !== EXPECTED_VERSION) {
@@ -20,7 +20,7 @@ export function installRpivTodoSessionIsolation(npmRoot = process.cwd()) {
   for (const relativePath of FILES) {
     const destination = join(packageRoot, relativePath);
     mkdirSync(dirname(destination), { recursive: true });
-    copyFileSync(join(PAYLOAD_ROOT, relativePath), destination);
+    copyFileSync(join(payloadRoot, relativePath), destination);
   }
 }
 

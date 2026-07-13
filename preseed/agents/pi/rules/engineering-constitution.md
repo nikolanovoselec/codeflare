@@ -11,6 +11,10 @@ These rules govern Pi planning, implementation, review, and handoff.
 
 Every non-trivial plan includes a `Success criteria & verification` section that turns these mandates into checks for the task. Before declaring completion, report how each check was verified.
 
+## Optional tool capabilities
+
+Context-mode is an optional optimization, never a workflow dependency. Every Pi instruction, skill, and agent must work after `/ctx off`: use `ctx_*` tools when available, otherwise use native tools or the skill's documented fallback with the same scope, checks, and result. Never narrow or skip work because a context-mode tool is absent.
+
 ## Review scope contract
 
 Review scope is an explicit input:

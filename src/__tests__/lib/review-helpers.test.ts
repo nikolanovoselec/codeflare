@@ -200,7 +200,7 @@ describe('Claude-equivalent review boundary helpers', () => {
     expect(requiredReviewLanes({ repo, ackHead: base, head: git(repo, 'rev-parse', 'HEAD') })).toEqual(ALL_LANES);
   });
 
-  it('REQ-AGENT-040: uses NUL-safe no-renames diffing so tricky names and source-to-doc renames cannot bypass code review', async () => {
+  it('REQ-AGENT-040: classifies tricky filenames and source-to-doc renames without bypassing code review', async () => {
     const { requiredReviewLanes } = await plannedHelpers();
     const first = makeRepo();
     const sourceHead = commit(first.repo, 'src/original.ts', 'export {};\n', 'source');

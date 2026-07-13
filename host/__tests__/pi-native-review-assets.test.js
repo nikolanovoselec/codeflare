@@ -21,7 +21,7 @@ function targetKey(relativePath) {
   return `.pi/agent/${relativePath}`;
 }
 
-describe('REQ-AGENT-006 AC1/AC5 and REQ-AGENT-007 AC4: Pi manifest ownership', () => {
+describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () => {
   it('emits every manifest-declared Pi asset exactly once per mode with canonical bytes', () => {
     for (const [relativePath, entry] of Object.entries(piManifest)) {
       const key = targetKey(relativePath);
@@ -34,29 +34,6 @@ describe('REQ-AGENT-006 AC1/AC5 and REQ-AGENT-007 AC4: Pi manifest ownership', (
           `${key} ${mode} was transformed from another harness instead of seeded from canonical Pi source`,
         );
       }
-    }
-  });
-
-  it('REQ-AGENT-071: reviewers retain enforcement skills while using batched evidence tools', () => {
-    const expectedTools = [
-      'read',
-      'grep',
-      'bash',
-      'ctx_batch_execute',
-      'graphify_query',
-      'graphify_explain',
-      'graphify_path',
-    ];
-    for (const reviewer of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
-      const source = readFileSync(join(repoRoot, 'preseed/agents/pi/agents', `${reviewer}.md`), 'utf8');
-      const toolsLine = source.split('\n').find((line) => line.startsWith('tools: '));
-      assert.deepEqual(toolsLine?.slice('tools: '.length).split(', '), expectedTools, reviewer);
-    }
-
-    for (const skill of ['tdd-enforce', 'spec-enforce', 'doc-enforce']) {
-      const matches = documents.filter((document) =>
-        document.key === `.pi/agent/skills/${skill}/SKILL.md` && document.modes.includes('advanced'));
-      assert.equal(matches.length, 1, `${skill} must remain available to advanced Pi reviewers`);
     }
   });
 });

@@ -488,6 +488,74 @@ describe('Pi review reminder and settled enforcement', () => {
     }]);
   });
 
+  it('REQ-AGENT-036/REQ-AGENT-068: default mode resolves the repository from a cd-prefixed boundary', async () => {
+    const fixture = makeReviewFixture();
+    const sessionRoot = dirname(fixture.repo);
+    rememberActiveRepo(sessionRoot);
+    const harness = await registerFixture(fixture, sessionRoot);
+    const command = `cd ${fixture.repo} && git push origin pi`;
+    appendSession(fixture.sessionFile,
+      assistantTool('push-1', 'bash', { command }),
+      toolResult('push-1', 'bash'),
+    );
+    const previousMode = process.env.SESSION_MODE;
+    process.env.SESSION_MODE = 'default';
+
+    try {
+      await harness.emit('tool_result', boundaryEvent(command));
+      expect(harness.sent).toEqual([{
+        message: expect.objectContaining({
+          customType: 'pr-boundary-launch-plan',
+          details: {
+            head: fixture.head,
+            ackHead: fixture.base,
+            reviewRange: `${fixture.base}..${fixture.head}`,
+            scope: diffScope(),
+            requiredLanes: [],
+            launchWaves: launchWaves([], true),
+            ciEvent: 'push',
+          },
+        }),
+        options: { deliverAs: 'followUp', triggerTurn: true },
+      }]);
+    } finally {
+      if (previousMode === undefined) delete process.env.SESSION_MODE;
+      else process.env.SESSION_MODE = previousMode;
+    }
+  });
+
+  it('REQ-AGENT-036/REQ-AGENT-068: default mode resolves the repository from batch tool cwd', async () => {
+    const fixture = makeReviewFixture();
+    const sessionRoot = dirname(fixture.repo);
+    rememberActiveRepo(sessionRoot);
+    const harness = await registerFixture(fixture, sessionRoot);
+    const input = { cwd: fixture.repo, commands: [{ command: 'git push origin pi' }] };
+    appendSession(fixture.sessionFile,
+      assistantTool('push-1', 'ctx_batch_execute', input),
+      toolResult('push-1', 'ctx_batch_execute'),
+    );
+    const previousMode = process.env.SESSION_MODE;
+    process.env.SESSION_MODE = 'default';
+
+    try {
+      await harness.emit('tool_result', {
+        toolName: 'ctx_batch_execute',
+        toolCallId: 'push-1',
+        input,
+        result: { content: [{ type: 'text', text: 'ok' }], isError: false },
+      });
+      expect(harness.sent).toHaveLength(1);
+      expect(harness.sent[0]?.message.details).toMatchObject({
+        head: fixture.head,
+        requiredLanes: [],
+        ciEvent: 'push',
+      });
+    } finally {
+      if (previousMode === undefined) delete process.env.SESSION_MODE;
+      else process.env.SESSION_MODE = previousMode;
+    }
+  });
+
   it('REQ-AGENT-063: extracts boundaries only from supported shell tool result surfaces', async () => {
     const cases = [
       { toolName: 'bash', input: { command: 'git push origin pi' }, isError: false, expected: 1 },

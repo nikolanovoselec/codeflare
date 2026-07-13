@@ -1,4 +1,4 @@
-import { resolveReviewScope, scopeContract, type ReviewScopeContract } from "./review-scope";
+import { resolveReviewScope, reviewScopeFlagError, scopeContract, type ReviewScopeContract } from "./review-scope";
 
 export type SddSubcommand = "init" | "edit" | "add" | "clean" | "mode";
 
@@ -72,6 +72,9 @@ export function sddCommandDecision(args: string, state: SddRepoState): SddComman
     };
   }
 
+  const scopeError = subcommand === "clean" ? reviewScopeFlagError(trimmed) : undefined;
+  if (scopeError) return { kind: "error", message: scopeError };
+
   const scope = subcommand === "clean"
     ? scopeContract(resolveReviewScope(trimmed) ?? "diff")
     : undefined;
@@ -82,4 +85,8 @@ export function sddCommandDecision(args: string, state: SddRepoState): SddComman
     normalizedCommand: `/sdd ${trimmed}`,
     ...(scope ? { scope } : {}),
   };
+}
+
+export function sddWorkflowScopeText(decision: Extract<SddCommandDecision, { kind: "workflow" }>): string {
+  return decision.scope ? `Resolved scope: ${JSON.stringify(decision.scope)}` : "";
 }

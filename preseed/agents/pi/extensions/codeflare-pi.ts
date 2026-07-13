@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { cloneTargetPath, effectiveCwdForCommand, ENV_PREFIX, graphifyClonePromptDecision, isFailedToolExecution, renderGraphifyCloneDirective } from "./graphify-helpers";
-import { sddCommandDecision, type SddRepoState, SDD_HELP_TEXT } from "./sdd-helpers";
+import { sddCommandDecision, sddWorkflowScopeText, type SddRepoState, SDD_HELP_TEXT } from "./sdd-helpers";
 import { recallActiveRepo, rememberActiveRepo } from "./active-repo-memory";
 import { attributionBlockReason, localBuildBlockReason } from "./guard-helpers";
 
@@ -551,7 +551,13 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify(decision.message, "warning");
         return;
       }
-      await sendWorkflowMessage(pi, ctx, decision.normalizedCommand, `${skillPrompt(decision.skill, "Use the Codeflare SDD workflow.")}\n\nUser command: ${decision.normalizedCommand}`);
+      const scopeText = sddWorkflowScopeText(decision);
+      await sendWorkflowMessage(
+        pi,
+        ctx,
+        decision.normalizedCommand,
+        `${skillPrompt(decision.skill, "Use the Codeflare SDD workflow.")}\n\nUser command: ${decision.normalizedCommand}${scopeText ? `\n${scopeText}` : ""}`,
+      );
     },
   });
 
