@@ -109,35 +109,7 @@ jobs:
         working-directory: web-ui
 
       - name: Run backend tests
-        # @cloudflare/vitest-pool-workers 0.16.x crashes workerd at pool teardown
-        # ("Worker exited unexpectedly") AFTER every test has passed — a known upstream
-        # flake (cloudflare/workers-sdk), not a test failure. `isolate: false` does NOT
-        # fix it (it crashes the pool during collection instead — verified in CI), so the
-        # crash is tolerated here. NO_COLOR keeps the summary plain text so the guard can
-        # read it. The guard accepts a non-zero exit ONLY when all hold: the pool-crash
-        # fingerprint is present, at least one test passed, and nothing failed. The error
-        # count is NOT pinned: per-file isolation tears down one workerd isolate per file,
-        # so a busy suite emits 2+ of the same teardown crash (verified in CI). A real
-        # failure still prints "N failed" and fails the job. isolate:false (the documented
-        # WS+DO fix) is unusable here — it crashes collection (0 tests). Keep in sync with
-        # deploy.yml.
-        env:
-          NO_COLOR: '1'
-          FORCE_COLOR: '0'
-        run: |
-          set +e
-          npm test 2>&1 | tee /tmp/backend-tests.log
-          status=${PIPESTATUS[0]}
-          set -e
-          if [ "$status" -eq 0 ]; then exit 0; fi
-          if grep -Fq '[vitest-pool]: Worker cloudflare-pool emitted error.' /tmp/backend-tests.log \
-            && grep -Eq 'Errors[[:space:]]+[0-9]+ error' /tmp/backend-tests.log \
-            && grep -Eq 'Tests[[:space:]]+[0-9]+ passed' /tmp/backend-tests.log \
-            && ! grep -Eq '(Test Files|Tests)[[:space:]]+[0-9]+ failed' /tmp/backend-tests.log; then
-            echo "Accepting backend tests: all tests passed; only the known workerd teardown crash remained"
-            exit 0
-          fi
-          exit "$status"
+        run: bash scripts/run-backend-tests.sh
 
       - name: Install host dependencies
         if: steps.cache-host.outputs.cache-hit != 'true'

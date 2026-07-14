@@ -37,21 +37,10 @@ export default defineConfig({
     hookTimeout: 30000,
     include: ['src/**/*.test.ts'],
     exclude: ['web-ui/**', 'e2e/**'],
-    // Serialize the Workers pool to one worker. @cloudflare/vitest-pool-workers
-    // crashes workerd at pool teardown ("Worker exited unexpectedly") AFTER every
-    // test passes — the documented WebSockets + Durable Objects under per-file
-    // storage-isolation limitation (known-issues#websockets). Cloudflare's only
-    // documented fix (--max-workers=1 --no-isolate) is NOT usable here: isolate:false
-    // crashes workerd during *collection* (0 tests run) on pool-workers 0.16.14 AND
-    // 0.16.16 — both verified in CI 2026-06-16. So per-file isolation stays and the
-    // benign post-pass teardown crash is tolerated by the fingerprinted guard in
-    // .github/workflows/test.yml + deploy.yml (which still fails on any real failure).
+    // Cloudflare's documented workaround for WebSockets with Durable Objects:
+    // one worker with shared storage instead of per-file storage isolation.
     maxWorkers: 1,
-
-    // Compact per-test output in CI (dots + summary); full reporter locally.
-    // The deploy/test guards grep only the summary + pool-crash lines, which
-    // the dot reporter still prints.
-    reporters: process.env.CI ? ['dot'] : ['default'],
+    isolate: false,
 
     // v8 coverage configuration (FIX-54)
     coverage: {

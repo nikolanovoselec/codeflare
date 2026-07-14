@@ -69,7 +69,7 @@ Non-default mode credentials, optional deployment variables, environment overrid
 **Workflow permissions:** top-level is `contents: read` (read-only default); the `deploy` job adds `actions: write` (required only for `type=gha` BuildKit cache writes). Code-scanning least-privilege hardening (#56).
 
 1. Install dependencies (cached via `actions/cache`)
-2. Build frontend, then build landing page (`landing/` → `web-ui/dist/landing/`; order matters — the web-ui build wipes `dist/`), run backend + frontend + landing tests, generate Workers runtime types (`wrangler types`), typecheck both
+2. Build frontend, then build landing page (`landing/` → `web-ui/dist/landing/`; order matters — the web-ui build wipes `dist/`), run backend + frontend + landing tests, generate Workers runtime types (`wrangler types`), typecheck both. The backend suite runs through `scripts/run-backend-tests.sh`; any non-zero test-process exit blocks deployment.
 3. Resolve/create KV namespace, patch `wrangler.toml` with KV ID
 4. Apply worker name and container tier from `RESSOURCE_TIER` (low=basic 0.25vCPU/1GiB/4GB, default/saas=1vCPU/3GiB/6GB, high=2vCPU/6GiB/8GB). All tiers default to 10 max instances; `MAX_INSTANCES` variable overrides if set
 5. Optionally generate `.cache-bust` for AI agent layer
@@ -87,7 +87,7 @@ Non-default mode credentials, optional deployment variables, environment overrid
 
 Two parallel jobs:
 - **test**:
-    - Lint (oxlint), build frontend, run backend tests, host hook tests (`node --test`), frontend tests, landing tests (`npm test` in `working-directory: landing` — Container-API render + unit tests)
+    - Lint (oxlint), build frontend, run backend tests through the fail-closed shared launcher, host hook tests (`node --test`), frontend tests, landing tests (`npm test` in `working-directory: landing` — Container-API render + unit tests)
     - generate Workers runtime types (`wrangler types`), typecheck both, dead code check (knip), `npm audit --audit-level=high --omit=dev` for backend and frontend
 - **dependency-review**: Runs `actions/dependency-review-action` on PRs - blocks merging if new dependencies introduce known vulnerabilities
 
@@ -118,11 +118,13 @@ Six parallel jobs, each running lightweight external probes against the producti
 
 ### Backend Tests
 
-**Config:** `vitest.config.ts` with `@cloudflare/vitest-pool-workers` `cloudflareTest()` plugin - tests run in real Workers runtime (not Node.js). **Run:** `npm test` **Coverage:** v8 provider, thresholds: 50% statement/function/line, 40% branch.
+**Config:** `vitest.config.ts` with the `@cloudflare/vitest-pool-workers` `cloudflareTest()` plugin; tests run in the Workers runtime. The installed pool uses Cloudflare's documented WebSocket + Durable Object workaround: one worker (`maxWorkers: 1`) with shared storage (`isolate: false`).
 
-**CI workerd crash guard:** `@cloudflare/vitest-pool-workers` 0.16.x crashes `workerd` at pool teardown after all tests pass — a known upstream flake. The backend test step in `.github/workflows/test.yml` (and the identical pre-deploy gate in `deploy.yml`) runs `npm test` once with `NO_COLOR=1`/`FORCE_COLOR=0` so the summary is plain text, then inspects the exit code: on a non-zero exit it accepts the run only when all four conditions hold — the crash fingerprint `[vitest-pool]: Worker cloudflare-pool emitted error.` is present, the summary reports an `Errors N error` line (the count is not pinned — per-file isolation emits one teardown crash per isolate, so a busy suite reports 2+), a `Tests N passed` line exists, and no `(Test Files|Tests) N failed` line exists.
+**Run:** `scripts/run-backend-tests.sh`, which invokes `npm test` and preserves its process exit status. PR checks, Cloudflare-registry deploys, and Docker Hub fallback deploys all call this launcher. There is no log-fingerprint exception: assertion, collection, runtime, worker-pool, incomplete-suite, and teardown errors all fail CI and block deployment even if other assertions passed.
 
-Ordinary assertion failures (any `(Test Files|Tests) N failed` line) and incomplete runs fail the job immediately. No retry, no hardcoded error count. **Key patterns:** `vi.mock()` must be at module level BEFORE imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in miniflare bindings suppresses log noise. **Notable test files:** `kv-crypto.test.ts` (KV AES-256-GCM encryption + migration), `r2-sse.test.ts` (R2 SSE-C encryption).
+**Coverage:** `vitest.config.ts` contains thresholds, but ordinary CI currently runs without `--coverage`; those thresholds are not an active gate. Cloudflare's Workers Vitest documentation also says native V8 coverage is unsupported, so coverage activation requires the supported Istanbul path rather than treating the current V8 block as enforcement.
+
+**Key patterns:** `vi.mock()` must be at module level before dependent imports. Use `vi.hoisted()` for shared mutable state referenced by mock factories. `LOG_LEVEL: 'silent'` in Miniflare bindings suppresses log noise. **Notable test files:** `kv-crypto.test.ts` (KV AES-256-GCM encryption + migration), `r2-sse.test.ts` (R2 SSE-C encryption), and `backend-test-launcher.test.js` (non-zero exit preservation despite pass-looking crash output).
 
 ### Frontend Tests
 
@@ -161,7 +163,7 @@ Ordinary assertion failures (any `(Test Files|Tests) N failed` line) and incompl
 
 Both root and `web-ui/` use Vitest v4.x with independent `node_modules` and separate configs. Root uses the `cloudflareTest()` plugin from `@cloudflare/vitest-pool-workers` v0.13+ (replaces the old `defineWorkersConfig()` pattern). Web-UI uses jsdom with `vite-plugin-solid`.
 
-**Reporter:** all three Vitest configs (root, `web-ui/`, `landing/`) select the reporter from `process.env.CI`: `dot` (compact, dots + summary) in CI, `default` (full per-test output) locally. The CI workerd crash guard above and its `deploy.yml` counterpart grep only the final summary block and the pool-crash fingerprint line, both of which the `dot` reporter still prints, so the guard is unaffected by the switch.
+**Reporter:** the root Workers suite uses Vitest's default reporter so a runtime crash retains file-level diagnostics. The `web-ui/` and `landing/` configs use `dot` in CI and `default` locally.
 
 ### E2E API Tests
 
