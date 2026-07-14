@@ -258,6 +258,18 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
 
   });
 
+  it('REQ-AGENT-080: generated Pi boundary instructions stop the command turn so follow-up delivery can trigger', () => {
+    for (const key of [
+      '.pi/agent/rules/git-workflow.md',
+      '.pi/agent/skills/pr-workflow/SKILL.md',
+    ]) {
+      const content = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === key)?.content ?? '';
+      expect(content).toMatch(/end the current assistant turn immediately/i);
+      expect(content).toContain('deliverAs: "followUp"');
+      expect(content).toMatch(/gh pr edit/);
+    }
+  });
+
   it('preseeds work continuity, review push, and result handoff gates into every generated instruction surface', () => {
     const instructionKeys = [
       '.codex/AGENTS.md',
