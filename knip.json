@@ -1,5 +1,11 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "src/index.ts",
+    "vitest.config.ts",
+    "vitest.workers.config.ts",
+    "scripts/run-workers-runtime-tests.mjs"
+  ],
   "project": [
     "src/**/*.ts"
   ],
