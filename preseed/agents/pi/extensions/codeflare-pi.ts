@@ -481,7 +481,7 @@ export function setContextModeEnabled(
   packages.push({
     ...contextModePackage,
     extensions: [...contextModePackage.extensions],
-    ...("skills" in contextModePackage ? { skills: [...contextModePackage.skills] } : {}),
+    ...(enabled ? {} : { skills: [...CONTEXT_MODE_DISABLED_PACKAGE.skills] }),
   });
   store.write({ ...settings, packages });
   return enabled ? "enabled" : "disabled";
