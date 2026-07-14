@@ -325,7 +325,7 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
     expect(buildPublicExtractionRequest(base)).toEqual({
       subagent_type: 'memory-capture',
       description: 'Capture session memory',
-      prompt: `CODEFLARE_EXTRACTION_REQUEST=${UUIDS[0]}\nPROMPT_FILE=/prompts/memory.md\nVARS_FILE=/vars/request.json\nRun the deployed Pi extraction contract end to end.`,
+      prompt: `CODEFLARE_EXTRACTION_REQUEST=${UUIDS[0]}\nPROMPT_FILE=/prompts/memory.md\nVARS_FILE=/vars/request.json\nVARS_FILE contains the transcript inline; there is no INPUT_FILE or separate transcript file.\nRun the deployed Pi extraction contract end to end.`,
       run_in_background: true,
       inherit_context: false,
       thinking: 'medium',

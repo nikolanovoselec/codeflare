@@ -22,6 +22,8 @@ Read and validate `VARS_FILE` in the first Bash call. It contains exactly:
 - `captureFilename`: precomputed `.md` basename; use verbatim.
 - `transcript`: user/assistant text already reduced to the uncaptured interval and bounded by the root.
 
+`VARS_FILE` is self-contained: `transcript` is the sole conversation input. There is no `INPUT_FILE`, separate transcript path, or additional frozen-input file. Do not search for or derive one.
+
 Derive:
 
 ```text
@@ -35,7 +37,7 @@ Do not modify `VARS_FILE`, pointers, counters, or manifests. If the transcript h
 
 ## First Bash call: read once
 
-Read `PROMPT_FILE` and `VARS_FILE` once in the same Bash call and emit the validated transcript once. Do not request offsets, grep passes, or a second read.
+Read `PROMPT_FILE` and `VARS_FILE` once in the same Bash call, validate the JSON fields listed above directly, and emit `transcript` once. Do not use `awk`, `grep`, or another lookup to derive an input path; do not request offsets or a second read.
 
 From that one pass, retain:
 

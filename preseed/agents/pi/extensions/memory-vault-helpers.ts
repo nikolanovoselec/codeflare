@@ -151,6 +151,9 @@ export function buildPublicExtractionRequest(input: {
       `CODEFLARE_EXTRACTION_REQUEST=${input.requestId}`,
       `PROMPT_FILE=${input.promptFile}`,
       `VARS_FILE=${input.varsFile}`,
+      ...(input.job === "memory-capture"
+        ? ["VARS_FILE contains the transcript inline; there is no INPUT_FILE or separate transcript file."]
+        : []),
       "Run the deployed Pi extraction contract end to end.",
     ].join("\n"),
     run_in_background: true,
