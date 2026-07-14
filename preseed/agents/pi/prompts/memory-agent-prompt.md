@@ -79,23 +79,16 @@ captured_chunks: 1
 
 Use `captureTimestamp` and `captureFilename` byte-for-byte. Wikilink reusable concepts only; keep paths, symbols, and PR/issues as prose.
 
-In the same Bash call, write `WORK_CHUNK` from the note content. Include one document node for `TARGET`, one `source_file: null` concept node per wikilink, `references` edges for explicit links, and `conceptually_related_to` edges only for concepts co-occurring in one bullet:
+In the same Bash call, build `WORK_CHUNK` with the deployed deterministic helper—do not hand-author graph JSON or substitute another script:
 
-```json
-{
-  "nodes": [
-    {"id":"...","label":"...","file_type":"document|concept","source_file":"<TARGET or null>","source_location":null,"source_url":null,"captured_at":null,"author":null,"contributor":null}
-  ],
-  "edges": [
-    {"source":"...","target":"...","relation":"references|conceptually_related_to","confidence":"EXTRACTED|INFERRED","confidence_score":1.0,"source_file":"<TARGET>","source_location":null,"weight":1.0}
-  ],
-  "hyperedges": [],
-  "input_tokens": 0,
-  "output_tokens": 0
-}
+```bash
+python3 /home/user/.pi/agent/scripts/build-memory-graph.py \
+  "$TARGET_WORK" \
+  "$TARGET" \
+  "$WORK_CHUNK"
 ```
 
-If there are no wikilinks, emit only the document node and no edges.
+The helper uses the note's H1 as the document label, a stable Vault-relative document ID, canonical `concept_<normalised_label>` IDs, one reference per wikilink concept, and one deduplicated conceptual edge per concept pair co-occurring in a bullet. If there are no wikilinks, it emits only the document node and no edges.
 
 Run the required merge and global publication while one lock covers both:
 

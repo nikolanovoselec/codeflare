@@ -488,7 +488,7 @@ exclusion set, but writes a request-specific pending manifest and promotes it
 only after exact success/hash validation; prelaunch edits coalesce and during-run
 edits produce one follow-up ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-VAULT-026](../../sdd/spec/vault.md#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)).
 
-Both prompt contracts read immutable inputs once, write a request-specific work chunk, and require one 300-second lock spanning cumulative merge and global publication. Canonical chunks appear only after publication and qualify root finalization; required failure leaves high-water state unchanged. Visualization is best effort with a 15-second ceiling.
+Both prompt contracts read immutable inputs once, write a request-specific work chunk, and require one 300-second lock spanning cumulative merge and global publication. Pi session capture derives that chunk with the advanced-only `scripts/build-memory-graph.py` asset rather than model-authored graph JSON, keeping semantic IDs and edge uniqueness deterministic. Canonical chunks appear only after publication and qualify root finalization; required failure leaves high-water state unchanged. Visualization is best effort with a 15-second ceiling.
 
 Pi subagents are provided by `@gotgenes/pi-subagents`; the generator adapts
   Claude agent definitions into `.pi/agent/agents/*.md`. The container image

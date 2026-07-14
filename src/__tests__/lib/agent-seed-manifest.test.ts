@@ -1176,6 +1176,18 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(piScript?.content).toContain('nx.compose');
   });
 
+  it('REQ-MEM-009 AC6: Pi seeds its deterministic session-memory graph builder', () => {
+    const builder = AGENTS_SEEDED_CONFIGS.find((document) => (
+      document.key === '.pi/agent/scripts/build-memory-graph.py'
+    ));
+    expect(builder).toMatchObject({
+      key: '.pi/agent/scripts/build-memory-graph.py',
+      contentType: 'text/x-python; charset=utf-8',
+      modes: ['advanced'],
+    });
+    expect(builder?.content.length).toBeGreaterThan(0);
+  });
+
   it('REQ-AGENT-023 AC4: codeflare-pi.ts tolerates missing graph and reports present graph', () => {
     const cp = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/codeflare-pi.ts');
     expect(cp?.content).toContain('graphSummary');

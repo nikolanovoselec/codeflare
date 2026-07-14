@@ -297,6 +297,11 @@
       "advanced"
     ]
   },
+  "scripts/build-memory-graph.py": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "prompts/memory-agent-prompt.md": {
     "modes": [
       "advanced"
