@@ -363,7 +363,7 @@ RUN npm install -g consult-llm-mcp@2.13.4 && \
 # and expose a stable bin path. The shadow-pin workflow updates ONLY
 # CHROME_DEVTOOLS_MCP_VERSION; the image rebuild then regenerates the matching
 # cache and smoke-tests the bin, so a future bump cannot ship a stale cache.
-ENV CHROME_DEVTOOLS_MCP_VERSION=1.5.0
+ENV CHROME_DEVTOOLS_MCP_VERSION=1.6.0
 ENV CHROME_DEVTOOLS_MCP_NPX_CACHE=/opt/codeflare/chrome-devtools-mcp-npx-cache
 ENV CHROME_DEVTOOLS_MCP_BIN=/opt/codeflare/bin/chrome-devtools-mcp
 RUN mkdir -p "$CHROME_DEVTOOLS_MCP_NPX_CACHE" "$(dirname "$CHROME_DEVTOOLS_MCP_BIN")" && \
