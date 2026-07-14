@@ -162,7 +162,13 @@ from graphify.cache import save_semantic_cache
 from pathlib import Path
 
 new = json.loads(Path('.graphify_semantic_new.json').read_text()) if Path('.graphify_semantic_new.json').exists() else {'nodes':[],'edges':[],'hyperedges':[]}
-saved = save_semantic_cache(new.get('nodes', []), new.get('edges', []), new.get('hyperedges', []))
+uncached = [line for line in Path('.graphify_uncached.txt').read_text(encoding='utf-8').splitlines() if line]
+saved = save_semantic_cache(
+    new.get('nodes', []),
+    new.get('edges', []),
+    new.get('hyperedges', []),
+    allowed_source_files=uncached,
+)
 print(f'Cached {saved} files')
 "
 ```
