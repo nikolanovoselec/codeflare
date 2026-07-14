@@ -542,21 +542,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('REQ-AGENT-076 AC1: enabled package settings attach context-mode to the process owner', async () => {
-    const registry: { owner?: symbol } = {};
-    let initialized = 0;
-    const initialize = async () => { initialized += 1; };
-
-    await expect(attachConfiguredContextMode(
-      { packages: [{ ...CONTEXT_MODE_ENABLED_PACKAGE, extensions: [] }] },
-      registry,
-      { on() {} },
-      initialize,
-    )).resolves.toBe(true);
-    expect(initialized).toBe(1);
-  });
-
-  it('REQ-AGENT-076 AC2: /ctx off and on persist package markers and reload the session', async () => {
+  it('REQ-AGENT-076 AC2: /ctx off and on persist package markers and reload the active process', async () => {
     let settings: PiSettings = { packages: ['npm:user-package@1.0.0'] };
     const store = {
       read: () => settings,
@@ -570,15 +556,20 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       reload: async () => { reloads += 1; },
     };
 
+    let initialized = 0;
+    const initialize = async () => { initialized += 1; };
+
     await handleContextModeCommand('off', ctx, store);
     expect(settings.packages).toContainEqual({ ...CONTEXT_MODE_DISABLED_PACKAGE, extensions: [], skills: [] });
     expect(settings.packages).toContain('npm:user-package@1.0.0');
-    expect(contextModeEnabled(settings)).toBe(false);
+    await expect(attachConfiguredContextMode(settings, {}, { on() {} }, initialize)).resolves.toBe(false);
+    expect(initialized).toBe(0);
 
     await handleContextModeCommand('on', ctx, store);
     expect(settings.packages).toContainEqual({ ...CONTEXT_MODE_ENABLED_PACKAGE, extensions: [] });
     expect(settings.packages).toContain('npm:user-package@1.0.0');
-    expect(contextModeEnabled(settings)).toBe(true);
+    await expect(attachConfiguredContextMode(settings, {}, { on() {} }, initialize)).resolves.toBe(true);
+    expect(initialized).toBe(1);
     expect(reloads).toBe(2);
   });
 

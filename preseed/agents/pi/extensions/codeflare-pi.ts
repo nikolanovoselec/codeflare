@@ -490,8 +490,8 @@ export function setContextModeEnabled(
 function contextModeStatusText(store: PiSettingsStore = PI_SETTINGS_STORE): string {
   const enabled = contextModeEnabled(store.read());
   return enabled
-    ? "context-mode is enabled (the default for Pi). Use `/ctx off` to disable it for this running Pi session; the next Codeflare container start re-enables it."
-    : "context-mode is disabled for this running Pi session. Use `/ctx on` to re-enable it now (Pi reloads resources); the next Codeflare container start re-enables it by default.";
+    ? "context-mode is enabled for Pi in this container. Use `/ctx off` to persist the disabled setting and reload this Pi process; the next Codeflare container start restores the enabled default."
+    : "context-mode is disabled for Pi in this container. Use `/ctx on` to persist the enabled setting and reload this Pi process; the next Codeflare container start also restores the enabled default.";
 }
 
 export async function handleContextModeCommand(
@@ -502,13 +502,13 @@ export async function handleContextModeCommand(
   const action = args.trim().toLowerCase().split(/\s+/, 1)[0] || "status";
   if (["on", "enable", "enabled"].includes(action)) {
     setContextModeEnabled(true, store);
-    ctx.ui.notify("context-mode enabled for this session; reloading Pi resources...", "info");
+    ctx.ui.notify("context-mode enabled in Pi settings; reloading this Pi process...", "info");
     await ctx.reload();
     return;
   }
   if (["off", "disable", "disabled"].includes(action)) {
     setContextModeEnabled(false, store);
-    ctx.ui.notify("context-mode disabled; reloading Pi resources...", "info");
+    ctx.ui.notify("context-mode disabled in Pi settings; reloading this Pi process...", "info");
     await ctx.reload();
     return;
   }
@@ -607,7 +607,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("ctx", {
-    description: "Show, enable, or disable context-mode for this running Pi session. Usage: /ctx status|on|off",
+    description: "Show, enable, or disable context-mode in this container's Pi settings. Usage: /ctx status|on|off",
     handler: (args, ctx) => handleContextModeCommand(args, ctx),
   });
 

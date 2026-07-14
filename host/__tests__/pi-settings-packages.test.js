@@ -67,7 +67,7 @@ const REQUIRED = [
 ];
 
 describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
-  it('from empty settings: enables every required package (subagents + context-mode + 5 extensions)', () => {
+  it('REQ-AGENT-076 AC1: container startup enables every required package by default', () => {
     const settings = runAssembly('{}');
     const sources = settings.packages.map(sourceOf);
     for (const spec of REQUIRED) {
@@ -75,7 +75,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     }
   });
 
-  it('REQ-AGENT-089 AC1: subagents retain context-mode skills without context-mode tools', () => {
+  it('REQ-AGENT-089 AC1: package assembly retains context-mode skills without extension autoload', () => {
     const settings = runAssembly('{}');
     const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@1.0.169');
     assert.deepEqual(cm, { source: 'npm:context-mode@1.0.169', extensions: [] });

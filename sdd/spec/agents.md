@@ -2101,15 +2101,15 @@ None.
 
 **Acceptance Criteria:**
 
-1. Pi's foreground session starts with context-mode enabled without requiring `/ctx on`. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-076 AC1: enabled package settings attach context-mode to the process owner) -->
-2. `/ctx off` disables context-mode only for the current Pi session, and `/ctx on` restores it. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::handleContextModeCommand --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-076 AC2: /ctx off and on persist package markers and reload the session) -->
+1. Container startup enables context-mode in Pi's package settings by default. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1: container startup enables every required package by default) -->
+2. `/ctx off` persists the disabled setting and reloads the active Pi process; `/ctx on` persists the enabled setting and reloads it. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::handleContextModeCommand --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-076 AC2: /ctx off and on persist package markers and reload the active process) -->
 3. Custom-tier Claude may receive automatic context-window reduction only while its tier remains eligible. <!-- @impl: src/lib/r2-seed.ts::getConfigsForMode --> <!-- @test: host/__tests__/entrypoint-context-mode.test.js (entrypoint context-mode preseed gate / REQ-AGENT-005 + REQ-AGENT-076 (context-mode MCP registration)) -->
 4. The Pi settings required set installs the five always-on tool extensions. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly (entrypoint.sh)) -->
 5. Build-time patching neutralizes context-mode's npm update probe in both installed copies. <!-- @impl: scripts/patch-context-mode-bundles.mjs::BUNDLE_NAMES --> <!-- @test: host/__tests__/dockerfile-context-mode-patch.test.js (Dockerfile context-mode patch (createRequire shim + REQ-AGENT-076 AC4 update-check disable)) -->
 6. Pi `web_search` defaults to the headless-safe `auto-summary` workflow. <!-- @impl: entrypoint.sh::PI_WEB_SEARCH_JSON --> <!-- @test: host/__tests__/entrypoint-pi-web-search.test.js (entrypoint.sh Pi web-search workflow default) -->
 7. An inherited bridge-idle override does not disable context-mode's managed idle policy. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::clearInheritedContextModeBridgeIdleOverride --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-076 AC7: Pi context-mode runtime extension clears an inherited bridge-idle override so context-mode governs per-session) -->
 
-**Notes:** Foreground startup and `/ctx` toggles are also covered by the [manual verification checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+**Notes:** Container startup restores the enabled default; `/ctx` changes persist in shared Pi settings until then. Foreground tool availability is also covered by the [manual verification checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -2417,7 +2417,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. In-process Pi subagents retain context-mode skills but do not receive context-mode tools. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-089 AC1: subagents retain context-mode skills without context-mode tools) -->
+1. Pi package assembly retains context-mode skills while disabling shared extension autoload. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-089 AC1: package assembly retains context-mode skills without extension autoload) -->
 2. Starting an in-process Pi subagent does not initialize a second context-mode owner. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachContextModeToForeground --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-089 AC2: one process owner rejects child context-mode initialization) -->
 3. After the owning session shuts down, a new session can initialize context-mode. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachContextModeToForeground --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-089 AC3: owner shutdown permits context-mode reattachment) -->
 
