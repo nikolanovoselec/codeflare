@@ -205,6 +205,10 @@ Within a row the path is pinned to the right edge for every folder so all paths 
 Clicking a file opens it inline in a new browser tab (served with an XSS-safe
 Content-Type + `nosniff`) rather than downloading it.
 
+**Append-only pagination.** The Worker already returns R2's continuation token and defaults each browser request to a 200-object page. The store now retains that token and, when the real `.storage-drop-zone` reaches its bottom edge, requests one continuation at a time and appends only unseen object keys/prefixes in response order. A browse generation and prefix snapshot reject late success/failure from older navigation; continuation failure leaves existing rows and the token intact for explicit retry. <!-- @impl: web-ui/src/stores/storage.ts::loadMore --> <!-- @impl: web-ui/src/components/storage/FileList.tsx::FileList -->
+
+The first continuation attempt sets a sticky `paginationStarted` flag for that page-one generation, including on failure. The 30-second timer then stops replacing the accumulated listing but continues refreshing quota/statistics; explicit navigation/manual refresh starts a new generation and resets pagination state. The footer reuses the existing spinner and shows a local retry action without hiding loaded rows. <!-- @impl: web-ui/src/components/StorageBrowser.tsx::StorageBrowser -->
+
 **Traversal safety.** The browse endpoint (`src/routes/storage/validation.ts::validateKey`)
 validates every requested prefix and rejects parent-directory (`../`) references, so a
 probe cannot escape the user's bucket root — a rejected prefix causes the endpoint to

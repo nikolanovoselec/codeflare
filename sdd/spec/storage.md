@@ -488,8 +488,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 4. Clicking a file in the browser opens it inline in a new browser tab (view) rather than downloading it. <!-- @test: web-ui/src/__tests__/components/FileList.test.tsx (FileList — clicking a file opens it in a new tab (not download)) -->
 5. Every folder row surfaces its in-container path in `~/<prefix>` form so the user can see where it maps, at any depth and including dotfolders. <!-- @impl: web-ui/src/components/storage/FileList.tsx::folderShortPath --> <!-- @test: web-ui/src/__tests__/components/FileList.test.tsx (FileList — every folder surfaces its ~/ container path (REQ-STOR-016)) -->
 6. A special folder surfaces its canonical container-path mapping instead of the derived form, since its prefix casing can differ (`workspace/` maps to `~/Workspace`). <!-- @impl: web-ui/src/components/storage/FileList.tsx::shortContainerPath --> <!-- @test: web-ui/src/__tests__/components/FileList.test.tsx (FileList — special folder surfaces its container path on the row) -->
+7. Reaching the list end requests the next R2 page and appends unique rows in order; a stale continuation cannot alter newer navigation, a failed continuation preserves existing rows and can retry the same token, and periodic listing replacement stops after pagination begins while statistics continue refreshing. <!-- @impl: web-ui/src/stores/storage.ts::loadMore --> <!-- @impl: web-ui/src/components/storage/FileList.tsx::FileList --> <!-- @impl: web-ui/src/components/StorageBrowser.tsx::StorageBrowser --> <!-- @test: web-ui/src/__tests__/stores/storage.test.ts (REQ-STOR-016 AC7: appends a continuation page once and deduplicates rows) --> <!-- @test: web-ui/src/__tests__/stores/storage.test.ts (REQ-STOR-016 AC7: ignores a continuation response from an older browse generation) --> <!-- @test: web-ui/src/__tests__/stores/storage.test.ts (REQ-STOR-016 AC7: preserves rows on failure and retries the same continuation) --> <!-- @test: web-ui/src/__tests__/components/FileList.test.tsx (REQ-STOR-016 AC7: requests the next page only at the scroll boundary) --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (renders the loading footer structurally while a continuation is active) --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (delegates continuation error retry to the store) --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (REQ-STOR-016 AC7: suppresses listing refresh after pagination starts while stats continue) -->
 
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+**Notes:** Manual presentation procedures remain in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist); continuation behavior and timer ownership are documented in [Storage and Sync](../../documentation/lanes/storage-and-sync.md#file-browser-req-stor-016). AC7 tests were authored before implementation; their static RED reasons were the absent `loadMore`/retry/state contract, absent scroll-boundary delegation/footer states, and the timer's unconditional page-one refresh.
 
 **Constraints:**
 
@@ -499,7 +500,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-007](#req-stor-007-web-file-browser)
 
-**Verification:** Manual check
+**Verification:** [Storage store tests](../../web-ui/src/__tests__/stores/storage.test.ts), [file-list behavior tests](../../web-ui/src/__tests__/components/FileList.test.tsx), [Storage Browser timer tests](../../web-ui/src/__tests__/components/StorageBrowser.test.tsx), and the [manual presentation checklist](../../documentation/lanes/architecture.md#manual-verification-checklist)
 
 **Status:** Implemented
 
