@@ -205,7 +205,7 @@ Fix: `vtExtensions: { colorSchemeQuery: false }` passed to the `Terminal` constr
 
 ### Root Cause
 
-`@xterm/xterm` is pinned to `6.1.0-beta.288`. Its deferred viewport-DOM synchronization fixes Pi's full-scrollback flicker and its full-buffer trim preserves surviving content for a scrolled-up user. The older xterm 6.0 correction history remains relevant to bottom-following and focus resets; generic post-write distance correction stays removed, with only the configured-full zero-clamp boundary recovery described below.
+`@xterm/xterm` is pinned to `6.1.0-beta.288`. Its deferred viewport-DOM synchronization fixes Pi's synchronized-output flicker, and its full-buffer trimming owns the surviving-content anchor for a user reading scrollback. The Codeflare regression was not an xterm defect: write-side distance restoration and scroll-event reset correction both tried to override xterm, then reacted to the programmatic scroll events they generated.
 
 xterm 6.0.0 replaced `.xterm-viewport` (native `overflow-y: scroll` with a scroll-area div) with VS Code's `SmoothScrollableElement` (JS-based scrolling via transforms). Despite this, the terminal would jump to the top of scrollback during burst output (git: Fix 8). Root cause was a vicious cycle between two performance hacks:
 
@@ -223,42 +223,33 @@ xterm 6.0.0 replaced `.xterm-viewport` (native `overflow-y: scroll` with a scrol
 
 **Solution:** Remove both hacks. `_syncTextArea` stays active so the textarea follows the cursor -- the browser's focus-scroll then targets the cursor position (bottom of terminal), not `(0,0)`. The scroll guard is no longer needed because the focus-scroll no longer causes a snap to top. The ~30 style recalcs/sec on a single hidden element is negligible compared to the scroll corruption it was preventing.
 
-**Three-layer fix** (git: Fix 9, extended by Fix 10):
+**Current ownership model:**
 
-1. **CSS: Kill native scroll on viewport** -- `.xterm .xterm-viewport { overflow: hidden !important; }`. Since xterm 6.0.0's viewport div is empty (SmoothScrollableElement handles scrolling), this has no side effects. Originally mobile-only (`@media (pointer: coarse)`); extended to all devices.
+1. **FOLLOW_OUTPUT** -- the synchronous `useScrollCorrection()` guard owns bottom following. It re-anchors before paint only when the terminal was already following output and no correlated user scroll intent transferred ownership.
 
-2. **Synchronous bottom-following guard** -- `useScrollCorrection()` handles xterm's `onScroll` event before paint. It re-anchors only a terminal that was following output and yields to recent user scroll intent.
+2. **READ_SCROLLBACK** -- wheel, pointer, navigation-key, touch-scroll, and registered external intent transfer ownership to the user until the viewport returns to the live bottom. xterm alone applies output-driven scrollback trimming. Reaching `viewportY === 0` as viewed lines age out is valid and does not trigger restoration.
 
-3. **Scroll-drop detector**
-
-   `useTerminal` subscribes to xterm's `onScroll` event and monitors for sudden ydisp drops to 0 when ybase is high. If detected, it immediately corrects via `queueMicrotask(() => scrollToBottom())`.
-
-   This catches resets from any source: write path, resize, keyboard, or browser focus-validation.
+3. **MOBILE_INPUT_LOCKED** -- opening the touch keyboard keeps the established fit-and-bottom transition in `useTerminal()`. Generic correction stays inactive while the keyboard is open, and vertical swipes remain terminal input gestures; fullscreen application mouse tracking remains the deliberate exception.
 
 **Verification (git: Fix 10):** Deep analysis of xterm 6.0.0 source confirmed that `.xterm-viewport` is genuinely empty (`CoreBrowserTerminal.ts` creates a bare `<div>` with no children), no xterm code reads/writes `_viewportElement.scrollTop`, mouse wheel is handled by `SmoothScrollableElement` JS (`scrollableElement.ts`), and the visible scrollbar is the overlay widget (`.xterm-scrollable-element > .scrollbar`). `overflow: hidden` on an empty element has zero functional impact on xterm.
 
 **Additional hardening:**
 - All `fitAddon.fit()` call sites are guarded with `containerEl.clientHeight === 0` checks to prevent zero-row dimension calculations during CSS visibility transitions (inactive terminals have `height: 0`).
 - All `scrollToBottom()` call sites check `viewportY >= baseY` before scrolling to preserve manual scrollback position.
-- `flushWriteBuffer()` leaves ordinary non-zero trim shifts to xterm 6.1. It restores distance only when an unchanged, configured-full buffer exhausts that native anchor and clamps a previously scrolled-up viewport to zero.
+- `flushWriteBuffer()` only passes the batch to xterm; it does not inspect or alter viewport position after the write.
 - `refitAllTerminals()` skips the resize WS message if dimensions didn't change.
 
-### Distance-Based Detection
+### Persistent Manual Ownership
 
-Absolute `ydisp === 0` detection false-positived during scrollback trimming: xterm legitimately decrements ydisp as old lines are removed (399->398->...->1->0). The detector therefore compares adjacent **distance from bottom** values (`baseY - ydisp`) and only treats a direct jump from a deep viewport to zero as suspicious. During a browser focus reset, ydisp snaps to 0 while baseY stays large, causing distance to jump dramatically (git: Fix 15, supersedes Fix 14).
+The earlier distance-from-bottom detector remained incorrect at the full-buffer boundary. xterm can legitimately move a manually selected viewport from a deep offset all the way to zero when one dense batch ages out every viewed line; the detector treated that native transition as a focus reset and injected `scrollLines()`. The write callback could then restore distance again, producing more `onScroll` events and visible top/bottom snapping.
 
-**Detection predicates:** A browser reset is detected when ALL of the following hold:
-- `previousYdisp > 20`
-- `ybase > 20`
-- `distanceDrift > 20` (impossible during normal trimming which changes distance by at most 1-2 lines)
-
-**Distance-based restoration:** Restores using `targetY = currentBaseY - savedDistanceFromBottom`, applied as a **delta** (`targetY - currentY`). This is trim-safe because it uses the user's relative position, not absolute coordinates.
+The short intent window now serves only to correlate a wheel, pointer, navigation-key, touch, or registered external action with its first scroll event. Once correlated, manual ownership persists without a timer and is released only when the viewport reaches the live bottom. No generic zero-clamp or distance-restoration heuristic remains.
 
 ### xterm 6.1 Native Full-Buffer Anchoring
 
 When the 1000-line scrollback is full, xterm 6.1 decrements `viewportY` as old lines trim so the same surviving content remains under a scrolled-up user. Codeflare's older generic distance guard interpreted every multi-line shift as drift and called `scrollLines` toward the former distance after each 33ms batch, repeatedly overriding xterm and pulling the viewport toward the live prompt.
 
-Removing that generic correction exposed the opposite boundary: once a dense batch trims at least the current `viewportY`, xterm's native anchor reaches zero and cannot decrement further, leaving the viewport clamped at the top. `flushWriteBuffer()` now snapshots distance only for a non-top, scrolled-up viewport whose `baseY` equals the configured scrollback cap. After parsing, it restores that distance only if `baseY` is unchanged and `viewportY` reached exactly zero. Ordinary shifts such as `500 -> 490` remain untouched, bottom followers stay owned by `useScrollCorrection()`, and no suppression counter or `scrollToBottom()` call is reintroduced.
+Once a dense batch trims at least the current `viewportY`, xterm's native anchor reaches zero because the lines the user was viewing no longer exist. Codeflare now accepts that oldest-available-line boundary. `flushWriteBuffer()` performs no viewport correction, while `useScrollCorrection()` retains manual ownership so the zero offset cannot be reclassified as bottom-following or pulled toward the live prompt.
 
 #### Keyboard-Open Suppression
 
@@ -266,11 +257,11 @@ With the keyboard open, normal terminal scrollback is bottom-anchored: output au
 
 1. Keyboard height change effect called `scrollToBottom()` (leading + trailing edge)
 2. ResizeObserver called `scrollToBottom()` ~18 times during 300ms keyboard animation
-3. Scroll-reset detector could fire on side effects of the above
+3. Generic scroll correction could react to side effects of the above
 
 **Solution:**
-1. **Skip scroll-reset detector when keyboard open** -- the detector handles xterm viewport resets; fullscreen wheel reports do not alter that viewport. Early return in `onScroll` when `isVirtualKeyboardOpen()`.
-2. **Remove ResizeObserver scrollToBottom when keyboard open** -- the keyboard height change effect already handles fit + scrollToBottom during animation. ResizeObserver adding concurrent scrolls was redundant and caused thrash.
+1. **Disable generic correction during touch-keyboard mode** -- keyboard lifecycle owns fit and bottom anchoring; fullscreen wheel reports do not alter the xterm viewport.
+2. **Keep ResizeObserver from adding keyboard-open bottom snaps** -- the keyboard height effect already owns fit + bottom during animation, so concurrent observer snaps remain redundant.
 
 The keyboard height effect remains the source of truth for keyboard-transition refits; the pre-paint scroll-event handler preserves bottom-following output.
 
@@ -282,16 +273,16 @@ Users following the prompt saw flashing when generic post-write correction compe
 
 1. **Bottom-following correction stays in `onScroll`** (`useScrollCorrection.ts`) -- when `wasFollowingOutput` is true and `ydisp < ybase`, call `scrollToBottom()` immediately. The `isCorrectingScroll` flag prevents recursion, and recent wheel/pointer/navigation intent prevents trapping a user at the bottom.
 
-2. **Write-side recovery is boundary-only** (`terminal.ts`) -- `flushWriteBuffer()`'s write callback performs only the configured-full `viewportY > 0 -> 0` clamp recovery; every non-zero native anchor shift remains unmodified, verified by `terminal.test.ts`'s boundary-guard cases ([REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming) AC7).
+2. **Writes never correct scrolling** (`terminal.ts`) -- `flushWriteBuffer()` delegates the complete batch to xterm with no callback-owned distance restoration, line scrolling, or bottom snap. Integrated tests compose `write()` with native-like `onScroll` events to prove that prolonged trimming cannot create a correction loop ([REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming) AC2/AC3/AC7).
 
 ### Scroll Stability Overhaul Context
 
-Earlier iterations introduced overlapping scroll-correction mechanisms that fought each other (oscillation on mobile with keyboard open). The overhaul (git: Fix 13) simplified to:
-- Narrowed reset detection to `ydisp === 0` (browser focus-reset always snaps to 0)
-- Removed `drop > 3` heuristic (xterm natively adjusts viewportY during trim)
-- Added `isCorrectingScroll` re-entrancy guard
-- External scroll intent API (`lib/terminal-scroll-intent.ts`) so floating buttons don't trigger the detector
-- Scrollback reduced from 10,000 to 1,000 lines; virtual scroll disabled (`CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL=1`)
+Earlier iterations introduced overlapping correction mechanisms that fought each other. The current design keeps only:
+- A synchronous bottom-follower guard with a re-entrancy flag
+- Persistent manual ownership established by correlated intent
+- External intent registration for floating-button page navigation
+- Explicit touch-keyboard lifecycle ownership
+- A 1,000-line scrollback cap with agent-side virtual scrolling disabled
 
 ## WebSocket Recovery
 
@@ -303,23 +294,23 @@ The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_
 
 ## Scroll-Stability Integration Test Plan
 
-[REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output) (scroll-drop detection during burst output) and [REQ-MOB-012](../../sdd/spec/mobile.md#req-mob-012-scroll-anchoring-during-keyboard-transitions) (scroll anchoring during keyboard transitions) describe xterm.js scroll behaviour wired through module-internal helpers in `web-ui/src/stores/terminal.ts` and `web-ui/src/hooks/useTerminal.ts`. The right verification surface is a Playwright E2E suite running under `E2E_MOBILE=1` in the `e2e-ui-mobile` workflow job (extension to `e2e/ui/mobile-specific.test.ts`).
+[REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output) and [REQ-MOB-012](../../sdd/spec/mobile.md#req-mob-012-scroll-anchoring-during-keyboard-transitions) define one scroll owner per terminal mode across `terminal.ts`, `useScrollCorrection.ts`, `useTerminal.ts`, and `touch-gestures.ts`. Behavioral unit tests compose batched writes with native-like `onScroll` feedback and verify keyboard lifecycle/gesture routing. The mobile Playwright job remains the deployed-browser check for visual stability.
 
 ### REQ-MOB-004 test scenarios
 
-1. **Burst output retains bottom anchor.** Start a session, open a terminal tab, send `for i in {1..2000}; do echo "line $i"; done` via the WS, wait for output to settle.
-    - Assert `page.evaluate(() => terminal.buffer.active.viewportY >= terminal.buffer.active.baseY)` returns true (no scroll drop).
-2. **Focus loss/regain does not reset viewport.** Defocus the terminal, refocus via `page.evaluate(() => document.body.click())`, assert viewport remains at bottom (no `ydisp` drop to 0).
-3. **Viewport overflow style.** Inspect computed style of `.xterm .xterm-viewport`, assert `overflow: hidden` is present (xterm 6.0.0 `SmoothScrollableElement` invariant).
+1. **Burst output retains bottom anchor.** Start a session, open a terminal tab, stream more than the 1,000-line cap, and confirm a bottom follower remains at the live prompt.
+2. **Manual ownership survives prolonged trimming.** Scroll into history, continue output beyond the intent-correlation window, and confirm xterm keeps the surviving-content anchor without Codeflare pulling toward the prompt. If all viewed lines age out, remaining at the oldest available line is correct.
+3. **Returning to bottom restores following.** Scroll back to the live prompt, continue output, and confirm bottom following resumes.
+4. **Viewport overflow style.** Confirm `.xterm .xterm-viewport` retains `overflow: hidden`; xterm's scroll layer remains the sole scroller.
 
 ### REQ-MOB-012 test scenarios
 
-1. **Keyboard-open burst pins to bottom.** Tap terminal to open the virtual keyboard, send a burst, assert viewport remains pinned to bottom with no flicker (scroll-reset detector is silent because the keyboard-open branch is taken).
-2. **Ordinary trim keeps surviving content.** Fill the 1000-line scrollback, scroll up, continue with a small output batch, and assert xterm's non-zero viewport shift is not corrected toward the bottom.
-3. **Dense trim cannot clamp to top.** From a non-top scrolled-up position in a configured-full buffer, stream enough output to exhaust the native anchor and assert the prior distance is restored instead of leaving `viewportY = 0`.
-4. **Keyboard transition does not override manual scrollback.** With the keyboard closed, scroll during active output and assert only the full-buffer zero-clamp boundary can invoke write-side recovery.
+1. **Tap opens and anchors.** Tap the terminal, confirm the virtual keyboard opens, and confirm the lifecycle fit performs one intentional bottom anchor.
+2. **Keyboard-open viewport is locked.** During keyboard-open output, confirm generic correction does not move the viewport and ordinary vertical swipes send terminal arrow input.
+3. **Fullscreen exception remains application-owned.** In an application that enables mouse-wheel tracking, confirm vertical swipes continue through xterm's wheel pipeline.
+4. **Keyboard close restores scrollback.** Close the keyboard, confirm vertical swipes scroll terminal history, and confirm manual ownership persists until the viewport returns to bottom.
 
-The Verification fields in [`sdd/spec/mobile.md`](../../sdd/spec/mobile.md) point at this plan; CQ-1 truth check resolves on test file annotation once the Playwright suite is written.
+The Verification fields in [`sdd/spec/mobile.md`](../../sdd/spec/mobile.md) point at the committed behavioral tests; this checklist supplies deployed-browser confirmation of rendering and native event ordering.
 
 ---
 

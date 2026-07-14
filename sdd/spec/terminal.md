@@ -456,24 +456,25 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 ### REQ-TERM-014: Terminal scroll anchoring under scrollback trimming
 
-**Intent:** Long-running terminal output remains stable when scrollback is trimmed, so following output stays at the prompt and user-scrolled views do not jump unexpectedly.
+**Intent:** Long-running terminal output has one viewport owner per interaction mode: bottom followers track the live prompt, xterm preserves manually selected scrollback until the user returns to bottom, and the mobile keyboard lifecycle owns bottom anchoring while open.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A terminal following the bottom remains at the bottom while output exceeds the scrollback cap. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (useScrollCorrection / REQ-TERM-014 terminal scroll anchoring) -->
-2. A terminal scrolled away from the bottom keeps the same visible content anchored while additional output fills and trims the 1000-line scrollback; post-write handling does not pull the viewport toward the bottom. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014: preserves xterm viewport anchoring when full scrollback trims during a batched write) -->
-3. Catastrophic scroll reset correction runs only for true reset events and does not loop on ordinary scrollback trimming. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (useScrollCorrection / REQ-TERM-014 terminal scroll anchoring) -->
-4. Resizing a visible terminal preserves the user's scroll anchor. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014: preserves xterm viewport anchoring when full scrollback trims during a batched write) -->
+1. A terminal following the bottom remains at the bottom while output exceeds the scrollback cap. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014: re-anchors a bottom-following terminal when scrollback trimming displaces it) -->
+2. Wheel, pointer, navigation-key, touch-scroll, or registered external scroll intent transfers persistent viewport ownership to the user until the viewport returns to the live bottom, including during output that continues beyond the gesture-correlation window. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014 AC2/AC3/AC7: manual scroll ownership persists when output trimming reaches zero) -->
+3. Batched writes delegate all output-driven scrollback trimming to xterm and never restore a saved distance, inject line scrolling, or force the live bottom; when viewed lines age out, the user-owned viewport may legitimately reach the oldest available line. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC2/AC3/AC7: streamed output leaves a user-owned full-buffer viewport at the oldest available line) -->
+4. Returning a manually owned viewport to the live bottom releases that ownership and restores bottom following for later output. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014 AC1/AC2: returning to bottom releases manual ownership and restores bottom following) -->
 5. A resize frame is emitted only for a visible, connected terminal, carrying its current fitted dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::resize --> <!-- @test: host/__tests__/session-resize-authority.test.js (REQ-TERM-014: accepts resize frames only from the foreground WebSocket owner) -->
 6. A pane that loses focus before its terminal connection opens does not claim resize authority when that connection later opens. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::clearPendingResizeAuthority --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-014: clears a queued resize-authority claim when the pane loses focus) -->
-7. When an unchanged, configured-full scrollback buffer exhausts native content anchoring and clamps a previously scrolled-up viewport to zero during a write, the prior distance from the bottom is restored before render. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC7: restores distance when an unchanged full buffer clamps viewport to the top) -->
+7. Scroll ownership is mutually exclusive by mode: the synchronous guard owns bottom following, xterm owns output trimming while the user reads scrollback, and the touch-keyboard lifecycle owns its explicit fit-and-bottom transition while generic correction remains inactive. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-MOB-012 AC2: freezes correction-owned viewport movement while the touch keyboard is open) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (should scroll to bottom when keyboard opens (closed→open transition)) -->
 
 **Constraints:**
 
-- Scroll ownership must be centralized so write, resize, and reset-correction paths do not fight each other.
-- Ordinary non-zero trim shifts remain owned by xterm; post-write recovery is limited to the full-buffer zero-clamp boundary.
+- A zero display offset during full-buffer trimming is valid xterm behavior and is not, by itself, evidence of a browser reset.
+- The short intent window correlates input with the first scroll event; it does not expire persistent manual ownership.
+- Floating-button page navigation registers external intent through the same ownership path.
 - Mobile keyboard resize behavior must preserve the existing virtual-keyboard safeguards.
 
 **Priority:** P1

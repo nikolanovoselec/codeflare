@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), then [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), then [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -114,6 +114,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports) | context-mode is foreground-owned in Pi; in-process subagents use native transports | Agents, Architecture |
 | [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional) | Pi extraction delivery is root-owned, visible, and transactional | Agents, Architecture |
 | [AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) | Pi extraction agents use bounded medium reasoning and one-pass inputs | Agents, Memory, Performance |
+| [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) | Terminal viewport ownership is mode-based; xterm owns manual scrollback trimming | Architecture, Mobile |
 
 ---
 
@@ -2513,6 +2514,24 @@ Required graph publication remains unchanged. Each worker writes its graph to `<
 **Alternatives considered:** Keep broad tools and rely on stronger prose; retain 200-turn replay and merely lower reasoning; move extraction into a new service/queue; or add a separate success receipt. Prompt-only restraint did not stop the live worker, lowering reasoning alone would leave repeated input cost, a service/queue is disproportionate, and the canonical request chunk already provides a post-commit qualification artifact.
 
 **Related:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-014](../../sdd/spec/memory.md#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional), [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad), [AD60](#ad60-pi-memory-capture-reuses-the-ad58-contract-and-transcript-prefilter), [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional).
+
+---
+
+### AD104: Terminal viewport ownership is mode-based; xterm owns manual scrollback trimming
+
+**Category:** Architecture, Mobile
+
+**Status:** Accepted (2026-07-14)
+
+**Context:** Under sustained output with a full scrollback buffer, xterm legitimately moves a manually selected viewport toward zero as old lines are discarded. Codeflare's write callback restored a saved distance at the zero boundary while a separate scroll-event path interpreted the same transition as a browser reset. Each programmatic correction emitted more scroll events, so competing paths repeatedly snapped between the oldest content and the live prompt. The bug intensified after the prior programmatic-scroll suppression handoff was removed. The next xterm beta changes only WebGL atlas invalidation and does not alter this event ordering.
+
+**Decision:** Terminal scrolling has one owner per mode. A synchronous scroll-event guard owns `FOLLOW_OUTPUT` and yields to correlated user intent. Wheel, pointer, navigation-key, touch-scroll, and registered external intent enter `READ_SCROLLBACK`; ownership persists until the viewport returns to the live bottom, while xterm alone owns every output-driven trim, including a legitimate zero offset after viewed lines age out. `MOBILE_INPUT_LOCKED` remains the explicit exception: tapping opens the keyboard, the keyboard lifecycle performs fit plus bottom anchoring, generic correction stays inactive, and vertical swipes remain terminal input or fullscreen application wheel gestures. The write buffer performs no scroll correction.
+
+**Consequences:** Sustained output cannot create a write/onScroll/programmatic-scroll feedback loop. A user reading history is never pulled toward the prompt, although content that has actually aged out cannot be preserved and correctly leaves the viewport at the oldest available line. Returning to bottom deterministically restores following. Mobile keyboard-open behavior remains intentionally bottom-locked instead of inheriting desktop manual-scroll ownership.
+
+**Alternatives considered:** Upgrade xterm alone; retain write-side zero-clamp recovery; keep a distance-based browser-reset heuristic; or use a short grace timer as ownership. The available xterm update has no relevant scroll change, both correction heuristics misclassify valid full-buffer transitions, and a timer cannot represent the persistent user state.
+
+**Related:** [REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming), [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output), [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll), [REQ-MOB-012](../../sdd/spec/mobile.md#req-mob-012-scroll-anchoring-during-keyboard-transitions), [Mobile scroll stability](../lanes/mobile.md#scroll-stability).
 
 ---
 

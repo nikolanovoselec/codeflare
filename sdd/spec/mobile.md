@@ -144,23 +144,23 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ### REQ-MOB-004: Scroll-drop detection during burst output
 
-**Intent:** The terminal viewport must not lose its scroll position when burst output trims the scrollback buffer or when the browser silently resets `ydisp` to 0 on focus changes.
+**Intent:** Burst output must preserve explicit terminal viewport ownership without treating xterm's normal full-buffer trimming as a browser reset.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. The terminal viewport disables native scrolling on all devices so xterm's own scroll layer is the sole scroller. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
-2. The browser's focus-scroll targets the cursor position at the bottom of the terminal, not the top-left origin. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-MOB-004 AC4 + REQ-MOB-012 AC4: restores a scrolled-up user after a browser focus reset snaps viewport to 0) -->
-3. A bottom-following scroll-event guard re-applies bottom alignment before paint. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014: re-anchors a bottom-following terminal when scrollback trimming displaces it) -->
-4. A scroll-drop detector watches for sudden display-offset drops to zero while the base is high and corrects them. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (useScrollCorrection / REQ-TERM-014 terminal scroll anchoring) -->
-5. Distance-based detection (rather than equality against zero) distinguishes browser focus resets from normal scrollback trimming; small drifts are ignored. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-MOB-004 AC5: ignores a small distance drift (normal scrollback trimming, not a reset)) -->
+2. Manual scroll intent transfers viewport ownership to the user, and that ownership persists until the viewport reaches the live bottom rather than expiring on a timer. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014 AC2/AC3/AC7: manual scroll ownership persists when output trimming reaches zero) -->
+3. A bottom-following scroll-event guard re-applies bottom alignment before paint and yields when the user owns the viewport. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014: re-anchors a bottom-following terminal when scrollback trimming displaces it) -->
+4. A full-buffer trim that moves a manually owned viewport to zero remains under xterm's control and triggers no synthetic restoration or bottom snap. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC2/AC3/AC7: streamed output leaves a user-owned full-buffer viewport at the oldest available line) -->
+5. Ordinary trim shifts, including shallow movement to the oldest available line, are not corrected while the user owns the viewport. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-MOB-004 AC4/AC5: keeps a shallow manually owned viewport at top when viewed lines age out) -->
 
 **Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
-- Post-write handling cannot override xterm's ordinary non-zero anchor; recovery is limited to an unchanged configured-full buffer clamped at zero.
+- Post-write handling cannot override xterm's native anchor, including when it reaches zero.
 - Scrollback is limited to 1000 lines on both frontend and headless renderers; agent-side virtual scrolling is disabled.
 - The keyboard-transition correction + user-anchoring behavior live in [REQ-MOB-012](#req-mob-012-scroll-anchoring-during-keyboard-transitions).
 
@@ -168,7 +168,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Dependencies:** [REQ-TERM-008](terminal.md#req-term-008-write-batching-at-30fps), [REQ-TERM-014](terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming)
 
-**Verification:** Manual check
+**Verification:** Automated test
 
 **Status:** Implemented
 
@@ -408,20 +408,22 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ### REQ-MOB-012: Scroll anchoring during keyboard transitions
 
-**Intent:** The visible scroll anchor (bottom for following users, stable surviving content or distance for scrolled-up users) must be preserved across keyboard transitions and trimming without competing generic corrections.
+**Intent:** Mobile keyboard mode must explicitly own terminal fit and bottom anchoring while open, without competing with generic scroll correction or changing the established swipe-input contract.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Batched output delegates ordinary non-zero full-buffer anchoring to xterm. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014: preserves xterm viewport anchoring when full scrollback trims during a batched write) -->
-2. When the keyboard is open, the scroll-reset detector is skipped (browser focus resets cannot occur while the keyboard is open). <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-MOB-012 AC2: still corrects when keyboard is open but device is NOT touch (gate is touch AND keyboard)) -->
-3. Bottom-following users see zero flicker: their correction is applied in the scroll-event handler before the canvas paints, never in the write callback. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014: re-anchors a bottom-following terminal when scrollback trimming displaces it) -->
-4. Scrolled-up users keep surviving content anchored during ordinary trims. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014: preserves xterm viewport anchoring when full scrollback trims during a batched write) -->
+1. Batched output delegates every output-driven scrollback shift to xterm and performs no write-side correction. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014: preserves xterm viewport anchoring when full scrollback trims during a batched write) -->
+2. Opening the touch keyboard performs the existing fit-and-bottom transition, while generic scroll correction remains inactive for the duration of touch-keyboard mode. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (should scroll to bottom when keyboard opens (closed→open transition)) --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-MOB-012 AC2: freezes correction-owned viewport movement while the touch keyboard is open) -->
+3. While the touch keyboard is open, viewport correction stays frozen and vertical swipes remain terminal input gestures; fullscreen application mouse tracking remains the existing deliberate exception. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-MOB-012 AC2: freezes correction-owned viewport movement while the touch keyboard is open) --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (should call preventDefault and send up arrow) -->
+4. After the touch keyboard closes, ordinary scrollback interaction resumes: vertical swipes scroll and manual ownership persists until the viewport returns to bottom. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (should call scrollLines on vertical swipe when keyboard is closed) --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-MOB-012 AC4: keyboard close hands viewport ownership back to bottom following) --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014 AC1/AC2: returning to bottom releases manual ownership and restores bottom following) -->
 
 **Constraints:**
 
-- Recent user intent (wheel/pointerdown/keydown) is checked before forcing bottom-following users to the bottom.
+- Keyboard-open bottom anchoring is intentional and has priority over manual scrollback.
+- The touch-keyboard exception applies only when both touch capability and virtual-keyboard-open state are present.
+- The existing tap-to-focus keyboard opening and fullscreen application mouse-tracking behavior remain unchanged.
 
 **Priority:** P0
 

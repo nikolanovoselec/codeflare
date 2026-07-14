@@ -3,11 +3,7 @@ import { onCleanup } from 'solid-js';
 import { hasRecentScrollIntent, clearScrollIntent } from '../lib/terminal-scroll-intent';
 import { isTouchDevice, isVirtualKeyboardOpen } from '../lib/mobile';
 
-/**
- * Grace period (ms) after a user scroll gesture (wheel, pointer, nav key, or
- * external intent signal) during which the detector will not correct scroll
- * position. Prevents the correction logic from fighting intentional scrolling.
- */
+/** Correlates an onScroll event with the gesture that immediately preceded it. */
 const USER_SCROLL_GRACE_MS = 150;
 
 export interface ScrollCorrectionParams {
@@ -16,33 +12,21 @@ export interface ScrollCorrectionParams {
 }
 
 /**
- * Prevents unwanted viewport resets caused by browser focus-validation bugs.
+ * Keeps bottom-following terminals anchored without taking scroll ownership
+ * away from a user who is reading scrollback.
  *
- * Browsers (especially Chrome) can snap xterm's viewport to scroll position 0
- * when internal focus management runs. CSS `overflow:hidden` on `.xterm-viewport`
- * is the primary defense; this hook is a secondary safeguard that detects and
- * reverses resets from any source.
+ * A wheel, pointer, navigation key, or external scroll intent establishes
+ * manual viewport ownership when the resulting viewport is above the buffer
+ * base. That ownership persists until the viewport returns to the bottom; it
+ * does not expire with the short event-correlation window.
  *
- * Two correction strategies:
+ * Output-driven scrollback trimming remains entirely xterm-owned. When a full
+ * buffer naturally reaches viewportY=0 because viewed lines aged out, this
+ * hook does not restore an earlier distance from the bottom.
  *
- * 1. **Bottom-following re-anchor** — If the user was following output (viewport
- *    at bottom) and gets displaced without recent scroll intent, immediately
- *    scroll back to bottom. Fires synchronously in xterm's `onScroll` callback
- *    (before the render pass) to avoid visible one-frame jitter.
- *
- * 2. **Distance-based reset detection** — During normal scrollback trimming,
- *    both `baseY` and `viewportY` shift together so distance-from-bottom stays
- *    roughly constant (~1-2 line drift per trim). A browser focus reset snaps
- *    `viewportY` to 0 while `baseY` stays large, causing distance to jump by
- *    tens or hundreds of lines. When `viewportY === 0`, the previous position
- *    was well into the buffer (`>20`), and distance drift exceeds 20 lines,
- *    the viewport is restored to its previous distance from bottom.
- *
- * Both strategies are suppressed when:
- * - A recent user scroll gesture was detected (wheel, pointer, nav key, or
- *   external intent from floating UI buttons).
- * - The mobile virtual keyboard is open (the keyboard-height effect handles
- *   `scrollToBottom` in that mode; corrections here would cause oscillation).
+ * While the touch keyboard is open, the keyboard lifecycle owns the viewport:
+ * it performs fit + scrollToBottom on keyboard geometry changes, and touch
+ * gestures are routed to terminal input rather than viewport scrolling.
  */
 export function useScrollCorrection(
   terminal: Terminal,
@@ -50,123 +34,78 @@ export function useScrollCorrection(
   params: ScrollCorrectionParams,
 ): void {
   const { sessionId, terminalId } = params;
+  const initialBuffer = terminal.buffer.active;
 
-  let wasFollowingOutput = true;
-  let previousYdisp = 0;
-  let previousDistFromBottom = 0;
+  let userOwnsViewport = initialBuffer.viewportY < initialBuffer.baseY;
+  let wasFollowingOutput = !userOwnsViewport;
   let lastUserScrollIntentAt = 0;
   let isCorrectingScroll = false;
 
-  // --- User scroll intent detection ---
-  // Track wheel, pointer, and navigation key events on the container so the
-  // detector can distinguish user-initiated scrolls from browser bugs.
-
   const markUserScrollIntent = () => { lastUserScrollIntentAt = Date.now(); };
 
-  const onNavKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'PageUp' || e.key === 'PageDown' || e.key === 'Home' || e.key === 'End') {
+  const onNavKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'PageUp' || event.key === 'PageDown' || event.key === 'Home' || event.key === 'End') {
       markUserScrollIntent();
     }
   };
 
-  // Use capture phase so intent is registered BEFORE xterm processes the event
-  // and fires onScroll. In bubble phase, xterm's internal handler on .xterm-viewport
-  // fires first → onScroll → Strategy 1 snaps to bottom before intent is marked.
+  // Capture intent before xterm handles the event and emits onScroll.
   container.addEventListener('wheel', markUserScrollIntent, { passive: true, capture: true });
   container.addEventListener('pointerdown', markUserScrollIntent, { passive: true, capture: true });
   container.addEventListener('keydown', onNavKeyDown, { capture: true });
 
-  // --- Scroll event handler ---
+  const scrollDisposable = terminal.onScroll((viewportY: number) => {
+    const baseY = terminal.buffer.active.baseY;
 
-  const scrollDisposable = terminal.onScroll((ydisp: number) => {
-    const ybase = terminal.buffer.active.baseY;
-    const distFromBottom = ybase - ydisp;
-
-    // While we are correcting, only update baselines — do not re-enter detection.
     if (isCorrectingScroll) {
-      wasFollowingOutput = ydisp >= ybase;
-      previousYdisp = ydisp;
-      previousDistFromBottom = distFromBottom;
+      userOwnsViewport = viewportY < baseY;
+      wasFollowingOutput = !userOwnsViewport;
       return;
     }
 
-    const wasFollowing = wasFollowingOutput;
-    wasFollowingOutput = ydisp >= ybase;
-
-    // Strategy 1: Bottom-following re-anchor.
-    // Fires synchronously in the parse loop (before the rAF render pass). If
-    // the user was following output and got displaced during scrollback
-    // trimming, correct immediately to prevent visible one-frame jitter.
-    if (wasFollowing && ydisp < ybase) {
-      const recentIntent = Date.now() - lastUserScrollIntentAt < USER_SCROLL_GRACE_MS
-        || hasRecentScrollIntent(sessionId, terminalId, USER_SCROLL_GRACE_MS);
-      if (!recentIntent) {
-        isCorrectingScroll = true;
-        try {
-          terminal.scrollToBottom();
-        } finally {
-          isCorrectingScroll = false;
-        }
-        wasFollowingOutput = true;
-        previousYdisp = terminal.buffer.active.viewportY;
-        previousDistFromBottom = terminal.buffer.active.baseY - terminal.buffer.active.viewportY;
-        return;
-      }
-    }
-
-    // When the virtual keyboard is open on mobile, skip all further correction.
-    // The keyboard-height effect handles scrollToBottom; corrections here fight it.
+    // Mobile input mode explicitly owns fit + bottom anchoring. Generic output
+    // correction must not move the viewport while touch gestures send keys.
     if (isTouchDevice() && isVirtualKeyboardOpen()) {
-      previousYdisp = ydisp;
-      previousDistFromBottom = distFromBottom;
+      userOwnsViewport = false;
+      wasFollowingOutput = true;
       return;
     }
 
-    const recentLocalIntent = Date.now() - lastUserScrollIntentAt < USER_SCROLL_GRACE_MS;
-    const recentExternalIntent = hasRecentScrollIntent(sessionId, terminalId, USER_SCROLL_GRACE_MS);
-    const recentUserIntent = recentLocalIntent || recentExternalIntent;
+    const recentUserIntent = Date.now() - lastUserScrollIntentAt < USER_SCROLL_GRACE_MS
+      || hasRecentScrollIntent(sessionId, terminalId, USER_SCROLL_GRACE_MS);
 
-    // Strategy 2: Distance-based reset detection.
-    // During normal scrollback trimming, distance-from-bottom stays roughly
-    // constant (both baseY and viewportY shift together, ~1-2 line drift).
-    // A browser focus reset snaps viewportY to 0 while baseY stays large,
-    // causing distance to jump dramatically (from ~0 to baseY). Detection:
-    // viewportY dropped to 0, previous position was deep in the buffer (>20),
-    // baseY is substantial (>20), and distance drift exceeds 20 lines.
-    const distanceDrift = Math.abs(distFromBottom - previousDistFromBottom);
-    const suspiciousReset =
-      !recentUserIntent &&
-      ydisp === 0 &&
-      previousYdisp > 20 &&
-      ybase > 20 &&
-      distanceDrift > 20;
-
-    if (suspiciousReset) {
-      isCorrectingScroll = true;
-      const restoreDistance = wasFollowing ? 0 : previousDistFromBottom;
-      queueMicrotask(() => {
-        try {
-          const currentBaseY = terminal.buffer.active.baseY;
-          const currentY = terminal.buffer.active.viewportY;
-          if (currentBaseY <= 0) return;
-          const targetY = Math.max(0, currentBaseY - restoreDistance);
-          const delta = targetY - currentY;
-          if (delta !== 0) {
-            terminal.scrollLines(delta);
-          } else if (restoreDistance === 0) {
-            terminal.scrollToBottom();
-          }
-        } finally {
-          isCorrectingScroll = false;
-        }
-      });
+    if (recentUserIntent) {
+      userOwnsViewport = viewportY < baseY;
+      wasFollowingOutput = !userOwnsViewport;
+      return;
     }
 
-    previousYdisp = ydisp;
-    previousDistFromBottom = distFromBottom;
-  });
+    if (userOwnsViewport) {
+      if (viewportY >= baseY) {
+        userOwnsViewport = false;
+        wasFollowingOutput = true;
+      } else {
+        wasFollowingOutput = false;
+      }
+      return;
+    }
 
-  // --- Cleanup ---
+    const previouslyFollowingOutput = wasFollowingOutput;
+    wasFollowingOutput = viewportY >= baseY;
+
+    // Preserve the existing defense for a bottom-following viewport displaced
+    // by a browser/layout event. User-owned scrollback never enters this path.
+    if (previouslyFollowingOutput && viewportY < baseY) {
+      isCorrectingScroll = true;
+      try {
+        terminal.scrollToBottom();
+      } finally {
+        isCorrectingScroll = false;
+      }
+      userOwnsViewport = false;
+      wasFollowingOutput = true;
+    }
+  });
 
   onCleanup(() => {
     container.removeEventListener('wheel', markUserScrollIntent, { capture: true });
