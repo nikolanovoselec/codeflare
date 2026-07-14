@@ -1,38 +1,21 @@
-import { readdirSync } from 'node:fs';
-import { dirname, join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
-const modulePath = fileURLToPath(import.meta.url);
-const repositoryRoot = resolve(dirname(modulePath), '..');
-const sourceRoot = join(repositoryRoot, 'src');
+const testFiles = JSON.parse(
+  readFileSync(new URL('./workers-runtime-tests.json', import.meta.url), 'utf8'),
+);
 
-export function findBackendTestFiles(directory = sourceRoot) {
-  return readdirSync(directory, { withFileTypes: true })
-    .flatMap((entry) => {
-      const entryPath = join(directory, entry.name);
-      if (entry.isDirectory()) return findBackendTestFiles(entryPath);
-      if (!entry.isFile() || !entry.name.endsWith('.test.ts')) return [];
-      return [relative(repositoryRoot, entryPath).split(sep).join('/')];
-    })
-    .sort();
-}
-
-export function runWorkersRuntimeTests(testFiles = findBackendTestFiles()) {
+export function runWorkersRuntimeTests() {
   for (const testFile of testFiles) {
     const result = spawnSync(
       'npx',
-      ['vitest', 'run', '--config', 'vitest.config.ts', testFile],
-      { cwd: repositoryRoot, stdio: 'inherit' },
+      ['vitest', 'run', '--config', 'vitest.workers.config.ts', testFile],
+      { stdio: 'inherit' },
     );
 
     if (result.error) throw result.error;
-    if (result.status !== 0) return result.status ?? 1;
+    if (result.status !== 0) process.exit(result.status ?? 1);
   }
-
-  return 0;
 }
 
-if (resolve(process.argv[1] ?? '') === modulePath) {
-  process.exitCode = runWorkersRuntimeTests();
-}
+runWorkersRuntimeTests();

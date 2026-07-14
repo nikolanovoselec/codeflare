@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { findBackendTestFiles } from '../../scripts/run-workers-runtime-tests.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LAUNCHER = resolve(__dirname, '../../scripts/run-backend-tests.sh');
 const WORKERS_RUNNER = resolve(__dirname, '../../scripts/run-workers-runtime-tests.mjs');
-const BACKEND_TEST_FILE_COUNT = findBackendTestFiles().length;
+const WORKERS_MANIFEST = resolve(__dirname, '../../scripts/workers-runtime-tests.json');
+const WORKERS_RUNTIME_TEST_COUNT = JSON.parse(readFileSync(WORKERS_MANIFEST, 'utf8')).length;
 
 function runWithFakeNpm(exitCode) {
   const root = mkdtempSync(join(tmpdir(), 'backend-test-launcher-'));
@@ -80,9 +80,9 @@ test('Workers-runtime runner stops at the first failed isolated process', () => 
   assert.equal(calls, 2);
 });
 
-test('Workers-runtime runner executes every backend test file when each process succeeds', () => {
+test('Workers-runtime runner executes every configured file when each process succeeds', () => {
   const { result, calls } = runWorkersWithFakeNpx(0);
 
   assert.equal(result.status, 0);
-  assert.equal(calls, BACKEND_TEST_FILE_COUNT);
+  assert.equal(calls, WORKERS_RUNTIME_TEST_COUNT);
 });
