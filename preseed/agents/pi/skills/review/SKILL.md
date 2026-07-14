@@ -97,10 +97,10 @@ PHASES
   4   Cross-reference + dedup
   5   AD filtering against documentation/decisions/README.md
   6   Reality Filter (Q1-Q6)
-  7   External LLM verification (only when --verify-high AND a surface exists)
-  8   Interactive triage (only phase in the main session)
-  9   Save triage + append to sdd/.review-decisions.md
-  10  Update ADs + create tech-debt GitHub issues
+  7   Root-owned external LLM verification (only when --verify-high AND a surface exists)
+  8   Interactive root-owned triage
+  9   Root-owned save + append to sdd/.review-decisions.md
+  10  Root-owned AD updates + tech-debt GitHub issues
   11  Plan entry for Fix decisions
 
 OUTPUT
