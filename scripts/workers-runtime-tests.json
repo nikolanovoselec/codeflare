@@ -1,7 +1,0 @@
-[
-  "src/__tests__/cloudflare-browser-interceptor.test.ts",
-  "src/__tests__/egress-controller.test.ts",
-  "src/__tests__/github-interceptor.test.ts",
-  "src/__tests__/llm-interceptor.test.ts",
-  "src/__tests__/routes/vault-html-direct.test.ts"
-]

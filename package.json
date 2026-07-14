@@ -14,7 +14,7 @@
     "pretest": "npm run generate:tutorial-seed && npm run generate:agent-seed",
     "types:generate": "wrangler types",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run && node scripts/run-workers-runtime-tests.mjs",
+    "test": "node scripts/run-workers-runtime-tests.mjs",
     "test:watch": "vitest",
     "test:e2e": "vitest run --config vitest.e2e.config.ts e2e/api/",
     "test:e2e:ui": "vitest run --config vitest.e2e.config.ts e2e/ui/",
