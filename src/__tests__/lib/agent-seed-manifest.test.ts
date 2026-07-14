@@ -6,7 +6,7 @@ import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } fr
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
 import { handleContextModeCommand, restoreActiveRepoFromPersistedFiles, shouldHandleClonePrompt, type PiSettings } from '../../../preseed/agents/pi/extensions/codeflare-pi';
 import { sddCommandDecision, type SddRepoState } from '../../../preseed/agents/pi/extensions/sdd-helpers';
-import { CONTEXT_MODE_DISABLED_PACKAGE, CONTEXT_MODE_ENABLED_PACKAGE, attachConfiguredContextMode, attachContextModeToForeground, clearInheritedContextModeBridgeIdleOverride, contextModeEnabled } from '../../../preseed/agents/pi/extensions/context-mode-runtime';
+import { CONTEXT_MODE_DISABLED_PACKAGE, CONTEXT_MODE_ENABLED_PACKAGE, attachConfiguredContextMode, attachContextModeToForeground, clearInheritedContextModeBridgeIdleOverride } from '../../../preseed/agents/pi/extensions/context-mode-runtime';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -542,7 +542,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('REQ-AGENT-076 AC2: /ctx off and on persist package markers and reload the active process', async () => {
+  it('REQ-AGENT-076 AC2: /ctx persists the selected state and reloads the active process', async () => {
     let settings: PiSettings = { packages: ['npm:user-package@1.0.0'] };
     const store = {
       read: () => settings,
@@ -573,7 +573,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(reloads).toBe(2);
   });
 
-  it('REQ-AGENT-089 AC2: one process owner rejects child context-mode initialization', async () => {
+  it('REQ-AGENT-089 AC1: one process owner rejects child context-mode initialization', async () => {
     const ownerRegistry: { owner?: symbol } = {};
     const rootPi = { on() {} };
     const childPi = { on() {} };
@@ -585,7 +585,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(attachCount).toBe(1);
   });
 
-  it('REQ-AGENT-089 AC3: owner shutdown permits context-mode reattachment', async () => {
+  it('REQ-AGENT-089 AC2: owner shutdown permits context-mode reattachment', async () => {
     const ownerRegistry: { owner?: symbol } = {};
     const shutdownHandlers: Array<() => void | Promise<void>> = [];
     const pi = {
