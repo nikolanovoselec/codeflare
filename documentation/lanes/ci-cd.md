@@ -118,9 +118,9 @@ Six parallel jobs, each running lightweight external probes against the producti
 
 ### Backend Tests
 
-**Config:** `vitest.config.ts` with the `@cloudflare/vitest-pool-workers` `cloudflareTest()` plugin; tests run in the Workers runtime. The installed pool uses Cloudflare's documented WebSocket + Durable Object workaround: one worker (`maxWorkers: 1`) with shared storage (`isolate: false`).
+**Configs:** `vitest.config.ts` runs the Node-compatible unit suite and aliases only the external `cloudflare:workers` base class to a minimal test boundary. `vitest.workers.config.ts` retains the real `@cloudflare/vitest-pool-workers` runtime for the five WorkerEntrypoint/WebSocket/HTMLRewriter files listed in `scripts/workers-runtime-tests.json`. `scripts/run-workers-runtime-tests.mjs` launches each listed file in a fresh process; this avoids carrying `workerd` pool state across 189 mostly Node-compatible files while retaining Workers fidelity at the platform boundary.
 
-**Run:** `scripts/run-backend-tests.sh`, which invokes `npm test` and preserves its process exit status. PR checks, Cloudflare-registry deploys, and Docker Hub fallback deploys all call this launcher. There is no log-fingerprint exception: assertion, collection, runtime, worker-pool, incomplete-suite, and teardown errors all fail CI and block deployment even if other assertions passed.
+**Run:** `scripts/run-backend-tests.sh`, which invokes `npm test` and preserves its process exit status. `npm test` runs the Node suite first, then the isolated Workers-runtime sequence. PR checks, Cloudflare-registry deploys, and Docker Hub fallback deploys all call this launcher. There is no log-fingerprint exception: assertion, collection, runtime, worker-pool, incomplete-suite, and teardown errors all fail CI and block deployment even if other assertions passed.
 
 **Coverage:** `vitest.config.ts` contains thresholds, but ordinary CI currently runs without `--coverage`; those thresholds are not an active gate. Cloudflare's Workers Vitest documentation also says native V8 coverage is unsupported, so coverage activation requires the supported Istanbul path rather than treating the current V8 block as enforcement.
 
@@ -163,7 +163,7 @@ Six parallel jobs, each running lightweight external probes against the producti
 
 Both root and `web-ui/` use Vitest v4.x with independent `node_modules` and separate configs. Root uses the `cloudflareTest()` plugin from `@cloudflare/vitest-pool-workers` v0.13+ (replaces the old `defineWorkersConfig()` pattern). Web-UI uses jsdom with `vite-plugin-solid`.
 
-**Reporter:** the root Workers suite uses Vitest's default reporter so a runtime crash retains file-level diagnostics. The `web-ui/` and `landing/` configs use `dot` in CI and `default` locally.
+**Reporter:** both backend configs use Vitest's default reporter so a runtime crash retains file-level diagnostics. The `web-ui/` and `landing/` configs use `dot` in CI and `default` locally.
 
 ### E2E API Tests
 
