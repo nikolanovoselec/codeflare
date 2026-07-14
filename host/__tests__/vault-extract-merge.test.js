@@ -82,6 +82,29 @@ print(len(hits))
   assert.equal(r.stdout.trim(), '1', 'merge-vault-graph.py must call nx.compose exactly once');
 });
 
+test('REQ-MEM-009 AC2: serialized cumulative graph deduplicates identical edge evidence', () => {
+  const code = `
+import json, runpy
+module = runpy.run_path(${JSON.stringify(SCRIPT)}, run_name='merge_contract_test')
+blob = {
+  'nodes': [],
+  'links': [
+    {'source': 'document', 'target': 'concept', 'relation': 'references', 'source_file': '/note.md'},
+    {'source': 'document', 'target': 'concept', 'relation': 'references', 'source_file': '/note.md'},
+    {'source': 'concept-a', 'target': 'concept-b', 'relation': 'conceptually_related_to', 'source_file': '/note.md'},
+  ],
+}
+print(json.dumps(module['dedupe_node_link_edges'](blob), sort_keys=True))
+`;
+  const result = spawnSync('python3', ['-c', code], { encoding: 'utf8', timeout: 5_000 });
+  assert.equal(result.status, 0, result.stderr);
+  const normalized = JSON.parse(result.stdout);
+  assert.deepEqual(normalized.links, [
+    { source: 'document', target: 'concept', relation: 'references', source_file: '/note.md' },
+    { source: 'concept-a', target: 'concept-b', relation: 'conceptually_related_to', source_file: '/note.md' },
+  ]);
+});
+
 test('REQ-MEM-009 AC2: script normalises both operands to directed before nx.compose (no crash on an undirected prior graph)', () => {
   // build_from_json returns an undirected Graph, and a prior vault-graph.json
   // written by an older release (directed:false, or lacking the flag) also
