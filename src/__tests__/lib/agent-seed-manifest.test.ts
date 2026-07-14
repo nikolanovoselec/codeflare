@@ -542,7 +542,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('REQ-AGENT-076 AC2: /ctx persists the selected state and reloads the active process', async () => {
+  it('REQ-AGENT-076 AC2: /ctx reloads Pi into the selected state', async () => {
     let settings: PiSettings = { packages: ['npm:user-package@1.0.0'] };
     const store = {
       read: () => settings,
