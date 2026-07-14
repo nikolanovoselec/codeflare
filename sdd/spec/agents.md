@@ -2331,7 +2331,7 @@ None.
 2. Indexed retrieval, Graphify discovery, external-LLM calls, and file mutation tools are unavailable to those reviewers. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Direct evidence transport (binding) --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::Direct evidence transport (binding) --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::Direct evidence transport (binding) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086: Claude PR reviewers expose only skills and direct evidence execution) -->
 3. PR-boundary reviewers return structured findings without writing project or triage files. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE -->
 4. The root session alone persists PR-boundary triage content. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE -->
-5. The root session applies only approved PR-boundary fixes. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE -->
+5. The root session evaluates and applies legitimate PR-boundary fixes. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE -->
 
 **Notes:** PR-boundary handoff ownership is manually verified through the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 

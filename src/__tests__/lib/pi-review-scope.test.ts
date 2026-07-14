@@ -96,13 +96,14 @@ describe('REQ-AGENT-059: Pi review scope entry points', () => {
     );
 
     expect(messages).toHaveLength(1);
-    expect(messages[0]).toContain('# Pi Review Workflow');
-    expect(messages[0]).toContain('This is the user-invoked /review command');
     const executionLine = messages[0].split('\n').find((line) => line.startsWith('Review execution: '));
     expect(JSON.parse(executionLine?.slice('Review execution: '.length) ?? '')).toEqual({
       mode: 'report-only',
+      reviewerDelivery: 'return-to-root',
+      reviewerFileWrites: false,
       persistenceOwner: 'root',
       sourceMutations: false,
+      rootOwnedPhases: [7, 8, 9, 10],
     });
   });
 

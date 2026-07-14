@@ -56,8 +56,11 @@ export type ReviewDocumentationSurfaceDecision =
 
 export const REVIEW_EXECUTION = {
   mode: "report-only",
+  reviewerDelivery: "return-to-root",
+  reviewerFileWrites: false,
   persistenceOwner: "root",
   sourceMutations: false,
+  rootOwnedPhases: [7, 8, 9, 10],
 } as const;
 
 export function reviewDocumentationSurfaceDecision(

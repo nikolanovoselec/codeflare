@@ -220,7 +220,7 @@ Launch the calls together through the public `subagent` tool. If any subagent fa
 
 ### Subagent prompt template
 
-Each prompt MUST include: the project root path, the exact `$REVIEW_DIR` output path, scope context, the severity schema, the output format, and the instruction to Write to its designated file. Adjust the focus area per subagent type:
+Each prompt MUST include: the project root path, the exact `$REVIEW_DIR` report path, scope context, the severity schema, the output format, and the instruction to return its report to the root without writing files. Adjust the focus area per subagent type:
 
 ```
 You are conducting a [SCOPE_DESCRIPTION] review of the project at [PROJECT_ROOT].
@@ -884,9 +884,9 @@ After the root completes verification, read the first ~30 lines of `$REVIEW_DIR/
 
 **Orchestrator check:** If the surviving Real Findings count is 0 AND Tech-Debt-Surfaced is 0, output "Clean review - no actionable findings after external verification" and STOP.
 
-## Phase 8: Interactive triage (main session - the ONLY in-session phase)
+## Phase 8: Interactive triage (interactive root-owned phase)
 
-This is the ONLY phase that runs in the main session, because it needs user interaction. Read the appropriate input file:
+This is the interactive root-owned phase. Phases 7, 9, and 10 are also root-owned for external verification and persisted mutations. Read the appropriate input file:
 - If Phase 7 ran (and was not skipped): `$REVIEW_DIR/11-llm-verified.md`
 - Otherwise: `$REVIEW_DIR/10-real-findings.md`
 
