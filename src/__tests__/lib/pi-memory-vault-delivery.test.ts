@@ -379,6 +379,22 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
       now: NOW,
       successQualifies: () => false,
     }).state).toBe('failed');
+
+    const turnLimited = [...entries, notification('exact-call', 'Wrapped up (turn limit)')];
+    expect(extractionTranscriptFacts({
+      entries: turnLimited,
+      requestId: UUIDS[0],
+      job: 'memory-capture',
+      now: NOW,
+      successQualifies: () => true,
+    }).state).toBe('succeeded');
+    expect(extractionTranscriptFacts({
+      entries: turnLimited,
+      requestId: UUIDS[0],
+      job: 'memory-capture',
+      now: NOW,
+      successQualifies: () => false,
+    }).state).toBe('failed');
   });
 
   it('uses one reducer for reminders zero through five and then latches GIVEUP', () => {

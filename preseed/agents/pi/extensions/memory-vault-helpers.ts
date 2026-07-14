@@ -207,6 +207,10 @@ function notificationFacts(entry: any): { toolUseId: string; status: string } | 
   return toolUseId && status ? { toolUseId, status } : undefined;
 }
 
+function isCompletedNotification(status: string | undefined): boolean {
+  return status === "Done" || status === "Completed" || status === "Wrapped up (turn limit)";
+}
+
 export function extractionTranscriptFacts(input: {
   entries: any[];
   requestId: string;
@@ -244,7 +248,7 @@ export function extractionTranscriptFacts(input: {
   let running = false;
   for (const call of calls) {
     const status = notifications.get(call.id);
-    if ((status === "Done" || status === "Completed") && input.successQualifies()) succeeded = true;
+    if (isCompletedNotification(status) && input.successQualifies()) succeeded = true;
     if (status === undefined) {
       const timestamp = Date.parse(String(call.timestamp ?? ""));
       if (!Number.isFinite(timestamp) || input.now - timestamp < EXTRACTION_RUNNING_TTL_MS) running = true;
