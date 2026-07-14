@@ -474,8 +474,7 @@ Pi extraction is driven by two deployed contracts:
 `prompts/memory-agent-prompt.md` and `prompts/vault-extract-prompt.md`. The root
 extension reads Pi's durable session transcript, filters synthetic prompts,
 creates request-specific execution snapshots, and emits visible public
-background requests instead of invoking the private subagent service
-([AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional)).
+background requests instead of invoking the private subagent service. Generated agents and emitted requests use provider-neutral medium reasoning, Bash-only evidence, and four turns ([AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional), [AD103](../decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs)).
 
 `memory-vault.ts` owns delivery and high-water state. `<sessionId>.vars` and
 `vault-extract.pi.vars` are tiny active request-ID pointers used only for reload
@@ -484,17 +483,12 @@ discovery; public prompts receive immutable `<sessionId>.<requestId>.vars` or
 attempts, native completion, reminders `0..5`, and GIVEUP. Background agents
 never write counters, pointers, or manifests. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts -->
 
-Memory capture still triggers at the 15-real-prompt cadence and force-captures a
-resumed durable transcript when no counter exists. Exact success plus the
-precomputed note lets the root advance the frozen counter and remove only the
-matching request. Vault indexing retains the shared content-hash format and
+Memory capture still triggers at the 15-real-prompt cadence and force-captures a resumed durable transcript when no counter exists. Normal requests contain only the uncaptured interval, bounded to 40 text turns at 4000 characters. Exact success plus the post-commit note and request chunk lets the root advance the frozen counter and remove only the matching request. Vault indexing retains the shared content-hash format and
 exclusion set, but writes a request-specific pending manifest and promotes it
 only after exact success/hash validation; prelaunch edits coalesce and during-run
 edits produce one follow-up ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-VAULT-026](../../sdd/spec/vault.md#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)).
 
-Both prompt contracts derive request-specific graph chunks and require one
-300-second lock spanning cumulative merge and global publication. Required
-failure propagates to native task status; only visualization is best effort.
+Both prompt contracts read immutable inputs once, write a request-specific work chunk, and require one 300-second lock spanning cumulative merge and global publication. Canonical chunks appear only after publication and qualify root finalization; required failure leaves high-water state unchanged. Visualization is best effort with a 15-second ceiling.
 
 Pi subagents are provided by `@gotgenes/pi-subagents`; the generator adapts
   Claude agent definitions into `.pi/agent/agents/*.md`. The container image

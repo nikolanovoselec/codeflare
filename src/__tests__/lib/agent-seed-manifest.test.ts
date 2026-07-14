@@ -965,9 +965,9 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(withCurrentPrompt(withCurrent, '<task-notification>x</task-notification>')).toHaveLength(withCurrent.length);
   });
 
-  // compactMessages is the AD58 transcript prefilter (memory-vault-helpers.ts): keep user +
-  // assistant TEXT only, drop tool_use / tool_result / thinking blocks, take the last 200
-  // turns, cap each turn at 8000 chars. Tested directly as a pure function over fake message arrays.
+  // compactMessages is the Pi transcript prefilter (memory-vault-helpers.ts): keep user +
+  // assistant text only, drop tool/thinking blocks and already-captured prompts, then bound
+  // the remaining retry window to 40 turns at 4000 chars each.
   describe('REQ-MEM-001: compactMessages prefilter (AD58)', () => {
     it('drops tool_use / tool_result / thinking blocks but keeps the text block of the same turn', () => {
       const result = compactMessages([
@@ -1029,27 +1029,41 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
       expect(result.indexOf('first-block')).toBeLessThan(result.indexOf('second-block'));
     });
 
-    it('caps output to the last 200 turns', () => {
-      const messages = Array.from({ length: 250 }, (_, i) => ({
+    it('keeps only the uncaptured interval after the successful user-prompt count', () => {
+      const messages = [
+        { role: 'user', content: 'captured-user-1' },
+        { role: 'assistant', content: 'captured-answer-1' },
+        { role: 'user', content: 'captured-user-2' },
+        { role: 'assistant', content: 'captured-answer-2' },
+        { role: 'user', content: 'new-user-3' },
+        { role: 'assistant', content: 'new-answer-3' },
+      ];
+      const result = compactMessages(messages, 2);
+      expect(result).not.toContain('captured-user-1');
+      expect(result).not.toContain('captured-user-2');
+      expect(result).toContain('captured-answer-2');
+      expect(result).toContain('new-user-3');
+      expect(result).toContain('new-answer-3');
+    });
+
+    it('caps the uncaptured interval to the last 40 text turns', () => {
+      const messages = Array.from({ length: 80 }, (_, i) => ({
         role: i % 2 === 0 ? 'user' : 'assistant',
         content: `turn-${i}`,
       }));
       const result = compactMessages(messages);
       const turnCount = result.split('\n\n').length;
-      expect(turnCount).toBe(200);
-      // the earliest 50 turns are dropped; the last 200 survive
-      expect(result).not.toContain('turn-0\n');
-      expect(result).not.toContain('turn-49\n');
-      expect(result).toContain('turn-50');
-      expect(result).toContain('turn-249');
+      expect(turnCount).toBe(40);
+      expect(result).not.toContain('turn-39\n');
+      expect(result).toContain('turn-40');
+      expect(result).toContain('turn-79');
     });
 
-    it('truncates a single turn longer than 8000 chars to 8000 chars of body', () => {
+    it('truncates a single turn longer than 4000 chars to 4000 chars of body', () => {
       const result = compactMessages([{ role: 'user', content: 'a'.repeat(10000) }]);
-      // body is "## user\n" (8 chars) + the truncated content
       const body = result.slice('## user\n'.length);
-      expect(body.length).toBe(8000);
-      expect(result.length).toBeLessThan(10000);
+      expect(body.length).toBe(4000);
+      expect(result.length).toBeLessThan(5000);
     });
   });
 
@@ -1127,7 +1141,7 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(shouldCapture(realUserPromptCount(atThreshold))).toBe(true);
   });
 
-  it('REQ-MEM-014/REQ-VAULT-027: transformed Pi extraction agents expose the background frontmatter contract', () => {
+  it('REQ-MEM-014/REQ-VAULT-027: transformed Pi extraction agents expose bounded frontmatter', () => {
     for (const key of ['.pi/agent/agents/memory-capture.md', '.pi/agent/agents/vault-extract.md']) {
       const agent = AGENTS_SEEDED_CONFIGS.find((document) => document.key === key);
       expect(agent?.modes).toEqual(['advanced']);
@@ -1138,6 +1152,8 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
           .filter((parts) => parts.length === 2),
       );
       expect(parsed.run_in_background).toBe('true');
+      expect(parsed.tools).toBe('bash');
+      expect(parsed.thinking).toBe('medium');
     }
   });
 

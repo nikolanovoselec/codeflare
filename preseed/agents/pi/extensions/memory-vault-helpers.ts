@@ -1,6 +1,8 @@
 import { isAbsolute, relative } from "node:path";
 
 export const MEMORY_EVERY_N_PROMPTS = 15;
+export const MEMORY_CAPTURE_MAX_TURNS = 40;
+export const MEMORY_CAPTURE_MAX_TURN_CHARS = 4000;
 export const EXTRACTION_RUNNING_TTL_MS = 30 * 60 * 1000;
 
 export type ExtractionJob = "memory-capture" | "vault-extract";
@@ -34,6 +36,8 @@ export interface PublicExtractionRequest {
   prompt: string;
   run_in_background: true;
   inherit_context: false;
+  thinking: "medium";
+  max_turns: 4;
   model?: string;
 }
 
@@ -151,6 +155,8 @@ export function buildPublicExtractionRequest(input: {
     ].join("\n"),
     run_in_background: true,
     inherit_context: false,
+    thinking: "medium",
+    max_turns: 4,
     ...(model ? { model } : {}),
   };
 }
@@ -168,6 +174,8 @@ function publicRequestMatches(value: unknown, requestId: string, job: Extraction
   return request?.subagent_type === job
     && request.run_in_background === true
     && request.inherit_context === false
+    && request.thinking === "medium"
+    && request.max_turns === 4
     && hasExactMarker(request.prompt, requestId);
 }
 
@@ -366,16 +374,24 @@ export function withCurrentPrompt(messages: any[], prompt: string): any[] {
   return [...messages, { role: "user", content: text }];
 }
 
-export function compactMessages(messages: any[]): string {
+export function compactMessages(messages: any[], afterRealUserCount = 0): string {
   const turns: string[] = [];
+  let realUserCount = 0;
+  let includeFollowingTurns = afterRealUserCount === 0;
   for (const message of messages) {
     const role = messageRole(message);
-    if (role !== "user" && role !== "assistant") continue;
+    let includeCurrent = includeFollowingTurns;
+    if (role === "user" && isRealUserPrompt(message)) {
+      realUserCount += 1;
+      includeCurrent = realUserCount > afterRealUserCount;
+      includeFollowingTurns = realUserCount >= afterRealUserCount;
+    }
+    if (!includeCurrent || (role !== "user" && role !== "assistant")) continue;
     const text = messageText(message);
     if (!text || (role === "user" && isSyntheticPrompt(text))) continue;
-    turns.push(`## ${role}\n${text.slice(0, 8000)}`);
+    turns.push(`## ${role}\n${text.slice(0, MEMORY_CAPTURE_MAX_TURN_CHARS)}`);
   }
-  return turns.slice(-200).join("\n\n");
+  return turns.slice(-MEMORY_CAPTURE_MAX_TURNS).join("\n\n");
 }
 
 export function parseSessionMessages(content: string): any[] {

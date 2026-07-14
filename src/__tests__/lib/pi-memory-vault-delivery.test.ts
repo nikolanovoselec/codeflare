@@ -241,6 +241,20 @@ function vaultPointerPath(harness: Harness): string {
   return join(harness.paths.cacheDir, 'vault-extract.pi.vars');
 }
 
+function vaultChunkPath(harness: Harness, requestId: string): string {
+  return join(harness.paths.vaultRoot, 'graphify-out', `.graphify_chunk_${requestId}.json`);
+}
+
+function writePostCommitChunk(harness: Harness, requestId: string): void {
+  writeFileSync(vaultChunkPath(harness, requestId), `${JSON.stringify({
+    nodes: [],
+    edges: [],
+    hyperedges: [],
+    input_tokens: 0,
+    output_tokens: 0,
+  })}\n`, 'utf8');
+}
+
 function readJson(path: string): Record<string, any> {
   return JSON.parse(readFileSync(path, 'utf8')) as Record<string, any>;
 }
@@ -301,7 +315,7 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
     expect(parseVaultExtractRequest({ ...vault, stagedManifestHash: 'not-a-hash' })).toBeUndefined();
   });
 
-  it('builds one exact public background request and omits an empty model', () => {
+  it('builds one bounded medium-reasoning public background request', () => {
     const base = {
       job: 'memory-capture' as const,
       requestId: UUIDS[0],
@@ -314,6 +328,8 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
       prompt: `CODEFLARE_EXTRACTION_REQUEST=${UUIDS[0]}\nPROMPT_FILE=/prompts/memory.md\nVARS_FILE=/vars/request.json\nRun the deployed Pi extraction contract end to end.`,
       run_in_background: true,
       inherit_context: false,
+      thinking: 'medium',
+      max_turns: 4,
     });
     expect(buildPublicExtractionRequest({ ...base, model: '  ' })).not.toHaveProperty('model');
     expect(buildPublicExtractionRequest({ ...base, model: 'provider/model' })).toHaveProperty('model', 'provider/model');
@@ -329,6 +345,8 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
     const entries = [
       launchEntry(UUIDS[0], 'memory-capture', 0, request),
       toolCall('wrong-background', 'memory-capture', request, undefined, { run_in_background: false }),
+      toolCall('wrong-thinking', 'memory-capture', request, undefined, { thinking: 'high' }),
+      toolCall('wrong-turn-limit', 'memory-capture', request, undefined, { max_turns: 40 }),
       toolCall('exact-call', 'memory-capture', request),
     ];
     expect(extractionTranscriptFacts({
@@ -406,10 +424,29 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
       subagent_type: 'memory-capture',
       run_in_background: true,
       inherit_context: false,
+      thinking: 'medium',
+      max_turns: 4,
     });
     expect(launch.request.prompt).toContain(`CODEFLARE_EXTRACTION_REQUEST=${launch.requestId}`);
     expect(privateSpawnCalls).toBe(0);
     expect(harness.pi.sent.at(-1)?.options).toEqual({ deliverAs: 'followUp', triggerTurn: true });
+  });
+
+  it('captures only prompts after the root-owned successful counter', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
+    writeFileSync(memoryCounterPath(harness), '15', 'utf8');
+    for (let ordinal = 1; ordinal <= 29; ordinal += 1) {
+      appendEntry(harness.sessionFile, userMessage(`real prompt ${ordinal}`));
+    }
+
+    await appendPrompt(harness, 30);
+    const execution = readJson(activeExecutionPath(harness, 'memory-capture'));
+    expect(execution.promptCount).toBe(30);
+    expect(execution.transcript).not.toContain('real prompt 15\n');
+    expect(execution.transcript).toContain('real prompt 16');
+    expect(execution.transcript).toContain('real prompt 30');
   });
 
   it('excludes synthetic task, Agent, prompt-file, and extraction directive entries from the cadence', async () => {
@@ -457,7 +494,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(harness.pi.sent).toHaveLength(sentBeforeReload);
   });
 
-  it('requires the deterministic note before exact success advances the frozen counter', async () => {
+  it('requires the post-commit note and chunk before exact success advances the frozen counter', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
     mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
@@ -476,9 +513,15 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, '# capture\n', 'utf8');
     await harness.emit('agent_settled');
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('0');
+    expect(existsSync(memoryPointerPath(harness))).toBe(true);
+
+    writePostCommitChunk(harness, execution.requestId);
+    await harness.emit('agent_settled');
 
     expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('15');
     expect(existsSync(memoryPointerPath(harness))).toBe(false);
+    expect(existsSync(vaultChunkPath(harness, execution.requestId))).toBe(false);
     expect(existsSync(join(harness.paths.memoryCounterDir, `${harness.sessionId}.${launch.requestId}.vars`))).toBe(false);
   });
 
@@ -533,6 +576,8 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery', () => {
       subagent_type: 'vault-extract',
       run_in_background: true,
       inherit_context: false,
+      thinking: 'medium',
+      max_turns: 4,
     });
     appendEntry(harness.sessionFile, toolCall('vault-call', 'vault-extract', launch.request));
     const frozenBytes = readFileSync(executionPath, 'utf8');
@@ -557,6 +602,25 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery', () => {
     expect(existsSync(vaultPointerPath(harness))).toBe(true);
   });
 
+  it('requires a post-commit chunk before native completion can promote the manifest', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    const committedBefore = readFileSync(harness.paths.vaultManifestFile, 'utf8');
+    writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'incomplete.md'), 'changed\n', 'utf8');
+    await harness.emit('agent_settled');
+    const launch = latestLaunch(harness.pi, 'vault-extract');
+    appendEntry(
+      harness.sessionFile,
+      toolCall('incomplete-vault', 'vault-extract', launch.request),
+      notification('incomplete-vault'),
+    );
+
+    await harness.emit('agent_settled');
+    expect(readFileSync(harness.paths.vaultManifestFile, 'utf8')).toBe(committedBefore);
+    expect(existsSync(vaultPointerPath(harness))).toBe(true);
+    expect(latestLaunch(harness.pi, 'vault-extract').reminder).toBe(1);
+  });
+
   it('promotes matching staged bytes and creates one follow-up request for during-run edits', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
@@ -567,6 +631,7 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery', () => {
     const firstExecutionPath = activeExecutionPath(harness, 'vault-extract');
     const launch = latestLaunch(harness.pi, 'vault-extract');
     appendEntry(harness.sessionFile, toolCall('successful-vault', 'vault-extract', launch.request));
+    writePostCommitChunk(harness, firstPointer.requestId);
 
     const duringRun = join(harness.paths.vaultRoot, 'Notes', 'during-run.md');
     writeFileSync(duringRun, 'later\n', 'utf8');
@@ -578,6 +643,7 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery', () => {
     expect(committed.files['Notes/during-run.md']).toBeUndefined();
     expect(existsSync(harness.paths.vaultMarkerFile)).toBe(true);
     expect(existsSync(firstExecutionPath)).toBe(false);
+    expect(existsSync(vaultChunkPath(harness, firstPointer.requestId))).toBe(false);
 
     const replacement = readJson(vaultPointerPath(harness));
     expect(replacement.requestId).not.toBe(firstPointer.requestId);
@@ -594,6 +660,7 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery', () => {
     const launch = latestLaunch(harness.pi, 'vault-extract');
     const staged = join(harness.paths.vaultRoot, 'graphify-out', `vault-extract-manifest.${original.requestId}.pending.json`);
     writeFileSync(staged, 'corrupt', 'utf8');
+    writePostCommitChunk(harness, original.requestId);
     appendEntry(harness.sessionFile, toolCall('corrupt-stage', 'vault-extract', launch.request), notification('corrupt-stage'));
 
     await harness.emit('agent_settled');

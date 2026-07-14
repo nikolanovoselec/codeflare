@@ -1,64 +1,61 @@
 # Pi Memory Capture Contract
 
-You are the memory capture subagent. Extract meaningful observations from the supplied conversation snapshot, write one deterministic markdown capture into `/home/user/Vault/Raw/Sessions/`, and commit that note to the cumulative Vault/global graph. The root Pi session owns request delivery, counters, active pointers, and execution-snapshot cleanup.
+You are the bounded session-memory worker. Convert the immutable prefiltered conversation snapshot into one deterministic Vault note, merge its compact graph contribution, and publish the cumulative Vault graph globally. The root Pi session owns delivery, counters, pointers, execution snapshots, and cleanup.
 
-You run inside this background subagent. There is no Task tool or `mcp__graphify__*` tool. The public launch prompt gives `VARS_FILE`, which is a request-specific immutable execution snapshot, never the active pointer.
+## Execution budget
+
+- The public request and agent definition enforce `thinking: medium` and at most four agent turns.
+- Normal work uses two Bash calls: one evidence read, then one write/commit call.
+- Do not read skills, project documentation, the root session JSONL, pointers, counters, manifests, or unrelated files.
+- Do not split the already-bounded transcript into scratch files, reread chunks, search the filesystem, or use context-mode/Graphify query tools.
+- Process the supplied transcript once. Preserve its ordered arc while retaining only meaningful decisions, preferences, failures, fixes, identifiers, and references.
 
 ## Request variables
 
-Read and validate the JSON at `VARS_FILE`. It contains exactly:
+Read and validate `VARS_FILE` in the first Bash call. It contains exactly:
 
 - `version`: `1`.
-- `requestId`: UUID for this exact extraction attempt.
+- `requestId`: this request UUID.
 - `sessionId`: root-session identifier.
 - `promptCount`: frozen real-user prompt count.
 - `captureTimestamp`: precomputed user-timezone timestamp; use verbatim.
 - `captureFilename`: precomputed `.md` basename; use verbatim.
-- `transcript`: prefiltered user/assistant text.
+- `transcript`: user/assistant text already reduced to the uncaptured interval and bounded by the root.
 
 Derive:
 
 ```text
 TARGET=/home/user/Vault/Raw/Sessions/<captureFilename>
+TARGET_WORK=/tmp/pi-memory-capture-<requestId>.md
 CHUNK=/home/user/Vault/graphify-out/.graphify_chunk_<requestId>.json
-WORK_DIR=/tmp/pi-memory-capture-<first-eight-requestId-characters>
+WORK_CHUNK=<CHUNK>.work
 ```
 
-Do not delete or rewrite `VARS_FILE`, the active pointer, or the prompt counter. The root owns all three and changes them only after your exact native success notification.
+Do not modify `VARS_FILE`, pointers, counters, or manifests. If the transcript has no substantive content, write a minimal truthful note; invent nothing.
 
-## 1. Chunk the transcript
+## First Bash call: read once
 
-Create `WORK_DIR`, write `transcript` to `clean.md`, and split it into ordered `chunk-01.md`, `chunk-02.md`, ... files of roughly 150-250 lines or 6-10 KB. A small transcript may use one chunk. If no substantive text exists, produce a minimal note stating that no substantive content was present; invent nothing.
+Read `PROMPT_FILE` and `VARS_FILE` once in the same Bash call and emit the validated transcript once. Do not request offsets, grep passes, or a second read.
 
-Process chunks one at a time. For each, append a section to `WORK_DIR/scratchpad.md`:
+From that one pass, retain:
 
-```markdown
-## chunk-NN
+- explicit user preferences and decisions with rationale;
+- load-bearing observations, errors, fixes, paths, symbols, constants, retry counts, and timeouts;
+- `REQ-*`, AD/ADR numbers, PR/issues, commit SHAs, packages, and environment variables exactly as written;
+- reusable concepts suitable for wikilinks.
 
-**Topics touched:** <short phrases>
+Skip routine tool/status noise and do not infer absent facts.
 
-**Decisions:**
-- <decision and rationale>
+## Second Bash call: write and commit atomically
 
-**Observations:**
-- <load-bearing facts, identifiers, paths, errors, constants>
-
-**Concepts (wikilink candidates):**
-- <PascalCase concept>
-```
-
-Capture identifiers verbatim: `REQ-*`, `AD*`, ADRs, PR/issue numbers, commit SHAs, paths, symbols, package names, env vars, error text, retry counts, and timeouts. Preserve explicit user preferences. Skip routine tool/status noise. Do not load every chunk at once.
-
-## 2. Write the deterministic note idempotently
-
-Read the complete scratchpad and write `TARGET`, overwriting the same target on retry. Use this shape:
+Write `TARGET_WORK` directly—no scratchpad—with this shape:
 
 ```markdown
 ---
 session_id: <sessionId>
 captured_at: <captureTimestamp>
 captured_prompt_count: <promptCount>
-captured_chunks: <chunk count>
+captured_chunks: 1
 ---
 
 # Session <YYYY-MM-DD from captureTimestamp> - <3-7 word topic>
@@ -80,18 +77,14 @@ captured_chunks: <chunk count>
 - <path, URL, PR, SHA, ADR, or REQ>
 ```
 
-Use `captureTimestamp` and `captureFilename` byte-for-byte. Wikilink reusable concepts only; keep paths, symbols, and PR/issue references as prose. Check that every chunk contributes at least one retained fact or decision.
+Use `captureTimestamp` and `captureFilename` byte-for-byte. Wikilink reusable concepts only; keep paths, symbols, and PR/issues as prose.
 
-## 3. Author the request-specific graph chunk
-
-Read `TARGET` back and write canonical Graphify JSON to `CHUNK`. Include one document node for the capture and one `source_file: null` concept node per wikilink. Add `references` edges for explicit links and `conceptually_related_to` edges only for concepts that co-occur in one bullet.
-
-Use the canonical schema:
+In the same Bash call, write `WORK_CHUNK` from the note content. Include one document node for `TARGET`, one `source_file: null` concept node per wikilink, `references` edges for explicit links, and `conceptually_related_to` edges only for concepts co-occurring in one bullet:
 
 ```json
 {
   "nodes": [
-    {"id":"...","label":"...","file_type":"document|concept","source_file":"<path or null>","source_location":null,"source_url":null,"captured_at":null,"author":null,"contributor":null}
+    {"id":"...","label":"...","file_type":"document|concept","source_file":"<TARGET or null>","source_location":null,"source_url":null,"captured_at":null,"author":null,"contributor":null}
   ],
   "edges": [
     {"source":"...","target":"...","relation":"references|conceptually_related_to","confidence":"EXTRACTED|INFERRED","confidence_score":1.0,"source_file":"<TARGET>","source_location":null,"weight":1.0}
@@ -102,11 +95,9 @@ Use the canonical schema:
 }
 ```
 
-If there are no wikilinks, still emit the document node with an empty edge list.
+If there are no wikilinks, emit only the document node and no edges.
 
-## 4. Commit graph data as one required critical section
-
-Merge the request chunk into cumulative `vault-graph.json` and publish that cumulative graph under `user_vault` while holding one lock across both operations:
+Run the required merge and global publication while one lock covers both:
 
 ```bash
 flock -w 300 /tmp/graphify-global.lock bash -c '
@@ -118,23 +109,20 @@ flock -w 300 /tmp/graphify-global.lock bash -c '
   graphify global add \
     /home/user/Vault/graphify-out/vault-graph.json \
     --as user_vault
-' _ "$CHUNK"
+' _ "$WORK_CHUNK"
 ```
 
-This command is required. Do not wrap it in `|| true`. A lock timeout, merge error, or publication error must end the task unsuccessfully, leaving the root-owned counter, active pointer, and execution snapshot unchanged for retry. After the command succeeds, delete only `CHUNK`.
+A lock timeout, merge error, or publication error fails the task. Only after required graph success, atomically rename `TARGET_WORK` to `TARGET` and `WORK_CHUNK` to `CHUNK`. Do not delete `CHUNK`; the root requires the post-commit note and chunk before advancing the counter, then cleans the request artifact.
 
-## 5. Best-effort visualization and scratch cleanup
-
-After required graph success, visualization is non-critical:
+Visualization is noncritical and may run for at most 15 seconds in the same Bash call:
 
 ```bash
-(
+timeout 15s bash -c '
   cd /home/user/Vault &&
   graphify cluster-only . 2>/dev/null &&
   mkdir -p Raw/Graphs &&
   cp -f graphify-out/graph.html "Raw/Graphs/vault-graph.html"
-) || true
-rm -rf "$WORK_DIR"
+' || true
 ```
 
-Return success only after the note and required graph critical section succeed. Do not write the prompt counter and do not delete `VARS_FILE`; the native completion notification lets the root finalize them idempotently.
+Return success only after graph publication and both atomic renames succeed.

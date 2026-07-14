@@ -231,6 +231,10 @@ function adaptAgentFrontmatter(content, agentId) {
 
     if (line.startsWith('tools:')) {
       sawTools = true;
+      if (piExtractionAgent) {
+        newLines.push('tools: bash');
+        continue;
+      }
       const toolsMatch = line.match(/tools:\s*(\[.*\])/);
       if (toolsMatch) {
         const tools = JSON.parse(toolsMatch[1]);
@@ -276,7 +280,10 @@ function adaptAgentFrontmatter(content, agentId) {
     if (!sawTools) newLines.push('tools: read, grep, find, ls, bash, edit, write');
     newLines.push('prompt_mode: replace');
     newLines.push('extensions: true');
-    if (piExtractionAgent) newLines.push('run_in_background: true');
+    if (piExtractionAgent) {
+      newLines.push('thinking: medium');
+      newLines.push('run_in_background: true');
+    }
   }
 
   let adaptedBody = adaptPaths(body, agentId);
@@ -284,16 +291,19 @@ function adaptAgentFrontmatter(content, agentId) {
   if (agentId === 'pi' && agentName === 'memory-capture') {
     adaptedBody = adaptedBody
       .replace('You are the memory-capture subagent. You run in the background, triggered by the per-15-message memory-capture hook.', 'You are the memory-capture subagent. The root Pi session launches you through one visible public background request at the capture cadence.')
+      .replace('The full multi-step contract lives in `memory-agent-prompt.md`.', 'The bounded one-pass contract lives in `memory-agent-prompt.md`.')
       .replace('The hook passes you the path to that file and the path to a `.vars` file containing the transcript slice + counter state. Read both, then execute the contract verbatim. The contract\'s first step is to delete the `.vars` file (dedup gate).', 'The root request passes that prompt path and a request-specific immutable execution snapshot. Read both, then execute the contract verbatim. Do not delete the execution snapshot, active pointer, or counter; the root finalizes them only after exact native success.')
       .replace('Inputs the hook passes:', 'Inputs the root public request passes:')
-      .replace('`VARS_FILE`: path to the trigger marker at `/tmp/.memory-counter/<session_id>.vars` (delete first).', '`VARS_FILE`: path to the request-specific execution snapshot (root-owned until exact success).');
+      .replace('`VARS_FILE`: path to the trigger marker at `/tmp/.memory-counter/<session_id>.vars` (delete first).', '`VARS_FILE`: path to the request-specific execution snapshot (root-owned until exact success).')
+      .replace('Running the contract\'s shell steps: prefer the `Bash` tool. If a `Bash` call is blocked or routed in this session (some sessions run a routing gate that intercepts shell), run the identical command through `ctx_execute` (`language: "shell"`) instead - it reaches the same filesystem and binaries. Use whichever is available; never skip a step because one tool is gated. File writes always go through the `Write` tool, not a shell heredoc.', 'Use only Bash. All policy needed for this bounded task is in the deployed prompt and immutable snapshot; do not read skills, project documentation, or unrelated files. In the normal path, use one Bash call to read/validate the prompt, snapshot, and frozen input, then one Bash call to write and commit the result.');
   }
   if (agentId === 'pi' && agentName === 'vault-extract') {
     adaptedBody = adaptedBody
       .replace('You are the vault-extract subagent. You run in the background, triggered by the vault-monitor daemon.', 'You are the vault-extract subagent. The root Pi session launches you through one visible public background request after detecting user-curated Vault changes.')
-      .replace('The full 5-step contract lives in the prompt file passed to you by the hook. Read that file and the `.vars` file the hook gave you, then execute the contract verbatim. The contract\'s first step is to delete the `.vars` file (dedup gate).', 'The full contract lives in the prompt file passed by the root request. Read that file and the request-specific immutable execution snapshot, then execute the contract verbatim. Do not delete the execution snapshot, active pointer, or staged manifest; the root promotes and cleans them only after exact native success.')
+      .replace('The full 5-step contract lives in the prompt file passed to you by the hook. Read that file and the `.vars` file the hook gave you, then execute the contract verbatim. The contract\'s first step is to delete the `.vars` file (dedup gate).', 'The bounded one-pass contract lives in the prompt file passed by the root request. Read that file and the request-specific immutable execution snapshot, then execute the contract verbatim. Do not delete the execution snapshot, active pointer, or staged manifest; the root promotes and cleans them only after exact native success.')
       .replace('Inputs the hook passes:', 'Inputs the root public request passes:')
-      .replace('`VARS_FILE`: path to the trigger marker at `~/.cache/codeflare-hooks/vault-extract.vars` (delete first).', '`VARS_FILE`: path to the request-specific execution snapshot (root-owned until exact success).');
+      .replace('`VARS_FILE`: path to the trigger marker at `~/.cache/codeflare-hooks/vault-extract.vars` (delete first).', '`VARS_FILE`: path to the request-specific execution snapshot (root-owned until exact success).')
+      .replace('You do not need to respond to the user; this is background ingestion.', 'Use only Bash. All policy needed for this bounded task is in the deployed prompt and immutable snapshot; do not read skills, project documentation, or unrelated files. In the normal path, use one Bash call to read/validate the prompt, snapshot, and frozen files, then one Bash call to write and commit the result.\n\nYou do not need to respond to the user; this is background ingestion.');
   }
 
   return `---\n${newLines.join('\n')}\n---\n${adaptedBody}`;

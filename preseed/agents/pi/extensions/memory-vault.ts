@@ -186,6 +186,10 @@ function requestChunkPath(paths: MemoryVaultPaths, requestId: string): string {
   return join(paths.vaultRoot, "graphify-out", `.graphify_chunk_${requestId}.json`);
 }
 
+function requestWorkingChunkPath(paths: MemoryVaultPaths, requestId: string): string {
+  return `${requestChunkPath(paths, requestId)}.work`;
+}
+
 function captureOutputPath(paths: MemoryVaultPaths, request: MemoryCaptureRequest): string {
   return join(paths.vaultRoot, "Raw", "Sessions", request.captureFilename);
 }
@@ -264,10 +268,11 @@ function createMemoryRequest(input: {
   dependencies: MemoryVaultDependencies;
   session: string;
   promptCount: number;
+  afterPromptCount: number;
   messages: any[];
   timezone?: string;
 }): MemoryCaptureRequest | undefined {
-  const transcript = compactMessages(input.messages);
+  const transcript = compactMessages(input.messages, input.afterPromptCount);
   if (!transcript.trim()) return undefined;
   const timestamp = captureTimestamp(input.timezone);
   const request: MemoryCaptureRequest = {
@@ -315,10 +320,16 @@ function cleanupVaultRequest(paths: MemoryVaultPaths, active: ActiveVaultRequest
   safeUnlink(active.executionPath);
   safeUnlink(stagedManifestPath(paths, active.request.requestId));
   safeUnlink(requestChunkPath(paths, active.request.requestId));
+  safeUnlink(requestWorkingChunkPath(paths, active.request.requestId));
 }
 
 function memorySuccessQualifies(paths: MemoryVaultPaths, request: MemoryCaptureRequest): boolean {
-  return existsSync(captureOutputPath(paths, request));
+  return existsSync(captureOutputPath(paths, request))
+    && existsSync(requestChunkPath(paths, request.requestId));
+}
+
+function vaultSuccessQualifies(paths: MemoryVaultPaths, request: VaultExtractRequest): boolean {
+  return request.changedFiles.length === 0 || existsSync(requestChunkPath(paths, request.requestId));
 }
 
 function finalizeMemorySuccess(
@@ -343,6 +354,8 @@ function finalizeMemorySuccess(
   if (currentPointer?.requestId !== active.pointer.requestId) return;
   safeUnlink(memoryActiveVarsPath(paths, active.request.sessionId));
   safeUnlink(active.executionPath);
+  safeUnlink(requestChunkPath(paths, active.request.requestId));
+  safeUnlink(requestWorkingChunkPath(paths, active.request.requestId));
 }
 
 function refreshPendingVaultRequest(
@@ -357,7 +370,7 @@ function refreshPendingVaultRequest(
     requestId: active.request.requestId,
     job: "vault-extract",
     now: dependencies.now(),
-    successQualifies: () => true,
+    successQualifies: () => vaultSuccessQualifies(paths, active.request),
   });
   if (facts.giveup) {
     const current = collectVaultFileHashes(paths.vaultRoot);
@@ -400,7 +413,7 @@ function finalizeVaultSuccess(
     requestId: active.request.requestId,
     job: "vault-extract",
     now: dependencies.now(),
-    successQualifies: () => true,
+    successQualifies: () => vaultSuccessQualifies(paths, active.request),
   });
   if (facts.state !== "succeeded") return;
 
@@ -482,7 +495,7 @@ function sendDueExtractionMessages(
       now: dependencies.now(),
       successQualifies: () => item.job === "memory-capture"
         ? memorySuccessQualifies(paths, item.request as MemoryCaptureRequest)
-        : true,
+        : vaultSuccessQualifies(paths, item.request as VaultExtractRequest),
     });
     const due = extractionDue(facts);
     if (due.kind === "launch") launches.push(dueItem(paths, item.request, item.job, due.reminder));
@@ -547,10 +560,15 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
           dependencies,
           session,
           promptCount: currentCount,
+          afterPromptCount: lastCount,
           messages,
           timezone: process.env.TZ || process.env.USER_TIMEZONE || undefined,
         });
-        if (replacement) safeUnlink(active.executionPath);
+        if (replacement) {
+          safeUnlink(active.executionPath);
+          safeUnlink(requestChunkPath(paths, active.request.requestId));
+          safeUnlink(requestWorkingChunkPath(paths, active.request.requestId));
+        }
       }
       return;
     }
@@ -566,6 +584,7 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
       dependencies,
       session,
       promptCount: currentCount,
+      afterPromptCount: lastCount,
       messages,
       timezone: process.env.TZ || process.env.USER_TIMEZONE || undefined,
     });
