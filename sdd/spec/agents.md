@@ -2101,13 +2101,14 @@ None.
 
 **Acceptance Criteria:**
 
-1. Pi starts with context-mode enabled without requiring `/ctx on`. <!-- @impl: entrypoint.sh::CONTEXT_MODE_VERSION --> <!-- @test: host/__tests__/entrypoint-context-mode.test.js (entrypoint context-mode preseed gate / REQ-AGENT-005 + REQ-AGENT-076 (context-mode MCP registration)) -->
-2. `/ctx off` disables context-mode only for the current Pi session. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::contextModeEnabled -->
+1. Pi's foreground session starts with context-mode enabled without requiring `/ctx on`, while shared package resources retain its skills but do not autoload its extension. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachContextModeToForeground --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly (entrypoint.sh)) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-076 AC1/AC8: only the foreground Pi session attaches the context-mode extension) -->
+2. `/ctx off` disables context-mode only for the current Pi session, and `/ctx on` restores foreground-only loading. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::setContextModeEnabled --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::contextModeEnabled --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-076 AC2: context-mode package markers toggle foreground loading without shared extension autoload) -->
 3. Custom-tier Claude may receive automatic context-window reduction only while its tier remains eligible. <!-- @impl: src/lib/r2-seed.ts::getConfigsForMode --> <!-- @test: host/__tests__/entrypoint-context-mode.test.js (entrypoint context-mode preseed gate / REQ-AGENT-005 + REQ-AGENT-076 (context-mode MCP registration)) -->
 4. The Pi settings required set installs the five always-on tool extensions. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly (entrypoint.sh)) -->
 5. Build-time patching neutralizes context-mode's npm update probe in both installed copies. <!-- @impl: scripts/patch-context-mode-bundles.mjs::BUNDLE_NAMES --> <!-- @test: host/__tests__/dockerfile-context-mode-patch.test.js (Dockerfile context-mode patch (createRequire shim + REQ-AGENT-076 AC4 update-check disable)) -->
 6. Pi `web_search` defaults to the headless-safe `auto-summary` workflow. <!-- @impl: entrypoint.sh::PI_WEB_SEARCH_JSON --> <!-- @test: host/__tests__/entrypoint-pi-web-search.test.js (entrypoint.sh Pi web-search workflow default) -->
-7. Codeflare leaves context-mode's bridge idle-reaper enabled. <!-- @impl: entrypoint.sh::SYNC_STATUS --> <!-- @test: host/__tests__/entrypoint-context-mode-runtime.test.js (entrypoint never sets or exports a global CONTEXT_MODE_BRIDGE_IDLE_MS override) -->
+7. Codeflare leaves context-mode's bridge idle-reaper enabled and clears inherited process-wide overrides. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::clearInheritedContextModeBridgeIdleOverride --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-076 AC7: Pi context-mode runtime extension clears an inherited bridge-idle override so context-mode governs per-session) -->
+8. In-process Pi subagents do not attach the context-mode extension or spawn its MCP bridge; reviewer agents use the equivalent Bash/Node packet transport without narrowing scope or evidence. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachContextModeToForeground --> <!-- @impl: preseed/agents/pi/agents/code-reviewer.md::codeflare-reviewer-runtime --> <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::codeflare-reviewer-runtime --> <!-- @impl: preseed/agents/pi/agents/doc-updater.md::codeflare-reviewer-runtime --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi agents use Pi-native tool names and reviewers use the bridge-free Bash transport) -->
 
 **Notes:** AC2 is manually verified through the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
@@ -2119,7 +2120,8 @@ None.
 - Advisor remains user-invoked only.
 - Tool extensions require no per-user API key.
 - The update probe patch is build-owned, not a self-upgrade path.
-- Every Pi workflow retains an equivalent non-context fallback.
+- Every Pi workflow retains an equivalent non-context fallback; in-process subagents always use that fallback.
+- The foreground owner guard is Codeflare-owned integration code and does not patch context-mode or pi-subagents.
 
 **Priority:** P1
 

@@ -3,8 +3,8 @@
 // v1.0.151 is the first release carrying the issue #671 fix (synchronous
 // better-sqlite3 calls blocking the Node event loop and burning a whole vCPU on
 // long-lived FTS5 indexes). v1.0.169 additionally carries the issue #868
-// foreground/subagent bridge idle-reaper split that codeflare relies on
-// (REQ-AGENT-076 AC6) so subagent bridge helpers self-release instead of piling up.
+// foreground bridge stability behavior used by Codeflare's single foreground owner
+// (REQ-AGENT-076 AC7). In-process subagents do not load context-mode.
 // The Dockerfile reads `version` from this JSON and runs `npm install -g
 // context-mode@$VER`; if the pin slips below either floor, the produced container
 // ships a version that reintroduces a failure mode codeflare lived through.
@@ -38,11 +38,11 @@ describe('context-mode plugin.json version pin', () => {
     );
   });
 
-  it('is at least v1.0.169 (issue #868 foreground/subagent bridge idle-reaper split)', () => {
+  it('is at least v1.0.169 (issue #868 foreground bridge stability)', () => {
     const { version, flat } = pinnedVersionFlat();
     assert.ok(
       flat >= 1_000_169,
-      `context-mode pinned version ${version} predates the issue #868 foreground/subagent bridge idle-reaper split (need >= 1.0.169); a downgrade below this silently stops subagent bridge helpers self-releasing`
+      `context-mode pinned version ${version} predates the issue #868 foreground bridge stability fix (need >= 1.0.169)`
     );
   });
 });

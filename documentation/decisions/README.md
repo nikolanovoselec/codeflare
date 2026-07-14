@@ -111,6 +111,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) | Pi PR review uses visible session-scoped agents | Agents |
 | [AD99](#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent) | Pi CI monitoring uses one attached native background subagent | Agents |
 | [AD100](#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) | Pin the upstream rpiv-todo session-isolation fix | Agents |
+| [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports) | context-mode is foreground-owned in Pi; in-process subagents use native transports | Agents, Architecture |
 
 ---
 
@@ -2454,6 +2455,24 @@ Pi owns native reviewer agents, engineering rules, and spec/document enforcement
 **Consequences:** Reload and branch replay keep their existing task semantics, while subagent lifecycle events cannot erase foreground tasks. The image prewarm and generated Pi npm seed carry the same patch payload. The temporary override adds four pinned source files and must be removed when a reviewed upstream release ships the fix.
 
 **Related:** [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation), [Pi preseed](../lanes/preseed.md#agent-seed-system).
+
+---
+
+### AD101: context-mode is foreground-owned in Pi; in-process subagents use native transports
+
+**Category:** Agents, Architecture
+
+**Status:** Accepted (2026-07-14)
+
+**Context:** `@gotgenes/pi-subagents` creates child `AgentSession`s inside the foreground Pi process and deliberately loads the parent's extension set. context-mode 1.0.169 assumes one Pi extension owner per process: each registration has a local start latch, but its bridge handle/readiness and session identity are module-global. Concurrent child registrations overwrite the foreground bridge handle. Child bridges eventually idle-reap, but the displaced foreground bridge has `CONTEXT_MODE_BRIDGE_IDLE_MS=0`; later root reload cleanup cannot reach it. A live long-running session accumulated 17 idle-disabled `server.bundle.mjs` children (~0.78 GiB PSS). The current npm release is already 1.0.169, and modifying either installed upstream package would create an unowned fork.
+
+**Decision:** Keep context-mode installed and keep its skills visible, but filter its Pi extension out of the shared package resource set (`extensions: []`). The managed `context-mode-runtime.ts` extension owns a process-global claim: the first/root Pi resource load imports and initializes the installed context-mode adapter; subsequent in-process subagent loads observe the claim and return without initializing it. The root releases the claim on `session_shutdown` after context-mode registers its own cleanup, so `/reload` and `/ctx off|on` can detach and reattach cleanly. `/ctx off` is represented by filtering both extensions and skills; `/ctx on` restores skills while extension loading remains owner-guarded. Pi reviewers declare only `bash` and consume the same exact review packet through Bash/Node.
+
+**Alternatives considered:** Patch context-mode's module globals or pi-subagents' disposal lifecycle — rejected because Codeflare must not carry source fixes for upstream packages. Globally disable context-mode — rejected because the foreground session benefits from its tools. Let every child spawn a bridge and rely on the idle timeout — rejected because it leaves transient process growth and does not recover displaced idle-disabled foreground handles. Run reviewers in separate Pi processes — rejected because visible session-scoped `@gotgenes/pi-subagents` are the accepted review execution model.
+
+**Consequences:** One Pi process owns at most one active context-mode bridge. In-process reviewers, memory capture, CI monitors, and other children use their documented native/Bash fallbacks; exact review scope and evidence are unchanged. The wrapper imports the registry-installed adapter rather than copying or modifying it, so npm upgrades remain upstream-owned. A full Pi process restart is required once to reap helpers leaked by sessions created before this decision.
+
+**Related:** [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents), [Pi preseed](../lanes/preseed.md#agent-seed-system).
 
 ---
 

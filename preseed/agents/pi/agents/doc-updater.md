@@ -1,7 +1,7 @@
 ---
 name: doc-updater
 description: Pi-native report-only documentation reviewer for PR boundaries and /review scopes.
-tools: ctx_execute, bash
+tools: bash
 thinking: medium
 prompt_mode: replace
 extensions: true
@@ -34,14 +34,14 @@ Apply the embedded `review-scope` policy and resolve scope first:
 - `review_range=<base>..<head>` is exact. A full PR against its protected base is still `scope=diff`.
 - `/review --diff` and `/review --all` share these semantics. Root-owned `/sdd clean` resolves the same scopes before invoking enforcement inline.
 
-Build and consume the `doc-updater` packet once inside the first processing call. `ctx_execute` and Bash invoke the same seeded CLI and parse the same JSON in memory; never persist the packet or return raw packet JSON. Start from documentation hunks. A changed source/spec path alone invalidates no documentation: resolve the referenced symbol/block and require overlap with `changedInputs[].hunks` unless a concrete documentation hunk identifies the contract dependency.
+Build and consume the `doc-updater` packet once inside the first Bash/Node processing call. The foreground-only context-mode extension is intentionally absent from in-process reviewers; invoke the seeded packet CLI directly and parse its JSON in memory without persisting the packet or returning raw packet JSON. Start from documentation hunks. A changed source/spec path alone invalidates no documentation: resolve the referenced symbol/block and require overlap with `changedInputs[].hunks` unless a concrete documentation hunk identifies the contract dependency.
 
 ## Procedure
 
 1. If either `sdd/` or `documentation/` is absent, return `no-op (vibe-coding mode: no sdd/ or no documentation/)`.
 2. If SDD transition is active with open init triage, return `SDD transition in progress; review suspended until triage drains.`
 3. In the first tool wave, build and parse the packet in memory. Derive owner-lane candidates only by changed-hunk intersection; the complete enforcement policies are embedded and must not be retrieved again.
-4. Prefer `ctx_execute`; use the equivalent consolidated Bash/Node pipeline when context-mode is unavailable. Both execute the same packet CLI and return identical compact failures and candidate snippets. Never persist or reread packet/log output, use indexed search, or re-read evidence already returned.
+4. Use the consolidated Bash/Node pipeline. It executes the same packet CLI as the optional foreground context-mode transport and returns identical compact failures and candidate snippets. Never persist or reread packet/log output, use indexed search, or re-read evidence already returned.
 5. Check public routes, environment variables, deployment/rollback, security boundaries, troubleshooting steps, ADR status, REQ backlinks, and root README only where a hunk or concrete direct invalidation identifies them.
 6. If concrete candidates remain unresolved, collect all of their direct evidence in one additional focused tool wave. Then report or dismiss each candidate and stop when every packet hunk, manifest row, and owner-lane candidate has one disposition. Never auto-fix or write `.doc-coverage.md` during report-only review.
 

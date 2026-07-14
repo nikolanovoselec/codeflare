@@ -6,7 +6,7 @@ import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } fr
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
 import { restoreActiveRepoFromPersistedFiles, shouldHandleClonePrompt } from '../../../preseed/agents/pi/extensions/codeflare-pi';
 import { sddCommandDecision, type SddRepoState } from '../../../preseed/agents/pi/extensions/sdd-helpers';
-import contextModeRuntime from '../../../preseed/agents/pi/extensions/context-mode-runtime';
+import { CONTEXT_MODE_DISABLED_PACKAGE, CONTEXT_MODE_ENABLED_PACKAGE, attachContextModeToForeground, clearInheritedContextModeBridgeIdleOverride, contextModeEnabled } from '../../../preseed/agents/pi/extensions/context-mode-runtime';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -529,11 +529,11 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('REQ-AGENT-076 AC6: Pi context-mode runtime extension clears an inherited bridge-idle override so context-mode governs per-session', () => {
+  it('REQ-AGENT-076 AC7: Pi context-mode runtime extension clears an inherited bridge-idle override so context-mode governs per-session', () => {
     const prev = process.env.CONTEXT_MODE_BRIDGE_IDLE_MS;
     try {
       process.env.CONTEXT_MODE_BRIDGE_IDLE_MS = '0';
-      contextModeRuntime();
+      clearInheritedContextModeBridgeIdleOverride();
       expect(process.env.CONTEXT_MODE_BRIDGE_IDLE_MS).toBeUndefined();
     } finally {
       if (prev === undefined) delete process.env.CONTEXT_MODE_BRIDGE_IDLE_MS;
@@ -541,7 +541,33 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('Pi agents use Pi-native tool names and keep declared context-mode tools (not stripped, never mcp-prefixed)', () => {
+  it('REQ-AGENT-076 AC2: context-mode package markers toggle foreground loading without shared extension autoload', () => {
+    expect(contextModeEnabled({ packages: [{ ...CONTEXT_MODE_ENABLED_PACKAGE, extensions: [] }] })).toBe(true);
+    expect(contextModeEnabled({ packages: [{ ...CONTEXT_MODE_DISABLED_PACKAGE, extensions: [], skills: [] }] })).toBe(false);
+  });
+
+  it('REQ-AGENT-076 AC1/AC8: only the foreground Pi session attaches the context-mode extension', async () => {
+    const ownerRegistry: { owner?: symbol } = {};
+    const rootShutdownHandlers: Array<() => void | Promise<void>> = [];
+    const rootPi = {
+      on(event: string, handler: () => void | Promise<void>) {
+        if (event === 'session_shutdown') rootShutdownHandlers.push(handler);
+      },
+    };
+    const childPi = { on() {} };
+    let attachCount = 0;
+    const initialize = async () => { attachCount += 1; };
+
+    await expect(attachContextModeToForeground(ownerRegistry, rootPi, initialize)).resolves.toBe(true);
+    await expect(attachContextModeToForeground(ownerRegistry, childPi, initialize)).resolves.toBe(false);
+    expect(attachCount).toBe(1);
+
+    await rootShutdownHandlers[0]?.();
+    await expect(attachContextModeToForeground(ownerRegistry, childPi, initialize)).resolves.toBe(true);
+    expect(attachCount).toBe(2);
+  });
+
+  it('Pi agents use Pi-native tool names and reviewers use the bridge-free Bash transport', () => {
     const agents = AGENTS_SEEDED_CONFIGS.filter((d) => d.key.startsWith('.pi/agent/agents/') && !d.key.endsWith('AGENTS.md'));
     const toolsLine = (content: string) => content.match(/^tools:.*$/m)?.[0] ?? '';
     for (const agent of agents) {
@@ -551,11 +577,15 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       expect(agent.content).not.toContain('mcp__graphify__');
       expect(agent.content).not.toContain('mcp__context-mode__');
     }
-    // an agent that declares context-mode tools upstream keeps them under Pi-native names,
-    // so context-mode (when /ctx enables it) is usable instead of a dead-end redirect
-    const codeReviewer = agents.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
-    expect(toolsLine(codeReviewer?.content ?? '')).toContain('ctx_execute');
-    expect(toolsLine(codeReviewer?.content ?? '')).toContain('ctx_batch_execute');
+    for (const key of [
+      '.pi/agent/agents/code-reviewer.md',
+      '.pi/agent/agents/spec-reviewer.md',
+      '.pi/agent/agents/doc-updater.md',
+    ]) {
+      const reviewer = agents.find((d) => d.key === key);
+      expect(toolsLine(reviewer?.content ?? '')).toContain('bash');
+      expect(toolsLine(reviewer?.content ?? '')).not.toContain('ctx_');
+    }
   });
 
   it('REQ-AGENT-025 / REQ-AGENT-043: Pi graphify clone triage resolves clone destinations and branches on graph state', () => {

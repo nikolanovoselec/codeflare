@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: Pi-native report-only code reviewer for PR boundaries, /review, and explicit audits.
-tools: ctx_execute, bash
+tools: bash
 thinking: medium
 prompt_mode: replace
 extensions: true
@@ -31,7 +31,7 @@ Apply the embedded `review-scope` policy and treat its result as a hard boundary
 
 If a prompt is ambiguous, default to `scope=diff` and state the resolved range. Never invent a broader range.
 
-Build and consume the `code-reviewer` packet once inside the first processing call. `ctx_execute` and Bash invoke the same seeded CLI and parse the same JSON in memory; never persist the packet or return raw packet JSON. Inspect lane hunks first. A `changedInputs` path is only a lead: follow a contract, caller, or anchor when its resolved symbol/block overlaps an old/new hunk range or a concrete lane defect identifies the dependency. Run deterministic checks together and batch unresolved evidence once. Treat generated seed as derived output and verify canonical identity once.
+Build and consume the `code-reviewer` packet once inside the first Bash/Node processing call. The foreground-only context-mode extension is intentionally absent from in-process reviewers; invoke the seeded packet CLI directly and parse its JSON in memory without persisting the packet or returning raw packet JSON. Inspect lane hunks first. A `changedInputs` path is only a lead: follow a contract, caller, or anchor when its resolved symbol/block overlaps an old/new hunk range or a concrete lane defect identifies the dependency. Run deterministic checks together and batch unresolved evidence once. Treat generated seed as derived output and verify canonical identity once.
 
 ## 2. Transition and repository gates
 

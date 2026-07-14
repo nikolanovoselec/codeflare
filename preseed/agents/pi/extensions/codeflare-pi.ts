@@ -12,6 +12,12 @@ import { cloneTargetPath, effectiveCwdForCommand, ENV_PREFIX, graphifyClonePromp
 import { sddCommandDecision, sddWorkflowExecutionText, sddWorkflowScopeText, type SddRepoState, SDD_HELP_TEXT } from "./sdd-helpers";
 import { recallActiveRepo, rememberActiveRepo } from "./active-repo-memory";
 import { attributionBlockReason, localBuildBlockReason } from "./guard-helpers";
+import {
+  CONTEXT_MODE_DISABLED_PACKAGE,
+  CONTEXT_MODE_ENABLED_PACKAGE,
+  contextModeEnabled,
+  isContextModePackage,
+} from "./context-mode-runtime";
 
 export { recallActiveRepo, rememberActiveRepo } from "./active-repo-memory";
 
@@ -51,9 +57,6 @@ const ACTIVE_REPO_FILE = join(CACHE_DIR, "graphify-active-cwd");
 const VAULT_ROOT = "/home/user/Vault";
 const GLOBAL_GRAPH_LOCK = "/tmp/graphify-global.lock";
 const PI_SETTINGS_FILE = "/home/user/.pi/agent/settings.json";
-const CONTEXT_MODE_PACKAGE = "npm:context-mode@1.0.169";
-const CONTEXT_MODE_PACKAGE_ID = "npm:context-mode";
-const CONTEXT_MODE_DISABLED_PACKAGE = { source: CONTEXT_MODE_PACKAGE, extensions: [], skills: [] };
 
 // Always-on engineering constitution injected into every Pi agent system prompt.
 // Mirrors the Claude rule preseed/agents/claude/rules/engineering-constitution.md —
@@ -450,15 +453,6 @@ function maybeMergeGlobalGraph(repo: string): void {
   }
 }
 
-function packageSource(entry: string | { source?: string } | undefined): string | undefined {
-  if (typeof entry === "string") return entry;
-  return typeof entry?.source === "string" ? entry.source : undefined;
-}
-
-function packageIdentity(source: string): string {
-  return source.replace(/@[^/@]+$/, "");
-}
-
 function readPiSettings(): PiSettings {
   try {
     return JSON.parse(readFileSync(PI_SETTINGS_FILE, "utf8")) as PiSettings;
@@ -471,28 +465,21 @@ function writePiSettings(settings: PiSettings): void {
   writeFileSync(PI_SETTINGS_FILE, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
 }
 
-function isContextModePackage(entry: string | { source?: string } | undefined): boolean {
-  const source = packageSource(entry);
-  return Boolean(source && packageIdentity(source) === CONTEXT_MODE_PACKAGE_ID);
-}
-
-function contextModeEnabled(settings = readPiSettings()): boolean {
-  return (settings.packages ?? []).some((entry) => {
-    if (!isContextModePackage(entry)) return false;
-    return typeof entry === "string" || entry.extensions === undefined || entry.skills === undefined;
-  });
-}
-
 function setContextModeEnabled(enabled: boolean): "enabled" | "disabled" {
   const settings = readPiSettings();
   const packages = (settings.packages ?? []).filter((entry) => !isContextModePackage(entry));
-  packages.push(enabled ? CONTEXT_MODE_PACKAGE : CONTEXT_MODE_DISABLED_PACKAGE);
+  const contextModePackage = enabled ? CONTEXT_MODE_ENABLED_PACKAGE : CONTEXT_MODE_DISABLED_PACKAGE;
+  packages.push({
+    ...contextModePackage,
+    extensions: [...contextModePackage.extensions],
+    ...("skills" in contextModePackage ? { skills: [...contextModePackage.skills] } : {}),
+  });
   writePiSettings({ ...settings, packages });
   return enabled ? "enabled" : "disabled";
 }
 
 function contextModeStatusText(): string {
-  const enabled = contextModeEnabled();
+  const enabled = contextModeEnabled(readPiSettings());
   return enabled
     ? "context-mode is enabled (the default for Pi). Use `/ctx off` to disable it for this running Pi session; the next Codeflare container start re-enables it."
     : "context-mode is disabled for this running Pi session. Use `/ctx on` to re-enable it now (Pi reloads resources); the next Codeflare container start re-enables it by default.";

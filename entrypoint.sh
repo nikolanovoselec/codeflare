@@ -111,12 +111,12 @@ else
     echo "[entrypoint] Timezone defaulting to UTC (USER_TIMEZONE='${USER_TIMEZONE:-unset}')"
 fi
 
-# Context-mode bridge idle-reaper is intentionally NOT globally disabled here.
-# context-mode's own foreground/subagent split (upstream #868) keeps the interactive bridge quiet
-# (it sets CONTEXT_MODE_BRIDGE_IDLE_MS=0 for the foreground child itself) while non-foreground /
-# subagent bridge helpers keep the default ~3-min idle reaper so they self-release. A global
-# `export CONTEXT_MODE_BRIDGE_IDLE_MS=0` would re-disable that reaper for subagent children and
-# pile up bun/node server.bundle.mjs helpers across a long session — do not re-add it.
+# Context-mode bridge idle-reaper is intentionally NOT globally disabled here. Codeflare loads
+# context-mode's Pi extension through the managed context-mode-runtime.ts owner guard, not through
+# the shared package resource set: the foreground session owns the single bridge while in-process
+# subagents use the equivalent Bash transport and never spawn bridge helpers. A global
+# `export CONTEXT_MODE_BRIDGE_IDLE_MS=0` would still disable any bridge reaper process-wide — do not
+# re-add it.
 
 # Force HTML visualization generation regardless of graph size.
 # Default graphify limit is 5000 nodes; codeflare repos routinely exceed this.
@@ -1960,9 +1960,10 @@ const fs = require('fs');
 const path = process.argv[2];
 const required = [
   'npm:@gotgenes/pi-subagents@18.0.1',
-  // context-mode is now enabled by default for Pi (was disabled): its ctx_* tools
-  // and the bash-curl-redirect hook are active without an explicit `/ctx on`.
-  'npm:context-mode@1.0.169',
+  // Keep context-mode's skills available to every Pi session but do not autoload its extension
+  // through shared package resources. context-mode-runtime.ts attaches that extension once to the
+  // foreground process owner; in-process subagents use the equivalent Bash review transport.
+  { source: 'npm:context-mode@1.0.169', extensions: [] },
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx off never disables them.
   'npm:@juicesharp/rpiv-advisor@1.20.0',
@@ -1996,7 +1997,10 @@ for (const spec of existing) {
   if (disabledPackageIds.has(id) || removedPackageIds.has(id)) continue;
   byName.set(id, spec);
 }
-for (const spec of required) byName.set(identity(spec), spec);
+for (const spec of required) {
+  const source = sourceOf(spec);
+  if (source) byName.set(identity(source), spec);
+}
 for (const spec of disabledPackages) byName.set(identity(spec.source), spec);
 fs.writeFileSync(path, JSON.stringify({ ...settings, packages: [...byName.values()] }, null, 2) + '\n');
 NODE

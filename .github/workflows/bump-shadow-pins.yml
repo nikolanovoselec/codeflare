@@ -4,7 +4,7 @@ name: Bump Shadow Pins
 # (so Dependabot can't see them) and opens a single PR per bump.
 #
 # Currently watched:
-# - context-mode npm package (plugin.json + entrypoint.sh + README.md)
+# - context-mode npm package (plugin.json + entrypoint.sh + Pi foreground-owner runtime + README.md)
 # - graphify PyPI package graphifyy (plugin.json; Dockerfile reads the pin via jq,
 #   so no Dockerfile literal to bump)
 # - zoxide, yazi, lazygit, silverbullet, openvscode-server (GitHub release binaries pinned in Dockerfile)
@@ -14,9 +14,10 @@ name: Bump Shadow Pins
 # - browser-run-mcp: @modelcontextprotocol/sdk pin in
 #   preseed/agents/claude/browser-run-mcp/package.json (baked into the image; no
 #   Dockerfile literal — the job reads/bumps the package.json pin via jq)
-# - pi-preseed: EVERY dependency in preseed/agents/pi/package.json (the @juicesharp
-#   rpiv family, pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents, context-mode)
-#   — each is also a literal install spec in entrypoint.sh + baked into the seed
+# - pi-preseed: every dependency in preseed/agents/pi/package.json except context-mode
+#   (the @juicesharp rpiv family, pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents)
+#   — each is also a literal install spec in entrypoint.sh + baked into the seed;
+#   context-mode is owned atomically by its dedicated job above
 # - impeccable skill bundle (vendored for Claude Code + Pi, checked via impeccable.style)
 
 on:
@@ -122,16 +123,15 @@ jobs:
 
           // Pi prewarm copy: Pi loads context-mode as its OWN `npm:context-mode@<ver>`
           // package (preseed/agents/pi package.json + lockfile), mirrored in
-          // codeflare-pi.ts (CONTEXT_MODE_PACKAGE) and the Pi settings test. This job
+          // context-mode-runtime.ts (CONTEXT_MODE_PACKAGE) and the Pi settings test. This job
           // owns the WHOLE context-mode bump so the global plugin pin and the Pi pin
           // move together in ONE PR and can never drift (the Dockerfile FATALs if they
           // do; the pi-preseed job excludes context-mode for this reason). Name-anchored
           // replacements only, so no unrelated version string is ever rewritten.
           const piFiles = [
             'preseed/agents/pi/package.json',
-            'preseed/agents/pi/extensions/codeflare-pi.ts',
+            'preseed/agents/pi/extensions/context-mode-runtime.ts',
             'host/__tests__/pi-settings-packages.test.js',
-            'src/__tests__/lib/agent-seed-manifest.test.ts',
           ];
           for (const f of piFiles) {
             const before = fs.readFileSync(f, 'utf-8');
@@ -177,8 +177,8 @@ jobs:
           - \`preseed/agents/claude/plugins/context-mode/README.md\`
           - \`entrypoint.sh\` (CONTEXT_MODE_VERSION + jq/bash fallback strings + Pi \`npm:context-mode@\` spec)
           - \`preseed/agents/pi/package.json\` + \`package-lock.json\` (Pi prewarm copy)
-          - \`preseed/agents/pi/extensions/codeflare-pi.ts\` (\`CONTEXT_MODE_PACKAGE\`)
-          - \`host/__tests__/pi-settings-packages.test.js\` + \`src/__tests__/lib/agent-seed-manifest.test.ts\` (pinned-version assertions)
+          - \`preseed/agents/pi/extensions/context-mode-runtime.ts\` (\`CONTEXT_MODE_PACKAGE\` + foreground-owner loader)
+          - \`host/__tests__/pi-settings-packages.test.js\` (pinned-version assertions)
           - \`src/lib/agent-seed.generated.ts\` (regenerated)
 
           ## Test plan
@@ -979,9 +979,7 @@ jobs:
           }
           const files = [
             'preseed/agents/pi/package.json',
-            'preseed/agents/pi/extensions/codeflare-pi.ts',
             'entrypoint.sh',
-            'src/__tests__/lib/agent-seed-manifest.test.ts',
             'host/__tests__/pi-settings-packages.test.js',
           ];
           for (const f of files) {
@@ -1018,13 +1016,12 @@ jobs:
           Auto-generated bump of the Pi preseed npm pins:
           $LIST
 
-          Every dependency in \`preseed/agents/pi/package.json\` is pinned in more than the manifest (the entrypoint.sh Pi \`required\` install specs, \`CONTEXT_MODE_PACKAGE\` in codeflare-pi.ts, and the generated agent seed), so Dependabot can't keep them in sync - \`bump-shadow-pins.yml\` owns them.
+          Every dependency in \`preseed/agents/pi/package.json\` is mirrored in entrypoint.sh's Pi \`required\` install specs and the generated agent seed, so Dependabot can't keep them in sync - \`bump-shadow-pins.yml\` owns them. The dedicated context-mode job additionally updates the foreground-owner loader.
 
           Files updated by name-anchored string replace + lockfile + seed regenerate:
           - \`preseed/agents/pi/package.json\` + \`package-lock.json\`
-          - \`preseed/agents/pi/extensions/codeflare-pi.ts\` (\`CONTEXT_MODE_PACKAGE\`, when context-mode bumps)
           - \`entrypoint.sh\` (Pi settings \`required\` install specs)
-          - \`src/__tests__/lib/agent-seed-manifest.test.ts\` + \`host/__tests__/pi-settings-packages.test.js\` (pinned-version assertions)
+          - \`host/__tests__/pi-settings-packages.test.js\` (pinned-version assertions)
           - \`src/lib/agent-seed.generated.ts\` (regenerated)
 
           ## Test plan

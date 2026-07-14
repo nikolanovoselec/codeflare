@@ -1,7 +1,7 @@
 ---
 name: spec-reviewer
 description: Pi-native report-only SDD reviewer for PR boundaries and explicit scoped reviews.
-tools: ctx_execute, bash
+tools: bash
 thinking: medium
 prompt_mode: replace
 extensions: true
@@ -32,14 +32,14 @@ Apply the embedded `review-scope` policy and resolve scope before any scan:
 - `review_range=<base>..<head>` is exact. A protected-base full PR is still `scope=diff`.
 - `/review --diff` and `/review --all` use these scope semantics. Root-owned `/sdd clean` resolves the same scopes before invoking enforcement inline.
 
-Scope is the work bound. Build and consume the `spec-reviewer` packet once inside the first processing call. `ctx_execute` and Bash invoke the same seeded CLI and parse the same JSON in memory; never persist the packet or return raw packet JSON. Start from SDD hunks. A changed source/test path alone invalidates no anchor: resolve each referenced implementation symbol or named test block and include it only when its line range overlaps `changedInputs[].hunks`. Consolidate the enforcement manifest and unresolved evidence instead of alternating reads.
+Scope is the work bound. Build and consume the `spec-reviewer` packet once inside the first Bash/Node processing call. The foreground-only context-mode extension is intentionally absent from in-process reviewers; invoke the seeded packet CLI directly and parse its JSON in memory without persisting the packet or returning raw packet JSON. Start from SDD hunks. A changed source/test path alone invalidates no anchor: resolve each referenced implementation symbol or named test block and include it only when its line range overlaps `changedInputs[].hunks`. Consolidate the enforcement manifest and unresolved evidence instead of alternating reads.
 
 ## Procedure
 
 1. If `sdd/` or `sdd/README.md` is absent, return `no-op (vibe-coding mode: no sdd/)`.
 2. If the active SDD config has `transition: true` and the matching init-triage file is open, return `SDD transition in progress; review suspended until triage drains.`
 3. In the first tool wave, build and parse the packet in memory, derive the changed REQs from SDD hunks, and derive direct anchors only by changed-hunk intersection. The complete enforcement policies are embedded; do not retrieve them or launch broad discovery.
-4. Prefer `ctx_execute`; use the equivalent consolidated Bash/Node pipeline when context-mode is unavailable. Both execute the same packet CLI and return the same compact failures and candidate snippets. Never persist or reread packet/log output, use indexed search, or re-read evidence already returned.
+4. Use the consolidated Bash/Node pipeline. It executes the same packet CLI as the optional foreground context-mode transport and returns the same compact failures and candidate snippets. Never persist or reread packet/log output, use indexed search, or re-read evidence already returned.
 5. Compare changed behavior with the spec. New observable behavior without a REQ is HIGH. A changed REQ without matching implementation/test behavior is HIGH. Status remains `Implemented` only when every AC is implemented and behaviorally verified.
 6. If concrete candidates remain unresolved, collect all of their direct evidence in one additional focused tool wave. Then report or dismiss each candidate and stop when every packet hunk, manifest row, and directly invalidated anchor has one disposition. Do not auto-fix or write queue files during review.
 
