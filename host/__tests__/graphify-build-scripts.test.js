@@ -64,6 +64,21 @@ def build(_extractions, dedup=True, root=None):
 def build_merge(_chunks, graph_path=None, prune_sources=None, dedup=True, root=None):
     return FakeGraph()
 `);
+  writeFileSync(join(graphify, 'cache.py'), `
+import json
+import os
+from pathlib import Path
+
+def save_semantic_cache(_nodes, _edges, _hyperedges=None, root=Path('.'), merge_existing=False, allowed_source_files=None):
+    record_path = Path(os.environ['GRAPHIFY_SAVE_CACHE_RECORD'])
+    calls = json.loads(record_path.read_text()) if record_path.exists() else []
+    calls.append({
+        'root': str(Path(root).resolve()),
+        'allowed_source_files': None if allowed_source_files is None else [str(path) for path in allowed_source_files],
+    })
+    record_path.write_text(json.dumps(calls), encoding='utf-8')
+    return 1
+`);
   writeFileSync(join(graphify, 'cluster.py'), `
 def cluster(graph):
     return {0: list(graph.nodes())}
@@ -192,6 +207,49 @@ function extractClaudeGraphifyManifestScript() {
   return skill.slice(bodyStart, fenceEnd).replace('/root/.local/share/uv/tools/graphifyy/bin/python', 'python3');
 }
 
+function extractGraphifySkillBashBlock(relativePath, marker) {
+  const skill = readFileSync(resolve(repoRoot, relativePath), 'utf-8');
+  const start = skill.indexOf(marker);
+  assert.notEqual(start, -1, `${relativePath} is missing ${marker}`);
+  const fenceStart = skill.indexOf('```bash', start);
+  assert.notEqual(fenceStart, -1, `${relativePath} is missing the bash block after ${marker}`);
+  const bodyStart = skill.indexOf('\n', fenceStart) + 1;
+  const fenceEnd = skill.indexOf('\n```', bodyStart);
+  assert.notEqual(fenceEnd, -1, `${relativePath} has an unterminated bash block after ${marker}`);
+  return skill.slice(bodyStart, fenceEnd).replace('/root/.local/share/uv/tools/graphifyy/bin/python', 'python3');
+}
+
+function runSemanticCacheSkillStep(relativePath, marker, outputDirectory) {
+  const cwd = mkdtempSync(join(tmpdir(), 'graphify-cache-skill-'));
+  const fakeRoot = writeFakeGraphify(cwd);
+  const recordPath = join(cwd, 'cache-calls.json');
+  const output = join(cwd, outputDirectory);
+  mkdirSync(output, { recursive: true });
+  writeFileSync(join(cwd, 'doc.md'), '# Document\n');
+  writeFileSync(join(output, '.graphify_uncached.txt'), 'doc.md\n');
+  writeFileSync(join(output, '.graphify_semantic_new.json'), JSON.stringify({
+    nodes: [{ id: 'doc', label: 'Document', source_file: 'doc.md' }],
+    edges: [],
+    hyperedges: [],
+  }));
+  writeFileSync(join(output, '.graphify_chunk_001.json'), JSON.stringify({
+    nodes: [{ id: 'doc', label: 'Document', source_file: 'doc.md' }],
+    edges: [],
+    hyperedges: [],
+  }));
+  const result = spawnSync('bash', ['-lc', extractGraphifySkillBashBlock(relativePath, marker)], {
+    cwd,
+    encoding: 'utf-8',
+    env: {
+      ...process.env,
+      PYTHONPATH: fakeRoot,
+      GRAPHIFY_SAVE_CACHE_RECORD: recordPath,
+    },
+  });
+  assert.equal(result.status, 0, `${relativePath} semantic cache step failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+  return JSON.parse(readFileSync(recordPath, 'utf-8'));
+}
+
 function runClaudeGraphifyManifestStep() {
   const cwd = mkdtempSync(join(tmpdir(), 'graphify-claude-skill-'));
   const fakeRoot = writeFakeGraphify(cwd);
@@ -222,6 +280,24 @@ describe('Graphify build preseed', () => {
     assert.equal(calls[0].kind, 'both');
     assert.equal(calls[0].root, cwd);
     assert.equal(calls[0].manifest_path, 'graphify-out/manifest.json');
+  });
+
+  it('Claude semantic extraction scopes cache writes to the dispatched files', () => {
+    const calls = runSemanticCacheSkillStep(
+      'preseed/agents/claude/skills/graphify/references/extraction-spec.md',
+      '**Step B3 - Collect, cache, and merge**',
+      '.',
+    );
+    assert.deepEqual(calls[0].allowed_source_files, ['doc.md']);
+  });
+
+  it('Pi semantic extraction scopes cache writes to the dispatched files', () => {
+    const calls = runSemanticCacheSkillStep(
+      'preseed/agents/pi/skills/graphify/references/build.md',
+      '## Step 3 — merge chunks into Graphify semantic cache and local fragment',
+      'graphify-out',
+    );
+    assert.deepEqual(calls[0].allowed_source_files, ['doc.md']);
   });
 
   it('Pi AST-only build writes a portable manifest rooted at the scanned repo', () => {

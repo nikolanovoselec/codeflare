@@ -801,7 +801,7 @@ The Pi skill deliberately avoids headless semantic extraction for uncached
 docs/images:
 
 - Subagents read chunks and write Graphify-schema JSON.
-- Graphify's cache helpers persist those chunks.
+- Graphify's cache helpers persist those chunks, with each write restricted to the current `.graphify_uncached.txt` file set so an out-of-scope model attribution cannot replace another file's cache entry.
 - Local Graphify module flows merge, build, cluster, and report output.
 
 Community names are written by the active agent session to `.graphify_labels.json`.

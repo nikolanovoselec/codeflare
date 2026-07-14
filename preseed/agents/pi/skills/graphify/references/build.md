@@ -74,7 +74,14 @@ for name in sorted(glob.glob('graphify-out/.graphify_chunk_*.json')):
     new['input_tokens'] += int(chunk.get('input_tokens', 0) or 0)
     new['output_tokens'] += int(chunk.get('output_tokens', 0) or 0)
 (out / '.graphify_semantic_new.json').write_text(json.dumps(new, ensure_ascii=False, indent=2), encoding='utf-8')
-saved = save_semantic_cache(new['nodes'], new['edges'], new['hyperedges'], root=root)
+uncached = [line for line in (out / '.graphify_uncached.txt').read_text(encoding='utf-8').splitlines() if line]
+saved = save_semantic_cache(
+    new['nodes'],
+    new['edges'],
+    new['hyperedges'],
+    root=root,
+    allowed_source_files=uncached,
+)
 semantic = {
     'nodes': cached.get('nodes', []) + new['nodes'],
     'edges': cached.get('edges', []) + new['edges'],
