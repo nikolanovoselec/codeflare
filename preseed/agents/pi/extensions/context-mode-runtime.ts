@@ -79,6 +79,16 @@ export async function attachContextModeToForeground(
   }
 }
 
+export async function attachConfiguredContextMode(
+  settings: ContextModeSettings,
+  registry: ContextModeOwnerRegistry,
+  pi: ContextModeLifecycleApi,
+  initialize: ContextModeInitializer,
+): Promise<boolean> {
+  if (!contextModeEnabled(settings)) return false;
+  return attachContextModeToForeground(registry, pi, initialize);
+}
+
 function processOwnerRegistry(): ContextModeOwnerRegistry {
   const runtime = globalThis as typeof globalThis & {
     [CONTEXT_MODE_OWNER_KEY]?: ContextModeOwnerRegistry;
@@ -102,9 +112,7 @@ export default async function (pi: ContextModeLifecycleApi): Promise<void> {
   clearInheritedContextModeBridgeIdleOverride();
 
   const agentDir = process.env.PI_AGENT_DIR || DEFAULT_AGENT_DIR;
-  if (!contextModeEnabled(readContextModeSettings(agentDir))) return;
-
-  await attachContextModeToForeground(processOwnerRegistry(), pi, async (api) => {
+  await attachConfiguredContextMode(readContextModeSettings(agentDir), processOwnerRegistry(), pi, async (api) => {
     const extensionPath = join(agentDir, "npm", "node_modules", "context-mode", "build", "adapters", "pi", "extension.js");
     const contextMode = await import(pathToFileURL(extensionPath).href) as { default?: ContextModeInitializer };
     if (typeof contextMode.default !== "function") {

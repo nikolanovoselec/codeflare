@@ -2101,16 +2101,15 @@ None.
 
 **Acceptance Criteria:**
 
-1. Pi's foreground session starts with context-mode enabled without requiring `/ctx on`, while shared package resources retain its skills but do not autoload its extension. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachContextModeToForeground --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly (entrypoint.sh)) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-076 AC1/AC8: only the foreground Pi session attaches the context-mode extension) -->
-2. `/ctx off` disables context-mode only for the current Pi session, and `/ctx on` restores foreground-only loading. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::setContextModeEnabled --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::contextModeEnabled --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-076 AC2: context-mode package markers toggle foreground loading without shared extension autoload) -->
+1. Pi's foreground session starts with context-mode enabled without requiring `/ctx on`. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-076 AC1: enabled package settings attach context-mode to the process owner) -->
+2. `/ctx off` disables context-mode only for the current Pi session, and `/ctx on` restores it. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::handleContextModeCommand --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-076 AC2: /ctx off and on persist package markers and reload the session) -->
 3. Custom-tier Claude may receive automatic context-window reduction only while its tier remains eligible. <!-- @impl: src/lib/r2-seed.ts::getConfigsForMode --> <!-- @test: host/__tests__/entrypoint-context-mode.test.js (entrypoint context-mode preseed gate / REQ-AGENT-005 + REQ-AGENT-076 (context-mode MCP registration)) -->
 4. The Pi settings required set installs the five always-on tool extensions. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly (entrypoint.sh)) -->
 5. Build-time patching neutralizes context-mode's npm update probe in both installed copies. <!-- @impl: scripts/patch-context-mode-bundles.mjs::BUNDLE_NAMES --> <!-- @test: host/__tests__/dockerfile-context-mode-patch.test.js (Dockerfile context-mode patch (createRequire shim + REQ-AGENT-076 AC4 update-check disable)) -->
 6. Pi `web_search` defaults to the headless-safe `auto-summary` workflow. <!-- @impl: entrypoint.sh::PI_WEB_SEARCH_JSON --> <!-- @test: host/__tests__/entrypoint-pi-web-search.test.js (entrypoint.sh Pi web-search workflow default) -->
-7. Codeflare leaves context-mode's bridge idle-reaper enabled and clears inherited process-wide overrides. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::clearInheritedContextModeBridgeIdleOverride --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-076 AC7: Pi context-mode runtime extension clears an inherited bridge-idle override so context-mode governs per-session) -->
-8. In-process Pi subagents do not attach the context-mode extension or spawn its MCP bridge; reviewer agents use the equivalent Bash/Node packet transport without narrowing scope or evidence. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachContextModeToForeground --> <!-- @impl: preseed/agents/pi/agents/code-reviewer.md::codeflare-reviewer-runtime --> <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::codeflare-reviewer-runtime --> <!-- @impl: preseed/agents/pi/agents/doc-updater.md::codeflare-reviewer-runtime --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi agents use Pi-native tool names and reviewers use the bridge-free Bash transport) -->
+7. An inherited bridge-idle override does not disable context-mode's managed idle policy. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::clearInheritedContextModeBridgeIdleOverride --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-076 AC7: Pi context-mode runtime extension clears an inherited bridge-idle override so context-mode governs per-session) -->
 
-**Notes:** AC2 is manually verified through the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+**Notes:** Foreground startup and `/ctx` toggles are also covered by the [manual verification checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
@@ -2120,14 +2119,14 @@ None.
 - Advisor remains user-invoked only.
 - Tool extensions require no per-user API key.
 - The update probe patch is build-owned, not a self-upgrade path.
-- Every Pi workflow retains an equivalent non-context fallback; in-process subagents always use that fallback.
-- The foreground owner guard is Codeflare-owned integration code and does not patch context-mode or pi-subagents.
+- Every Pi workflow retains an equivalent non-context fallback.
+- Foreground ownership and in-process subagent isolation are owned by [REQ-AGENT-089](#req-agent-089-pi-context-mode-foreground-ownership).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Manual check
+**Verification:** [Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
 **Status:** Implemented
 
@@ -2292,21 +2291,19 @@ None.
 
 **Acceptance Criteria:**
 
-1. Indexed batch retrieval is unavailable to every reviewer. <!-- @impl: preseed/agents/pi/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/pi/agents/doc-updater.md::tools --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085: generated reviewer tools prevent indexed specification evidence retrieval) -->
-2. Every reviewer exposes direct context execution when context-mode is available. <!-- @impl: preseed/agents/pi/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/pi/agents/doc-updater.md::tools --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085: generated reviewer tools prevent indexed specification evidence retrieval) -->
-3. Every reviewer retains Bash as the non-indexed fallback, rooted in the caller-supplied repository, when context-mode is unavailable. <!-- @impl: preseed/agents/pi/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @impl: preseed/agents/pi/extensions/review-tool-guard.ts::registerReviewerToolGuard --> <!-- @test: src/__tests__/lib/review-tool-guard.test.ts (REQ-AGENT-085: roots Bash-first fallback in the reviewer repository) -->
-4. Marked reviewer calls discard `ctx_execute.intent` before tool execution without changing ordinary root-session calls. <!-- @impl: preseed/agents/pi/extensions/review-tool-guard.ts::registerReviewerToolGuard --> <!-- @test: src/__tests__/lib/review-tool-guard.test.ts (REQ-AGENT-085: strips intent only from marked reviewer direct execution) -->
-5. Cross-lane changed inputs carry exact old and new hunk ranges. <!-- @impl: preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs::buildReviewPacket --> <!-- @test: host/__tests__/pi-review-workset.test.js (REQ-AGENT-085 AC5/AC6: changed inputs expose exact hunk ranges and enforce intersection) -->
-6. An anchored symbol or named test is invalidated only when its line range intersects a changed-input hunk; path equality alone is insufficient. <!-- @impl: preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs::changedInputIntersects --> <!-- @test: host/__tests__/pi-review-workset.test.js (REQ-AGENT-085 AC5/AC6: changed inputs expose exact hunk ranges and enforce intersection) -->
-7. Context-mode and Bash consume the same executable packet contract. <!-- @impl: preseed/agents/pi/skills/review-scope/SKILL.md::Build the lane packet once --> <!-- @test: host/__tests__/pi-review-workset.test.js (REQ-AGENT-085: CLI and module produce identical worksets without persistence) -->
+1. Indexed retrieval and context-mode tools are unavailable to every reviewer. <!-- @impl: preseed/agents/pi/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/pi/agents/doc-updater.md::tools --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085 AC1/AC2: generated reviewers expose only direct Bash evidence execution) -->
+2. Every reviewer exposes Bash as its direct evidence execution tool. <!-- @impl: preseed/agents/pi/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/pi/agents/doc-updater.md::tools --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-085 AC1/AC2: generated reviewers expose only direct Bash evidence execution) -->
+3. Reviewer Bash execution is rooted in the caller-supplied repository. <!-- @impl: preseed/agents/pi/extensions/review-tool-guard.ts::registerReviewerToolGuard --> <!-- @test: src/__tests__/lib/review-tool-guard.test.ts (REQ-AGENT-085: roots Bash-first fallback in the reviewer repository) -->
+4. Cross-lane changed inputs carry exact old and new hunk ranges. <!-- @impl: preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs::buildReviewPacket --> <!-- @test: host/__tests__/pi-review-workset.test.js (REQ-AGENT-085 AC4/AC5: changed inputs expose exact hunk ranges and enforce intersection) -->
+5. An anchored symbol or named test is invalidated only when its line range intersects a changed-input hunk; path equality alone is insufficient. <!-- @impl: preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs::changedInputIntersects --> <!-- @test: host/__tests__/pi-review-workset.test.js (REQ-AGENT-085 AC4/AC5: changed inputs expose exact hunk ranges and enforce intersection) -->
+6. Foreground context execution and reviewer Bash execution produce the same packet work set. <!-- @impl: preseed/agents/pi/skills/review-scope/SKILL.md::Build the lane packet once --> <!-- @test: host/__tests__/pi-review-workset.test.js (REQ-AGENT-085: CLI and module produce identical worksets without persistence) -->
 
 **Constraints:**
 
 - Review scope, manifest coverage, evidence truth, and severity remain unchanged.
 - Evidence already returned is never recovered through global index searches or marker-only commands.
-- The reviewer runtime guard removes `intent`, so evidence cannot silently switch to indexed retrieval.
 - Reviewers consume packet evidence directly, consolidate independent checks, and continue only for named unresolved candidates.
-- Context-mode and Bash invoke the same seeded CLI and apply identical changed-hunk intersection semantics.
+- Foreground context-mode execution and reviewer Bash invoke the same seeded CLI and apply identical changed-hunk intersection semantics.
 - Commands inspect the complete scoped work set internally while emitting compact counts, failures, and candidate snippets; packet files and redirected raw logs are never persisted or reread.
 - Generated seed is reviewed through canonical preseed plus deterministic identity verification, not repeated generated-line searches.
 - No token, turn, output-size, or concurrency cap substitutes for complete scoped review.
@@ -2407,5 +2404,35 @@ None.
 **Dependencies:** [REQ-AGENT-015](#req-agent-015-review-command-for-multi-perspective-codebase-review), [REQ-AGENT-050](#req-agent-050-pi-native-review-workflow-skill)
 
 **Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-089: Pi Context-Mode Foreground Ownership
+
+**Intent:** Pi must retain context-mode in the interactive session without allowing in-process subagents to create competing context-mode owners.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. In-process Pi subagents retain context-mode skills but do not receive context-mode tools. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-089 AC1: subagents retain context-mode skills without context-mode tools) -->
+2. Starting an in-process Pi subagent does not initialize a second context-mode owner. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachContextModeToForeground --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-089 AC2: one process owner rejects child context-mode initialization) -->
+3. After the owning session shuts down, a new session can initialize context-mode. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachContextModeToForeground --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-089 AC3: owner shutdown permits context-mode reattachment) -->
+
+**Notes:** Process-count verification is documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+
+**Constraints:**
+
+- The integration imports the installed context-mode adapter without modifying context-mode or pi-subagents.
+- In-process subagents use their documented native transports.
+- Foreground `/ctx off` and `/ctx on` behavior remains owned by [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
+
+**Verification:** [Pi package settings tests](../../host/__tests__/pi-settings-packages.test.js), [agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
 **Status:** Implemented

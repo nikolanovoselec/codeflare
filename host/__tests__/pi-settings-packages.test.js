@@ -75,7 +75,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     }
   });
 
-  it('context-mode keeps skills enabled while shared extension autoload stays disabled', () => {
+  it('REQ-AGENT-089 AC1: subagents retain context-mode skills without context-mode tools', () => {
     const settings = runAssembly('{}');
     const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@1.0.169');
     assert.deepEqual(cm, { source: 'npm:context-mode@1.0.169', extensions: [] });

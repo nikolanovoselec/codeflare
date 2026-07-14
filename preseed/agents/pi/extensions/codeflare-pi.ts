@@ -76,10 +76,15 @@ const ENGINEERING_CONSTITUTION = [
   "</codeflare_constitution>",
 ].join("\n");
 
-type PiSettings = {
+export type PiSettings = {
   packages?: Array<string | { source?: string; extensions?: string[]; skills?: string[]; [key: string]: unknown }>;
   extensions?: string[];
   [key: string]: unknown;
+};
+
+export type PiSettingsStore = {
+  read(): PiSettings;
+  write(settings: PiSettings): void;
 };
 
 function ensureCacheDir(): void {
@@ -453,20 +458,24 @@ function maybeMergeGlobalGraph(repo: string): void {
   }
 }
 
-function readPiSettings(): PiSettings {
-  try {
-    return JSON.parse(readFileSync(PI_SETTINGS_FILE, "utf8")) as PiSettings;
-  } catch {
-    return {};
-  }
-}
+const PI_SETTINGS_STORE: PiSettingsStore = {
+  read() {
+    try {
+      return JSON.parse(readFileSync(PI_SETTINGS_FILE, "utf8")) as PiSettings;
+    } catch {
+      return {};
+    }
+  },
+  write(settings) {
+    writeFileSync(PI_SETTINGS_FILE, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+  },
+};
 
-function writePiSettings(settings: PiSettings): void {
-  writeFileSync(PI_SETTINGS_FILE, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
-}
-
-function setContextModeEnabled(enabled: boolean): "enabled" | "disabled" {
-  const settings = readPiSettings();
+export function setContextModeEnabled(
+  enabled: boolean,
+  store: PiSettingsStore = PI_SETTINGS_STORE,
+): "enabled" | "disabled" {
+  const settings = store.read();
   const packages = (settings.packages ?? []).filter((entry) => !isContextModePackage(entry));
   const contextModePackage = enabled ? CONTEXT_MODE_ENABLED_PACKAGE : CONTEXT_MODE_DISABLED_PACKAGE;
   packages.push({
@@ -474,15 +483,36 @@ function setContextModeEnabled(enabled: boolean): "enabled" | "disabled" {
     extensions: [...contextModePackage.extensions],
     ...("skills" in contextModePackage ? { skills: [...contextModePackage.skills] } : {}),
   });
-  writePiSettings({ ...settings, packages });
+  store.write({ ...settings, packages });
   return enabled ? "enabled" : "disabled";
 }
 
-function contextModeStatusText(): string {
-  const enabled = contextModeEnabled(readPiSettings());
+function contextModeStatusText(store: PiSettingsStore = PI_SETTINGS_STORE): string {
+  const enabled = contextModeEnabled(store.read());
   return enabled
     ? "context-mode is enabled (the default for Pi). Use `/ctx off` to disable it for this running Pi session; the next Codeflare container start re-enables it."
     : "context-mode is disabled for this running Pi session. Use `/ctx on` to re-enable it now (Pi reloads resources); the next Codeflare container start re-enables it by default.";
+}
+
+export async function handleContextModeCommand(
+  args: string,
+  ctx: ExtensionCommandContext,
+  store: PiSettingsStore = PI_SETTINGS_STORE,
+): Promise<void> {
+  const action = args.trim().toLowerCase().split(/\s+/, 1)[0] || "status";
+  if (["on", "enable", "enabled"].includes(action)) {
+    setContextModeEnabled(true, store);
+    ctx.ui.notify("context-mode enabled for this session; reloading Pi resources...", "info");
+    await ctx.reload();
+    return;
+  }
+  if (["off", "disable", "disabled"].includes(action)) {
+    setContextModeEnabled(false, store);
+    ctx.ui.notify("context-mode disabled; reloading Pi resources...", "info");
+    await ctx.reload();
+    return;
+  }
+  ctx.ui.notify(contextModeStatusText(store), "info");
 }
 
 function newestVaultMtime(): number | undefined {
@@ -578,22 +608,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerCommand("ctx", {
     description: "Show, enable, or disable context-mode for this running Pi session. Usage: /ctx status|on|off",
-    handler: async (args, ctx) => {
-      const action = args.trim().toLowerCase().split(/\s+/, 1)[0] || "status";
-      if (["on", "enable", "enabled"].includes(action)) {
-        setContextModeEnabled(true);
-        ctx.ui.notify("context-mode enabled for this session; reloading Pi resources...", "info");
-        await ctx.reload();
-        return;
-      }
-      if (["off", "disable", "disabled"].includes(action)) {
-        setContextModeEnabled(false);
-        ctx.ui.notify("context-mode disabled; reloading Pi resources...", "info");
-        await ctx.reload();
-        return;
-      }
-      ctx.ui.notify(contextModeStatusText(), "info");
-    },
+    handler: (args, ctx) => handleContextModeCommand(args, ctx),
   });
 
   pi.on("session_start", (_event, ctx) => {

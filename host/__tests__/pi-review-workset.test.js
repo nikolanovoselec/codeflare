@@ -62,7 +62,7 @@ test('REQ-AGENT-059 AC6: diff packets contain only lane-owned changed hunks', ()
   }
 });
 
-test('REQ-AGENT-085 AC5/AC6: changed inputs expose exact hunk ranges and enforce intersection', () => {
+test('REQ-AGENT-085 AC4/AC5: changed inputs expose exact hunk ranges and enforce intersection', () => {
   const { repo, base, head } = fixture();
   try {
     const packet = buildReviewPacket({ repo, scope: 'diff', range: `${base}..${head}`, lane: 'spec-reviewer' });

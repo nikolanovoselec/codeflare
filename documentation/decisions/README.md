@@ -2472,7 +2472,7 @@ Pi owns native reviewer agents, engineering rules, and spec/document enforcement
 
 **Consequences:** One Pi process owns at most one active context-mode bridge. In-process reviewers, memory capture, CI monitors, and other children use their documented native/Bash fallbacks; exact review scope and evidence are unchanged. The wrapper imports the registry-installed adapter rather than copying or modifying it, so npm upgrades remain upstream-owned. A full Pi process restart is required once to reap helpers leaked by sessions created before this decision.
 
-**Related:** [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents), [Pi preseed](../lanes/preseed.md#agent-seed-system).
+**Related:** [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport), [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership), [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents), [Pi preseed](../lanes/preseed.md#agent-seed-system).
 
 ---
 

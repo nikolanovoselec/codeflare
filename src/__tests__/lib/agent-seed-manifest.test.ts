@@ -4,9 +4,9 @@ import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, grap
 import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_CAPTURE_PENDING_TTL_MS, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
-import { restoreActiveRepoFromPersistedFiles, shouldHandleClonePrompt } from '../../../preseed/agents/pi/extensions/codeflare-pi';
+import { handleContextModeCommand, restoreActiveRepoFromPersistedFiles, shouldHandleClonePrompt, type PiSettings } from '../../../preseed/agents/pi/extensions/codeflare-pi';
 import { sddCommandDecision, type SddRepoState } from '../../../preseed/agents/pi/extensions/sdd-helpers';
-import { CONTEXT_MODE_DISABLED_PACKAGE, CONTEXT_MODE_ENABLED_PACKAGE, attachContextModeToForeground, clearInheritedContextModeBridgeIdleOverride, contextModeEnabled } from '../../../preseed/agents/pi/extensions/context-mode-runtime';
+import { CONTEXT_MODE_DISABLED_PACKAGE, CONTEXT_MODE_ENABLED_PACKAGE, attachConfiguredContextMode, attachContextModeToForeground, clearInheritedContextModeBridgeIdleOverride, contextModeEnabled } from '../../../preseed/agents/pi/extensions/context-mode-runtime';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -187,7 +187,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('REQ-AGENT-085: generated reviewer tools prevent indexed specification evidence retrieval', () => {
+  it('REQ-AGENT-085 AC1/AC2: generated reviewers expose only direct Bash evidence execution', () => {
     const reviewerTools = Object.fromEntries(
       ['code-reviewer', 'spec-reviewer', 'doc-updater'].map((reviewer) => {
         const document = AGENTS_SEEDED_CONFIGS.find(
@@ -198,7 +198,8 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     );
 
     for (const tools of Object.values(reviewerTools)) {
-      expect(tools).toEqual(['ctx_execute', 'bash']);
+      expect(tools).toEqual(['bash']);
+      expect(tools).not.toContain('ctx_execute');
       expect(tools).not.toContain('ctx_batch_execute');
     }
   });
@@ -541,19 +542,49 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
-  it('REQ-AGENT-076 AC2: context-mode package markers toggle foreground loading without shared extension autoload', () => {
-    expect(contextModeEnabled({ packages: [{ ...CONTEXT_MODE_ENABLED_PACKAGE, extensions: [] }] })).toBe(true);
-    expect(contextModeEnabled({ packages: [{ ...CONTEXT_MODE_DISABLED_PACKAGE, extensions: [], skills: [] }] })).toBe(false);
+  it('REQ-AGENT-076 AC1: enabled package settings attach context-mode to the process owner', async () => {
+    const registry: { owner?: symbol } = {};
+    let initialized = 0;
+    const initialize = async () => { initialized += 1; };
+
+    await expect(attachConfiguredContextMode(
+      { packages: [{ ...CONTEXT_MODE_ENABLED_PACKAGE, extensions: [] }] },
+      registry,
+      { on() {} },
+      initialize,
+    )).resolves.toBe(true);
+    expect(initialized).toBe(1);
   });
 
-  it('REQ-AGENT-076 AC1/AC8: only the foreground Pi session attaches the context-mode extension', async () => {
-    const ownerRegistry: { owner?: symbol } = {};
-    const rootShutdownHandlers: Array<() => void | Promise<void>> = [];
-    const rootPi = {
-      on(event: string, handler: () => void | Promise<void>) {
-        if (event === 'session_shutdown') rootShutdownHandlers.push(handler);
-      },
+  it('REQ-AGENT-076 AC2: /ctx off and on persist package markers and reload the session', async () => {
+    let settings: PiSettings = { packages: ['npm:user-package@1.0.0'] };
+    const store = {
+      read: () => settings,
+      write: (next: PiSettings) => { settings = next; },
     };
+    let reloads = 0;
+    const ctx = {
+      sessionManager: { getCwd: () => '/repo' },
+      ui: { notify() {} },
+      waitForIdle: async () => {},
+      reload: async () => { reloads += 1; },
+    };
+
+    await handleContextModeCommand('off', ctx, store);
+    expect(settings.packages).toContainEqual({ ...CONTEXT_MODE_DISABLED_PACKAGE, extensions: [], skills: [] });
+    expect(settings.packages).toContain('npm:user-package@1.0.0');
+    expect(contextModeEnabled(settings)).toBe(false);
+
+    await handleContextModeCommand('on', ctx, store);
+    expect(settings.packages).toContainEqual({ ...CONTEXT_MODE_ENABLED_PACKAGE, extensions: [] });
+    expect(settings.packages).toContain('npm:user-package@1.0.0');
+    expect(contextModeEnabled(settings)).toBe(true);
+    expect(reloads).toBe(2);
+  });
+
+  it('REQ-AGENT-089 AC2: one process owner rejects child context-mode initialization', async () => {
+    const ownerRegistry: { owner?: symbol } = {};
+    const rootPi = { on() {} };
     const childPi = { on() {} };
     let attachCount = 0;
     const initialize = async () => { attachCount += 1; };
@@ -561,13 +592,26 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     await expect(attachContextModeToForeground(ownerRegistry, rootPi, initialize)).resolves.toBe(true);
     await expect(attachContextModeToForeground(ownerRegistry, childPi, initialize)).resolves.toBe(false);
     expect(attachCount).toBe(1);
+  });
 
-    await rootShutdownHandlers[0]?.();
-    await expect(attachContextModeToForeground(ownerRegistry, childPi, initialize)).resolves.toBe(true);
+  it('REQ-AGENT-089 AC3: owner shutdown permits context-mode reattachment', async () => {
+    const ownerRegistry: { owner?: symbol } = {};
+    const shutdownHandlers: Array<() => void | Promise<void>> = [];
+    const pi = {
+      on(event: string, handler: () => void | Promise<void>) {
+        if (event === 'session_shutdown') shutdownHandlers.push(handler);
+      },
+    };
+    let attachCount = 0;
+    const initialize = async () => { attachCount += 1; };
+
+    await expect(attachContextModeToForeground(ownerRegistry, pi, initialize)).resolves.toBe(true);
+    await shutdownHandlers[0]?.();
+    await expect(attachContextModeToForeground(ownerRegistry, pi, initialize)).resolves.toBe(true);
     expect(attachCount).toBe(2);
   });
 
-  it('Pi agents use Pi-native tool names and reviewers use the bridge-free Bash transport', () => {
+  it('Pi agents use Pi-native tool names without Claude MCP aliases', () => {
     const agents = AGENTS_SEEDED_CONFIGS.filter((d) => d.key.startsWith('.pi/agent/agents/') && !d.key.endsWith('AGENTS.md'));
     const toolsLine = (content: string) => content.match(/^tools:.*$/m)?.[0] ?? '';
     for (const agent of agents) {
@@ -576,15 +620,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       expect(toolsLine(agent.content)).not.toContain('mcp__');
       expect(agent.content).not.toContain('mcp__graphify__');
       expect(agent.content).not.toContain('mcp__context-mode__');
-    }
-    for (const key of [
-      '.pi/agent/agents/code-reviewer.md',
-      '.pi/agent/agents/spec-reviewer.md',
-      '.pi/agent/agents/doc-updater.md',
-    ]) {
-      const reviewer = agents.find((d) => d.key === key);
-      expect(toolsLine(reviewer?.content ?? '')).toContain('bash');
-      expect(toolsLine(reviewer?.content ?? '')).not.toContain('ctx_');
     }
   });
 
