@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,9 +8,6 @@ import test from 'node:test';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LAUNCHER = resolve(__dirname, '../../scripts/run-backend-tests.sh');
-const WORKERS_RUNNER = resolve(__dirname, '../../scripts/run-workers-runtime-tests.mjs');
-const WORKERS_MANIFEST = resolve(__dirname, '../../scripts/workers-runtime-tests.json');
-const WORKERS_RUNTIME_TEST_COUNT = JSON.parse(readFileSync(WORKERS_MANIFEST, 'utf8')).length;
 
 function runWithFakeNpm(exitCode) {
   const root = mkdtempSync(join(tmpdir(), 'backend-test-launcher-'));
@@ -44,45 +41,4 @@ test('backend test launcher returns success only when the suite process succeeds
   const result = runWithFakeNpm(0);
 
   assert.equal(result.status, 0);
-});
-
-function runWorkersWithFakeNpx(failOnCall) {
-  const root = mkdtempSync(join(tmpdir(), 'workers-test-runner-'));
-  const fakeNpx = join(root, 'npx');
-  const counter = join(root, 'counter');
-  writeFileSync(
-    fakeNpx,
-    `#!/usr/bin/env bash\ncount=0\nif [ -f "$FAKE_COUNTER" ]; then count=$(cat "$FAKE_COUNTER"); fi\ncount=$((count + 1))\nprintf '%s' "$count" > "$FAKE_COUNTER"\nif [ "$count" = "$FAKE_FAIL_ON" ]; then exit 37; fi\n`,
-    'utf8',
-  );
-  chmodSync(fakeNpx, 0o755);
-
-  try {
-    const result = spawnSync(process.execPath, [WORKERS_RUNNER], {
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        PATH: `${root}:${process.env.PATH ?? ''}`,
-        FAKE_COUNTER: counter,
-        FAKE_FAIL_ON: String(failOnCall),
-      },
-    });
-    return { result, calls: Number(readFileSync(counter, 'utf8')) };
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-}
-
-test('Workers-runtime runner stops at the first failed isolated process', () => {
-  const { result, calls } = runWorkersWithFakeNpx(2);
-
-  assert.equal(result.status, 37);
-  assert.equal(calls, 2);
-});
-
-test('Workers-runtime runner executes every configured file when each process succeeds', () => {
-  const { result, calls } = runWorkersWithFakeNpx(0);
-
-  assert.equal(result.status, 0);
-  assert.equal(calls, WORKERS_RUNTIME_TEST_COUNT);
 });

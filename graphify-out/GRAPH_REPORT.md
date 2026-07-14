@@ -4,20 +4,20 @@
 - label apply mode — file stats not available
 
 ## Summary
-- 15291 nodes · 29573 edges · 1048 communities (700 shown, 348 thin omitted)
+- 15277 nodes · 29563 edges · 1052 communities (705 shown, 347 thin omitted)
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 431 edges (avg confidence: 0.65)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `c9225580`
+- Built from commit: `0d099e46`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- Types Env
+- Helpers Mock Kv Create
 - Web Ui Api Client
-- Lib Kv Keys
-- Routes Stripe Webhook
+- Types Env
+- Routes Auth
 - Routes Container Lifecycle
 - Web Ui Types
 - Pi Extensions Review Enforcement
@@ -27,15 +27,15 @@
 - Pi Skills Impeccable Live Browser
 - Pi Extensions Local Statusline
 - Web Ui Stores Session
-- Routes Setup
+- Lib Error Types
 - Web Ui Lib Mobile
 - Pi Extensions Codeflare
 - Web Ui Stores Terminal
 - Pi Todo Session Isolation Store
 - Documentation Decisions Readme
-- Routes Github Auth
+- Github Auth
 - Web Ui Components Layout
-- Input Validation
+- Fuzz Input Validation
 - Sdd Spec Changes
 - Web Ui Stores Storage
 - Web Ui Api Storage
@@ -43,35 +43,35 @@
 - Pi Skills Impeccable Detector Checks
 - Claude Skills Impeccable Detector Checks
 - Sdd Spec Domain Specification
-- Lib Seed
+- Pi Extensions Review Helpers
 - Pi Extensions Memory Vault
 - Routes Vault
-- Pi Skills Impeccable Live Handle Key
+- Pi Skills Impeccable Live Set
 - Claude Skills Engines Static Detect Html
 - Pi Skills Engines Static Detect Html
 - Pi Skills Impeccable Live El
 - Claude Skills Impeccable Context
-- Web Ui Dashboard
-- Claude Skills Impeccable Live Init Global
+- Web Ui Components Dashboard
+- Claude Skills Impeccable Live Handle Key
 - Claude Lib Skills Impeccable Hook
 - Pi Lib Skills Impeccable Hook
 - Lib Access
-- Pi Skills Impeccable Live Apply Editing
+- Web Ui App
 - Claude Skills Impeccable Detector
 - Pi Skills Impeccable Detector
-- Claude Manifest Advanced
+- Claude Manifest
 - Pi Skills Impeccable Live Init Page
 - Pi Skills Impeccable Modern Screenshot
 - Claude Skills Impeccable Live Init Page
 - Claude Skills Impeccable Live Set
-- Pi Skills Impeccable Live Set
+- Pi Skills Impeccable Live Resume Session
 - Helpers Api Request
 - Claude Skills Impeccable Modern Screenshot
 - Pi Skills Impeccable Live Manual
 - Landing Content Site
 - Claude Lib Skills Impeccable Paths
-- Claude Skills Impeccable Live Build Insert
-- Pi Skills Impeccable Live Session Store
+- Claude Skills Impeccable Live El
+- Pi Lib Skills Impeccable Paths
 - Pi Skills Impeccable Live Commit
 - Claude Skills Impeccable Live Commit
 - Lib Agent Seed Manifest
@@ -91,13 +91,13 @@
 - Claude Skills Impeccable Live Manual Apply
 - Pi Skills Impeccable Live Svelte
 - Pi Skills Impeccable Live Wrap
-- Routes Llm Keys
+- Fuzz Vault Migration
 - Claude Skills Impeccable Live Svelte
 - Documentation Lanes Security
 - Pi Skills Impeccable Detector Detect Antipatterns
 - Web Ui Components Storage Browser
 - Claude Skills Impeccable Live Inject
-- Pi Skills Impeccable Live Init Global
+- Pi Skills Impeccable Live Handle Manual
 - Pi Skills Impeccable Live Manual Apply
 - Claude Skills Impeccable Detector Detect Antipatterns
 - Claude Skills Impeccable Hook Admin
@@ -115,17 +115,17 @@
 - Claude Skills Impeccable Hook Before
 - Claude Lib Skills Impeccable Design Parser
 - Pi Skills Impeccable Hook Before
-- Web Ui Components Dashboard
+- Web Ui Components Header
 - Host Server
 - Claude Skills Impeccable Live Accept
-- Pi Manifest Advanced
+- Pi Manifest
 - Pi Lib Skills Impeccable Design Parser
 - Generate Agent Seed
 - Web Ui Components Configure Step
 - Documentation Lanes Mobile Terminal
 - Documentation Lanes Vault
 - Pi Extensions Browser Run
-- Claude Skills Impeccable Live Handle Manual
+- Claude Skills Impeccable Live Init Global
 - Pi Skills Impeccable Live Accept
 - Lib Cloudflare Token
 - Documentation Lanes Architecture Data Flow
@@ -134,7 +134,7 @@
 - Pi Extensions Graphify Helpers
 - Documentation Lanes Stress Testing
 - Claude Skills Impeccable Detector Parse Rgb
-- Pi Skills Impeccable Live Capture Element
+- Claude Skills Impeccable Live Init
 - Claude Skills Ship Skill From
 - Pi Skills Impeccable Detector Parse Rgb
 - Pi Skills Impeccable Live Copy
@@ -158,7 +158,7 @@
 - Claude Doc Updater Documentation Specialist
 - Claude Skills Impeccable Reference Responsive Design
 - Claude Skills Impeccable Skill
-- Claude Skills Impeccable Reference Improve Layout
+- Claude Skills Impeccable Reference Craft
 - Claude Skills Impeccable Reference Live
 - Claude Skills Impeccable Live Poll
 - Claude Skills Impeccable Live Manual
@@ -190,7 +190,7 @@
 - Claude Routes Skills Impeccable Manual Edit
 - Pi Skills Impeccable Reference Onboard
 - Pi Skills Impeccable Parse Rgb
-- Web Ui Helpers Mock Factories
+- Pi Skills Impeccable Live Render Design
 - Sdd Spec Session Lifecycle
 - Sdd Spec Terminal
 - Documentation Doc Coverage
@@ -222,7 +222,7 @@
 - Claude Skills Impeccable Reference Technical Implementation
 - Claude Skills Impeccable Reference Polish Systematically
 - Claude Skills Impeccable Detector Parse Any
-- Claude Skills Impeccable Live El
+- Claude Skills Impeccable Detector Collect Browser
 - Claude Skills Spec Driven
 - Claude Skills Spec Enforce Acceptance Criteria
 - Pi Skills Impeccable Reference Technical Implementation
@@ -235,7 +235,7 @@
 - Pi Skills Impeccable Reference Delight Techniques
 - Pi Skills Impeccable Live
 - Security Architecture
-- Lib Controller Egress
+- Types Controller Egress
 - Stress Storage Operations
 - Landing Layouts Base Layout
 - Claude Skills Doc Enforce Documentation Enforcement
@@ -245,7 +245,7 @@
 - Claude Web Skills Perf Performance
 - Pi Skills Impeccable Reference Colorize
 - Readme Img Assets
-- Pi Skills Impeccable Live Resolve
+- Cloudflare Browser Interceptor
 - Container Create Running
 - Claude Plugins Graphify Mcp Lazy Graph
 - Documentation Lanes Storage And Sync
@@ -278,9 +278,9 @@
 - Pi Skills Impeccable Detector Resolve Length
 - Sdd Spec Memory
 - Sdd Spec Setup
-- Container Create Logger
+- Container Github Interceptor
 - Tsconfig Compiler Options
-- Claude Skills Impeccable Live Resolve
+- Web Ui Components Init Progress
 - Documentation Lanes Deployment Development
 - Host Entrypoint Governed Sync
 - Claude Codeflare Hooks Enforce Review
@@ -291,7 +291,7 @@
 - Claude Skills Impeccable Reference Generate Report
 - Claude Skills Impeccable Reference Color Contrast
 - Claude Skills Impeccable Reference Init Flow
-- Claude Skills Impeccable Detector Sample Css
+- Claude Skills Impeccable Sample Css Background
 - Claude Skills Iterative Retrieval
 - Claude Skills Init References Verify Enumeration
 - Claude Skills Turnstile Spin Siteverify
@@ -300,7 +300,7 @@
 - Pi Skills Impeccable Reference Generate Report
 - Pi Skills Impeccable Reference Color Contrast
 - Pi Skills Impeccable Reference Init Flow
-- Pi Skills Impeccable Sample Css Background
+- Pi Skills Impeccable Detector Sample Css
 - Lib Review Enforcement
 - Sdd Spec Github Git Hub
 - Web Ui Package Dependencies
@@ -313,12 +313,12 @@
 - Claude Skills Doc Documentation Enforcement Structural
 - Claude Skills Impeccable Reference Brand Register
 - Claude Skills Impeccable Reference Optimization Strategy
-- Pi Lib Skills Impeccable Read Config
+- Claude Skills Impeccable Detector Sample Css
 - Pi Skills Graphify Skill In
 - Pi Skills Impeccable Reference Brand Register
-- Pi Skills Impeccable Reference Craft
+- Pi Skills Impeccable Reference Improve Layout
 - Pi Skills Impeccable Reference Optimization Strategy
-- Pi Skills Impeccable Detector Sample Css
+- Pi Skills Impeccable Sample Css Background
 - Web Ui Setup Mock
 - Documentation Lanes Architecture Internals
 - Claude Skills Sdk Skill
@@ -331,7 +331,7 @@
 - Pi Prompts Vault Extract
 - Pi Skills Impeccable Reference Amplify The
 - Pi Skills Impeccable Context Signals
-- Claude Skills Impeccable Reference Codex Visual
+- Container Metrics
 - Pi Skills Impeccable Detector Schedule Lazy
 - Pi Skills Impeccable Detector Collect Browser
 - Pi Skills Engines Static Element
@@ -353,8 +353,8 @@
 - Pi Skills Frontend Components
 - Pi Skills Impeccable Reference Simplify The
 - Pi Skills Impeccable Reference Hardening Dimensions
-- Routes Setup Ac
-- Pi Lib Skills Impeccable Normalize Git
+- Routes Setup
+- Pi Skills Impeccable Live Init Global
 - Sdd Spec Browser Run
 - Documentation Lanes User Provisioning
 - Host Entrypoint Enforce Ctx
@@ -430,7 +430,7 @@
 - Claude Skills Vault Operations
 - Claude Skills Wrangler Skill Cli
 - Pi Skills Consult Llm
-- Lib Jwt
+- Pi Skills Impeccable Reference Codex Visual
 - Pi Skills Impeccable Reference Common Cognitive
 - Pi Skills Impeccable Detector Serialize Findings
 - Pi Ui Skills Impeccable Core
@@ -457,7 +457,7 @@
 - Pi Skills Git Review
 - Pi Skills Impeccable Reference Persona Based
 - Pi Skills Impeccable Reference Extract Flow
-- Claude Skills Impeccable Reference Improve Typography
+- Pi Extensions Context Mode
 - Update Impeccable Skill
 - Sdd Spec Browser Ide
 - Web Ui Rasterize Og
@@ -534,7 +534,7 @@
 - Pi Skills Advisor Skill
 - Pi Skills Browser Skill
 - Pi Skills Graphify References Full Build
-- Sdd Requirement Acceptance Criterion Which
+- Pi Skills Impeccable Reference Improve Typography
 - Pi Skills Pr Workflow Pull Request
 - Security Early Return
 - Host Auth Check
@@ -587,7 +587,7 @@
 - Claude Skills Graphify References Step Extract
 - Claude Skills Graphify References Query Path
 - Claude Skills Graphify References Incremental Updates
-- Pi Skills Impeccable Detector Check Element
+- Pi Extensions Vault Manifest
 - Claude Skills Turnstile Spin Vanilla Html
 - Claude Skills Vault Note
 - Claude Skills Wrangler Skill Containers
@@ -621,7 +621,7 @@
 - Claude Skills Emil Design Debugging Animations
 - Claude Skills Impeccable Reference Heuristics Scoring
 - Claude Skills Impeccable Detect
-- Run Workers Runtime
+- Pi Extensions Graphify Native
 - Claude Lib Skills Impeccable Write Audit
 - Claude Skills References Templates Example Domain
 - Claude Skills Turnstile Spin Hugo
@@ -644,15 +644,15 @@
 - Pi Skills Graphify References Query Path
 - Pi Skills Impeccable Reference Heuristics Scoring
 - Pi Skills Impeccable Detect
-- Pi Lib Skills Impeccable Write Audit
+- Pi Lib Skills Impeccable Run Hook
 - Pi Web Skills Access
 - Pi Skills Rpiv Todo
 - Silverbullet Plugs Pdf Plug
 - Silverbullet Plugs Treeview Plug Configuration
 - Silverbullet Raw Graphs Vault Graph
 - Fix Broken Sourcemaps
-- Helpers Cloudflare Workers Worker Entrypoint
-- Claude Manifest Reviewer
+- Fuzz Input Validation Execute Fail
+- Fuzz Input Validation Execute Success
 - Fuzz Input Validation Reset Command
 - Security Headers
 - Web Ui Setup Og
@@ -685,28 +685,28 @@
 - Web Ui Page Transparency
 - Web Ui Types Jsdom
 - Host Fuzz Num Runs
-- Claude Manifest Commands Cloudflare
-- Claude Manifest
+- Claude Manifest Architect
+- Claude Manifest Advanced
 - Claude Skills Impeccable Live Refresh Params
-- Claude Manifest Commands Sdd
+- Claude Manifest Memory Capture
 - Claude Manifest Refactor Cleaner
-- Claude Manifest Modes
+- Claude Manifest Security Reviewer
 - Claude Manifest Spec Reviewer
 - Claude Manifest Tdd Guide
 - Claude Manifest Vault Extract
 - Claude Manifest Commands Brainstorm
-- Pi Skills Impeccable Live Init
+- Pi Skills Impeccable Live Sync Page
 - Web Ui Setup Per Group
-- Web Ui Setup
-- Claude Manifest Plugins Codeflare
+- Web Ui Components Button
+- Claude Manifest Commands Review
 - Claude Skills Impeccable Pin
+- Claude Manifest Modes
+- Claude Manifest Plugins Codeflare
 - Claude Manifest Plugins Codeflare Hooks
-- Claude Manifest Plugins Codeflare Hooks Block
-- Claude Manifest Modes Plugins Codeflare Hooks
 - Pi Skills Impeccable Pin
 - Web Ui Setup Git Hub
+- Claude Skills Impeccable Live Sync Edit
 - Claude Manifest Plugins Codeflare Memory
-- Claude Manifest Plugins Context
 - Claude Manifest Plugins Codeflare Memory Assert
 - Pi Build Memory Graph
 - Web Ui Components Clone Picker
@@ -724,19 +724,19 @@
 - Pi Skills Spec Enforce
 - Claude Manifest Plugins Graphify
 - Claude Manifest Plugins Graphify Clone
-- Claude Manifest Plugins Context Mode
+- Routes Container Lifecycle Helpers
 - Landing Scramble
 - Pi Host Native Review
-- Claude Manifest Plugins Graphify Session
+- Pi Lib Skills Impeccable Render Grouped
 - Measure Seed Tokens
-- Claude Manifest Rules Cloudflare
-- Claude Manifest Rules Frontend
+- Web Ui Components Terminal Area
+- Claude Manifest Rules Common
 - Claude Manifest Rules Documentation
 - Claude Manifest Rules Engineering
 - Host Entrypoint Enterprise Ca
 - Claude Manifest Rules Golang
 - Host Entrypoint Vanished Recovery
-- Claude Manifest Rules Golang Patterns
+- Claude Manifest Rules Golang Security
 - Claude Manifest Rules Golang Testing
 - Claude Manifest Rules Graph
 - Claude Manifest Rules Karpathy
@@ -747,8 +747,8 @@
 - Pi Skills Doc Documentation Shape
 - Pi Skills Spec Enforce Ac
 - Pi Skills Spec Truth
-- Claude Manifest Rules Python Security
 - Claude Manifest Rules Swift
+- Claude Manifest Rules Swift Testing
 - Claude Manifest Rules Tdd
 - Claude Manifest Rules Typescript
 - Claude Manifest Rules Typescript Patterns
@@ -762,21 +762,21 @@
 - Claude Manifest Skills Sdk References Durable
 - Host Entrypoint Credentials
 - Pi Host Entrypoint Warmup
-- Claude Manifest Rules Swift Coding
+- Claude Manifest Skills Sdk References Mcp
 - Pi Reviewer
 - Claude Manifest Skills Sdk References Routing
 - Project At High Level Explain The
 - Claude Manifest Skills Sdk References State
 - Claude Manifest Skills Sdk References Streaming
-- Claude Manifest Rules Swift Patterns
+- Claude Manifest Skills Sdk References Think
 - Claude Manifest Skills Sdk References Voice
 - Claude Manifest Skills Sdk References Webhooks
 - Claude Manifest Skills Sdk References Workflows
 - Claude Manifest Skills Sdk Skill
 - Claude Boundary Review Launch How Does
-- Claude Manifest Rules Typescript Testing
-- Claude Manifest Skills Sdk References Email
+- Claude Manifest Skills Backend
 - Claude Manifest Skills Browser
+- Claude Manifest Skills Browser Run
 - Host Entrypoint Browser Run
 - Host Entrypoint Consult Llm
 - Claude Manifest Skills Consult
@@ -785,21 +785,21 @@
 - Package Name
 - Claude Manifest Skills Deployment
 - Claude Manifest Skills Design
-- Claude Manifest Skills Sdk References Observability
-- Claude Manifest Skills Sdk References Server
+- Claude Skills Impeccable Detector Check Element
 - Claude Manifest Skills Doc
 - Claude Manifest Skills Doc Enforce
+- Claude Manifest Skills Doc Enforce Truth
 - Claude Skills Turnstile Spin Astro
 - Claude Manifest Skills Git
 - Pi Doc Updater
 - Claude Manifest Skills Graphify
 - Pi Spec Reviewer
-- Claude Manifest Skills Api
+- Pi Skills Impeccable Detector Check Element
 - Pi Skills Review Scope
-- Claude Manifest Skills Doc Enforce Lanes
 - Claude Manifest Skills Impeccable
-- Claude Manifest Skills Frontend
 - Claude Manifest Skills Impeccable Reference
+- Claude Manifest Skills Impeccable Reference Brand
+- Claude Manifest Skills Impeccable Reference Clarify
 - Claude Manifest Skills Impeccable Reference Codex
 - Claude Manifest Skills Impeccable Reference Colorize
 - Claude Manifest Skills Impeccable Reference Craft
@@ -830,9 +830,9 @@
 - Claude Manifest Skills Impeccable Detector Detect
 - Landing Type On View Lines
 - Pi Skills Review Resolve
-- Claude Manifest Skills Graphify References
 - Claude Manifest Skills Impeccable Detector Engines
 - Claude Manifest Modes Skills Impeccable Detector
+- Manifest Modes Skills Impeccable Detector Engines
 - Claude Manifest Skills Impeccable Detector Findings
 - Claude Manifest Skills Impeccable Detector Node
 - Claude Manifest Skills Impeccable Detector Profile
@@ -841,69 +841,69 @@
 - Run Backend
 - Claude Manifest Skills Impeccable Detector Shared
 - Manifest Modes Skills Impeccable Detector Shared
-- Claude Manifest Skills Graphify References Query
-- Claude Manifest Skills Graphify Skill
-- Claude Manifest Skills Impeccable Reference Optimize
+- Claude Manifest Skills Impeccable Hook
+- Claude Manifest Plugins Codeflare Hooks Git
+- Claude Manifest Modes Skills Impeccable Hook
 - Claude Manifest Skills Impeccable Lib
 - Claude Manifest Modes Skills Impeccable Lib
 - Manifest Modes Skills Impeccable Lib
 - Claude Manifest Skills Impeccable Lib Is
 - Claude Manifest Skills Impeccable Lib Target
 - Claude Manifest Skills Impeccable Live
-- Claude Manifest Skills Impeccable Reference Quieter
 - Claude Manifest Skills Impeccable Live Browser
 - Claude Manifest Modes Skills Impeccable Live
-- Claude Manifest Skills Impeccable Reference Shape
-- Claude Manifest Skills Impeccable Command
+- Manifest Modes Skills Impeccable Live Browser
+- Modes Plugins Codeflare Memory Capture
+- Claude Manifest Plugins Graphify Graph
 - Claude Manifest Skills Impeccable Live Completion
-- Claude Manifest Skills Impeccable Critique
-- Manifest Modes Skills Impeccable Detector Detect
-- Manifest Modes Skills Impeccable Detector Engines
+- Claude Manifest Skills Impeccable Live Copy
+- Claude Manifest Plugins Graphify Safe
+- Claude Manifest Rules Python Coding
 - Claude Manifest Skills Impeccable Live Inject
 - Claude Manifest Skills Impeccable Live Insert
 - Claude Manifest Skills Impeccable Live Manual
-- Modes Skills Impeccable Detector Shared Color
+- Claude Manifest Rules Spec
 - Manifest Modes Skills Impeccable Live Manual
-- Claude Manifest Skills Impeccable Hook
+- Manifest Modes Skills Impeccable Live
 - Claude Manifest Skills Impeccable Live Resume
 - Claude Manifest Skills Impeccable Live Server
 - Claude Manifest Skills Impeccable Live Session
-- Claude Manifest Skills Impeccable Live Commit
+- Claude Manifest Rules Vault
 - Claude Manifest Skills Impeccable Live Svelte
 - Claude Manifest Skills Impeccable Live Sveltekit
-- Claude Manifest Skills Impeccable Live Discard
+- Claude Manifest Skills Sdk References Queue
 - Claude Manifest Skills Impeccable Live Ui
-- Modes Skills Impeccable Live Manual Edit
-- Claude Manifest Skills Impeccable Live Status
+- Claude Manifest Skills Emil
+- Claude Manifest Skills Frontend
 - Claude Manifest Skills Impeccable Modern
 - Claude Manifest Skills Impeccable Palette
 - Claude Manifest Skills Impeccable Pin
-- Claude Manifest Skills Impeccable Live Vocabulary
+- Claude Manifest Skills Impeccable Skill
 - Claude Manifest Skills Iterative
+- Claude Manifest Skills Impeccable Reference Bolder
 - Claude Manifest Skills Sdd
-- Claude Manifest Skills Spec
-- Claude Manifest Skills Spec Enforce
+- Claude Manifest Skills Impeccable Detect Csp
 - Claude Manifest Skills Sdd Init
 - Claude Manifest Skills Sdd Init Skill
 - Claude Manifest Skills Search
-- Pi Manifest Reviewer
-- Pi Manifest Doc Updater
-- Pi Manifest Extensions Codeflare
-- Pi Manifest Extensions Commands
+- Modes Skills Impeccable Detector Engines Static
+- Modes Skills Impeccable Detector Shared Constants
+- Modes Skills Impeccable Live Browser Session
+- Modes Skills Impeccable Live Manual Edit
+- Claude Manifest Skills Spec
 - Claude Manifest Skills Spec Driven
+- Claude Manifest Skills Impeccable Live Poll
 - Claude Manifest Skills Spec Driven Development
-- Pi Manifest Modes
 - Claude Manifest Modes Skills Spec Driven
 - Manifest Modes Skills Spec Driven Development
 - Modes Skills Spec Driven Development References
 - Skills Spec Driven Development References Templates
 - Spec Driven Development References Templates Sdd
-- Driven Development References Templates Sdd Config
 - Driven Development References Templates Sdd Constraints
 - Driven Development References Templates Sdd Glossary
 - Driven Development References Templates Sdd Readme
-- Pi Manifest Build Graphify
-- Claude Manifest Skills Spec Enforce Skill
+- Claude Manifest Skills Tdd
+- Claude Manifest Skills Spec Enforce
 - Claude Manifest Skills Spec Enforce Truth
 - Claude Manifest Skills Vault
 - Claude Manifest Skills Vault Operations
@@ -925,82 +925,86 @@
 - Claude Skills Turnstile Spin Has Creds
 - Pi Manifest Default
 - Claude Skills Turnstile Spin Fetch Secret
-- Pi Manifest Local Graphify
+- Pi Manifest Extensions Browser
 - Pi Manifest Spec Reviewer
-- Pi Manifest
-- Pi Manifest Skills Frontend
-- Pi Manifest Rules Engineering
-- Pi Manifest Skills Graphify
+- Pi Manifest Advanced
+- Pi Manifest Extensions Review
+- Pi Manifest Modes
+- Pi Manifest Build Graphify
 - Pi Manifest Skills Doc
-- Pi Manifest Skills Impeccable
+- Pi Manifest Extensions Guard
 - Pi Manifest Skills Doc Enforce
 - Pi Manifest Extensions Memory
 - Pi Manifest Extensions Memory Vault
-- Pi Manifest Extensions Review
+- Pi Manifest Extensions Review Command
 - Pi Manifest Skills Doc Enforce Skill
-- Pi Manifest Skills Impeccable Reference
-- Pi Manifest Skills Impeccable Reference Clarify
-- Pi Manifest Skills Impeccable Reference Extract
-- Pi Manifest Skills Impeccable Reference Delight
-- Pi Manifest Skills Impeccable Reference Hooks
+- Pi Manifest Skills Doc Enforce Truth
+- Pi Manifest Skills Graphify
+- Pi Manifest Skills Impeccable
+- Pi Manifest Skills Impeccable Detector
+- Pi Manifest Skills Impeccable Detector Shared
 - Pi Manifest Extensions Vault
-- Pi Manifest Skills Impeccable Reference Live
+- Pi Manifest Skills Impeccable Hook
 - Pi Manifest Skills Impeccable Live
 - Pi Manifest Skills Impeccable Modern
-- Pi Manifest Skills Impeccable Reference Overdrive
 - Pi Manifest Skills Review
+- Pi Manifest Skills Review Scope
 - Pi Manifest Merge Vault
 - Pi Manifest Safe Graphify
 - Pi Manifest Skills Review Resolve
-- Pi Manifest Skills Impeccable Context
+- Pi Manifest Skills Browser
 - Pi Manifest Skills Spec
 - Pi Manifest Skills Spec Enforce
 - Pi Manifest Skills Consult
 - Pi Manifest Skills Spec Enforce Truth
-- Pi Manifest Skills Impeccable Detect
+- Pi Manifest Skills Git
 - Web Ui Package Solidjs Testing
-- Pi Manifest Skills Impeccable Detector
+- Pi Manifest Skills Graphify Skill
 - Web Ui Package Vite Plugin
-- Pi Manifest Skills Impeccable Detector Engines
-- Pi Manifest Modes Skills Impeccable Detector
-- Pi Manifest Skills Impeccable Detector Rules
+- Pi Manifest Skills Impeccable Reference
+- Web Ui Package Fast Check
+- Pi Manifest Skills Impeccable Reference Brand
 - Pi Manifest Skills Impeccable Reference Codex
 - Pi Manifest Skills Impeccable Reference Colorize
 - Pi Manifest Skills Impeccable Reference Craft
-- Pi Manifest Skills Impeccable Detector Shared
-- Pi Manifest Skills Impeccable Hook
+- Pi Manifest Skills Impeccable Reference Critique
 - Pi Manifest Skills Impeccable Reference Distill
 - Pi Manifest Skills Impeccable Reference Document
-- Pi Manifest Skills Impeccable Lib
-- Pi Manifest Skills Impeccable Live Browser
+- Pi Manifest Skills Impeccable Reference Harden
 - Pi Manifest Skills Impeccable Reference Init
 - Pi Manifest Skills Impeccable Reference Interaction
-- Pi Manifest Skills Impeccable Live Inject
-- Pi Manifest Modes Skills Impeccable Live
+- Pi Manifest Skills Impeccable Reference Layout
 - Pi Manifest Skills Impeccable Reference Onboard
-- Pi Manifest Skills Impeccable Palette
-- Pi Manifest Skills Impeccable Skill
+- Pi Manifest Skills Impeccable Reference Optimize
 - Pi Manifest Skills Impeccable Reference Polish
 - Pi Manifest Skills Impeccable Reference Product
 - Pi Manifest Skills Impeccable Reference Quieter
 - Pi Manifest Skills Impeccable Reference Shape
-- Web Ui Package Types Node
+- Pi Manifest Skills Impeccable Reference Typeset
 - Pi Manifest Skills Impeccable Critique
+- Pi Manifest Skills Impeccable Detect
 - Pi Manifest Skills Impeccable Detector Browser
 - Pi Manifest Skills Impeccable Detector Cli
-- Modes Skills Impeccable Detector Engines Visual
+- Pi Manifest Skills Impeccable Detector Design
+- Pi Manifest Skills Impeccable Detector Engines
+- Pi Manifest Modes Skills Impeccable Detector
 - Pi Manifest Skills Impeccable Detector Findings
 - Pi Manifest Skills Impeccable Detector Node
 - Pi Manifest Skills Impeccable Detector Profile
-- Skills Impeccable Detector Shared Color
+- Pi Manifest Skills Impeccable Detector Registry
+- Modes Skills Impeccable Detector Shared Color
 - Modes Skills Impeccable Detector Shared Page
 - Pi Manifest Skills Impeccable Hook Admin
 - Pi Manifest Modes Skills Impeccable Hook
-- Pi Manifest Skills Impeccable Lib Design
+- Pi Manifest Skills Impeccable Lib
+- Pi Manifest Modes Skills Impeccable Lib
+- Pi Manifest Skills Impeccable Live Browser
+- Pi Manifest Modes Skills Impeccable Live
 - Pi Manifest Skills Impeccable Live Commit
 - Pi Manifest Skills Impeccable Live Discard
 - Pi Manifest Skills Impeccable Live Event
 - Pi Manifest Skills Impeccable Live Insert
+- Manifest Modes Skills Impeccable Live Insert
 - Pi Manifest Skills Impeccable Live Manual
 - Skills Impeccable Live Manual Edit Evidence
 - Skills Impeccable Live Manual Edit Routes
@@ -1020,7 +1024,9 @@
 - Web Ui Styles Kitt Css Content
 - Claude Codeflare Vault Merge Dedupe Node
 - Pi Merge Vault Graph Dedupe Node
+- Vitest Config Important Always
 - Claude Manifest Build Error
+- Pi Manifest Extensions Codeflare
 
 ## God Nodes (most connected - your core abstractions)
 1. `advanced` - 250 edges
@@ -1049,39 +1055,39 @@
 ## Import Cycles
 - None detected.
 
-## Communities (1048 total, 348 thin omitted)
+## Communities (1052 total, 347 thin omitted)
 
-### Community 0 - "Types Env"
-Cohesion: 0.02
-Nodes (177): isDownloadsDisabled(), AppError, AuthError, BucketMigratingError, ContainerError, DownloadsDisabledError, ForbiddenError, QuotaExceededError (+169 more)
+### Community 0 - "Helpers Mock Kv Create"
+Cohesion: 0.03
+Nodes (86): app, app, app, app, app, app, app, app (+78 more)
 
 ### Community 1 - "Web Ui Api Client"
 Cohesion: 0.02
-Nodes (145): BillingStatusSchema, CheckoutResponseSchema, createCheckoutSession(), createPortalSession(), createSession(), CreateSessionClone, createSwitchSession(), deleteDeployKeys() (+137 more)
+Nodes (136): BillingStatusSchema, CheckoutResponseSchema, createCheckoutSession(), createPortalSession(), createSession(), CreateSessionClone, createSwitchSession(), deleteDeployKeys() (+128 more)
 
-### Community 2 - "Lib Kv Keys"
+### Community 2 - "Types Env"
 Cohesion: 0.03
-Nodes (140): collectMetrics(), drainFinalSync(), logger, MetricsCallbacks, parseSleepAfterMs(), updateKvStatus(), CfAccessAppsResponseSchema, CfAccessGroupsResponseSchema (+132 more)
+Nodes (129): allowedAgents(), isDownloadsDisabled(), NotFoundError, ValidationError, baseUrlLogger, buildSessionMetadata(), expandSessionMetadata(), generateSessionId() (+121 more)
 
-### Community 3 - "Routes Stripe Webhook"
-Cohesion: 0.05
-Nodes (49): getBucketName(), trimTrailingHyphens(), EUR_COUNTRIES, getCurrencyForCountry(), SUPPORTED_CURRENCIES, SupportedCurrency, getPreferencesKey(), CachedPrice (+41 more)
+### Community 3 - "Routes Auth"
+Cohesion: 0.03
+Nodes (112): getBucketName(), CfAccessAppsResponseSchema, CfAccessGroupsResponseSchema, CfAccessPoliciesResponseSchema, getAdminEmails(), getAllUsers(), logger, parseAccessResponse() (+104 more)
 
 ### Community 4 - "Routes Container Lifecycle"
-Cohesion: 0.04
-Nodes (50): handleSetSessionId(), AGENT_COMMANDS, getDefaultTabConfig(), getContainerHealthCB(), getContainerInternalCB(), getMaxSessions(), PROTECTED_PATHS, SetBucketNameBodySchema (+42 more)
+Cohesion: 0.02
+Nodes (122): ContainerHost, ensureVaultKey(), getBucketName(), setBucketName(), updateEnvVars(), applyBucketName(), applyPrefsOnRestart(), buildEnvVars() (+114 more)
 
 ### Community 5 - "Web Ui Types"
 Cohesion: 0.03
-Nodes (106): cloneIntoSession(), AGENT_OPTIONS, AgentOption, CreateSessionDialog(), CreateSessionDialogProps, ENTERPRISE_AGENT_TYPES, DashboardProps, ClonePicker() (+98 more)
+Nodes (111): AGENT_OPTIONS, AgentOption, CreateSessionDialog(), CreateSessionDialogProps, ENTERPRISE_AGENT_TYPES, Dashboard(), DashboardProps, CloneState (+103 more)
 
 ### Community 6 - "Pi Extensions Review Enforcement"
-Cohesion: 0.06
-Nodes (64): shellWords(), acknowledge(), ackPath(), blockDecision(), boundaryContext(), bypassSentinelPresent(), CiBoundaryEvent, clearAck() (+56 more)
+Cohesion: 0.10
+Nodes (36): recallActiveRepo(), acknowledge(), ackPath(), blockDecision(), boundaryContext(), bypassSentinelPresent(), CiBoundaryEvent, clearAck() (+28 more)
 
 ### Community 7 - "Lib Migration"
-Cohesion: 0.07
-Nodes (64): getRegimeStateKey(), createR2Client(), emptyR2Bucket(), extractTag(), getR2Url(), parseInitiateMultipartUploadXml(), parseListObjectsXml(), abortInFlightMultiparts() (+56 more)
+Cohesion: 0.03
+Nodes (113): PROTECTED_PATHS, getRegimeStateKey(), createR2Client(), emptyR2Bucket(), extractTag(), getR2Url(), parseInitiateMultipartUploadXml(), parseListObjectsXml() (+105 more)
 
 ### Community 8 - "Web Ui Stores Setup"
 Cohesion: 0.05
@@ -1089,55 +1095,55 @@ Nodes (8): emptyGroupRouting(), GroupRouting, initialState, setGroupDefaultRoute
 
 ### Community 9 - "Claude Skills Impeccable Live Browser"
 Cohesion: 0.03
-Nodes (125): acceptedDomAlreadyClean(), applyGlobalBarLabelState(), applyPlaceholderSizingStyles(), applySvelteComponentVariantStyle(), bindEditBadgeProxy(), bufferToBase64(), buildCollapsible(), buildColorModels() (+117 more)
+Nodes (132): acceptedDomAlreadyClean(), applyGlobalBarLabelState(), applyOriginalAttrsToSvelteAnchor(), applyPlaceholderSizingStyles(), applySvelteComponentVariantStyle(), bufferToBase64(), buildCollapsible(), buildColorModels() (+124 more)
 
 ### Community 10 - "Pi Skills Impeccable Live Browser"
 Cohesion: 0.03
-Nodes (118): acceptedDomAlreadyClean(), applyGlobalBarLabelState(), applyPlaceholderSizingStyles(), bindEditBadgeProxy(), bufferToBase64(), buildCollapsible(), buildColorModels(), buildDesignHeader() (+110 more)
+Nodes (131): acceptedDomAlreadyClean(), addManualContextText(), applyPlaceholderSizingStyles(), applySvelteComponentVariantStyle(), averageRgb01(), bindEditBadgeProxy(), bufferToBase64(), buildColorModels() (+123 more)
 
 ### Community 11 - "Pi Extensions Local Statusline"
-Cohesion: 0.11
-Nodes (17): recallActiveRepo(), Cache, contextPercent(), ExtensionAPI, ExtensionContext, findGitRoot(), FooterRendererFactory, gitOutput() (+9 more)
+Cohesion: 0.12
+Nodes (16): Cache, contextPercent(), ExtensionAPI, ExtensionContext, findGitRoot(), FooterRendererFactory, gitOutput(), renderLine() (+8 more)
 
 ### Community 12 - "Web Ui Stores Session"
 Cohesion: 0.03
 Nodes (96): LOG_LEVELS, logger, LogLevel, cleanupSessionVaultCache(), getLS(), listSessionMarkers(), removeSessionMarkers(), sweepOrphanVaultCaches() (+88 more)
 
-### Community 13 - "Routes Setup"
-Cohesion: 0.04
-Nodes (85): CfApiBaseSchema, CfApiResponse, parseCfResponse(), CircuitBreaker, CircuitBreakerOptions, CircuitState, BreakerEntry, cfApiCB (+77 more)
+### Community 13 - "Lib Error Types"
+Cohesion: 0.06
+Nodes (74): CfApiBaseSchema, CfApiResponse, parseCfResponse(), cfApiCB, CircuitBreakerOpenError, SetupError, toError(), AccessApp (+66 more)
 
 ### Community 14 - "Web Ui Lib Mobile"
 Cohesion: 0.04
-Nodes (89): TERMINAL, FloatingTerminalButtons(), FloatingTerminalButtonsProps, SessionSection(), Terminal(), TerminalProps, ScrollCorrectionParams, useScrollCorrection() (+81 more)
+Nodes (88): TERMINAL, FloatingTerminalButtons(), FloatingTerminalButtonsProps, Terminal(), TerminalProps, ScrollCorrectionParams, useScrollCorrection(), isAtBottom() (+80 more)
 
 ### Community 15 - "Pi Extensions Codeflare"
-Cohesion: 0.07
-Nodes (44): ACTIVE_REPO_FILE, activeRepo(), commandText(), contextModeStatusText(), currentBranch(), currentHead(), effectivePathForCommand(), ENGINEERING_CONSTITUTION (+36 more)
+Cohesion: 0.08
+Nodes (41): ACTIVE_REPO_FILE, activeRepo(), commandText(), currentBranch(), currentHead(), effectivePathForCommand(), ENGINEERING_CONSTITUTION, ensureCacheDir() (+33 more)
 
 ### Community 16 - "Web Ui Stores Terminal"
-Cohesion: 0.04
-Nodes (84): getTerminalWebSocketUrl(), ACTIONABLE_URL_PATTERNS, WS_RETRYABLE_CLOSE_CODES, counters, getCounters(), PerKeyCounters, recordFlush(), recordFrame() (+76 more)
+Cohesion: 0.03
+Nodes (90): getTerminalWebSocketUrl(), ACTIONABLE_URL_PATTERNS, WS_RETRYABLE_CLOSE_CODES, md5(), md5blk(), md5cycle(), rhex(), counters (+82 more)
 
 ### Community 17 - "Pi Todo Session Isolation Store"
 Cohesion: 0.07
-Nodes (42): I18nLoader, FILES, installRpivTodoSessionIsolation(), PAYLOAD_ROOT, disposeSessionOverlay(), isStaleCtxError(), LifecycleDependencies, registerSessionStateLifecycle() (+34 more)
+Nodes (43): I18nLoader, FILES, installRpivTodoSessionIsolation(), PAYLOAD_ROOT, disposeSessionOverlay(), isStaleCtxError(), LifecycleDependencies, registerSessionStateLifecycle() (+35 more)
 
 ### Community 18 - "Documentation Decisions Readme"
 Cohesion: 0.02
 Nodes (105): AD100: Pin the upstream rpiv-todo session-isolation fix, AD101: context-mode is foreground-owned in Pi; in-process subagents use native transports, AD102: Pi extraction delivery is root-owned, visible, and transactional, AD103: Pi extraction agents use bounded medium reasoning and one-pass inputs, AD104: Terminal viewport ownership is mode-based; xterm owns manual scrollback trimming, AD10: Bootstrap window: pre-setup endpoints, CSRF, and Worker-name derivation, AD11: Suffix-pattern CORS with credentials, AD12: KV-based setup lock (non-atomic) (+97 more)
 
-### Community 19 - "Routes Github Auth"
-Cohesion: 0.06
-Nodes (46): buildPlanChangeRows(), buildSubscriptionDetailRows(), getModeLabel(), logger, sendAccessRequestConfirmation(), sendAccessRequestNotification(), sendEmail(), SendEmailOptions (+38 more)
+### Community 19 - "Github Auth"
+Cohesion: 0.04
+Nodes (54): app, AppStatusCode, AppVariables, fetch(), logger, redirectWithHeaders(), SECURITY_HEADERS, SOCIAL_IDP_TYPES (+46 more)
 
 ### Community 20 - "Web Ui Components Layout"
 Cohesion: 0.03
-Nodes (76): HeaderProps, clearPrewarmingVaultStatus(), Layout(), LayoutProps, ViewState, VAULT_BUTTON_META, VaultButton(), VaultButtonProps (+68 more)
+Nodes (75): clearPrewarmingVaultStatus(), Layout(), LayoutProps, ViewState, VAULT_BUTTON_META, VaultButton(), VaultButtonProps, BrowserStoragePersistenceResult (+67 more)
 
-### Community 21 - "Input Validation"
+### Community 21 - "Fuzz Input Validation"
 Cohesion: 0.03
-Nodes (64): app, AppStatusCode, AppVariables, fetch(), logger, redirectWithHeaders(), SECURITY_HEADERS, SOCIAL_IDP_TYPES (+56 more)
+Nodes (59): resetAuthConfigCache(), getSetupCompleteCache(), resetSetupCache(), setSetupCompleteCache(), CircuitBreaker, CircuitBreakerOptions, CircuitState, BreakerEntry (+51 more)
 
 ### Community 22 - "Sdd Spec Changes"
 Cohesion: 0.02
@@ -1145,15 +1151,15 @@ Nodes (92): 2026-02-22, 2026-02-25, 2026-02-26, 2026-02-28, 2026-03-01, 2026-03-
 
 ### Community 23 - "Web Ui Stores Storage"
 Cohesion: 0.03
-Nodes (77): getDownloadUrl(), getViewUrl(), DownloadsDisabledPopup(), formatBucketLabel(), StatCards(), StatCardsProps, StorageStats, FileList() (+69 more)
+Nodes (79): getDownloadUrl(), getViewUrl(), DownloadsDisabledPopup(), formatBucketLabel(), StatCards(), StatCardsProps, StorageStats, FileList() (+71 more)
 
 ### Community 24 - "Web Ui Api Storage"
-Cohesion: 0.03
-Nodes (66): ApiError, baseFetch(), BaseFetchOptions, expiredSessionError(), abortMultipartUpload(), browseStorage(), completeMultipartUpload(), deleteFiles() (+58 more)
+Cohesion: 0.04
+Nodes (56): ApiError, baseFetch(), BaseFetchOptions, expiredSessionError(), abortMultipartUpload(), browseStorage(), completeMultipartUpload(), deleteFiles() (+48 more)
 
 ### Community 25 - "Web Ui Components Onboarding Page"
 Cohesion: 0.05
-Nodes (55): getPreferences(), markOnboardingComplete(), updatePreferences(), cloudflareConnectUrl(), cloudflareFetch(), CloudflareStatus, disconnectCloudflare(), getCloudflareStatus() (+47 more)
+Nodes (57): getPreferences(), markOnboardingComplete(), updatePreferences(), cloudflareConnectUrl(), cloudflareFetch(), CloudflareStatus, disconnectCloudflare(), getCloudflareStatus() (+49 more)
 
 ### Community 26 - "Pi Skills Impeccable Detector Checks"
 Cohesion: 0.05
@@ -1167,21 +1173,21 @@ Nodes (83): borderColorsFromStyle(), borderWidthsFromStyle(), checkBorders(), ch
 Cohesion: 0.02
 Nodes (81): Agents Domain Specification, Domain Dependencies, Key Concepts, Out of Scope, REQ-AGENT-001: Support Multiple AI Coding Agents, REQ-AGENT-002: Agent Selection at Session Creation, REQ-AGENT-003: Agent CLI Auto-Started in Tab 1, REQ-AGENT-004: Two Session Modes: Standard and Pro (+73 more)
 
-### Community 29 - "Lib Seed"
-Cohesion: 0.05
-Nodes (47): bucketExists(), CachedR2Token, CfTokenCreateResponseSchema, createBucketIfNotExists(), createScopedR2Token(), getOrCreateScopedR2Token(), isRetryable(), logger (+39 more)
+### Community 29 - "Pi Extensions Review Helpers"
+Cohesion: 0.13
+Nodes (26): ALL_REVIEW_LANES, BoundarySurfaces, classifyReviewBoundaryCommand(), commandWords(), firstExisting(), fullSha(), gitSubcommand(), Heredoc (+18 more)
 
 ### Community 30 - "Pi Extensions Memory Vault"
-Cohesion: 0.09
-Nodes (57): absoluteChangedFiles(), ActiveMemoryRequest, ActiveVaultRequest, addGraphToGlobal(), bestEffortMergeGraphs(), CACHE_DIR, captureOutputPath(), cleanupVaultRequest() (+49 more)
+Cohesion: 0.11
+Nodes (50): absoluteChangedFiles(), addGraphToGlobal(), bestEffortMergeGraphs(), CACHE_DIR, captureOutputPath(), cleanupVaultRequest(), commitVaultManifest(), counterPath() (+42 more)
 
 ### Community 31 - "Routes Vault"
-Cohesion: 0.04
-Nodes (71): VAULT_GENERATED_PREFIXES, checkRateLimit(), inMemoryFallback, logger, RateLimitResult, getVaultBucketToken(), assertSessionOwnership(), assertActiveTier() (+63 more)
+Cohesion: 0.11
+Nodes (33): app, handleVaultRequest(), filterVaultFsListing(), getVaultPrewarmRedirectSearch(), hasVaultBootstrapCookie(), inferOriginValidated(), injectVaultBootScript(), injectVaultBootstrapHopHtml() (+25 more)
 
-### Community 32 - "Pi Skills Impeccable Live Handle Key"
-Cohesion: 0.14
-Nodes (37): cancelEditing(), cancelEditingToPicking(), cancelInsertConfigure(), clearAnnotations(), clearInsertPicking(), closeTunePopover(), disableInlineEdit(), enterEditingMode() (+29 more)
+### Community 32 - "Pi Skills Impeccable Live Set"
+Cohesion: 0.09
+Nodes (68): abortSvelteComponentInjection(), applyEditing(), buildLocatorForLeaf(), buildPickedAnchorSnapshot(), cancelEditing(), cancelEditingToPicking(), cancelInsertConfigure(), cleanup() (+60 more)
 
 ### Community 33 - "Claude Skills Engines Static Detect Html"
 Cohesion: 0.07
@@ -1192,20 +1198,20 @@ Cohesion: 0.07
 Nodes (54): mergeDesignSystemFindings(), detectUrl(), runVisualContrastFallback(), serializeDesignSystemForBrowser(), CSS_IN_JS_EXTENSIONS, detectText(), extFromFilePath(), extractCSSinJS() (+46 more)
 
 ### Community 35 - "Pi Skills Impeccable Live El"
-Cohesion: 0.07
-Nodes (61): actionLabel(), applyConfigureBarChrome(), barPaletteForTheme(), bindConfigureCountPillTooltip(), bindConfigureInlineControlHover(), bindConfigureModifierPillHover(), buildConfigureActionControl(), buildConfigureCountControl() (+53 more)
+Cohesion: 0.09
+Nodes (47): actionLabel(), applyConfigureBarChrome(), bindConfigureCountPillTooltip(), bindConfigureInlineControlHover(), bindConfigureModifierPillHover(), buildConfigureActionControl(), buildConfigureCountControl(), buildConfigureRow() (+39 more)
 
 ### Community 36 - "Claude Skills Impeccable Context"
 Cohesion: 0.07
 Nodes (57): buildUpdateDirective(), compareSemver(), computeUpdateDirective(), contextSourcePath(), contextSourceStatus(), DESIGN_NAMES, directChildDirs(), discoverRootsForPattern() (+49 more)
 
-### Community 37 - "Web Ui Dashboard"
+### Community 37 - "Web Ui Components Dashboard"
 Cohesion: 0.04
 Nodes (29): GithubRepo, GithubStatus, ClonePickerProps, ConnectedHeaderProps, GitHubPanel(), GitHubPanelProps, RETURN_ERRORS, RepoRow() (+21 more)
 
-### Community 38 - "Claude Skills Impeccable Live Init Global"
-Cohesion: 0.07
-Nodes (65): barPaletteForTheme(), brandMarkSvg(), buildSteerProcessingDots(), cancelInsertConfigure(), clearAnnotations(), clearInsertPicking(), closeTunePopover(), cursorForInsertAxis() (+57 more)
+### Community 38 - "Claude Skills Impeccable Live Handle Key"
+Cohesion: 0.14
+Nodes (37): cancelEditing(), cancelEditingToPicking(), cancelInsertConfigure(), clearAnnotations(), clearInsertPicking(), closeTunePopover(), disableInlineEdit(), enterEditingMode() (+29 more)
 
 ### Community 39 - "Claude Lib Skills Impeccable Hook"
 Cohesion: 0.07
@@ -1213,47 +1219,47 @@ Nodes (59): cursorBlockMessage(), ACK_EXTS, ALLOWED_EXTS, bumpEditCount(), clamp
 
 ### Community 40 - "Pi Lib Skills Impeccable Hook"
 Cohesion: 0.07
-Nodes (59): cursorBlockMessage(), ACK_EXTS, ALLOWED_EXTS, bumpEditCount(), clampByte(), clampGroupedToBudget(), clampToBudget(), CO_SCAN_STYLE_NAMES (+51 more)
+Nodes (47): ACK_EXTS, applyConfigSource(), applyDetectorConfigSource(), applyPatchText(), clampByte(), cloneDefaultConfig(), CO_SCAN_STYLE_NAMES, colorIgnoreKey() (+39 more)
 
 ### Community 41 - "Lib Access"
-Cohesion: 0.06
-Nodes (44): RFC-6762, applyDefaultDrift(), authenticateRequest(), extractAccessJwt(), getCookieValue(), getUserFromRequest(), GroupRoutingEntry, loadAuthConfig() (+36 more)
+Cohesion: 0.05
+Nodes (49): RFC-6762, applyDefaultDrift(), authenticateRequest(), extractAccessJwt(), getCookieValue(), getUserFromRequest(), GroupRoutingEntry, loadAuthConfig() (+41 more)
 
-### Community 42 - "Pi Skills Impeccable Live Apply Editing"
-Cohesion: 0.08
-Nodes (34): addManualContextText(), applyEditing(), buildLocatorForLeaf(), canRestoreManualEditElement(), collectManualContextPieces(), contextElementForManualEdit(), copyEditContainerContext(), copyEditLeafContext() (+26 more)
+### Community 42 - "Web Ui App"
+Cohesion: 0.06
+Nodes (36): getOnboardingConfig(), getSetupStatus(), getUser(), AdminSubscriptionManagement, AppContent(), checkSetupStatus(), LoginPage, OnboardingLanding (+28 more)
 
 ### Community 43 - "Claude Skills Impeccable Detector"
-Cohesion: 0.06
-Nodes (68): addBrowserFindings(), addVisualContrastFindings(), addVisualContrastResult(), analyzeVisualContrast(), analyzeVisualContrastCandidate(), blendRgba(), browserColorsClose(), browserDesignSystemConfig() (+60 more)
-
-### Community 44 - "Pi Skills Impeccable Detector"
 Cohesion: 0.08
 Nodes (50): addBrowserFindings(), addVisualContrastFindings(), addVisualContrastResult(), analyzeVisualContrast(), browserColorsClose(), browserDesignSystemConfig(), browserFindingsFromMap(), browserHasDirectText() (+42 more)
 
-### Community 45 - "Claude Manifest Advanced"
+### Community 44 - "Pi Skills Impeccable Detector"
+Cohesion: 0.07
+Nodes (54): addBrowserFindings(), addVisualContrastFindings(), addVisualContrastResult(), analyzeVisualContrast(), analyzeVisualContrastCandidate(), blendRgba(), browserColorsClose(), browserDesignSystemConfig() (+46 more)
+
+### Community 45 - "Claude Manifest"
 Cohesion: 0.03
-Nodes (67): agents/architect.md, modes, agents/memory-capture.md, modes, commands/debug.md, modes, commands/deploy.md, modes (+59 more)
+Nodes (67): commands/deploy.md, modes, commands/sdd.md, plugins/codeflare-hooks/scripts/lib/gh-pr-state.sh, modes, plugins/codeflare-hooks/scripts/lib/lane-classifier.sh, modes, rules/python/testing.md (+59 more)
 
 ### Community 46 - "Pi Skills Impeccable Live Init Page"
-Cohesion: 0.12
-Nodes (36): armPageChatForTyping(), clearSteerAwaitTimer(), collapsePageChat(), configureVoiceContext(), expandPageChat(), finishVoiceSession(), focusPageChatInput(), initPageChat() (+28 more)
+Cohesion: 0.10
+Nodes (40): applyGlobalBarLabelState(), armPageChatForTyping(), buildSteerProcessingDots(), clearSteerAwaitTimer(), collapsePageChat(), configureVoiceContext(), expandPageChat(), finishVoiceSession() (+32 more)
 
 ### Community 47 - "Pi Skills Impeccable Modern Screenshot"
 Cohesion: 0.09
-Nodes (53): _(), ae(), be(), bt(), Ce(), Ct(), de(), dt() (+45 more)
+Nodes (53): _(), latestCritique(), ae(), be(), bt(), Ce(), Ct(), de() (+45 more)
 
 ### Community 48 - "Claude Skills Impeccable Live Init Page"
-Cohesion: 0.09
-Nodes (46): armPageChatForTyping(), attachSteerFocusDebug(), attachSteerFocusGuard(), clearSteerAwaitTimer(), clearSteerFocusRecoverTimer(), collapsePageChat(), expandPageChat(), finishVoiceSession() (+38 more)
+Cohesion: 0.12
+Nodes (36): armPageChatForTyping(), clearSteerAwaitTimer(), collapsePageChat(), configureVoiceContext(), expandPageChat(), finishVoiceSession(), focusPageChatInput(), initPageChat() (+28 more)
 
 ### Community 49 - "Claude Skills Impeccable Live Set"
 Cohesion: 0.08
-Nodes (78): abortSvelteComponentInjection(), applyConfigureBarChrome(), applySavedSessionMeta(), buildConfirmedRow(), buildCyclingRow(), buildDots(), buildGeneratingRow(), cancelEditing() (+70 more)
-
-### Community 50 - "Pi Skills Impeccable Live Set"
-Cohesion: 0.08
 Nodes (69): abortSvelteComponentInjection(), applyPlaceholderDimensions(), applySavedSessionMeta(), buildInsertPlaceholderSnapshotFromDom(), buildPickedAnchorSnapshot(), checkpointPayload(), clampVariantIndex(), cleanup() (+61 more)
+
+### Community 50 - "Pi Skills Impeccable Live Resume Session"
+Cohesion: 0.07
+Nodes (62): applyOriginalAttrsToSvelteAnchor(), applySavedSessionMeta(), buildInsertPlaceholderSnapshotFromDom(), checkpointPayload(), clampVariantIndex(), clearHandled(), commitAcceptedSvelteComponentToDom(), elementMatchesOriginalMarkup() (+54 more)
 
 ### Community 51 - "Helpers Api Request"
 Cohesion: 0.14
@@ -1265,7 +1271,7 @@ Nodes (53): _(), ae(), be(), bt(), Ce(), Ct(), de(), dt() (+45 more)
 
 ### Community 53 - "Pi Skills Impeccable Live Manual"
 Cohesion: 0.15
-Nodes (26): analyzeSourceHint(), buildCandidatesForOp(), buildContextHintsByRef(), buildManualEditEvidence(), collectSearchFiles(), countOps(), decodeBasicHtml(), escapeRegExp() (+18 more)
+Nodes (25): analyzeSourceHint(), buildCandidatesForOp(), buildContextHintsByRef(), collectSearchFiles(), countOps(), decodeBasicHtml(), escapeRegExp(), findContextMatches() (+17 more)
 
 ### Community 54 - "Landing Content Site"
 Cohesion: 0.07
@@ -1275,13 +1281,13 @@ Nodes (47): ../components/TrustStrip.astro, AgentRun, AGENTS, BoundaryRow, BROWS
 Cohesion: 0.08
 Nodes (44): resolveProjectRoot(), firstExisting(), getDesignSidecarCandidates(), getDesignSidecarPath(), getImpeccableDir(), getLegacyLiveAnnotationsDir(), getLegacyLiveConfigPath(), getLegacyLiveServerPath() (+36 more)
 
-### Community 56 - "Claude Skills Impeccable Live Build Insert"
-Cohesion: 0.10
-Nodes (36): actionLabel(), bindConfigureCountPillTooltip(), bindConfigureInlineControlHover(), bindConfigureModifierPillHover(), buildConfigureActionControl(), buildConfigureCountControl(), buildConfigureRow(), buildConfigureSubmitButton() (+28 more)
+### Community 56 - "Claude Skills Impeccable Live El"
+Cohesion: 0.07
+Nodes (59): actionLabel(), applyConfigureBarChrome(), barPaletteForTheme(), bindConfigureCountPillTooltip(), bindConfigureInlineControlHover(), bindConfigureModifierPillHover(), buildConfigureActionControl(), buildConfigureCountControl() (+51 more)
 
-### Community 57 - "Pi Skills Impeccable Live Session Store"
-Cohesion: 0.12
-Nodes (26): isLiveServerPidReachable(), readLiveServerInfo(), completeCli(), completeThroughServer(), parseArgs(), readServerInfo(), collectManualApplyFiles(), manualApplyReplyCommand() (+18 more)
+### Community 57 - "Pi Lib Skills Impeccable Paths"
+Cohesion: 0.08
+Nodes (44): resolveProjectRoot(), firstExisting(), getDesignSidecarCandidates(), getDesignSidecarPath(), getImpeccableDir(), getLegacyLiveAnnotationsDir(), getLegacyLiveConfigPath(), getLegacyLiveServerPath() (+36 more)
 
 ### Community 58 - "Pi Skills Impeccable Live Commit"
 Cohesion: 0.10
@@ -1289,11 +1295,11 @@ Nodes (49): allEntryIds(), argVal(), buildRepairBatch(), candidatesForEntry(), c
 
 ### Community 59 - "Claude Skills Impeccable Live Commit"
 Cohesion: 0.10
-Nodes (49): allEntryIds(), argVal(), buildRepairBatch(), candidatesForEntry(), changedFilesSinceSnapshot(), clearAppliedEntries(), collectApplyOwnedFiles(), collectRollbackFiles() (+41 more)
+Nodes (50): allEntryIds(), argVal(), buildRepairBatch(), candidatesForEntry(), changedFilesSinceSnapshot(), clearAppliedEntries(), collectApplyOwnedFiles(), collectRollbackFiles() (+42 more)
 
 ### Community 60 - "Lib Agent Seed Manifest"
-Cohesion: 0.07
-Nodes (34): dispatchBrainstorm(), dispatchDebug(), dispatchDeploy(), sendUserPrompt(), PiSettings, BRAINSTORM_WORKFLOW, commandInstructions(), DEBUG_WORKFLOW (+26 more)
+Cohesion: 0.13
+Nodes (17): dispatchBrainstorm(), dispatchDebug(), dispatchDeploy(), sendUserPrompt(), PiSettings, BRAINSTORM_WORKFLOW, commandInstructions(), DEBUG_WORKFLOW (+9 more)
 
 ### Community 61 - "Pi Lib Memory Vault"
 Cohesion: 0.07
@@ -1316,8 +1322,8 @@ Cohesion: 0.10
 Nodes (47): applyDetectionConfigSource(), clampByte(), cleanIgnoreValueDisplay(), cloneDetectionConfig(), cloneRawDetectionConfig(), colorIgnoreKey(), DEFAULT_DETECTION_CONFIG, DETECTOR_CONFIG_KEYS (+39 more)
 
 ### Community 66 - "Web Ui Components Settings Panel"
-Cohesion: 0.07
-Nodes (26): AppearanceSection(), AppearanceSectionProps, SessionSectionProps, ACCORDION_SUBTITLES, AccordionGroup, AccordionSectionProps, SettingsPanelProps, accentContrast() (+18 more)
+Cohesion: 0.06
+Nodes (28): AppearanceSection(), AppearanceSectionProps, SessionSection(), SessionSectionProps, ACCORDION_SUBTITLES, AccordionGroup, AccordionSectionProps, SettingsPanelProps (+20 more)
 
 ### Community 67 - "Landing Lib Splash Cursor"
 Cohesion: 0.08
@@ -1332,8 +1338,8 @@ Cohesion: 0.09
 Nodes (44): assembleLiveBrowserScript(), assertLiveBrowserScriptParts(), LIVE_BROWSER_SCRIPT_PARTS, readLiveBrowserScriptParts(), resolveLiveBrowserScriptParts(), acknowledgePendingEvent(), activeSessionSummaries(), agentPollingConnected() (+36 more)
 
 ### Community 70 - "Pi Skills Impeccable Live Server"
-Cohesion: 0.07
-Nodes (61): resolveProjectRoot(), firstExisting(), getDesignSidecarCandidates(), getDesignSidecarPath(), getImpeccableDir(), getLegacyLiveAnnotationsDir(), getLegacyLiveConfigPath(), getLegacyLiveServerPath() (+53 more)
+Cohesion: 0.09
+Nodes (43): assembleLiveBrowserScript(), assertLiveBrowserScriptParts(), LIVE_BROWSER_SCRIPT_PARTS, readLiveBrowserScriptParts(), resolveLiveBrowserScriptParts(), acknowledgePendingEvent(), activeSessionSummaries(), agentPollingConnected() (+35 more)
 
 ### Community 71 - "Web Ui Lib Splash Cursor"
 Cohesion: 0.08
@@ -1348,16 +1354,16 @@ Cohesion: 0.10
 Nodes (36): addOpToManualApplyChunk(), APPLY_EVENT_HARD_TIMEOUT_MS, APPLY_EVENT_SOFT_DEADLINE_MS, buildManualApplyAgentAction(), clearManualApplyTransaction(), collectManualApplyFiles(), compactManualApplyBatch(), compactManualApplyCandidates() (+28 more)
 
 ### Community 75 - "Pi Skills Impeccable Live Svelte"
-Cohesion: 0.10
-Nodes (43): applyLegacyDeferredAcceptsOnStartup(), appendCssToSvelteStyle(), appendSanitizedCssRule(), applyDeferredSvelteComponentAccepts(), bakeParamValuesInCss(), buildInsertVariantStub(), buildPropContract(), buildPropsScript() (+35 more)
+Cohesion: 0.11
+Nodes (42): applyLegacyDeferredAcceptsOnStartup(), appendCssToSvelteStyle(), appendSanitizedCssRule(), applyDeferredSvelteComponentAccepts(), bakeParamValuesInCss(), buildInsertVariantStub(), buildPropContract(), buildPropsScript() (+34 more)
 
 ### Community 76 - "Pi Skills Impeccable Live Wrap"
 Cohesion: 0.11
 Nodes (40): hasGeneratedHeader(), HEADER_MARKERS, isGeneratedFile(), isGitIgnored(), argVal(), buildInsertWrapperLines(), computeInsertLine(), INSERT_POSITIONS (+32 more)
 
-### Community 77 - "Routes Llm Keys"
-Cohesion: 0.12
-Nodes (19): base64UrlDecode(), getPublicKeys(), JWKS, JWKSchema, JWKSSchema, JWTHeaderSchema, JWTPayloadSchema, parseOrThrow() (+11 more)
+### Community 77 - "Fuzz Vault Migration"
+Cohesion: 0.07
+Nodes (21): VAULT_GENERATED_PREFIXES, getVaultBucketToken(), getVaultEncryptionKey(), graftVaultKeyRecovery(), VAULT_NATIVE_SERVICE_WORKER_JS, invalid(), validateVaultRoute(), VaultRouteResult (+13 more)
 
 ### Community 78 - "Claude Skills Impeccable Live Svelte"
 Cohesion: 0.11
@@ -1379,17 +1385,17 @@ Nodes (27): mockBreadcrumbs, mockBrowse, mockClearSelection, mockClosePreview, m
 Cohesion: 0.10
 Nodes (39): appendOriginToDirective(), buildTagBlock(), commentClose(), commentOpen(), CONFIG_PATH, detectLineEnding(), __dirname, ensureLiveGitIgnores() (+31 more)
 
-### Community 83 - "Pi Skills Impeccable Live Init Global"
-Cohesion: 0.11
-Nodes (38): brandMarkSvg(), clearStoredManualApplyState(), fetchAgentPollingStatus(), fetchPendingCount(), handleManualEditActivity(), hideAgentPollTooltip(), hidePendingApplyDock(), initGlobalBar() (+30 more)
+### Community 83 - "Pi Skills Impeccable Live Handle Manual"
+Cohesion: 0.19
+Nodes (24): clearStoredManualApplyState(), fetchPendingCount(), handleManualEditActivity(), hidePendingApplyDock(), manualApplyLoadingText(), manualApplyStateKey(), manualEditEventForCurrentPage(), numberOrNull() (+16 more)
 
 ### Community 84 - "Pi Skills Impeccable Live Manual Apply"
-Cohesion: 0.10
-Nodes (36): addOpToManualApplyChunk(), APPLY_EVENT_HARD_TIMEOUT_MS, APPLY_EVENT_SOFT_DEADLINE_MS, buildManualApplyAgentAction(), clearManualApplyTransaction(), collectManualApplyFiles(), compactManualApplyBatch(), compactManualApplyCandidates() (+28 more)
+Cohesion: 0.09
+Nodes (40): addOpToManualApplyChunk(), APPLY_EVENT_HARD_TIMEOUT_MS, APPLY_EVENT_SOFT_DEADLINE_MS, buildManualApplyAgentAction(), clearManualApplyTransaction(), collectManualApplyFiles(), compactManualApplyBatch(), compactManualApplyCandidates() (+32 more)
 
 ### Community 85 - "Claude Skills Impeccable Detector Detect Antipatterns"
 Cohesion: 0.08
-Nodes (39): browserDesignSystemConfig(), browserPrimaryFont(), checkBorders(), checkBrowserDesignSystemSources(), checkClippedOverflow(), checkElementBorders(), checkElementBordersDOM(), checkElementClippedOverflow() (+31 more)
+Nodes (35): checkBorders(), checkClippedOverflow(), checkElementBorders(), checkElementBordersDOM(), checkElementClippedOverflow(), checkElementClippedOverflowDOM(), checkElementItalicSerif(), checkElementItalicSerifDOM() (+27 more)
 
 ### Community 86 - "Claude Skills Impeccable Hook Admin"
 Cohesion: 0.14
@@ -1448,12 +1454,12 @@ Cohesion: 0.15
 Nodes (33): buildColor(), CANONICAL_SECTIONS, collectBullets(), collectColorValues(), collectParagraphs(), detectFormat(), extractColors(), extractComponents() (+25 more)
 
 ### Community 100 - "Pi Skills Impeccable Hook Before"
-Cohesion: 0.12
-Nodes (35): allow(), bumpCursorDenial(), deny(), done(), escapeRegExp(), findingSignature(), firstMatch(), firstString() (+27 more)
+Cohesion: 0.11
+Nodes (37): allow(), bumpCursorDenial(), deny(), done(), escapeRegExp(), findingSignature(), firstMatch(), firstString() (+29 more)
 
-### Community 101 - "Web Ui Components Dashboard"
-Cohesion: 0.05
-Nodes (37): Dashboard(), Header(), Icon(), IconProps, KittScanner(), MultiViewActionRowProps, SessionContextMenu(), SessionContextMenuProps (+29 more)
+### Community 101 - "Web Ui Components Header"
+Cohesion: 0.18
+Nodes (5): defaultSessionProps, isMobileMock, sessionStoreState, terminalStoreMock, usageStateMock
 
 ### Community 102 - "Host Server"
 Cohesion: 0.09
@@ -1463,9 +1469,9 @@ Nodes (27): createActivityTracker(), buildCloneArgs(), GitCloneResolution, resol
 Cohesion: 0.14
 Nodes (32): acceptCli(), argVal(), buildCarbonizeReplacement(), decodeHtmlAttr(), deindentContent(), detectCommentSyntax(), escapeRegExp(), expandReplaceRange() (+24 more)
 
-### Community 104 - "Pi Manifest Advanced"
+### Community 104 - "Pi Manifest"
 Cohesion: 0.04
-Nodes (52): extensions/guard-helpers.ts, modes, extensions/sdd-helpers.ts, modes, advanced, prompts/memory-agent-prompt.md, modes, scripts/build-memory-graph.py (+44 more)
+Nodes (52): agents/doc-updater.md, modes, extensions/browser-run.ts, modes, prompts/memory-agent-prompt.md, modes, scripts/build-graphify-architecture.sh, modes (+44 more)
 
 ### Community 105 - "Pi Lib Skills Impeccable Design Parser"
 Cohesion: 0.15
@@ -1487,33 +1493,33 @@ Nodes (34): Attachment Cost Caveat (REQ-VAULT-011 AC1), Capture Path (REQ-VAULT-
 Cohesion: 0.09
 Nodes (25): emptyRenderText(), executeBrowserAction(), gotoOptions(), runQuickAction(), TOOL_NAMES, TOOLS, truncate(), WAIT_UNTIL (+17 more)
 
-### Community 111 - "Claude Skills Impeccable Live Handle Manual"
-Cohesion: 0.19
-Nodes (24): clearStoredManualApplyState(), fetchPendingCount(), handleManualEditActivity(), hidePendingApplyDock(), manualApplyLoadingText(), manualApplyStateKey(), manualEditEventForCurrentPage(), numberOrNull() (+16 more)
+### Community 111 - "Claude Skills Impeccable Live Init Global"
+Cohesion: 0.11
+Nodes (38): brandMarkSvg(), clearStoredManualApplyState(), fetchAgentPollingStatus(), fetchPendingCount(), handleManualEditActivity(), hideAgentPollTooltip(), hidePendingApplyDock(), initGlobalBar() (+30 more)
 
 ### Community 112 - "Pi Skills Impeccable Live Accept"
-Cohesion: 0.14
-Nodes (32): acceptCli(), argVal(), buildCarbonizeReplacement(), decodeHtmlAttr(), deindentContent(), detectCommentSyntax(), escapeRegExp(), expandReplaceRange() (+24 more)
+Cohesion: 0.13
+Nodes (34): acceptCli(), argVal(), buildCarbonizeReplacement(), decodeHtmlAttr(), deindentContent(), detectCommentSyntax(), escapeRegExp(), expandReplaceRange() (+26 more)
 
 ### Community 113 - "Lib Cloudflare Token"
-Cohesion: 0.02
-Nodes (118): RFC-6749, RFC-7009, gitApiHost(), gitCopilotMcpHost(), GitHubInterceptor, GithubInterceptorProps, gitWebHost(), interceptedGithubHosts() (+110 more)
+Cohesion: 0.03
+Nodes (103): RFC-6749, RFC-7009, AigConfig, StoredAigToken, applyEnterpriseBrowserToken(), getEnterpriseBrowserCreds(), StoredBrowserToken, applyCloudflareOAuthToken() (+95 more)
 
 ### Community 114 - "Documentation Lanes Architecture Data Flow"
 Cohesion: 0.06
 Nodes (36): Architecture, Architecture Overview, CloudflareBrowserInterceptor (non-enterprise OAuth mode), Contact Relay Data Flow ([REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline)), Container DO (container), Contents, Dashboard WS Disconnect Flow, Data Flow (+28 more)
 
 ### Community 115 - "Claude Skills Impeccable Live Copy"
-Cohesion: 0.14
-Nodes (31): applyMockWrites(), buildCopyEditBatchPrompt(), checkFrameworkSourceSyntax(), chooseCopyEditAgent(), COMMAND_AUTH_CACHE, commandAuthed(), commandExists(), compactBatchForPrompt() (+23 more)
+Cohesion: 0.13
+Nodes (30): applyMockWrites(), buildCopyEditBatchPrompt(), checkFrameworkSourceSyntax(), chooseCopyEditAgent(), COMMAND_AUTH_CACHE, commandAuthed(), commandExists(), compactBatchForPrompt() (+22 more)
 
 ### Community 116 - "Claude Skills Turnstile Spin"
 Cohesion: 0.14
 Nodes (22): errorResponse(), SiteverifyError, corsHeaders(), fetch(), handleHealth(), handleSiteverify(), jsonResponse(), parseBody() (+14 more)
 
 ### Community 117 - "Pi Extensions Graphify Helpers"
-Cohesion: 0.08
-Nodes (38): ACTIVE_REPO_KEY, ActiveRepoMemory, activeRepoMemoryExtension(), effectivePath(), findGitRoot(), rememberActiveRepo(), rememberActiveRepoFromToolResult(), shellInputs() (+30 more)
+Cohesion: 0.13
+Nodes (24): ACTIVE_REPO_KEY, ActiveRepoMemory, activeRepoMemoryExtension(), effectivePath(), findGitRoot(), rememberActiveRepo(), rememberActiveRepoFromToolResult(), shellInputs() (+16 more)
 
 ### Community 118 - "Documentation Lanes Stress Testing"
 Cohesion: 0.06
@@ -1523,9 +1529,9 @@ Nodes (31): API Throughput, API Throughput (`api-throughput.js`), Concurrency Sc
 Cohesion: 0.13
 Nodes (31): analyzeVisualContrast(), analyzeVisualContrastCandidate(), checkColors(), checkElementAIPaletteDOM(), checkElementColors(), checkElementColorsDOM(), checkElementGlow(), checkElementGlowDOM() (+23 more)
 
-### Community 120 - "Pi Skills Impeccable Live Capture Element"
-Cohesion: 0.13
-Nodes (21): averageRgb01(), captureAndEmit(), captureChromeNodes(), captureElementFromRenderedAncestor(), captureElementToBlob(), compileShader(), cssColorToRgb01(), dominantRgb01() (+13 more)
+### Community 120 - "Claude Skills Impeccable Live Init"
+Cohesion: 0.25
+Nodes (16): attachSteerFocusDebug(), attachSteerFocusGuard(), clearSteerFocusRecoverTimer(), focusConfigureInput(), focusSteerChat(), init(), initHighlight(), notePagePointerDown() (+8 more)
 
 ### Community 121 - "Claude Skills Ship Skill From"
 Cohesion: 0.06
@@ -1561,7 +1567,7 @@ Nodes (31): Domain Dependencies, Key Concepts, Out of Scope, REQ-VAULT-001: Pers
 
 ### Community 129 - "Pi Skills Impeccable Skill"
 Cohesion: 0.08
-Nodes (22): Constraints, Failure modes, Flow, /impeccable hooks, Intentional findings, Routing, Assess Current Typography, Establish Hierarchy (+14 more)
+Nodes (21): Apply Clarity Principles, Assess Current Copy, Plan Copy Improvements, Reference Material, Verify Improvements, Constraints, Failure modes, Flow (+13 more)
 
 ### Community 130 - "Sdd Spec Constraints Non Functional"
 Cohesion: 0.07
@@ -1617,11 +1623,11 @@ Nodes (25): Assess Adaptation Challenge, Breakpoints: Content-Driven, Content Ad
 
 ### Community 143 - "Claude Skills Impeccable Skill"
 Cohesion: 0.08
-Nodes (21): Apply Clarity Principles, Assess Current Copy, Plan Copy Improvements, Reference Material, Verify Improvements, Constraints, Failure modes, Flow (+13 more)
+Nodes (22): Constraints, Failure modes, Flow, /impeccable hooks, Intentional findings, Routing, Assess Current Typography, Establish Hierarchy (+14 more)
 
-### Community 144 - "Claude Skills Impeccable Reference Improve Layout"
-Cohesion: 0.14
-Nodes (13): Assess Current Layout, Break Card Grid Monotony, Choose the Right Layout Tool, Create Visual Rhythm, Establish a Spacing System, Improve Layout Systematically, Live-mode signature params, Manage Depth & Elevation (+5 more)
+### Community 144 - "Claude Skills Impeccable Reference Craft"
+Cohesion: 0.08
+Nodes (22): After This File, Codex: Visual Direction & Asset Production, Four stop points before code, Step A: Explore Directions with the User, Step B: Generate the Brand Palette First, Step C: Generate 1-3 Visual Mocks Against the Palette, Step D: Approval Loop, Step E: Mock Fidelity Inventory (+14 more)
 
 ### Community 145 - "Claude Skills Impeccable Reference Live"
 Cohesion: 0.08
@@ -1633,7 +1639,7 @@ Nodes (24): completionAckForAcceptResult(), completionTypeForAcceptResult(), aug
 
 ### Community 147 - "Claude Skills Impeccable Live Manual"
 Cohesion: 0.15
-Nodes (25): analyzeSourceHint(), buildCandidatesForOp(), buildContextHintsByRef(), collectSearchFiles(), countOps(), decodeBasicHtml(), escapeRegExp(), findContextMatches() (+17 more)
+Nodes (26): analyzeSourceHint(), buildCandidatesForOp(), buildContextHintsByRef(), buildManualEditEvidence(), collectSearchFiles(), countOps(), decodeBasicHtml(), escapeRegExp() (+18 more)
 
 ### Community 148 - "Pi Skills Impeccable Reference Responsive Design"
 Cohesion: 0.08
@@ -1737,7 +1743,7 @@ Nodes (22): checkColors(), checkElementAIPaletteDOM(), checkElementColors(), che
 
 ### Community 173 - "Claude Routes Skills Impeccable Manual Edit"
 Cohesion: 0.18
-Nodes (22): args, buffer, cwd, pageUrlFilter, remaining, compactManualLogText(), summarizeManualApplyFailures(), summarizeManualDiagnostics() (+14 more)
+Nodes (21): args, buffer, cwd, pageUrlFilter, remaining, compactManualLogText(), summarizeManualApplyFailures(), summarizeManualDiagnostics() (+13 more)
 
 ### Community 174 - "Pi Skills Impeccable Reference Onboard"
 Cohesion: 0.09
@@ -1747,9 +1753,9 @@ Nodes (22): Assess Onboarding Needs, Context Over Ceremony, Contextual Help, Des
 Cohesion: 0.20
 Nodes (22): checkColors(), checkElementAIPaletteDOM(), checkElementColors(), checkElementColorsDOM(), checkElementGlow(), checkElementGlowDOM(), checkElementIconTile(), checkElementIconTileDOM() (+14 more)
 
-### Community 176 - "Web Ui Helpers Mock Factories"
-Cohesion: 0.13
-Nodes (12): FilePreview(), FilePreviewProps, getFileName(), PreviewFile, createMockErrorResponse(), createMockFetchResponse(), createMockPreviewFile(), PreviewFile (+4 more)
+### Community 176 - "Pi Skills Impeccable Live Render Design"
+Cohesion: 0.09
+Nodes (36): buildCollapsible(), buildDesignHeader(), buildListHtml(), buildRadiiModels(), copyToClipboard(), cssSafe(), designPanelCss(), escapeHtml() (+28 more)
 
 ### Community 177 - "Sdd Spec Session Lifecycle"
 Cohesion: 0.09
@@ -1776,8 +1782,8 @@ Cohesion: 0.09
 Nodes (21): Access and SaaS Federation, API Safety, Architecture and Current State, Assessment Prompts, CASB, Device Posture, and Risk, CASB, Risk, and Operations, Cloudflare One, Cloudflare WAN / Site Connectivity (+13 more)
 
 ### Community 183 - "Claude Skills Impeccable Live Apply Editing"
-Cohesion: 0.09
-Nodes (33): addManualContextText(), applyEditing(), buildLocatorForLeaf(), canRestoreManualEditElement(), contextElementForManualEdit(), copyEditContainerContext(), copyEditLeafContext(), cssIdent() (+25 more)
+Cohesion: 0.08
+Nodes (34): addManualContextText(), applyEditing(), buildLocatorForLeaf(), canRestoreManualEditElement(), collectManualContextPieces(), contextElementForManualEdit(), copyEditContainerContext(), copyEditLeafContext() (+26 more)
 
 ### Community 184 - "Claude Skills Search First"
 Cohesion: 0.09
@@ -1820,16 +1826,16 @@ Cohesion: 0.10
 Nodes (20): Anti-Patterns to Flag, Binding access — the most common error, Binding-code consistency, Cloudflare docs, Code Review — Workers, Common config mistakes, Config format, Config Validation (+12 more)
 
 ### Community 194 - "Pi Extensions Sdd Helpers"
-Cohesion: 0.14
-Nodes (23): dispatchReview(), helpText(), REVIEW_EXECUTION, reviewCommandDecision, reviewDocumentationSurfaceDecision, reviewWorkflowDecision, sendUserPrompt(), skillPrompt() (+15 more)
+Cohesion: 0.12
+Nodes (25): dispatchReview(), helpText(), REVIEW_EXECUTION, reviewCommandDecision, reviewDocumentationSurfaceDecision, reviewWorkflowDecision, sendUserPrompt(), skillPrompt() (+17 more)
 
 ### Community 195 - "Pi Skills Impeccable Reference The Toolkit"
 Cohesion: 0.10
 Nodes (20): Animate complex properties, Assess What "Extraordinary" Means Here, For data-heavy interfaces, For functional UI, For performance-critical UI, For visual/marketing surfaces, Implement with Discipline, Interact with the device (+12 more)
 
 ### Community 196 - "Pi Extensions Memory Vault Helpers"
-Cohesion: 0.10
-Nodes (41): buildVaultManifest(), compactMessages(), ExtractionState, extractionTranscriptFacts, giveupItems(), hasExactMarker(), isChildSessionFirstLine(), isChildSessionHeader() (+33 more)
+Cohesion: 0.12
+Nodes (33): ActiveMemoryRequest, ActiveVaultRequest, ActiveExtractionRequest, compactMessages(), ExtractionState, extractionTranscriptFacts, giveupItems(), hasExactMarker() (+25 more)
 
 ### Community 197 - "Sdd Spec Mobile Terminal"
 Cohesion: 0.10
@@ -1848,8 +1854,8 @@ Cohesion: 0.21
 Nodes (16): ../content/site, ./FeatureCard.astro, ../components/FeatureGrid.astro, ../components/FeatureTerminals.astro, ../components/Hero.astro, ./HeroHeadline.astro, ../components/InferenceMeshHero.astro, ../components/LedgerTable.astro (+8 more)
 
 ### Community 201 - "Web Ui Components Terminal Tabs"
-Cohesion: 0.12
-Nodes (22): SessionStatCard(), statusDotVariant, statusPulses, getTabType(), resolveTabIcon(), resolveTabLabel(), SortableTab(), StaticTab() (+14 more)
+Cohesion: 0.20
+Nodes (14): getTabType(), resolveTabIcon(), resolveTabLabel(), SortableTab(), StaticTab(), TerminalTabs(), TerminalTabsProps, AGENT_ICON_MAP (+6 more)
 
 ### Community 202 - "Claude Security Reviewer"
 Cohesion: 0.10
@@ -1872,12 +1878,12 @@ Cohesion: 0.10
 Nodes (19): Clean Up, Code Quality, Color & Contrast, Content & Copy, Design System Discovery, Edge Cases & Error States, Final Verification, Forms & Inputs (+11 more)
 
 ### Community 207 - "Claude Skills Impeccable Detector Parse Any"
-Cohesion: 0.14
-Nodes (18): borderColorsFromStyle(), borderWidthsFromStyle(), browserColorsClose(), browserHasDirectText(), browserRadiusTokens(), browserSampleText(), checkElementDesignSystemDOM(), checkElementGptBorderShadow() (+10 more)
+Cohesion: 0.12
+Nodes (21): borderColorsFromStyle(), borderWidthsFromStyle(), browserColorsClose(), browserHasDirectText(), browserRadiusTokens(), browserSampleText(), checkCreamPalette(), checkElementDesignSystemDOM() (+13 more)
 
-### Community 208 - "Claude Skills Impeccable Live El"
-Cohesion: 0.11
-Nodes (25): browserFindingsFromMap(), checkCreamPalette(), checkHtmlPatterns(), checkLayout(), checkPageLayout(), checkPageTypography(), checkRepeatedSectionKickers(), checkRepeatedSectionKickersDOM() (+17 more)
+### Community 208 - "Claude Skills Impeccable Detector Collect Browser"
+Cohesion: 0.18
+Nodes (13): browserDesignSystemConfig(), browserFindingsFromMap(), browserPrimaryFont(), checkBrowserDesignSystemSources(), checkHtmlPatterns(), checkPageQualityDOM(), checkPageQualityFromDoc(), checkTypography() (+5 more)
 
 ### Community 209 - "Claude Skills Spec Driven"
 Cohesion: 0.10
@@ -1921,15 +1927,15 @@ Nodes (18): Appropriate to Context, Assess Delight Opportunities, Celebration Mo
 
 ### Community 219 - "Pi Skills Impeccable Live"
 Cohesion: 0.19
-Nodes (15): loadContext(), parseCliOptions(), safeRead(), parseTargetOptions(), parseTargetPath(), TargetArgError, __dirname, ensureServerRunning() (+7 more)
+Nodes (15): loadContext(), resolveTargetSelection(), safeRead(), parseTargetOptions(), parseTargetPath(), TargetArgError, __dirname, ensureServerRunning() (+7 more)
 
 ### Community 220 - "Security Architecture"
 Cohesion: 0.11
 Nodes (19): Authentication, Automated Penetration Testing, Container Isolation, CORS Policy, CSRF Protection, Email System (Resend), GitHub Security Features, Input Validation (+11 more)
 
-### Community 221 - "Lib Controller Egress"
-Cohesion: 0.17
-Nodes (16): RFC-6598, EgressController, EgressProps, logger, controllerFetch(), hasStrictGatewayEgress(), isAccountScopedDestination(), isDisallowedEgressHost() (+8 more)
+### Community 221 - "Types Controller Egress"
+Cohesion: 0.05
+Nodes (41): RFC-6598, EgressController, EgressProps, logger, AGENT_COMMANDS, getDefaultTabConfig(), controllerFetch(), hasStrictGatewayEgress() (+33 more)
 
 ### Community 222 - "Stress Storage Operations"
 Cohesion: 0.11
@@ -1967,9 +1973,9 @@ Nodes (17): Accent Color Application, Accessibility, Assess Color Opportunity, B
 Cohesion: 0.11
 Nodes (18): 1. Fork this repo, 2. Add the two required secrets, 3. Deploy, 4. Run the setup wizard, Advanced deployment modes, Architecture, CI/CD, Codeflare Inference Mesh (+10 more)
 
-### Community 231 - "Pi Skills Impeccable Live Resolve"
-Cohesion: 0.17
-Nodes (19): applyOriginalAttrsToSvelteAnchor(), applySvelteComponentVariantStyle(), commitAcceptedSvelteComponentToDom(), elementMatchesOriginalMarkup(), extractSvelteComponentStyle(), findLiveElementForOriginalMarkup(), findLiveElementForSvelteManifest(), findLiveElementFromAnchorSnapshot() (+11 more)
+### Community 231 - "Cloudflare Browser Interceptor"
+Cohesion: 0.20
+Nodes (10): BrowserInterceptorProps, CloudflareBrowserInterceptor, INTERCEPTED_CF_BROWSER_HOSTS, INTERCEPTED_CF_OAUTH_HOSTS, isBrowserRenderingPath(), jsonError(), logger, RESPONSE_STRIPPED_HEADERS (+2 more)
 
 ### Community 232 - "Container Create Running"
 Cohesion: 0.12
@@ -2000,8 +2006,8 @@ Cohesion: 0.12
 Nodes (17): CSS Anchor Positioning, Destructive Actions: Undo > Confirm, Dropdown & Overlay Positioning, Fixed Positioning Fallback, Focus Rings: Do Them Right, Form Design: The Non-Obvious, Gesture Discoverability, Interaction Design (+9 more)
 
 ### Community 239 - "Claude Skills Impeccable Live On Annot"
-Cohesion: 0.13
-Nodes (24): applyPlaceholderDimensions(), beginEditPin(), buildAnnotationsForCapture(), buildPinElement(), buildPlaceholderResizeHandles(), cancelEditingPin(), cursorForPlaceholderEdge(), finalizeEditingPin() (+16 more)
+Cohesion: 0.20
+Nodes (17): beginEditPin(), buildAnnotationsForCapture(), buildPinElement(), cancelEditingPin(), clampPlaceholderSize(), finalizeEditingPin(), initAnnotOverlay(), localCoords() (+9 more)
 
 ### Community 240 - "Pi Skills Impeccable Reference Interaction Design"
 Cohesion: 0.12
@@ -2012,8 +2018,8 @@ Cohesion: 0.32
 Nodes (8): checkElementTextOverflowDOM(), classSelector(), clippedByInset(), clippedByRect(), expandBoxShorthand(), firstMetricLengthPx(), isScreenReaderOnlyTextStyle(), metricLengthPx()
 
 ### Community 242 - "Pi Skills Impeccable Live On Annot"
-Cohesion: 0.16
-Nodes (20): beginEditPin(), buildAnnotationsForCapture(), buildPinElement(), cancelEditingPin(), clampPlaceholderSize(), finalizeEditingPin(), initAnnotOverlay(), localCoords() (+12 more)
+Cohesion: 0.15
+Nodes (21): applyPlaceholderDimensions(), beginEditPin(), buildAnnotationsForCapture(), buildPinElement(), cancelEditingPin(), clampPlaceholderSize(), finalizeEditingPin(), initAnnotOverlay() (+13 more)
 
 ### Community 243 - "Web Ui Tsconfig Compiler Options"
 Cohesion: 0.09
@@ -2040,8 +2046,8 @@ Cohesion: 0.12
 Nodes (15): Codeflare-specific operational notes, /graphify (Codeflare-managed skill), Honesty Rules, Incremental Updates and --cluster-only, Query, Path, Explain, Quick Reference, Recipe 1: AST-only update (free, no tokens), Recipe 2: Full semantic update (existing repo) (+7 more)
 
 ### Community 249 - "Claude Skills Impeccable Reference Improve Copy"
-Cohesion: 0.20
-Nodes (10): Button & CTA Text, Confirmation Dialogs, Empty States, Error Messages, Form Labels & Instructions, Help Text & Tooltips, Improve Copy Systematically, Loading States (+2 more)
+Cohesion: 0.12
+Nodes (15): Apply Clarity Principles, Assess Current Copy, Button & CTA Text, Confirmation Dialogs, Empty States, Error Messages, Form Labels & Instructions, Help Text & Tooltips (+7 more)
 
 ### Community 250 - "Claude Skills Impeccable Reference Ux Writing"
 Cohesion: 0.12
@@ -2060,8 +2066,8 @@ Cohesion: 0.12
 Nodes (16): Accessibility Considerations, Anti-reflexes worth defending against, Classic Typography Principles, Fluid Type, Font Selection & Pairing, Modern Web Typography, Modular Scale & Hierarchy, OpenType Features (+8 more)
 
 ### Community 254 - "Claude Skills Impeccable Detector Check Quality"
-Cohesion: 0.19
-Nodes (14): checkElementOversizedH1(), checkElementOversizedH1DOM(), checkElementQuality(), checkElementQualityDOM(), checkOversizedH1(), checkQuality(), cssColorIsTransparent(), getComputedStyleFor() (+6 more)
+Cohesion: 0.12
+Nodes (21): checkElementOversizedH1(), checkElementOversizedH1DOM(), checkElementQuality(), checkElementQualityDOM(), checkOversizedH1(), checkQuality(), checkRepeatedSectionKickers(), checkRepeatedSectionKickersDOM() (+13 more)
 
 ### Community 255 - "Claude Skills Sdd Init"
 Cohesion: 0.12
@@ -2089,7 +2095,7 @@ Nodes (16): Accessibility Considerations, Anti-reflexes worth defending against,
 
 ### Community 261 - "Pi Skills Impeccable Detector Resolve Length"
 Cohesion: 0.15
-Nodes (15): checkElementOversizedH1(), checkElementOversizedH1DOM(), checkElementQuality(), checkElementQualityDOM(), checkOversizedH1(), checkRepeatedSectionKickers(), checkRepeatedSectionKickersDOM(), checkRepeatedSectionKickersFromDoc() (+7 more)
+Nodes (15): checkElementHeroEyebrow(), checkElementHeroEyebrowDOM(), checkElementQualityDOM(), checkHeroEyebrow(), checkRepeatedSectionKickers(), checkRepeatedSectionKickersDOM(), checkRepeatedSectionKickersFromDoc(), cleanInlineText() (+7 more)
 
 ### Community 262 - "Sdd Spec Memory"
 Cohesion: 0.12
@@ -2099,17 +2105,17 @@ Nodes (16): Domain Dependencies, Key Concepts, Memory, Out of Scope, REQ-MEM-001
 Cohesion: 0.12
 Nodes (16): Domain Dependencies, Key Concepts, Out of Scope, REQ-SETUP-001: First-time setup requires zero pre-configuration, REQ-SETUP-002: Setup wizard configures domain, auth, R2 credentials, and Turnstile, REQ-SETUP-003: Three deployment modes, REQ-SETUP-004: Setup is idempotent, REQ-SETUP-005: Post-setup reconfiguration requires admin auth (+8 more)
 
-### Community 264 - "Container Create Logger"
-Cohesion: 0.04
-Nodes (55): BrowserInterceptorProps, CloudflareBrowserInterceptor, INTERCEPTED_CF_BROWSER_HOSTS, INTERCEPTED_CF_OAUTH_HOSTS, isBrowserRenderingPath(), jsonError(), logger, RESPONSE_STRIPPED_HEADERS (+47 more)
+### Community 264 - "Container Github Interceptor"
+Cohesion: 0.08
+Nodes (13): container, gitApiHost(), gitCopilotMcpHost(), GitHubInterceptor, GithubInterceptorProps, gitWebHost(), interceptedGithubHosts(), jsonError() (+5 more)
 
 ### Community 265 - "Tsconfig Compiler Options"
 Cohesion: 0.09
 Nodes (21): node, ./worker-configuration.d.ts, compilerOptions, allowSyntheticDefaultImports, forceConsistentCasingInFileNames, isolatedModules, lib, module (+13 more)
 
-### Community 266 - "Claude Skills Impeccable Live Resolve"
-Cohesion: 0.21
-Nodes (16): applyOriginalAttrsToSvelteAnchor(), commitAcceptedSvelteComponentToDom(), elementMatchesOriginalMarkup(), findInsertAnchorInDom(), findLiveElementForOriginalMarkup(), findLiveElementForSvelteManifest(), findLiveElementFromAnchorSnapshot(), getMountedSvelteComponentAnchor() (+8 more)
+### Community 266 - "Web Ui Components Init Progress"
+Cohesion: 0.23
+Nodes (10): InitProgressComponent(), InitProgressProps, stageIcons, stages, stageKeys, StageTime, useStageTimings(), stageOrder (+2 more)
 
 ### Community 267 - "Documentation Lanes Deployment Development"
 Cohesion: 0.13
@@ -2151,7 +2157,7 @@ Nodes (15): Alpha Is A Design Smell, Building Functional Palettes, Color & Contr
 Cohesion: 0.13
 Nodes (14): Accessibility & Inclusion, Brand & Personality, Init Flow, Interview mode, not confirmation mode, Minimum viable interview, Register (ask first; it shapes everything below), Step 1: Load current state, Step 2: Explore the codebase (+6 more)
 
-### Community 277 - "Claude Skills Impeccable Detector Sample Css"
+### Community 277 - "Claude Skills Impeccable Sample Css Background"
 Cohesion: 0.20
 Nodes (15): blendRgba(), clampByte(), firstCssUrl(), getLayerValue(), loadVisualContrastImage(), parseObjectPosition(), parsePositionPair(), parsePositionToken() (+7 more)
 
@@ -2187,7 +2193,7 @@ Nodes (15): Alpha Is A Design Smell, Building Functional Palettes, Color & Contr
 Cohesion: 0.13
 Nodes (14): Accessibility & Inclusion, Brand & Personality, Init Flow, Interview mode, not confirmation mode, Minimum viable interview, Register (ask first; it shapes everything below), Step 1: Load current state, Step 2: Explore the codebase (+6 more)
 
-### Community 286 - "Pi Skills Impeccable Sample Css Background"
+### Community 286 - "Pi Skills Impeccable Detector Sample Css"
 Cohesion: 0.20
 Nodes (15): blendRgba(), clampByte(), firstCssUrl(), getLayerValue(), loadVisualContrastImage(), parseObjectPosition(), parsePositionPair(), parsePositionToken() (+7 more)
 
@@ -2239,9 +2245,9 @@ Nodes (14): Brand bans (on top of the shared absolute bans), Brand permissions, 
 Cohesion: 0.14
 Nodes (13): Animation Performance, Assess Performance Issues, Core Web Vitals Optimization, Cumulative Layout Shift (CLS < 0.1), First Input Delay (FID < 100ms) / INP (< 200ms), Largest Contentful Paint (LCP < 2.5s), Loading Performance, Network Optimization (+5 more)
 
-### Community 299 - "Pi Lib Skills Impeccable Read Config"
-Cohesion: 0.18
-Nodes (12): applyConfigSource(), applyDetectorConfigSource(), cloneDefaultConfig(), detectorSection(), hookSection(), ignoreValueFilesKey(), mergeIgnoreValues(), numberOr() (+4 more)
+### Community 299 - "Claude Skills Impeccable Detector Sample Css"
+Cohesion: 0.16
+Nodes (18): analyzeVisualContrastCandidate(), blendRgba(), clampByte(), firstCssUrl(), getLayerValue(), loadVisualContrastImage(), parseObjectPosition(), parsePositionPair() (+10 more)
 
 ### Community 300 - "Pi Skills Graphify Skill In"
 Cohesion: 0.14
@@ -2251,17 +2257,17 @@ Nodes (13): Architecture graph build, Clone-time triage, Detect corpus, Full bui
 Cohesion: 0.14
 Nodes (14): Brand bans (on top of the shared absolute bans), Brand permissions, Brand register, Color, Font selection procedure, Imagery, Layout, Motion (+6 more)
 
-### Community 302 - "Pi Skills Impeccable Reference Craft"
-Cohesion: 0.08
-Nodes (22): After This File, Codex: Visual Direction & Asset Production, Four stop points before code, Step A: Explore Directions with the User, Step B: Generate the Brand Palette First, Step C: Generate 1-3 Visual Mocks Against the Palette, Step D: Approval Loop, Step E: Mock Fidelity Inventory (+14 more)
+### Community 302 - "Pi Skills Impeccable Reference Improve Layout"
+Cohesion: 0.14
+Nodes (13): Assess Current Layout, Break Card Grid Monotony, Choose the Right Layout Tool, Create Visual Rhythm, Establish a Spacing System, Improve Layout Systematically, Live-mode signature params, Manage Depth & Elevation (+5 more)
 
 ### Community 303 - "Pi Skills Impeccable Reference Optimization Strategy"
 Cohesion: 0.14
 Nodes (13): Animation Performance, Assess Performance Issues, Core Web Vitals Optimization, Cumulative Layout Shift (CLS < 0.1), First Input Delay (FID < 100ms) / INP (< 200ms), Largest Contentful Paint (LCP < 2.5s), Loading Performance, Network Optimization (+5 more)
 
-### Community 304 - "Pi Skills Impeccable Detector Sample Css"
-Cohesion: 0.16
-Nodes (18): analyzeVisualContrastCandidate(), blendRgba(), clampByte(), firstCssUrl(), getLayerValue(), loadVisualContrastImage(), parseObjectPosition(), parsePositionPair() (+10 more)
+### Community 304 - "Pi Skills Impeccable Sample Css Background"
+Cohesion: 0.22
+Nodes (14): firstCssUrl(), getLayerValue(), loadVisualContrastImage(), parseObjectPosition(), parsePositionPair(), parsePositionToken(), pickWorstContrastColor(), pointToImageSource() (+6 more)
 
 ### Community 305 - "Web Ui Setup Mock"
 Cohesion: 0.14
@@ -2305,11 +2311,11 @@ Nodes (12): Amplify the Design, Assess Current State, Color Amplification, Compo
 
 ### Community 316 - "Pi Skills Impeccable Context Signals"
 Cohesion: 0.14
-Nodes (23): extractRegister(), cli(), COMMON_DEV_PORTS, devServerSignals(), gatherSignals(), gitSignals(), hasCode(), latestCritique() (+15 more)
+Nodes (22): extractRegister(), cli(), COMMON_DEV_PORTS, devServerSignals(), gatherSignals(), gitSignals(), hasCode(), probePort() (+14 more)
 
-### Community 317 - "Claude Skills Impeccable Reference Codex Visual"
-Cohesion: 0.22
-Nodes (9): After This File, Codex: Visual Direction & Asset Production, Four stop points before code, Step A: Explore Directions with the User, Step B: Generate the Brand Palette First, Step C: Generate 1-3 Visual Mocks Against the Palette, Step D: Approval Loop, Step E: Mock Fidelity Inventory (+1 more)
+### Community 317 - "Container Metrics"
+Cohesion: 0.13
+Nodes (19): collectMetrics(), destroy(), drainFinalSyncAudited(), FinalSyncOutcome, FinalSyncResult, LifecycleHost, onError(), onStart() (+11 more)
 
 ### Community 318 - "Pi Skills Impeccable Detector Schedule Lazy"
 Cohesion: 0.18
@@ -2391,13 +2397,13 @@ Nodes (11): Assess Current State, Code Simplification, Content Simplification, D
 Cohesion: 0.17
 Nodes (11): Accessibility Resilience, Assess Hardening Needs, Edge Cases & Boundary Conditions, Error Handling, Hardening Dimensions, Input Validation & Sanitization, Internationalization (i18n), Performance Resilience (+3 more)
 
-### Community 339 - "Routes Setup Ac"
+### Community 339 - "Routes Setup"
 Cohesion: 0.09
 Nodes (17): app, accessAppFlowMocks(), baseFlowMocks(), createUrlMockFetch(), customDomainFlowMocks(), defaultIdpMock, jsonHeaders, mockFullSuccessFlow() (+9 more)
 
-### Community 340 - "Pi Lib Skills Impeccable Normalize Git"
-Cohesion: 0.38
-Nodes (7): applyPatchText(), envProjectDir(), looksLikeApplyPatch(), normalizeGitHubEvent(), normalizeHookEvent(), parseGitHubToolArgs(), resolveProjectCwd()
+### Community 340 - "Pi Skills Impeccable Live Init Global"
+Cohesion: 0.14
+Nodes (24): barPaletteForTheme(), brandMarkSvg(), buildParamsPanel(), detectPageTheme(), ensureAgentPollTooltip(), fetchAgentPollingStatus(), formatRangeValue(), hideAgentPollTooltip() (+16 more)
 
 ### Community 341 - "Sdd Spec Browser Run"
 Cohesion: 0.17
@@ -2489,7 +2495,7 @@ Nodes (9): CF_ADVANCED, CF_MINIMAL, CF_RECOMMENDED, CLOUDFLARE_OAUTH_SCOPES, clo
 
 ### Community 363 - "Web Ui Package Dev Dependencies"
 Cohesion: 0.12
-Nodes (17): jsdom, @testing-library/jest-dom, vite, devDependencies, fast-check, jsdom, knip, oxlint (+9 more)
+Nodes (17): jsdom, @testing-library/jest-dom, vite, devDependencies, jsdom, knip, oxlint, @testing-library/jest-dom (+9 more)
 
 ### Community 364 - "Documentation Lanes Billing Subscription"
 Cohesion: 0.20
@@ -2568,8 +2574,8 @@ Cohesion: 0.20
 Nodes (9): Adding Deploy Step to Existing CI Workflow, CI & Deploy (Cloudflare Workers), Common .gitignore Templates, Generic, GitHub Actions Workflow Templates, Minimal CI (static sites), Node.js, Node.js CI (no tests) (+1 more)
 
 ### Community 383 - "Pi Skills Impeccable Reference Improve Copy"
-Cohesion: 0.12
-Nodes (15): Apply Clarity Principles, Assess Current Copy, Button & CTA Text, Confirmation Dialogs, Empty States, Error Messages, Form Labels & Instructions, Help Text & Tooltips (+7 more)
+Cohesion: 0.20
+Nodes (10): Button & CTA Text, Confirmation Dialogs, Empty States, Error Messages, Form Labels & Instructions, Help Text & Tooltips, Improve Copy Systematically, Loading States (+2 more)
 
 ### Community 384 - "Pi Skills Impeccable Reference Craft Flow"
 Cohesion: 0.20
@@ -2588,8 +2594,8 @@ Cohesion: 0.36
 Nodes (10): cleanIgnoreValueDisplay(), extractFindingIgnoreValue(), extractFindingIgnoreValueRaw(), extractMotionIgnoreValue(), filterFindings(), formatFindingIgnoreCommand(), isIgnoredFindingValue(), normalizeIgnoreRule() (+2 more)
 
 ### Community 388 - "Web Ui Components Setup Configure Step"
-Cohesion: 0.15
-Nodes (10): CloudflareProviderChooser(), CloudflareProviderChooserProps, REASONING_OPTIONS, SetupSection(), SetupSectionProps, Checkbox(), CheckboxProps, Input() (+2 more)
+Cohesion: 0.13
+Nodes (11): CloudflareProviderChooser(), CloudflareProviderChooserProps, REASONING_OPTIONS, SetupSection(), SetupSectionProps, Checkbox(), CheckboxProps, ChipListFieldProps (+3 more)
 
 ### Community 389 - "Tutorials Getting Started"
 Cohesion: 0.20
@@ -2687,9 +2693,9 @@ Nodes (8): Best Practices, FIRST: Check if Wrangler is installed, and if not, in
 Cohesion: 0.22
 Nodes (8): Consult LLM (Pi): Query External AI Models, Examples, Hard gate — explicit user request only, Listing concrete models, Step 1 — Choose the model, Step 2 — Build the prompt and call, Step 3 — Present and synthesize, Troubleshooting
 
-### Community 417 - "Lib Jwt"
-Cohesion: 0.33
-Nodes (4): base64UrlEncode(), createTestJWT(), TestJWK, TestKeyPair
+### Community 417 - "Pi Skills Impeccable Reference Codex Visual"
+Cohesion: 0.22
+Nodes (9): After This File, Codex: Visual Direction & Asset Production, Four stop points before code, Step A: Explore Directions with the User, Step B: Generate the Brand Palette First, Step C: Generate 1-3 Visual Mocks Against the Palette, Step D: Approval Loop, Step E: Mock Fidelity Inventory (+1 more)
 
 ### Community 418 - "Pi Skills Impeccable Reference Common Cognitive"
 Cohesion: 0.22
@@ -2791,9 +2797,9 @@ Nodes (8): 1. Impatient Power User: "Alex", 2. Confused First-Timer: "Jordan", 3
 Cohesion: 0.25
 Nodes (7): Extract Flow, Step 1: Discover the Design System, Step 2: Identify Patterns, Step 3: Plan Extraction, Step 4: Extract & Enrich, Step 5: Migrate, Step 6: Document
 
-### Community 444 - "Claude Skills Impeccable Reference Improve Typography"
-Cohesion: 0.33
-Nodes (6): Establish Hierarchy, Fix Readability, Font Selection, Improve Typography Systematically, Refine Details, Weight Consistency
+### Community 444 - "Pi Extensions Context Mode"
+Cohesion: 0.12
+Nodes (19): contextModeStatusText(), handleContextModeCommand(), setContextModeEnabled(), attachConfiguredContextMode(), attachContextModeToForeground(), clearInheritedContextModeBridgeIdleOverride(), CONTEXT_MODE_DISABLED_PACKAGE, CONTEXT_MODE_ENABLED_PACKAGE (+11 more)
 
 ### Community 445 - "Update Impeccable Skill"
 Cohesion: 0.32
@@ -2844,8 +2850,8 @@ Cohesion: 0.29
 Nodes (6): Architecture, Backend contract, Build & serving, Codeflare Landing, Design, Tests
 
 ### Community 457 - "Pi Routes Skills Impeccable Manual Edit"
-Cohesion: 0.18
-Nodes (21): args, buffer, cwd, pageUrlFilter, remaining, compactManualLogText(), summarizeManualApplyFailures(), summarizeManualDiagnostics() (+13 more)
+Cohesion: 0.20
+Nodes (18): args, buffer, cwd, pageUrlFilter, remaining, buildManualEditEvidence(), createManualEditRoutes(), sendJson() (+10 more)
 
 ### Community 460 - "Claude Commands Cloudflare Build Ai"
 Cohesion: 0.29
@@ -3067,9 +3073,9 @@ Nodes (5): Browser e2e (Pi), How to use (interactive, via the `mcp` proxy), Note
 Cohesion: 0.33
 Nodes (5): Full build/update without provider LLMs, Step 1 — create semantic file list, Step 2 — dispatch Pi Agent semantic subagents for uncached files, Step 3 — merge chunks into Graphify semantic cache and local fragment, Step 4 — local graph rebuild/merge from cached semantic
 
-### Community 521 - "Sdd Requirement Acceptance Criterion Which"
-Cohesion: 0.40
-Nodes (4): Answer, Outcome, Q: Which SDD requirement, acceptance criterion, documentation lane, and existing tests own GitHub Actions backend test execution and the workerd/Vitest crash handling in .github/workflows/test.yml and deploy workflows?, Source Nodes
+### Community 521 - "Pi Skills Impeccable Reference Improve Typography"
+Cohesion: 0.33
+Nodes (6): Establish Hierarchy, Fix Readability, Font Selection, Improve Typography Systematically, Refine Details, Weight Consistency
 
 ### Community 522 - "Pi Skills Pr Workflow Pull Request"
 Cohesion: 0.33
@@ -3259,9 +3265,9 @@ Nodes (4): Other flows, Query, Path, Explain, Save the answer back (feedback loo
 Cohesion: 0.40
 Nodes (4): For --cluster-only, Incremental Updates, Incremental Updates and --cluster-only, --update procedure
 
-### Community 575 - "Pi Skills Impeccable Detector Check Element"
-Cohesion: 0.40
-Nodes (5): checkElementHeroEyebrow(), checkElementHeroEyebrowDOM(), checkHeroEyebrow(), isAccentColor(), resolveVarRefs()
+### Community 575 - "Pi Extensions Vault Manifest"
+Cohesion: 0.24
+Nodes (16): buildVaultManifest(), isVaultExcludedPath(), parseVaultManifest(), VAULT_PRESEED_ROOT_FILES, VaultManifest, vaultManifestChanges(), changedVaultFilesIn(), collectVaultFileHashes() (+8 more)
 
 ### Community 576 - "Claude Skills Turnstile Spin Vanilla Html"
 Cohesion: 0.40
@@ -3359,6 +3365,10 @@ Nodes (4): Heuristics Scoring Guide, Issue Severity (P0–P3), Reference Materia
 Cohesion: 0.50
 Nodes (3): candidates, detectorPath, __dirname
 
+### Community 611 - "Pi Extensions Graphify Native"
+Cohesion: 0.22
+Nodes (15): AgentToolResult, errorResult(), execute(), ExtensionAPI, ExtensionContext, readTrimmed(), repoGraphCandidate(), repoRootFromPath() (+7 more)
+
 ### Community 612 - "Claude Lib Skills Impeccable Write Audit"
 Cohesion: 0.83
 Nodes (3): writeAuditLog(), main(), readStdin()
@@ -3420,8 +3430,8 @@ Cohesion: 0.50
 Nodes (4): Local Development, Local Secrets, Remote Bindings for Local Dev, Start Dev Server
 
 ### Community 627 - "Pi Skills Impeccable Live Refresh Params"
-Cohesion: 0.24
-Nodes (14): applyParamDefaults(), applyParamValue(), buildParamsPanel(), closedClipPath(), formatRangeValue(), getVisibleVariantEl(), hideParamsPanel(), openTunePopover() (+6 more)
+Cohesion: 0.20
+Nodes (16): applyParamDefaults(), applyParamValue(), buildCyclingRow(), closedClipPath(), cycleVariant(), getVisibleVariantEl(), hideParamsPanel(), navBtn() (+8 more)
 
 ### Community 628 - "Pi Build Graphify Architecture"
 Cohesion: 0.50
@@ -3447,9 +3457,9 @@ Nodes (4): Heuristics Scoring Guide, Issue Severity (P0–P3), Reference Materia
 Cohesion: 0.50
 Nodes (3): candidates, detectorPath, __dirname
 
-### Community 634 - "Pi Lib Skills Impeccable Write Audit"
-Cohesion: 0.83
-Nodes (3): writeAuditLog(), main(), readStdin()
+### Community 634 - "Pi Lib Skills Impeccable Run Hook"
+Cohesion: 0.14
+Nodes (23): bumpEditCount(), coLocatedStylesheets(), dedupeAgainstCache(), depthIsSet(), ensureFile(), ensureSession(), expandScanTargets(), findingCacheKey() (+15 more)
 
 ### Community 635 - "Pi Web Skills Access"
 Cohesion: 0.50
@@ -3515,21 +3525,25 @@ Nodes (3): Config Logging, Observability, Tail Logs
 Cohesion: 0.67
 Nodes (3): Local Testing with Vitest, Test Scheduled Events, Testing
 
-### Community 685 - "Claude Manifest"
+### Community 685 - "Claude Manifest Advanced"
 Cohesion: 0.03
-Nodes (66): agents/deep-reviewer.md, modes, agents/doc-updater.md, modes, agents/security-reviewer.md, modes, commands/cloudflare-build-mcp.md, modes (+58 more)
+Nodes (68): agents/code-reviewer.md, modes, agents/deep-reviewer.md, modes, agents/doc-updater.md, modes, commands/cloudflare-build-agent.md, modes (+60 more)
 
 ### Community 686 - "Claude Skills Impeccable Live Refresh Params"
 Cohesion: 0.24
 Nodes (14): applyParamDefaults(), applyParamValue(), buildParamsPanel(), closedClipPath(), formatRangeValue(), getVisibleVariantEl(), hideParamsPanel(), openTunePopover() (+6 more)
 
-### Community 694 - "Pi Skills Impeccable Live Init"
-Cohesion: 0.25
-Nodes (16): attachSteerFocusDebug(), attachSteerFocusGuard(), clearSteerFocusRecoverTimer(), focusConfigureInput(), focusSteerChat(), init(), initHighlight(), notePagePointerDown() (+8 more)
+### Community 694 - "Pi Skills Impeccable Live Sync Page"
+Cohesion: 0.29
+Nodes (14): attachSteerFocusDebug(), attachSteerFocusGuard(), clearSteerFocusRecoverTimer(), focusConfigureInput(), focusSteerChat(), notePagePointerDown(), pageHasHostTextSelection(), scheduleSteerFocusRecover() (+6 more)
 
 ### Community 695 - "Web Ui Setup Per Group"
 Cohesion: 0.23
 Nodes (7): PerGroupRoutingCard(), PerGroupRoutingCardProps, REASONING_OPTIONS, PillToggle(), PillToggleProps, ReasoningLevel, base
+
+### Community 696 - "Web Ui Components Button"
+Cohesion: 0.23
+Nodes (4): Button(), ButtonProps, setupStore, mockFetch
 
 ### Community 698 - "Claude Skills Impeccable Pin"
 Cohesion: 0.25
@@ -3542,6 +3556,10 @@ Nodes (9): __dirname, findHarnessDirs(), generatePinnedSkill(), HARNESS_DIRS, lo
 ### Community 703 - "Web Ui Setup Git Hub"
 Cohesion: 0.24
 Nodes (7): GitHubProviderChooser(), GitHubProviderChooserProps, PROVIDER_OPTIONS, Select(), SelectOption, SelectProps, base
+
+### Community 704 - "Claude Skills Impeccable Live Sync Edit"
+Cohesion: 0.27
+Nodes (10): bindEditBadgeProxy(), editBadgeProxyTargets(), initEditBadge(), initEditBadgeHitProxies(), positionEditBadge(), proxyMouseEvent(), setImportantStyle(), styleEditBadgeProxy() (+2 more)
 
 ### Community 707 - "Pi Build Memory Graph"
 Cohesion: 0.47
@@ -3567,6 +3585,10 @@ Nodes (29): default, plugins/graphify/.claude-plugin/plugin.json, modes, plugins
 Cohesion: 0.20
 Nodes (9): Binding rules, Execution manifest, Finding disposition, Inputs, Orchestration, Pi Spec Enforcement, `scope=all`, Scope contract (+1 more)
 
+### Community 723 - "Routes Container Lifecycle Helpers"
+Cohesion: 0.20
+Nodes (9): mockCreateBucketIfNotExists, mockGetContainer, mockGetOrCreateScopedR2Token, mockGetR2Config, mockGetStoredBucketName, mockListAllKvKeys, mockReconcileAgentConfigs, mockSeedGettingStartedDocs (+1 more)
+
 ### Community 724 - "Landing Scramble"
 Cohesion: 0.39
 Nodes (8): animateWord(), decodeWord(), initScramble(), initScrambleHover(), Phase, randomChar(), setupElement(), setupHoverElement()
@@ -3575,9 +3597,17 @@ Nodes (8): animateWord(), decodeWord(), initScramble(), initScrambleHover(), Pha
 Cohesion: 0.25
 Nodes (4): documents, generatedSource, piManifest, repoRoot
 
+### Community 726 - "Pi Lib Skills Impeccable Render Grouped"
+Cohesion: 0.32
+Nodes (8): cursorBlockMessage(), clampGroupedToBudget(), clampToBudget(), directiveFooter(), formatFindingLine(), quoteCommandArg(), renderGroupedTemplate(), renderTemplate()
+
 ### Community 727 - "Measure Seed Tokens"
 Cohesion: 0.32
 Nodes (6): claudeDir, descChars(), __dirname, frontmatter(), hasPaths(), manifest
+
+### Community 728 - "Web Ui Components Terminal Area"
+Cohesion: 0.32
+Nodes (6): activeSessionId(), mockSessions, mockVisiblePanes, readWorkspaceVersion(), sessions(), terminalLifecycle
 
 ### Community 732 - "Host Entrypoint Enterprise Ca"
 Cohesion: 0.38
@@ -3635,6 +3665,10 @@ Nodes (4): buildHarness(), __dirname, entrypoint, extractConsultLlmBlock()
 Cohesion: 0.40
 Nodes (4): name, private, type, version
 
+### Community 784 - "Claude Skills Impeccable Detector Check Element"
+Cohesion: 0.40
+Nodes (5): checkElementHeroEyebrow(), checkElementHeroEyebrowDOM(), checkHeroEyebrow(), isAccentColor(), resolveVarRefs()
+
 ### Community 788 - "Claude Skills Turnstile Spin Astro"
 Cohesion: 0.40
 Nodes (4): Astro, Substitutions, Variant: Astro Actions, Variant: hardcoded values
@@ -3646,6 +3680,10 @@ Nodes (4): Embedded canonical policy, Lane ownership, Procedure, Scope
 ### Community 792 - "Pi Spec Reviewer"
 Cohesion: 0.40
 Nodes (4): Embedded canonical policy, Evidence rules, Procedure, Scope
+
+### Community 793 - "Pi Skills Impeccable Detector Check Element"
+Cohesion: 0.40
+Nodes (5): checkElementOversizedH1(), checkElementOversizedH1DOM(), checkElementQuality(), checkOversizedH1(), resolveFontSizePx()
 
 ### Community 794 - "Pi Skills Review Scope"
 Cohesion: 0.40
@@ -3659,10 +3697,6 @@ Nodes (3): Answer, Q: Post-upgrade smoke: did graphify 0.8.45 update and query C
 Cohesion: 0.50
 Nodes (3): Answer, Q: Smoke test: where are Pi Graphify native tools and safe update workflow implemented?, Source Nodes
 
-### Community 812 - "Host Backend Launcher"
-Cohesion: 0.29
-Nodes (4): __dirname, LAUNCHER, WORKERS_MANIFEST, WORKERS_RUNNER
-
 ### Community 816 - "Pi Regenerate Lock"
 Cohesion: 0.50
 Nodes (3): packageManifest, repositoryRoot, result
@@ -3675,9 +3709,9 @@ Nodes (3): @earendil-works/pi-ai, Static, typebox
 Cohesion: 0.03
 Nodes (63): agents/ci-monitor.md, modes, agents/Explore.md, modes, extensions/active-repo-memory.ts, modes, extensions/context-mode-runtime.ts, modes (+55 more)
 
-### Community 926 - "Pi Manifest"
+### Community 926 - "Pi Manifest Advanced"
 Cohesion: 0.04
-Nodes (51): extensions/browser-run-helpers.ts, modes, extensions/browser-run.ts, modes, extensions/codeflare-pi.ts, modes, extensions/review-tool-guard.ts, modes (+43 more)
+Nodes (53): agents/code-reviewer.md, modes, extensions/codeflare-commands.ts, modes, extensions/commands-helpers.ts, modes, extensions/sdd-helpers.ts, modes (+45 more)
 
 ### Community 1070 - "Claude Codeflare Vault Merge Dedupe Node"
 Cohesion: 0.48
@@ -3688,24 +3722,24 @@ Cohesion: 0.48
 Nodes (6): dedupe_node_link_edges(), dedupe_node_link_file(), main(), Any, Path, Return node-link JSON with one edge per semantic evidence tuple.
 
 ## Knowledge Gaps
-- **5517 isolated node(s):** `$schema`, `warn`, `no-control-regex`, `errorRate`, `sessionListDuration` (+5512 more)
+- **5511 isolated node(s):** `$schema`, `warn`, `no-control-regex`, `errorRate`, `sessionListDuration` (+5506 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **348 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **347 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Logger` connect `Routes Container Lifecycle` to `Pi Skills Impeccable Live Set`, `Routes Setup`, `Input Validation`?**
-  _High betweenness centrality (0.036) - this node is a cross-community bridge._
-- **Why does `startSession()` connect `Web Ui Stores Session` to `Routes Setup`?**
+- **Why does `Logger` connect `Routes Container Lifecycle` to `Claude Skills Impeccable Live Set`?**
+  _High betweenness centrality (0.038) - this node is a cross-community bridge._
+- **Why does `createRequestHandler()` connect `Claude Skills Impeccable Live Server` to `Claude Skills Impeccable Detect Csp`, `Claude Lib Skills Impeccable Design Parser`, `Routes Container Lifecycle`, `Claude Lib Skills Impeccable Paths`, `Claude Ui Skills Impeccable Insert`?**
   _High betweenness centrality (0.024) - this node is a cross-community bridge._
-- **Why does `createRequestHandler()` connect `Claude Skills Impeccable Live Server` to `Claude Skills Impeccable Detect Csp`, `Claude Lib Skills Impeccable Design Parser`, `Routes Setup`, `Claude Lib Skills Impeccable Paths`, `Claude Ui Skills Impeccable Insert`?**
+- **Why does `session()` connect `Web Ui Types` to `Claude Skills Impeccable Live Browser`, `Pi Skills Impeccable Live Browser`, `Pi Extensions Memory Vault`?**
   _High betweenness centrality (0.024) - this node is a cross-community bridge._
 - **What connects `$schema`, `warn`, `no-control-regex` to the rest of the system?**
-  _5539 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `Types Env` be split into smaller, more focused modules?**
-  _Cohesion score 0.018200181383461127 - nodes in this community are weakly interconnected._
+  _5534 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `Helpers Mock Kv Create` be split into smaller, more focused modules?**
+  _Cohesion score 0.026413155190133607 - nodes in this community are weakly interconnected._
 - **Should `Web Ui Api Client` be split into smaller, more focused modules?**
-  _Cohesion score 0.021731123388581953 - nodes in this community are weakly interconnected._
-- **Should `Lib Kv Keys` be split into smaller, more focused modules?**
-  _Cohesion score 0.02936096718480138 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.022763661677688826 - nodes in this community are weakly interconnected._
+- **Should `Types Env` be split into smaller, more focused modules?**
+  _Cohesion score 0.0307035175879397 - nodes in this community are weakly interconnected._
