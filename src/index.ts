@@ -476,19 +476,19 @@ export default {
     for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
       secureResponse.headers.set(key, value);
     }
-    // Content-hashed build assets (Astro emits CSS/JS/font/image files under
-    // /_astro/ with a content hash in the filename) are immutable for a given URL.
-    // Workers Assets otherwise serves them `max-age=0, must-revalidate`, so the
-    // landing stylesheet was revalidated on every full-page navigation — delaying
-    // first paint and causing the inter-page flash. Long-cache them immutably;
-    // HTML keeps its revalidating default so content stays fresh.
+    // Content-hashed build assets (Astro emits under /_astro/; Vite under
+    // /assets/) are immutable for a given URL. Workers Assets otherwise serves
+    // them `max-age=0, must-revalidate`; after an Access session expires, a
+    // restored page can revalidate CSS/JS and receive login HTML instead of the
+    // asset, leaving the live DOM partially styled. Long-cache fingerprinted
+    // assets immutably; HTML keeps its revalidating default so content stays fresh.
     // Guard against caching the SPA fallback: with not_found_handling =
     // "single-page-application", a request to a non-existent /_astro/ URL (a stale
     // hashed reference after a deploy, or a crafted request) resolves to index.html
     // (200, text/html). Stamping that immutable would cache the shell forever under
     // an asset URL, so only a real, non-HTML 200 asset is long-cached.
     if (
-      path.includes('/_astro/') &&
+      (path.includes('/_astro/') || path.startsWith('/assets/')) &&
       assetResponse.status === 200 &&
       secureResponse.headers.get('Content-Type')?.startsWith('text/html') !== true
     ) {

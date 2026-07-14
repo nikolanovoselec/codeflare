@@ -115,7 +115,9 @@ not_found_handling = "single-page-application"
 # - "/api/*" and "/health" must never be swallowed by SPA asset fallback
 # - "/landing/*" routes the prerendered landing documents (REQ-LANDING-001)
 #   through the Worker so they carry the same security headers as "/"
+# - "/assets/*" lets the Worker mark Vite's fingerprinted CSS/JS immutable, so
+#   an expired Access session cannot replace a restored page's styles with login HTML
 # - "/login" must run the Worker so onboarding mode can rewrite it to the
 #   landing-built login page (REQ-AUTH-020 AC1); without it Cloudflare serves the
 #   SPA asset at the edge and the rewrite never executes.
-run_worker_first = ["/", "/login", "/login/", "/auth/*", "/api/*", "/public/*", "/health", "/landing/*"]
+run_worker_first = ["/", "/login", "/login/", "/auth/*", "/api/*", "/public/*", "/health", "/landing/*", "/assets/*"]

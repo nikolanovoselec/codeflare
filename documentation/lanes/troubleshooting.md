@@ -55,7 +55,7 @@ Frequently encountered problems grouped by symptom, with causes and resolution s
 
 ### `/api/*` Returns HTML (SPA Swallow)
 
-API endpoints return HTML instead of JSON. Fix: ensure `run_worker_first = ["/", "/login", "/login/", "/auth/*", "/api/*", "/public/*", "/health", "/landing/*"]` in the `[assets]` section of `wrangler.toml` (any control-plane path missing from this list is served as a static SPA asset at the edge without the Worker running; `/login` missing breaks the onboarding login rewrite, `/api/*` missing breaks setup/auth).
+API endpoints return HTML instead of JSON. Fix: ensure `run_worker_first = ["/", "/login", "/login/", "/auth/*", "/api/*", "/public/*", "/health", "/landing/*", "/assets/*"]` in the `[assets]` section of `wrangler.toml` (a missing control-plane path is served as the static SPA at the edge; `/login` missing breaks the onboarding rewrite, `/api/*` missing breaks setup/auth, and `/assets/*` missing bypasses the immutable Vite-asset policy).
 
 ### `/setup` Shows "Access Denied"
 
@@ -119,11 +119,11 @@ Enter the new client id + creation secret in the admin Setup wizard (REQ-AGENT-0
 
 ### SPA Shows a Blank/White Page on Return from Background (Mobile App-Switch)
 
-**Symptom:** After backgrounding the browser (mobile app-switch, tab eviction, bfcache) and returning, the SPA shows a blank white page or an endless loading spinner. Pressing Back several times, reloading, or re-logging-in eventually recovers it.
+**Symptom:** After backgrounding the browser (mobile app-switch, tab eviction, bfcache) and returning, the loaded app is blank, partly unstyled, or stuck on its redirecting/loading shell. Reloading immediately repairs the styling or opens Cloudflare Access sign-in.
 
-**Cause:** The session cookie expired while backgrounded. On return, the bootstrap `getUser()` call hit a 401, and the API client's 401 handler returned a *never-resolving promise* after triggering the redirect — stalling the bootstrap chain so `setLoading(false)` never ran, leaving the SPA stuck on its loading shell. Two secondary gaps compounded it: `RootPage` had no render branch for `redirect` mode (blank while a hard navigation was pending), and there was no top-level error boundary (an unhandled bootstrap/render error painted blank). The async `window.location.href` navigation plus bfcache restore is why "Back/reload several times" eventually unstuck it. ([REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page))
+**Cause:** The Access session expired while the browser retained the live document. Workers Static Assets made Vite's fingerprinted CSS/JS revalidate on every use, so Access could answer those subresource requests with login HTML instead of the asset. The SPA did not revalidate authentication on visibility/bfcache restoration, and the API helper's manual 3xx/opaque-redirect and HTML-login branches raised untagged 401 errors without performing the top-level navigation. The older never-settling-401, empty-root, and missing-error-boundary gaps were already fixed but did not cover these response/event paths. ([REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page))
 
-**Fix:** The 401 handler now redirects via `location.replace('/')` (so Back does not return to the dead page) and **throws** an `authRedirect`-tagged `ApiError` so the promise always settles; `AppContent` renders a calm "redirecting" state on that error; `RootPage` renders a non-empty state for `redirect` mode; and a top-level `ErrorBoundary` renders a reload fallback instead of a blank document. Redeploy the web-ui build to pick up the fix.
+**Fix:** Explicit 401, Access 3xx, opaque redirects, and HTML login responses all use `location.replace('/')` plus a settling `authRedirect` error. The authenticated app revalidates once on hidden-to-visible and persisted bfcache restoration. Fingerprinted Vite `/assets/*` requests run through the Worker and are immutable only after a successful non-HTML response; missing-asset HTML remains revalidating. Redeploy the Worker/web-ui build to pick up the fix.
 
 ### Terminal Stuck on "Connecting" After a Mobile App-Switch
 
@@ -137,9 +137,9 @@ Enter the new client id + creation secret in the admin Setup wizard (REQ-AGENT-0
 
 **Symptom:** Pi output no longer flickers at the 1000-line scrollback cap, but a user reading or navigating older output is pulled either toward the live prompt or abruptly to the top while Pi continues writing.
 
-**Cause:** `@xterm/xterm` `6.1.0-beta.288` includes upstream PR [#5770](https://github.com/xtermjs/xterm.js/pull/5770), which fixes synchronized-output flicker. Codeflare's former generic post-write distance guard overrode valid xterm trim shifts and pulled toward the bottom. Removing all post-write handling fixed that direction but exposed xterm's lower bound: when a dense full-buffer batch trims at least the current `viewportY`, native content anchoring clamps at zero and leaves the viewport at the top ([REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming) AC2/AC7).
+**Cause:** `@xterm/xterm` `6.1.0-beta.288` correctly moves a manually selected viewport toward zero as full-buffer output discards the viewed lines. Codeflare's write-side distance restoration and scroll-event reset correction both overrode that native transition, then reacted to the programmatic scroll events they generated, causing repeated edge snaps ([REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming) AC2/AC3/AC7).
 
-**Fix:** Keep ordinary non-zero trim shifts under xterm's ownership. Recover only when a pre-write viewport was non-top and scrolled up at the configured-full buffer, the buffer base remains unchanged, and parsing clamps `viewportY` to exactly zero. Restore its prior distance with `scrollLines`; never call `scrollToBottom()` from this path.
+**Fix:** Batched writes never alter viewport position. Correlated user intent establishes manual ownership until the viewport returns to the live bottom; xterm alone owns output trimming, including a legitimate zero offset when viewed content has aged out. Touch-keyboard mode remains the explicit bottom-anchored exception.
 
 **Verify:** At full scrollback, a small trim such as `500 -> 490` remains uncorrected. A dense batch that would clamp `500 -> 0` finishes at the prior distance (`viewportY = 500`) rather than either edge. CI's `terminal.test.ts` drives both cases through the WebSocket batching path and verifies the boundary guard does not run for a non-full buffer, a changed base, an already-top viewport, or a bottom follower.
 
