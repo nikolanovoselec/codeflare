@@ -1,0 +1,138 @@
+#!/usr/bin/env node
+
+import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+
+const LANES = new Set(['code-reviewer', 'spec-reviewer', 'doc-updater']);
+const ROOT_DOC = /^(README|CHANGELOG|CONTRIBUTING|SECURITY)\.md$/;
+const FULL_SHA = /^[0-9a-f]{40}$/;
+
+function git(repo, args, encoding = 'utf8') {
+  return execFileSync('git', args, {
+    cwd: repo,
+    encoding,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    maxBuffer: 256 * 1024 * 1024,
+  });
+}
+
+function isGenerated(path) {
+  return path.startsWith('graphify-out/')
+    || path.includes('/node_modules/')
+    || /(^|\/)(dist|build|coverage)\//.test(path)
+    || path === 'src/lib/agent-seed.generated.ts';
+}
+
+function owns(lane, path) {
+  if (isGenerated(path)) return false;
+  if (lane === 'spec-reviewer') return path.startsWith('sdd/');
+  if (lane === 'doc-updater') return path.startsWith('documentation/') || ROOT_DOC.test(path);
+  return !path.startsWith('sdd/') && !path.startsWith('documentation/') && !ROOT_DOC.test(path);
+}
+
+function nulList(buffer) {
+  return buffer.toString('utf8').split('\0').filter(Boolean).sort();
+}
+
+function changedHunks(repo, range, path) {
+  const patch = String(git(repo, ['diff', '--no-renames', '--unified=0', range, '--', path]));
+  return [...patch.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)].map((match) => ({
+    oldStart: Number(match[1]),
+    oldLines: match[2] === undefined ? 1 : Number(match[2]),
+    newStart: Number(match[3]),
+    newLines: match[4] === undefined ? 1 : Number(match[4]),
+  }));
+}
+
+function validateRange(repo, range) {
+  const [base, head, extra] = String(range ?? '').split('..');
+  if (extra !== undefined || !FULL_SHA.test(base ?? '') || !FULL_SHA.test(head ?? '')) {
+    throw new Error('diff scope requires a valid ancestor range');
+  }
+  try {
+    git(repo, ['merge-base', '--is-ancestor', base, head]);
+  } catch {
+    throw new Error('diff scope requires a valid ancestor range');
+  }
+  return `${base}..${head}`;
+}
+
+function intersects(start, lines, rangeStart, rangeEnd) {
+  return lines > 0 && start <= rangeEnd && start + lines - 1 >= rangeStart;
+}
+
+export function changedInputIntersects(input, range) {
+  return input.hunks.some((hunk) =>
+    (range.oldStart !== undefined
+      && range.oldEnd !== undefined
+      && intersects(hunk.oldStart, hunk.oldLines, range.oldStart, range.oldEnd))
+    || (range.newStart !== undefined
+      && range.newEnd !== undefined
+      && intersects(hunk.newStart, hunk.newLines, range.newStart, range.newEnd)),
+  );
+}
+
+export function buildReviewPacket({ repo, scope, range, lane }) {
+  if (scope !== 'diff' && scope !== 'all') throw new Error('scope must be diff or all');
+  if (!LANES.has(lane)) throw new Error('lane must be code-reviewer, spec-reviewer, or doc-updater');
+
+  if (scope === 'all') {
+    const tracked = nulList(git(repo, ['ls-files', '-z'], 'buffer'));
+    return {
+      scope,
+      workSet: 'whole-requested-tree',
+      lane,
+      range: undefined,
+      files: tracked.filter((path) => owns(lane, path)),
+      changedInputs: [],
+      patch: '',
+    };
+  }
+
+  const validRange = validateRange(repo, range);
+  const changed = nulList(git(repo, ['diff', '--name-only', '--no-renames', '-z', validRange], 'buffer'))
+    .filter((path) => !isGenerated(path));
+  const files = changed.filter((path) => owns(lane, path));
+  const patch = files.length === 0
+    ? ''
+    : String(git(repo, ['diff', '--no-renames', '--unified=3', validRange, '--', ...files]));
+  const changedInputs = changed
+    .filter((path) => !files.includes(path))
+    .map((path) => ({ path, hunks: changedHunks(repo, validRange, path) }));
+  return {
+    scope,
+    workSet: 'changed-hunks-and-direct-invalidations',
+    lane,
+    range: validRange,
+    files,
+    changedInputs,
+    patch,
+  };
+}
+
+function parseArgs(argv) {
+  const values = {};
+  for (let index = 0; index < argv.length; index += 1) {
+    const key = argv[index];
+    if (!key?.startsWith('--')) continue;
+    values[key.slice(2)] = argv[index + 1];
+    index += 1;
+  }
+  return values;
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  try {
+    const args = parseArgs(process.argv.slice(2));
+    const packet = buildReviewPacket({
+      repo: args.repo,
+      scope: args.scope,
+      range: args.range,
+      lane: args.lane,
+    });
+    process.stdout.write(`${JSON.stringify(packet)}\n`);
+  } catch (error) {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  }
+}

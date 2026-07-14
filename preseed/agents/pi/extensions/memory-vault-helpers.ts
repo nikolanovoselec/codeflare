@@ -1,36 +1,282 @@
-import { relative } from "node:path";
+import { isAbsolute, relative } from "node:path";
 
 export const MEMORY_EVERY_N_PROMPTS = 15;
-export const MEMORY_CAPTURE_PENDING_TTL_MS = 30 * 60 * 1000;
+export const MEMORY_CAPTURE_MAX_TURNS = 40;
+export const MEMORY_CAPTURE_MAX_TURN_CHARS = 4000;
+export const EXTRACTION_RUNNING_TTL_MS = 30 * 60 * 1000;
+
+export type ExtractionJob = "memory-capture" | "vault-extract";
+export type ExtractionState = "missing" | "running" | "succeeded" | "failed";
+
+export interface ActiveExtractionRequest {
+  version: 1;
+  requestId: string;
+}
+
+export interface MemoryCaptureRequest {
+  version: 1;
+  requestId: string;
+  sessionId: string;
+  promptCount: number;
+  captureTimestamp: string;
+  captureFilename: string;
+  transcript: string;
+}
+
+export interface VaultExtractRequest {
+  version: 1;
+  requestId: string;
+  changedFiles: string[];
+  stagedManifestHash: string;
+}
+
+export interface PublicExtractionRequest {
+  subagent_type: ExtractionJob;
+  description: string;
+  prompt: string;
+  run_in_background: true;
+  inherit_context: false;
+  thinking: "medium";
+  max_turns: 4;
+  model?: string;
+}
+
+export interface ExtractionTranscriptFacts {
+  launchCount: number;
+  giveup: boolean;
+  attemptCount: number;
+  state: ExtractionState;
+}
+
+export type ExtractionDue =
+  | { kind: "launch"; reminder: 0 | 1 | 2 | 3 | 4 | 5 }
+  | { kind: "giveup" }
+  | { kind: "none" };
 
 // SINGLE source of truth for vault paths that are generated/agent-owned and must NOT
 // trigger vault-extract. Mirrors prompts/vault-extract-prompt.md output paths plus the
 // entrypoint.sh boot-preseeded artifacts. Directory-prefix semantics: each entry matches
 // the directory itself and anything beneath it.
 export const VAULT_GENERATED_PREFIXES = [
-  "Raw/Sessions", // memory-capture session notes (agent-owned)
-  "Raw/Graphs", // served viz copy: Raw/Graphs/vault-graph.html (extractor step 6) — the self-trigger
-  "graphify-out", // all graphify artifacts (vault-graph.json, graph.json, graph.html, GRAPH_REPORT.md, chunk/labels)
-  ".silverbullet", // editor-managed metadata
-  "Library/Codeflare", // boot-preseeded SilverBullet plug bundles (*.plug.js); vendored, not user content
+  "Raw/Sessions",
+  "Raw/Graphs",
+  "graphify-out",
+  ".silverbullet",
+  "Library/Codeflare",
 ] as const;
 
-// codeflare-authoritative root pages: regenerated from preseed on boot, never user-authored.
 export const VAULT_PRESEED_ROOT_FILES = new Set(["Index.md", "README.md", "CONFIG.md", "STYLES.md"]);
 
-// Child sessions (@gotgenes/pi-subagents spawns: review-monitor, CI monitors,
-// memory-capture, vault-extract, ...) always load the parent's extensions, so
-// memory-vault runs inside them too. Its capture/extract triggers must be inert
-// there: a sendUserMessage("Agent(...)") fallback injected into a monitor child's
-// transcript becomes that task's last visible output (observed as a review-monitor
-// "result" showing vault extraction instead of REVIEW_RESULT). Children are
-// identified by the parentSession pointer pi-subagents passes to newSession(),
-// exposed via sessionManager.getHeader() and persisted as the session JSONL's
-// first line. Pure predicates (no node:fs) so the Workers-pool test exercises them.
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+const MANIFEST_HASH_PATTERN = /^[0-9a-f]{64}$/;
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function validRequestId(value: unknown): value is string {
+  return typeof value === "string" && UUID_PATTERN.test(value);
+}
+
+export function parseActiveExtractionRequest(value: unknown): ActiveExtractionRequest | undefined {
+  const candidate = record(value);
+  if (candidate?.version !== 1 || !validRequestId(candidate.requestId)) return undefined;
+  return { version: 1, requestId: candidate.requestId };
+}
+
+export function parseMemoryCaptureRequest(value: unknown): MemoryCaptureRequest | undefined {
+  const candidate = record(value);
+  if (candidate?.version !== 1 || !validRequestId(candidate.requestId)) return undefined;
+  const session = nonEmptyString(candidate.sessionId);
+  const captureTimestamp = nonEmptyString(candidate.captureTimestamp);
+  const captureFilename = nonEmptyString(candidate.captureFilename);
+  const transcript = nonEmptyString(candidate.transcript);
+  if (!session || !SESSION_ID_PATTERN.test(session)) return undefined;
+  if (typeof candidate.promptCount !== "number" || !Number.isInteger(candidate.promptCount) || candidate.promptCount < 0) return undefined;
+  if (!captureTimestamp || !captureFilename || !transcript) return undefined;
+  if (!captureFilename.endsWith(".md") || captureFilename.includes("/") || captureFilename.includes("\\")) return undefined;
+  return {
+    version: 1,
+    requestId: candidate.requestId,
+    sessionId: session,
+    promptCount: Number(candidate.promptCount),
+    captureTimestamp,
+    captureFilename,
+    transcript,
+  };
+}
+
+export function parseVaultExtractRequest(value: unknown): VaultExtractRequest | undefined {
+  const candidate = record(value);
+  if (candidate?.version !== 1 || !validRequestId(candidate.requestId)) return undefined;
+  if (!Array.isArray(candidate.changedFiles) || candidate.changedFiles.some((path) => typeof path !== "string" || !isAbsolute(path))) return undefined;
+  const stagedManifestHash = nonEmptyString(candidate.stagedManifestHash);
+  if (!stagedManifestHash || !MANIFEST_HASH_PATTERN.test(stagedManifestHash)) return undefined;
+  return {
+    version: 1,
+    requestId: candidate.requestId,
+    changedFiles: [...candidate.changedFiles].sort(),
+    stagedManifestHash,
+  };
+}
+
+export function parseSessionEntries(content: string): any[] {
+  const entries: any[] = [];
+  for (const line of content.split("\n")) {
+    if (!line.trim()) continue;
+    try { entries.push(JSON.parse(line)); } catch { /* keep valid entries around malformed lines */ }
+  }
+  return entries;
+}
+
+export function buildPublicExtractionRequest(input: {
+  job: ExtractionJob;
+  requestId: string;
+  promptFile: string;
+  varsFile: string;
+  model?: string;
+}): PublicExtractionRequest {
+  const model = input.model?.trim();
+  return {
+    subagent_type: input.job,
+    description: input.job === "memory-capture" ? "Capture session memory" : "Extract Vault graph changes",
+    prompt: [
+      `CODEFLARE_EXTRACTION_REQUEST=${input.requestId}`,
+      `PROMPT_FILE=${input.promptFile}`,
+      `VARS_FILE=${input.varsFile}`,
+      ...(input.job === "memory-capture"
+        ? ["VARS_FILE contains the transcript inline; there is no INPUT_FILE or separate transcript file."]
+        : []),
+      "Run the deployed Pi extraction contract end to end.",
+    ].join("\n"),
+    run_in_background: true,
+    inherit_context: false,
+    thinking: "medium",
+    max_turns: 4,
+    ...(model ? { model } : {}),
+  };
+}
+
+function markerLine(requestId: string): string {
+  return `CODEFLARE_EXTRACTION_REQUEST=${requestId}`;
+}
+
+function hasExactMarker(prompt: unknown, requestId: string): boolean {
+  return typeof prompt === "string" && prompt.split(/\r?\n/).includes(markerLine(requestId));
+}
+
+function publicRequestMatches(value: unknown, requestId: string, job: ExtractionJob): boolean {
+  const request = record(value);
+  return request?.subagent_type === job
+    && request.run_in_background === true
+    && request.inherit_context === false
+    && request.thinking === "medium"
+    && request.max_turns === 4
+    && hasExactMarker(request.prompt, requestId);
+}
+
+function launchItems(entry: any): any[] {
+  return entry?.type === "custom_message"
+    && entry?.customType === "background-extraction-launch"
+    && Array.isArray(entry?.details?.items)
+    ? entry.details.items
+    : [];
+}
+
+function giveupItems(entry: any): any[] {
+  return entry?.type === "custom_message"
+    && entry?.customType === "background-extraction-giveup"
+    && Array.isArray(entry?.details?.items)
+    ? entry.details.items
+    : [];
+}
+
+function toolCallParts(entry: any): any[] {
+  const content = entry?.message?.role === "assistant" ? entry.message.content : undefined;
+  return Array.isArray(content) ? content.filter((part) => part?.type === "toolCall") : [];
+}
+
+function notificationFacts(entry: any): { toolUseId: string; status: string } | undefined {
+  if (entry?.type !== "custom_message" || entry?.customType !== "subagent-notification" || typeof entry?.content !== "string") return undefined;
+  const toolUseId = entry.content.match(/<tool-use-id>([^<]+)<\/tool-use-id>/)?.[1]?.trim();
+  const status = entry.content.match(/<status>([^<]+)<\/status>/)?.[1]?.trim();
+  return toolUseId && status ? { toolUseId, status } : undefined;
+}
+
+function isCompletedNotification(status: string | undefined): boolean {
+  return status === "Done" || status === "Completed" || status === "Wrapped up (turn limit)";
+}
+
+export function extractionTranscriptFacts(input: {
+  entries: any[];
+  requestId: string;
+  job: ExtractionJob;
+  now: number;
+  successQualifies: () => boolean;
+}): ExtractionTranscriptFacts {
+  const launchCount = input.entries.reduce((count, entry) => count + launchItems(entry).filter((item) => (
+    item?.requestId === input.requestId
+      && item?.jobType === input.job
+      && Number.isInteger(item?.reminder)
+      && item.reminder >= 0
+      && item.reminder <= 5
+      && publicRequestMatches(item?.request, input.requestId, input.job)
+  )).length, 0);
+  const giveup = input.entries.some((entry) => giveupItems(entry).some((item) => (
+    item?.requestId === input.requestId && item?.jobType === input.job
+  )));
+
+  const calls = input.entries.flatMap((entry) => toolCallParts(entry).map((part) => ({
+    id: typeof part?.id === "string" ? part.id : "",
+    timestamp: entry?.timestamp,
+    name: part?.name,
+    arguments: part?.arguments,
+  }))).filter((call) => call.id
+    && call.name === "subagent"
+    && publicRequestMatches(call.arguments, input.requestId, input.job));
+  const notifications = new Map<string, string>();
+  for (const entry of input.entries) {
+    const notification = notificationFacts(entry);
+    if (notification) notifications.set(notification.toolUseId, notification.status);
+  }
+
+  let succeeded = false;
+  let running = false;
+  for (const call of calls) {
+    const status = notifications.get(call.id);
+    if (isCompletedNotification(status) && input.successQualifies()) succeeded = true;
+    if (status === undefined) {
+      const timestamp = Date.parse(String(call.timestamp ?? ""));
+      if (!Number.isFinite(timestamp) || input.now - timestamp < EXTRACTION_RUNNING_TTL_MS) running = true;
+    }
+  }
+
+  const state: ExtractionState = succeeded
+    ? "succeeded"
+    : running
+      ? "running"
+      : calls.length > 0
+        ? "failed"
+        : "missing";
+  return { launchCount, giveup, attemptCount: calls.length, state };
+}
+
+export function extractionDue(facts: ExtractionTranscriptFacts): ExtractionDue {
+  if (facts.giveup || facts.state === "running" || facts.state === "succeeded") return { kind: "none" };
+  if (facts.launchCount < 6) return { kind: "launch", reminder: facts.launchCount as 0 | 1 | 2 | 3 | 4 | 5 };
+  return { kind: "giveup" };
+}
+
 export function isChildSessionHeader(header: unknown): boolean {
-  if (!header || typeof header !== "object") return false;
-  const parent = (header as { parentSession?: unknown }).parentSession;
-  return typeof parent === "string" && parent.length > 0;
+  const candidate = record(header);
+  return typeof candidate?.parentSession === "string" && candidate.parentSession.length > 0;
 }
 
 export function isChildSessionFirstLine(firstLine: string | undefined): boolean {
@@ -43,49 +289,29 @@ export function isChildSessionFirstLine(firstLine: string | undefined): boolean 
   }
 }
 
-// Pure predicate (no node:fs) so the Workers-pool test can exercise it directly. A vault
-// path is excluded from change-detection when it is generated, agent-owned,
-// codeflare-authoritative, or resolves outside the vault root entirely.
 export function isVaultExcludedPath(vaultRoot: string, path: string): boolean {
   const rel = relative(vaultRoot, path).replaceAll("\\", "/");
-  if (!rel || rel.startsWith("..")) return true; // outside the vault
-  if (VAULT_PRESEED_ROOT_FILES.has(rel)) return true; // codeflare-authoritative root pages
-  return VAULT_GENERATED_PREFIXES.some((p) => rel === p || rel.startsWith(`${p}/`));
+  if (!rel || rel.startsWith("..")) return true;
+  if (VAULT_PRESEED_ROOT_FILES.has(rel)) return true;
+  return VAULT_GENERATED_PREFIXES.some((prefix) => rel === prefix || rel.startsWith(`${prefix}/`));
 }
 
-// --- Vault-extract change detection: content-hash manifest -----------------
-// The high-water mark for "what changed since the last extraction" is a
-// content-hash manifest, NOT a file mtime. The R2 restore rewrites every vault
-// file's mtime to download-time (a May-authored note comes back stamped
-// "today"), so any mtime-vs-marker comparison spuriously flags the whole vault
-// as changed on the boot where the restore lands after the marker — the
-// 200k-token full re-extraction. Hashing the file bytes is immune to that: an
-// mtime reset changes nothing, so unchanged content yields zero changes. The
-// manifest is persisted next to vault-graph.json in graphify-out/ (R2-synced
-// via an explicit allow-rule) so it survives container restart.
-
 export const VAULT_MANIFEST_VERSION = 1;
-// Relative to the vault root. graphify-out/ is extraction-excluded and hidden
-// from the SilverBullet listing, and this filename is allow-listed through the
-// graphify-out bisync exclusion so it round-trips to R2.
 export const VAULT_MANIFEST_RELPATH = "graphify-out/vault-extract-manifest.json";
 
 export interface VaultManifest {
   version: number;
-  files: Record<string, string>; // vault-relative path -> sha256 hex of bytes
+  files: Record<string, string>;
 }
 
-// Parse a manifest blob, tolerating an absent or corrupt file as an empty
-// manifest (every live file then reads as new — the correct first-boot / lost-
-// manifest fallback). Only string->string entries under `files` are kept.
 export function parseVaultManifest(text: string | null | undefined): VaultManifest {
   if (!text) return { version: VAULT_MANIFEST_VERSION, files: {} };
   try {
     const blob = JSON.parse(text) as { version?: unknown; files?: unknown };
     const files: Record<string, string> = {};
     if (blob && typeof blob.files === "object" && blob.files) {
-      for (const [k, v] of Object.entries(blob.files as Record<string, unknown>)) {
-        if (typeof v === "string") files[k] = v;
+      for (const [key, value] of Object.entries(blob.files as Record<string, unknown>)) {
+        if (typeof value === "string") files[key] = value;
       }
     }
     return { version: typeof blob.version === "number" ? blob.version : VAULT_MANIFEST_VERSION, files };
@@ -94,31 +320,22 @@ export function parseVaultManifest(text: string | null | undefined): VaultManife
   }
 }
 
-// Given the current {vault-relative path -> content hash} of every live,
-// non-excluded vault file and the prior manifest, return the sorted paths whose
-// bytes are new or changed. Deletions are intentionally NOT returned — a removed
-// file needs no extraction. Purely content-based: no mtime is ever consulted, so
-// an R2 restore that resets every mtime produces an empty result as long as the
-// bytes are unchanged. This is the whole fix.
 export function vaultManifestChanges(current: Record<string, string>, manifest: VaultManifest): string[] {
-  const prior = manifest.files;
-  const changed: string[] = [];
-  for (const [rel, hash] of Object.entries(current)) {
-    if (prior[rel] !== hash) changed.push(rel);
-  }
-  return changed.sort();
+  return Object.entries(current)
+    .filter(([path, hash]) => manifest.files[path] !== hash)
+    .map(([path]) => path)
+    .sort();
 }
 
-// Build a fresh manifest object from the current hash map (sorted keys for a
-// stable, diff-friendly on-disk file).
 export function buildVaultManifest(current: Record<string, string>): VaultManifest {
-  const files: Record<string, string> = {};
-  for (const rel of Object.keys(current).sort()) files[rel] = current[rel];
-  return { version: VAULT_MANIFEST_VERSION, files };
+  return {
+    version: VAULT_MANIFEST_VERSION,
+    files: Object.fromEntries(Object.keys(current).sort().map((path) => [path, current[path]])),
+  };
 }
 
 export function sessionId(ctx: any): string {
-  return String(ctx?.sessionManager?.getSessionId?.() ?? process.ppid).replace(/[^A-Za-z0-9_.-]+/g, "_");
+  return String(ctx?.sessionManager?.getSessionId?.() ?? process.ppid).replace(/[^A-Za-z0-9_-]+/g, "_");
 }
 
 export function messageRole(message: any): string {
@@ -136,14 +353,20 @@ export function messageText(message: any): string {
     .trim();
 }
 
+export function isSyntheticPrompt(prompt: string): boolean {
+  const text = prompt.trim();
+  return !text
+    || text.startsWith("<")
+    || text.startsWith("Agent(")
+    || text.startsWith("PROMPT_FILE=")
+    || text.startsWith("[silent]")
+    || text.startsWith("[codeflare-extraction]")
+    || text.includes('"directive"')
+    || text.includes("subagent_type");
+}
+
 export function isRealUserPrompt(message: any): boolean {
-  if (messageRole(message) !== "user") return false;
-  const text = messageText(message);
-  if (!text) return false;
-  // Mirrors Claude's memory-capture.sh `"role":"user","content":"[^<]` filter:
-  // task notifications, slash-command wrappers, and local-command metadata
-  // all arrive as user-shaped records whose text starts with a tag.
-  return !text.startsWith("<");
+  return messageRole(message) === "user" && !isSyntheticPrompt(messageText(message));
 }
 
 export function realUserPromptCount(messages: any[]): number {
@@ -152,47 +375,36 @@ export function realUserPromptCount(messages: any[]): number {
 
 export function withCurrentPrompt(messages: any[], prompt: string): any[] {
   const text = prompt.trim();
-  if (!text || text.startsWith("<")) return messages;
+  if (isSyntheticPrompt(text)) return messages;
   const lastRealUser = [...messages].reverse().find(isRealUserPrompt);
   if (lastRealUser && messageText(lastRealUser) === text) return messages;
   return [...messages, { role: "user", content: text }];
 }
 
-export function compactMessages(messages: any[]): string {
-  // Prefilter the transcript before handing it to the capture agent: keep user + assistant
-  // TEXT only, dropping tool_use / tool_result / thinking blocks. This mirrors the AD58
-  // prefilter rationale (kill tool/recency noise, preserve the conversational arc) instead of
-  // the old raw last-40-message JSON slice that degraded capture quality on long sessions.
+export function compactMessages(messages: any[], afterRealUserCount = 0): string {
   const turns: string[] = [];
+  let realUserCount = 0;
+  let includeFollowingTurns = afterRealUserCount === 0;
   for (const message of messages) {
     const role = messageRole(message);
-    if (role !== "user" && role !== "assistant") continue;
+    let includeCurrent = includeFollowingTurns;
+    if (role === "user" && isRealUserPrompt(message)) {
+      realUserCount += 1;
+      includeCurrent = realUserCount > afterRealUserCount;
+      includeFollowingTurns = realUserCount >= afterRealUserCount;
+    }
+    if (!includeCurrent || (role !== "user" && role !== "assistant")) continue;
     const text = messageText(message);
-    if (!text) continue;
-    // Claude's hook excludes synthetic user wrappers by requiring content not to start with "<".
-    // Keep Pi aligned so task notifications do not count as memory-worthy prompts.
-    if (role === "user" && text.startsWith("<")) continue;
-    turns.push(`## ${role}\n${text.slice(0, 8000)}`);
+    if (!text || (role === "user" && isSyntheticPrompt(text))) continue;
+    turns.push(`## ${role}\n${text.slice(0, MEMORY_CAPTURE_MAX_TURN_CHARS)}`);
   }
-  return turns.slice(-200).join("\n\n");
+  return turns.slice(-MEMORY_CAPTURE_MAX_TURNS).join("\n\n");
 }
 
-// Parse Pi session JSONL content into the message objects compactMessages expects.
-// Pi persists each turn on disk (for /resume) as { type: "message", message: { role, content } };
-// non-message entries (session header, compaction, custom, model_change, thinking_level_change)
-// and malformed lines are skipped. Returns [] when nothing parses. This is the durable source
-// that replaces the volatile in-memory message list, so a capture after a reload still sees the
-// full conversation instead of an empty buffer.
 export function parseSessionMessages(content: string): any[] {
-  const messages: any[] = [];
-  for (const line of content.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const entry = JSON.parse(line);
-      if (entry?.type === "message" && entry.message) messages.push(entry.message);
-    } catch { /* skip a malformed line, keep the rest */ }
-  }
-  return messages;
+  return parseSessionEntries(content)
+    .filter((entry) => entry?.type === "message" && entry.message)
+    .map((entry) => entry.message);
 }
 
 export function captureTimestamp(tz?: string): string {
@@ -219,15 +431,6 @@ export function shouldCapture(delta: number): boolean {
 
 export function isFirstMessage(counterFileExists: boolean, messageCount: number): boolean {
   return !counterFileExists && messageCount === 1;
-}
-
-export function buildSpawnOptions(description: string, model?: string): Record<string, unknown> {
-  const options: Record<string, unknown> = { description, inheritContext: false, foreground: false };
-  // Optional fidelity pin (no hardcoded model name): the model comes from
-  // CODEFLARE_MEMORY_MODEL at the call site and is applied only when set, so the
-  // runtime default model is used when the env var is absent.
-  if (model) options.model = model;
-  return options;
 }
 
 export default function () {

@@ -157,40 +157,16 @@ function flushWriteBuffer(key: string, terminal: Terminal): void {
   const buffer = writeBuffers.get(key);
   if (!buffer || buffer.length === 0) return;
 
-  const beforeBaseY = terminal.buffer.active.baseY;
-  const beforeViewportY = terminal.buffer.active.viewportY;
-  const beforeDistanceFromBottom = beforeBaseY - beforeViewportY;
-  const wasScrolledUpAtFullBuffer =
-    beforeViewportY > 0
-    && beforeViewportY < beforeBaseY
-    && beforeBaseY === terminal.options.scrollback;
-
   const data = buffer.join('');
   buffer.length = 0;
 
   recordFlush(key, data.length);
 
-  if (!wasScrolledUpAtFullBuffer) {
-    terminal.write(data);
-    return;
-  }
-
-  terminal.write(data, () => {
-    const activeBuffer = terminal.buffer.active;
-
-    // xterm owns ordinary non-zero shifts because they keep surviving content
-    // stable while full scrollback trims. Recover only when that native anchor
-    // is exhausted and clamps a previously scrolled-up viewport to the top.
-    if (activeBuffer.baseY !== beforeBaseY || activeBuffer.viewportY !== 0) {
-      return;
-    }
-
-    const targetY = Math.max(0, activeBuffer.baseY - beforeDistanceFromBottom);
-    const delta = targetY - activeBuffer.viewportY;
-    if (delta !== 0) {
-      terminal.scrollLines(delta);
-    }
-  });
+  // xterm owns output-driven scrollback trimming. In particular, a manually
+  // scrolled full buffer intentionally reaches viewportY=0 once the viewed
+  // lines age out; restoring an earlier distance here pulls the user toward
+  // the bottom and competes with xterm's onScroll lifecycle.
+  terminal.write(data);
 }
 
 function scheduleWrite(key: string, terminal: Terminal, data: string): void {

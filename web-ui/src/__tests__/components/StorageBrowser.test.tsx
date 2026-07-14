@@ -7,6 +7,9 @@ let mockObjects: any[] = [];
 let mockPrefixes: string[] = [];
 let mockCurrentPrefix = '';
 let mockLoading = false;
+let mockLoadingMore = false;
+let mockLoadMoreError: string | null = null;
+let mockPaginationStarted = false;
 let mockError: string | null = null;
 let mockUploads: any[] = [];
 let mockSelectedKeys: string[] = [];
@@ -27,6 +30,8 @@ const mockBrowse = vi.fn();
 const mockNavigateTo = vi.fn();
 const mockNavigateUp = vi.fn();
 const mockRefresh = vi.fn();
+const mockLoadMore = vi.fn();
+const mockRetryLoadMore = vi.fn();
 const mockDeleteSelected = vi.fn();
 const mockToggleSelect = vi.fn();
 const mockToggleSelectPrefix = vi.fn();
@@ -63,6 +68,9 @@ vi.mock('../../stores/storage', () => ({
     get prefixes() { return mockPrefixes; },
     get currentPrefix() { return mockCurrentPrefix; },
     get loading() { return mockLoading; },
+    get loadingMore() { return mockLoadingMore; },
+    get loadMoreError() { return mockLoadMoreError; },
+    get paginationStarted() { return mockPaginationStarted; },
     get error() { return mockError; },
     get uploads() { return mockUploads; },
     get selectedKeys() { return mockSelectedKeys; },
@@ -79,6 +87,8 @@ vi.mock('../../stores/storage', () => ({
     navigateTo: (...args: any[]) => mockNavigateTo(...args),
     navigateUp: (...args: any[]) => mockNavigateUp(...args),
     refresh: (...args: any[]) => mockRefresh(...args),
+    loadMore: (...args: any[]) => mockLoadMore(...args),
+    retryLoadMore: (...args: any[]) => mockRetryLoadMore(...args),
     deleteSelected: (...args: any[]) => mockDeleteSelected(...args),
     toggleSelect: (key: string) => {
       mockToggleSelect(key);
@@ -172,6 +182,9 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
     mockPrefixes = [];
     mockCurrentPrefix = '';
     mockLoading = false;
+    mockLoadingMore = false;
+    mockLoadMoreError = null;
+    mockPaginationStarted = false;
     mockError = null;
     mockUploads = [];
     mockSelectedKeys = [];
@@ -186,6 +199,7 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -625,6 +639,67 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       render(() => <StorageBrowser />);
 
       expect(screen.queryByTitle('Delete selected')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Continuation pagination', () => {
+    it('renders the loading footer structurally while a continuation is active', () => {
+      mockLoadingMore = true;
+      render(() => <StorageBrowser />);
+      expect(screen.getByTestId('storage-loading-more')).toBeInTheDocument();
+    });
+
+    it('delegates continuation error retry to the store', () => {
+      mockLoadMoreError = 'page unavailable';
+      render(() => <StorageBrowser />);
+      const footer = screen.getByTestId('storage-load-more-error');
+      const retry = footer.querySelector('button');
+      expect(retry).toBeTruthy();
+      fireEvent.click(retry!);
+      expect(mockRetryLoadMore).toHaveBeenCalledTimes(1);
+    });
+
+    it('REQ-STOR-016 AC7: suppresses listing refresh after pagination starts while stats continue', async () => {
+      vi.useFakeTimers();
+      render(() => <StorageBrowser />);
+      mockRefresh.mockClear();
+      mockFetchStats.mockClear();
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(mockRefresh).toHaveBeenCalledWith({ silent: true });
+      expect(mockFetchStats).toHaveBeenCalledTimes(1);
+
+      mockPaginationStarted = true;
+      mockRefresh.mockClear();
+      mockFetchStats.mockClear();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(mockRefresh).not.toHaveBeenCalled();
+      expect(mockFetchStats).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps listing replacement suppressed after a continuation error', async () => {
+      vi.useFakeTimers();
+      mockPaginationStarted = true;
+      mockLoadMoreError = 'page unavailable';
+      render(() => <StorageBrowser />);
+      mockRefresh.mockClear();
+      mockFetchStats.mockClear();
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(mockRefresh).not.toHaveBeenCalled();
+      expect(mockFetchStats).toHaveBeenCalledTimes(1);
+    });
+
+    it('preserves the existing idle suppression while initial browse is loading', async () => {
+      vi.useFakeTimers();
+      mockLoading = true;
+      render(() => <StorageBrowser />);
+      mockRefresh.mockClear();
+      mockFetchStats.mockClear();
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(mockRefresh).not.toHaveBeenCalled();
+      expect(mockFetchStats).not.toHaveBeenCalled();
     });
   });
 

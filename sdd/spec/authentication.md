@@ -631,7 +631,7 @@ None.
 
 ### REQ-AUTH-022: Session-expiry on resume produces a clean sign-in redirect, never a blank page
 
-**Intent:** When a backgrounded SPA returns (mobile app-switch, tab eviction, bfcache restore) and the session cookie has expired, the app must redirect to sign-in cleanly. It must never hang on its loading shell (the blank/white page users had to "Back/reload several times" to clear), never render nothing during a pending hard navigation, and never crash to a blank document on an unhandled bootstrap/render error.
+**Intent:** When a backgrounded SPA returns (mobile app-switch, tab eviction, bfcache restore) and the session cookie has expired, the app must revalidate promptly and redirect to sign-in cleanly. It must never hang on its loading shell, retain a partially styled document after Access intercepts asset revalidation, render nothing during navigation, or crash to a blank document.
 
 **Applies To:** User
 
@@ -641,19 +641,24 @@ None.
 2. On a caught `authRedirect`/401 bootstrap error, `AppContent` clears the loading shell and renders a calm "redirecting" state, not the generic auth-error page and not a hung spinner. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC2: expired-session 401 shows the redirecting state, not a hung/blank or error page) -->
 3. `RootPage` renders a non-empty state for every mode including `redirect`, so a pending hard navigation never shows a blank document. <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC3: RootPage renders a non-empty redirect state (no blank document)) -->
 4. A top-level `ErrorBoundary` wraps the app; an unhandled bootstrap/render error renders a recovery fallback (reload control) instead of a blank document. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC4: top-level ErrorBoundary catches a render throw) -->
+5. An Access 3xx, opaque manual redirect, or HTML login response on an authenticated API request performs the same top-level `location.replace('/')` and tagged rejection as an explicit 401. <!-- @impl: web-ui/src/api/fetch-helper.ts::expiredSessionError --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC5: Access $type redirect navigates the top-level app instead of stranding it) --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC5: an Access HTML response navigates the top-level app instead of rendering auth markup) -->
+6. A hidden-to-visible transition or persisted bfcache `pageshow` revalidates the authenticated user once; overlapping resume events are deduplicated, expiry replaces the loaded app with the existing redirecting state, and valid sessions continue unchanged. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC6: restored app pages revalidate authentication) --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (deduplicates overlapping resume events and keeps a valid app mounted) -->
+7. Fingerprinted Vite CSS and JavaScript requests execute the Worker asset path and receive immutable browser caching only for successful non-HTML assets, preventing an expired Access session from replacing a restored document's styles while keeping SPA fallback HTML revalidating. <!-- @impl: wrangler.toml --> <!-- @impl: src/index.ts::fetch --> <!-- @test: src/__tests__/index.test.ts (REQ-AUTH-022 AC7: serves fingerprinted Vite app assets with immutable caching) --> <!-- @test: host/__tests__/wrangler-static-assets.test.js (REQ-AUTH-022 AC7: authenticated app asset routing) -->
 
 **Notes:** Manual verification procedures are documented in the [security checklist](../../documentation/lanes/security.md#manual-verification-checklist).
 
 **Constraints:**
 
 - Redirect uses `location.replace`, not `href`, so the dead page is not left in history.
-- Behavior is deployment-mode agnostic (CF Access, SaaS, onboarding) — the 401-on-authed-path rule and the boundary apply uniformly.
+- Behavior is deployment-mode agnostic (CF Access, SaaS, onboarding); resume revalidation runs only inside the authenticated app shell.
+- Resume checks are deduplicated and event listeners are removed with the app lifecycle.
+- Only fingerprinted build assets are immutable; HTML and missing-asset SPA fallbacks remain revalidating.
 - The redirecting/fallback states are asserted by structure (testids/branch), not by UI copy (mandate #2).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode)
 
-**Verification:** Manual check
+**Verification:** Automated test
 
 **Status:** Implemented

@@ -4,6 +4,7 @@ import { getFileIcon } from '../../lib/file-icons';
 import { formatRelativeTime, formatSize } from '../../lib/format';
 import { isTouchDevice } from '../../lib/mobile';
 import Icon from '../Icon';
+import Button from '../ui/Button';
 import { mdiTrainCarContainer } from '@mdi/js';
 import { SpecialFolder, getSpecialFolder } from '../../lib/special-folders';
 import { getViewUrl } from '../../api/storage';
@@ -72,6 +73,12 @@ const FileList: Component<FileListProps> = (props) => {
       onDragOver={props.handleDragOver}
       onDragLeave={props.handleDragLeave}
       onDrop={props.handleDrop}
+      onScroll={(event) => {
+        const element = event.currentTarget;
+        if (element.scrollTop + element.clientHeight >= element.scrollHeight - 1) {
+          void storageStore.loadMore();
+        }
+      }}
     >
       <For each={props.displayedItems().prefixes}>
         {(prefix) => {
@@ -190,6 +197,29 @@ const FileList: Component<FileListProps> = (props) => {
           );
         }}
       </For>
+
+      <Show when={storageStore.loadingMore}>
+        <div
+          class="storage-pagination-status"
+          data-testid="storage-loading-more"
+          role="status"
+          aria-label="Loading more files"
+        >
+          <div class="storage-loading-spinner" aria-hidden="true" />
+        </div>
+      </Show>
+
+      <Show when={storageStore.loadMoreError}>
+        <div
+          class="storage-pagination-status storage-pagination-status--error"
+          data-testid="storage-load-more-error"
+          role="alert"
+        >
+          <Button variant="secondary" size="sm" onClick={() => void storageStore.retryLoadMore()}>
+            Retry
+          </Button>
+        </div>
+      </Show>
 
       <Show when={props.displayedItems().prefixes.length === 0 && props.displayedItems().objects.length === 0}>
         <div class="storage-empty" data-testid="storage-empty">

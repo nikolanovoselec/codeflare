@@ -1,25 +1,20 @@
 ---
 name: pr-workflow
-description: "Pull request creation workflow for Pi. Use when the user asks to open/create a PR. Covers commit/diff review, title/body drafting, REQ backlinks, push/upstream handling, CI monitoring, and PR-boundary review-monitor verification. Critical: opening a PR is not permission to spawn reviewer agents; hooks/enforcement own reviewer lanes, while CI monitoring and review-monitor handoff still belong to the main session."
-version: 2.0.0
+description: "Pull request creation workflow for Pi. Covers commit/diff review, title and body drafting, REQ backlinks, push/upstream handling, independent CI request dispatch, and visible PR-boundary reviewers."
+version: 3.0.0
 ---
 
 # Pull Request Workflow in Pi
 
 Use this when the user asks to open a PR.
 
-## Critical boundary
+## Ownership boundaries
 
-Opening a PR is **not** permission to spawn review agents.
+PR review and CI monitoring are separate.
 
-After `gh pr create`, do **not** call `Agent` for `code-reviewer`, `spec-reviewer`, `doc-updater`, `security-reviewer`, or any review agent unless:
-
-1. the user explicitly asks for review agents, or
-2. an actual hook/enforcement message in the current turn explicitly instructs the assistant to launch specific agents.
-
-If SDD review enforcement is required, the hook/enforcement system owns reviewer lane spawning. Do not confuse that with the background **review-monitor**: once a review job exists, the main session must verify or start the monitor for the exact head.
-
-For SDD PRs targeting `main`/`master`, CI monitoring and `review-monitor` share one trigger — the `codeflare-visible-monitor-handoff`. Obey the follow-up immediately: spawn **both** the visible CI monitor and the visible `review-monitor` for the exact head, then report both agent IDs; do not also start a separate per-push CI monitor. If no handoff appears but `.git/codeflare-review-jobs/<head>/` exists, start both monitors for the exact head immediately (verify `monitor.json` is live for `review-monitor`). If either monitor task stops, errors, or completes without its contract line (`CI_RESULT` or `REVIEW_RESULT`), restart it for the same exact head instead of waiting for the full TTL. A push/PR with no open main-bound PR is not CI-monitored.
+- The Pi boundary extension emits one ordered launch plan after an eligible push or protected-base PR creation. Its first wave names any required SDD reviewers; its second wave names independent CI when eligible.
+- The root main session follows that plan exactly once: all named reviewers together through public background `subagent` calls without inherited context, then the resolver's zero-or-one CI request unchanged once.
+- Reviewer agents and the CI agent are report-only. They never fix, commit, push, or launch each other. The root main session alone owns follow-up edits and Git writes.
 
 ## Steps
 
@@ -36,19 +31,21 @@ For SDD PRs targeting `main`/`master`, CI monitoring and `review-monitor` share 
    ```
 
 3. If `sdd/` exists, include relevant `REQ-*` backlinks in the PR body.
-4. Draft a concise title under 70 characters, using the repo's convention when visible.
-5. Draft a body with summary and test plan.
+4. Draft a concise title under 70 characters, using the repository convention when visible.
+5. Draft a body with a summary and test plan.
 6. Push with upstream if needed:
 
    ```bash
    git push -u origin HEAD
    ```
 
-7. Create the PR.
-8. Report the PR URL.
-9. If a `codeflare-visible-monitor-handoff` follow-up appears, spawn **both** the requested visible CI monitor and visible `review-monitor` for the exact head, then report both agent IDs.
-10. If the PR targets `main`/`master` but no handoff appears and `.git/codeflare-review-jobs/<head>/` exists, start both the CI monitor and `review-monitor` for the exact head unless the user explicitly skipped CI monitoring. A PR not targeting `main`/`master` is not CI-monitored.
-11. If this is an SDD `main`/`master` PR and `.git/codeflare-review-jobs/<head>/job.json` exists, verify or start `review-monitor` for the exact head. Do not stop while `monitor.json` is missing, stale, or tied to a stopped/no-output monitor.
+7. After the push, obey any extension-issued launch plan exactly once. Do not independently infer a CI launch from the Git command.
+8. Create the PR and report its URL.
+9. Obey the PR-creation launch plan: launch all listed reviewers with `run_in_background: true`, `inherit_context: false`, and the exact supplied `review_range` marker in every prompt.
+10. Immediately follow those reviewer calls with the same plan's CI wave when present. CI is the last launch, not a review completion dependency.
+11. Wait for every named reviewer before evaluating findings or changing the head. Fix every legitimate finding unless the latest user instruction says to wait or not autofix. Only the root main session may commit or push those fixes.
+
+No open PR targeting `main`/`master`, or no JSON request from the resolver, means no automatic CI monitor. Do not relaunch an aborted monitor automatically. A later extension-issued boundary plan or explicit user request is the only other launch path.
 
 ## Body template
 
@@ -71,14 +68,13 @@ EOF
 
 Allowed and required without asking:
 
-- print the PR URL
-- print the branch/base
+- print the PR URL and branch/base
 - summarize what changed
-- obey `codeflare-visible-monitor-handoff` follow-ups for main-bound PRs by spawning **both** the visible CI monitor and `review-monitor` for the exact head (one shared trigger; no separate per-push CI monitor)
-- verify/start or restart `review-monitor` when a PR-boundary review job exists for the exact head
+- obey a Pi boundary plan or follow-up by launching every listed reviewer together with its exact review range
+- dispatch that same plan's zero-or-one CI request last, immediately after reviewer calls and before waiting for their results
+- verify and fix legitimate reviewer findings in the root main session
 
 Not allowed unless explicitly requested:
 
-- spawning reviewer lane agents (`code-reviewer`, `spec-reviewer`, `doc-updater`, security reviewers)
 - merging the PR
 - changing branch protection

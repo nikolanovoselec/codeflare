@@ -9,9 +9,17 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { cloneTargetPath, effectiveCwdForCommand, ENV_PREFIX, graphifyClonePromptDecision, isFailedToolExecution, renderGraphifyCloneDirective } from "./graphify-helpers";
-import { rememberActiveRepo } from "./review-job-helpers";
-import { sddCommandDecision, type SddRepoState, SDD_HELP_TEXT } from "./sdd-helpers";
+import { sddCommandDecision, sddWorkflowExecutionText, sddWorkflowScopeText, type SddRepoState, SDD_HELP_TEXT } from "./sdd-helpers";
+import { recallActiveRepo, rememberActiveRepo } from "./active-repo-memory";
 import { attributionBlockReason, localBuildBlockReason } from "./guard-helpers";
+import {
+  CONTEXT_MODE_DISABLED_PACKAGE,
+  CONTEXT_MODE_ENABLED_PACKAGE,
+  contextModeEnabled,
+  isContextModePackage,
+} from "./context-mode-runtime";
+
+export { recallActiveRepo, rememberActiveRepo } from "./active-repo-memory";
 
 // Pi extension SDK surface, declared inline instead of imported from
 // "@earendil-works/pi-coding-agent" so this file typechecks in Codeflare's
@@ -49,9 +57,6 @@ const ACTIVE_REPO_FILE = join(CACHE_DIR, "graphify-active-cwd");
 const VAULT_ROOT = "/home/user/Vault";
 const GLOBAL_GRAPH_LOCK = "/tmp/graphify-global.lock";
 const PI_SETTINGS_FILE = "/home/user/.pi/agent/settings.json";
-const CONTEXT_MODE_PACKAGE = "npm:context-mode@1.0.169";
-const CONTEXT_MODE_PACKAGE_ID = "npm:context-mode";
-const CONTEXT_MODE_DISABLED_PACKAGE = { source: CONTEXT_MODE_PACKAGE, extensions: [], skills: [] };
 
 // Always-on engineering constitution injected into every Pi agent system prompt.
 // Mirrors the Claude rule preseed/agents/claude/rules/engineering-constitution.md —
@@ -64,18 +69,22 @@ const ENGINEERING_CONSTITUTION = [
   "3. Reusable, composable components — extract any structure used more than twice; tokens/one source of truth; validate at boundaries; immutability.",
   "4. SDD + TDD enforced — failing behavioral test first; every change traces to a REQ; specs/anchors/docs move with the code; never leave a REQ Partial.",
   "Work continuity: when a new user message arrives mid-task, do not switch topics just because it arrived; queue it, finish the current concrete step to a safe stopping point, then handle the new request unless the user explicitly says to stop/pause/reprioritize.",
-  "Review push gate: do not push while a PR-boundary review is running, pending, missing, stale, or otherwise not complete for the current head unless the user explicitly authorizes pushing despite that active/incomplete review; wait for the final merged review summary for the exact head, then fix legitimate findings before pushing another head.",
-  "Review-result handoff gate: when a background review-monitor completes with REVIEW_RESULT, the very next assistant response MUST start by printing a detailed user-facing review summary before analysis, excuses, tool calls, todo updates, or fixes. Include the exact result line, severity counts, lane status, ranked findings, summary path, monitor transcript path if available, and planned next action. If the result is findings, then immediately read summary.md, verify every MEDIUM/HIGH/CRITICAL finding, fix legitimate findings, commit, push, start CI monitoring, verify/restart review-monitor, and iterate until the exact head returns REVIEW_RESULT clean. Stop before commit/push only if the latest user instruction says not to autofix, wait for approval, or do not push. If a review-monitor task stops, errors, or completes without REVIEW_RESULT for the active head, restart it from the durable job prompt/result paths instead of treating the review as delivered.",
-  "CI-result handoff gate: when a background CI monitor completes with CI_RESULT, the very next assistant response MUST start by printing a user-facing CI summary before analysis, tool calls, todo updates, review-status checks, fixes, deploys, or pushes. Include the exact result line, monitored head, workflow/run id and URL when present, log path, failed-log command when present, and planned next action. If a CI monitor task stops, errors, or completes without CI_RESULT for the active head, restart an exact-head CI monitor unless the head was superseded or the user explicitly skipped CI monitoring.",
-  "No blocking waits: any long-running wait/monitor/poll (CI, deploy status, review completion, log tailing, watch, tail -f, gh run watch, while sleep loops, or ctx_execute/Bash used as a blocking monitor) must run detached/background or in a subagent/background task. Never keep the main session busy waiting for external state.",
+  "Review push gate: at a PR boundary, launch every required reviewer visibly through public background subagent calls without inherited context. The main session waits for every reviewer to complete, presents their findings, fixes legitimate findings, and does not push another head until the review is complete unless the user explicitly authorizes pushing sooner.",
+  "CI-result handoff gate: when an independent background CI monitor completes with CI_RESULT, the very next assistant response MUST start with a user-facing CI summary before analysis, tool calls, todo updates, fixes, deploys, or pushes. Include the exact result line, monitored head, workflow/run id and URL when present, and planned next action.",
+  "No blocking waits: any long-running CI, deploy, log, watch, or polling command must run detached/background or in a background agent. Visible PR reviewers run independently; the main session remains available while waiting for their results.",
   "Plan gate: present no plan without a Success-criteria/verification section covering these four. Fix legitimate findings in-session.",
   "</codeflare_constitution>",
 ].join("\n");
 
-type PiSettings = {
+export type PiSettings = {
   packages?: Array<string | { source?: string; extensions?: string[]; skills?: string[]; [key: string]: unknown }>;
   extensions?: string[];
   [key: string]: unknown;
+};
+
+export type PiSettingsStore = {
+  read(): PiSettings;
+  write(settings: PiSettings): void;
 };
 
 function ensureCacheDir(): void {
@@ -449,52 +458,61 @@ function maybeMergeGlobalGraph(repo: string): void {
   }
 }
 
-function packageSource(entry: string | { source?: string } | undefined): string | undefined {
-  if (typeof entry === "string") return entry;
-  return typeof entry?.source === "string" ? entry.source : undefined;
-}
+const PI_SETTINGS_STORE: PiSettingsStore = {
+  read() {
+    try {
+      return JSON.parse(readFileSync(PI_SETTINGS_FILE, "utf8")) as PiSettings;
+    } catch {
+      return {};
+    }
+  },
+  write(settings) {
+    writeFileSync(PI_SETTINGS_FILE, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+  },
+};
 
-function packageIdentity(source: string): string {
-  return source.replace(/@[^/@]+$/, "");
-}
-
-function readPiSettings(): PiSettings {
-  try {
-    return JSON.parse(readFileSync(PI_SETTINGS_FILE, "utf8")) as PiSettings;
-  } catch {
-    return {};
-  }
-}
-
-function writePiSettings(settings: PiSettings): void {
-  writeFileSync(PI_SETTINGS_FILE, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
-}
-
-function isContextModePackage(entry: string | { source?: string } | undefined): boolean {
-  const source = packageSource(entry);
-  return Boolean(source && packageIdentity(source) === CONTEXT_MODE_PACKAGE_ID);
-}
-
-function contextModeEnabled(settings = readPiSettings()): boolean {
-  return (settings.packages ?? []).some((entry) => {
-    if (!isContextModePackage(entry)) return false;
-    return typeof entry === "string" || entry.extensions === undefined || entry.skills === undefined;
-  });
-}
-
-function setContextModeEnabled(enabled: boolean): "enabled" | "disabled" {
-  const settings = readPiSettings();
+export function setContextModeEnabled(
+  enabled: boolean,
+  store: PiSettingsStore = PI_SETTINGS_STORE,
+): "enabled" | "disabled" {
+  const settings = store.read();
   const packages = (settings.packages ?? []).filter((entry) => !isContextModePackage(entry));
-  packages.push(enabled ? CONTEXT_MODE_PACKAGE : CONTEXT_MODE_DISABLED_PACKAGE);
-  writePiSettings({ ...settings, packages });
+  const contextModePackage = enabled ? CONTEXT_MODE_ENABLED_PACKAGE : CONTEXT_MODE_DISABLED_PACKAGE;
+  packages.push({
+    ...contextModePackage,
+    extensions: [...contextModePackage.extensions],
+    ...(enabled ? {} : { skills: [...CONTEXT_MODE_DISABLED_PACKAGE.skills] }),
+  });
+  store.write({ ...settings, packages });
   return enabled ? "enabled" : "disabled";
 }
 
-function contextModeStatusText(): string {
-  const enabled = contextModeEnabled();
+function contextModeStatusText(store: PiSettingsStore = PI_SETTINGS_STORE): string {
+  const enabled = contextModeEnabled(store.read());
   return enabled
-    ? "context-mode is enabled (the default for Pi). Use `/ctx off` to disable it for this running Pi session; the next Codeflare container start re-enables it."
-    : "context-mode is disabled for this running Pi session. Use `/ctx on` to re-enable it now (Pi reloads resources); the next Codeflare container start re-enables it by default.";
+    ? "context-mode is enabled for Pi in this container. Use `/ctx off` to persist the disabled setting and reload this Pi process; the next Codeflare container start restores the enabled default."
+    : "context-mode is disabled for Pi in this container. Use `/ctx on` to persist the enabled setting and reload this Pi process; the next Codeflare container start also restores the enabled default.";
+}
+
+export async function handleContextModeCommand(
+  args: string,
+  ctx: ExtensionCommandContext,
+  store: PiSettingsStore = PI_SETTINGS_STORE,
+): Promise<void> {
+  const action = args.trim().toLowerCase().split(/\s+/, 1)[0] || "status";
+  if (["on", "enable", "enabled"].includes(action)) {
+    setContextModeEnabled(true, store);
+    ctx.ui.notify("context-mode enabled in Pi settings; reloading this Pi process...", "info");
+    await ctx.reload();
+    return;
+  }
+  if (["off", "disable", "disabled"].includes(action)) {
+    setContextModeEnabled(false, store);
+    ctx.ui.notify("context-mode disabled in Pi settings; reloading this Pi process...", "info");
+    await ctx.reload();
+    return;
+  }
+  ctx.ui.notify(contextModeStatusText(store), "info");
 }
 
 function newestVaultMtime(): number | undefined {
@@ -550,7 +568,14 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify(decision.message, "warning");
         return;
       }
-      await sendWorkflowMessage(pi, ctx, decision.normalizedCommand, `${skillPrompt(decision.skill, "Use the Codeflare SDD workflow.")}\n\nUser command: ${decision.normalizedCommand}`);
+      const scopeText = sddWorkflowScopeText(decision);
+      const executionText = sddWorkflowExecutionText(decision);
+      await sendWorkflowMessage(
+        pi,
+        ctx,
+        decision.normalizedCommand,
+        `${skillPrompt(decision.skill, "Use the Codeflare SDD workflow.")}\n\nUser command: ${decision.normalizedCommand}${scopeText ? `\n${scopeText}` : ""}\n${executionText}`,
+      );
     },
   });
 
@@ -582,23 +607,8 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("ctx", {
-    description: "Show, enable, or disable context-mode for this running Pi session. Usage: /ctx status|on|off",
-    handler: async (args, ctx) => {
-      const action = args.trim().toLowerCase().split(/\s+/, 1)[0] || "status";
-      if (["on", "enable", "enabled"].includes(action)) {
-        setContextModeEnabled(true);
-        ctx.ui.notify("context-mode enabled for this session; reloading Pi resources...", "info");
-        await ctx.reload();
-        return;
-      }
-      if (["off", "disable", "disabled"].includes(action)) {
-        setContextModeEnabled(false);
-        ctx.ui.notify("context-mode disabled; reloading Pi resources...", "info");
-        await ctx.reload();
-        return;
-      }
-      ctx.ui.notify(contextModeStatusText(), "info");
-    },
+    description: "Show, enable, or disable context-mode in this container's Pi settings. Usage: /ctx status|on|off",
+    handler: (args, ctx) => handleContextModeCommand(args, ctx),
   });
 
   pi.on("session_start", (_event, ctx) => {
@@ -676,9 +686,8 @@ export default function (pi: ExtensionAPI) {
     const cwd = ctx.sessionManager.getCwd();
     const id = toolEventId(event);
     const targetWasAlreadyCloned = id ? cloneTargetHadGit.get(id) === true : false;
-    // Lane depth is 0 here: detached PR-boundary review lanes (AD76) run as separate `pi --mode json`
-    // processes that load review-lane-guards.ts, not this extension in-process, so there is no in-process
-    // lane to suppress. The depth param is retained on shouldHandleClonePrompt for its own unit tests.
+    // The interactive runtime is never a review lane, so clone prompts use lane depth 0.
+    // The depth parameter remains part of the pure decision helper contract.
     const shouldHandleClone = shouldHandleClonePrompt(cloneCmd, targetWasAlreadyCloned, 0);
     const decision = shouldHandleClone
       ? graphifyClonePromptDecision({

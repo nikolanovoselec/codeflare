@@ -76,7 +76,8 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 | `.claude/mcp-*.json` | **NO** | MCP auth cache; created and deleted within milliseconds, listing-then-missing causes bisync fatal errors. Regenerated on every connect. |
 | `~/.graphify/**` | **NO** | Per-machine global graph store (absolute paths, machine-specific). Each container builds its own from the per-repo `graphify-out/` artefacts. |
 | `**/graphify-out/**` ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify)) | **NO** | Knowledge-graph artifacts live in the repo, not in R2. Repo owners commit `graphify-out/` to git; the working tree gets them on clone. Repos without push permission keep the graph local-only and ephemeral. R2 bisync is not in the graphify persistence path. |
-| `Vault/graphify-out/vault-graph.json`, `Vault/graphify-out/vault-extract-manifest.json` (advanced mode) | Yes | Cumulative graph source and extraction high-water mark persist despite the blanket graphify exclude. |
+| `Vault/graphify-out/vault-graph.json`, `Vault/graphify-out/vault-extract-manifest.json` (advanced mode) | Yes | Cumulative graph source and committed extraction high-water mark persist despite the blanket graphify exclude. |
+| `Vault/graphify-out/vault-extract-manifest.*.pending.json`, `.graphify_chunk_*.json` | **NO** | Pi request-specific staging/chunks are ephemeral; only hash-validated success promotes the canonical manifest. |
 | `Vault/graphify-out/graph.html` | **NO** | Derived visualization; the served durable copy is `Vault/Raw/Graphs/vault-graph.html`. |
 
 `vault-graph.json` is the [REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) source of truth; the global graph is rebuilt from it at boot. The extraction manifest prevents a restored vault from being reprocessed wholesale.
@@ -102,7 +103,7 @@ All modes always exclude these groups:
 - More Claude volatile state: `.claude/shell-snapshots/**`, `.claude/stats-cache.json`, `.claude.json.backup.*`, `.claude/usage-data/**`, `.claude/backups/**`, `.claude/tasks/**`, `.claude/sessions/**`, `.claude/history.jsonl`, `.claude/daemon/**`, `.claude/daemon.*`, `.claude/paste-cache/**`, `.claude/jobs/**`, `.claude/*.bak.*`, `.claude/settings.json.bak*`, `.claude/skills.bak.*/**`.
 - Pi task transcripts: `.pi/agent/sessions/**/tasks/**`.
 
-In advanced mode the `VAULT_FILTER` re-includes `Vault/graphify-out/vault-graph.json` and `Vault/graphify-out/vault-extract-manifest.json` ahead of `+ Vault/**`; `- Vault/graphify-out/**` excludes the derived HTML and other generated output.
+In advanced mode the `VAULT_FILTER` re-includes `Vault/graphify-out/vault-graph.json` and the canonical `Vault/graphify-out/vault-extract-manifest.json` ahead of `+ Vault/**`; `- Vault/graphify-out/**` excludes derived HTML, request-specific pending manifests/chunks, and other generated output. Pi promotes staged bytes to the canonical manifest only after exact native success, so a crash or R2 sync cannot persist uncommitted high-water state ([REQ-VAULT-026](../../sdd/spec/vault.md#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)).
 
 The broad `.config/**` exclude subsumes older specific `.config/rclone/**` and `.config/.wrangler/**` entries. All rclone commands use `--filter` flags, not `--include`/`--exclude`.
 
@@ -204,6 +205,10 @@ Within a row the path is pinned to the right edge for every folder so all paths 
 Clicking a file opens it inline in a new browser tab (served with an XSS-safe
 Content-Type + `nosniff`) rather than downloading it.
 
+**Append-only pagination.** The Worker already returns R2's continuation token and defaults each browser request to a 200-object page. The store now retains that token and, when the real `.storage-drop-zone` reaches its bottom edge, requests one continuation at a time and appends only unseen object keys/prefixes in response order. A browse generation and prefix snapshot reject late success/failure from older navigation; continuation failure leaves existing rows and the token intact for explicit retry. <!-- @impl: web-ui/src/stores/storage.ts::loadMore --> <!-- @impl: web-ui/src/components/storage/FileList.tsx::FileList -->
+
+The first continuation attempt sets a sticky `paginationStarted` flag for that page-one generation, including on failure. The 30-second timer then stops replacing the accumulated listing but continues refreshing quota/statistics; explicit navigation/manual refresh starts a new generation and resets pagination state. The footer reuses the existing spinner and shows a local retry action without hiding loaded rows. <!-- @impl: web-ui/src/components/StorageBrowser.tsx::StorageBrowser -->
+
 **Traversal safety.** The browse endpoint (`src/routes/storage/validation.ts::validateKey`)
 validates every requested prefix and rejects parent-directory (`../`) references, so a
 probe cannot escape the user's bucket root — a rejected prefix causes the endpoint to
@@ -226,17 +231,23 @@ return an error response (4xx) rather than any listing.
 
 ## Startup & steady-state sync performance
 
-Four startup costs are minimized (REQ-STOR-017):
+Six startup costs and stale-state risks are controlled (REQ-STOR-017):
 
 - **Bisync compares via server-modtime (AD88, all modes).**
 
-    Both `rclone bisync` invocations in `entrypoint.sh` (the `--resync` baseline and the steady-state cycle) pass `--use-server-modtime` and `--checkers 64`. `--use-server-modtime` compares the `LastModified` already returned by the bulk `--fast-list` instead of issuing one mtime HEAD per object, eliminating the per-cycle HEAD storm (the dominant steady-state cost). This is sound under codeflare's newest-wins bisync because the bucket is the per-user source of truth and absolute upload order is the conflict key.
+    Both `rclone bisync` invocations in `entrypoint.sh` (the retrying `--resync` baseline and steady-state cycle) pass `--use-server-modtime` and `--checkers 64`. `--use-server-modtime` compares the `LastModified` already returned by the bulk `--fast-list` instead of issuing one mtime HEAD per object, eliminating the per-cycle HEAD storm (the dominant steady-state cost). This is sound under codeflare's newest-wins bisync because the bucket is the per-user source of truth and absolute upload order is the conflict key.
 - **Governed Mode delta initial sync (AD90, Governed Mode only).**
 
     The blocking `initial_sync_from_r2` normally re-downloads the whole agent seed (~627 files, ~9 MB) every boot because the container filesystem is ephemeral. In [Governed Mode](#governed-mode-r2-sse-c-disabled) the entrypoint lays the image-baked seed (see [Preseed](preseed.md)) into the user home first, then runs the initial sync with `--checksum` (usable MD5 ETags, available only when SSE-C is off), so the unchanged seed files are skipped and only user deltas transfer. Under SSE-C (the default) the path is unchanged: `--size-only`, no lay-down.
 - **Managed Pi extension relay (all modes).**
 
     Before the bisync `--resync` baseline, `entrypoint.sh` calls `relay_managed_pi_extensions()` to re-lay the image-baked managed Pi extension bytes over the post-sync `~/.pi/agent/extensions/` tree. This keeps the on-disk bytes equal to the build — the content precondition for the path-sensitive jiti prewarm cache (see [Container lane](container.md#pi-extension-jiti-transpile-cache-warm-up-ad79)) to hit at runtime. Without it, a stale bucket copy of a managed extension (faithfully restored by sync) hashes differently and costs ~2.4s of cold transpile every session. Only managed (codeflare-owned) filenames are overwritten; user-added extensions are preserved.
+- **Retired review paths are excluded from R2 (all modes).**
+
+    The common rclone filter excludes the exact managed paths `.pi/agent/extensions/review-job-helpers.ts`, `review-jobs.ts`, and `review-lane-guards.ts`. Initial restore, the retrying baseline, and steady-state bisync all consume the common filter, so stale bucket objects cannot restore retired review machinery.
+- **Retired local copies are pruned before Pi loads (all modes).**
+
+    `relay_managed_pi_extensions()` removes those same three exact local files before laying down current managed bytes. The pruning list is exact: unrelated user-added extensions remain untouched.
 - **Background init deprioritization (all modes).**
 
     The background subshell running the bisync `--resync` baseline, vault seed, and sync/vault daemons runs at `nice 19` / `ionice -c 3` (idle I/O class), yielding the single vCPU and disk to the concurrent pi PTY pre-warm — whose latency was dominated by contention with the baseline, not by the baseline's own work.

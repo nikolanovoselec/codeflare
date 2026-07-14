@@ -289,6 +289,24 @@
   animation: spin 0.6s linear infinite;
 }
 
+.storage-pagination-status {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2);
+}
+
+.storage-pagination-status--error {
+  color: var(--color-danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .storage-loading-spinner {
+    animation: none;
+  }
+}
+
 .storage-error {
   display: flex;
   flex-direction: column;

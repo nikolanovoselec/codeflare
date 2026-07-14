@@ -51,6 +51,16 @@ const mockShouldUseMultipart = vi.mocked(shouldUseMultipart);
 const mockSplitIntoParts = vi.mocked(splitIntoParts);
 const mockGetUser = vi.mocked(getUser);
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 describe('Storage Store', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -69,6 +79,10 @@ describe('Storage Store', () => {
       expect(storageStore.selectedPrefixes).toEqual([]);
       expect(storageStore.isTruncated).toBe(false);
       expect(storageStore.nextContinuationToken).toBeNull();
+      expect(storageStore.loadingMore).toBe(false);
+      expect(storageStore.loadMoreError).toBeNull();
+      expect(storageStore.paginationStarted).toBe(false);
+      expect(storageStore.browseGeneration).toBe(0);
     });
   });
 
@@ -179,6 +193,160 @@ describe('Storage Store', () => {
       await storageStore.browse('workspace/subdir/');
 
       expect(mockBrowseStorage).toHaveBeenCalledWith('workspace/subdir/');
+    });
+  });
+
+  describe('loadMore()', () => {
+    const pageOne = {
+      objects: [{ key: 'Notes/a.md', size: 1, lastModified: '2026-07-14T00:00:00Z' }],
+      prefixes: ['Notes/archive/'],
+      isTruncated: true,
+      nextContinuationToken: 'token-1',
+    };
+    const pageTwo = {
+      objects: [
+        { key: 'Notes/a.md', size: 1, lastModified: '2026-07-14T00:00:00Z' },
+        { key: 'Notes/b.md', size: 2, lastModified: '2026-07-14T00:01:00Z' },
+      ],
+      prefixes: ['Notes/archive/', 'Notes/projects/'],
+      isTruncated: false,
+    };
+
+    it('REQ-STOR-016 AC7: appends a continuation page once and deduplicates rows', async () => {
+      mockBrowseStorage.mockResolvedValueOnce(pageOne).mockResolvedValueOnce(pageTwo);
+
+      await storageStore.browse('Notes/');
+      await storageStore.loadMore();
+
+      expect(mockBrowseStorage.mock.calls).toEqual([['Notes/'], ['Notes/', 'token-1']]);
+      expect(storageStore.objects.map((object) => object.key)).toEqual(['Notes/a.md', 'Notes/b.md']);
+      expect(storageStore.prefixes).toEqual(['Notes/archive/', 'Notes/projects/']);
+      expect(storageStore.isTruncated).toBe(false);
+      expect(storageStore.nextContinuationToken).toBeNull();
+      expect(storageStore.paginationStarted).toBe(true);
+    });
+
+    it('admits only one unresolved continuation request per browse generation', async () => {
+      const pending = deferred<typeof pageTwo>();
+      mockBrowseStorage.mockResolvedValueOnce(pageOne).mockReturnValueOnce(pending.promise);
+      await storageStore.browse('Notes/');
+
+      const first = storageStore.loadMore();
+      const duplicate = storageStore.loadMore();
+      expect(mockBrowseStorage.mock.calls).toEqual([['Notes/'], ['Notes/', 'token-1']]);
+
+      pending.resolve(pageTwo);
+      await Promise.all([first, duplicate]);
+      expect(storageStore.objects.map((object) => object.key)).toEqual(['Notes/a.md', 'Notes/b.md']);
+    });
+
+    it('does not request a continuation without truncation and a token', async () => {
+      await storageStore.loadMore();
+      expect(mockBrowseStorage).not.toHaveBeenCalled();
+
+      mockBrowseStorage.mockResolvedValueOnce({
+        objects: [], prefixes: [], isTruncated: true,
+      });
+      await storageStore.browse('Notes/');
+      await storageStore.loadMore();
+      expect(mockBrowseStorage).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not continue while an initial or background browse is active', async () => {
+      mockBrowseStorage.mockResolvedValueOnce(pageOne);
+      await storageStore.browse('Notes/');
+
+      const initialPending = deferred<typeof pageOne>();
+      mockBrowseStorage.mockReturnValueOnce(initialPending.promise);
+      const initialBrowse = storageStore.browse('Notes/');
+      await storageStore.loadMore();
+      expect(mockBrowseStorage).toHaveBeenCalledTimes(2);
+      initialPending.resolve(pageOne);
+      await initialBrowse;
+
+      const backgroundPending = deferred<typeof pageOne>();
+      mockBrowseStorage.mockReturnValueOnce(backgroundPending.promise);
+      const backgroundBrowse = storageStore.browse('Notes/', { silent: true });
+      await storageStore.loadMore();
+      expect(mockBrowseStorage).toHaveBeenCalledTimes(3);
+      backgroundPending.resolve(pageOne);
+      await backgroundBrowse;
+    });
+
+    it('REQ-STOR-016 AC7: ignores a continuation response from an older browse generation', async () => {
+      const oldPage = deferred<typeof pageTwo>();
+      mockBrowseStorage
+        .mockResolvedValueOnce(pageOne)
+        .mockReturnValueOnce(oldPage.promise)
+        .mockResolvedValueOnce({
+          objects: [{ key: 'Other/current.md', size: 3, lastModified: '2026-07-14T00:02:00Z' }],
+          prefixes: [],
+          isTruncated: false,
+        });
+      await storageStore.browse('Notes/');
+      const staleLoad = storageStore.loadMore();
+      await storageStore.navigateTo('Other/');
+
+      oldPage.resolve(pageTwo);
+      await staleLoad;
+      expect(storageStore.currentPrefix).toBe('Other/');
+      expect(storageStore.objects.map((object) => object.key)).toEqual(['Other/current.md']);
+      expect(storageStore.loadingMore).toBe(false);
+      expect(storageStore.loadMoreError).toBeNull();
+    });
+
+    it('ignores a continuation failure after a replacement browse', async () => {
+      const oldPage = deferred<typeof pageTwo>();
+      mockBrowseStorage
+        .mockResolvedValueOnce(pageOne)
+        .mockReturnValueOnce(oldPage.promise)
+        .mockResolvedValueOnce({ objects: [], prefixes: [], isTruncated: false });
+      await storageStore.browse('Notes/');
+      const staleLoad = storageStore.loadMore();
+      await storageStore.browse('Other/');
+
+      oldPage.reject(new Error('stale failure'));
+      await staleLoad;
+      expect(storageStore.loadMoreError).toBeNull();
+      expect(storageStore.loadingMore).toBe(false);
+    });
+
+    it('REQ-STOR-016 AC7: preserves rows on failure and retries the same continuation', async () => {
+      mockBrowseStorage
+        .mockResolvedValueOnce(pageOne)
+        .mockRejectedValueOnce(new Error('page two unavailable'))
+        .mockResolvedValueOnce(pageTwo);
+      await storageStore.browse('Notes/');
+      await storageStore.loadMore();
+
+      expect(storageStore.objects.map((object) => object.key)).toEqual(['Notes/a.md']);
+      expect(storageStore.nextContinuationToken).toBe('token-1');
+      expect(storageStore.loadMoreError).toBe('page two unavailable');
+      expect(storageStore.loadingMore).toBe(false);
+      expect(storageStore.paginationStarted).toBe(true);
+
+      await storageStore.loadMore();
+      expect(mockBrowseStorage).toHaveBeenCalledTimes(2);
+      await storageStore.retryLoadMore();
+      expect(mockBrowseStorage.mock.calls[mockBrowseStorage.mock.calls.length - 1]).toEqual(['Notes/', 'token-1']);
+      expect(storageStore.objects.map((object) => object.key)).toEqual(['Notes/a.md', 'Notes/b.md']);
+      expect(storageStore.loadMoreError).toBeNull();
+    });
+
+    it('resets pagination state and increments generation on a new page-one browse', async () => {
+      mockBrowseStorage.mockResolvedValueOnce(pageOne).mockResolvedValueOnce(pageTwo).mockResolvedValueOnce({
+        objects: [], prefixes: [], isTruncated: false,
+      });
+      await storageStore.browse('Notes/');
+      const firstGeneration = storageStore.browseGeneration;
+      await storageStore.loadMore();
+      expect(storageStore.paginationStarted).toBe(true);
+
+      await storageStore.browse('Other/');
+      expect(storageStore.browseGeneration).toBe(firstGeneration + 1);
+      expect(storageStore.paginationStarted).toBe(false);
+      expect(storageStore.loadingMore).toBe(false);
+      expect(storageStore.loadMoreError).toBeNull();
     });
   });
 

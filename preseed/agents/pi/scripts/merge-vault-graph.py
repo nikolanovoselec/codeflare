@@ -4,85 +4,100 @@
 Loads the per-extraction chunk JSON, composes it onto the persistent
 vault-graph.json (hash-keyed union by node ID, edge tuple), re-clusters,
 and writes both vault-graph.json (cumulative, source of truth for next
-run) and graph.json (per-extraction artifact consumed by step 6's
-cluster-only viz re-render).
+run) and graph.json (per-extraction artifact consumed by visualization).
 
-Called from vault-extract-prompt.md Step 4 inside a flock-guarded
-subshell so concurrent capture-pipeline or active-repo writers cannot
+Called inside a flock-guarded shell so concurrent vault writers cannot
 interleave with the load+merge+persist critical section.
-
-Paths default to the Codeflare vault layout but may be overridden via
-positional arguments (chunk_path vault_graph_path out_path) so tests
-can drive the script against synthetic fixtures.
-
-Requires graphify + networkx (installed in the codeflare container at
-/root/.local/share/uv/tools/graphifyy). Exits non-zero on any failure;
-the caller propagates that to EXTRACT_FAILED so the high-water mark
-is left old and the next 60s daemon tick retries.
 """
 
+from __future__ import annotations
+
 import json
+import os
+import shutil
 import sys
 from pathlib import Path
+from typing import Any
 
-import networkx as nx
-from graphify.build import build_from_json
-from graphify.cluster import cluster
-from graphify.export import to_json
+DEFAULT_CHUNK = "/home/user/Vault/graphify-out/.graphify_chunk_01.json"
+DEFAULT_VAULT_GRAPH = "/home/user/Vault/graphify-out/vault-graph.json"
+DEFAULT_OUT = "/home/user/Vault/graphify-out/graph.json"
 
-DEFAULT_CHUNK = '/home/user/Vault/graphify-out/.graphify_chunk_01.json'
-DEFAULT_VAULT_GRAPH = '/home/user/Vault/graphify-out/vault-graph.json'
-DEFAULT_OUT = '/home/user/Vault/graphify-out/graph.json'
 
-chunk_path = Path(sys.argv[1] if len(sys.argv) > 1 else DEFAULT_CHUNK)
-vault_graph_path = Path(sys.argv[2] if len(sys.argv) > 2 else DEFAULT_VAULT_GRAPH)
-out_path = Path(sys.argv[3] if len(sys.argv) > 3 else DEFAULT_OUT)
+def dedupe_node_link_edges(blob: dict[str, Any]) -> dict[str, Any]:
+    """Return node-link JSON with one edge per semantic evidence tuple."""
+    unique: dict[tuple[Any, Any, Any, Any], dict[str, Any]] = {}
+    for item in blob.get("links", blob.get("edges", [])):
+        key = (
+            item.get("source"),
+            item.get("target"),
+            item.get("relation"),
+            item.get("source_file"),
+        )
+        unique.setdefault(key, item)
+    edge_key = "links" if "links" in blob or "edges" not in blob else "edges"
+    return {**blob, edge_key: list(unique.values())}
 
-# REQ-MEM-009 AC4: missing/unreadable persistent vault-graph.json is
-# recoverable - start fresh. Any JSON parse error or KeyError on the
-# expected node_link shape means the file is corrupt; treat as missing.
-G_prior = nx.DiGraph()
-try:
-    if vault_graph_path.exists():
-        prior_blob = json.loads(vault_graph_path.read_text(encoding='utf-8'))
-        # node_link_graph default in nx 3.x reads 'edges'; vault-graph.json
-        # historically wrote 'links'. Try both so older files still load.
-        try:
-            G_prior = nx.node_link_graph(prior_blob, edges='links')
-        except (KeyError, TypeError):
-            G_prior = nx.node_link_graph(prior_blob)
-except (json.JSONDecodeError, KeyError, TypeError, OSError) as e:
-    print(f'vault-graph.json unreadable ({e}); starting fresh')
-    G_prior = nx.DiGraph()
 
-extraction = json.loads(chunk_path.read_text(encoding='utf-8'))
-G_new = build_from_json(extraction)
+def dedupe_node_link_file(path: Path) -> dict[str, Any]:
+    normalized = dedupe_node_link_edges(json.loads(path.read_text(encoding="utf-8")))
+    work_path = path.with_name(f".{path.name}.dedupe")
+    work_path.write_text(
+        json.dumps(normalized, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(work_path, path)
+    return normalized
 
-# nx.compose raises "All graphs must be directed or undirected" if the two
-# operands disagree. G_new is directed, but a prior vault-graph.json written
-# by an older release (or any blob lacking `directed: true`) loads as an
-# undirected Graph. Normalise both to directed before composing so the merge
-# never crashes on a legacy on-disk graph.
-if not G_prior.is_directed():
-    G_prior = G_prior.to_directed()
-if not G_new.is_directed():
-    G_new = G_new.to_directed()
 
-# REQ-MEM-009 AC2: hash-keyed union - nx.compose dedupes nodes by ID
-# (existing IDs keep their attributes; new IDs append). Edges are
-# unioned by (source, target) tuple.
-G_merged = nx.compose(G_prior, G_new)
+def main() -> None:
+    import networkx as nx
+    from graphify.build import build_from_json
+    from graphify.cluster import cluster
+    from graphify.export import to_json
 
-# REQ-MEM-009 AC1: persist the cumulative vault graph for the next
-# extraction to load.
-to_json(G_merged, cluster(G_merged) if G_merged.number_of_nodes() else {}, str(vault_graph_path))
+    chunk_path = Path(sys.argv[1] if len(sys.argv) > 1 else DEFAULT_CHUNK)
+    vault_graph_path = Path(
+        sys.argv[2] if len(sys.argv) > 2 else DEFAULT_VAULT_GRAPH
+    )
+    out_path = Path(sys.argv[3] if len(sys.argv) > 3 else DEFAULT_OUT)
 
-# Also write the per-extraction graph.json (kept for backwards-compat
-# with any caller that still reads the chunk-shaped artifact).
-to_json(G_merged, cluster(G_merged) if G_merged.number_of_nodes() else {}, str(out_path))
+    graph_prior = nx.DiGraph()
+    try:
+        if vault_graph_path.exists():
+            prior_blob = json.loads(vault_graph_path.read_text(encoding="utf-8"))
+            try:
+                graph_prior = nx.node_link_graph(prior_blob, edges="links")
+            except (KeyError, TypeError):
+                graph_prior = nx.node_link_graph(prior_blob)
+    except (json.JSONDecodeError, KeyError, TypeError, OSError) as error:
+        print(f"vault-graph.json unreadable ({error}); starting fresh")
+        graph_prior = nx.DiGraph()
 
-print(
-    f'vault graph: {G_merged.number_of_nodes()} nodes '
-    f'({G_new.number_of_nodes()} new, {G_prior.number_of_nodes()} prior), '
-    f'{G_merged.number_of_edges()} edges'
-)
+    extraction = json.loads(chunk_path.read_text(encoding="utf-8"))
+    graph_new = build_from_json(extraction)
+
+    if not graph_prior.is_directed():
+        graph_prior = graph_prior.to_directed()
+    if not graph_new.is_directed():
+        graph_new = graph_new.to_directed()
+
+    graph_merged = nx.compose(graph_prior, graph_new)
+    communities = cluster(graph_merged) if graph_merged.number_of_nodes() else {}
+    to_json(graph_merged, communities, str(vault_graph_path))
+    persisted = dedupe_node_link_file(vault_graph_path)
+
+    if out_path != vault_graph_path:
+        out_work = out_path.with_name(f".{out_path.name}.merge")
+        shutil.copyfile(vault_graph_path, out_work)
+        os.replace(out_work, out_path)
+
+    print(
+        f"vault graph: {len(persisted.get('nodes', []))} nodes "
+        f"({graph_new.number_of_nodes()} new, {graph_prior.number_of_nodes()} prior), "
+        f"{len(persisted.get('links', persisted.get('edges', [])))} edges"
+    )
+
+
+if __name__ == "__main__":
+    main()

@@ -3,12 +3,14 @@ import { render, cleanup, fireEvent } from '@solidjs/testing-library';
 import type { ComponentProps } from 'solid-js';
 import FileList from '../../components/storage/FileList';
 import { getViewUrl } from '../../api/storage';
+import { storageStore } from '../../stores/storage';
 
 // REQ-STOR-016: file browser presentation — file-click opens a view tab; special
 // folders surface their container path.
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -33,6 +35,31 @@ function makeProps(items: Items): ComponentProps<typeof FileList> {
     handleFileDragStart: () => {},
   };
 }
+
+describe('FileList pagination', () => {
+  it('REQ-STOR-016 AC7: requests the next page only at the scroll boundary', () => {
+    const loadMore = vi.spyOn(storageStore, 'loadMore').mockResolvedValue(undefined);
+    const { getByTestId } = render(() => (
+      <FileList {...makeProps({
+        objects: [{ key: 'Notes/a.md', size: 1, lastModified: '2026-07-14T00:00:00Z' }],
+        prefixes: [],
+      })} />
+    ));
+    const dropZone = getByTestId('storage-drop-zone');
+    Object.defineProperties(dropZone, {
+      scrollTop: { configurable: true, value: 40 },
+      clientHeight: { configurable: true, value: 50 },
+      scrollHeight: { configurable: true, value: 100 },
+    });
+
+    fireEvent.scroll(dropZone);
+    expect(loadMore).not.toHaveBeenCalled();
+
+    Object.defineProperty(dropZone, 'scrollTop', { configurable: true, value: 49 });
+    fireEvent.scroll(dropZone);
+    expect(loadMore).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('FileList — clicking a file opens it in a new tab (not download)', () => {
   it('calls window.open with the inline view URL and a new-tab target', () => {

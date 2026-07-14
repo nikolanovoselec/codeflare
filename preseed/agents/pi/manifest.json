@@ -4,9 +4,20 @@
       "advanced"
     ]
   },
+  "extensions/active-repo-memory.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "rules/git-workflow.md": {
     "modes": [
       "default",
+      "advanced"
+    ]
+  },
+  "rules/engineering-constitution.md": {
+    "modes": [
       "advanced"
     ]
   },
@@ -81,8 +92,24 @@
       "advanced"
     ]
   },
-  "agents/review-monitor.md": {
+  "agents/code-reviewer.md": {
     "modes": [
+      "advanced"
+    ]
+  },
+  "agents/spec-reviewer.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "agents/doc-updater.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "agents/ci-monitor.md": {
+    "modes": [
+      "default",
       "advanced"
     ]
   },
@@ -137,7 +164,58 @@
       "advanced"
     ]
   },
+  "skills/review-scope/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/review-scope/scripts/build-review-packet.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-enforce/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-enforce-ac/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-enforce-truth/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/doc-enforce/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/doc-enforce-lanes/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/doc-enforce-shape/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/doc-enforce-truth/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/ci-monitoring/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/ci-monitoring/scripts/monitor-ci.mjs": {
     "modes": [
       "default",
       "advanced"
@@ -150,6 +228,11 @@
     ]
   },
   "skills/review/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/review/scripts/resolve-project-root.mjs": {
     "modes": [
       "advanced"
     ]
@@ -214,6 +297,11 @@
       "advanced"
     ]
   },
+  "scripts/build-memory-graph.py": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "prompts/memory-agent-prompt.md": {
     "modes": [
       "advanced"
@@ -229,22 +317,12 @@
       "advanced"
     ]
   },
+  "extensions/review-tool-guard.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "extensions/review-enforcement.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "extensions/review-jobs.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "extensions/review-lane-guards.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "extensions/review-job-helpers.ts": {
     "modes": [
       "default",
       "advanced"
@@ -252,10 +330,71 @@
   },
   "extensions/review-helpers.ts": {
     "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "extensions/review-scope.ts": {
+    "modes": [
+      "default",
       "advanced"
     ]
   },
   "package-lock.json": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "npm/rpiv-todo-session-isolation/install.d.mts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "npm/rpiv-todo-session-isolation/install.mjs": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "npm/rpiv-todo-session-isolation/index.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "npm/rpiv-todo-session-isolation/todo.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "npm/rpiv-todo-session-isolation/todo-overlay.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "npm/rpiv-todo-session-isolation/state/lifecycle.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "npm/rpiv-todo-session-isolation/state/store.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "npm/rpiv-todo-session-isolation/state/state.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "npm/rpiv-todo-session-isolation/tool/types.ts": {
     "modes": [
       "default",
       "advanced"

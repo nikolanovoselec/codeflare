@@ -602,6 +602,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. Dedicated jobs bump the remaining Pi preseed packages, bun, consult-llm-mcp, chrome-devtools-mcp, Browser Run MCP SDK, Impeccable bundles, and Graphify plugin version and description. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-preseed -->
 4. SHA256 checksum is reset to a placeholder on Dockerfile bumps, causing Docker build failure until the operator verifies and updates the hash. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit -->
 5. A bump branch is skipped if one already exists for that version (deduplication guard). <!-- @impl: .github/workflows/bump-shadow-pins.yml::branch -->
+6. The context-mode and generic Pi-preseed jobs regenerate the Pi package lock without executing runtime-layout package lifecycle scripts, then regenerate the embedded seed from the updated manifest and lockfile. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-preseed --> <!-- @impl: scripts/regenerate-pi-preseed-lock.mjs::packageDirectory --> <!-- @test: host/__tests__/pi-preseed-lockfile-regeneration.test.js (creates the lockfile without executing package lifecycle scripts) -->
 
 **Constraints:** None.
 
@@ -609,6 +610,6 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** Automated lifecycle-suppression coverage plus scheduled/manual workflow execution
 
 **Status:** Implemented

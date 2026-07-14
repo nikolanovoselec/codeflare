@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createRoot } from 'solid-js';
 import type { Terminal } from '@xterm/xterm';
+import { useScrollCorrection } from '../../hooks/useScrollCorrection';
 
 // Mock constants before importing terminal store
 vi.mock('../../lib/constants', async (importOriginal) => {
@@ -893,27 +895,42 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it('REQ-TERM-014 AC7: restores distance when an unchanged full buffer clamps viewport to the top', async () => {
-      const activeBuffer = { viewportY: 500, baseY: 1000 };
+    it('REQ-TERM-014 AC2/AC3/AC7: streamed output leaves a user-owned full-buffer viewport at the oldest available line', async () => {
+      const activeBuffer = { viewportY: 80, baseY: 1000 };
+      let onScrollHandler: ((viewportY: number) => void) | undefined;
       const scrollLines = vi.fn((delta: number) => {
         activeBuffer.viewportY += delta;
+        onScrollHandler?.(activeBuffer.viewportY);
       });
-      const scrollToBottom = vi.fn();
+      const scrollToBottom = vi.fn(() => {
+        activeBuffer.viewportY = activeBuffer.baseY;
+        onScrollHandler?.(activeBuffer.viewportY);
+      });
       const terminal = {
         ...createMockTerminal(),
         buffer: { active: activeBuffer },
         scrollLines,
         scrollToBottom,
+        onScroll: vi.fn((handler: (viewportY: number) => void) => {
+          onScrollHandler = handler;
+          return { dispose: vi.fn() };
+        }),
         write: vi.fn((_data: string, callback?: () => void) => {
-          // A dense full-buffer trim exhausts xterm's native content anchor.
+          // xterm intentionally reaches zero when the user's viewed lines age
+          // out of a configured-full scrollback buffer.
           activeBuffer.viewportY = 0;
+          onScrollHandler?.(0);
           callback?.();
         }),
       } as unknown as Terminal;
+      const container = document.createElement('div');
+      const disposeScrollOwner = createRoot((dispose) => {
+        useScrollCorrection(terminal, container, { sessionId, terminalId });
+        return dispose;
+      });
 
       const OriginalWebSocket = globalThis.WebSocket;
       let wsInstance: any;
-
       vi.stubGlobal('WebSocket', class extends (OriginalWebSocket as unknown as { new (url: string): WebSocket }) {
         constructor(url: string) {
           super(url);
@@ -921,26 +938,34 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
         }
       } as unknown as typeof WebSocket);
 
-      terminalStore.connect(sessionId, terminalId, terminal);
-      await vi.advanceTimersByTimeAsync(0);
+      try {
+        // Manual ownership must outlive the old 150ms gesture grace period.
+        container.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
+        onScrollHandler?.(80);
+        await vi.advanceTimersByTimeAsync(200);
 
-      wsInstance._simulateMessage('dense output that trims past the visible anchor\r\n');
-      await vi.advanceTimersByTimeAsync(50);
+        terminalStore.connect(sessionId, terminalId, terminal);
+        await vi.advanceTimersByTimeAsync(0);
+        wsInstance._simulateMessage('dense output that trims past the visible anchor\r\n');
+        await vi.advanceTimersByTimeAsync(50);
+        await Promise.resolve();
 
-      expect(terminal.buffer.active.viewportY).toBe(500);
-      expect(terminal.buffer.active.baseY - terminal.buffer.active.viewportY).toBe(500);
-      expect(scrollLines).toHaveBeenCalledWith(500);
-      expect(scrollToBottom).not.toHaveBeenCalled();
-
-      vi.stubGlobal('WebSocket', OriginalWebSocket);
+        expect(activeBuffer.viewportY).toBe(0);
+        expect(scrollLines).not.toHaveBeenCalled();
+        expect(scrollToBottom).not.toHaveBeenCalled();
+      } finally {
+        disposeScrollOwner();
+        vi.stubGlobal('WebSocket', OriginalWebSocket);
+      }
     });
 
     it.each([
-      { name: 'buffer is not full', beforeBaseY: 900, beforeY: 500, afterBaseY: 900 },
-      { name: 'base changes during write', beforeBaseY: 1000, beforeY: 500, afterBaseY: 999 },
-      { name: 'viewport was already at top', beforeBaseY: 1000, beforeY: 0, afterBaseY: 1000 },
-      { name: 'viewport was following bottom', beforeBaseY: 1000, beforeY: 1000, afterBaseY: 1000 },
-    ])('REQ-TERM-014 AC7: does not recover zero clamp when $name', async ({ beforeBaseY, beforeY, afterBaseY }) => {
+      { name: 'a full buffer ages out the viewed lines', beforeBaseY: 1000, beforeY: 500, afterBaseY: 1000 },
+      { name: 'the buffer is not full', beforeBaseY: 900, beforeY: 500, afterBaseY: 900 },
+      { name: 'the base changes during write', beforeBaseY: 1000, beforeY: 500, afterBaseY: 999 },
+      { name: 'the viewport was already at top', beforeBaseY: 1000, beforeY: 0, afterBaseY: 1000 },
+      { name: 'the viewport was following bottom', beforeBaseY: 1000, beforeY: 1000, afterBaseY: 1000 },
+    ])('REQ-TERM-014 AC3: batched writes never inject zero-clamp recovery when $name', async ({ beforeBaseY, beforeY, afterBaseY }) => {
       const activeBuffer = { viewportY: beforeY, baseY: beforeBaseY };
       const scrollLines = vi.fn((delta: number) => {
         activeBuffer.viewportY += delta;

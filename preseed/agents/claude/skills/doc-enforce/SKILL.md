@@ -1,6 +1,6 @@
 ---
 name: doc-enforce
-description: SDD documentation enforcement orchestrator. Runs the 16-row execution manifest against documentation/. Detects forbidden content, per-element budget violations (per-file caps deprecated in v2.0), within-section semantic issues, authoring-quality prose (weasel, unverifiable, missing-why), REQ-backlink gaps, doc source-anchor truth (Pass 15 — always runs). Conditionally invokes doc-enforce-lanes (per file in diff), doc-enforce-shape (api-reference / canonical lane files), and doc-enforce-truth (Implemented REQ docs or scope=all). Invoked by doc-updater on every PR-boundary trigger and by /sdd clean.
+description: SDD documentation enforcement orchestrator. Runs the 16-row execution manifest against documentation/. Detects forbidden content, per-element budget violations (per-file caps deprecated in v2.0), within-section semantic issues, authoring-quality prose (weasel, unverifiable, missing-why), REQ-backlink gaps, doc source-anchor truth (Pass 15 — always runs). Conditionally invokes doc-enforce-lanes (per file in diff), doc-enforce-shape (api-reference / canonical lane files), and doc-enforce-truth (Implemented REQ docs or scope=all). Invoked by doc-updater on every PR-boundary trigger and inline by the root-owned /sdd clean workflow.
 version: 2.0.0
 ---
 
@@ -26,7 +26,7 @@ Every row of the manifest below MUST execute on every run. No cherry-picking; co
 
 Audit location by trigger:
 - `/sdd clean`: docs-side rows into per-category commit bodies (audit via `git log --grep='\[sdd-clean\]'`); no separate dotfile.
-- PR-boundary doc-updater: docs-side manifest into the agent's commit body OR `documentation/.doc-coverage.md` (the audit accumulator; replaces the prior `.review-needed.md` on the doc lane).
+- PR-boundary doc-updater: return the docs-side manifest; the root persists it in the applicable commit body or `documentation/.doc-coverage.md`.
 
 ## Required execution manifest
 
@@ -206,6 +206,6 @@ Mode-dependent action:
 
 Writes manifest to one of two audit locations:
 - `/sdd clean` invocation: append to per-category commit bodies (audit via `git log --grep='\[sdd-clean\]'`); no separate dotfile.
-- PR-boundary doc-updater: include in agent's commit body OR (if no commits) `documentation/.doc-coverage.md` as `## Execution manifest`.
+- PR-boundary doc-updater: return the manifest; the root includes it in the applicable commit body or `documentation/.doc-coverage.md` as `## Execution manifest`.
 
 Every row's status MUST carry concrete evidence counts. Bare `ran` without counts: HIGH `manifest-bare-evidence-count`. Pending rows at finalize: HIGH `manifest-pending-at-finalize`.

@@ -509,7 +509,27 @@ describe('REQ-LANDING-004: immutable /_astro/ asset caching', () => {
     expect(response.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
   });
 
-  it('does NOT immutable-cache the SPA fallback HTML served for a non-existent /_astro/ URL', async () => {
+  it('REQ-AUTH-022 AC7: serves fingerprinted Vite app assets with immutable caching', async () => {
+    const { env, mockKV, mockAssets } = createMockEnv();
+    mockKV.get.mockResolvedValue('true');
+    mockAssets.fetch.mockResolvedValueOnce(
+      new Response('body{}', { status: 200, headers: { 'Content-Type': 'text/css' } }),
+    );
+
+    const response = await worker.fetch(
+      new Request('https://example.com/assets/index-DEADBEEF.css'),
+      env,
+      createMockCtx(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
+  });
+
+  it.each([
+    '/landing/_astro/missing.OLDHASH.js',
+    '/assets/missing.OLDHASH.js',
+  ])('does NOT immutable-cache the SPA fallback HTML served for %s', async (assetPath) => {
     const { env, mockKV, mockAssets } = createMockEnv();
     mockKV.get.mockResolvedValue('true');
     // not_found_handling = "single-page-application": a missing hashed asset resolves
@@ -519,7 +539,7 @@ describe('REQ-LANDING-004: immutable /_astro/ asset caching', () => {
     );
 
     const response = await worker.fetch(
-      new Request('https://example.com/landing/_astro/missing.OLDHASH.js'),
+      new Request(`https://example.com${assetPath}`),
       env,
       createMockCtx(),
     );

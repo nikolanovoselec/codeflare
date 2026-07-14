@@ -14,6 +14,8 @@ The full enforcement layer lives in the `spec-discipline` rule (loaded automatic
 
 The user runs `/sdd init` once to bootstrap. After that, they "vibe code" — write code, push, walk away. The `spec-reviewer` and `doc-updater` agents auto-detect the `sdd/` folder and enforce discipline on every PR-boundary event, in the mode set by `sdd/config.yml` (`interactive`, `auto`, or `unleashed`).
 
+**Mutation ownership:** every `/sdd` sub-command executes in the root session. `/sdd init` and `/sdd clean` invoke enforcement skills inline and use the root's file and Git tools; they never spawn report-only PR-boundary reviewer agents to apply changes. Reviewer autonomy mode affects findings at review boundaries, not mutation ownership.
+
 The user only invokes `/sdd` directly to:
 - Bootstrap a new project (`/sdd init` → invokes the `sdd-init` skill)
 - Manually add or modify requirements (`/sdd edit`, `/sdd add` — body below)
@@ -55,7 +57,8 @@ documentation/
 │   ├── deployment.md           # emit only when project is deployable
 │   ├── security.md             # emit only when source has auth / CSRF / CSP code
 │   ├── observability.md        # emit only when source has logging / metrics
-│   └── troubleshooting.md      # emit only when commit history references incidents
+│   ├── troubleshooting.md      # emit only when commit history references incidents
+│   └── {project-lane}.md       # optional first-level lane explicitly indexed by documentation/README.md
 └── decisions/
     └── README.md               # ADR ledger (kept as sibling of lanes/)
 ```
@@ -69,7 +72,7 @@ pending.md         # In-flight work and known gaps (NOT requirements)
 
 **Dual-layout support during migration window.** Skills detect layout via `test -d sdd/spec`. Projects on flat layout (`sdd/{domain}.md` directly) keep working; `/sdd clean` migrates flat → nested on demand. The flat layout will be deprecated after one release cycle; no new flat-layout projects should be created.
 
-**Layout is exhaustive (binding).** The tree above is the COMPLETE allowed set of files under `sdd/` and `documentation/` on the nested layout. Anything else is a violation:
+**Layout is exhaustive (binding).** The tree above is the COMPLETE allowed shape under `sdd/` and `documentation/` on the nested layout. The seven standard lane names, `api-reference-*` siblings, and first-level project lanes explicitly linked from `documentation/README.md` are allowed; anything else is a violation:
 - No `sdd/spec/README.md` — the single comprehensive index is `sdd/README.md` (Vision + Actors + Design Principles + Domains table linking to `spec/{file}.md` + Out of Scope, plus one-line links to constraints/glossary/documentation/changelog).
 - No `documentation/lanes/README.md` — the lane index is `documentation/README.md` (Jump-TOC + Lane ownership + REQ backlinks + Synonym glossary + Reading order + Related).
 - No extra subdirectories under `sdd/spec/`, `documentation/lanes/`, or `documentation/decisions/`.
@@ -199,7 +202,7 @@ Conservative JUDGMENT auto-resolution rules live in the `sdd-clean` skill (that'
 
 Once `sdd/` exists, the workflow runs automatically:
 
-- At PR-boundary events for PRs targeting `main` or `master` (PR open OR push to a branch with such a PR open): `code-reviewer`, `spec-reviewer`, and `doc-updater` all run **in parallel** — they are report-only (findings go to a triage file; the main session applies fixes), so there is no shared-write race or ordering dependency.
+- At PR-boundary events for PRs targeting `main` or `master` (PR open OR push to a branch with such a PR open), all required reviewers run **in parallel** and return structured reports without writing files. The root persists deferred findings and applies fixes.
 - Both `sdd/`-lane agents detect `sdd/` exists → SDD-strict mode.
 - **Layout detection:** `test -d sdd/spec` → nested (canonical); else flat (legacy, in migration window). Skills' file globs branch on this detection. `sdd/config.yml` lives at `sdd/spec/config.yml` (nested) or `sdd/config.yml` (flat).
 - Both agents read `config.yml` → know whether to be interactive/auto/unleashed.

@@ -225,6 +225,7 @@ RUN AGY_BIN=$(command -v agy || find / -name 'agy' -type f -perm -u+x 2>/dev/nul
 # would run a slow npm install on first launch (~90s on mobile). Entrypoint
 # symlinks node_modules to this cache (instant, zero-copy).
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
+COPY preseed/agents/pi/npm/ /opt/codeflare/pi-agent/npm/
 # Local Pi extensions, used by the jiti warm-up layer below (they reach user
 # containers via the R2 agent seed, verbatim — same content, so the
 # content-addressed cache entries baked from these files hit at runtime).

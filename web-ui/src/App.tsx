@@ -44,8 +44,48 @@ const AppContent: Component = () => {
   const [loading, setLoading] = createSignal(true);
   const [authError, setAuthError] = createSignal<string | null>(null);
   const [redirecting, setRedirecting] = createSignal(false);
+  let initialAuthSettled = false;
+  let resumeCheckInFlight = false;
+  let wasHidden = document.visibilityState === 'hidden';
+
+  const markAuthRedirect = (err: unknown): boolean => {
+    if (err instanceof ApiError && (err.authRedirect || err.status === 401)) {
+      setRedirecting(true);
+      return true;
+    }
+    return false;
+  };
+
+  const revalidateAuthAfterResume = async () => {
+    if (!initialAuthSettled || resumeCheckInFlight || redirecting()) return;
+    resumeCheckInFlight = true;
+    try {
+      await getUser();
+    } catch (err) {
+      markAuthRedirect(err);
+    } finally {
+      resumeCheckInFlight = false;
+    }
+  };
+
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'hidden') {
+      wasHidden = true;
+      return;
+    }
+    if (!wasHidden) return;
+    wasHidden = false;
+    void revalidateAuthAfterResume();
+  };
+
+  const handlePageShow = (event: PageTransitionEvent) => {
+    if (event.persisted) void revalidateAuthAfterResume();
+  };
 
   onMount(async () => {
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pageshow', handlePageShow);
+
     try {
       const user = await getUser();
       setUserName(user.email);
@@ -95,10 +135,7 @@ const AppContent: Component = () => {
       // fetch-helper (location.replace). Show a calm "redirecting" state, not the
       // generic auth-error page; the promise settled so the loading shell clears
       // (no white page) and `finally` runs setLoading(false).
-      if (err instanceof ApiError && (err.authRedirect || err.status === 401)) {
-        setRedirecting(true);
-        return;
-      }
+      if (markAuthRedirect(err)) return;
       if (import.meta.env.DEV) {
         setUserName('dev@localhost');
         setUserRole('admin');
@@ -106,11 +143,14 @@ const AppContent: Component = () => {
         setAuthError('Authentication required. Please refresh the page.');
       }
     } finally {
+      initialAuthSettled = true;
       setLoading(false);
     }
   });
 
   onCleanup(() => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('pageshow', handlePageShow);
     sessionStore.stopAllPolling();
     terminalStore.disposeAll();
   });

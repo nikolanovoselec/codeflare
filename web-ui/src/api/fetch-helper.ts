@@ -26,6 +26,16 @@ interface BaseFetchOptions {
   basePath?: string;
 }
 
+function expiredSessionError(message: string, body?: unknown): ApiError {
+  const error = new ApiError(message, 401, 'Unauthorized', body);
+  const path = window.location.pathname;
+  if (path === '/app' || path.startsWith('/app/') || path === '/admin' || path.startsWith('/admin/')) {
+    try { window.location.replace('/'); } catch { /* non-browser/test env */ }
+    error.authRedirect = true;
+  }
+  return error;
+}
+
 export async function baseFetch<T>(
   url: string,
   init: RequestInit,
@@ -49,11 +59,7 @@ export async function baseFetch<T>(
   // — which previously caused JSON parse failures and, with CF Access's injected
   // scripts, a full page reload.
   if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
-    throw new ApiError(
-      'Authentication redirect detected — session may have expired',
-      401,
-      'Unauthorized'
-    );
+    throw expiredSessionError('Authentication redirect detected — session may have expired');
   }
 
   if (!response.ok) {
@@ -64,10 +70,9 @@ export async function baseFetch<T>(
     // Detect HTML error pages (e.g., CF Access login page returned as 403).
     // Show a clean auth message instead of dumping raw HTML into the UI.
     if (body && /^\s*<!doctype\s|^\s*<html[\s>]/i.test(body)) {
-      throw new ApiError(
+      throw expiredSessionError(
         'Authentication expired — please refresh the page to log in again',
-        401,
-        'Unauthorized'
+        body,
       );
     }
 
@@ -79,18 +84,8 @@ export async function baseFetch<T>(
     // never-resolving promise hung the bootstrap promise, leaving the SPA stuck on
     // its loading shell = the blank/white page on return-from-background.
     if (response.status === 401) {
-      const path = window.location.pathname;
-      if (path.startsWith('/app/') || path.startsWith('/admin/')) {
-        try { window.location.replace('/'); } catch { /* non-browser/test env */ }
-        const redirectErr = new ApiError(
-          'Session expired — redirecting to sign in',
-          401,
-          'Unauthorized',
-          body
-        );
-        redirectErr.authRedirect = true;
-        throw redirectErr;
-      }
+      const redirectError = expiredSessionError('Session expired — redirecting to sign in', body);
+      if (redirectError.authRedirect) throw redirectError;
     }
 
     let code: string | undefined;

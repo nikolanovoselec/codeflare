@@ -80,7 +80,7 @@ Inside the container, three sibling directories live under `/home/user/` alongsi
 |   |-- Raw/
 |   |   |-- Sessions/      <- AGENT-OWNED: one .md per 15-prompt capture
 |   |   |-- Pasted/        <- USER-OWNED: image/PDF drops from SilverBullet
-|   |   `-- Graphs/        <- USER-EDITABLE: Vault Graph.md (seeded once, never overwritten); links to vault-graph.html re-rendered on each vault-extract pass
+|   |   `-- Graphs/        <- USER-EDITABLE: Vault Graph.md (seeded once, never overwritten); links to vault-graph.html (bounded best-effort render)
 |   |-- Notes/             <- USER-OWNED: durable notes saved by note-capture flows
 |   |-- References/        <- USER-OWNED: reference material and source notes
 |   |-- Inbox/             <- USER-OWNED: SB "Quick Note" target
@@ -103,7 +103,7 @@ Two classes of path are hidden from the SilverBullet client listing/sync ([REQ-V
 
 ## Capture Path (REQ-VAULT-002)
 
-The `memory-capture.sh` UserPromptSubmit hook fires every 15 user messages, writes a `.vars` marker, and emits `additionalContext` instructing the main agent to dispatch the **memory-capture** named subagent (Task tool with `subagent_type="memory-capture"`). The subagent's frontmatter (`preseed/agents/claude/agents/memory-capture.md`) pins `model: sonnet` per [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad); the hook directive instructs the main agent not to pass a model override so the pin cannot be silently downgraded. The subagent runs `memory-agent-prompt.md` end to end:
+On Claude, the `memory-capture.sh` UserPromptSubmit hook fires every 15 user messages, writes a `.vars` marker, and emits `additionalContext` instructing the main agent to dispatch the **memory-capture** named subagent (Task tool with `subagent_type="memory-capture"`). The subagent's frontmatter (`preseed/agents/claude/agents/memory-capture.md`) pins `model: sonnet` per [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad); the hook directive instructs the main agent not to pass a model override so the pin cannot be silently downgraded. The subagent runs `memory-agent-prompt.md` end to end:
 
 1. Deletes the `.vars` marker (dedup gate so a concurrent prompt cannot spawn a duplicate).
 2. Reads the new transcript range.
@@ -125,12 +125,12 @@ A second daemon, `start_vault_monitor_daemon` in entrypoint.sh, polls the vault 
 
 | File | Written by | Used by |
 |---|---|---|
-| `graphify-out/vault-extract-manifest.json` | Vault-extract agent, ONLY on success | `vault-manifest.py changed` — the durable `{path→sha256}` high-water mark (R2-synced, survives restart) |
+| `graphify-out/vault-extract-manifest.json` | Claude vault-extract agent or Pi root finalizer, ONLY on exact success | Durable `{path→sha256}` high-water mark (R2-synced, survives restart) |
 | `vault-monitor.tick` | Daemon, every tick | Diagnostics (heartbeat) |
-| `vault-extract.last` | Vault-extract agent, ONLY on success | Ephemeral dedup timestamp for the hook's vars-staleness guard (NOT detection) |
+| `vault-extract.last` | Claude agent or Pi root finalizer, ONLY on success | Ephemeral dedup timestamp (NOT detection) |
 | `vault-extract.vars` | Daemon, when a change is detected | Trigger for `vault-monitor-hook.sh` |
 
-If extraction fails mid-flight on the Claude path, the manifest is NOT committed, the next tick re-discovers the same files, and the system converges. Eventual consistency, no work lost. (Pi commits the manifest at spawn — see Pi runtime divergence below.)
+If extraction fails mid-flight on the Claude path, the manifest is not committed, the next tick re-discovers the same files, and the system converges. Pi now preserves the same success-only high-water invariant through staged root-owned promotion (see Pi transactional delivery below).
 
 A complementary guard in `vault-monitor-hook.sh` covers the daemon-vs-extract overlap case. The daemon ticks every 60s and an extraction run typically takes ~90s on sonnet (was 30-60s on haiku before [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)), so the daemon may re-write `vault-extract.vars` after the agent's step-1 delete.
 
@@ -160,15 +160,11 @@ Step 4 starts from an empty graph when `vault-graph.json` is absent. It merges t
 Step 6 runs `graphify cluster-only .` with cwd `/home/user/Vault` against the per-run `graph.json`, then copies `graph.html` to `Raw/Graphs/vault-graph.html`. Failure here does not set `EXTRACT_FAILED` because graph data is already persisted by steps 4-5. The only loss is a stale viz HTML, and the next successful extraction re-renders it.
 7. Commit the content-hash manifest (advance the high-water mark) and refresh `vault-extract.last` -- FINAL step only.
 
-**Pi runtime divergence.** Pi implements REQ-VAULT-003 through the `memory-vault.ts` extension rather than a shell daemon + hook, but the graph result is identical to Claude. The extension is a pure trigger: it detects vault changes (hashing file bytes against the shared manifest via `vault-manifest-fs.ts`), commits the manifest, re-publishes the existing cumulative `vault-graph.json` to the global graph, and spawns the `vault-extract` subagent.
+**Pi transactional delivery ([REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)).** Pi implements change detection in `memory-vault.ts`, but it no longer privately spawns an agent or advances the manifest before extraction. The root writes the complete staged manifest and request-specific execution snapshot before atomically publishing a tiny active request-ID pointer. It emits one visible public background request with medium reasoning and four turns, reconstructs attempts/results from root-session JSONL, sends the initial directive plus at most five reminders, and then latches GIVEUP ([AD103](../decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs)). <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::stageVaultRequest --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages -->
 
-Unlike Claude's contract, the extension commits the manifest **before** the `vault-extract` subagent finishes extracting (the subagent's prompt explicitly instructs it not to touch the manifest — the extension owns it). So a Pi subagent that crashes after this point is not self-healing via the high-water mark; that changed file is not re-flagged until it is edited again. This is a deliberate fire-and-forget trade-off — the file's bytes still persist on disk and in R2 — which is why REQ-VAULT-003 AC5's "not committed on failure" self-healing guarantee is anchored to the Claude contract only.
+Before the first exact public tool call, later edits coalesce under the same request ID. After launch, the execution snapshot and staged bytes remain frozen; edits made during extraction become one follow-up request after success. The Bash-only worker reads each frozen file once and exposes its canonical request chunk only after locked cumulative merge and global publication. A failed/timed-out/incomplete task leaves the committed manifest byte-identical. Exact success requires that post-commit chunk and promotes staged bytes only when their SHA matches; a crash after rename but before cleanup is accepted idempotently from matching committed bytes. Missing/corrupt stage data creates a new full-delta request, and an old task result cannot promote or clear replacement work. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::refreshPendingVaultRequest --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @impl: preseed/agents/pi/extensions/vault-manifest-fs.ts::promoteVaultManifest -->
 
-The subagent runs the same canonical pipeline as Claude end to end. It authors a chunk with the canonical `file_type`/`source_file`/`relation`/`confidence` schema, a `contains`-linked sub-section node per markdown heading level 2+, a `references`-linked concept node per `[[wikilink]]`, plus prose concepts, code symbols, and `conceptually_related_to` edges. It then folds the chunk into cumulative `vault-graph.json` via the Pi-local `merge-vault-graph.py`, runs `graphify global add vault-graph.json --as user_vault`, and re-renders the viz. The helper is preseeded to `/home/user/.pi/agent/scripts/`, byte-identical to the Claude copy, and Pi reaches nothing in `.claude`. There is no separate in-process deterministic baseline.
-
-**Sentinel namespacing.** The entrypoint vault-monitor daemon also runs under Pi because it is gated on advanced mode, not runtime. It writes the shared-namespace `vault-extract.vars`, which only Claude's UserPromptSubmit hook consumes; under Pi that file is never picked up. The Pi extension therefore reads its own trigger sentinels (`vault-extract.pi.vars` / `vault-extract.pi.in-flight`) and shares the durable `vault-extract-manifest.json` high-water mark plus the `vault-extract.last` dedup timestamp.
-
-Committing the manifest on each turn makes the daemon's content-hash scan come up empty, so the daemon stays quiet rather than wedging Pi's trigger gate with a file Pi can never clear. A `vault-extract.pi.vars` left behind by a crashed subagent self-clears once it ages past the 30-minute in-flight TTL (`VAULT_EXTRACT_INFLIGHT_TTL_MS`).
+The Pi subagent authors a request-specific canonical chunk, then holds one 300-second flock across `merge-vault-graph.py` and cumulative `graphify global add`. Required failure propagates to native task status; only visualization remains best effort. The root owns the execution snapshot, active pointer, committed/staged manifests, and marker throughout.
 
 **PDFs are the exception:** the Pi Read tool cannot render PDF pages as images, so a PDF on the Pi path yields only a bare document node. The heading/title/entity extraction the Claude runtime performs (see [Attachment Cost Caveat](#attachment-cost-caveat-req-vault-011-ac1)) is Claude-only, and scanned/image-only PDFs are inherently out of reach on Pi. For markdown and plain-text files (`.md`/`.txt`/`.json`/`.yaml`/`.yml`), the text/structural output matches the Claude path. The canonical-schema and viz-publish contract these steps satisfy is [REQ-VAULT-016](../../sdd/spec/vault.md#req-vault-016-vault-graph-extraction-emits-the-canonical-shared-schema).
 
@@ -183,7 +179,7 @@ Write sites that touch the global graph:
 - `graphify-active-repo.sh`, on every active-repo transition where a per-repo graph exists or its `source_hash` differs from the manifest (single-active-repo invariant; see below).
 - The `/graphify` skill, on commit, after building a repo's graph.
 
-All four serialise via `flock -w 5 /tmp/graphify-global.lock`. The locking is necessary because `graphify global add` rewrites the manifest + merged graph file in place; the `-w 5` bound prevents a stuck holder from hanging Bash/Edit/Write/ctx_execute tool calls indefinitely.
+All four serialize on `/tmp/graphify-global.lock`. Claude and active-repo maintenance retain the short five-second lock bound. Each Pi extraction uses one required 300-second critical section spanning both cumulative merge and global publication, then exposes its post-commit request chunk; a timeout or missing chunk leaves root-owned high-water state unchanged. Pi visualization is separately capped at 15 seconds.
 
 ### Single-active-repo invariant
 
@@ -557,6 +553,12 @@ catching LLM fabrications that typically drift hours. Assertion failure
 captured ISO_TS string is the single source of truth for the filename and
 `captured_at` frontmatter field; both must contain identical bytes.
 
+### Pi root-owned capture delivery
+
+Pi reads real-user messages from the durable root session, snapshots only prompts after the successful counter at the 15-prompt boundary (bounded to 40 text turns × 4000 characters), and writes request-specific execution JSON before publishing `<sessionId>.vars` as the active request-ID pointer. Launches are medium-reasoning, four-turn public background requests with inherited context disabled; root JSONL determines missing/running/failed/success state and reminders zero through five. The worker directly synthesises one note and exposes note/chunk only after graph publication. GIVEUP remains latched until fifteen later real prompts produce a replacement request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionDue -->
+
+The memory agent writes the note, invokes `scripts/build-memory-graph.py` to derive a deterministic graph with the H1 title and canonical concept IDs, and performs the required locked merge/publication, but never changes the counter or delivery files. The shared merge deduplicates serialized edge evidence after Graphify conversion and keeps `vault-graph.json` and `graph.json` byte-identical. An exact successful native notification qualifies only while that note exists; the root then advances the counter with the greater of its current value and the frozen request count and cleans only the matching pointer/snapshot. Failed, late, or superseded results cannot skip a capture window or delete replacement work. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess -->
+
 ### Counter Storage
 
 ```
@@ -572,6 +574,8 @@ hook fire a reliable "fresh container" signal for [REQ-MEM-002](../../sdd/spec/m
 resume detection. No bisync filter is required because `/tmp` is not
 synced in the first place. The `MEMCAP_COUNTER_DIR` env var overrides
 the default for hermetic tests; production never sets it.
+
+On Pi, the same directory uses `<sessionId>.count` for the high-water count, `<sessionId>.vars` for the active request pointer, and `<sessionId>.<requestId>.vars` for the immutable execution snapshot. The pointer exists only for reload discovery; it is never passed to the background agent.
 
 Cross-reference: the verified Cloudflare-Containers ephemerality contract
 this design relies on is captured at `~/Vault/References/Cloudflare-Containers-Ephemerality.md`
@@ -611,9 +615,10 @@ in the user's vault.
 | Opening an already-warm vault shows an empty/partial editor until you manually reload once or twice | The tab loaded before the vault-scoped service worker controlled it (`navigator.serviceWorker.controller` null on first paint), so SilverBullet booted without the SW-backed local space. | Fixed: the one-time controlled reload ([REQ-VAULT-022](../../sdd/spec/vault.md#req-vault-022-vault-armed-state-open-flow-and-persistence) AC4) reloads the real top-level tab exactly once (a `sessionStorage` one-shot, so it never loops) when a vault SW is active but not yet controlling, so the editor boots against the local space without a manual reload. |
 | Capture not firing | Counter file present at `/tmp/.memory-counter/{session_id}` and transcript has `<15` new prompts since last capture | Send more prompts to reach the 15-message threshold; or verify the hook is registered (`cat ~/.claude/settings.json`) |
 | Capture not firing after a resume | Counter file present despite the container appearing to be a fresh start (would indicate `/tmp` somehow survived recycle, which Cloudflare's ephemerality contract forbids) | Inspect `ls -la /tmp/.memory-counter/`; if the counter mtime predates the current container's start time, file an issue - the platform contract is being violated. Workaround: `rm /tmp/.memory-counter/{session_id}` |
-| Capture spawns but no vault file | Capture agent failed mid-write | Check the agent's transcript for errors; the `.vars` file is gone but the counter has advanced - next 15-prompt window will try again |
+| Pi capture launches but no vault file appears | Background task failed, timed out, or returned success without the deterministic note | Inspect the visible native task result. The root leaves the counter and request snapshot unchanged, emits the next bounded reminder, and eventually latches GIVEUP rather than skipping the window. |
 | Capture transcript shows `ISO_TS_ASSERTION_FAILED` | Timestamp assertion rejected the capture ([REQ-MEM-010](../../sdd/spec/memory.md#req-mem-010-memory-capture-hook-plumbing) AC5) | Read the transcript failure; next 15-prompt window retries. |
-| Same file extracted twice | Concurrent capture + vault-monitor tick | Both serialise via `flock -w 5 /tmp/graphify-global.lock`; safe, but the last writer wins for that specific file's nodes |
+| Same file appears in overlapping extraction requests | A change arrived before/while a public Pi launch was being recorded | Prelaunch edits coalesce; launched snapshots stay frozen and during-run edits become one follow-up. Graph writes serialize on `/tmp/graphify-global.lock`, with Pi holding one required lock across merge and global publication. |
+| A one-file Pi extraction runs for minutes or consumes review-scale tokens | The live agent predates AD103 or inherited broad tools/reasoning and reread skills/input | Verify generated agent frontmatter has `tools: bash` and `thinking: medium`, the public request carries `max_turns: 4`, then remirror and `/reload`. A current worker reads each frozen input once; visualization cannot exceed 15 seconds. |
 
 Vault readiness requires all proofs before click-through: the button stays visible but `aria-disabled`; `probeVaultReady()` must see `{ vaultReady: true }`; `startVaultPrewarm()` and the `codeflare-vault-prewarm` iframe must receive the same-origin ready message; local `sb_data_*`/`sb_files_*` and service-worker proof must exist; `space-sync-complete` must fire; the current object-index queue must be empty; and `/.fs/` must list `CONFIG.md`, `Index.md`, and `STYLES.md`. If it opens early, recheck those paths.
 
@@ -660,6 +665,7 @@ or session-mode gating issues, see [Troubleshooting in preseed.md](preseed.md#tr
 - [REQ-VAULT-023](../../sdd/spec/vault.md#req-vault-023-bucket-stable-vault-store-persistence-and-content-bootstrap) - Bucket-stable vault store persistence and content bootstrap
 - [REQ-VAULT-024](../../sdd/spec/vault.md#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) - Vault bootstrap-hop key arming and service-worker retention
 - [REQ-VAULT-026](../../sdd/spec/vault.md#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest) - Vault-extract change detection survives container restart (content-hash manifest)
+- [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional) - Pi Vault extraction delivery is visible and transactional
 
 ---
 

@@ -175,6 +175,14 @@ Created by the setup wizard only when GitHub OAuth is NOT configured:
 
 When `OAUTH_CLIENT_ID` IS set: no CF Access groups or policies are created.
 
+### Access Session Expiry and Restored Pages
+
+Cloudflare Access validates every request against the application session. For SPA subrequests, Codeflare sends `X-Requested-With: XMLHttpRequest`, which lets Access return a 401 when the session expires. Some Access/browser paths still expose a manual 3xx, opaque redirect, or HTML login response; the API client treats all forms identically on authenticated routes: replace the top-level location with `/`, tag the rejected API error, and let the existing redirecting state render until navigation commits.
+
+Mobile browsers can restore a live DOM from background or bfcache without rerunning application bootstrap. The authenticated app therefore revalidates the current user on hidden-to-visible and persisted `pageshow` transitions. Checks are deduplicated, valid sessions continue unchanged, and expired sessions navigate through the normal Access/sign-in front door.
+
+Workers Static Assets normally serves browser assets with `Cache-Control: public, max-age=0, must-revalidate`. Vite's content-hashed `/assets/*` requests run through the Worker and receive `public, max-age=31536000, immutable` after a successful non-HTML response. This prevents a restored page from revalidating its CSS/JavaScript into Access login HTML after cookie expiry. HTML and missing-asset SPA fallbacks remain revalidating. ([REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page))
+
 ### E2E Testing Auth
 
 E2E tests authenticate via `X-Service-Auth` header in all modes. The secret comes from:

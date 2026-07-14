@@ -63,7 +63,7 @@ if (wsRouteResult.isWebSocketRoute) {
 
 **Workers Assets Routing Guardrails (`wrangler.toml`):**
 
-With SPA fallback (`not_found_handling = "single-page-application"`), control-plane paths must execute Worker logic first via `run_worker_first = ["/", "/login", "/login/", "/auth/*", "/api/*", "/public/*", "/health", "/landing/*"]`. Missing `/api/*` causes setup/auth flows to break (API endpoints return HTML instead of JSON); missing `/login` makes the onboarding `/login` rewrite ([REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-shell)) silently fall through to the SPA because the asset layer serves it at the edge before the Worker runs.
+With SPA fallback (`not_found_handling = "single-page-application"`), control-plane and cache-policy paths execute Worker logic first via `run_worker_first = ["/", "/login", "/login/", "/auth/*", "/api/*", "/public/*", "/health", "/landing/*", "/assets/*"]`. Missing `/api/*` causes setup/auth flows to break (API endpoints return HTML instead of JSON); missing `/login` breaks the onboarding rewrite; missing `/assets/*` bypasses the immutable policy for Vite's fingerprinted CSS/JS and lets a restored page revalidate styles into Access login HTML after session expiry ([REQ-AUTH-020](../../sdd/spec/authentication.md#req-auth-020-onboarding-mode-landing-integrated-login-shell), [REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page)).
 
 ### Container DO (container)
 
@@ -207,7 +207,7 @@ The `containerStartedAt` fallback is critical: if a user opens a terminal but ne
 
 **Directory:** `landing/`
 
-The public enterprise marketing site ([REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving)). Builds to static HTML in `web-ui/dist/landing/` (base path `/landing`), so the existing `[assets]` binding serves it with no extra deployment. The Worker long-caches the content-hashed `/_astro/` build assets (`Cache-Control: public, max-age=31536000, immutable`) while HTML keeps its revalidating default, and both the landing layout and the SPA shell declare `color-scheme: dark` with an inline root paint so cross-document navigations (landing ↔ `/login`) never flash a white canvas ([REQ-LANDING-004](../../sdd/spec/landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching)).
+The public enterprise marketing site ([REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving)). Builds to static HTML in `web-ui/dist/landing/` (base path `/landing`), so the existing `[assets]` binding serves it with no extra deployment. The Worker long-caches content-hashed Astro `/_astro/` and Vite `/assets/` build assets (`Cache-Control: public, max-age=31536000, immutable`) while HTML and missing-asset SPA fallbacks keep their revalidating default. The landing layout and SPA shell both declare `color-scheme: dark` with an inline root paint so cross-document navigations (landing ↔ `/login`) never flash a white canvas ([REQ-LANDING-004](../../sdd/spec/landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching), [REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page)).
 
 The landing also opts every same-origin full-page navigation into a cross-document view transition (`@view-transition { navigation: auto }` in `landing/src/styles/global.css`), so the browser holds the current page during the document swap and Chromium-fork browsers (Vivaldi/Arc/Brave) never expose their gray navigation canvas ([REQ-LANDING-004](../../sdd/spec/landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching) AC3).
 
@@ -542,6 +542,53 @@ The one exception is **own-account R2**: the controller strips the container's p
 
 **Policy inheritance.** Egress over `cf1:network` is subject to the account's existing Cloudflare Gateway traffic policies (allow/block/isolate/DLP) unchanged; codeflare never creates or modifies them. The controller's literal-IP SSRF guard is defense-in-depth only and does not stop DNS rebinding — the Gateway policy is the authoritative egress control (see [Security](security.md#strict-gateway-egress-enterprise-mode)). When the toggle is OFF or the deployment is non-enterprise, the catch-all is never wired, the interceptor swap is inert, and the egress path is byte-identical to today.
 
+### Pi Memory and Vault Extraction Data Flow
+
+Pi keeps memory capture and user-curated Vault extraction as separate bounded background agents, but the root session owns both delivery lifecycles ([AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional), [AD103](../decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs), [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)). A small active request-ID pointer supports reload discovery; its request-specific execution snapshot is written first and becomes immutable after the first exact public tool call. Memory snapshots carry the bounded transcript inline as their sole conversation input—there is no secondary `INPUT_FILE` or transcript path. Root-session JSONL supplies launch/reminder counts and correlates native terminal notifications by tool-use ID. Missing or failed work receives the initial directive plus five reminders, then GIVEUP; no queue, receipt, lease, scheduler, or private spawn service exists. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts -->
+
+For memory, the root snapshots only prompts after the last successful counter (at most 40 text turns × 4000 characters). The worker writes the note once, then `build-memory-graph.py` deterministically derives its semantic H1 document node, canonical concept nodes, and unique reference/concept edges before publication. The shared merge normalizes final node-link edges by source/target/relation/source-file after Graphify conversion and copies those exact cumulative bytes to `graph.json`, preventing conversion duplicates or stale reduced outputs. Exact native success qualifies only when the note and request chunk both appear after graph publication; the root then advances the counter with `max(current, frozenPromptCount)` and removes only matching state. For Vault edits, prelaunch changes coalesce under one request ID, launched work stays frozen, and later edits become one follow-up. The full content-hash manifest is staged beside the committed manifest and promoted by same-directory rename only after exact success, post-commit chunk qualification, and hash validation; rename-before-cleanup recovery accepts matching committed bytes idempotently. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @impl: preseed/agents/pi/extensions/vault-manifest-fs.ts::promoteVaultManifest -->
+
+Generated agents and public calls both set medium reasoning; calls stop after four turns and expose only Bash. The normal path reads each immutable input once, writes `<CHUNK>.work`, and uses one required 300-second flock for cumulative merge plus `graphify global add --as user_vault`. Only successful publication exposes canonical `CHUNK`; failure leaves root high-water state unchanged. Noncritical visualization is best effort with a 15-second ceiling.
+
+```mermaid
+sequenceDiagram
+    participant R as Root Pi session
+    participant T as Session JSONL
+    participant A as Extraction agent
+    participant G as Vault/global graph
+    R->>T: persist visible launch request
+    R->>A: public background subagent call
+    A->>G: work chunk; locked merge + publication
+    A->>G: expose post-commit chunk
+    A-->>T: native terminal notification
+    R->>T: correlate exact tool-use ID
+    R->>R: advance matching counter/manifest and clean request
+```
+
+### Pi PR-Boundary Review Data Flow
+
+Pi review is session-scoped and independent of CI ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents), [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-native-review-findings-handoff)). The shared scope resolver produces one lane packet containing the normalized work set, exact ancestry-validated range, lane-owned files/hunks, and cross-lane changed inputs. Each changed input carries old/new hunk ranges; consumers call the shared intersection predicate before following an anchored symbol or named test, so path equality alone cannot fan out review scope. <!-- @impl: preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs::buildReviewPacket --> <!-- @impl: preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs::changedInputIntersects -->
+
+Diff-scoped reviewers retain their complete enforcement families but use gather-then-reason evidence waves. Policy and packet inputs load once, deterministic checks and focused reads run in one batch, and concrete unresolved candidates share one additional evidence batch. The root may use context-mode when enabled, but in-process reviewers deliberately do not load that extension: they invoke the same packet CLI through the native Bash/Node transport, preserving the identical work set and evidence without per-child MCP bridges. Every scoped hunk and manifest row receives a disposition; whole-file reads require a hunk-backed candidate, and unchanged baseline debt is reserved for full-tree scope. <!-- @impl: preseed/agents/pi/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachContextModeToForeground -->
+
+After a successful persisted root boundary, `active-repo-memory.ts` resolves `cd` and tool-level cwd context. `review-enforcement.ts` compares that repository's local `HEAD` with fresh protected-base PR state on a bounded retry schedule and emits one launch plan only for an exact match. A valid acknowledgement yields the acknowledged-to-current range; otherwise the full PR is reviewed. Unmatched calls remain in flight until native terminal notification, so queued or slow reviewers are not duplicated. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::rememberActiveRepoFromToolResult --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
+
+Code, specification, and documentation lanes use the provider-neutral `medium` thinking profile without changing scope or enforcement policy ([REQ-AGENT-087](../../sdd/spec/agents.md#req-agent-087-pi-reviewer-execution-profile)). <!-- @impl: preseed/agents/pi/agents/code-reviewer.md::thinking = medium --> <!-- @impl: preseed/agents/pi/agents/spec-reviewer.md::thinking = medium --> <!-- @impl: preseed/agents/pi/agents/doc-updater.md::thinking = medium -->
+
+Only the reminder head can be acknowledged after every required correlated notification. Reload alone cannot fabricate completion, but a persisted delayed notification may acknowledge the reviewed head after reload or newer unpublished local work while the authoritative PR head still matches it. A replacement PR head is never acknowledged by stale notifications. Pi has no pre-command merge interceptor or durable review execution state. See [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff), [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan), and [REQ-AGENT-082](../../sdd/spec/agents.md#req-agent-082-pi-review-range-selection).
+
+### User-Invoked Review and SDD Ownership
+
+Claude and Pi `/review` reuse the existing six specialist agent types. Every launch prompt carries `review_mode=report-only`; that binding overrides the normal write mode of `refactor-cleaner` and `tdd-guide` and the output-file behavior of `deep-reviewer`. Specialist, deep-verification, cross-reference, architecture-filter, and Reality Filter agents return reports to the root. The root writes the review artifacts, performs optional external verification, records triage history, updates approved ADRs/issues, and applies only user-approved fixes. No `/review` subagent writes source, tests, specifications, documentation, triage, or report files ([REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review), [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill), [REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff), [REQ-AGENT-088](../../sdd/spec/agents.md#req-agent-088-user-invoked-review-ownership-and-triage)). <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Review ownership (binding) --> <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) -->
+
+`/sdd init` and `/sdd clean` are deliberately different: they are root-session mutation workflows, never reviewer jobs. Initialization writes and commits its scaffold in the root. Cleanup invokes specification enforcement before documentation enforcement, applies mode-authorized changes, and in auto/unleashed mode pushes only to the current branch ([REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-037](../../sdd/spec/agents.md#req-agent-037-sdd-clean-rescue-and-autonomy-modes)).
+
+### Pi CI Monitoring Data Flow
+
+Pi CI monitoring has a separate execution lifecycle ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent), [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring)). The PR-boundary extension emits one launch plan with two structured waves: required reviewers first, then independent CI. The root issues every reviewer call, immediately invokes the plan's resolver with the affected repository cwd and explicit review launch state, and submits its returned request unchanged once through public `subagent`. CI launches last without waiting for review completion; no stdout means no action. Non-SDD repositories and default-mode sessions receive CI-only plans for eligible boundaries.
+
+The dedicated `ci-monitor` timeout-bounds each GitHub command, verifies the authoritative PR head, and reports through Pi's native task notification. Review acknowledgement never waits for CI, and neither lifecycle recovers the other. Reload may abort monitoring; only a later extension-issued boundary plan or explicit user request can launch another monitor. See [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring).
+
 ---
 
 ## Module-Level Caches
@@ -659,12 +706,12 @@ Exercise each listed UI, agent, session, storage, or container workflow in stagi
 - [ ] [REQ-AGENT-012](../../sdd/spec/agents.md#req-agent-012-fast-cli-start-configurable) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-013](../../sdd/spec/agents.md#req-agent-013-browser-shim-for-oauth-flows) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-014](../../sdd/spec/agents.md#req-agent-014-manifest-driven-preseed-pipeline) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-015](../../sdd/spec/agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review) — run `/review --diff --deep` on a clean fixture branch; observe one parallel wave of the six existing specialist types followed by Reality Filter, confirm every subagent returns a report without changing `git status`, and confirm only the root writes review artifacts or applies an explicitly approved fix.
 - [ ] [REQ-AGENT-017](../../sdd/spec/agents.md#req-agent-017-bubblewrap-sandbox-for-codex) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-018](../../sdd/spec/agents.md#req-agent-018-push--deploy-credential-management-ui) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-019](../../sdd/spec/agents.md#req-agent-019-branded-settings-ui) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-020](../../sdd/spec/agents.md#req-agent-020-llm-api-key-management-ui) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-021](../../sdd/spec/agents.md#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability) — invoke `/sdd init` in a clean fixture without `sdd/`, then `/sdd clean --auto` after introducing spec drift; confirm both remain in the root session, launch no PR reviewer, and execute specification enforcement before documentation enforcement.
 - [ ] [REQ-AGENT-022](../../sdd/spec/agents.md#req-agent-022-legacy-codebase-import-mode-discovery) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-025](../../sdd/spec/agents.md#req-agent-025-post-clone-graph-triage) — verify every acceptance criterion.
@@ -677,7 +724,7 @@ Exercise each listed UI, agent, session, storage, or container workflow in stagi
 - [ ] [REQ-AGENT-033](../../sdd/spec/agents.md#req-agent-033-sdd-init-scaffolding-and-canonical-render) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-034](../../sdd/spec/agents.md#req-agent-034-sdd-init-enrichment-pass-with-graphify) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-035](../../sdd/spec/agents.md#req-agent-035-sdd-init-phase-7a-source-anchor-verifier-gate) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-037](../../sdd/spec/agents.md#req-agent-037-sdd-clean-rescue-and-autonomy-modes) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-037](../../sdd/spec/agents.md#req-agent-037-sdd-clean-rescue-and-autonomy-modes) — on disposable current branches, exercise `--auto` and `--unleashed`; confirm the root applies repairs in specification-then-documentation order and pushes the checked-out branch without creating a branch or PR.
 - [ ] [REQ-AGENT-038](../../sdd/spec/agents.md#req-agent-038-resume-mode-drain-workflow) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-039](../../sdd/spec/agents.md#req-agent-039-sdd-init-phase-7b-enumeration-coverage-verifier-gate) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-041](../../sdd/spec/agents.md#req-agent-041-pr-boundary-review-bypass-surfaces) — verify every acceptance criterion.
@@ -687,18 +734,31 @@ Exercise each listed UI, agent, session, storage, or container workflow in stagi
 - [ ] [REQ-AGENT-047](../../sdd/spec/agents.md#req-agent-047-resume-mode-closure-and-review-pipeline-gate) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-048](../../sdd/spec/agents.md#req-agent-048-audit-accumulator-surfaces) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-050](../../sdd/spec/agents.md#req-agent-050-pi-native-review-workflow-skill) — start Pi from a workspace parent, run `/review --diff`, confirm the dedicated review workflow receives the absolute project root and report-only execution contract, then repeat in a fixture lacking `sdd/` or `documentation/` and confirm the documentation lane produces the stable no-op report.
 - [ ] [REQ-AGENT-051](../../sdd/spec/agents.md#req-agent-051-pi-debug-deploy-and-brainstorm-commands) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-durable-review-fix-loop) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-061](../../sdd/spec/agents.md#req-agent-061-pi-idle-durable-review-reaper) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-058](../../sdd/spec/agents.md#req-agent-058-supported-boundary-recovery) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-native-review-findings-handoff) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-visible-review-and-ci-monitor-handoff) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff) — verify every acceptance criterion.
 - [ ] [REQ-AGENT-075](../../sdd/spec/agents.md#req-agent-075-cloudflare-platform-skills-bundled-into-the-advanced-seed) — verify every acceptance criterion.
-- [ ] [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-082](../../sdd/spec/agents.md#req-agent-082-pi-review-range-selection) — verify every acceptance criterion.
+- [ ] [REQ-AGENT-083](../../sdd/spec/agents.md#req-agent-083-user-invoked-pi-review-repository-context) — start Pi outside Git, select a remembered repository whose path contains spaces, and confirm `/review --diff` targets that absolute root without changing the process cwd.
+- [ ] [REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport) — change one named block in a cross-lane file and confirm only anchors whose old/new ranges intersect that hunk enter the reviewer work set under both direct context execution and Bash fallback.
+- [ ] [REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff) — trigger a Claude SDD PR-boundary review; confirm each reviewer returns structured findings without writing files, confirm the root alone persists triage, then confirm the root evaluates and applies each legitimate finding.
+- [ ] [REQ-AGENT-087](../../sdd/spec/agents.md#req-agent-087-pi-reviewer-execution-profile) — inspect one launch of each Pi PR reviewer and confirm its effective thinking level is `medium` while the selected provider remains unpinned.
+- [ ] [REQ-AGENT-088](../../sdd/spec/agents.md#req-agent-088-user-invoked-review-ownership-and-triage) — run `/review --diff --deep` with at least two surfaced findings; confirm each subagent returns without writes, the root persists every report, triage records exactly one decision per finding, defer/ignore/debt decisions reach `sdd/.review-decisions.md`, and no fix is applied before explicit approval.
+- [ ] [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults) — start a fresh container and call one root `ctx_*` tool; run `/ctx off`, confirm the disabled marker persists in Pi settings and the active process reload removes `ctx_*`; run `/ctx on`, confirm the enabled marker persists and the reloaded process restores working tools.
+- [ ] [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership) — launch code/spec/doc reviewers, confirm their tool manifests contain `bash` but no `ctx_*`, and after they finish verify the Pi process owns exactly one `context-mode/server.bundle.mjs` child.
 - [ ] [REQ-MOB-001](../../sdd/spec/mobile.md#req-mob-001-terminal-fully-usable-on-mobile-devices) — verify every acceptance criterion.
 - [ ] [REQ-MOB-016](../../sdd/spec/mobile.md#req-mob-016-mobile-terminal-input-compositor-and-autocorrect-controls) — verify every acceptance criterion.
 - [ ] [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output) — verify every acceptance criterion.

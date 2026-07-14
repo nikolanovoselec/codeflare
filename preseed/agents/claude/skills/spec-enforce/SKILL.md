@@ -1,6 +1,6 @@
 ---
 name: spec-enforce
-description: SDD spec enforcement orchestrator. Runs the 23-row execution manifest against the current diff (or full spec on scope=all). Detects forbidden content, REQ-shape violations, status drift, meta-leakage, changelog drift, backlog state, source-anchor truth-check (CQ-SOURCE — always runs), and per-AC test-anchor coverage at parity with source anchors (CQ-TEST — gated by enforce_tdd). Conditionally invokes spec-enforce-ac (when ACs touched) and spec-enforce-truth (when Implemented or Partial REQs touched or scope=all — Partial included so CQ-SOURCE can validate anchors). Invoked by spec-reviewer on every PR-boundary trigger and by /sdd clean.
+description: SDD spec enforcement orchestrator. Runs the 23-row execution manifest against the current diff (or full spec on scope=all). Detects forbidden content, REQ-shape violations, status drift, meta-leakage, changelog drift, backlog state, source-anchor truth-check (CQ-SOURCE — always runs), and per-AC test-anchor coverage at parity with source anchors (CQ-TEST — gated by enforce_tdd). Conditionally invokes spec-enforce-ac (when ACs touched) and spec-enforce-truth (when Implemented or Partial REQs touched or scope=all — Partial included so CQ-SOURCE can validate anchors). Invoked by spec-reviewer on every PR-boundary trigger and inline by the root-owned /sdd clean workflow.
 version: 2.1.0
 ---
 
@@ -30,7 +30,7 @@ Every row of the manifest below MUST execute on every run. No cherry-picking; co
 
 **Every fired finding MUST be disposed of (binding).** When a rule fires at MEDIUM or HIGH, the run MUST record one of exactly three dispositions per occurrence: `auto-fixed (what)`, `escalated -> .review-queue.md (reason + blast radius)`, or — interactive mode only — `deferred to user confirmation`. Silently re-labelling a fired MEDIUM/HIGH as LOW, "soft limit", "deferred", or "by design" to avoid acting on it is itself HIGH `finding-downgraded-to-skip`. The severity in the rule table is the floor; an agent may not lower it. This rule exists because a prior run downgraded four `ac-count-over-cap` MEDIUMs (8-AC REQs) to "LOW soft-limit, never auto-fixed" and skipped them — a contract breach. If an auto-fix would itself be destructive (e.g. an AC renumber that orphans by-number cross-refs), the correct disposition is `escalated` with the blast radius, never `deferred`/`LOW`.
 
-Audit location by trigger: `/sdd clean` writes to the per-category commit bodies (audit via `git log --grep='\[sdd-clean\]'`). PR-boundary spec-reviewer writes to the agent's commit body OR (if no commits) `sdd/spec/.review-queue.md` (nested) / `sdd/.review-needed.md` (flat, legacy) as a `## Execution manifest` sub-section.
+Audit location by trigger: `/sdd clean` writes to per-category commit bodies. A PR-boundary spec-reviewer returns the execution manifest; the root persists it in the applicable commit body or layout-resolved review queue.
 
 ## Required execution manifest
 
@@ -391,6 +391,6 @@ User revert or "don't do that for this REQ" is a normal git operation. Reverted 
 This skill writes to one of two audit locations:
 
 - `/sdd clean` invocation: append to the per-category commit body (audit via `git log --grep='\[sdd-clean\]'`); no separate dotfile.
-- PR-boundary spec-reviewer: include in agent's commit body OR (if no commits) `sdd/spec/.review-queue.md` (nested) / `sdd/.review-needed.md` (flat, legacy) as `## Execution manifest`.
+- PR-boundary spec-reviewer: return the manifest; the root includes it in the applicable commit body or layout-resolved review queue as `## Execution manifest`.
 
 Every row's status MUST carry concrete evidence counts (`ran (N REQs, M findings)` or `inert (reason)`). Bare `ran` without counts: HIGH `manifest-bare-evidence-count`. Pending rows at finalize: HIGH `manifest-pending-at-finalize`.

@@ -739,6 +739,8 @@ describe('git-push-review-reminder.sh - lane-aware emission (compute_required_la
     assert.equal(r.status, 0);
     assert.match(r.stdout, /Parallel: code-reviewer/);
     assert.match(r.stdout, /Parallel: code-reviewer.*spec-reviewer.*doc-updater/);
+    assert.match(r.stdout, /Return findings to the root session; reviewers do not write project or triage files/,
+      'the boundary directive must preserve root-only write ownership');
   });
 
   it('emits no directive when LAST_ACK equals CURRENT_PR_HEAD (already acked)', () => {

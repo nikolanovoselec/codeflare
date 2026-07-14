@@ -381,21 +381,20 @@ case " $REQUIRED_LANES " in *" doc-updater "*) needs_doc=1 ;; esac
 
 DIRECTIVE="[silent] SDD $CONTEXT detected. Execute NOW without user-facing output."
 
-# Lane-aware composition. All review lanes are report-only and write to disjoint files
-# (code-reviewer -> source, spec-reviewer -> sdd/spec/.review-queue.md, doc-updater ->
-# documentation/.doc-coverage.md), so they all run in parallel - no ordering dependency.
+# Lane-aware composition. All review lanes are report-only and return findings to the
+# root session, so they run in parallel without shared-file writes or ordering dependency.
 # Pure doc-only or spec-only pushes simply demand fewer lanes.
 if [ "$needs_code" = "1" ] && [ "$needs_spec" = "1" ] && [ "$needs_doc" = "1" ]; then
-  DIRECTIVE="$DIRECTIVE Parallel: code-reviewer (source lane), spec-reviewer (sdd/ lane), doc-updater (docs/ lane) - all three run concurrently (report-only, disjoint write targets)."
+  DIRECTIVE="$DIRECTIVE Parallel: code-reviewer (source lane), spec-reviewer (sdd/ lane), doc-updater (docs/ lane) - all three run concurrently and return structured reports."
 elif [ "$needs_spec" = "1" ] && [ "$needs_doc" = "1" ]; then
-  DIRECTIVE="$DIRECTIVE Parallel: spec-reviewer (sdd/ lane) and doc-updater (docs/ lane) - run concurrently (report-only, disjoint write targets). Code lane silently excluded by Stop hook (no source files in diff)."
+  DIRECTIVE="$DIRECTIVE Parallel: spec-reviewer (sdd/ lane) and doc-updater (docs/ lane) - run concurrently and return structured reports. Code lane silently excluded by Stop hook (no source files in diff)."
 elif [ "$needs_doc" = "1" ] && [ "$needs_code" = "0" ] && [ "$needs_spec" = "0" ]; then
   DIRECTIVE="$DIRECTIVE Spawn: doc-updater (docs/ lane) only. Code and spec lanes silently excluded by Stop hook (diff is documentation-only)."
 else
   # Defensive: any unexpected combination falls back to the all-three parallel directive.
   # The Stop hook is still the source of truth and will correct any over-spawn by silently
   # acking the SHA when the required lanes' agents are spawned.
-  DIRECTIVE="$DIRECTIVE Parallel: code-reviewer (source lane), spec-reviewer (sdd/ lane), doc-updater (docs/ lane) - all three run concurrently (report-only, disjoint write targets)."
+  DIRECTIVE="$DIRECTIVE Parallel: code-reviewer (source lane), spec-reviewer (sdd/ lane), doc-updater (docs/ lane) - all three run concurrently and return structured reports."
 fi
 
 if [ -n "$LAST_ACK_PR_HEAD" ] && [ -n "$CURRENT_PR_HEAD" ] && git merge-base --is-ancestor "$LAST_ACK_PR_HEAD" "$CURRENT_PR_HEAD" 2>/dev/null; then
@@ -403,7 +402,7 @@ if [ -n "$LAST_ACK_PR_HEAD" ] && [ -n "$CURRENT_PR_HEAD" ] && git merge-base --i
 else
   DIRECTIVE="$DIRECTIVE Each agent fetches the full PR diff (no prior review base): 'git diff origin/\$(gh pr view --json baseRefName -q .baseRefName)...HEAD' (or 'git diff origin/main...HEAD' as fallback) - the origin/ prefix matters because baseRefName returns the bare branch name (e.g. 'develop') and CI/fresh-clone environments may not have it as a local branch. Do NOT paste diffs into the prompt; just give a one-line task framing."
 fi
-DIRECTIVE="$DIRECTIVE Do NOT mention these agents to the user. Do NOT print status updates about them."
+DIRECTIVE="$DIRECTIVE Return findings to the root session; reviewers do not write project or triage files. The root evaluates findings, persists reports, and applies only legitimate fixes. Do NOT mention these agents to the user. Do NOT print status updates about them."
 
 jq -n --arg ctx "$DIRECTIVE" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$ctx}}'
 exit 0
