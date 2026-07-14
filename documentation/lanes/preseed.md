@@ -470,34 +470,33 @@ intentionally not recovered automatically. This implements
 [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan), and
 [AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent).
 
-  Pi memory capture is driven by two deployed contracts:
-  `prompts/memory-agent-prompt.md` (the capture-agent contract) and
-  `prompts/vault-extract-prompt.md` (the Vault-graph extraction contract). They
-  carry the full [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)-grade
-  capture instructions.
+Pi extraction is driven by two deployed contracts:
+`prompts/memory-agent-prompt.md` and `prompts/vault-extract-prompt.md`. The root
+extension reads Pi's durable session transcript, filters synthetic prompts,
+creates request-specific execution snapshots, and emits visible public
+background requests instead of invoking the private subagent service
+([AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional)).
 
-  `memory-vault.ts` reads those prompts from `~/.pi/agent/prompts/*.md`, reads
-  the conversation from Pi's durable on-disk session transcript for `/resume`,
-  counts only Claude-compatible real user prompts, and prefilters to
-  user/assistant text before spawning capture at `delta >= 15`
-  ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages)).
-  Empty resolved transcripts skip capture instead of writing hollow notes.
+`memory-vault.ts` owns delivery and high-water state. `<sessionId>.vars` and
+`vault-extract.pi.vars` are tiny active request-ID pointers used only for reload
+discovery; public prompts receive immutable `<sessionId>.<requestId>.vars` or
+`vault-extract.pi.<requestId>.vars` snapshots. Root-session JSONL determines
+attempts, native completion, reminders `0..5`, and GIVEUP. Background agents
+never write counters, pointers, or manifests. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts -->
 
-  The pending `.vars` carrier stays on disk while memory-capture runs, so Pi
-  does not spawn duplicates. The subagent writes the prompt counter only after
-  the Vault note exists, then clears `.vars`; stale `.vars` markers self-clear
-  after the pending TTL so stopped captures retry instead of skipping a window.
-  Implements [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages) AC5-AC6; source: `preseed/agents/pi/extensions/memory-vault.ts::memoryVarsPending`, `preseed/agents/pi/extensions/memory-vault.ts::captureVars`, and `preseed/agents/pi/prompts/memory-agent-prompt.md::Advance the counter and clear the pending marker`.
+Memory capture still triggers at the 15-real-prompt cadence and force-captures a
+resumed durable transcript when no counter exists. Exact success plus the
+precomputed note lets the root advance the frozen counter and remove only the
+matching request. Vault indexing retains the shared content-hash format and
+exclusion set, but writes a request-specific pending manifest and promotes it
+only after exact success/hash validation; prelaunch edits coalesce and during-run
+edits produce one follow-up ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-VAULT-026](../../sdd/spec/vault.md#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)).
 
-  A missing `/tmp` counter with more than one real user prompt force-fires
-  resumed-session capture, matching Claude. Vault indexing uses the shared
-  content-hash manifest (`graphify-out/vault-extract-manifest.json`) as its
-  high-water mark
-  ([REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session), [REQ-VAULT-026](../../sdd/spec/vault.md#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest))
-  and excludes `Raw/Sessions/`, `graphify-out/`, `.silverbullet/`, and the four
-  preseed root pages, so it only runs after user-curated Vault changes.
+Both prompt contracts derive request-specific graph chunks and require one
+300-second lock spanning cumulative merge and global publication. Required
+failure propagates to native task status; only visualization is best effort.
 
-  Pi subagents are provided by `@gotgenes/pi-subagents`; the generator adapts
+Pi subagents are provided by `@gotgenes/pi-subagents`; the generator adapts
   Claude agent definitions into `.pi/agent/agents/*.md`. The container image
   preinstalls Pi extension npm dependencies into an image-local cache, and
   entrypoint copies that cache into `~/.pi/agent/npm` after R2 restore.

@@ -381,6 +381,12 @@ The setup wizard auto-provisions a higher-precedence Access **bypass** app (`dec
 `cat ~/.cache/codeflare-hooks/graphify-active-cwd` should contain the current repo root. If missing, the active-repo hook has not fired yet - trigger a Bash `cd` to the repo, or Edit any file in it. Advanced session mode only: confirm `graphify-active-repo.sh` is registered under `~/.claude/settings.json` `hooks.PostToolUse`. Default mode has no sentinel by design (fallback only). This sentinel governs graphify graph resolution only.
 
 <a id="onboarding-mode-the-vault-editor-never-loads-silverbullet-service-work"></a>
+#### Pi memory/Vault extraction repeats reminders, reaches GIVEUP, or reports Done without advancing state
+
+Pi now treats the root session transcript as delivery truth ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)). Inspect the visible `background-extraction-launch` messages, exact public `subagent` tool call, and correlated `subagent-notification` by tool-use ID. A missing/failed request receives reminders `0..5`, then one `background-extraction-giveup`; this is bounded failure, not a hidden hang.
+
+For memory, a `Done` notification does not qualify unless `/home/user/Vault/Raw/Sessions/<captureFilename>` exists. For Vault extraction, promotion requires the request-specific staged manifest's raw SHA to equal `stagedManifestHash`; mismatch leaves the committed manifest unchanged and creates a new full-delta request. Do not delete counters/manifests manually. A later real prompt re-arms memory after another 15-message window; a new Vault edit re-arms a GIVEUP request. If a request appears stuck as running, its exact unnotified tool call remains active for 30 minutes before the root treats it as failed. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess -->
+
 #### Onboarding mode: the Vault editor never loads / SilverBullet service worker fails to register (browser console shows `script resource is behind a redirect`, 302 to `*.cloudflareaccess.com`)
 
 **Fix detail:**

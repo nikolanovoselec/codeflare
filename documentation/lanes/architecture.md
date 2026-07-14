@@ -542,6 +542,28 @@ The one exception is **own-account R2**: the controller strips the container's p
 
 **Policy inheritance.** Egress over `cf1:network` is subject to the account's existing Cloudflare Gateway traffic policies (allow/block/isolate/DLP) unchanged; codeflare never creates or modifies them. The controller's literal-IP SSRF guard is defense-in-depth only and does not stop DNS rebinding — the Gateway policy is the authoritative egress control (see [Security](security.md#strict-gateway-egress-enterprise-mode)). When the toggle is OFF or the deployment is non-enterprise, the catch-all is never wired, the interceptor swap is inert, and the egress path is byte-identical to today.
 
+### Pi Memory and Vault Extraction Data Flow
+
+Pi keeps memory capture and user-curated Vault extraction as separate background agents, but the root session owns both delivery lifecycles ([AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional), [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)). A small active request-ID pointer supports reload discovery; its request-specific execution snapshot is written first and becomes immutable after the first exact public tool call. Root-session JSONL supplies launch/reminder counts and correlates native terminal notifications by tool-use ID. Missing or failed work receives the initial directive plus five reminders, then GIVEUP; no queue, receipt, lease, scheduler, or private spawn service exists. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts -->
+
+For memory, exact native success qualifies only when the deterministic capture note exists; the root then advances the counter with `max(current, frozenPromptCount)` and removes only the matching pointer/snapshot. For Vault edits, prelaunch changes coalesce under one request ID, launched work stays frozen, and later edits become one follow-up. The full content-hash manifest is staged beside the committed manifest and promoted by same-directory rename only after exact success and hash validation; rename-before-cleanup recovery accepts matching committed bytes idempotently. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @impl: preseed/agents/pi/extensions/vault-manifest-fs.ts::promoteVaultManifest -->
+
+Both agents write request-specific chunks. One required 300-second flock covers cumulative merge and `graphify global add --as user_vault`; failure leaves root-owned high-water state unchanged for retry. Visualization remains best effort only after required graph publication.
+
+```mermaid
+sequenceDiagram
+    participant R as Root Pi session
+    participant T as Session JSONL
+    participant A as Extraction agent
+    participant G as Vault/global graph
+    R->>T: persist visible launch request
+    R->>A: public background subagent call
+    A->>G: request chunk; locked merge + publication
+    A-->>T: native terminal notification
+    R->>T: correlate exact tool-use ID
+    R->>R: advance matching counter/manifest and clean request
+```
+
 ### Pi PR-Boundary Review Data Flow
 
 Pi review is session-scoped and independent of CI ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents), [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-059](../../sdd/spec/agents.md#req-agent-059-pi-native-review-findings-handoff)). The shared scope resolver produces one lane packet containing the normalized work set, exact ancestry-validated range, lane-owned files/hunks, and cross-lane changed inputs. Each changed input carries old/new hunk ranges; consumers call the shared intersection predicate before following an anchored symbol or named test, so path equality alone cannot fan out review scope. <!-- @impl: preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs::buildReviewPacket --> <!-- @impl: preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs::changedInputIntersects -->

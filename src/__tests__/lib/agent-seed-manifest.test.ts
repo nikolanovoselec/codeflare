@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { cloneTargetPath, graphifyCloneAction, graphifyClonePromptDecision, graphifyPromptMarker, isFailedToolExecution as isFailedGraphifyToolExecution, renderGraphifyCloneDirective } from '../../../preseed/agents/pi/extensions/graphify-helpers';
-import { buildSpawnOptions, captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_CAPTURE_PENDING_TTL_MS, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
+import { captureFilename, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import { attributionBlockReason, isLocalBuildCommand, localBuildBlockReason } from '../../../preseed/agents/pi/extensions/guard-helpers';
 import { DEBUG_WORKFLOW, DEPLOY_WORKFLOW, BRAINSTORM_WORKFLOW, commandInstructions, deployTarget } from '../../../preseed/agents/pi/extensions/commands-helpers';
 import { handleContextModeCommand, restoreActiveRepoFromPersistedFiles, shouldHandleClonePrompt, type PiSettings } from '../../../preseed/agents/pi/extensions/codeflare-pi';
@@ -1053,13 +1053,6 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     });
   });
 
-  it('REQ-MEM-015 AC1: memory-vault.ts uses flock for global graph merge', () => {
-    const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
-    expect(mv?.content).toContain('flock');
-    expect(mv?.content).toContain('graphify-global.lock');
-    expect(mv?.content).toContain('user_vault');
-  });
-
   // parseSessionMessages reads Pi's durable on-disk session JSONL (the file Pi persists for
   // /resume) into the message objects compactMessages expects. This is the source that replaces
   // the volatile in-memory buffer that produced empty captures after a reload.
@@ -1097,53 +1090,6 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     });
   });
 
-  it('REQ-MEM-001: memory-vault.ts capture reads the durable on-disk session, not volatile state', () => {
-    const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
-    // Durable source: capture pulls the transcript from the persisted session file Pi writes for /resume.
-    expect(mv?.content).toContain('getSessionFile');
-    expect(mv?.content).toContain('parseSessionMessagesHelper');
-    expect(mv?.content).toContain('readSessionMessages');
-    expect(mv?.content).toContain('realUserPromptCount');
-    expect(mv?.content).toContain('withCurrentPrompt');
-    // Skip-empty guard: a blank transcript must never produce a hollow "no substantive content" note.
-    // The guard now lives in captureVars (`if (!transcript.trim()) return undefined;`); assert it
-    // without pinning the return value so a later refactor of the bail value does not rebreak this.
-    expect(mv?.content).toContain('if (!transcript.trim()) return');
-  });
-
-  it('REQ-VAULT-003 / REQ-VAULT-026: Pi vault indexing shares Claude content-hash detection + exclusions', () => {
-    const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
-    // Shared ephemeral dedup marker (advancing it keeps the entrypoint daemon quiet).
-    expect(mv?.content).toContain('vault-extract.last');
-    expect(mv?.content).not.toContain('pi-vault-extract.last');
-    // REQ-VAULT-026: change detection is the content-hash manifest, NOT mtimes —
-    // the bundled fs layer must be wired in so a restored vault is not re-extracted.
-    expect(mv?.content).toContain('vault-extract-manifest.json');
-    expect(mv?.content).toContain('changedVaultFilesIn');
-    expect(mv?.content).toContain('commitVaultManifestTo');
-    // Shared exclusion set (bundled from memory-vault-helpers).
-    expect(mv?.content).toContain('Raw/Sessions');
-    expect(mv?.content).toContain('graphify-out');
-    expect(mv?.content).toContain('.silverbullet');
-    expect(mv?.content).toContain('Index.md');
-    expect(mv?.content).toContain('README.md');
-    expect(mv?.content).toContain('CONFIG.md');
-    expect(mv?.content).toContain('STYLES.md');
-  });
-
-  it('REQ-MEM-001/REQ-VAULT-003: memory-vault handlers are inert inside subagent child sessions', () => {
-    const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
-    // pi-subagents children always load the parent's extensions; without the guard,
-    // the sendUserMessage("Agent(...)") fallback lands in a monitor child's transcript
-    // and becomes that task's visible output. Every lifecycle handler must bail on
-    // child sessions before doing any capture/extract/merge work.
-    const guardCalls = mv?.content.match(/if \(isChildSession\(ctx\)\) return;/g) ?? [];
-    expect(guardCalls.length).toBeGreaterThanOrEqual(3); // session_start, before_agent_start, agent_end
-    // The detection prongs come from the pure helpers (Workers-pool testable).
-    expect(mv?.content).toContain('isChildSessionHeader');
-    expect(mv?.content).toContain('isChildSessionFirstLine');
-  });
-
   it('REQ-MEM-002 AC3/AC4: shouldCapture matches Claude delta threshold semantics', () => {
     expect(MEMORY_EVERY_N_PROMPTS).toBe(15);
     expect(shouldCapture(14)).toBe(false);
@@ -1179,51 +1125,20 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     const atThreshold = withCurrentPrompt(messages, 'prompt 14');
     expect(realUserPromptCount(atThreshold)).toBe(MEMORY_EVERY_N_PROMPTS);
     expect(shouldCapture(realUserPromptCount(atThreshold))).toBe(true);
-    expect(MEMORY_CAPTURE_PENDING_TTL_MS).toBe(30 * 60 * 1000);
   });
 
-  it('REQ-MEM-002 AC6: Pi capture counter advances only after a capture note exists', () => {
-    const prompt = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/prompts/memory-agent-prompt.md');
-    const captureStep = prompt?.content.slice(prompt.content.indexOf('### 1.'), prompt.content.indexOf('### 2.')) ?? '';
-    const noteExists = prompt?.content.indexOf('After the markdown capture file exists') ?? -1;
-    const counterWrite = prompt?.content.indexOf('printf \'%s\' "<promptCount>" > "<counterFile>"') ?? -1;
-    const varsDelete = prompt?.content.indexOf('rm -f "<VARS_FILE>"', counterWrite) ?? -1;
-
-    expect(captureStep).not.toContain('rm -f "<VARS_FILE>"');
-    expect(noteExists).toBeGreaterThan(0);
-    expect(counterWrite).toBeGreaterThan(noteExists);
-    expect(varsDelete).toBeGreaterThan(counterWrite);
-  });
-
-  it('REQ-MEM-014: Pi memory-capture is configured as a background subagent', () => {
-    const agent = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/agents/memory-capture.md');
-    expect(agent?.modes).toEqual(['advanced']);
-    const frontmatter = Object.fromEntries(
-      (agent?.content.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '')
-        .split('\n')
-        .map((line) => line.split(/:\s*/, 2))
-        .filter((parts) => parts.length === 2),
-    );
-    expect(frontmatter.run_in_background).toBe('true');
-  });
-
-  it('REQ-VAULT-003: Pi vars/in-flight sentinels are namespaced so the Claude vault-monitor daemon cannot wedge Pi', () => {
-    const mv = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/extensions/memory-vault.ts');
-    // The entrypoint vault-monitor daemon (Claude's producer) writes the
-    // shared-namespace ~/.cache/codeflare-hooks/vault-extract.vars on any vault
-    // change; under Pi nothing consumes it. Pi MUST read its OWN sentinels so
-    // the daemon's orphaned file never makes vaultVarsPending() block forever.
-    expect(mv?.content).toContain('vault-extract.pi.vars');
-    expect(mv?.content).toContain('vault-extract.pi.in-flight');
-    expect(mv?.content).toContain('VAULT_INFLIGHT');
-    expect(mv?.content).toContain('VAULT_EXTRACT_INFLIGHT_TTL_MS');
-    // Regression guard: Pi must NOT read the daemon's shared-namespace files.
-    expect(mv?.content).not.toContain('"vault-extract.vars"');
-    expect(mv?.content).not.toContain('"vault-extract.in-flight"');
-    // The high-water marker stays SHARED (advancing it keeps the daemon quiet).
-    expect(mv?.content).toContain('vault-extract.last');
-    // Self-heal: a stale vars file past the in-flight TTL must clear, not wedge.
-    expect(mv?.content).toContain('Date.now() - statSync(VAULT_VARS_FILE).mtimeMs > VAULT_EXTRACT_INFLIGHT_TTL_MS');
+  it('REQ-MEM-014/REQ-VAULT-027: transformed Pi extraction agents expose the background frontmatter contract', () => {
+    for (const key of ['.pi/agent/agents/memory-capture.md', '.pi/agent/agents/vault-extract.md']) {
+      const agent = AGENTS_SEEDED_CONFIGS.find((document) => document.key === key);
+      expect(agent?.modes).toEqual(['advanced']);
+      const parsed = Object.fromEntries(
+        (agent?.content.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '')
+          .split('\n')
+          .map((line) => line.split(/:\s*/, 2))
+          .filter((parts) => parts.length === 2),
+      );
+      expect(parsed.run_in_background).toBe('true');
+    }
   });
 
   it('REQ-VAULT-004: memory-vault.ts publishes the cumulative vault graph to the global graph via flock-guarded graphify global add', () => {
@@ -1236,24 +1151,6 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(mv?.content).toContain('vault-graph.json');
     // It is a pure trigger now: no in-process deterministic graph builder.
     expect(mv?.content).not.toContain('deterministicVaultGraph');
-  });
-
-  it('REQ-VAULT-003 AC7: Pi vault-extract prompt publishes the viz to Raw/Graphs', () => {
-    const prompt = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/prompts/vault-extract-prompt.md');
-    expect(prompt?.content).toContain('graphify cluster-only .');
-    expect(prompt?.content).toContain('Raw/Graphs/vault-graph.html');
-  });
-
-  it('REQ-VAULT-016 / REQ-MEM-009: Pi vault-extract + memory prompts build the cumulative vault graph via the Pi-local merge-vault-graph.py', () => {
-    const vault = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/prompts/vault-extract-prompt.md');
-    const memory = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/prompts/memory-agent-prompt.md');
-    for (const prompt of [vault, memory]) {
-      // Self-contained in .pi: Pi must never reach into the Claude plugin tree.
-      expect(prompt?.content).toContain('/home/user/.pi/agent/scripts/merge-vault-graph.py');
-      expect(prompt?.content).not.toContain('.claude/plugins/codeflare-vault/scripts/merge-vault-graph.py');
-      // Publish the CUMULATIVE vault-graph.json, never the per-run chunk/graph.json (REQ-MEM-009 AC3).
-      expect(prompt?.content).toMatch(/graphify global add[\s\S]{0,160}vault-graph\.json[\s\S]{0,160}--as user_vault/);
-    }
   });
 
   it('REQ-VAULT-007: Pi is self-contained - merge-vault-graph.py is preseeded into .pi/agent/scripts', () => {
@@ -1619,29 +1516,5 @@ describe('Reviewer agents can access their enforce policy', () => {
     expect(gemCr, '.gemini/agents/code-reviewer.md should be seeded').toBeTruthy();
     const gemTools = gemCr!.content.match(/^tools:.*$/m)?.[0] ?? '';
     expect(gemTools).not.toContain('Skill');
-  });
-});
-
-describe('Pi memory model-fidelity lever / REQ-MEM-014 AC5/AC6 (buildSpawnOptions applies the model only when set; no hardcoded model)', () => {
-  it('applies the model option only when a model argument is provided', () => {
-    expect(buildSpawnOptions('Capture session memory', 'higher-fidelity-model').model).toBe('higher-fidelity-model');
-    expect('model' in buildSpawnOptions('Capture session memory', undefined)).toBe(false);
-  });
-
-  it('passes no model when CODEFLARE_MEMORY_MODEL is unset (no hardcoded default)', () => {
-    const saved = process.env.CODEFLARE_MEMORY_MODEL;
-    delete process.env.CODEFLARE_MEMORY_MODEL;
-    try {
-      expect('model' in buildSpawnOptions('Extract Vault graph changes', process.env.CODEFLARE_MEMORY_MODEL)).toBe(false);
-    } finally {
-      if (saved !== undefined) process.env.CODEFLARE_MEMORY_MODEL = saved;
-    }
-  });
-
-  it('always carries the description, inheritContext:false, and background service options', () => {
-    const opts = buildSpawnOptions('Capture resumed session memory', 'm');
-    expect(opts.description).toBe('Capture resumed session memory');
-    expect(opts.inheritContext).toBe(false);
-    expect(opts.foreground).toBe(false);
   });
 });
