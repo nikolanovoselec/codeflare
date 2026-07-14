@@ -104,7 +104,27 @@ jobs:
         working-directory: web-ui
 
       - name: Run backend tests
-        run: bash scripts/run-backend-tests.sh
+        # Same known @cloudflare/vitest-pool-workers teardown-crash guard as the
+        # PR-check workflow (.github/workflows/test.yml) and deploy.yml. Keep the
+        # three in sync: the pre-deploy suite hits the identical workerd shutdown
+        # flake, so a plain `npm test` would fail every deploy after all tests pass.
+        env:
+          NO_COLOR: '1'
+          FORCE_COLOR: '0'
+        run: |
+          set +e
+          npm test 2>&1 | tee /tmp/backend-tests.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -eq 0 ]; then exit 0; fi
+          if grep -Fq '[vitest-pool]: Worker cloudflare-pool emitted error.' /tmp/backend-tests.log \
+            && grep -Eq 'Errors[[:space:]]+1 error' /tmp/backend-tests.log \
+            && grep -Eq 'Tests[[:space:]]+[0-9]+ passed' /tmp/backend-tests.log \
+            && ! grep -Eq '(Test Files|Tests)[[:space:]]+[0-9]+ failed' /tmp/backend-tests.log; then
+            echo "Accepting backend tests: all tests passed; only the known workerd teardown crash remained"
+            exit 0
+          fi
+          exit "$status"
 
       - name: Run frontend tests
         run: npm test
