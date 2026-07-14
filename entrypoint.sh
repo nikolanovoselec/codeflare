@@ -1959,7 +1959,7 @@ warm_pi_npm_dependencies() {
 const fs = require('fs');
 const path = process.argv[2];
 const required = [
-  'npm:@gotgenes/pi-subagents@18.0.1',
+  'npm:@gotgenes/pi-subagents@18.0.2',
   // Keep context-mode's skills available to every Pi session but do not autoload its extension
   // through shared package resources. context-mode-runtime.ts attaches that extension once to the
   // foreground process owner; in-process subagents use the equivalent Bash review transport.
