@@ -144,7 +144,7 @@ jobs:
 
           # Regenerate the Pi preseed lockfile so its context-mode pin matches the
           # bumped manifest (same mechanism the pi-preseed job uses for its deps).
-          ( cd preseed/agents/pi && npm install --package-lock-only --no-audit --no-fund )
+          node scripts/regenerate-pi-preseed-lock.mjs
           npm ci --no-audit --no-fund --silent
           npm run generate:agent-seed
 
@@ -989,9 +989,9 @@ jobs:
           }
           NODE
 
-          # Regenerate the pi preseed lockfile to match the bumped manifest, then
-          # regenerate the embedded agent seed from the preseed tree.
-          ( cd preseed/agents/pi && npm install --package-lock-only --no-audit --no-fund )
+          # Regenerate the pi preseed lockfile to match the bumped manifest without
+          # executing its runtime-layout postinstall, then regenerate the agent seed.
+          node scripts/regenerate-pi-preseed-lock.mjs
           npm ci --no-audit --no-fund --silent
           npm run generate:agent-seed
 
