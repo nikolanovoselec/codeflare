@@ -23,9 +23,35 @@ export function attributionBlockReason(command: string): string | undefined {
   return undefined;
 }
 
+function withoutHeredocBodies(command: string): string {
+  const lines = command.split('\n');
+  const executableLines: string[] = [];
+  const pendingDelimiters: Array<{ value: string; stripTabs: boolean }> = [];
+
+  for (const line of lines) {
+    const active = pendingDelimiters[0];
+    if (active) {
+      const candidate = active.stripTabs ? line.replace(/^\t+/, '') : line;
+      if (candidate === active.value) pendingDelimiters.shift();
+      continue;
+    }
+
+    executableLines.push(line);
+    const declarations = line.matchAll(/<<(-)?\s*(?:'([^']+)'|"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/g);
+    for (const declaration of declarations) {
+      const value = declaration[2] ?? declaration[3] ?? declaration[4];
+      if (!value) continue;
+      pendingDelimiters.push({ value, stripTabs: declaration[1] === '-' });
+    }
+  }
+
+  return executableLines.join('\n');
+}
+
 export function isLocalBuildCommand(command: string): boolean {
-  return /\b(npm|pnpm|yarn|bun)\s+(run\s+)?(build|test|lint|typecheck|dev)\b/.test(command)
-    || /\b(pytest|vitest|go\s+test|swift\s+test|cargo\s+test|tsc|eslint|oxlint|prettier|wrangler\s+dev)\b/.test(command);
+  const executableCommand = withoutHeredocBodies(command);
+  return /\b(npm|pnpm|yarn|bun)\s+(run\s+)?(build|test|lint|typecheck|dev)\b/.test(executableCommand)
+    || /\b(pytest|vitest|go\s+test|swift\s+test|cargo\s+test|tsc|eslint|oxlint|prettier|wrangler\s+dev)\b/.test(executableCommand);
 }
 
 export interface BypassFs {

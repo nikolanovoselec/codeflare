@@ -1496,6 +1496,18 @@ describe('Pi commit-attribution and local-build guards / REQ-AGENT-052 (Pi PreTo
     expect(isLocalBuildCommand('npm run deploy')).toBe(false);
   });
 
+  it('AC4: ignores blocked tool names inside heredoc payloads but still checks commands after them', () => {
+    const noteWrite = [
+      "cat > /tmp/note.md <<'EOF'",
+      'The failing path was vitest.workers.config.ts.',
+      'The old command was npm test.',
+      'EOF',
+      'graphify global add graph.json --as user_vault',
+    ].join('\n');
+    expect(isLocalBuildCommand(noteWrite)).toBe(false);
+    expect(isLocalBuildCommand(`${noteWrite}\nvitest run`)).toBe(true);
+  });
+
   it('AC5: the /tmp/local-build-bypass sentinel is consumed once, then the guard re-blocks', () => {
     let present = true;
     const fs = { existsSync: () => present, unlinkSync: () => { present = false; } };
