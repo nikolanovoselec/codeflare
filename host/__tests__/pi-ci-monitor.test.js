@@ -145,6 +145,7 @@ test('REQ-AGENT-068 AC7: command execution is bounded when a provider hangs', as
 
 test('REQ-AGENT-068 AC1: eligible push resolves the affected PR exactly once', async () => {
   const requests = [];
+  let lookupCount = 0;
   let lookupArgs;
   const request = await resolveCiMonitorRequest({
     event: 'push',
@@ -154,6 +155,7 @@ test('REQ-AGENT-068 AC1: eligible push resolves the affected PR exactly once', a
     cwd: REQUEST_CWD,
     reviewState: 'launched',
     runner: async (_command, args) => {
+      lookupCount += 1;
       lookupArgs = args;
       return commandResult(openPr());
     },
@@ -161,6 +163,7 @@ test('REQ-AGENT-068 AC1: eligible push resolves the affected PR exactly once', a
   if (request) requests.push(request);
 
   assert.deepEqual(requests, [expectedRequest()]);
+  assert.equal(lookupCount, 1);
   assert.deepEqual(lookupArgs, [
     'pr', 'view', String(PR), '--repo', REPO,
     '--json', 'number,state,baseRefName,headRefOid',

@@ -1112,7 +1112,6 @@ None.
 - An `update-branch` boundary qualifies only after the authoritative PR head differs from local `HEAD` and the fetched PR ref resolves to that exact SHA.
 - `update-branch` URL targets and `--repo` selectors are unsupported and inert; review never crosses checkout boundaries.
 - Pi adds no pre-command merge gate.
-- After all required results, the root automatically triages finding validity and proposed-fix proportionality before mutation, prefers existing machinery, and applies legitimate minimal fixes unless the user explicitly requested approval.
 
 **Priority:** P1
 
@@ -2259,9 +2258,9 @@ None.
 
 ---
 
-### REQ-AGENT-084: Pi Reviewer Policy Preloading
+### REQ-AGENT-084: Pi Reviewer Policy Contract
 
-**Intent:** Pi reviewers must begin every run with complete canonical scope and enforcement policy already available, without spending review turns on policy discovery.
+**Intent:** Pi reviewers must begin every run with complete canonical scope and enforcement policy, including deterministic round control, without spending review turns on policy discovery.
 
 **Applies To:** Agent
 
@@ -2315,7 +2314,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-pi-reviewer-policy-preloading)
+**Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-pi-reviewer-policy-contract)
 
 **Verification:** [Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [reviewer tool-guard tests](../../src/__tests__/lib/review-tool-guard.test.ts), [review work-set tests](../../host/__tests__/pi-review-workset.test.js)
 
@@ -2374,7 +2373,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-pi-reviewer-policy-preloading)
+**Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-pi-reviewer-policy-contract)
 
 **Verification:** [Agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
 
