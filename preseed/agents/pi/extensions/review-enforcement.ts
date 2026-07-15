@@ -273,6 +273,7 @@ type LaunchMessage = {
   reviewers: ReviewLane[];
   ciEvent?: CiBoundaryEvent;
   autonomyOverride?: boolean;
+  githubRepo?: string;
 };
 
 type SessionMessageEntry = {
@@ -293,6 +294,12 @@ function sessionMessageText(entry: SessionMessageEntry): string {
     ))
     .map((part) => part.text)
     .join("\n");
+}
+
+function fullyAutonomousActivation(text: string): boolean {
+  if (!text.includes("FULLY AUTONOMOUS")) return false;
+  const normalized = text.replaceAll("FULLY AUTONOMOUS", "fully autonomous");
+  return /(?:^|[\n.!]\s*|\b(?:tell|want|need|ask(?:ing)?)\s+you\s+to\s+|\bcan\s+you\s+)(?:please\s+)?(?:go|run|continue|work|operate|proceed|be)\s+(?:in\s+)?fully\s+autonomous\b/i.test(normalized);
 }
 
 function fullyAutonomousUserDirection(file: string): boolean {
@@ -316,9 +323,7 @@ function fullyAutonomousUserDirection(file: string): boolean {
         active = false;
         continue;
       }
-      if (/\b(?:go|run|continue|work|operate|proceed|be)\s+(?:in\s+)?fully\s+autonomous\b/i.test(text)) {
-        active = true;
-      }
+      if (fullyAutonomousActivation(text)) active = true;
     }
     return active;
   } catch {
@@ -343,7 +348,7 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
     ? `Wave 1: launch these review agents together with public background subagent calls and inherit_context=false: ${input.reviewers.join(", ")}. ${scopeInstruction(input.pr, input.range)}${autonomyInstruction}`
     : "Wave 1: no review-agent launch is required.";
   const ciWave = input.ciEvent
-    ? `Wave 2: immediately after the reviewer calls, without waiting for them to finish, run the ci-monitoring request resolver for event=${input.ciEvent}, changed=true, pr=${input.pr.number}, cwd=${input.repo}, and reviewState=${input.reviewers.length > 0 ? "launched" : "not-required"}; submit its returned public ci-monitor subagent request unchanged exactly once. CI is independent of review acknowledgement.`
+    ? `Wave 2: immediately after the reviewer calls, without waiting for them to finish, run the ci-monitoring request resolver for event=${input.ciEvent}, changed=true, repo=${input.githubRepo ?? "<owner/repo>"}, pr=${input.pr.number}, cwd=${input.repo}, and reviewState=${input.reviewers.length > 0 ? "launched" : "not-required"}; submit its returned public ci-monitor subagent request unchanged exactly once. CI is independent of review acknowledgement.`
     : "Wave 2: no CI launch is required for this boundary.";
   const details: Record<string, unknown> = {
     head: input.pr.headRefOid,
@@ -355,6 +360,7 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
     launchWaves: [input.reviewers, ...(input.ciEvent ? [["ci-monitor"]] : [])],
     ciEvent: input.ciEvent,
     ...(input.autonomyOverride ? { autonomyOverride: "fully-autonomous" } : {}),
+    ...(input.githubRepo ? { githubRepo: input.githubRepo } : {}),
   };
   pi.sendMessage({
     customType: input.phase === "plan" ? "pr-boundary-launch-plan" : "pr-boundary-launch-follow-up",
@@ -406,6 +412,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       reviewers: requiredLanes,
       ciEvent,
       autonomyOverride: fullyAutonomousUserDirection(review.file),
+      ...(query.repo ? { githubRepo: query.repo } : {}),
     });
   });
 
@@ -499,6 +506,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         reviewers: requiredLanes,
         ciEvent,
         autonomyOverride: fullyAutonomousUserDirection(review.file),
+        ...(query.repo ? { githubRepo: query.repo } : {}),
       });
       return;
     }
@@ -522,6 +530,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       reviewers: missingLanes,
       ciEvent,
       autonomyOverride: fullyAutonomousUserDirection(review.file),
+      ...(query.repo ? { githubRepo: query.repo } : {}),
     });
   });
 }

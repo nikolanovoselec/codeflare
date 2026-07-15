@@ -32,6 +32,11 @@ type PlannedReviewEnforcement = {
     dependencies: {
       queryPr(repo: string, query?: { target?: string; repo?: string }): Promise<PrState | undefined>;
       queryHead?(repo: string): Promise<string | undefined>;
+      fetchPrHead?(
+        repo: string,
+        pr: PrState,
+        query?: { target?: string; repo?: string },
+      ): Promise<boolean>;
       sleep?(delayMs: number): Promise<void>;
       headRetryDelaysMs?: number[];
     },
@@ -264,6 +269,11 @@ async function registerFixture(
   fixture: ReturnType<typeof makeReviewFixture>,
   cwd = fixture.repo,
   observeQuery?: (query: { target?: string; repo?: string } | undefined) => void,
+  fetchPrHead?: (
+    repo: string,
+    pr: PrState,
+    query: { target?: string; repo?: string } | undefined,
+  ) => Promise<boolean>,
 ) {
   const { registerReviewEnforcement } = await plannedEnforcement();
   const harness = makeHarness(cwd, fixture.sessionFile);
@@ -272,6 +282,7 @@ async function registerFixture(
       observeQuery?.(query);
       return fixture.pr;
     },
+    ...(fetchPrHead ? { fetchPrHead } : {}),
   });
   return harness;
 }
@@ -321,6 +332,23 @@ describe('Pi review reminder and settled enforcement', () => {
       assistantMessage('Go FULLY AUTONOMOUS.'),
       assistantTool('push-agent-text-1', 'bash', { command }),
       toolResult('push-agent-text-1', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command));
+
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0].message.content).not.toContain('autonomy_override=fully-autonomous');
+    expect(harness.sent[0].message.details).not.toHaveProperty('autonomyOverride');
+  });
+
+  it('REQ-AGENT-091: quoted fully-autonomous policy text does not activate the override', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    const command = 'git push origin pi';
+    appendSession(fixture.sessionFile,
+      userMessage('Why does the policy say agents should "go FULLY AUTONOMOUS"?'),
+      assistantTool('push-quoted-text-1', 'bash', { command }),
+      toolResult('push-quoted-text-1', 'bash'),
     );
 
     await harness.emit('tool_result', boundaryEvent(command));
@@ -570,6 +598,43 @@ describe('Pi review reminder and settled enforcement', () => {
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
+  });
+
+  it('REQ-AGENT-092: cross-repository update carries its repository into the CI launch', async () => {
+    const fixture = makeReviewFixture();
+    write(fixture.repo, 'src/cross-repo-update.ts', 'export {};\n');
+    git(fixture.repo, 'add', 'src/cross-repo-update.ts');
+    git(fixture.repo, 'commit', '-m', 'cross-repository PR update');
+    const targetedHead = git(fixture.repo, 'rev-parse', 'HEAD');
+    git(fixture.repo, 'reset', '--hard', fixture.head);
+    fixture.pr = { ...fixture.pr, headRefOid: targetedHead };
+
+    let fetchedQuery: { target?: string; repo?: string } | undefined;
+    const harness = await registerFixture(
+      fixture,
+      fixture.repo,
+      undefined,
+      async (_repo, _pr, query) => {
+        fetchedQuery = query;
+        return true;
+      },
+    );
+    const command = 'gh pr update-branch 42 --repo other/repository';
+    appendSession(fixture.sessionFile,
+      assistantTool('cross-repo-update-1', 'bash', { command }),
+      toolResult('cross-repo-update-1', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command));
+
+    expect(fetchedQuery).toEqual({ target: '42', repo: 'other/repository' });
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0].message.content).toContain('repo=other/repository, pr=42');
+    expect(harness.sent[0].message.details).toMatchObject({
+      githubRepo: 'other/repository',
+      prNumber: 42,
+      head: targetedHead,
+    });
   });
 
   it('REQ-AGENT-036: up-to-date update-branch emits no launch plan', async () => {
