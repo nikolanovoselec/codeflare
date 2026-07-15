@@ -82,6 +82,34 @@ print(len(hits))
   assert.equal(r.stdout.trim(), '1', 'merge-vault-graph.py must call nx.compose exactly once');
 });
 
+test('REQ-MEM-009 AC1/AC2: successive merges preserve prior nodes and deduplicate IDs', () => {
+  const code = `
+import json, runpy
+module = runpy.run_path(${JSON.stringify(SCRIPT)}, run_name='merge_contract_test')
+empty = {'nodes': [], 'links': []}
+first_chunk = {
+  'nodes': [{'id': 'document', 'label': 'first'}],
+  'links': [],
+}
+second_chunk = {
+  'nodes': [
+    {'id': 'document', 'label': 'replacement'},
+    {'id': 'concept', 'label': 'new'},
+  ],
+  'links': [],
+}
+first = module['merge_node_link_evidence'](empty, first_chunk)
+second = module['merge_node_link_evidence'](first, second_chunk)
+print(json.dumps(second, sort_keys=True))
+`;
+  const result = spawnSync('python3', ['-c', code], { encoding: 'utf8', timeout: 5_000 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout).nodes, [
+    { id: 'document', label: 'first' },
+    { id: 'concept', label: 'new' },
+  ]);
+});
+
 test('REQ-MEM-009 AC3: edge evidence is keyed by semantic tuple', () => {
   const code = `
 import json, runpy
@@ -122,18 +150,25 @@ print(json.dumps({
   ]);
 });
 
-test('REQ-MEM-009 AC4: malformed prior edge data is treated as empty evidence', () => {
+test('REQ-MEM-009 AC4: malformed edge entries are ignored without crashing', () => {
   const code = `
 import json, runpy
 module = runpy.run_path(${JSON.stringify(SCRIPT)}, run_name='merge_contract_test')
 persisted = {'nodes': [{'id': 'document'}, {'id': 'concept'}], 'links': []}
-malformed_prior = {'nodes': [], 'links': None}
+missing_edges = {'nodes': [], 'links': None}
+malformed_prior = {
+  'nodes': [],
+  'links': [
+    {'source': ['document'], 'target': 'concept', 'relation': 'mentions', 'source_file': '/bad.md'},
+    {'source': 'document', 'target': {'id': 'concept'}, 'relation': 'mentions', 'source_file': '/bad.md'},
+  ],
+}
 new = {
   'links': [
     {'source': 'document', 'target': 'concept', 'relation': 'mentions', 'source_file': '/new.md'},
   ],
 }
-print(json.dumps(module['merge_node_link_evidence'](persisted, malformed_prior, new), sort_keys=True))
+print(json.dumps(module['merge_node_link_evidence'](persisted, missing_edges, malformed_prior, new), sort_keys=True))
 `;
   const result = spawnSync('python3', ['-c', code], { encoding: 'utf8', timeout: 5_000 });
   assert.equal(result.status, 0, result.stderr);

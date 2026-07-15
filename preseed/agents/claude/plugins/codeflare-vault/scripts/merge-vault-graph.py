@@ -29,7 +29,19 @@ def node_link_edges(blob: dict[str, Any]) -> list[dict[str, Any]]:
     items = blob.get("links", blob.get("edges", []))
     if not isinstance(items, list):
         return []
-    return [item for item in items if isinstance(item, dict)]
+    return [
+        item
+        for item in items
+        if isinstance(item, dict)
+        and all(
+            isinstance(item.get(field), str)
+            for field in ("source", "target", "relation")
+        )
+        and (
+            item.get("source_file") is None
+            or isinstance(item.get("source_file"), str)
+        )
+    ]
 
 
 def dedupe_node_link_edges(blob: dict[str, Any]) -> dict[str, Any]:
@@ -50,12 +62,20 @@ def dedupe_node_link_edges(blob: dict[str, Any]) -> dict[str, Any]:
 def merge_node_link_evidence(
     persisted: dict[str, Any], *evidence_blobs: dict[str, Any]
 ) -> dict[str, Any]:
-    """Restore all prior/new edge evidence after simple graph composition."""
-    edge_key = "links" if "links" in persisted or "edges" not in persisted else "edges"
+    """Restore unique nodes and edge evidence after simple graph composition."""
+    nodes: dict[str, dict[str, Any]] = {}
     edges = node_link_edges(persisted)
-    for blob in evidence_blobs:
-        edges.extend(node_link_edges(blob))
-    return dedupe_node_link_edges({**persisted, edge_key: edges})
+    for blob in (persisted, *evidence_blobs):
+        items = blob.get("nodes", [])
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict) and isinstance(item.get("id"), str):
+                    nodes.setdefault(item["id"], item)
+        if blob is not persisted:
+            edges.extend(node_link_edges(blob))
+    edge_key = "links" if "links" in persisted or "edges" not in persisted else "edges"
+    merged = {**persisted, "nodes": list(nodes.values()), edge_key: edges}
+    return dedupe_node_link_edges(merged)
 
 
 def dedupe_node_link_file(

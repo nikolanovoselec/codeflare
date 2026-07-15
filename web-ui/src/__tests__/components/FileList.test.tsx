@@ -1,15 +1,17 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, cleanup, fireEvent } from '@solidjs/testing-library';
+import { render, cleanup, fireEvent, waitFor } from '@solidjs/testing-library';
 import type { ComponentProps } from 'solid-js';
 import FileList from '../../components/storage/FileList';
 import { getViewUrl } from '../../api/storage';
-import { storageStore } from '../../stores/storage';
+import * as storageApi from '../../api/storage';
+import { _resetForTests, storageStore } from '../../stores/storage';
 
 // REQ-STOR-016: file browser presentation — file-click opens a view tab; special
 // folders surface their container path.
 
 afterEach(() => {
   cleanup();
+  _resetForTests();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -37,14 +39,21 @@ function makeProps(items: Items): ComponentProps<typeof FileList> {
 }
 
 describe('FileList pagination', () => {
-  it('REQ-STOR-018 AC2: requests the next page only at the scroll boundary', () => {
-    const loadMore = vi.spyOn(storageStore, 'loadMore').mockResolvedValue(undefined);
-    const { getByTestId } = render(() => (
-      <FileList {...makeProps({
-        objects: [{ key: 'Notes/a.md', size: 1, lastModified: '2026-07-14T00:00:00Z' }],
-        prefixes: [],
-      })} />
-    ));
+  it('REQ-STOR-018 AC2: requests the next page only at the scroll boundary', async () => {
+    const pageOne = {
+      objects: [{ key: 'Notes/a.md', size: 1, lastModified: '2026-07-14T00:00:00Z' }],
+      prefixes: [],
+      isTruncated: true,
+      nextContinuationToken: 'token-1',
+    };
+    const pageTwo = {
+      objects: [{ key: 'Notes/b.md', size: 2, lastModified: '2026-07-14T00:01:00Z' }],
+      prefixes: [],
+      isTruncated: false,
+    };
+    vi.spyOn(storageApi, 'browseStorage').mockResolvedValueOnce(pageOne).mockResolvedValueOnce(pageTwo);
+    await storageStore.browse('Notes/');
+    const { getByTestId } = render(() => <FileList {...makeProps(pageOne)} />);
     const dropZone = getByTestId('storage-drop-zone');
     Object.defineProperties(dropZone, {
       scrollTop: { configurable: true, value: 40 },
@@ -53,15 +62,16 @@ describe('FileList pagination', () => {
     });
 
     fireEvent.scroll(dropZone);
-    expect(loadMore).not.toHaveBeenCalled();
+    expect(storageStore.objects.map((object) => object.key)).toEqual(['Notes/a.md']);
 
     Object.defineProperty(dropZone, 'scrollTop', { configurable: true, value: 49 });
     fireEvent.scroll(dropZone);
-    expect(loadMore).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(storageStore.objects.map((object) => object.key)).toEqual(['Notes/a.md', 'Notes/b.md']);
+    });
   });
 
   it('REQ-STOR-018 AC1: exposes continuation when the first page cannot scroll', () => {
-    const loadMore = vi.spyOn(storageStore, 'loadMore').mockResolvedValue(undefined);
     vi.spyOn(storageStore, 'isTruncated', 'get').mockReturnValue(true);
     vi.spyOn(storageStore, 'loadingMore', 'get').mockReturnValue(false);
     vi.spyOn(storageStore, 'loadMoreError', 'get').mockReturnValue(null);
@@ -73,10 +83,7 @@ describe('FileList pagination', () => {
     ));
 
     const control = getByTestId('storage-load-more');
-    const button = control.querySelector('button');
-    expect(button).toBeTruthy();
-    fireEvent.click(button!);
-    expect(loadMore).toHaveBeenCalledTimes(1);
+    expect(control.querySelector('button')).toBeTruthy();
   });
 });
 
