@@ -173,7 +173,7 @@ function protectedEdit(words: ShellWords): boolean {
 
 function updateBranchTarget(words: ShellWords): { supported: boolean; prTarget?: string } {
   const args = words.slice(3);
-  if (args.some((word) => word === "--repo" || word === "-R" || word.startsWith("--repo=") || word.startsWith("-R="))) {
+  if (args.some((word) => word === "--repo" || word.startsWith("--repo=") || word.startsWith("-R"))) {
     return { supported: false };
   }
   const prTarget = args.find((word) => !word.startsWith("-"));

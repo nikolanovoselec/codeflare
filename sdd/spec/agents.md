@@ -1686,7 +1686,7 @@ None.
 
 ### REQ-AGENT-059: Pi Native Review Findings Handoff
 
-**Intent:** Reviewer findings must reach the main session through each native subagent result, without Codeflare-owned result files, summaries, severity parsing, or an automatic fix state machine.
+**Intent:** Reviewer findings must reach the main session through each native subagent result, followed by one root-authored review summary without Codeflare-owned result files, severity parsing, or an automatic fix state machine.
 
 **Applies To:** User
 
@@ -1701,7 +1701,7 @@ None.
 7. All scope returns the tracked lane tree without a diff patch. <!-- @impl: preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs::buildReviewPacket --> <!-- @test: host/__tests__/pi-review-workset.test.js (REQ-AGENT-059 AC7: all scope enumerates the lane tree while diff rejects an invalid range) -->
 
 **Constraints:**
-- Main-session rules require waiting for every required reviewer before fixing, committing, or pushing.
+- Main-session rules require waiting for every required reviewer and publishing one consolidated review summary before evaluating findings, fixing, committing, or pushing.
 - The main session verifies and fixes legitimate findings unless the latest user instruction says to wait or not autofix.
 - Report-only reviewer types never own a `/review` mutation phase; triage/history/ADR/issue writes route to a non-review mutation agent.
 

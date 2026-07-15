@@ -157,6 +157,7 @@ describe('Claude-equivalent review boundary helpers', () => {
       ['gh pr edit 42 --base develop', none],
       ['gh pr update-branch 42', { reminder: true, settled: true, event: 'pr-update-branch', prTarget: '42' }],
       ['gh pr update-branch 42 --repo other/repository', none],
+      ['gh pr update-branch -Rother/repository 42', none],
       ['gh pr update-branch https://github.com/other/repository/pull/42', none],
       ['git -C /tmp/repo push origin pi', push],
     ];

@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-07-14
 
+- **Completed reviewer waves now produce one visible summary before fixes begin** ([REQ-AGENT-059](agents.md#req-agent-059-pi-native-review-findings-handoff) clarified; stays Implemented). The root waits for every required native reviewer result, reports each lane's verdict and findings, and only then evaluates or fixes them; CI remains independent.
+
 - **Direct fully-autonomous user direction overrides only the five-round review stop** ([REQ-AGENT-084](agents.md#req-agent-084-pi-reviewer-policy-preloading) clarified; stays Implemented). The root carries one reviewer-prompt marker; every test, review, CI, deployment, and ownership gate remains unchanged.
 
 - **Same-repository `gh pr update-branch <target>` resolves that PR for review and CI** ([REQ-AGENT-036](agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC1 and [REQ-AGENT-068](agents.md#req-agent-068-independent-pi-ci-monitoring) AC1 clarified; stay Implemented). URL targets and `--repo` selectors are inert rather than crossing checkout boundaries.
