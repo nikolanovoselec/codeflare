@@ -1,7 +1,7 @@
 ---
 name: git-review-pipeline
 description: "SDD-mode PR-boundary review policy for Pi. The extension service-dispatches required visible reviewer lanes; the root waits for all, fixes legitimate findings, and alone pushes. Review is independent of CI."
-version: 4.0.0
+version: 4.1.0
 ---
 
 # Git Review Pipeline in Pi
@@ -33,7 +33,7 @@ When the reminder or follow-up lists lanes:
 2. Every reviewer prompt carries `scope=diff`. When a valid `review_range=<acknowledged>..<current>` exists, the prompt and dispatch record carry that exact range; otherwise they name the full protected-base PR diff.
 3. Each successful spawn appends minimal transcript evidence keyed by its returned agent ID. A dispatch unknown after reload remains in flight; a live service record reporting stopped, aborted, or error makes that agent eligible for retry.
 4. After every requested reviewer returns an agent ID, the extension invokes the existing CI resolver and service-spawns a returned monitor request last with queue bypass. Review completion does not gate CI, and no model turn launches either wave.
-5. Service-owned launches remain visible session subagents, but they are not assistant public-tool-call transcript blocks.
+5. The boundary extension renders every service-owned reviewer and CI ID in one above-editor queued/running/completed/failed widget. These launches are not assistant public-tool-call transcript blocks.
 6. The root waits for every required successful reviewer result, regardless of completion order.
 7. The root automatically publishes one consolidated triage summary before any fixing or project mutation. For every finding, decide independently whether the finding is evidence-backed and in scope, whether its proposed fix is proportional, and what smallest correction reuses existing machinery.
 8. Reject false positives and overengineered proposals with evidence. Apply legitimate minimal fixes automatically unless the user explicitly requested approval or validation.

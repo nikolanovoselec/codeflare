@@ -20,12 +20,17 @@ type SentMessage = {
 };
 type AppendedEntry = { customType: string; data: unknown };
 type ExtensionHandler = (event: unknown, ctx: TestContext) => unknown | Promise<unknown>;
+type TestWidgetContent = string[] | undefined;
 type TestContext = {
   cwd: string;
   hasUI: boolean;
   isIdle(): boolean;
   sessionManager: { getSessionFile(): string };
-  ui: { notify(): void; setStatus(): void; clearStatus(): void };
+  ui: {
+    notify(): void;
+    setStatus(key: string, text: string | undefined): void;
+    setWidget(key: string, content: TestWidgetContent, options?: { placement?: 'aboveEditor' | 'belowEditor' }): void;
+  };
 };
 type ServiceSpawnOptions = {
   description?: string;
@@ -84,6 +89,9 @@ type TestPi = {
   on(event: string, handler: ExtensionHandler): void;
   appendEntry(customType: string, data: unknown): void;
   sendMessage(message: SentMessage['message'], options?: SentMessage['options']): void;
+  events: {
+    on(channel: string, handler: (data: unknown) => void): () => void;
+  };
 };
 
 const ALL_LANES: ReviewLane[] = ['code-reviewer', 'spec-reviewer', 'doc-updater'];
@@ -268,13 +276,19 @@ function makeHarness(repo: string, sessionFile: string): {
   service: TestSubagentsService;
   serviceStatuses: Map<string, string>;
   spawned: SpawnedAgent[];
+  widgets: Map<string, TestWidgetContent>;
+  statuses: Map<string, string | undefined>;
   emit(event: string, payload?: unknown): Promise<void>;
+  emitServiceEvent(channel: string, payload?: unknown): void;
 } {
   const handlers = new Map<string, ExtensionHandler[]>();
+  const serviceEventHandlers = new Map<string, Array<(data: unknown) => void>>();
   const sent: SentMessage[] = [];
   const appended: AppendedEntry[] = [];
   const spawned: SpawnedAgent[] = [];
   const serviceStatuses = new Map<string, string>();
+  const widgets = new Map<string, TestWidgetContent>();
+  const statuses = new Map<string, string | undefined>();
   const service: TestSubagentsService = {
     spawn: (type, prompt, options) => {
       const id = nextId('agent');
@@ -310,13 +324,26 @@ function makeHarness(repo: string, sessionFile: string): {
         ...message,
       });
     },
+    events: {
+      on: (channel, handler) => {
+        serviceEventHandlers.set(channel, [...(serviceEventHandlers.get(channel) ?? []), handler]);
+        return () => serviceEventHandlers.set(
+          channel,
+          (serviceEventHandlers.get(channel) ?? []).filter((candidate) => candidate !== handler),
+        );
+      },
+    },
   };
   const ctx: TestContext = {
     cwd: repo,
-    hasUI: false,
+    hasUI: true,
     isIdle: () => true,
     sessionManager: { getSessionFile: () => sessionFile },
-    ui: { notify: () => undefined, setStatus: () => undefined, clearStatus: () => undefined },
+    ui: {
+      notify: () => undefined,
+      setStatus: (key, text) => statuses.set(key, text),
+      setWidget: (key, content) => widgets.set(key, content),
+    },
   };
   return {
     pi,
@@ -326,8 +353,13 @@ function makeHarness(repo: string, sessionFile: string): {
     service,
     serviceStatuses,
     spawned,
+    widgets,
+    statuses,
     emit: async (event, payload = {}) => {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
+    },
+    emitServiceEvent: (channel, payload = {}) => {
+      for (const handler of serviceEventHandlers.get(channel) ?? []) handler(payload);
     },
   };
 }
@@ -479,6 +511,52 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('agent_settled');
     expect(harness.spawned).toHaveLength(4);
+  });
+
+  it('REQ-AGENT-071: renders deterministic reviewer lifecycle state without a model launch turn', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent());
+    await harness.emit('agent_settled');
+
+    const initialRows = harness.widgets.get('codeflare-review-agents');
+    expect(initialRows).toHaveLength(5);
+    expect(initialRows?.slice(1).map((row) => row.match(/(queued|running|completed|failed)$/)?.[1])).toEqual([
+      'queued',
+      'queued',
+      'queued',
+      'queued',
+    ]);
+    expect(harness.statuses.get('codeflare-review-agents')).toBe('Review: 4 queued');
+    expect(harness.sent).toEqual([]);
+
+    harness.serviceStatuses.set(harness.spawned[0].id, 'running');
+    harness.serviceStatuses.set(harness.spawned[3].id, 'running');
+    harness.emitServiceEvent('subagents:started');
+    expect(harness.widgets.get('codeflare-review-agents')?.slice(1)
+      .map((row) => row.match(/(queued|running|completed|failed)$/)?.[1])).toEqual([
+      'running',
+      'queued',
+      'queued',
+      'running',
+    ]);
+    expect(harness.statuses.get('codeflare-review-agents')).toBe('Review: 2 running, 2 queued');
+
+    for (const agent of harness.spawned) harness.serviceStatuses.set(agent.id, 'completed');
+    harness.emitServiceEvent('subagents:completed');
+    expect(harness.widgets.get('codeflare-review-agents')?.slice(1)
+      .map((row) => row.match(/(queued|running|completed|failed)$/)?.[1])).toEqual([
+      'completed',
+      'completed',
+      'completed',
+      'completed',
+    ]);
+    expect(harness.statuses.get('codeflare-review-agents')).toBeUndefined();
   });
 
   it('REQ-AGENT-071: resolves the stock service from its published global symbol', async () => {
