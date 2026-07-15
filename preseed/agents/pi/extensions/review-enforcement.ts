@@ -297,9 +297,9 @@ function sessionMessageText(entry: SessionMessageEntry): string {
 }
 
 function fullyAutonomousActivation(text: string): boolean {
-  if (!text.includes("FULLY AUTONOMOUS")) return false;
-  const normalized = text.replaceAll("FULLY AUTONOMOUS", "fully autonomous");
-  return /(?:^|[\n.!]\s*|\b(?:tell|want|need|ask(?:ing)?)\s+you\s+to\s+|\bcan\s+you\s+)(?:please\s+)?(?:go|run|continue|work|operate|proceed|be)\s+(?:in\s+)?fully\s+autonomous\b/i.test(normalized);
+  const negated = /\b(?:do\s+not|don't|dont|never|no\s+longer|not)\b[^.!?\n]{0,80}\b(?:go|run|continue|work|operate|proceed|be)\s+(?:in\s+)?fully\s+autonomous\b/i;
+  if (negated.test(text)) return false;
+  return /(?:^|[\n.!]\s*|\b(?:tell|want|need|ask(?:ing)?)\s+you\s+to\s+|\bcan\s+you\s+)(?:please\s+)?(?:go|run|continue|work|operate|proceed|be)\s+(?:in\s+)?fully\s+autonomous\b/i.test(text);
 }
 
 function fullyAutonomousUserDirection(file: string): boolean {

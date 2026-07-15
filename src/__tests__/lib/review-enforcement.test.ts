@@ -324,6 +324,44 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent[0].message.details?.autonomyOverride).toBe('fully-autonomous');
   });
 
+  it('REQ-AGENT-091: marks initial, settled, and missing-lane reviewer launches', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    const command = 'git push origin pi';
+    appendSession(fixture.sessionFile,
+      userMessage('go fully autonomous and finish this review task.'),
+      assistantTool('push-autonomy-lifecycle-1', 'bash', { command }),
+      toolResult('push-autonomy-lifecycle-1', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command));
+    expect(harness.sent[0]?.message.content).toContain('autonomy_override=fully-autonomous');
+    expect(harness.sent[0]?.message.details?.autonomyOverride).toBe('fully-autonomous');
+
+    harness.sent.splice(0);
+    appendSession(fixture.sessionFile,
+      assistantTool('code-autonomy-1', 'subagent', reviewerArgs(fixture, 'code-reviewer')),
+      assistantTool('spec-autonomy-1', 'subagent', reviewerArgs(fixture, 'spec-reviewer')),
+      assistantTool('ci-autonomy-1', 'subagent', ciArgs(fixture.head)),
+    );
+    await harness.emit('agent_settled');
+    expect(harness.sent[0]?.message.customType).toBe('pr-boundary-launch-follow-up');
+    expect(harness.sent[0]?.message.content).toContain('autonomy_override=fully-autonomous');
+    expect(harness.sent[0]?.message.details?.autonomyOverride).toBe('fully-autonomous');
+
+    const settledFixture = makeReviewFixture();
+    const settledHarness = await registerFixture(settledFixture);
+    appendSession(settledFixture.sessionFile,
+      userMessage('go fully autonomous and finish this review task.'),
+      assistantTool('push-autonomy-settled-1', 'bash', { command }),
+      toolResult('push-autonomy-settled-1', 'bash'),
+    );
+    await settledHarness.emit('agent_settled');
+    expect(settledHarness.sent[0]?.message.customType).toBe('pr-boundary-launch-plan');
+    expect(settledHarness.sent[0]?.message.content).toContain('autonomy_override=fully-autonomous');
+    expect(settledHarness.sent[0]?.message.details?.autonomyOverride).toBe('fully-autonomous');
+  });
+
   it('REQ-AGENT-091: agent-authored fully-autonomous text cannot activate the override', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
@@ -349,6 +387,23 @@ describe('Pi review reminder and settled enforcement', () => {
       userMessage('Why does the policy say agents should "go FULLY AUTONOMOUS"?'),
       assistantTool('push-quoted-text-1', 'bash', { command }),
       toolResult('push-quoted-text-1', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command));
+
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0].message.content).not.toContain('autonomy_override=fully-autonomous');
+    expect(harness.sent[0].message.details).not.toHaveProperty('autonomyOverride');
+  });
+
+  it('REQ-AGENT-091: negated fully-autonomous direction does not activate the override', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    const command = 'git push origin pi';
+    appendSession(fixture.sessionFile,
+      userMessage("I don't want you to go FULLY AUTONOMOUS; use normal review."),
+      assistantTool('push-negated-text-1', 'bash', { command }),
+      toolResult('push-negated-text-1', 'bash'),
     );
 
     await harness.emit('tool_result', boundaryEvent(command));
@@ -543,6 +598,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(existsSync(join(fixture.repo, '.git/sdd-last-ack-pr-head'))).toBe(false);
     expect(harness.sent[0]?.message.details).toEqual({
       head: fixture.head,
+      prNumber: fixture.pr.number,
       ackHead: undefined,
       reviewRange: undefined,
       scope: diffScope(),
@@ -1307,6 +1363,7 @@ describe('Pi review reminder and settled enforcement', () => {
       expect(harness.sent).toHaveLength(1);
       expect(harness.sent[0]?.message.details).toEqual({
         head: fixture.head,
+        prNumber: fixture.pr.number,
         ackHead: fixture.base,
         reviewRange: `${fixture.base}..${fixture.head}`,
         missingLanes: ALL_LANES,

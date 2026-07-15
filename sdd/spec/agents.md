@@ -2475,12 +2475,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. A direct current-session user instruction to go fully autonomous activates the task override. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousUserDirection --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: direct fully-autonomous user direction marks every review launch) -->
+1. A direct current-session user instruction to go fully autonomous activates the task override regardless of letter case. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousActivation --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: marks initial, settled, and missing-lane reviewer launches) -->
 2. Agent-authored fully-autonomous text does not activate the task override. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousUserDirection --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: agent-authored fully-autonomous text cannot activate the override) -->
 3. User discussion or quotation of fully-autonomous policy text does not activate the task override. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousActivation --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: quoted fully-autonomous policy text does not activate the override) -->
-4. Every subsequent reviewer launch for that task carries the exact fully-autonomous override marker. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: direct fully-autonomous user direction marks every review launch) -->
-5. A later direct user cancellation or narrowing instruction deactivates the task override. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousUserDirection --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: later user narrowing deactivates the fully-autonomous override) -->
-6. The root's terminal task-completion marker deactivates the task override. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousUserDirection --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: root completion closes the fully-autonomous task scope) -->
+4. A negated fully-autonomous direction does not activate the task override. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousActivation --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: negated fully-autonomous direction does not activate the override) -->
+5. Initial, settled, and missing-lane reviewer launches for that task carry the exact fully-autonomous override marker. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: marks initial, settled, and missing-lane reviewer launches) -->
+6. A later direct user cancellation or narrowing instruction deactivates the task override. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousUserDirection --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: later user narrowing deactivates the fully-autonomous override) -->
+7. The root's terminal task-completion marker deactivates the task override. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousUserDirection --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: root completion closes the fully-autonomous task scope) -->
 
 **Constraints:**
 
@@ -2508,7 +2509,7 @@ None.
 **Acceptance Criteria:**
 
 1. An explicit update-branch target and repository identify the affected PR. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-092: distinguishes supported review boundary targets) -->
-2. The resulting review range ends at the affected PR's authoritative remote head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-092: update-branch fetches and reviews its targeted remote PR head) -->
+2. When the command changes the affected PR head, the resulting review range ends at that authoritative remote head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-092: update-branch fetches and reviews its targeted remote PR head) -->
 3. The resulting CI launch identifies the same affected PR and repository. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-092: cross-repository update carries its repository into the CI launch) -->
 
 **Constraints:**
