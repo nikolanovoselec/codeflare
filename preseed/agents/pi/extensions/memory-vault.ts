@@ -504,7 +504,12 @@ function sendDueExtractionMessages(
   if (launches.length > 0) {
     pi.sendMessage({
       customType: "background-extraction-launch",
-      content: "[codeflare-extraction] Launch every request in details.items together through public background subagent calls, unchanged exactly once.",
+      content: [
+        "[codeflare-extraction] For every item in the JSON array below, launch item.request through a public background subagent call, unchanged exactly once, with all calls started together.",
+        "<extraction-items-json>",
+        JSON.stringify(launches),
+        "</extraction-items-json>",
+      ].join("\n"),
       display: true,
       details: { items: launches },
     }, { deliverAs: "followUp", triggerTurn: true });

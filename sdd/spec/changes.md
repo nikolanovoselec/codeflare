@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-07-14
 
+- **Pi extraction launch payloads are now visible to the model** ([REQ-MEM-014](memory.md#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever) AC7 and [REQ-VAULT-027](vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional) AC1 clarified; stay Implemented). Custom-message `details` remains durable retry metadata, while the same bounded request items are serialized into model-facing `content`; reminders preserve exact parity and require no session-JSONL recovery.
+
 - **Reviewer launch plans now require automatic triage before fixes begin** ([REQ-AGENT-036](agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC7 clarified; stays Implemented). After every required reviewer result, the root visibly separates finding validity from proposed-fix proportionality, prefers existing machinery, and applies legitimate minimal corrections by default unless the user requested approval; CI remains independent.
 
 - **Direct fully-autonomous user direction overrides only the five-round review stop** ([REQ-AGENT-084](agents.md#req-agent-084-pi-reviewer-policy-contract) clarified; stays Implemented). The root carries one reviewer-prompt marker; every test, review, CI, deployment, and ownership gate remains unchanged.

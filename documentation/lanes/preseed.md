@@ -478,7 +478,7 @@ Pi extraction is driven by two deployed contracts:
 `prompts/memory-agent-prompt.md` and `prompts/vault-extract-prompt.md`. The root
 extension reads Pi's durable session transcript, filters synthetic prompts,
 creates request-specific execution snapshots, and emits visible public
-background requests instead of invoking the private subagent service. Generated agents and emitted requests use provider-neutral medium reasoning, Bash-only evidence, and four turns ([AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional), [AD103](../decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs)).
+background requests instead of invoking the private subagent service. Each launch repeats the same bounded item array in model-facing content and durable details metadata so the model can issue the exact public calls without reading session JSONL. Generated agents and emitted requests use provider-neutral medium reasoning, Bash-only evidence, and four turns ([AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional), [AD103](../decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs)).
 
 `memory-vault.ts` owns delivery and high-water state. `<sessionId>.vars` and
 `vault-extract.pi.vars` are tiny active request-ID pointers used only for reload

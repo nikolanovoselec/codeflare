@@ -267,12 +267,23 @@ function activeExecutionPath(harness: Harness, job: ExtractionJob): string {
     : join(harness.paths.cacheDir, `vault-extract.pi.${requestId}.vars`);
 }
 
+function latestLaunchMessage(pi: FakePi, job: ExtractionJob): SentMessage {
+  const sent = [...pi.sent].reverse().find((candidate) =>
+    candidate.message.customType === 'background-extraction-launch'
+    && candidate.message.details?.items?.some((item) => item.jobType === job));
+  if (!sent) throw new Error(`missing ${job} launch message`);
+  return sent;
+}
+
+function modelVisibleLaunchItems(sent: SentMessage): Array<Record<string, unknown>> {
+  const match = sent.message.content?.match(/<extraction-items-json>\n(.+)\n<\/extraction-items-json>/s);
+  if (!match) throw new Error('missing model-visible extraction items');
+  return JSON.parse(match[1]) as Array<Record<string, unknown>>;
+}
+
 function latestLaunch(pi: FakePi, job: ExtractionJob): { requestId: string; reminder: number; request: PublicExtractionRequest } {
-  const items = pi.sent
-    .filter((sent) => sent.message.customType === 'background-extraction-launch')
-    .flatMap((sent) => sent.message.details?.items ?? [])
-    .filter((item) => item.jobType === job);
-  const item = items.at(-1);
+  const sent = latestLaunchMessage(pi, job);
+  const item = sent.message.details?.items?.find((candidate) => candidate.jobType === job);
   if (!item) throw new Error(`missing ${job} launch`);
   return item as unknown as { requestId: string; reminder: number; request: PublicExtractionRequest };
 }
@@ -434,7 +445,9 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(existsSync(memoryPointerPath(harness))).toBe(true);
     await harness.emit('agent_settled');
 
+    const launchMessage = latestLaunchMessage(harness.pi, 'memory-capture');
     const launch = latestLaunch(harness.pi, 'memory-capture');
+    expect(modelVisibleLaunchItems(launchMessage)).toEqual(launchMessage.message.details?.items);
     expect(launch.reminder).toBe(0);
     expect(launch.request).toMatchObject({
       subagent_type: 'memory-capture',
@@ -491,11 +504,15 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     for (let ordinal = 1; ordinal <= 15; ordinal += 1) await appendPrompt(harness, ordinal);
 
     for (let attempt = 0; attempt < 7; attempt += 1) await harness.emit('agent_settled');
-    const reminders = harness.pi.sent
-      .filter((sent) => sent.message.customType === 'background-extraction-launch')
+    const launchMessages = harness.pi.sent
+      .filter((sent) => sent.message.customType === 'background-extraction-launch');
+    const reminders = launchMessages
       .flatMap((sent) => sent.message.details?.items ?? [])
       .map((item) => item.reminder);
     expect(reminders).toEqual([0, 1, 2, 3, 4, 5]);
+    for (const sent of launchMessages) {
+      expect(modelVisibleLaunchItems(sent)).toEqual(sent.message.details?.items);
+    }
     expect(harness.pi.sent.filter((sent) => sent.message.customType === 'background-extraction-giveup')).toHaveLength(1);
 
     const sentBeforeReload = harness.pi.sent.length;
@@ -587,7 +604,9 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery', () => {
     expect(coalesced.changedFiles).toEqual([first, second]);
 
     await harness.emit('agent_settled');
+    const launchMessage = latestLaunchMessage(harness.pi, 'vault-extract');
     const launch = latestLaunch(harness.pi, 'vault-extract');
+    expect(modelVisibleLaunchItems(launchMessage)).toEqual(launchMessage.message.details?.items);
     expect(launch.request).toMatchObject({
       subagent_type: 'vault-extract',
       run_in_background: true,
