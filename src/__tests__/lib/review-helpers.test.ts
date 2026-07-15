@@ -13,7 +13,6 @@ type BoundarySurfaces = {
   event?: BoundaryEvent;
   protectedRetarget?: true;
   prTarget?: string;
-  repoTarget?: string;
 };
 type TranscriptFacts = {
   boundary?: { toolUseId: string; command: string };
@@ -135,7 +134,7 @@ afterEach(() => {
 });
 
 describe('Claude-equivalent review boundary helpers', () => {
-  it('REQ-AGENT-063/REQ-AGENT-092: distinguishes supported review boundary targets', async () => {
+  it('REQ-AGENT-063: distinguishes supported reminder and settled command surfaces', async () => {
     const { classifyReviewBoundaryCommand } = await plannedHelpers();
     const push = { reminder: true, settled: true, event: 'push' as const };
     const none = { reminder: false, settled: false };
@@ -157,13 +156,8 @@ describe('Claude-equivalent review boundary helpers', () => {
       ['gh pr merge 42', { reminder: false, settled: true, event: 'pr-merge' }],
       ['gh pr edit 42 --base develop', none],
       ['gh pr update-branch 42', { reminder: true, settled: true, event: 'pr-update-branch', prTarget: '42' }],
-      ['gh pr update-branch https://github.com/owner/repo/pull/42 --repo owner/repo', {
-        reminder: true,
-        settled: true,
-        event: 'pr-update-branch',
-        prTarget: 'https://github.com/owner/repo/pull/42',
-        repoTarget: 'owner/repo',
-      }],
+      ['gh pr update-branch 42 --repo other/repository', none],
+      ['gh pr update-branch https://github.com/other/repository/pull/42', none],
       ['git -C /tmp/repo push origin pi', push],
     ];
 

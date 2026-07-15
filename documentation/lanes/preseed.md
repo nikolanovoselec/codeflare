@@ -1004,7 +1004,7 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Its transcript-based trigger surface is `git push`, `gh pr merge`, and protected-base `gh pr edit --base main|master`; `git-push-review-reminder.sh` handles the in-turn reminder path for `git push`, `gh pr create`, and protected-base `gh pr edit`.
 
 Pi uses the narrower supported command grammar in
-[REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing): successful root-session Bash/`ctx_execute`/`ctx_batch_execute` surfaces recognize direct or environment-prefixed `git push`, `gh pr create`, `gh pr update-branch`, protected-base `gh pr edit`, and `gh pr merge` only in their documented reminder or settled roles. Unsupported convenience commands, failed commands, quoted examples, child sessions, passive startup, and integration-bound PRs are inert. After `gh pr update-branch`, enforcement retains the command's explicit PR target and repository selector, queries that PR rather than the checkout's current PR, waits for its GitHub head to differ from unchanged local `HEAD`, fetches and verifies that PR ref, and then carries the affected PR number and repository into review scope and exact-head CI.
+[REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing): successful root-session Bash/`ctx_execute`/`ctx_batch_execute` surfaces recognize direct or environment-prefixed `git push`, `gh pr create`, `gh pr update-branch`, protected-base `gh pr edit`, and `gh pr merge` only in their documented roles. A same-repository `gh pr update-branch <target>` queries that PR, verifies its changed remote head through `origin`, and carries the resolved PR number to CI. URL targets, `--repo` selectors, failed commands, quoted examples, child sessions, passive startup, and integration-bound PRs are inert.
 <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fetchPrHead -->
@@ -1015,9 +1015,8 @@ For Pi, the acknowledged full SHA remains at `.git/sdd-last-ack-pr-head`. A succ
 
 The USER-ONLY `/tmp/review-bypass` sentinel and explicit user wording remain review bypass surfaces; agents must not invoke them autonomously. Claude keeps its existing Stop-hook checkpoint and bypass semantics. Pi adds no pre-command merge interceptor.
 
-An affirmative direct current-session instruction to go **fully autonomous** activates a narrower task-scoped override regardless of letter case: it supersedes only the five-round autonomous-commit stop; quoted, discussed, or negated policy text is inert. The root carries `autonomy_override=fully-autonomous` in every later reviewer prompt for that task. A later direct user cancellation/narrowing instruction deactivates it; after every requested gate completes, the root emits `autonomy_override=complete` in its terminal response. Review, CI, test, specification, deployment, and root-only mutation gates remain unchanged ([REQ-AGENT-091](../../sdd/spec/agents.md#req-agent-091-explicit-fully-autonomous-direction-overrides-the-review-round-stop)).
-<!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousUserDirection -->
-<!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage -->
+A direct current-session instruction to go **FULLY AUTONOMOUS** supersedes only the five-round commit stop for the active task. The root adds `autonomy_override=fully-autonomous` to reviewer prompts until the user cancels or narrows the task; all other gates remain unchanged ([REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-pi-reviewer-policy-preloading)).
+<!-- @impl: preseed/agents/pi/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override -->
 
 Pi CI is not part of review completion or acknowledgement. After an eligible successful Git action, including `gh pr update-branch`, the extension issues one ordered plan; the root launches required reviewers first, then runs that plan's resolver once with explicit repository cwd and review launch state. CI launches last without waiting for review completion. An empty response means no monitor, and interruption remains aborted until a later plan or explicit request ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)).
 
@@ -1073,8 +1072,6 @@ Pi CI is not part of review completion or acknowledgement. After an eligible suc
 - [REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-pi-reviewer-policy-preloading) - Pi Reviewer Policy Preloading
 - [REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport) - Pi Reviewer Direct Evidence Transport
 - [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed) - CI Monitor Head Correction
-- [REQ-AGENT-091](../../sdd/spec/agents.md#req-agent-091-explicit-fully-autonomous-direction-overrides-the-review-round-stop) - Fully Autonomous Review Completion Override
-- [REQ-AGENT-092](../../sdd/spec/agents.md#req-agent-092-explicit-update-branch-targets-remain-authoritative) - Explicit Update-Branch Targeting
 - [REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) - Proactive memory injection on first prompt
 - [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-jobs-have-a-bounded-execution-profile) - Pi Extraction Execution Profile
 - [REQ-MEM-017](../../sdd/spec/memory.md#req-mem-017-session-memory-graph-identity-is-deterministic) - Deterministic Session Memory Graph Identity

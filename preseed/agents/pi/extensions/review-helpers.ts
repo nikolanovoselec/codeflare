@@ -12,7 +12,6 @@ type BoundarySurfaces = {
   event?: ReviewBoundaryEvent;
   protectedRetarget?: true;
   prTarget?: string;
-  repoTarget?: string;
 };
 type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
 export type TranscriptFacts = {
@@ -172,27 +171,14 @@ function protectedEdit(words: ShellWords): boolean {
   );
 }
 
-function updateBranchTargets(words: ShellWords): { prTarget?: string; repoTarget?: string } {
-  let prTarget: string | undefined;
-  let repoTarget: string | undefined;
-  for (let index = 3; index < words.length; index += 1) {
-    const word = words[index];
-    if ((word === "--repo" || word === "-R") && words[index + 1]) {
-      repoTarget = words[index + 1];
-      index += 1;
-      continue;
-    }
-    if (word.startsWith("--repo=") || word.startsWith("-R=")) {
-      repoTarget = word.slice(word.indexOf("=") + 1);
-      continue;
-    }
-    if (!word.startsWith("-") && !prTarget) prTarget = word;
+function updateBranchTarget(words: ShellWords): { supported: boolean; prTarget?: string } {
+  const args = words.slice(3);
+  if (args.some((word) => word === "--repo" || word === "-R" || word.startsWith("--repo=") || word.startsWith("-R="))) {
+    return { supported: false };
   }
-  const urlRepo = prTarget?.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/\d+(?:\/|$)/)?.[1];
-  return {
-    ...(prTarget ? { prTarget } : {}),
-    ...(repoTarget || urlRepo ? { repoTarget: repoTarget ?? urlRepo } : {}),
-  };
+  const prTarget = args.find((word) => !word.startsWith("-"));
+  if (prTarget && /^https?:\/\//i.test(prTarget)) return { supported: false };
+  return { supported: true, ...(prTarget ? { prTarget } : {}) };
 }
 
 export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces {
@@ -200,7 +186,7 @@ export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces
   let settled = false;
   let protectedRetarget = false;
   let event: ReviewBoundaryEvent | undefined;
-  let updateTargets: { prTarget?: string; repoTarget?: string } = {};
+  let prTarget: string | undefined;
   for (const words of commandWords(command)) {
     if (gitSubcommand(words) === "push") {
       reminder = settled = true;
@@ -216,9 +202,12 @@ export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces
       event = "pr-edit";
     }
     if (words[0] === "gh" && words[1] === "pr" && words[2] === "update-branch") {
-      reminder = settled = true;
-      event = "pr-update-branch";
-      updateTargets = updateBranchTargets(words);
+      const target = updateBranchTarget(words);
+      if (target.supported) {
+        reminder = settled = true;
+        event = "pr-update-branch";
+        prTarget = target.prTarget;
+      }
     }
     if (words[0] === "gh" && words[1] === "pr" && words[2] === "merge") {
       settled = true;
@@ -230,7 +219,7 @@ export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces
     settled,
     ...(event ? { event } : {}),
     ...(protectedRetarget ? { protectedRetarget: true as const } : {}),
-    ...(event === "pr-update-branch" ? updateTargets : {}),
+    ...(event === "pr-update-branch" && prTarget ? { prTarget } : {}),
   };
 }
 

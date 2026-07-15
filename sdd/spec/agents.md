@@ -1098,7 +1098,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. A supported head-changing root boundary, including `gh pr update-branch`, requests reviewers only for an SDD repository with a fresh open protected-base PR. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::queryPr --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fetchPrHead --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036: update-branch fetches and reviews a remote-only PR head) -->
+1. A supported head-changing root boundary, including an explicit same-repository `gh pr update-branch <target>`, requests reviewers only for an SDD repository with a fresh open protected-base PR. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::queryPr --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fetchPrHead --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036: update-branch fetches and reviews a remote-only PR head) -->
 2. Ineligible PR state or an unsuccessful command requests no reviewer. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (Pi review reminder and settled enforcement) -->
 3. Root and nested SDD layouts suppress review only while transition is true and the active triage queue contains an open item. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-045/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
 4. Passive lifecycle and child sessions cannot start or complete review. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes) -->
@@ -1110,6 +1110,7 @@ None.
 
 - Command parsing is defined by [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing).
 - An `update-branch` boundary qualifies only after the authoritative PR head differs from local `HEAD` and the fetched PR ref resolves to that exact SHA.
+- `update-branch` URL targets and `--repo` selectors are unsupported and inert; review never crosses checkout boundaries.
 - Pi adds no pre-command merge gate.
 
 **Priority:** P1
@@ -1909,7 +1910,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. An eligible head-changing boundary resolves to one complete public `ci-monitor` request. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::resolveCiMonitorRequest --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC1: eligible head-changing push returns one complete public ci-monitor request) -->
+1. An eligible head-changing boundary resolves its affected PR to one complete public `ci-monitor` request. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::resolveCiMonitorRequest --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC1: eligible push resolves the affected PR exactly once) -->
 2. Valid check JSON remains usable when GitHub CLI returns a pending or failure exit status. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC2: valid check JSON is parsed despite gh exit statuses 1 and 8) -->
 3. CI success requires the same non-empty all-terminal fingerprint in two polls. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC2/AC3: pending checks wait for a stable pass and skipping fingerprint) -->
 4. An authoritative head mismatch reports `CI_RESULT timeout superseded`. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC4: a superseded head stops before checks are queried) -->
@@ -2272,7 +2273,7 @@ None.
 **Constraints:**
 
 - Canonical skill files remain the only hand-maintained policy source.
-- Reviewer launch prompts continue to carry only dynamic repository, scope, and range inputs.
+- Reviewer launch prompts carry only dynamic repository, scope, range, and direct-user override inputs.
 - Preloading changes no review scope, manifest row, or acknowledgement condition.
 
 **Priority:** P1
@@ -2462,66 +2463,5 @@ None.
 **Dependencies:** [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring)
 
 **Verification:** [Pi CI monitor behavioral tests](../../host/__tests__/pi-ci-monitor.test.js)
-
-**Status:** Implemented
-
----
-
-### REQ-AGENT-091: Explicit fully-autonomous direction overrides the review round stop
-
-**Intent:** A user who explicitly requests fully autonomous completion must not be interrupted only because the active review loop reached its normal five-commit safety limit.
-
-**Applies To:** Agent
-
-**Acceptance Criteria:**
-
-1. A direct current-session user instruction to go fully autonomous activates the task override regardless of letter case. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousActivation --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: marks initial, settled, and missing-lane reviewer launches) -->
-2. Agent-authored fully-autonomous text does not activate the task override. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousUserDirection --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: agent-authored fully-autonomous text cannot activate the override) -->
-3. User discussion or quotation of fully-autonomous policy text does not activate the task override. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousActivation --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: quoted fully-autonomous policy text does not activate the override) -->
-4. A negated fully-autonomous direction does not activate the task override. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousActivation --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: negated fully-autonomous direction does not activate the override) -->
-5. Initial, settled, and missing-lane reviewer launches for that task carry the exact fully-autonomous override marker. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: marks initial, settled, and missing-lane reviewer launches) -->
-6. A later direct user cancellation or narrowing instruction deactivates the task override. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousUserDirection --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: later user narrowing deactivates the fully-autonomous override) -->
-7. The root's terminal task-completion marker deactivates the task override. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousUserDirection --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: root completion closes the fully-autonomous task scope) -->
-
-**Constraints:**
-
-- Only direct user text in the current root session can activate the override.
-- The root emits `autonomy_override=complete` only in its terminal response after all requested review, CI, deployment, and verification gates complete.
-- Review, CI, behavioral-test, SDD truth, deployment, and root-only mutation gates remain binding.
-- Canonical Pi and Claude enforcement policy defines the same task-scoped round-limit exception.
-
-**Priority:** P0
-
-**Dependencies:** [REQ-AGENT-084](#req-agent-084-pr-boundary-reviewers-execute-canonical-enforcement-skills)
-
-**Verification:** [Pi review enforcement behavioral tests](../../src/__tests__/lib/review-enforcement.test.ts)
-
-**Status:** Implemented
-
----
-
-### REQ-AGENT-092: Explicit update-branch targets remain authoritative
-
-**Intent:** Review and CI started by `gh pr update-branch` must follow the PR named by the command rather than whichever PR happens to match the current checkout.
-
-**Applies To:** Agent
-
-**Acceptance Criteria:**
-
-1. An explicit update-branch target and repository identify the affected PR. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-092: distinguishes supported review boundary targets) -->
-2. When the command changes the affected PR head, the resulting review range ends at that authoritative remote head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-092: update-branch fetches and reviews its targeted remote PR head) -->
-3. The resulting CI launch identifies the same affected PR and repository. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-092: cross-repository update carries its repository into the CI launch) -->
-
-**Constraints:**
-
-- Targetless pushes and PR creation retain checkout-relative lookup.
-- Remote fetches use HTTPS when an explicit repository is supplied.
-- Review and CI still fail closed when the target cannot be resolved or its head cannot be verified.
-
-**Priority:** P0
-
-**Dependencies:** [REQ-AGENT-036](#req-agent-036-git-push-triggers-review-workflow), [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring)
-
-**Verification:** [Boundary classification tests](../../src/__tests__/lib/review-helpers.test.ts), [review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts), [CI resolver tests](../../host/__tests__/pi-ci-monitor.test.js)
 
 **Status:** Implemented

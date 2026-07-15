@@ -24,11 +24,11 @@ In the boundary-command turn, report only the push result or PR URL. Do not call
 
 The Pi extension is the sole automatic boundary dispatcher. Do not independently infer or duplicate an automatic CI launch from the preceding Git command. When it emits a launch plan or follow-up in the next turn:
 
-1. Launch every review agent listed in wave 1 together through public `subagent` calls with `run_in_background: true` and `inherit_context: false`. Preserve the exact `review_range=<acknowledged>..<current>` marker when supplied. When a direct current-session user instruction activated the fully-autonomous override for this task, also include `autonomy_override=fully-autonomous` in every reviewer prompt. A later direct user cancellation/narrowing instruction deactivates it; after every requested gate completes, the root emits `autonomy_override=complete` in its terminal response.
+1. Launch every review agent listed in wave 1 together through public `subagent` calls with `run_in_background: true` and `inherit_context: false`. Preserve the exact `review_range=<acknowledged>..<current>` marker when supplied. When the current user activated the fully-autonomous override for this task, include `autonomy_override=fully-autonomous` in every reviewer prompt until the user cancels or narrows it.
 2. Immediately after issuing the wave-1 calls—not after reviewer completion—run the plan's wave-2 resolver exactly once:
 
    ```bash
-   node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> pr=<details.prNumber> cwd=<absolute-repo-root> reviewState=<launched|not-required>
+   node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> pr=<affected-pr-number> cwd=<absolute-repo-root> reviewState=<launched|not-required>
    ```
 
 3. No stdout means no CI monitor is requested. Otherwise parse the sole JSON object and submit it unchanged exactly once through the public `subagent` tool. CI is the last launch for that boundary.

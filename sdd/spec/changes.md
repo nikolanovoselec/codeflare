@@ -4,9 +4,9 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-07-14
 
-- **Explicit fully-autonomous direction now overrides only the five-round review stop** ([REQ-AGENT-091](agents.md#req-agent-091-explicit-fully-autonomous-direction-overrides-the-review-round-stop) added; Implemented). An affirmative direct current-session user instruction activates the task-scoped marker regardless of letter case; quoted, discussed, or negated policy text remains inert, while a later user cancellation/narrowing directive or the root's terminal completion marker deactivates it. Behavioral-test, SDD truth, review, CI, deployment, and root-only mutation gates remain unchanged.
+- **Direct fully-autonomous user direction overrides only the five-round review stop** ([REQ-AGENT-084](agents.md#req-agent-084-pi-reviewer-policy-preloading) clarified; stays Implemented). The root carries one reviewer-prompt marker; every test, review, CI, deployment, and ownership gate remains unchanged.
 
-- **Explicit `gh pr update-branch` targets now drive both review and CI resolution** ([REQ-AGENT-092](agents.md#req-agent-092-explicit-update-branch-targets-remain-authoritative) added; Implemented). For a head-changing update, the boundary retains its PR target and repository selector, verifies that remote head, and carries the affected PR number and repository through exact-head CI launch. Targetless push and PR-create behavior is unchanged.
+- **Same-repository `gh pr update-branch <target>` resolves that PR for review and CI** ([REQ-AGENT-036](agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC1 and [REQ-AGENT-068](agents.md#req-agent-068-independent-pi-ci-monitoring) AC1 clarified; stay Implemented). URL targets and `--repo` selectors are inert rather than crossing checkout boundaries.
 
 - **Deterministic session graph identity and during-run Vault edits now have focused requirements** ([REQ-MEM-017](memory.md#req-mem-017-session-memory-graph-identity-is-deterministic) and [REQ-VAULT-028](vault.md#req-vault-028-vault-edits-remain-isolated-after-extraction-starts) added; both Implemented). These requirements split existing multi-phase acceptance criteria without changing runtime behavior and replace stale test anchors with direct behavioral coverage.
 
