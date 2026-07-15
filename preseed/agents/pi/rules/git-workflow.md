@@ -16,7 +16,7 @@
 
 ## Mandatory stop after boundary commands
 
-After any successful `git push` or `gh pr create`, **end the current assistant turn immediately**. The extension emits a passive boundary plan; becoming idle triggers its deterministic settled dispatch.
+After any successful `git push` or `gh pr create`, **end the current assistant turn immediately**. The extension appends a extension-only review window that never enters LLM context; becoming idle triggers its deterministic settled dispatch.
 
 In the boundary-command turn, report only the push result or PR URL. Do not call another tool, inspect session JSONL, search for the plan, run `gh pr edit`, invoke the CI resolver, launch reviewers, or attempt another boundary command. The extension—not the model—executes the plan exactly once after the turn settles.
 
@@ -26,7 +26,7 @@ The Pi extension is the sole automatic boundary dispatcher. Do not independently
 
 1. On settled enforcement, the extension calls the already-published stock `@gotgenes/pi-subagents` service once for every missing reviewer, with background execution and inherited context disabled. Each reviewer prompt preserves the exact `review_range=<acknowledged>..<current>` marker when supplied and carries `autonomy_override=fully-autonomous` only after a direct current-session user activation.
 2. Every successful spawn appends minimal session evidence containing the exact head, range, lane, and returned agent ID. A dispatch without a terminal record remains in flight across reload; a failed spawn remains missing and is retried within the existing five-round bound.
-3. Only after all requested reviewer spawns return agent IDs, the extension runs the existing CI request resolver once with the affected repository cwd and explicit review launch state. No request is persisted as resolved; a returned request is service-spawned as the final wave.
+3. Managed `maxConcurrent: 1` queues memory-heavy reviewers one at a time. Only after all requested reviewer spawns return agent IDs, the extension runs the existing CI request resolver once with the affected repository cwd and explicit review launch state. No request is persisted as resolved; a returned request is service-spawned last with queue bypass so monitoring remains independent.
 4. Service launches are visible session subagents but are not assistant public-tool-call transcript blocks. Completion correlation uses the immutable agent ID in `subagents:record`; only a successful matching reviewer record can acknowledge the head.
 5. Wait for every required reviewer result before editing, committing, or pushing. CI completion is independent and never gates review acknowledgement.
 6. After all required reviewer results arrive, automatically publish one consolidated triage summary before the first fixing or other project-mutation tool call. For each finding, classify the finding's validity, the proposed fix's proportionality, and the smallest correction that reuses existing machinery.

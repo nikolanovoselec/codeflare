@@ -213,6 +213,12 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     }
   });
 
+  it('REQ-AGENT-071: bounds in-process reviewer concurrency for the container memory budget', () => {
+    const settings = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/subagents.json');
+    expect(settings?.modes).toEqual(['default', 'advanced']);
+    expect(JSON.parse(settings?.content ?? '{}')).toEqual({ maxConcurrent: 1 });
+  });
+
   it('REQ-AGENT-068/070: seeds distinct Claude and Pi CI workflow contracts', () => {
     const claudeGitWorkflow = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/rules/git-workflow.md');
     const claudeCiSkill = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.claude/skills/ci-monitoring/SKILL.md');

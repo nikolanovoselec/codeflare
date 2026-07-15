@@ -12,7 +12,7 @@ The Pi PR-boundary extension is the sole automatic dispatcher. On an automatic b
 node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> pr=<affected-pr-number> cwd=<absolute-repo-root> reviewState=<launched|not-required>
 ```
 
-The explicit repository, affected PR number, and cwd bind lookup to the boundary's exact PR independently of the session's starting directory or checked-out branch. The review state keeps CI last in launch order without coupling its execution or result to review. No stdout means no action. Otherwise the extension submits the request once through the stock session subagent service with equivalent background and context-isolation options. The attached script timeout bounds execution; no agent turn cap replaces its verbatim result.
+The explicit repository, affected PR number, and cwd bind lookup to the boundary's exact PR independently of the session's starting directory or checked-out branch. The review state keeps CI last in launch order without coupling its execution or result to review. No stdout means no action. Otherwise the extension submits the request once through the stock session subagent service with equivalent background and context-isolation options plus queue bypass, so the single-reviewer memory limit does not serialize monitoring behind review completion. The attached script timeout bounds execution; no agent turn cap replaces its verbatim result.
 
 An explicit user request may also launch `ci-monitor` for a known open PR using this exact prompt:
 

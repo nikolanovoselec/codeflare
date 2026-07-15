@@ -12,7 +12,7 @@ Use this when the user asks to open a PR.
 
 PR review and CI monitoring are separate.
 
-- The Pi boundary extension emits one passive ordered plan after an eligible push or protected-base PR creation. On settled enforcement it service-spawns any required SDD reviewers first, then resolves and service-spawns independent CI when eligible.
+- The Pi boundary extension appends one extension-only ordered review window after an eligible push or protected-base PR creation; it never adds launch instructions to LLM context. On settled enforcement it service-spawns any required SDD reviewers first, then resolves and service-spawns independent CI when eligible.
 - The root main session does not repeat those launches through public `subagent` calls. It waits for the visible service-owned results, triages reviewers together, and handles `CI_RESULT` independently.
 - Reviewer agents and the CI agent are report-only. They never fix, commit, push, or launch each other. The root main session alone owns follow-up edits and Git writes.
 
@@ -28,7 +28,7 @@ After the Git command succeeds:
 - do not run `gh pr edit`, another push, or the CI resolver to retrigger a boundary;
 - do not infer that a plan is missing while the current turn is still active.
 
-Do not execute the passive plan manually. The extension dispatches it through the stock session subagent service after the turn settles.
+Do not execute or reconstruct the extension-only review window manually. The extension dispatches it through the stock session subagent service after the turn settles.
 
 ## Steps
 
@@ -56,8 +56,8 @@ Do not execute the passive plan manually. The extension dispatches it through th
 7. Report the push result and **stop the current turn**. Do not perform step 8 in the same turn.
 8. In a later turn, create the PR and report its URL.
 9. **Stop the current turn immediately after PR creation.** Do not search for, recreate, or retrigger the boundary plan.
-10. When the queued PR-creation launch plan starts the next turn, launch all listed reviewers with `run_in_background: true`, `inherit_context: false`, and the exact supplied `review_range` marker in every prompt.
-11. Immediately follow those reviewer calls with the same plan's CI wave when present. CI is the last launch, not a review completion dependency.
+10. Do not launch reviewers or CI manually. The extension's extension-only review window never enters LLM context; settled enforcement submits every reviewer request to the stock service and records its agent ID.
+11. The managed reviewer queue executes one memory-heavy reviewer at a time. The extension submits CI last with queue bypass so monitoring remains independent of reviewer completion.
 12. Wait for every named reviewer before evaluating findings or changing the head. Fix every legitimate finding unless the latest user instruction says to wait or not autofix. Only the root main session may commit or push those fixes.
 
 No open PR targeting `main`/`master`, or no JSON request from the resolver, means no automatic CI monitor. Do not relaunch an aborted monitor automatically. A later extension-issued boundary plan or explicit user request is the only other launch path.

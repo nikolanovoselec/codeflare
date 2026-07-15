@@ -379,6 +379,11 @@ function fullyAutonomousOverride(entries: Record<string, any>[]): boolean {
 }
 
 function reviewWindow(entry: Record<string, any>): { head?: string; range?: string } | undefined {
+  if (entry.type === "custom" && entry.customType === "codeflare:review-window") {
+    const head = typeof entry.data?.head === "string" ? entry.data.head : undefined;
+    const range = typeof entry.data?.reviewRange === "string" ? entry.data.reviewRange : undefined;
+    return { head, range };
+  }
   if (entry.type !== "custom_message" || ![
     "pr-boundary-launch-plan",
     "pr-boundary-launch-follow-up",

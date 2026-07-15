@@ -31,6 +31,7 @@ type ServiceSpawnOptions = {
   thinkingLevel?: string;
   inheritContext?: boolean;
   foreground?: boolean;
+  bypassQueue?: boolean;
 };
 
 type SubagentsService = {
@@ -341,6 +342,7 @@ function spawnOptions(request: Pick<CiMonitorRequest, "description" | "model" | 
     description: request.description,
     inheritContext: false,
     foreground: false,
+    bypassQueue: true,
     ...(request.model ? { model: request.model } : {}),
     ...(request.thinking ? { thinkingLevel: request.thinking } : {}),
     ...(request.max_turns ? { maxTurns: request.max_turns } : {}),
@@ -396,27 +398,22 @@ function appendDispatch(pi: ReviewPi, input: LaunchMessage, data: {
   });
 }
 
-async function sendLaunchMessage(
+async function dispatchReviewWindow(
   pi: ReviewPi,
   dependencies: Dependencies,
   input: LaunchMessage,
   dispatch = true,
 ): Promise<void> {
-  const details: Record<string, unknown> = {
+  pi.appendEntry("codeflare:review-window", {
+    version: 1,
+    phase: input.phase,
     head: input.pr.headRefOid,
-    ackHead: input.ackHead,
-    reviewRange: input.range,
-    ...(input.phase === "plan" ? { scope: scopeContract("diff") } : {}),
-    [input.phase === "plan" ? "requiredLanes" : "missingLanes"]: input.reviewers,
+    ...(input.ackHead ? { ackHead: input.ackHead } : {}),
+    ...(input.range ? { reviewRange: input.range } : {}),
+    ...(input.phase === "plan" ? { scope: scopeContract("diff"), requiredLanes: input.reviewers } : { missingLanes: input.reviewers }),
     launchWaves: [input.reviewers, ...(input.ciEvent ? [["ci-monitor"]] : [])],
-    ciEvent: input.ciEvent,
-  };
-  pi.sendMessage({
-    customType: input.phase === "plan" ? "pr-boundary-launch-plan" : "pr-boundary-launch-follow-up",
-    content: `Automatic boundary dispatch for ${input.pr.headRefOid} started.`,
-    display: true,
-    details,
-  }, { triggerTurn: false });
+    ...(input.ciEvent ? { ciEvent: input.ciEvent } : {}),
+  });
 
   if (!dispatch) return;
   const service = subagentsService(dependencies);
@@ -488,7 +485,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const ciEvent = ciBoundaryEvent(boundary.classification.event);
     if (requiredLanes.length === 0 && !ciEvent) return;
 
-    await sendLaunchMessage(pi, dependencies, {
+    await dispatchReviewWindow(pi, dependencies, {
       phase: "plan",
       repo: review.repo,
       pr: review.pr,
@@ -579,7 +576,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
 
     if (shouldReview && requiredLanes.length > 0
       && (facts.reviewHead !== review.pr.headRefOid || facts.reviewRange !== range)) {
-      await sendLaunchMessage(pi, dependencies, {
+      await dispatchReviewWindow(pi, dependencies, {
         phase: "plan",
         repo: review.repo,
         pr: review.pr,
@@ -603,7 +600,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if (missingLanes.length === 0 && !ciEvent) return;
     if (missingLanes.length > 0 && blockDecision(review.repo, review.pr.headRefOid) === "giveup") return;
 
-    await sendLaunchMessage(pi, dependencies, {
+    await dispatchReviewWindow(pi, dependencies, {
       phase: "follow-up",
       repo: review.repo,
       pr: review.pr,

@@ -1795,27 +1795,27 @@ REQ-VAULT-017 already serves the SW credential-less inside the Worker, but Acces
 
 **Category:** Agents
 
-**Status:** Accepted (2026-06-09); amended for Pi execution by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) (2026-07-12); amended for Claude direct evidence and root-only persistence (2026-07-13)
+**Status:** Accepted (2026-06-09); amended for Pi execution by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) (2026-07-12); amended for Claude direct evidence and root-only persistence (2026-07-13); amended for Pi's bounded in-process memory (2026-07-15)
 
 **Context:** At a PR boundary the SDD pipeline dispatches three review lanes — `code-reviewer` (source), `spec-reviewer` (`sdd/`), and `doc-updater` (`documentation/` + root `README.md`). The original design ran them sequentially because reviewers edited their lanes in place and documentation validation depended on completed spec edits (the race concern recorded in [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution)).
 
 PR-boundary reviewers are now report-only and the root main session applies findings. Claude reviewers publish independent lane results through Claude's existing review pipeline. Pi reviewers return native terminal records to the root transcript under [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); Pi has no durable review result files or lane jobs. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 
-**Decision:** Dispatch every required review lane in parallel at a PR boundary. Reviewers are read-only with respect to source, specs, documentation, triage, and review artifacts, so they have no shared-write ordering dependency. Claude code/spec/doc reviewers expose only enforcement skills, direct context execution, and Bash fallback; they return structured findings to the root without indexed or Graphify discovery. Pi uses the stock session subagent service for visible background reviewer launches and correlates native records by agent ID.
+**Decision:** Submit every required review lane in one wave at a PR boundary. Reviewers are read-only with respect to source, specs, documentation, triage, and review artifacts, so they have no shared-write ordering dependency. Claude runs code/spec/doc reviewers in parallel. Pi uses the stock session subagent service for visible background launches and correlates native records by agent ID, but its resource-constrained container sets `maxConcurrent: 1` so only one memory-heavy reviewer executes at a time.
 
 `/sdd clean` is explicitly excluded because it applies fixes inline. It keeps the AD44 sequential order: spec enforcement before documentation enforcement, so documentation cross-references see the corrected spec.
 
-**Rationale:** Parallelism is correct because PR-boundary reviewers do not edit the shared source of truth. Running the lanes concurrently reduces review latency without creating a write race; the engine-specific result transport does not change that property.
+**Rationale:** Parallel execution remains correct where the runtime budget permits because reviewers do not edit the shared source of truth. Pi's in-process children share the foreground process's memory, so serial reviewer execution prevents a four-agent PR wave from terminating the session. Submission and agent-ID correlation remain one wave; only execution concurrency is bounded.
 
 **Alternatives considered:**
 
-- **Keep the sequential gate (rejected):** it bought nothing once the reviewers stopped editing — `doc-updater` reads the *committed* spec, not an in-flight `spec-reviewer` edit — and cost a full lane of serial latency on every PR-boundary.
+- **Serialize every engine (rejected):** Claude has no shared-process memory constraint requiring it, while Pi's stock service limiter provides the narrow runtime-specific bound.
 - **Parallelize `/sdd clean` too (rejected):** `/sdd clean` applies fixes inline, so doc cross-references genuinely depend on the just-fixed spec; parallelizing it would reintroduce the exact race AD44 guards against. The report-only/apply-inline distinction is the dividing line.
 
 **Consequences:**
 
-- PR-boundary review completes faster, and the main session applies findings only after every required lane reports.
-- Claude returns complete reports to the root, which alone persists triage and review artifacts; Pi uses session-scoped service records defined by AD98.
+- Every engine submits one complete reviewer wave, and the main session applies findings only after every required lane reports.
+- Claude executes lanes in parallel. Pi executes one reviewer at a time while CI may bypass the reviewer queue; session-scoped service records remain the completion truth defined by AD98.
 - `/sdd clean` behavior is unchanged.
 
 **Related:** [REQ-AGENT-040](../../sdd/spec/agents.md#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch) AC1, [REQ-AGENT-086](../../sdd/spec/agents.md#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff), [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution), [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), and [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents).
@@ -2414,7 +2414,7 @@ The manifest is baselined from current content **only when absent** (the first s
 
 **Category:** Agents
 
-**Status:** Accepted (2026-07-12); amended for deterministic stock-service dispatch (2026-07-15)
+**Status:** Accepted (2026-07-12); amended for deterministic stock-service dispatch and bounded in-process memory (2026-07-15)
 
 **Supersedes:** [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth)
 
@@ -2422,15 +2422,15 @@ The manifest is baselined from current content **only when absent** (the first s
 
 **Context:** Pi's durable review design accumulated detached lane processes, job directories, PID recovery, monitor claims, result summaries, status rendering, and a hard merge gate. The replacement initially asked the root model to translate a visible follow-up into public `subagent` calls, but a prompt is not an execution guarantee: live extraction and review requests could remain undispatched or be reported as complete without a task. Stock Pi already publishes the active `@gotgenes/pi-subagents` service to extensions and persists each agent's lifecycle record in the root session. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 
-**Decision:** Pi PR-boundary review is session-scoped ([REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch)). The boundary extension calls the already-published stock service once per missing reviewer, records only the returned agent ID with head/range/lane metadata, and correlates successful `subagents:record` entries by agent ID. With a valid prior acknowledgement, the passive plan, reviewer prompt, and dispatch record carry the exact acknowledged-to-current range; otherwise the full protected-base PR is reviewed.
+**Decision:** Pi PR-boundary review is session-scoped ([REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch)). The boundary extension calls the already-published stock service once per missing reviewer, records only the returned agent ID with head/range/lane metadata, and correlates successful `subagents:record` entries by agent ID. With a valid prior acknowledgement, the extension-only review window, reviewer prompt, and dispatch record carry the exact acknowledged-to-current range; otherwise the full protected-base PR is reviewed.
 
-Unmatched dispatches remain in flight across reload, and only the reminder SHA can be acknowledged after every required successful record. Review agents remain parallel and report-only. The root main session alone triages, fixes, commits, and pushes. Pi keeps no pre-command merge gate, durable lane, `review-monitor`, result file, summary, queue, database, custom host, or Pi-core patch.
+Unmatched dispatches remain in flight across reload, and only the reminder SHA can be acknowledged after every required successful record. Reviewer requests remain one report-only wave, while managed `maxConcurrent: 1` executes one in-process reviewer at a time. The root main session alone triages, fixes, commits, and pushes. Pi keeps no pre-command merge gate, durable lane, `review-monitor`, result file, summary, queue, database, custom host, or Pi-core patch.
 
 Pi owns native reviewer agents, engineering rules, and spec/document enforcement skills. Their shared `review-scope` contract treats PR-boundary review as diff scope, limits diff work to changed hunks and direct invalidations, and reserves exhaustive scans for explicit all scope. Seed generation gives these Pi manifest paths precedence over transformed Claude paths, so Claude review behavior is unchanged.
 
 **Alternatives considered:** Retain detached lanes and repair their recovery paths; keep only a durable checkpoint; patch or fork Pi to let extensions manufacture exact public tool calls; keep model-mediated follow-ups; parse reviewer findings into another state machine; or preserve the hard Pi merge interceptor. The fork changes the host, while prompt-only dispatch fails liveness. The published stock service plus session records provides deterministic execution and completion proof without either system.
 
-**Consequences:** Review execution is visible and deterministic. Service launches have stable agent IDs and native results but do not appear as assistant public-tool-call transcript blocks. Reload cannot fabricate completion or duplicate an unmatched dispatch; a failed immediate spawn remains missing and retries within the existing bound. AD78's parallel report-only policy remains, while AD76's detached lanes and AD80's hard merge gate no longer govern Pi.
+**Consequences:** Review execution is visible and deterministic. Service launches have stable agent IDs and native results but do not appear as assistant public-tool-call transcript blocks; review windows are extension-only and never prompt the root model. Serial reviewer execution fits the shared-process memory budget, while CI queue bypass preserves independent monitoring. Reload cannot fabricate completion or duplicate an unmatched dispatch. AD76's detached lanes and AD80's hard merge gate no longer govern Pi.
 
 **Related REQ:** [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-053](../../sdd/spec/agents.md#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-074](../../sdd/spec/agents.md#req-agent-074-pi-settled-review-handoff).
 
@@ -2444,7 +2444,7 @@ Pi owns native reviewer agents, engineering rules, and spec/document enforcement
 
 **Context:** Pi CI monitoring mixed three conflicting paths: a review-owned handoff, a generic agent prompt, and a detached shell embedded in a skill. Native task completion could arrive before the detached monitor finished. Historical incidents included duplicate launches, startup prompt collisions, shell and `jq` false results, workflow-name drift, PR checks missed by commit-SHA lookup, and lost delivery after reload. The replacement therefore needs one executable request resolver that validates the event, repository, open PR, protected base, and authoritative head before returning one native monitor request. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::resolveCiMonitorRequest -->
 
-**Decision:** CI monitoring is independent of review completion and acknowledgement ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring)). After an eligible head-changing boundary, the PR-boundary extension owns one ordered launch plan: required reviewer service spawns first and an independent CI request second. After every requested reviewer returns an agent ID, the extension invokes the resolver once with the affected repository cwd and explicit review launch state. It service-spawns one returned `ci-monitor` request for the authoritative PR number and `headRefOid`; an empty resolution is persisted so reload cannot invoke it again.
+**Decision:** CI monitoring is independent of review completion and acknowledgement ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring)). After an eligible head-changing boundary, the PR-boundary extension owns one ordered launch plan: required reviewer service spawns first and an independent CI request second. After every requested reviewer returns an agent ID, the extension invokes the resolver once with the affected repository cwd and explicit review launch state. It service-spawns one returned `ci-monitor` request with queue bypass for the authoritative PR number and `headRefOid`; an empty resolution is persisted so reload cannot invoke it again.
 
 The dedicated agent runs one attached Node process and returns `CI_RESULT` through native task notification. Script timeouts bound runtime; no agent turn cap may replace the verbatim result with a wrapper summary. Malformed and superseded heads fail closed. [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed) permits only the remote-qualified 41-character transcription correction. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi -->
 

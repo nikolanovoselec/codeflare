@@ -392,6 +392,7 @@ function piNativeKey(withinPi) {
   if (withinPi === 'package.json') return '.pi/agent/npm/package.json';
   if (withinPi === 'package-lock.json') return '.pi/agent/npm/package-lock.json';
   if (withinPi === 'settings.json') return '.pi/agent/settings.json';
+  if (withinPi === 'subagents.json') return '.pi/agent/subagents.json';
   throw new Error(`Cannot map Pi native preseed file: ${withinPi}`);
 }
 

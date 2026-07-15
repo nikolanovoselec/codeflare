@@ -18,6 +18,7 @@ type SentMessage = {
   message: { customType: string; content?: string; details?: Record<string, unknown>; display?: boolean };
   options?: { triggerTurn?: boolean; deliverAs?: 'steer' | 'followUp' | 'nextTurn' };
 };
+type AppendedEntry = { customType: string; data: unknown };
 type ExtensionHandler = (event: unknown, ctx: TestContext) => unknown | Promise<unknown>;
 type TestContext = {
   cwd: string;
@@ -33,6 +34,7 @@ type ServiceSpawnOptions = {
   thinkingLevel?: string;
   inheritContext?: boolean;
   foreground?: boolean;
+  bypassQueue?: boolean;
 };
 type SpawnedAgent = {
   id: string;
@@ -261,12 +263,14 @@ function makeHarness(repo: string, sessionFile: string): {
   pi: TestPi;
   ctx: TestContext;
   sent: SentMessage[];
+  appended: AppendedEntry[];
   service: TestSubagentsService;
   spawned: SpawnedAgent[];
   emit(event: string, payload?: unknown): Promise<void>;
 } {
   const handlers = new Map<string, ExtensionHandler[]>();
   const sent: SentMessage[] = [];
+  const appended: AppendedEntry[] = [];
   const spawned: SpawnedAgent[] = [];
   const service: TestSubagentsService = {
     spawn: (type, prompt, options) => {
@@ -278,6 +282,7 @@ function makeHarness(repo: string, sessionFile: string): {
   const pi: TestPi = {
     on: (event, handler) => handlers.set(event, [...(handlers.get(event) ?? []), handler]),
     appendEntry: (customType, data) => {
+      appended.push({ customType, data });
       appendSession(sessionFile, {
         type: 'custom',
         id: nextId('custom'),
@@ -309,12 +314,19 @@ function makeHarness(repo: string, sessionFile: string): {
     pi,
     ctx,
     sent,
+    appended,
     service,
     spawned,
     emit: async (event, payload = {}) => {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
     },
   };
+}
+
+function latestReviewWindow(harness: ReturnType<typeof makeHarness>): Record<string, unknown> | undefined {
+  return harness.appended
+    .filter((entry) => entry.customType === 'codeflare:review-window')
+    .at(-1)?.data as Record<string, unknown> | undefined;
 }
 
 async function registerFixture(
@@ -378,40 +390,29 @@ describe('Pi review reminder and settled enforcement', () => {
     );
 
     await harness.emit('tool_result', boundaryEvent());
-    expect(harness.sent).toEqual([{
-      message: expect.objectContaining({
-        customType: 'pr-boundary-launch-plan',
-        display: true,
-        details: {
-          head: fixture.head,
-          ackHead: fixture.base,
-          reviewRange: `${fixture.base}..${fixture.head}`,
-          scope: diffScope(),
-          requiredLanes: ALL_LANES,
-          launchWaves: launchWaves(ALL_LANES, true),
-          ciEvent: 'push',
-        },
-      }),
-      options: { triggerTurn: false },
-    }]);
+    expect(harness.sent).toEqual([]);
+    expect(latestReviewWindow(harness)).toMatchObject({
+      phase: 'plan',
+      head: fixture.head,
+      ackHead: fixture.base,
+      reviewRange: `${fixture.base}..${fixture.head}`,
+      scope: diffScope(),
+      requiredLanes: ALL_LANES,
+      launchWaves: launchWaves(ALL_LANES, true),
+      ciEvent: 'push',
+    });
 
-    harness.sent.splice(0);
     await harness.emit('agent_settled');
-    expect(harness.sent).toEqual([{
-      message: expect.objectContaining({
-        customType: 'pr-boundary-launch-follow-up',
-        display: true,
-        details: {
-          head: fixture.head,
-          ackHead: fixture.base,
-          reviewRange: `${fixture.base}..${fixture.head}`,
-          missingLanes: ALL_LANES,
-          launchWaves: launchWaves(ALL_LANES, true),
-          ciEvent: 'push',
-        },
-      }),
-      options: { triggerTurn: false },
-    }]);
+    expect(harness.sent).toEqual([]);
+    expect(latestReviewWindow(harness)).toMatchObject({
+      phase: 'follow-up',
+      head: fixture.head,
+      ackHead: fixture.base,
+      reviewRange: `${fixture.base}..${fixture.head}`,
+      missingLanes: ALL_LANES,
+      launchWaves: launchWaves(ALL_LANES, true),
+      ciEvent: 'push',
+    });
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
@@ -424,12 +425,20 @@ describe('Pi review reminder and settled enforcement', () => {
     );
 
     await harness.emit('tool_result', boundaryEvent());
-    expect(harness.sent).toEqual([{
-      message: expect.objectContaining({ customType: 'pr-boundary-launch-plan' }),
-      options: { triggerTurn: false },
-    }]);
+    expect(harness.sent).toEqual([]);
     expect(harness.spawned).toEqual([]);
-    harness.sent.splice(0);
+    const plannedEntries = readFileSync(fixture.sessionFile, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .filter((entry) => entry.type === 'custom' && entry.customType === 'codeflare:review-window');
+    expect(plannedEntries.map((entry) => entry.data)).toEqual([expect.objectContaining({
+      phase: 'plan',
+      head: fixture.head,
+      reviewRange: `${fixture.base}..${fixture.head}`,
+      requiredLanes: ALL_LANES,
+      ciEvent: 'push',
+    })]);
 
     await harness.emit('agent_settled');
 
@@ -442,15 +451,9 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.spawned[3]).toMatchObject({
       type: 'ci-monitor',
       prompt: `repo=owner/repo pr=42 head=${fixture.head}`,
-      options: { foreground: false, inheritContext: false },
+      options: { foreground: false, inheritContext: false, bypassQueue: true },
     });
-    expect(harness.sent).toEqual([{
-      message: expect.objectContaining({
-        customType: 'pr-boundary-launch-follow-up',
-        details: expect.objectContaining({ head: fixture.head, missingLanes: ALL_LANES }),
-      }),
-      options: { triggerTurn: false },
-    }]);
+    expect(harness.sent).toEqual([]);
 
     const entries = readFileSync(fixture.sessionFile, 'utf8')
       .split('\n')
@@ -663,21 +666,16 @@ describe('Pi review reminder and settled enforcement', () => {
 
       await harness.emit('tool_result', boundaryEvent());
 
-      expect(harness.sent, testCase.name).toEqual([{
-        message: expect.objectContaining({
-          customType: 'pr-boundary-launch-plan',
-          details: {
-            head: fixture.head,
-            ackHead: expectedAck,
-            reviewRange: undefined,
-            scope: diffScope(),
-            requiredLanes: ALL_LANES,
-            launchWaves: launchWaves(ALL_LANES, true),
-            ciEvent: 'push',
-          },
-        }),
-        options: { triggerTurn: false },
-      }]);
+      expect(harness.sent, testCase.name).toEqual([]);
+      expect(latestReviewWindow(harness), testCase.name).toMatchObject({
+        phase: 'plan',
+        head: fixture.head,
+        ...(expectedAck ? { ackHead: expectedAck } : {}),
+        scope: diffScope(),
+        requiredLanes: ALL_LANES,
+        launchWaves: launchWaves(ALL_LANES, true),
+        ciEvent: 'push',
+      });
       await harness.emit('agent_settled');
       expect(harness.spawned.slice(0, 3).every((agent) =>
         agent.prompt.includes('review_base=origin/main')
@@ -696,21 +694,16 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent());
 
-    expect(harness.sent).toEqual([{
-      message: expect.objectContaining({
-        customType: 'pr-boundary-launch-plan',
-        details: {
-          head: fixture.head,
-          ackHead: fixture.head,
-          reviewRange: undefined,
-          scope: diffScope(),
-          requiredLanes: [],
-          launchWaves: launchWaves([], true),
-          ciEvent: 'push',
-        },
-      }),
-      options: { triggerTurn: false },
-    }]);
+    expect(harness.sent).toEqual([]);
+    expect(latestReviewWindow(harness)).toMatchObject({
+      phase: 'plan',
+      head: fixture.head,
+      ackHead: fixture.head,
+      scope: diffScope(),
+      requiredLanes: [],
+      launchWaves: launchWaves([], true),
+      ciEvent: 'push',
+    });
     expect(ackHead(fixture.repo)).toBe(fixture.head);
     await harness.emit('agent_settled');
     expect(harness.spawned.map((agent) => agent.type)).toEqual(['ci-monitor']);
@@ -729,14 +722,13 @@ describe('Pi review reminder and settled enforcement', () => {
     await harness.emit('tool_result', boundaryEvent(command));
 
     expect(existsSync(join(fixture.repo, '.git/sdd-last-ack-pr-head'))).toBe(false);
-    expect(harness.sent[0]?.message.details).toEqual({
+    expect(harness.sent).toEqual([]);
+    expect(latestReviewWindow(harness)).toMatchObject({
+      phase: 'plan',
       head: fixture.head,
-      ackHead: undefined,
-      reviewRange: undefined,
       scope: diffScope(),
       requiredLanes: ALL_LANES,
       launchWaves: launchWaves(ALL_LANES, false),
-      ciEvent: undefined,
     });
   });
 
@@ -770,21 +762,17 @@ describe('Pi review reminder and settled enforcement', () => {
     await harness.emit('tool_result', boundaryEvent(command));
 
     expect(observedTarget).toBe('42');
-    expect(harness.sent).toEqual([{
-      message: expect.objectContaining({
-        customType: 'pr-boundary-launch-plan',
-        details: {
-          head: remoteHead,
-          ackHead: fixture.base,
-          reviewRange: `${fixture.base}..${remoteHead}`,
-          scope: diffScope(),
-          requiredLanes: ALL_LANES,
-          launchWaves: launchWaves(ALL_LANES, true),
-          ciEvent: 'push',
-        },
-      }),
-      options: { triggerTurn: false },
-    }]);
+    expect(harness.sent).toEqual([]);
+    expect(latestReviewWindow(harness)).toMatchObject({
+      phase: 'plan',
+      head: remoteHead,
+      ackHead: fixture.base,
+      reviewRange: `${fixture.base}..${remoteHead}`,
+      scope: diffScope(),
+      requiredLanes: ALL_LANES,
+      launchWaves: launchWaves(ALL_LANES, true),
+      ciEvent: 'push',
+    });
   });
 
   it('REQ-AGENT-036: up-to-date update-branch emits no launch plan', async () => {
@@ -799,6 +787,7 @@ describe('Pi review reminder and settled enforcement', () => {
     await harness.emit('tool_result', boundaryEvent(command));
 
     expect(harness.sent).toEqual([]);
+    expect(latestReviewWindow(harness)).toBeUndefined();
   });
 
   it('REQ-AGENT-055/REQ-AGENT-082: protected retarget invalidation survives compound commands and disabled review mode', async () => {
@@ -816,8 +805,8 @@ describe('Pi review reminder and settled enforcement', () => {
     try {
       await harness.emit('tool_result', boundaryEvent(command));
       expect(existsSync(join(fixture.repo, '.git/sdd-last-ack-pr-head'))).toBe(false);
-      expect(harness.sent[0]?.message.details).toMatchObject({
-        ackHead: undefined,
+      expect(harness.sent).toEqual([]);
+      expect(latestReviewWindow(harness)).toMatchObject({
         requiredLanes: [],
         ciEvent: 'push',
       });
@@ -840,7 +829,8 @@ describe('Pi review reminder and settled enforcement', () => {
 
       await harness.emit('tool_result', boundaryEvent());
 
-      expect(harness.sent[0]?.message.details).toMatchObject({
+      expect(harness.sent).toEqual([]);
+      expect(latestReviewWindow(harness)).toMatchObject({
         requiredLanes: [],
         launchWaves: launchWaves([], true),
         ciEvent: 'push',
@@ -862,21 +852,17 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent());
 
-    expect(harness.sent).toEqual([{
-      message: expect.objectContaining({
-        customType: 'pr-boundary-launch-plan',
-        details: {
-          head: fixture.head,
-          ackHead: fixture.base,
-          reviewRange: `${fixture.base}..${fixture.head}`,
-          scope: diffScope(),
-          requiredLanes: [],
-          launchWaves: launchWaves([], true),
-          ciEvent: 'push',
-        },
-      }),
-      options: { triggerTurn: false },
-    }]);
+    expect(harness.sent).toEqual([]);
+    expect(latestReviewWindow(harness)).toMatchObject({
+      phase: 'plan',
+      head: fixture.head,
+      ackHead: fixture.base,
+      reviewRange: `${fixture.base}..${fixture.head}`,
+      scope: diffScope(),
+      requiredLanes: [],
+      launchWaves: launchWaves([], true),
+      ciEvent: 'push',
+    });
     await harness.emit('agent_settled');
     expect(harness.spawned.map((agent) => agent.type)).toEqual(['ci-monitor']);
   });
@@ -889,21 +875,17 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent(`cd ${fixture.repo} && gh pr create --base main`));
 
-    expect(harness.sent).toEqual([{
-      message: expect.objectContaining({
-        customType: 'pr-boundary-launch-plan',
-        details: {
-          head: fixture.head,
-          ackHead: fixture.base,
-          reviewRange: `${fixture.base}..${fixture.head}`,
-          scope: diffScope(),
-          requiredLanes: ALL_LANES,
-          launchWaves: launchWaves(ALL_LANES, true),
-          ciEvent: 'pr-create',
-        },
-      }),
-      options: { triggerTurn: false },
-    }]);
+    expect(harness.sent).toEqual([]);
+    expect(latestReviewWindow(harness)).toMatchObject({
+      phase: 'plan',
+      head: fixture.head,
+      ackHead: fixture.base,
+      reviewRange: `${fixture.base}..${fixture.head}`,
+      scope: diffScope(),
+      requiredLanes: ALL_LANES,
+      launchWaves: launchWaves(ALL_LANES, true),
+      ciEvent: 'pr-create',
+    });
   });
 
   it('REQ-AGENT-036/REQ-AGENT-068: default mode resolves the repository from a cd-prefixed boundary', async () => {
@@ -921,21 +903,17 @@ describe('Pi review reminder and settled enforcement', () => {
 
     try {
       await harness.emit('tool_result', boundaryEvent(command));
-      expect(harness.sent).toEqual([{
-        message: expect.objectContaining({
-          customType: 'pr-boundary-launch-plan',
-          details: {
-            head: fixture.head,
-            ackHead: fixture.base,
-            reviewRange: `${fixture.base}..${fixture.head}`,
-            scope: diffScope(),
-            requiredLanes: [],
-            launchWaves: launchWaves([], true),
-            ciEvent: 'push',
-          },
-        }),
-        options: { triggerTurn: false },
-      }]);
+      expect(harness.sent).toEqual([]);
+      expect(latestReviewWindow(harness)).toMatchObject({
+        phase: 'plan',
+        head: fixture.head,
+        ackHead: fixture.base,
+        reviewRange: `${fixture.base}..${fixture.head}`,
+        scope: diffScope(),
+        requiredLanes: [],
+        launchWaves: launchWaves([], true),
+        ciEvent: 'push',
+      });
     } finally {
       if (previousMode === undefined) delete process.env.SESSION_MODE;
       else process.env.SESSION_MODE = previousMode;
@@ -962,8 +940,8 @@ describe('Pi review reminder and settled enforcement', () => {
         input,
         result: { content: [{ type: 'text', text: 'ok' }], isError: false },
       });
-      expect(harness.sent).toHaveLength(1);
-      expect(harness.sent[0]?.message.details).toMatchObject({
+      expect(harness.sent).toEqual([]);
+      expect(latestReviewWindow(harness)).toMatchObject({
         head: fixture.head,
         requiredLanes: [],
         ciEvent: 'push',
@@ -989,7 +967,8 @@ describe('Pi review reminder and settled enforcement', () => {
 
     try {
       await harness.emit('tool_result', boundaryEvent(command));
-      expect(harness.sent[0]?.message.details).toMatchObject({
+      expect(harness.sent).toEqual([]);
+      expect(latestReviewWindow(harness)).toMatchObject({
         head: fixture.head,
         requiredLanes: [],
         ciEvent: 'push',
@@ -1048,7 +1027,9 @@ describe('Pi review reminder and settled enforcement', () => {
         input: testCase.input,
         isError: testCase.isError,
       });
-      expect(harness.sent).toHaveLength(testCase.expected);
+      expect(harness.sent).toEqual([]);
+      expect(harness.appended.filter((entry) => entry.customType === 'codeflare:review-window'))
+        .toHaveLength(testCase.expected);
     }
   });
 
@@ -1124,6 +1105,7 @@ describe('Pi review reminder and settled enforcement', () => {
 
     expect(queries).toBe(0);
     expect(harness.sent).toEqual([]);
+    expect(latestReviewWindow(harness)).toBeUndefined();
   });
 
   it('REQ-AGENT-058: one boundary lifecycle retries bounded PR-head propagation and emits one plan', async () => {
@@ -1155,21 +1137,17 @@ describe('Pi review reminder and settled enforcement', () => {
 
     expect(queries).toBe(3);
     expect(delays).toEqual([10, 20]);
-    expect(harness.sent).toEqual([{
-      message: expect.objectContaining({
-        customType: 'pr-boundary-launch-plan',
-        details: {
-          head: fixture.head,
-          ackHead: fixture.base,
-          reviewRange: `${fixture.base}..${fixture.head}`,
-          scope: diffScope(),
-          requiredLanes: ALL_LANES,
-          launchWaves: launchWaves(ALL_LANES, true),
-          ciEvent: 'push',
-        },
-      }),
-      options: { triggerTurn: false },
-    }]);
+    expect(harness.sent).toEqual([]);
+    expect(latestReviewWindow(harness)).toMatchObject({
+      phase: 'plan',
+      head: fixture.head,
+      ackHead: fixture.base,
+      reviewRange: `${fixture.base}..${fixture.head}`,
+      scope: diffScope(),
+      requiredLanes: ALL_LANES,
+      launchWaves: launchWaves(ALL_LANES, true),
+      ciEvent: 'push',
+    });
   });
 
   it('REQ-AGENT-036: ignores a failed persisted push during settled enforcement', async () => {
@@ -1183,6 +1161,7 @@ describe('Pi review reminder and settled enforcement', () => {
     await harness.emit('agent_settled');
 
     expect(harness.sent).toEqual([]);
+    expect(latestReviewWindow(harness)).toBeUndefined();
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
@@ -1202,21 +1181,15 @@ describe('Pi review reminder and settled enforcement', () => {
     );
 
     await harness.emit('agent_settled');
-    expect(harness.sent).toEqual([{
-      message: expect.objectContaining({
-        customType: 'pr-boundary-launch-follow-up',
-        display: true,
-        details: {
-          head: fixture.head,
-          ackHead: fixture.base,
-          reviewRange: `${fixture.base}..${fixture.head}`,
-          missingLanes: ['doc-updater'],
-          launchWaves: launchWaves(['doc-updater'], false),
-          ciEvent: undefined,
-        },
-      }),
-      options: { triggerTurn: false },
-    }]);
+    expect(harness.sent).toEqual([]);
+    expect(latestReviewWindow(harness)).toMatchObject({
+      phase: 'follow-up',
+      head: fixture.head,
+      ackHead: fixture.base,
+      reviewRange: `${fixture.base}..${fixture.head}`,
+      missingLanes: ['doc-updater'],
+      launchWaves: launchWaves(['doc-updater'], false),
+    });
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
@@ -1237,20 +1210,16 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('agent_settled');
 
-    expect(harness.sent).toEqual([{
-      message: expect.objectContaining({
-        customType: 'pr-boundary-launch-follow-up',
-        details: {
-          head: fixture.head,
-          ackHead: fixture.base,
-          reviewRange: `${fixture.base}..${fixture.head}`,
-          missingLanes: [],
-          launchWaves: launchWaves([], true),
-          ciEvent: 'push',
-        },
-      }),
-      options: { triggerTurn: false },
-    }]);
+    expect(harness.sent).toEqual([]);
+    expect(latestReviewWindow(harness)).toMatchObject({
+      phase: 'follow-up',
+      head: fixture.head,
+      ackHead: fixture.base,
+      reviewRange: `${fixture.base}..${fixture.head}`,
+      missingLanes: [],
+      launchWaves: launchWaves([], true),
+      ciEvent: 'push',
+    });
   });
 
   it('REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: acknowledges only the reminder head after all lanes terminate', async () => {
@@ -1306,10 +1275,10 @@ describe('Pi review reminder and settled enforcement', () => {
     await harness.emit('agent_settled');
 
     expect(ackHead(fixture.repo)).toBe(fixture.base);
-    expect(harness.sent[0]?.message.details).toMatchObject({
+    expect(harness.sent).toEqual([]);
+    expect(latestReviewWindow(harness)).toMatchObject({
       head: fixture.head,
       missingLanes: ['code-reviewer'],
-      ciEvent: undefined,
     });
   });
 
@@ -1370,21 +1339,17 @@ describe('Pi review reminder and settled enforcement', () => {
     );
 
     await harness.emit('tool_result', boundaryEvent('gh pr create --base main'));
-    expect(harness.sent).toEqual([{
-      message: expect.objectContaining({
-        customType: 'pr-boundary-launch-plan',
-        details: {
-          head: fixture.head,
-          ackHead: fixture.base,
-          reviewRange: `${fixture.base}..${fixture.head}`,
-          scope: diffScope(),
-          requiredLanes: [],
-          launchWaves: launchWaves([], true),
-          ciEvent: 'pr-create',
-        },
-      }),
-      options: { triggerTurn: false },
-    }]);
+    expect(harness.sent).toEqual([]);
+    expect(latestReviewWindow(harness)).toMatchObject({
+      phase: 'plan',
+      head: fixture.head,
+      ackHead: fixture.base,
+      reviewRange: `${fixture.base}..${fixture.head}`,
+      scope: diffScope(),
+      requiredLanes: [],
+      launchWaves: launchWaves([], true),
+      ciEvent: 'pr-create',
+    });
     expect(existsSync(REVIEW_BYPASS_FILE)).toBe(false);
     harness.sent.splice(0);
 
@@ -1393,8 +1358,9 @@ describe('Pi review reminder and settled enforcement', () => {
       toolResult('push-2', 'bash'),
     );
     await harness.emit('tool_result', boundaryEvent());
-    expect(harness.sent).toHaveLength(1);
-    expect(harness.sent[0]?.message.customType).toBe('pr-boundary-launch-plan');
+    expect(harness.sent).toEqual([]);
+    expect(harness.appended.filter((entry) => entry.customType === 'codeflare:review-window'))
+      .toHaveLength(2);
   });
 
   it('REQ-AGENT-041: honors an explicit post-boundary user bypass without fabricating acknowledgement', async () => {
@@ -1409,20 +1375,16 @@ describe('Pi review reminder and settled enforcement', () => {
     appendSession(fixture.sessionFile, userMessage('skip review'));
 
     await harness.emit('agent_settled');
-    expect(harness.sent).toEqual([{
-      message: expect.objectContaining({
-        customType: 'pr-boundary-launch-follow-up',
-        details: {
-          head: fixture.head,
-          ackHead: fixture.base,
-          reviewRange: `${fixture.base}..${fixture.head}`,
-          missingLanes: [],
-          launchWaves: launchWaves([], true),
-          ciEvent: 'push',
-        },
-      }),
-      options: { triggerTurn: false },
-    }]);
+    expect(harness.sent).toEqual([]);
+    expect(latestReviewWindow(harness)).toMatchObject({
+      phase: 'follow-up',
+      head: fixture.head,
+      ackHead: fixture.base,
+      reviewRange: `${fixture.base}..${fixture.head}`,
+      missingLanes: [],
+      launchWaves: launchWaves([], true),
+      ciEvent: 'push',
+    });
     expect(ackHead(fixture.repo)).toBe(fixture.base);
     expect(existsSync(join(fixture.repo, '.git/sdd-review-block-count'))).toBe(false);
   });
@@ -1440,16 +1402,15 @@ describe('Pi review reminder and settled enforcement', () => {
     appendSession(fixture.sessionFile, assistantTool('ci-1', 'subagent', ciArgs(fixture.head)));
 
     for (let attempt = 1; attempt <= 5; attempt += 1) {
-      harness.sent.splice(0);
       await harness.emit('agent_settled');
-      expect(harness.sent).toHaveLength(1);
-      expect(harness.sent[0]?.message.details).toEqual({
+      expect(harness.sent).toEqual([]);
+      expect(latestReviewWindow(harness)).toMatchObject({
+        phase: 'follow-up',
         head: fixture.head,
         ackHead: fixture.base,
         reviewRange: `${fixture.base}..${fixture.head}`,
         missingLanes: ALL_LANES,
         launchWaves: launchWaves(ALL_LANES, false),
-        ciEvent: undefined,
       });
     }
 
@@ -1498,6 +1459,7 @@ describe('Pi review reminder and settled enforcement', () => {
     await harness.emit('tool_result', boundaryEvent());
     await harness.emit('agent_settled');
     expect(harness.sent).toEqual([]);
+    expect(latestReviewWindow(harness)).toBeUndefined();
     expect(ackHead(fixture.repo)).toBe(fixture.base);
     expect(existsSync(join(fixture.repo, '.git/sdd-review-block-count'))).toBe(false);
   });
