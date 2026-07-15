@@ -174,6 +174,7 @@ test('REQ-AGENT-068 AC1: eligible PR creation uses the affected repository cwd',
     event: 'pr-create',
     changed: true,
     repo: REPO,
+    pr: PR,
     cwd: REQUEST_CWD,
     reviewState: 'launched',
     runner: async (_command, args, options) => {
@@ -188,11 +189,31 @@ test('REQ-AGENT-068 AC1: eligible PR creation uses the affected repository cwd',
 });
 
 test('REQ-AGENT-068 AC1: CI request requires explicit review launch state and repository cwd', async () => {
-  const base = { event: 'pr-create', changed: true, repo: REPO, runner: async () => commandResult(openPr()) };
+  const base = { event: 'pr-create', changed: true, repo: REPO, pr: PR, runner: async () => commandResult(openPr()) };
 
   assert.equal(await resolveCiMonitorRequest({ ...base, cwd: REQUEST_CWD }), null);
   assert.equal(await resolveCiMonitorRequest({ ...base, reviewState: 'launched' }), null);
   assert.equal(await resolveCiMonitorRequest({ ...base, cwd: REQUEST_CWD, reviewState: 'pending' }), null);
+});
+
+test('REQ-AGENT-068 AC1: missing or malformed affected PR numbers fail closed', async () => {
+  let calls = 0;
+  const base = {
+    event: 'push',
+    changed: true,
+    repo: REPO,
+    cwd: REQUEST_CWD,
+    reviewState: 'launched',
+    runner: async () => {
+      calls += 1;
+      return commandResult(openPr());
+    },
+  };
+
+  for (const pr of [undefined, 0, -1, Number.NaN, '42']) {
+    assert.equal(await resolveCiMonitorRequest({ ...base, pr }), null);
+  }
+  assert.equal(calls, 0);
 });
 
 test('REQ-AGENT-068 AC1: unsupported, unchanged, missing, closed, and integration PR events return no request', async () => {
@@ -208,6 +229,7 @@ test('REQ-AGENT-068 AC1: unsupported, unchanged, missing, closed, and integratio
     const request = await resolveCiMonitorRequest({
       ...event,
       repo: REPO,
+      pr: PR,
       cwd: REQUEST_CWD,
       reviewState: 'launched',
       runner: async () => commandResult(pr),

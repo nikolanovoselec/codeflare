@@ -2269,6 +2269,7 @@ None.
 1. Code, specification, and documentation reviewers begin with every declared canonical policy available before their first tool call. <!-- @impl: scripts/generate-agent-seed.mjs::expandPiSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
 2. Reviewer configuration omits unsupported skill-access declarations. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
 3. Policy available to each reviewer is identical to its separately seeded canonical policy. <!-- @impl: scripts/generate-agent-seed.mjs::expandPiSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
+4. At five or more counted commits, the direct-user fully-autonomous marker changes only the round-limit decision from stop to continue. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewRoundLimitAction --> <!-- @impl: preseed/agents/pi/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-084: fully autonomous marker bypasses only the five-round stop) -->
 
 **Constraints:**
 
