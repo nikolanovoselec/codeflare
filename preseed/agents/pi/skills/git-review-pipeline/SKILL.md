@@ -34,8 +34,9 @@ When the reminder or follow-up lists lanes:
 3. Do not duplicate any unmatched reviewer call; it remains in flight until its native terminal notification.
 4. If the same extension plan includes a CI wave, submit that independent CI request last without waiting for review completion. Do not infer a second CI trigger from the Git command.
 5. Wait for every required reviewer notification, regardless of completion order.
-6. Read each reviewer's native output, verify every finding, and fix legitimate findings unless the latest user instruction says to wait or not autofix.
-7. The root main session alone commits and pushes. Reviewers and other subagents never push.
+6. Automatically publish one consolidated triage summary before any fixing or project mutation. For every finding, decide independently whether the finding is evidence-backed and in scope, whether its proposed fix is proportional, and what smallest correction reuses existing machinery.
+7. Reject false positives and overengineered proposals with evidence. Apply legitimate minimal fixes automatically unless the user explicitly requested approval or validation.
+8. The root main session alone commits and pushes. Reviewers and other subagents never push.
 
 Review is session-scoped. Reload can discard active work and does not prove completion; a later supported root boundary may request the missing lanes again.
 
@@ -47,7 +48,7 @@ Review never launches, tracks, waits for, or relaunches CI. CI never launches re
 
 In `scope=diff`, reviewers inspect changed hunks and only directly invalidated callers, anchors, tests, and owner documentation. They do not run whole-tree manifests or report unchanged baseline debt. `scope=all` is reserved for explicit `/review --all` and `/sdd clean --all` requests.
 
-Do not act on a subset of required reviewer outputs. Wait until every required reviewer has finished, then assess all findings together. A finding's age is not a reason to skip it: fix every legitimate finding, explain false positives, and ask before destructive or irreversible changes.
+Do not act on a subset of required reviewer outputs. Wait until every required reviewer has finished, then assess all findings together in the visible triage summary. Finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction. Prefer an existing implementation path before adding machinery. Fix every legitimate finding by default, explain rejected findings or proposals with evidence, and ask only when the user explicitly requested approval or the change is destructive or irreversible.
 
 ## Claude behavior
 

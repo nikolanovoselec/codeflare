@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-07-14
 
-- **Completed reviewer waves now produce one visible summary before fixes begin** ([REQ-AGENT-059](agents.md#req-agent-059-pi-native-review-findings-handoff) clarified; stays Implemented). The root waits for every required native reviewer result, reports each lane's verdict and findings, and only then evaluates or fixes them; CI remains independent.
+- **Reviewer launch plans now require automatic triage before fixes begin** ([REQ-AGENT-036](agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC7 clarified; stays Implemented). After every required reviewer result, the root visibly separates finding validity from proposed-fix proportionality, prefers existing machinery, and applies legitimate minimal corrections by default unless the user requested approval; CI remains independent.
 
 - **Direct fully-autonomous user direction overrides only the five-round review stop** ([REQ-AGENT-084](agents.md#req-agent-084-pi-reviewer-policy-preloading) clarified; stays Implemented). The root carries one reviewer-prompt marker; every test, review, CI, deployment, and ownership gate remains unchanged.
 

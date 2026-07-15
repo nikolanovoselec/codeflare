@@ -295,11 +295,12 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
     ...(input.phase === "plan" ? { scope: scopeContract("diff") } : {}),
     [input.phase === "plan" ? "requiredLanes" : "missingLanes"]: input.reviewers,
     launchWaves: [input.reviewers, ...(input.ciEvent ? [["ci-monitor"]] : [])],
+    ...(input.reviewers.length > 0 ? { reviewHandoff: "triage-summary-before-fixes" } : {}),
     ciEvent: input.ciEvent,
   };
   pi.sendMessage({
     customType: input.phase === "plan" ? "pr-boundary-launch-plan" : "pr-boundary-launch-follow-up",
-    content: `${reviewerWave} ${ciWave}${input.reviewers.length > 0 ? " Wait for every required reviewer result before evaluating findings, fixing, committing, or pushing." : ""}`,
+    content: `${reviewerWave} ${ciWave}${input.reviewers.length > 0 ? " Wait for every required reviewer result, then automatically publish a triage summary before fixing. Classify each finding's validity, the proposed fix's proportionality, and the smallest correction that reuses existing machinery. Reject unsupported or overengineered proposals; apply legitimate minimal fixes by default unless the user explicitly requested approval." : ""}`,
     display: true,
     details,
   }, { deliverAs: "followUp", triggerTurn: true });

@@ -1104,7 +1104,7 @@ None.
 4. Passive lifecycle and child sessions cannot start or complete review. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes) -->
 5. Successful protected-base PR creation creates a settled review window whose successful reviewer completion can acknowledge the head. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-055: PR creation completion acknowledges its review window) -->
 6. Boundary repository context resolves through shell `cd`, explicit tool cwd, or Git `-C`. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::rememberActiveRepoFromToolResult --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (Pi review reminder and settled enforcement) -->
-7. An eligible launch plan is a root follow-up that triggers the next model turn. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074: emits one ordered reviewer-then-CI launch plan) -->
+7. An eligible reviewer launch plan triggers the next model turn with a triage-summary-before-fixes handoff. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074: emits one ordered reviewer-then-CI launch plan) -->
 
 **Constraints:**
 
@@ -1112,6 +1112,7 @@ None.
 - An `update-branch` boundary qualifies only after the authoritative PR head differs from local `HEAD` and the fetched PR ref resolves to that exact SHA.
 - `update-branch` URL targets and `--repo` selectors are unsupported and inert; review never crosses checkout boundaries.
 - Pi adds no pre-command merge gate.
+- After all required results, the root automatically triages finding validity and proposed-fix proportionality before mutation, prefers existing machinery, and applies legitimate minimal fixes unless the user explicitly requested approval.
 
 **Priority:** P1
 
@@ -1686,7 +1687,7 @@ None.
 
 ### REQ-AGENT-059: Pi Native Review Findings Handoff
 
-**Intent:** Reviewer findings must reach the main session through each native subagent result, followed by one root-authored review summary without Codeflare-owned result files, severity parsing, or an automatic fix state machine.
+**Intent:** Reviewer findings must reach the main session through each native subagent result, without Codeflare-owned result files, summaries, severity parsing, or an automatic fix state machine.
 
 **Applies To:** User
 
@@ -1701,7 +1702,7 @@ None.
 7. All scope returns the tracked lane tree without a diff patch. <!-- @impl: preseed/agents/pi/skills/review-scope/scripts/build-review-packet.mjs::buildReviewPacket --> <!-- @test: host/__tests__/pi-review-workset.test.js (REQ-AGENT-059 AC7: all scope enumerates the lane tree while diff rejects an invalid range) -->
 
 **Constraints:**
-- Main-session rules require waiting for every required reviewer and publishing one consolidated review summary before evaluating findings, fixing, committing, or pushing.
+- Main-session rules require waiting for every required reviewer before fixing, committing, or pushing.
 - The main session verifies and fixes legitimate findings unless the latest user instruction says to wait or not autofix.
 - Report-only reviewer types never own a `/review` mutation phase; triage/history/ADR/issue writes route to a non-review mutation agent.
 

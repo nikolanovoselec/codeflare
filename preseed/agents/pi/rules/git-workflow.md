@@ -32,8 +32,9 @@ The Pi extension is the sole automatic boundary dispatcher. Do not independently
    ```
 
 3. No stdout means no CI monitor is requested. Otherwise parse the sole JSON object and submit it unchanged exactly once through the public `subagent` tool. CI is the last launch for that boundary.
-4. Wait for every required reviewer result before evaluating findings, editing, committing, or pushing. CI completion is independent and never gates review acknowledgement.
-5. After all required reviewer results arrive, publish one consolidated review summary with each lane's verdict and findings before the first tool call that evaluates or fixes those findings.
+4. Wait for every required reviewer result before editing, committing, or pushing. CI completion is independent and never gates review acknowledgement.
+5. After all required reviewer results arrive, automatically publish one consolidated triage summary before the first fixing or other project-mutation tool call. For each finding, classify the finding's validity, the proposed fix's proportionality, and the smallest correction that reuses existing machinery.
+6. Reject unsupported or overengineered proposals. Apply legitimate minimal fixes automatically unless the user explicitly requested approval or validation.
 
 A plan may contain reviewers only, CI only, or both. Vibe-coding repositories receive CI-only plans for eligible boundaries. The resolver returns no request when launch order is unresolved, repository cwd is absent, or there is no open PR targeting `main`/`master`. If monitoring aborts, do not relaunch it automatically; a later eligible boundary plan or explicit user request may launch a new monitor.
 
@@ -54,5 +55,5 @@ A plan may contain reviewers only, CI only, or both. Vibe-coding repositories re
 - Never create a second automatic CI trigger from the Git command itself.
 - Pass explicit repository cwd and review launch state. Submit a returned CI request unchanged exactly once through public `subagent`; no request means no monitor.
 - Never run long CI, deploy, log, watch, or polling commands in the root session.
-- Wait for all required visible reviewers, then publish the consolidated review summary before evaluating or fixing review follow-up work unless the user explicitly directs otherwise.
+- Wait for all required visible reviewers, then publish the consolidated triage summary before any review follow-up mutation. Triage and apply legitimate minimal fixes automatically unless the user explicitly requests approval.
 - Never deploy to integration until every required CI check is green.
