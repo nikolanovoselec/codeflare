@@ -122,7 +122,7 @@ print(json.dumps({
   ]);
 });
 
-test('REQ-MEM-009 AC5: malformed prior edge data is treated as empty evidence', () => {
+test('REQ-MEM-009 AC4: malformed prior edge data is treated as empty evidence', () => {
   const code = `
 import json, runpy
 module = runpy.run_path(${JSON.stringify(SCRIPT)}, run_name='merge_contract_test')
@@ -163,7 +163,7 @@ print(len(calls))
   );
 });
 
-test('REQ-MEM-009 AC5: script wraps the vault-graph.json load in try/except so missing/corrupt files reset to a fresh DiGraph', () => {
+test('REQ-MEM-009 AC4: script wraps the vault-graph.json load in try/except so missing/corrupt files reset to a fresh DiGraph', () => {
   const r = pyAst(`
 tries = [n for n in ast.walk(tree) if isinstance(n, ast.Try)]
 ok = False
@@ -178,7 +178,7 @@ print('OK' if ok else 'MISSING')
   assert.equal(r.stdout.trim(), 'OK', 'merge-vault-graph.py must wrap the vault_graph_path read in a try/except block');
 });
 
-test('REQ-MEM-009 AC4: prompt step 5 feeds vault-graph.json to `graphify global add --as user_vault` (not the per-chunk graph)', () => {
+test('REQ-MEM-009 AC3: prompt step 5 feeds vault-graph.json to `graphify global add --as user_vault` (not the per-chunk graph)', () => {
   const body = fs.readFileSync(PROMPT, 'utf8');
   assert.match(
     body,
@@ -187,7 +187,7 @@ test('REQ-MEM-009 AC4: prompt step 5 feeds vault-graph.json to `graphify global 
   );
 });
 
-test('REQ-MEM-009 AC6: prompt wraps the merge invocation under flock /tmp/graphify-global.lock', () => {
+test('REQ-MEM-009 AC5: prompt wraps the merge invocation under flock /tmp/graphify-global.lock', () => {
   const body = fs.readFileSync(PROMPT, 'utf8');
   const flockMatches = body.match(/flock\s+-w\s+\d+\s+\/tmp\/graphify-global\.lock/g) || [];
   assert.ok(flockMatches.length >= 2, `expected >=2 flock wrappers (steps 4 + 5), got ${flockMatches.length}`);

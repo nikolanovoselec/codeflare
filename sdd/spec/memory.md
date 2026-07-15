@@ -226,23 +226,22 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Intent:** Every vault writer - the vault-extract and memory-capture pipelines, on both the Claude and Pi runtimes - must add new nodes to the unified global graph's vault contribution without destroying nodes from prior passes. All four converge on a single cumulative `vault-graph.json` maintained by the shared `merge-vault-graph.py`; `--as user_vault` replace-semantics means anything less than the cumulative graph fed to `graphify global add` wipes prior vault knowledge.
 
-**Applies To:** User
+**Applies To:** System
 
 **Acceptance Criteria:**
 
 1. Every vault writer maintains a single persistent incremental vault graph (`vault-graph.json`) that survives across passes; both the vault-extract and memory-capture pipelines on both runtimes author a chunk and fold it in via a shared merge step rather than editing `graph.json` in place. <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC1: script writes the cumulative vault graph back to vault_graph_path as the to_json path argument) -->
 2. Each pass deduplicates graph nodes by node ID. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::main --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::main --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC2: script unions the prior + new graphs via nx.compose (hash-keyed dedup)) -->
 3. Edge evidence is keyed by `(source, target, relation, source_file)`, preserving distinct tuples across persisted, prior, and new graph data while collapsing identical tuples. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC3: edge evidence is keyed by semantic tuple) -->
-4. The global graph's vault contribution always reflects the cumulative vault content (the persistent `vault-graph.json` is fed to `graphify global add --as user_vault`, never the per-run chunk or `graph.json`), not only the most recent pass. <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC4: prompt step 5 feeds vault-graph.json to `graphify global add --as user_vault` (not the per-chunk graph)) -->
-5. If the persistent vault graph is missing, unreadable, or structurally malformed, the pass starts from empty evidence rather than crashing. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::node_link_edges --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::node_link_edges --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC5: malformed prior edge data is treated as empty evidence) -->
-6. Vault graph merges are serialised with capture-pipeline writes and active-repo hooks. <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC6: prompt wraps the merge invocation under flock /tmp/graphify-global.lock) -->
-7. Each Pi session capture deterministically labels its document node from the note H1, uses stable Vault-relative document IDs and canonical `concept_<normalised_label>` concept IDs, and emits at most one edge for each source/target/relation/source-file tuple. <!-- @impl: preseed/agents/pi/scripts/build-memory-graph.py::build_graph --> <!-- @test: host/__tests__/pi-memory-graph-builder.test.js (REQ-MEM-009 AC7: session graph uses its title, canonical concepts, and unique edges) -->
+4. If the persistent vault graph contains structurally malformed edge data, the pass starts from empty edge evidence rather than crashing. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::node_link_edges --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::node_link_edges --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC4: malformed prior edge data is treated as empty evidence) -->
+5. Each Pi session capture deterministically labels its document node from the note H1, uses stable Vault-relative document IDs and canonical `concept_<normalised_label>` concept IDs, and emits at most one edge for each source/target/relation/source-file tuple. <!-- @impl: preseed/agents/pi/scripts/build-memory-graph.py::build_graph --> <!-- @test: host/__tests__/pi-memory-graph-builder.test.js (REQ-MEM-009 AC5: session graph uses its title, canonical concepts, and unique edges) -->
 
-**Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+**Notes:** The persistent cumulative graph—not a per-run chunk—is the input to `graphify global add --as user_vault`. Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
-- The merge lock uses a short timeout so a crashed holder cannot block extraction indefinitely (matching [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) AC7).
+- Vault graph merges share the capture-pipeline/global-graph lock; its short timeout prevents a crashed holder from blocking extraction indefinitely (matching [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) AC7).
+- Missing or unreadable graph files retain the established fresh-graph recovery path.
 - No HTML visualization is generated for the unified global graph; structural queries are the interface; only the curated vault subset receives a rendered visualization shipped to users.
 
 **Priority:** P0

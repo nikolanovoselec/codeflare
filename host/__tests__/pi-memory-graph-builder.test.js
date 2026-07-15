@@ -1,4 +1,4 @@
-// REQ-MEM-009 AC7: deterministic Pi session-memory graph chunks.
+// REQ-MEM-009 AC5: deterministic Pi session-memory graph chunks.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -22,7 +22,7 @@ const SCRIPT = path.join(
 
 const TARGET = '/home/user/Vault/Raw/Sessions/2026-07-14T16-22-00-session.md';
 
-test('REQ-MEM-009 AC7: session graph uses its title, canonical concepts, and unique edges', (t) => {
+test('REQ-MEM-009 AC5: session graph uses its title, canonical concepts, and unique edges', (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-memory-graph-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const note = path.join(directory, 'capture.md');

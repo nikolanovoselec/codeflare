@@ -205,7 +205,7 @@ Within a row the path is pinned to the right edge for every folder so all paths 
 Clicking a file opens it inline in a new browser tab (served with an XSS-safe
 Content-Type + `nosniff`) rather than downloading it.
 
-### Append-only pagination (REQ-STOR-018)
+### Append-only pagination ([REQ-STOR-018](../../sdd/spec/storage.md#req-stor-018-file-browser-pagination-is-append-only-and-recoverable))
 
 The Worker returns R2's continuation token and defaults each browser request to a 200-object page. While a page is truncated, the list keeps a visible continuation action available even when its content is too short to scroll; reaching the real `.storage-drop-zone` bottom invokes the same action automatically. The store requests one continuation at a time and appends only unseen object keys/prefixes in response order. A browse generation and prefix snapshot reject late success/failure from older navigation; continuation failure leaves existing rows and the token intact for explicit retry. <!-- @impl: web-ui/src/stores/storage.ts::loadMore --> <!-- @impl: web-ui/src/components/storage/FileList.tsx::FileList -->
 
@@ -228,6 +228,7 @@ return an error response (4xx) rather than any listing.
 - [REQ-STOR-012](../../sdd/spec/storage.md#req-stor-012-session-transcript-cleanup) - Session Transcript Cleanup
 - [REQ-STOR-015](../../sdd/spec/storage.md#req-stor-015-explicit-sync-trigger-from-ui) - Explicit Sync Trigger from UI
 - [REQ-STOR-016](../../sdd/spec/storage.md#req-stor-016-file-browser-presentation-and-traversal-safety) - File browser presentation and traversal safety
+- [REQ-STOR-018](../../sdd/spec/storage.md#req-stor-018-file-browser-pagination-is-append-only-and-recoverable) - File browser pagination
 
 ---
 

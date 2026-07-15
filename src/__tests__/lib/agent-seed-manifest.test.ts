@@ -1188,7 +1188,7 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(piScript?.content).toContain('nx.compose');
   });
 
-  it('REQ-MEM-009 AC7: Pi seeds its deterministic session-memory graph builder', () => {
+  it('REQ-MEM-009 AC5: Pi seeds its deterministic session-memory graph builder', () => {
     const builder = AGENTS_SEEDED_CONFIGS.find((document) => (
       document.key === '.pi/agent/scripts/build-memory-graph.py'
     ));
