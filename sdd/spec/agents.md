@@ -1098,7 +1098,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. A supported head-changing root boundary, including `gh pr update-branch`, requests reviewers only for an SDD repository with a fresh open protected-base PR. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::queryPr --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036: update-branch reviews the remote head when local HEAD remains old) -->
+1. A supported head-changing root boundary, including `gh pr update-branch`, requests reviewers only for an SDD repository with a fresh open protected-base PR. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::queryPr --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fetchPrHead --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036: update-branch fetches and reviews a remote-only PR head) -->
 2. Ineligible PR state or an unsuccessful command requests no reviewer. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (Pi review reminder and settled enforcement) -->
 3. Root and nested SDD layouts suppress review only while transition is true and the active triage queue contains an open item. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-045/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
 4. Passive lifecycle and child sessions cannot start or complete review. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes) -->
@@ -1109,7 +1109,7 @@ None.
 **Constraints:**
 
 - Command parsing is defined by [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing).
-- An `update-branch` boundary qualifies only after the authoritative PR head differs from unchanged local `HEAD`.
+- An `update-branch` boundary qualifies only after the authoritative PR head differs from local `HEAD` and the fetched PR ref resolves to that exact SHA.
 - Pi adds no pre-command merge gate.
 
 **Priority:** P1

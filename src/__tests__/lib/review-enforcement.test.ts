@@ -432,14 +432,24 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
-  it('REQ-AGENT-036: update-branch reviews the remote head when local HEAD remains old', async () => {
+  it('REQ-AGENT-036: update-branch fetches and reviews a remote-only PR head', async () => {
     const fixture = makeReviewFixture();
-    const localHead = fixture.head;
-    write(fixture.repo, 'src/remote-update.ts', 'export {};\n');
-    git(fixture.repo, 'add', 'src/remote-update.ts');
-    git(fixture.repo, 'commit', '-m', 'remote PR update');
-    const remoteHead = git(fixture.repo, 'rev-parse', 'HEAD');
-    git(fixture.repo, 'reset', '--hard', localHead);
+    const remote = tempRoot('pi-review-remote-');
+    git(remote, 'init', '--bare', '-q');
+    git(fixture.repo, 'remote', 'add', 'origin', remote);
+    git(fixture.repo, 'push', '-q', 'origin', 'HEAD:refs/heads/pi');
+
+    const updater = tempRoot('pi-review-updater-');
+    git(updater, 'clone', '-q', '--branch', 'pi', remote, '.');
+    git(updater, 'config', 'user.name', 'Test User');
+    git(updater, 'config', 'user.email', 'test@users.noreply.github.com');
+    write(updater, 'src/remote-update.ts', 'export {};\n');
+    git(updater, 'add', 'src/remote-update.ts');
+    git(updater, 'commit', '-m', 'remote PR update');
+    const remoteHead = git(updater, 'rev-parse', 'HEAD');
+    git(updater, 'push', '-q', 'origin', 'HEAD:refs/pull/42/head');
+
+    expect(() => git(fixture.repo, 'cat-file', '-e', `${remoteHead}^{commit}`)).toThrow();
     fixture.pr = { ...fixture.pr, headRefOid: remoteHead };
     const harness = await registerFixture(fixture);
     const command = 'gh pr update-branch 42';

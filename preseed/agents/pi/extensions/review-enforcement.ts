@@ -27,6 +27,7 @@ type PrState = {
 type Dependencies = {
   queryPr(repo: string): Promise<PrState | undefined>;
   queryHead?(repo: string): Promise<string | undefined>;
+  fetchPrHead?(repo: string, pr: PrState): Promise<boolean>;
   sleep?(delayMs: number): Promise<void>;
   headRetryDelaysMs?: number[];
 };
@@ -209,6 +210,28 @@ function defaultSleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
+async function fetchPrHead(
+  repo: string,
+  pr: PrState,
+  runner: QueryPrRunner = execFileAsync,
+): Promise<boolean> {
+  try {
+    await runner(
+      "git",
+      ["fetch", "--no-tags", "--quiet", "origin", `refs/pull/${pr.number}/head`],
+      { cwd: repo, encoding: "utf8", timeout: 15_000 },
+    );
+    const result = await runner(
+      "git",
+      ["rev-parse", "FETCH_HEAD"],
+      { cwd: repo, encoding: "utf8", timeout: 5_000 },
+    );
+    return String(result.stdout).trim() === pr.headRefOid;
+  } catch {
+    return false;
+  }
+}
+
 async function currentReview(
   ctx: ReviewContext,
   dependencies: Dependencies,
@@ -223,10 +246,13 @@ async function currentReview(
   for (const delayMs of delays) {
     if (delayMs > 0) await sleep(delayMs);
     const pr = await dependencies.queryPr(context.repo);
-    const headMatchesBoundary = remoteHeadAuthoritative
-      ? head !== pr?.headRefOid
-      : head === pr?.headRefOid;
-    if (isProtectedPr(pr) && headMatchesBoundary) return { ...context, pr };
+    if (!isProtectedPr(pr)) continue;
+    if (!remoteHeadAuthoritative && head === pr.headRefOid) return { ...context, pr };
+    if (remoteHeadAuthoritative
+      && head !== pr.headRefOid
+      && await (dependencies.fetchPrHead ?? fetchPrHead)(context.repo, pr)) {
+      return { ...context, pr };
+    }
   }
   return undefined;
 }
