@@ -156,7 +156,7 @@ The `@test` HTML comment is the test parallel of `@impl`: it ties each AC to the
 <!-- @test: packages/node-agent/internal/agent/config_test.go (TestLoadConfigBackfillsDashboardToken) -->
 ```
 
-**Detection regex:** `<!--\s*@test:\s*(\S+?)\s*\((.*?)\)\s*-->` with global matching — capture groups `<path>`, `<block-title>`. Match each HTML comment independently; never apply a greedy title capture across the remainder of an AC line containing multiple `@test` comments. Nested title parentheses remain inside the capture because only a `)` followed by the comment terminator ends the anchor.
+**Detection regex:** `<!--\s*@test:\s*(\S+?)\s*\((.+)\)\s*-->` — capture groups `<path>`, `<block-title>` (greedy so parentheses nested in the title are captured).
 
 **Validation contract (CQ-TEST in `spec-enforce-truth`), gated by `enforce_tdd: true`:**
 

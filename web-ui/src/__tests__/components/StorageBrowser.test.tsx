@@ -659,7 +659,7 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       expect(mockRetryLoadMore).toHaveBeenCalledTimes(1);
     });
 
-    it('REQ-STOR-016 AC7: suppresses listing refresh after pagination starts while stats continue', async () => {
+    it('REQ-STOR-018 AC7: suppresses listing refresh after pagination starts while stats continue', async () => {
       vi.useFakeTimers();
       render(() => <StorageBrowser />);
       mockRefresh.mockClear();

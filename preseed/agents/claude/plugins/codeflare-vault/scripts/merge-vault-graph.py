@@ -24,10 +24,18 @@ DEFAULT_VAULT_GRAPH = "/home/user/Vault/graphify-out/vault-graph.json"
 DEFAULT_OUT = "/home/user/Vault/graphify-out/graph.json"
 
 
+def node_link_edges(blob: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return only structurally valid edge objects from node-link JSON."""
+    items = blob.get("links", blob.get("edges", []))
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, dict)]
+
+
 def dedupe_node_link_edges(blob: dict[str, Any]) -> dict[str, Any]:
     """Return node-link JSON with one edge per semantic evidence tuple."""
     unique: dict[tuple[Any, Any, Any, Any], dict[str, Any]] = {}
-    for item in blob.get("links", blob.get("edges", [])):
+    for item in node_link_edges(blob):
         key = (
             item.get("source"),
             item.get("target"),
@@ -44,9 +52,9 @@ def merge_node_link_evidence(
 ) -> dict[str, Any]:
     """Restore all prior/new edge evidence after simple graph composition."""
     edge_key = "links" if "links" in persisted or "edges" not in persisted else "edges"
-    edges = list(persisted.get("links", persisted.get("edges", [])))
+    edges = node_link_edges(persisted)
     for blob in evidence_blobs:
-        edges.extend(blob.get("links", blob.get("edges", [])))
+        edges.extend(node_link_edges(blob))
     return dedupe_node_link_edges({**persisted, edge_key: edges})
 
 
@@ -88,6 +96,7 @@ def main() -> None:
     except (json.JSONDecodeError, KeyError, TypeError, OSError) as error:
         print(f"vault-graph.json unreadable ({error}); starting fresh")
         graph_prior = nx.DiGraph()
+        prior_blob = {"nodes": [], "links": []}
 
     extraction = json.loads(chunk_path.read_text(encoding="utf-8"))
     graph_new = build_from_json(extraction)

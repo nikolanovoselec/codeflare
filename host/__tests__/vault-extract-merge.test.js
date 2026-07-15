@@ -82,33 +82,17 @@ print(len(hits))
   assert.equal(r.stdout.trim(), '1', 'merge-vault-graph.py must call nx.compose exactly once');
 });
 
-test('REQ-MEM-009 AC2: serialized cumulative graph deduplicates identical edge evidence', () => {
+test('REQ-MEM-009 AC3: edge evidence is keyed by semantic tuple', () => {
   const code = `
 import json, runpy
 module = runpy.run_path(${JSON.stringify(SCRIPT)}, run_name='merge_contract_test')
-blob = {
+duplicated = {
   'nodes': [],
   'links': [
     {'source': 'document', 'target': 'concept', 'relation': 'references', 'source_file': '/note.md'},
     {'source': 'document', 'target': 'concept', 'relation': 'references', 'source_file': '/note.md'},
-    {'source': 'concept-a', 'target': 'concept-b', 'relation': 'conceptually_related_to', 'source_file': '/note.md'},
   ],
 }
-print(json.dumps(module['dedupe_node_link_edges'](blob), sort_keys=True))
-`;
-  const result = spawnSync('python3', ['-c', code], { encoding: 'utf8', timeout: 5_000 });
-  assert.equal(result.status, 0, result.stderr);
-  const normalized = JSON.parse(result.stdout);
-  assert.deepEqual(normalized.links, [
-    { source: 'document', target: 'concept', relation: 'references', source_file: '/note.md' },
-    { source: 'concept-a', target: 'concept-b', relation: 'conceptually_related_to', source_file: '/note.md' },
-  ]);
-});
-
-test('REQ-MEM-009 AC2: cumulative merge preserves distinct evidence between the same nodes', () => {
-  const code = `
-import json, runpy
-module = runpy.run_path(${JSON.stringify(SCRIPT)}, run_name='merge_contract_test')
 persisted = {
   'nodes': [{'id': 'document'}, {'id': 'concept'}],
   'links': [
@@ -120,19 +104,41 @@ prior = {
     {'source': 'document', 'target': 'concept', 'relation': 'references', 'source_file': '/prior.md'},
   ],
 }
+print(json.dumps({
+  'deduplicated': module['dedupe_node_link_edges'](duplicated),
+  'merged': module['merge_node_link_evidence'](persisted, prior, duplicated),
+}, sort_keys=True))
+`;
+  const result = spawnSync('python3', ['-c', code], { encoding: 'utf8', timeout: 5_000 });
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.deepEqual(output.deduplicated.links, [
+    { source: 'document', target: 'concept', relation: 'references', source_file: '/note.md' },
+  ]);
+  assert.deepEqual(output.merged.links, [
+    { source: 'document', target: 'concept', relation: 'mentions', source_file: '/new.md' },
+    { source: 'document', target: 'concept', relation: 'references', source_file: '/prior.md' },
+    { source: 'document', target: 'concept', relation: 'references', source_file: '/note.md' },
+  ]);
+});
+
+test('REQ-MEM-009 AC5: malformed prior edge data is treated as empty evidence', () => {
+  const code = `
+import json, runpy
+module = runpy.run_path(${JSON.stringify(SCRIPT)}, run_name='merge_contract_test')
+persisted = {'nodes': [{'id': 'document'}, {'id': 'concept'}], 'links': []}
+malformed_prior = {'nodes': [], 'links': None}
 new = {
   'links': [
     {'source': 'document', 'target': 'concept', 'relation': 'mentions', 'source_file': '/new.md'},
   ],
 }
-print(json.dumps(module['merge_node_link_evidence'](persisted, prior, new), sort_keys=True))
+print(json.dumps(module['merge_node_link_evidence'](persisted, malformed_prior, new), sort_keys=True))
 `;
   const result = spawnSync('python3', ['-c', code], { encoding: 'utf8', timeout: 5_000 });
   assert.equal(result.status, 0, result.stderr);
-  const merged = JSON.parse(result.stdout);
-  assert.deepEqual(merged.links, [
+  assert.deepEqual(JSON.parse(result.stdout).links, [
     { source: 'document', target: 'concept', relation: 'mentions', source_file: '/new.md' },
-    { source: 'document', target: 'concept', relation: 'references', source_file: '/prior.md' },
   ]);
 });
 
@@ -157,7 +163,7 @@ print(len(calls))
   );
 });
 
-test('REQ-MEM-009 AC4: script wraps the vault-graph.json load in try/except so missing/corrupt files reset to a fresh DiGraph', () => {
+test('REQ-MEM-009 AC5: script wraps the vault-graph.json load in try/except so missing/corrupt files reset to a fresh DiGraph', () => {
   const r = pyAst(`
 tries = [n for n in ast.walk(tree) if isinstance(n, ast.Try)]
 ok = False
@@ -172,7 +178,7 @@ print('OK' if ok else 'MISSING')
   assert.equal(r.stdout.trim(), 'OK', 'merge-vault-graph.py must wrap the vault_graph_path read in a try/except block');
 });
 
-test('REQ-MEM-009 AC3: prompt step 5 feeds vault-graph.json to `graphify global add --as user_vault` (not the per-chunk graph)', () => {
+test('REQ-MEM-009 AC4: prompt step 5 feeds vault-graph.json to `graphify global add --as user_vault` (not the per-chunk graph)', () => {
   const body = fs.readFileSync(PROMPT, 'utf8');
   assert.match(
     body,
@@ -181,7 +187,7 @@ test('REQ-MEM-009 AC3: prompt step 5 feeds vault-graph.json to `graphify global 
   );
 });
 
-test('REQ-MEM-009 AC5: prompt wraps the merge invocation under flock /tmp/graphify-global.lock', () => {
+test('REQ-MEM-009 AC6: prompt wraps the merge invocation under flock /tmp/graphify-global.lock', () => {
   const body = fs.readFileSync(PROMPT, 'utf8');
   const flockMatches = body.match(/flock\s+-w\s+\d+\s+\/tmp\/graphify-global\.lock/g) || [];
   assert.ok(flockMatches.length >= 2, `expected >=2 flock wrappers (steps 4 + 5), got ${flockMatches.length}`);

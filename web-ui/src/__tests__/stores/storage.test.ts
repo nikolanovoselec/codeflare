@@ -212,7 +212,7 @@ describe('Storage Store', () => {
       isTruncated: false,
     };
 
-    it('REQ-STOR-016 AC7: appends a continuation page once and deduplicates rows', async () => {
+    it('REQ-STOR-018 AC3: appends a continuation page once and deduplicates rows', async () => {
       mockBrowseStorage.mockResolvedValueOnce(pageOne).mockResolvedValueOnce(pageTwo);
 
       await storageStore.browse('Notes/');
@@ -273,7 +273,7 @@ describe('Storage Store', () => {
       await backgroundBrowse;
     });
 
-    it('REQ-STOR-016 AC7: ignores a continuation response from an older browse generation', async () => {
+    it('REQ-STOR-018 AC4: ignores a continuation response from an older browse generation', async () => {
       const oldPage = deferred<typeof pageTwo>();
       mockBrowseStorage
         .mockResolvedValueOnce(pageOne)
@@ -311,7 +311,7 @@ describe('Storage Store', () => {
       expect(storageStore.loadingMore).toBe(false);
     });
 
-    it('REQ-STOR-016 AC7: preserves rows on failure and retries the same continuation', async () => {
+    it('REQ-STOR-018: preserves rows on failure and retries the same continuation', async () => {
       mockBrowseStorage
         .mockResolvedValueOnce(pageOne)
         .mockRejectedValueOnce(new Error('page two unavailable'))

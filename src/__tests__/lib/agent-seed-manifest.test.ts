@@ -1153,7 +1153,7 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(shouldCapture(realUserPromptCount(atThreshold))).toBe(true);
   });
 
-  it('REQ-MEM-014/REQ-VAULT-027: transformed Pi extraction agents expose bounded frontmatter', () => {
+  it('REQ-MEM-016: transformed Pi extraction agents expose bounded frontmatter', () => {
     for (const key of ['.pi/agent/agents/memory-capture.md', '.pi/agent/agents/vault-extract.md']) {
       const agent = AGENTS_SEEDED_CONFIGS.find((document) => document.key === key);
       expect(agent?.modes).toEqual(['advanced']);
@@ -1188,7 +1188,7 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(piScript?.content).toContain('nx.compose');
   });
 
-  it('REQ-MEM-009 AC6: Pi seeds its deterministic session-memory graph builder', () => {
+  it('REQ-MEM-009 AC7: Pi seeds its deterministic session-memory graph builder', () => {
     const builder = AGENTS_SEEDED_CONFIGS.find((document) => (
       document.key === '.pi/agent/scripts/build-memory-graph.py'
     ));

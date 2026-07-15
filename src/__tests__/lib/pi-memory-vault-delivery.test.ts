@@ -315,7 +315,7 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
     expect(parseVaultExtractRequest({ ...vault, stagedManifestHash: 'not-a-hash' })).toBeUndefined();
   });
 
-  it('builds one bounded medium-reasoning public background request', () => {
+  it('REQ-MEM-016: builds one bounded medium-reasoning public background request', () => {
     const base = {
       job: 'memory-capture' as const,
       requestId: UUIDS[0],

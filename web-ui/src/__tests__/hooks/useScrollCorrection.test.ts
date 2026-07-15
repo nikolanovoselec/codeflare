@@ -94,7 +94,7 @@ describe('useScrollCorrection / REQ-TERM-014 terminal scroll anchoring', () => {
     });
   });
 
-  it('REQ-MOB-012 AC4: keyboard close hands viewport ownership back to bottom following', () => {
+  it('REQ-MOB-012 AC6: keyboard close hands viewport ownership back to bottom following', () => {
     createRoot((dispose) => {
       mobileMock.touch = true;
       mobileMock.keyboardOpen = true;
@@ -134,9 +134,9 @@ describe('useScrollCorrection / REQ-TERM-014 terminal scroll anchoring', () => {
   });
 
   // ==========================================================================
-  // REQ-MOB-004 AC4 + AC5 / REQ-MOB-012 AC4: persistent manual ownership.
+  // REQ-MOB-004 AC4 + AC5 / REQ-MOB-012 AC7: persistent manual ownership.
   // ==========================================================================
-  it('REQ-TERM-014 AC2/AC3/AC7: manual scroll ownership persists when output trimming reaches zero', async () => {
+  it('REQ-TERM-014 AC2: manual scroll ownership persists when output trimming reaches zero', async () => {
     await createRoot(async (dispose) => {
       vi.useFakeTimers();
       try {

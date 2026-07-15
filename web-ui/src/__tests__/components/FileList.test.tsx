@@ -37,7 +37,7 @@ function makeProps(items: Items): ComponentProps<typeof FileList> {
 }
 
 describe('FileList pagination', () => {
-  it('REQ-STOR-016 AC7: requests the next page only at the scroll boundary', () => {
+  it('REQ-STOR-018 AC2: requests the next page only at the scroll boundary', () => {
     const loadMore = vi.spyOn(storageStore, 'loadMore').mockResolvedValue(undefined);
     const { getByTestId } = render(() => (
       <FileList {...makeProps({
@@ -60,7 +60,7 @@ describe('FileList pagination', () => {
     expect(loadMore).toHaveBeenCalledTimes(1);
   });
 
-  it('REQ-STOR-016 AC7: exposes continuation when the first page cannot scroll', () => {
+  it('REQ-STOR-018 AC1: exposes continuation when the first page cannot scroll', () => {
     const loadMore = vi.spyOn(storageStore, 'loadMore').mockResolvedValue(undefined);
     vi.spyOn(storageStore, 'isTruncated', 'get').mockReturnValue(true);
     vi.spyOn(storageStore, 'loadingMore', 'get').mockReturnValue(false);

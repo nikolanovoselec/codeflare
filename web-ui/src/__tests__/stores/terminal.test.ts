@@ -895,7 +895,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it('REQ-TERM-014 AC2/AC3/AC7: streamed output leaves a user-owned full-buffer viewport at the oldest available line', async () => {
+    it('REQ-TERM-014 AC3: streamed output leaves a user-owned full-buffer viewport at the oldest available line', async () => {
       const activeBuffer = { viewportY: 80, baseY: 1000 };
       let onScrollHandler: ((viewportY: number) => void) | undefined;
       const scrollLines = vi.fn((delta: number) => {

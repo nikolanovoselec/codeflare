@@ -456,22 +456,22 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 ### REQ-TERM-014: Terminal scroll anchoring under scrollback trimming
 
-**Intent:** Long-running terminal output has one viewport owner per interaction mode: bottom followers track the live prompt, xterm preserves manually selected scrollback until the user returns to bottom, and the mobile keyboard lifecycle owns bottom anchoring while open.
+**Intent:** Long-running terminal output must keep bottom-following users at the live prompt while preserving a manually selected scrollback viewport until the user returns to bottom.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. A terminal following the bottom remains at the bottom while output exceeds the scrollback cap. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014: re-anchors a bottom-following terminal when scrollback trimming displaces it) -->
-2. Any registered user-scroll intent establishes manual viewport ownership until the viewport returns to the live bottom, regardless of continuing output. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014 AC2/AC3/AC7: manual scroll ownership persists when output trimming reaches zero) -->
-3. During manual ownership, xterm alone handles output-driven trimming; content that ages out may leave the viewport at the oldest available line. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC2/AC3/AC7: streamed output leaves a user-owned full-buffer viewport at the oldest available line) -->
+2. Any registered user-scroll intent establishes manual viewport ownership until the viewport returns to the live bottom, regardless of continuing output. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014 AC2: manual scroll ownership persists when output trimming reaches zero) -->
+3. While manual ownership is active, streamed output preserves the selected viewport until viewed content ages out, then leaves it at the oldest available line. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC3: streamed output leaves a user-owned full-buffer viewport at the oldest available line) -->
 4. Returning a manually owned viewport to the live bottom releases that ownership and restores bottom following for later output. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014 AC1/AC2: returning to bottom releases manual ownership and restores bottom following) -->
 5. A resize frame is emitted only for a visible, connected terminal, carrying its current fitted dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::resize --> <!-- @test: host/__tests__/session-resize-authority.test.js (REQ-TERM-014: accepts resize frames only from the foreground WebSocket owner) -->
 6. A pane that loses focus before its terminal connection opens does not claim resize authority when that connection later opens. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::clearPendingResizeAuthority --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-014: clears a queued resize-authority claim when the pane loses focus) -->
-7. Touch-keyboard mode suspends generic correction and owns its fit-and-bottom transition. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-MOB-012 AC2: freezes correction-owned viewport movement while the touch keyboard is open) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (should scroll to bottom when keyboard opens (closed→open transition)) -->
 
 **Constraints:**
 
+- Output-driven trimming is delegated to xterm; the write buffer performs no viewport correction.
 - A zero display offset during full-buffer trimming is valid xterm behavior and is not, by itself, evidence of a browser reset.
 - The short intent window correlates input with the first scroll event; it does not expire persistent manual ownership.
 - Floating-button page navigation registers external intent through the same ownership path.
@@ -479,7 +479,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Priority:** P1
 
-**Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-008](#req-term-008-write-batching-at-30fps), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
+**Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-008](#req-term-008-write-batching-at-30fps), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-MOB-012](mobile.md#req-mob-012-scroll-anchoring-during-keyboard-transitions)
 
 **Verification:** [Automated tests](../../web-ui/src/__tests__/hooks/useScrollCorrection.test.ts) + [Resize authority test](../../host/__tests__/session-resize-authority.test.js) + [Layout transition test](../../web-ui/src/__tests__/components/Layout.test.tsx) + [Full-buffer anchoring test](../../web-ui/src/__tests__/stores/terminal.test.ts) + [Resize/focus tests](../../web-ui/src/__tests__/hooks/useTerminal.test.ts)
 

@@ -269,7 +269,7 @@ test('REQ-AGENT-068 AC5: failed and cancelled arbitrary providers report failure
   }
 });
 
-test('REQ-AGENT-068 AC7: one appended head character is corrected only against the authoritative PR head', async () => {
+test('REQ-AGENT-090 AC1: one appended head character is corrected only against the authoritative PR head', async () => {
   const time = fakeClock();
   const github = monitorRunner({
     checks: [[check('unit', 'pass')], [check('unit', 'pass')]],
@@ -287,7 +287,7 @@ test('REQ-AGENT-068 AC7: one appended head character is corrected only against t
   assert.equal(github.checkCalls(), 2);
 });
 
-test('REQ-AGENT-068 AC7: unrelated malformed heads remain invalid', async () => {
+test('REQ-AGENT-090 AC2: unrelated malformed heads remain invalid', async () => {
   const time = fakeClock();
   const github = monitorRunner();
   const malformed = `f${HEAD}`;

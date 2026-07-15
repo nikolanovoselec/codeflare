@@ -231,17 +231,19 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Acceptance Criteria:**
 
 1. Every vault writer maintains a single persistent incremental vault graph (`vault-graph.json`) that survives across passes; both the vault-extract and memory-capture pipelines on both runtimes author a chunk and fold it in via a shared merge step rather than editing `graph.json` in place. <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC1: script writes the cumulative vault graph back to vault_graph_path as the to_json path argument) -->
-2. Each pass deduplicates nodes by ID while preserving every distinct edge-evidence tuple `(source, target, relation, source_file)` across persisted, prior, and new graph data; only identical tuples collapse. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC2: script unions the prior + new graphs via nx.compose (hash-keyed dedup)) --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC2: serialized cumulative graph deduplicates identical edge evidence) --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC2: cumulative merge preserves distinct evidence between the same nodes) -->
-3. The global graph's vault contribution always reflects the cumulative vault content (the persistent `vault-graph.json` is fed to `graphify global add --as user_vault`, never the per-run chunk or `graph.json`), not only the most recent pass. <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC3: prompt step 5 feeds vault-graph.json to `graphify global add --as user_vault` (not the per-chunk graph)) -->
-4. If the persistent vault graph is missing or unreadable, the pass starts a fresh one rather than crashing and writes it at the end of the run. <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC1: script writes the cumulative vault graph back to vault_graph_path as the to_json path argument) -->
-5. Vault graph merges are serialised with capture-pipeline writes and active-repo hooks; a short timeout prevents indefinite blocking if the lock holder crashes (matching [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) AC7). <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC1: script writes the cumulative vault graph back to vault_graph_path as the to_json path argument) -->
-6. Each Pi session capture deterministically labels its document node from the note H1, uses stable Vault-relative document IDs and canonical `concept_<normalised_label>` concept IDs, and emits at most one edge for each source/target/relation/source-file tuple. <!-- @impl: preseed/agents/pi/scripts/build-memory-graph.py::build_graph --> <!-- @test: host/__tests__/pi-memory-graph-builder.test.js (REQ-MEM-009 AC6: session graph uses its title, canonical concepts, and unique edges) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-009 AC6: Pi seeds its deterministic session-memory graph builder) -->
+2. Each pass deduplicates graph nodes by node ID. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::main --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::main --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC2: script unions the prior + new graphs via nx.compose (hash-keyed dedup)) -->
+3. Edge evidence is keyed by `(source, target, relation, source_file)`, preserving distinct tuples across persisted, prior, and new graph data while collapsing identical tuples. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC3: edge evidence is keyed by semantic tuple) -->
+4. The global graph's vault contribution always reflects the cumulative vault content (the persistent `vault-graph.json` is fed to `graphify global add --as user_vault`, never the per-run chunk or `graph.json`), not only the most recent pass. <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC4: prompt step 5 feeds vault-graph.json to `graphify global add --as user_vault` (not the per-chunk graph)) -->
+5. If the persistent vault graph is missing, unreadable, or structurally malformed, the pass starts from empty evidence rather than crashing. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::node_link_edges --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::node_link_edges --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC5: malformed prior edge data is treated as empty evidence) -->
+6. Vault graph merges are serialised with capture-pipeline writes and active-repo hooks. <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC6: prompt wraps the merge invocation under flock /tmp/graphify-global.lock) -->
+7. Each Pi session capture deterministically labels its document node from the note H1, uses stable Vault-relative document IDs and canonical `concept_<normalised_label>` concept IDs, and emits at most one edge for each source/target/relation/source-file tuple. <!-- @impl: preseed/agents/pi/scripts/build-memory-graph.py::build_graph --> <!-- @test: host/__tests__/pi-memory-graph-builder.test.js (REQ-MEM-009 AC7: session graph uses its title, canonical concepts, and unique edges) -->
 
 **Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
-- No HTML visualization is generated for the unified global graph; structural queries are the interface; Only the curated vault subset receives a rendered visualization shipped to users.
+- The merge lock uses a short timeout so a crashed holder cannot block extraction indefinitely (matching [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault) AC7).
+- No HTML visualization is generated for the unified global graph; structural queries are the interface; only the curated vault subset receives a rendered visualization shipped to users.
 
 **Priority:** P0
 
@@ -377,7 +379,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ### REQ-MEM-014: Pi capture contract, transcript prefilter, and model-fidelity lever
 
-**Intent:** Pi's memory-capture and vault-extract subagents must preserve the citation fidelity and prefiltered conversational arc established by the Claude memory plugin ([AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) parity) without inheriting Claude's multi-pass scratchpad cost. Pi extraction must cite REQ/ADR/SHA/PR identifiers verbatim, use a provider-neutral fidelity lever, and execute as bounded medium-reasoning background work over only its immutable request snapshot.
+**Intent:** Pi's memory-capture and vault-extract subagents must preserve the citation fidelity and prefiltered conversational arc established by the Claude memory plugin ([AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) parity) without inheriting Claude's multi-pass scratchpad cost. Pi extraction must cite REQ/ADR/SHA/PR identifiers verbatim and use a provider-neutral fidelity lever.
 
 **Applies To:** User
 
@@ -389,9 +391,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 4. Before the transcript is handed to the Pi capture agent, tool-use, tool-result, thinking, synthetic directives, and already-captured prompts are removed; retries retain only the uncaptured interval, bounded to the last 40 text turns at 4000 characters per turn. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::compactMessages --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (keeps only the uncaptured interval after the successful user-prompt count) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (caps the uncaptured interval to the last 40 text turns) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (captures only prompts after the root-owned successful counter) -->
 5. Each Pi capture/extract request includes the optional model from `CODEFLARE_MEMORY_MODEL` only when non-empty; when unset, no model name is hardcoded. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (builds one bounded medium-reasoning public background request) -->
 6. Pi exposes each capture/extract launch as a public background `subagent` request with inherited context disabled, so main-session work cannot cancel it and no private service spawn is required. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (creates work on the fifteenth real prompt and emits a visible reminder without private spawn) -->
-7. Every generated Pi capture/extract agent and emitted request conforms to one bounded execution profile: provider-neutral medium reasoning, Bash-only transport, four turns, and one-pass immutable input. <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (builds one bounded medium-reasoning public background request) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-014/REQ-VAULT-027: transformed Pi extraction agents expose bounded frontmatter) -->
-
-**Notes:** Public delivery is documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional); [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) defines the bounded profile. For memory capture, the immutable snapshot's `transcript` field is the sole conversation input; the worker does not discover an `INPUT_FILE` or separate transcript path.
+**Notes:** Public delivery is documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional). The execution profile is owned by [REQ-MEM-016](#req-mem-016-pi-extraction-jobs-have-a-bounded-execution-profile) and documented in [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs).
 
 **Constraints:**
 
@@ -403,5 +403,35 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-008](#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline)
 
 **Verification:** [Public request lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [generated agent contract tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-MEM-016: Pi extraction jobs have a bounded execution profile
+
+**Intent:** Pi memory and Vault extraction must finish as bounded background jobs without inheriting an open-ended foreground execution profile.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Generated Pi memory-capture and vault-extract agent definitions expose only Bash. <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-016: transformed Pi extraction agents expose bounded frontmatter) -->
+2. Generated Pi memory-capture and vault-extract agent definitions use provider-neutral medium reasoning. <!-- @impl: scripts/generate-agent-seed.mjs::adaptAgentFrontmatter --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-016: transformed Pi extraction agents expose bounded frontmatter) -->
+3. Every emitted Pi capture/extract request disables inherited context. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
+4. Every emitted Pi capture/extract request uses provider-neutral medium reasoning. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
+5. Every emitted Pi capture/extract request stops after four agent turns. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
+
+**Constraints:**
+
+- Memory capture treats the immutable snapshot's `transcript` field as its sole conversation input and does not discover an `INPUT_FILE` or separate transcript path.
+- Vault extraction reads only its request snapshot and frozen input files.
+- Model identity remains independently configurable through `CODEFLARE_MEMORY_MODEL`.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MEM-014](#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever)
+
+**Verification:** [Generated agent contract tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [public request lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented

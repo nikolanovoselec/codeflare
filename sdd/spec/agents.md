@@ -1098,7 +1098,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. A supported head-changing root boundary, including `gh pr update-branch`, requests reviewers only for an SDD repository with a fresh open protected-base PR. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::queryPr --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-068: update-branch emits reviewers and exact-head CI) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (Pi review reminder and settled enforcement) -->
+1. A supported head-changing root boundary, including `gh pr update-branch`, requests reviewers only for an SDD repository with a fresh open protected-base PR. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::queryPr --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036: update-branch reviews the remote head when local HEAD remains old) -->
 2. Ineligible PR state or an unsuccessful command requests no reviewer. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (Pi review reminder and settled enforcement) -->
 3. Root and nested SDD layouts suppress review only while transition is true and the active triage queue contains an open item. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-045/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
 4. Passive lifecycle and child sessions cannot start or complete review. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes) -->
@@ -1109,6 +1109,7 @@ None.
 **Constraints:**
 
 - Command parsing is defined by [REQ-AGENT-063](#req-agent-063-pr-boundary-command-parsing).
+- An `update-branch` boundary qualifies only after the authoritative PR head differs from unchanged local `HEAD`.
 - Pi adds no pre-command merge gate.
 
 **Priority:** P1
@@ -1914,7 +1915,7 @@ None.
 4. An authoritative head mismatch reports `CI_RESULT timeout superseded`. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC4: a superseded head stops before checks are queried) -->
 5. Failed or cancelled checks report `CI_RESULT failure` with provider evidence. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC5: failed and cancelled arbitrary providers report failure with links) -->
 6. Monitoring creates no Codeflare state, log, or PID files. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC6: monitoring creates no Codeflare state, log, or PID files) -->
-7. Malformed or transient provider responses never become success; the sole correction is a 41-character head whose first 40 characters exactly equal the authoritative PR head. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC7: one appended head character is corrected only against the authoritative PR head) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC7: unrelated malformed heads remain invalid) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC7: malformed and transient GitHub responses never become success) -->
+7. Malformed or transient provider responses never become success. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC7: malformed and transient GitHub responses never become success) -->
 
 **Constraints:**
 
@@ -2435,5 +2436,31 @@ None.
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
 
 **Verification:** [Pi package settings tests](../../host/__tests__/pi-settings-packages.test.js), [agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-090: CI monitor head correction is authoritative and fail-closed
+
+**Intent:** The Pi CI monitor may recover the observed one-character-appended head transcription only when GitHub confirms the exact intended PR head; every other malformed head remains invalid.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. A 41-character hexadecimal head is corrected only when its first 40 characters exactly equal the authoritative PR head. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-090 AC1: one appended head character is corrected only against the authoritative PR head) -->
+2. Any malformed head that does not satisfy AC1 reports `invalid_request` before checks are queried. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-090 AC2: unrelated malformed heads remain invalid) -->
+
+**Constraints:**
+
+- Superseded valid heads continue to report `superseded`; correction never authorizes an obsolete head.
+- No other truncation, padding, or malformed-head normalization is allowed.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring)
+
+**Verification:** [Pi CI monitor behavioral tests](../../host/__tests__/pi-ci-monitor.test.js)
 
 **Status:** Implemented

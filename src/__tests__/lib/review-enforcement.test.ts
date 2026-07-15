@@ -432,8 +432,15 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
-  it('REQ-AGENT-036/REQ-AGENT-068: update-branch emits reviewers and exact-head CI', async () => {
+  it('REQ-AGENT-036: update-branch reviews the remote head when local HEAD remains old', async () => {
     const fixture = makeReviewFixture();
+    const localHead = fixture.head;
+    write(fixture.repo, 'src/remote-update.ts', 'export {};\n');
+    git(fixture.repo, 'add', 'src/remote-update.ts');
+    git(fixture.repo, 'commit', '-m', 'remote PR update');
+    const remoteHead = git(fixture.repo, 'rev-parse', 'HEAD');
+    git(fixture.repo, 'reset', '--hard', localHead);
+    fixture.pr = { ...fixture.pr, headRefOid: remoteHead };
     const harness = await registerFixture(fixture);
     const command = 'gh pr update-branch 42';
     appendSession(fixture.sessionFile,
@@ -447,9 +454,9 @@ describe('Pi review reminder and settled enforcement', () => {
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-plan',
         details: {
-          head: fixture.head,
+          head: remoteHead,
           ackHead: fixture.base,
-          reviewRange: `${fixture.base}..${fixture.head}`,
+          reviewRange: `${fixture.base}..${remoteHead}`,
           scope: diffScope(),
           requiredLanes: ALL_LANES,
           launchWaves: launchWaves(ALL_LANES, true),
@@ -458,6 +465,20 @@ describe('Pi review reminder and settled enforcement', () => {
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
+  });
+
+  it('REQ-AGENT-036: up-to-date update-branch emits no launch plan', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    const command = 'gh pr update-branch 42';
+    appendSession(fixture.sessionFile,
+      assistantTool('update-branch-noop-1', 'bash', { command }),
+      toolResult('update-branch-noop-1', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command));
+
+    expect(harness.sent).toEqual([]);
   });
 
   it('REQ-AGENT-055/REQ-AGENT-082: protected retarget invalidation survives compound commands and disabled review mode', async () => {

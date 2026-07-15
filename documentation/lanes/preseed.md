@@ -186,7 +186,11 @@ Pi's PR-boundary extension is the sole automatic dispatcher for review and CI ([
 node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> cwd=<absolute-repo-root> reviewState=<launched|not-required>
 ```
 
-No stdout means no action. Otherwise the root submits the resolver's request unchanged once through public `subagent`. The report-only `ci-monitor` remains independent from review acknowledgement and relies on the bounded script rather than an agent turn cap, preserving verbatim native output. It rejects malformed or superseded heads; the sole normalization is an observed 41-character transcription whose first 40 characters exactly equal GitHub's authoritative PR head. Non-SDD repositories and default-mode sessions receive CI-only plans. An aborted task is relaunched only after a later plan or explicit request. Implements [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring).
+No stdout means no action. Otherwise the root submits the resolver's request unchanged once through public `subagent`. The report-only `ci-monitor` remains independent from review acknowledgement and relies on the bounded script rather than an agent turn cap, preserving verbatim native output.
+
+Malformed or superseded heads fail closed. [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed) permits only the observed 41-character transcription whose first 40 characters exactly equal GitHub's authoritative PR head.
+
+Non-SDD repositories and default-mode sessions receive CI-only plans. An aborted task is relaunched only after a later plan or explicit request. Implements [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring).
 
 Pi review is session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). Successful persisted boundaries produce a triggering root launch plan. With a valid acknowledgement, the plan and every counted reviewer prompt carry the exact acknowledged-to-current range; unmatched calls remain in flight until native terminal notification. A delayed notification can acknowledge its reviewed PR head after reload or newer unpublished local work only while GitHub still reports that same authoritative head.
 
@@ -1000,7 +1004,7 @@ Full SDD discipline applies on the next push; autonomous agentic development is 
 The Claude `Stop` hook (`enforce-review-spawn.sh`) only fires in advanced mode when `sdd/` and `sdd/README.md` are present. Its transcript-based trigger surface is `git push`, `gh pr merge`, and protected-base `gh pr edit --base main|master`; `git-push-review-reminder.sh` handles the in-turn reminder path for `git push`, `gh pr create`, and protected-base `gh pr edit`.
 
 Pi uses the narrower supported command grammar in
-[REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing): successful root-session Bash/`ctx_execute`/`ctx_batch_execute` surfaces recognize direct or environment-prefixed `git push`, `gh pr create`, `gh pr update-branch`, protected-base `gh pr edit`, and `gh pr merge` only in their documented reminder or settled roles. Unsupported convenience commands, failed commands, quoted examples, child sessions, passive startup, and integration-bound PRs are inert.
+[REQ-AGENT-063](../../sdd/spec/agents.md#req-agent-063-pr-boundary-command-parsing): successful root-session Bash/`ctx_execute`/`ctx_batch_execute` surfaces recognize direct or environment-prefixed `git push`, `gh pr create`, `gh pr update-branch`, protected-base `gh pr edit`, and `gh pr merge` only in their documented reminder or settled roles. Unsupported convenience commands, failed commands, quoted examples, child sessions, passive startup, and integration-bound PRs are inert. After `gh pr update-branch`, enforcement waits for GitHub's PR head to differ from the unchanged local `HEAD` and uses that remote SHA as the review and CI head.
 
 For Pi, the acknowledged full SHA remains at `.git/sdd-last-ack-pr-head`. A successful persisted boundary lists missing reviewer lanes and, when an acknowledgement exists, the exact acknowledged-to-current range. Every counted public reviewer prompt carries that range. Unmatched calls stay in flight until native notification, and only the reminder head can be acknowledged. A delayed persisted notification can acknowledge that head after reload or newer unpublished local work while the PR still points to it; unfinished or replaced work may repeat at a later boundary ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)).
 
@@ -1059,7 +1063,9 @@ Pi CI is not part of review completion or acknowledgement. After an eligible suc
 - [REQ-AGENT-083](../../sdd/spec/agents.md#req-agent-083-user-invoked-pi-review-repository-context) - User-Invoked Pi Review Repository Context
 - [REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-pi-reviewer-policy-preloading) - Pi Reviewer Policy Preloading
 - [REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport) - Pi Reviewer Direct Evidence Transport
+- [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed) - CI Monitor Head Correction
 - [REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt) - Proactive memory injection on first prompt
+- [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-jobs-have-a-bounded-execution-profile) - Pi Extraction Execution Profile
 
 ---
 

@@ -212,6 +212,7 @@ function defaultSleep(delayMs: number): Promise<void> {
 async function currentReview(
   ctx: ReviewContext,
   dependencies: Dependencies,
+  remoteHeadAuthoritative = false,
 ): Promise<{ repo: string; file: string; pr: PrState } | undefined> {
   const context = boundaryContext(ctx);
   if (!context) return undefined;
@@ -222,7 +223,10 @@ async function currentReview(
   for (const delayMs of delays) {
     if (delayMs > 0) await sleep(delayMs);
     const pr = await dependencies.queryPr(context.repo);
-    if (isProtectedPr(pr) && head === pr.headRefOid) return { ...context, pr };
+    const headMatchesBoundary = remoteHeadAuthoritative
+      ? head !== pr?.headRefOid
+      : head === pr?.headRefOid;
+    if (isProtectedPr(pr) && headMatchesBoundary) return { ...context, pr };
   }
   return undefined;
 }
@@ -282,7 +286,11 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       .map((command) => ({ command, classification: classifyReviewBoundaryCommand(command) }))
       .find(({ classification }) => classification.reminder);
     if (!boundary) return;
-    const review = await currentReview(ctx, dependencies);
+    const review = await currentReview(
+      ctx,
+      dependencies,
+      boundary.classification.event === "pr-update-branch",
+    );
     if (!review || !isEnforcedPr(review.pr)) return;
 
     const skipReview = bypassSentinelPresent();
