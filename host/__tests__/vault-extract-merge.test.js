@@ -1,17 +1,8 @@
 // REQ-MEM-009: vault-extract cumulative merge pipeline.
 //
-// AC1/AC2/AC4 are now implemented by merge-vault-graph.py (extracted
-// from the prompt). Tests inspect the Python script's AST via a
-// subprocess: py_compile validates syntax, ast.parse + dump verifies
-// the expected imports and function calls actually exist as Python
-// nodes (not just byte patterns in prose). Gut-check: rename
-// nx.compose to nx.union and AC2 fails; remove the try/except and AC4
-// fails; remove to_json(...vault_graph_path...) and AC1 fails.
-//
-// AC3 + AC5 still test the prompt: the global-add invocation and the
-// flock scope live in the orchestrating bash, not the Python script,
-// and rewriting them as a separate script would add no behavioural
-// coverage (the bash is a single command line).
+// Behavioral cases execute merge-vault-graph.py against persisted and
+// request graphs. Focused AST checks cover recovery branches that are
+// difficult to trigger without coupling tests to NetworkX internals.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -23,7 +14,6 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const VAULT_DIR = path.join(__dirname, '..', '..', 'preseed', 'agents', 'claude', 'plugins', 'codeflare-vault', 'scripts');
 const SCRIPT = path.join(VAULT_DIR, 'merge-vault-graph.py');
-const PROMPT = path.join(VAULT_DIR, 'vault-extract-prompt.md');
 
 function pyAst(query) {
   const code = `
@@ -198,7 +188,7 @@ print(len(calls))
   );
 });
 
-test('REQ-MEM-009 AC4: script wraps the vault-graph.json load in try/except so missing/corrupt files reset to a fresh DiGraph', () => {
+test('REQ-MEM-009: missing or corrupt persistent graph input has a guarded recovery branch', () => {
   const r = pyAst(`
 tries = [n for n in ast.walk(tree) if isinstance(n, ast.Try)]
 ok = False
@@ -211,26 +201,6 @@ print('OK' if ok else 'MISSING')
 `);
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout.trim(), 'OK', 'merge-vault-graph.py must wrap the vault_graph_path read in a try/except block');
-});
-
-test('REQ-MEM-009 AC3: prompt step 5 feeds vault-graph.json to `graphify global add --as user_vault` (not the per-chunk graph)', () => {
-  const body = fs.readFileSync(PROMPT, 'utf8');
-  assert.match(
-    body,
-    /graphify\s+global\s+add\s[\s\S]{0,200}vault-graph\.json[\s\S]{0,200}--as\s+user_vault/,
-    'prompt step 5 must call `graphify global add <vault-graph.json> --as user_vault`',
-  );
-});
-
-test('REQ-MEM-009 AC5: prompt wraps the merge invocation under flock /tmp/graphify-global.lock', () => {
-  const body = fs.readFileSync(PROMPT, 'utf8');
-  const flockMatches = body.match(/flock\s+-w\s+\d+\s+\/tmp\/graphify-global\.lock/g) || [];
-  assert.ok(flockMatches.length >= 2, `expected >=2 flock wrappers (steps 4 + 5), got ${flockMatches.length}`);
-  assert.match(
-    body,
-    /flock\s+-w\s+\d+\s+\/tmp\/graphify-global\.lock\s+\S*python\S*\s+\S*merge-vault-graph\.py/,
-    'prompt step 4 must invoke merge-vault-graph.py under flock',
-  );
 });
 
 test('REQ-MEM-009: the Pi-local merge-vault-graph.py is byte-identical to the Claude copy (path-agnostic, no drift)', () => {

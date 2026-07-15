@@ -53,11 +53,15 @@ async function readHead({ repo, pr, runner, cwd }) {
 export async function resolveCiMonitorRequest({ event, changed, repo, cwd, reviewState, runner = runCommand } = {}) {
   if (!['push', 'pr-create'].includes(event) || changed !== true || !repo || !cwd || !['launched', 'not-required'].includes(reviewState)) return null;
 
+  const lookupArgs = ['pr', 'view'];
+  if (Number.isInteger(pr)) lookupArgs.push(String(pr), '--repo', repo);
+  lookupArgs.push('--json', 'number,state,baseRefName,headRefOid');
+
   let result;
   try {
     result = await runner(
       'gh',
-      ['pr', 'view', '--json', 'number,state,baseRefName,headRefOid'],
+      lookupArgs,
       { cwd },
     );
   } catch {

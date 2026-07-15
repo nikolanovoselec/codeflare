@@ -7,7 +7,14 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 type ReviewLane = 'code-reviewer' | 'spec-reviewer' | 'doc-updater';
 type BoundaryEvent = 'push' | 'pr-create' | 'pr-edit' | 'pr-update-branch' | 'pr-merge';
-type BoundarySurfaces = { reminder: boolean; settled: boolean; event?: BoundaryEvent; protectedRetarget?: true };
+type BoundarySurfaces = {
+  reminder: boolean;
+  settled: boolean;
+  event?: BoundaryEvent;
+  protectedRetarget?: true;
+  prTarget?: string;
+  repoTarget?: string;
+};
 type TranscriptFacts = {
   boundary?: { toolUseId: string; command: string };
   reviewHead?: string;
@@ -128,7 +135,7 @@ afterEach(() => {
 });
 
 describe('Claude-equivalent review boundary helpers', () => {
-  it('REQ-AGENT-063: distinguishes supported reminder and settled command surfaces', async () => {
+  it('REQ-AGENT-063/REQ-AGENT-092: distinguishes supported review boundary targets', async () => {
     const { classifyReviewBoundaryCommand } = await plannedHelpers();
     const push = { reminder: true, settled: true, event: 'push' as const };
     const none = { reminder: false, settled: false };
@@ -149,7 +156,14 @@ describe('Claude-equivalent review boundary helpers', () => {
       ['gh pr edit 42 --base main && git push origin pi', { reminder: true, settled: true, event: 'push', protectedRetarget: true }],
       ['gh pr merge 42', { reminder: false, settled: true, event: 'pr-merge' }],
       ['gh pr edit 42 --base develop', none],
-      ['gh pr update-branch 42', { reminder: true, settled: true, event: 'pr-update-branch' }],
+      ['gh pr update-branch 42', { reminder: true, settled: true, event: 'pr-update-branch', prTarget: '42' }],
+      ['gh pr update-branch https://github.com/owner/repo/pull/42 --repo owner/repo', {
+        reminder: true,
+        settled: true,
+        event: 'pr-update-branch',
+        prTarget: 'https://github.com/owner/repo/pull/42',
+        repoTarget: 'owner/repo',
+      }],
       ['git -C /tmp/repo push origin pi', push],
     ];
 

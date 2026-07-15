@@ -6,7 +6,14 @@ export const ALL_REVIEW_LANES = ["code-reviewer", "spec-reviewer", "doc-updater"
 export type ReviewLane = (typeof ALL_REVIEW_LANES)[number];
 
 export type ReviewBoundaryEvent = "push" | "pr-create" | "pr-edit" | "pr-update-branch" | "pr-merge";
-type BoundarySurfaces = { reminder: boolean; settled: boolean; event?: ReviewBoundaryEvent; protectedRetarget?: true };
+type BoundarySurfaces = {
+  reminder: boolean;
+  settled: boolean;
+  event?: ReviewBoundaryEvent;
+  protectedRetarget?: true;
+  prTarget?: string;
+  repoTarget?: string;
+};
 type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
 export type TranscriptFacts = {
   boundary?: { toolUseId: string; command: string };
@@ -165,11 +172,35 @@ function protectedEdit(words: ShellWords): boolean {
   );
 }
 
+function updateBranchTargets(words: ShellWords): { prTarget?: string; repoTarget?: string } {
+  let prTarget: string | undefined;
+  let repoTarget: string | undefined;
+  for (let index = 3; index < words.length; index += 1) {
+    const word = words[index];
+    if ((word === "--repo" || word === "-R") && words[index + 1]) {
+      repoTarget = words[index + 1];
+      index += 1;
+      continue;
+    }
+    if (word.startsWith("--repo=") || word.startsWith("-R=")) {
+      repoTarget = word.slice(word.indexOf("=") + 1);
+      continue;
+    }
+    if (!word.startsWith("-") && !prTarget) prTarget = word;
+  }
+  const urlRepo = prTarget?.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/\d+(?:\/|$)/)?.[1];
+  return {
+    ...(prTarget ? { prTarget } : {}),
+    ...(repoTarget || urlRepo ? { repoTarget: repoTarget ?? urlRepo } : {}),
+  };
+}
+
 export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces {
   let reminder = false;
   let settled = false;
   let protectedRetarget = false;
   let event: ReviewBoundaryEvent | undefined;
+  let updateTargets: { prTarget?: string; repoTarget?: string } = {};
   for (const words of commandWords(command)) {
     if (gitSubcommand(words) === "push") {
       reminder = settled = true;
@@ -187,6 +218,7 @@ export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces
     if (words[0] === "gh" && words[1] === "pr" && words[2] === "update-branch") {
       reminder = settled = true;
       event = "pr-update-branch";
+      updateTargets = updateBranchTargets(words);
     }
     if (words[0] === "gh" && words[1] === "pr" && words[2] === "merge") {
       settled = true;
@@ -198,6 +230,7 @@ export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces
     settled,
     ...(event ? { event } : {}),
     ...(protectedRetarget ? { protectedRetarget: true as const } : {}),
+    ...(event === "pr-update-branch" ? updateTargets : {}),
   };
 }
 

@@ -2464,3 +2464,60 @@ None.
 **Verification:** [Pi CI monitor behavioral tests](../../host/__tests__/pi-ci-monitor.test.js)
 
 **Status:** Implemented
+
+---
+
+### REQ-AGENT-091: Explicit fully-autonomous direction overrides the review round stop
+
+**Intent:** A user who explicitly requests fully autonomous completion must not be interrupted only because the active review loop reached its normal five-commit safety limit.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. A direct current-session user instruction to go fully autonomous activates the task override. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousUserDirection --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: direct fully-autonomous user direction marks every review launch) -->
+2. Agent-authored fully-autonomous text does not activate the task override. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousUserDirection --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: agent-authored fully-autonomous text cannot activate the override) -->
+3. Every subsequent reviewer launch for that task carries the exact fully-autonomous override marker. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: direct fully-autonomous user direction marks every review launch) -->
+
+**Constraints:**
+
+- Only direct user text in the current root session can activate the override.
+- The override expires when the task completes, is cancelled, or is explicitly narrowed.
+- Review, CI, behavioral-test, SDD truth, deployment, and root-only mutation gates remain binding.
+- Canonical Pi and Claude enforcement policy defines the same task-scoped round-limit exception.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-AGENT-084](#req-agent-084-pr-boundary-reviewers-execute-canonical-enforcement-skills)
+
+**Verification:** [Pi review enforcement behavioral tests](../../src/__tests__/lib/review-enforcement.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-092: Explicit update-branch targets remain authoritative
+
+**Intent:** Review and CI started by `gh pr update-branch` must follow the PR named by the command rather than whichever PR happens to match the current checkout.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Boundary classification preserves the explicit PR target and repository selector. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-063/REQ-AGENT-092: distinguishes supported review boundary targets) -->
+2. Review enforcement queries the explicit target and fetches its authoritative remote head before calculating scope. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-092: update-branch fetches and reviews its targeted remote PR head) -->
+3. The CI request resolver queries the explicit affected PR number. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::resolveCiMonitorRequest --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-092: explicit update target resolves that exact PR for CI) -->
+
+**Constraints:**
+
+- Targetless pushes and PR creation retain checkout-relative lookup.
+- Remote fetches use HTTPS when an explicit repository is supplied.
+- Review and CI still fail closed when the target cannot be resolved or its head cannot be verified.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-AGENT-036](#req-agent-036-git-push-triggers-review-workflow), [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring)
+
+**Verification:** [Boundary classification tests](../../src/__tests__/lib/review-helpers.test.ts), [review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts), [CI resolver tests](../../host/__tests__/pi-ci-monitor.test.js)
+
+**Status:** Implemented

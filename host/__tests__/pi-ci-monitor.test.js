@@ -60,13 +60,14 @@ function check(name, bucket, patch = {}) {
   };
 }
 
-function expectedRequest() {
+function expectedRequest(patch = {}) {
   return {
     subagent_type: 'ci-monitor',
     description: `Monitor PR #${PR} CI`,
     prompt: `repo=${REPO} pr=${PR} head=${HEAD}`,
     run_in_background: true,
     inherit_context: false,
+    ...patch,
   };
 }
 
@@ -156,6 +157,31 @@ test('REQ-AGENT-068 AC1: eligible head-changing push returns one complete public
   if (request) requests.push(request);
 
   assert.deepEqual(requests, [expectedRequest()]);
+});
+
+test('REQ-AGENT-092: explicit update target resolves that exact PR for CI', async () => {
+  let lookupArgs;
+  const request = await resolveCiMonitorRequest({
+    event: 'push',
+    changed: true,
+    repo: REPO,
+    pr: 42,
+    cwd: REQUEST_CWD,
+    reviewState: 'launched',
+    runner: async (_command, args) => {
+      lookupArgs = args;
+      return commandResult(openPr({ number: 42 }));
+    },
+  });
+
+  assert.deepEqual(request, expectedRequest({
+    description: 'Monitor PR #42 CI',
+    prompt: `repo=${REPO} pr=42 head=${HEAD}`,
+  }));
+  assert.deepEqual(lookupArgs, [
+    'pr', 'view', '42', '--repo', REPO,
+    '--json', 'number,state,baseRefName,headRefOid',
+  ]);
 });
 
 test('REQ-AGENT-068 AC1: eligible PR creation uses the affected repository cwd', async () => {

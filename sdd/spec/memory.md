@@ -234,7 +234,6 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 2. Each pass emits at most one graph node for each node ID. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC1/AC2: successive merges preserve prior nodes and deduplicate IDs) -->
 3. Edge evidence is keyed by `(source, target, relation, source_file)`, preserving distinct tuples across persisted, prior, and new graph data while collapsing identical tuples. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC3: edge evidence is keyed by semantic tuple) -->
 4. Structurally malformed edge entries are ignored without aborting the merge. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::node_link_edges --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::node_link_edges --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC4: malformed edge entries are ignored without crashing) -->
-5. Each Pi session capture deterministically labels its document node from the note H1, uses stable Vault-relative document IDs and canonical `concept_<normalised_label>` concept IDs, and emits at most one edge for each source/target/relation/source-file tuple. <!-- @impl: preseed/agents/pi/scripts/build-memory-graph.py::build_graph --> <!-- @test: host/__tests__/pi-memory-graph-builder.test.js (REQ-MEM-009 AC5: session graph uses its title, canonical concepts, and unique edges) -->
 
 **Notes:** The persistent cumulative graph—not a per-run chunk—is the input to `graphify global add --as user_vault`. Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
@@ -437,5 +436,33 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Dependencies:** [REQ-MEM-014](#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever)
 
 **Verification:** [Generated agent contract tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [public request lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-MEM-017: Session memory graph identity is deterministic
+
+**Intent:** Repeated Pi session capture must produce stable graph identities and evidence for the same note content.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. A session document node uses the note H1 as its label. <!-- @impl: preseed/agents/pi/scripts/build-memory-graph.py::build_graph --> <!-- @test: host/__tests__/pi-memory-graph-builder.test.js (REQ-MEM-017: session graph uses its title, canonical concepts, and unique edges) -->
+2. A session document node uses a stable identifier derived from its Vault-relative path. <!-- @impl: preseed/agents/pi/scripts/build-memory-graph.py::build_graph --> <!-- @test: host/__tests__/pi-memory-graph-builder.test.js (REQ-MEM-017: session graph uses its title, canonical concepts, and unique edges) -->
+3. Repeated references to the same concept label produce one canonical concept identifier. <!-- @impl: preseed/agents/pi/scripts/build-memory-graph.py::build_graph --> <!-- @test: host/__tests__/pi-memory-graph-builder.test.js (REQ-MEM-017: session graph uses its title, canonical concepts, and unique edges) -->
+4. Exact duplicate source/target/relation/source-file edges collapse to one edge. <!-- @impl: preseed/agents/pi/scripts/build-memory-graph.py::build_graph --> <!-- @test: host/__tests__/pi-memory-graph-builder.test.js (REQ-MEM-017: session graph uses its title, canonical concepts, and unique edges) -->
+
+**Constraints:**
+
+- The generated advanced Pi seed carries the same graph-builder source as the canonical preseed.
+- Graph output remains compatible with the cumulative Vault merge path.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MEM-009](#req-mem-009-vault-graph-accumulates-monotonically-across-extractions)
+
+**Verification:** [Session graph behavior and generated-seed parity](../../host/__tests__/pi-memory-graph-builder.test.js)
 
 **Status:** Implemented

@@ -30,7 +30,7 @@ type PlannedReviewEnforcement = {
   registerReviewEnforcement(
     pi: TestPi,
     dependencies: {
-      queryPr(repo: string): Promise<PrState | undefined>;
+      queryPr(repo: string, query?: { target?: string; repo?: string }): Promise<PrState | undefined>;
       queryHead?(repo: string): Promise<string | undefined>;
       sleep?(delayMs: number): Promise<void>;
       headRetryDelaysMs?: number[];
@@ -43,6 +43,7 @@ type PlannedReviewEnforcement = {
       args: string[],
       options: { cwd: string; encoding: 'utf8'; timeout: number },
     ) => Promise<{ stdout: string }>,
+    query?: { target?: string; repo?: string },
   ): Promise<PrState | undefined>;
 };
 type TestPi = {
@@ -249,11 +250,18 @@ function makeHarness(repo: string, sessionFile: string): {
   };
 }
 
-async function registerFixture(fixture: ReturnType<typeof makeReviewFixture>, cwd = fixture.repo) {
+async function registerFixture(
+  fixture: ReturnType<typeof makeReviewFixture>,
+  cwd = fixture.repo,
+  observeQuery?: (query: { target?: string; repo?: string } | undefined) => void,
+) {
   const { registerReviewEnforcement } = await plannedEnforcement();
   const harness = makeHarness(cwd, fixture.sessionFile);
   await registerReviewEnforcement(harness.pi, {
-    queryPr: async () => fixture.pr,
+    queryPr: async (_repo, query) => {
+      observeQuery?.(query);
+      return fixture.pr;
+    },
   });
   return harness;
 }
@@ -278,6 +286,46 @@ afterEach(() => {
 });
 
 describe('Pi review reminder and settled enforcement', () => {
+  it('REQ-AGENT-091: direct fully-autonomous user direction marks every review launch', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    const command = 'git push origin pi';
+    appendSession(fixture.sessionFile,
+      userMessage('Go FULLY AUTONOMOUS and finish this review task.'),
+      assistantTool('push-autonomous-1', 'bash', { command }),
+      toolResult('push-autonomous-1', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command));
+
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0].message.content).toContain('autonomy_override=fully-autonomous');
+    expect(harness.sent[0].message.details?.autonomyOverride).toBe('fully-autonomous');
+  });
+
+  it('REQ-AGENT-091: agent-authored fully-autonomous text cannot activate the override', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    const command = 'git push origin pi';
+    appendSession(fixture.sessionFile,
+      {
+        type: 'message',
+        id: nextId('assistant'),
+        parentId: null,
+        timestamp: '2026-07-12T12:01:00.000Z',
+        message: { role: 'assistant', content: 'Go FULLY AUTONOMOUS.', timestamp: Date.parse('2026-07-12T12:01:00.000Z') },
+      },
+      assistantTool('push-agent-text-1', 'bash', { command }),
+      toolResult('push-agent-text-1', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command));
+
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0].message.content).not.toContain('autonomy_override=fully-autonomous');
+    expect(harness.sent[0].message.details).not.toHaveProperty('autonomyOverride');
+  });
+
   it('REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074: emits one ordered reviewer-then-CI launch plan', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
@@ -293,6 +341,7 @@ describe('Pi review reminder and settled enforcement', () => {
         display: true,
         details: {
           head: fixture.head,
+          prNumber: fixture.pr.number,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
           scope: diffScope(),
@@ -312,6 +361,7 @@ describe('Pi review reminder and settled enforcement', () => {
         display: true,
         details: {
           head: fixture.head,
+          prNumber: fixture.pr.number,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
           missingLanes: ALL_LANES,
@@ -366,6 +416,7 @@ describe('Pi review reminder and settled enforcement', () => {
           customType: 'pr-boundary-launch-plan',
           details: {
             head: fixture.head,
+            prNumber: fixture.pr.number,
             ackHead: expectedAck,
             reviewRange: undefined,
             scope: diffScope(),
@@ -395,6 +446,7 @@ describe('Pi review reminder and settled enforcement', () => {
         customType: 'pr-boundary-launch-plan',
         details: {
           head: fixture.head,
+          prNumber: fixture.pr.number,
           ackHead: fixture.head,
           reviewRange: undefined,
           scope: diffScope(),
@@ -432,7 +484,7 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
-  it('REQ-AGENT-036: update-branch fetches and reviews a remote-only PR head', async () => {
+  it('REQ-AGENT-092: update-branch fetches and reviews its targeted remote PR head', async () => {
     const fixture = makeReviewFixture();
     const remote = tempRoot('pi-review-remote-');
     git(remote, 'init', '--bare', '-q');
@@ -451,7 +503,8 @@ describe('Pi review reminder and settled enforcement', () => {
 
     expect(() => git(fixture.repo, 'cat-file', '-e', `${remoteHead}^{commit}`)).toThrow();
     fixture.pr = { ...fixture.pr, headRefOid: remoteHead };
-    const harness = await registerFixture(fixture);
+    let observedQuery: { target?: string; repo?: string } | undefined;
+    const harness = await registerFixture(fixture, fixture.repo, (query) => { observedQuery = query; });
     const command = 'gh pr update-branch 42';
     appendSession(fixture.sessionFile,
       assistantTool('update-branch-1', 'bash', { command }),
@@ -460,11 +513,13 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('tool_result', boundaryEvent(command));
 
+    expect(observedQuery).toEqual({ target: '42' });
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-plan',
         details: {
           head: remoteHead,
+          prNumber: fixture.pr.number,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${remoteHead}`,
           scope: diffScope(),
@@ -557,6 +612,7 @@ describe('Pi review reminder and settled enforcement', () => {
         customType: 'pr-boundary-launch-plan',
         details: {
           head: fixture.head,
+          prNumber: fixture.pr.number,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
           scope: diffScope(),
@@ -582,6 +638,7 @@ describe('Pi review reminder and settled enforcement', () => {
         customType: 'pr-boundary-launch-plan',
         details: {
           head: fixture.head,
+          prNumber: fixture.pr.number,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
           scope: diffScope(),
@@ -614,6 +671,7 @@ describe('Pi review reminder and settled enforcement', () => {
           customType: 'pr-boundary-launch-plan',
           details: {
             head: fixture.head,
+            prNumber: fixture.pr.number,
             ackHead: fixture.base,
             reviewRange: `${fixture.base}..${fixture.head}`,
             scope: diffScope(),
@@ -761,7 +819,7 @@ describe('Pi review reminder and settled enforcement', () => {
     }
   });
 
-  it('REQ-AGENT-036: PR lookup is repository-scoped, bounded, and fail-closed', async () => {
+  it('REQ-AGENT-036/REQ-AGENT-092: PR lookup is targeted, bounded, and fail-closed', async () => {
     const { queryPr } = await plannedEnforcement();
     const repo = '/tmp/review-query-repo';
     const pr: PrState = {
@@ -784,6 +842,16 @@ describe('Pi review reminder and settled enforcement', () => {
       args: ['pr', 'view', '--json', 'state,baseRefName,headRefOid,headRefName,number,isDraft'],
       options: { cwd: repo, encoding: 'utf8', timeout: 10_000 },
     });
+    let targetedArgs: string[] | undefined;
+    await expect(queryPr(repo, async (_command, args) => {
+      targetedArgs = args;
+      return { stdout: JSON.stringify(pr) };
+    }, { target: '42', repo: 'owner/repo' })).resolves.toEqual(pr);
+    expect(targetedArgs).toEqual([
+      'pr', 'view', '42', '--repo', 'owner/repo',
+      '--json', 'state,baseRefName,headRefOid,headRefName,number,isDraft',
+    ]);
+
     await expect(queryPr(repo, async () => Promise.reject(new Error('gh failed')))).resolves.toBeUndefined();
   });
 
@@ -839,6 +907,7 @@ describe('Pi review reminder and settled enforcement', () => {
         customType: 'pr-boundary-launch-plan',
         details: {
           head: fixture.head,
+          prNumber: fixture.pr.number,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
           scope: diffScope(),
@@ -887,6 +956,7 @@ describe('Pi review reminder and settled enforcement', () => {
         display: true,
         details: {
           head: fixture.head,
+          prNumber: fixture.pr.number,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
           missingLanes: ['doc-updater'],
@@ -921,6 +991,7 @@ describe('Pi review reminder and settled enforcement', () => {
         customType: 'pr-boundary-launch-follow-up',
         details: {
           head: fixture.head,
+          prNumber: fixture.pr.number,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
           missingLanes: [],
@@ -1060,6 +1131,7 @@ describe('Pi review reminder and settled enforcement', () => {
         customType: 'pr-boundary-launch-plan',
         details: {
           head: fixture.head,
+          prNumber: fixture.pr.number,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
           scope: diffScope(),
@@ -1099,6 +1171,7 @@ describe('Pi review reminder and settled enforcement', () => {
         customType: 'pr-boundary-launch-follow-up',
         details: {
           head: fixture.head,
+          prNumber: fixture.pr.number,
           ackHead: fixture.base,
           reviewRange: `${fixture.base}..${fixture.head}`,
           missingLanes: [],

@@ -856,7 +856,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 1. The Pi root exposes each Vault extraction as one public background `subagent` request with inherited context disabled, and never invokes a private spawn service. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (coalesces edits before launch and freezes the request after its first exact call) -->
 2. The Pi root reconstructs each request's launch count and missing, running, failed, successful, or GIVEUP state from durable root-session JSONL after reload; failed or missing work receives at most five reminders before GIVEUP. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (uses one reducer for reminders zero through five and then latches GIVEUP) -->
-3. Vault edits detected before launch coalesce into the pending request, while edits detected after launch remain isolated for one follow-up request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::refreshPendingVaultRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-VAULT-027: transactional Pi Vault extraction delivery) -->
+3. Vault edits detected before launch coalesce into the pending request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::refreshPendingVaultRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (coalesces edits before launch and freezes the request after its first exact call) -->
 4. The committed manifest advances only when the matching request-specific post-commit chunk and staged bytes both validate; every other completion outcome leaves it unchanged. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::vaultSuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-VAULT-027: transactional Pi Vault extraction delivery) -->
 5. A crash after manifest promotion but before cleanup is recovered idempotently. <!-- @impl: preseed/agents/pi/extensions/vault-manifest-fs.ts::promoteVaultManifest --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (REQ-VAULT-027: recovers rename-before-cleanup only when committed bytes match) -->
 6. Missing or corrupt staged data creates a full-delta follow-up request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (recovers a missing or corrupt successful stage with a new full-delta request) -->
@@ -874,6 +874,32 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s), [REQ-VAULT-026](#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-MEM-016](memory.md#req-mem-016-pi-extraction-jobs-have-a-bounded-execution-profile)
 
 **Verification:** [Pi extraction delivery tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [manifest promotion tests](../../src/__tests__/lib/vault-manifest-detection.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-VAULT-028: Vault edits remain isolated after extraction starts
+
+**Intent:** Vault changes that arrive during active extraction must be delivered without mutating the launched request.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. Vault edits detected after the first exact launch do not alter that request's frozen input. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::refreshPendingVaultRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (promotes matching staged bytes and creates one follow-up request for during-run edits) -->
+2. Successful completion of the launched request creates one follow-up request containing the during-run edits. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (promotes matching staged bytes and creates one follow-up request for during-run edits) -->
+
+**Constraints:**
+
+- The launched request remains immutable.
+- Multiple edits detected during the same active request coalesce into the same follow-up request.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-VAULT-027](#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)
+
+**Verification:** [Pi extraction delivery tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 
 **Status:** Implemented
 

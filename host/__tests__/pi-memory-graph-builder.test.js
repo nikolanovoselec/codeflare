@@ -1,4 +1,4 @@
-// REQ-MEM-009 AC5: deterministic Pi session-memory graph chunks.
+// REQ-MEM-017: deterministic Pi session-memory graph chunks.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -22,7 +22,7 @@ const SCRIPT = path.join(
 
 const TARGET = '/home/user/Vault/Raw/Sessions/2026-07-14T16-22-00-session.md';
 
-test('REQ-MEM-009 AC5: session graph uses its title, canonical concepts, and unique edges', (t) => {
+test('REQ-MEM-017: session graph uses its title, canonical concepts, and unique edges', (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-memory-graph-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const note = path.join(directory, 'capture.md');
@@ -93,4 +93,18 @@ test('REQ-MEM-009 AC5: session graph uses its title, canonical concepts, and uni
       .map((edge) => [edge.source, edge.target]),
     [['concept_session_extraction', 'concept_vault_extraction']],
   );
+});
+
+test('REQ-MEM-017: generated Pi seed mirrors the deterministic graph builder', () => {
+  const generatedPath = path.join(__dirname, '..', '..', 'src', 'lib', 'agent-seed.generated.ts');
+  const generatedSource = fs.readFileSync(generatedPath, 'utf8');
+  const assignment = 'export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = ';
+  const jsonStart = generatedSource.indexOf(assignment) + assignment.length;
+  const jsonEnd = generatedSource.lastIndexOf('];') + 1;
+  assert.ok(jsonStart >= assignment.length && jsonEnd > jsonStart);
+  const documents = JSON.parse(generatedSource.slice(jsonStart, jsonEnd));
+  const seeded = documents.find((document) => document.key === '.pi/agent/scripts/build-memory-graph.py');
+
+  assert.ok(seeded, 'generated Pi memory graph builder not found');
+  assert.equal(seeded.content, fs.readFileSync(SCRIPT, 'utf8'));
 });

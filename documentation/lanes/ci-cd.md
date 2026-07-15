@@ -91,6 +91,10 @@ Two parallel jobs:
     - generate Workers runtime types (`wrangler types`), typecheck both, dead code check (knip), `npm audit --audit-level=high --omit=dev` for backend and frontend
 - **dependency-review**: Runs `actions/dependency-review-action` on PRs - blocks merging if new dependencies introduce known vulnerabilities
 
+### PR Exact-Head Monitoring
+
+Pi resolves one report-only CI monitor after an eligible PR boundary. For `gh pr update-branch <target>`, the boundary plan carries the affected PR number to the resolver, which queries that exact PR with its repository selector before launching the monitor. Targetless push and PR creation retain checkout-relative lookup; unresolved, closed, draft, non-protected-base, or malformed-head targets fail closed ([REQ-AGENT-092](../../sdd/spec/agents.md#req-agent-092-explicit-update-branch-targets-remain-authoritative)).
+
 ### E2E Workflow Detail
 
 Sequential jobs with dependency chains: `setup` -> `e2e-api` -> `e2e-ui-desktop` -> `e2e-ui-mobile`:

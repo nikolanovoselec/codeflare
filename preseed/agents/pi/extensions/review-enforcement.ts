@@ -24,10 +24,12 @@ type PrState = {
   isDraft?: boolean;
 };
 
+type PrQuery = { target?: string; repo?: string };
+
 type Dependencies = {
-  queryPr(repo: string): Promise<PrState | undefined>;
+  queryPr(repo: string, query?: PrQuery): Promise<PrState | undefined>;
   queryHead?(repo: string): Promise<string | undefined>;
-  fetchPrHead?(repo: string, pr: PrState): Promise<boolean>;
+  fetchPrHead?(repo: string, pr: PrState, query?: PrQuery): Promise<boolean>;
   sleep?(delayMs: number): Promise<void>;
   headRetryDelaysMs?: number[];
 };
@@ -213,12 +215,14 @@ function defaultSleep(delayMs: number): Promise<void> {
 async function fetchPrHead(
   repo: string,
   pr: PrState,
+  query: PrQuery = {},
   runner: QueryPrRunner = execFileAsync,
 ): Promise<boolean> {
   try {
+    const remote = query.repo ? `https://github.com/${query.repo}.git` : "origin";
     await runner(
       "git",
-      ["fetch", "--no-tags", "--quiet", "origin", `refs/pull/${pr.number}/head`],
+      ["fetch", "--no-tags", "--quiet", remote, `refs/pull/${pr.number}/head`],
       { cwd: repo, encoding: "utf8", timeout: 15_000 },
     );
     const result = await runner(
@@ -235,6 +239,7 @@ async function fetchPrHead(
 async function currentReview(
   ctx: ReviewContext,
   dependencies: Dependencies,
+  query: PrQuery = {},
   remoteHeadAuthoritative = false,
 ): Promise<{ repo: string; file: string; pr: PrState } | undefined> {
   const context = boundaryContext(ctx);
@@ -245,12 +250,12 @@ async function currentReview(
   const sleep = dependencies.sleep ?? defaultSleep;
   for (const delayMs of delays) {
     if (delayMs > 0) await sleep(delayMs);
-    const pr = await dependencies.queryPr(context.repo);
+    const pr = await dependencies.queryPr(context.repo, query);
     if (!isProtectedPr(pr)) continue;
     if (!remoteHeadAuthoritative && head === pr.headRefOid) return { ...context, pr };
     if (remoteHeadAuthoritative
       && head !== pr.headRefOid
-      && await (dependencies.fetchPrHead ?? fetchPrHead)(context.repo, pr)) {
+      && await (dependencies.fetchPrHead ?? fetchPrHead)(context.repo, pr, query)) {
       return { ...context, pr };
     }
   }
@@ -267,7 +272,29 @@ type LaunchMessage = {
   range?: string;
   reviewers: ReviewLane[];
   ciEvent?: CiBoundaryEvent;
+  autonomyOverride?: boolean;
 };
+
+function fullyAutonomousUserDirection(file: string): boolean {
+  try {
+    return readFileSync(file, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .some((line) => {
+        const entry = JSON.parse(line);
+        if (entry?.type !== "message" || entry?.message?.role !== "user") return false;
+        const content = entry.message.content;
+        const text = typeof content === "string"
+          ? content
+          : Array.isArray(content)
+            ? content.filter((part) => part?.type === "text").map((part) => part.text).join("\n")
+            : "";
+        return /\b(?:go|run|continue|work|operate|proceed|be)\s+(?:in\s+)?fully\s+autonomous\b/i.test(text);
+      });
+  } catch {
+    return false;
+  }
+}
 
 function ciBoundaryEvent(event: ReviewBoundaryEvent | undefined): CiBoundaryEvent | undefined {
   if (event === "pr-update-branch") return "push";
@@ -281,20 +308,23 @@ function scopeInstruction(pr: PrState, range: string | undefined): string {
 }
 
 function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
+  const autonomyInstruction = input.autonomyOverride ? " autonomy_override=fully-autonomous." : "";
   const reviewerWave = input.reviewers.length > 0
-    ? `Wave 1: launch these review agents together with public background subagent calls and inherit_context=false: ${input.reviewers.join(", ")}. ${scopeInstruction(input.pr, input.range)}`
+    ? `Wave 1: launch these review agents together with public background subagent calls and inherit_context=false: ${input.reviewers.join(", ")}. ${scopeInstruction(input.pr, input.range)}${autonomyInstruction}`
     : "Wave 1: no review-agent launch is required.";
   const ciWave = input.ciEvent
-    ? `Wave 2: immediately after the reviewer calls, without waiting for them to finish, run the ci-monitoring request resolver for event=${input.ciEvent}, changed=true, cwd=${input.repo}, and reviewState=${input.reviewers.length > 0 ? "launched" : "not-required"}; submit its returned public ci-monitor subagent request unchanged exactly once. CI is independent of review acknowledgement.`
+    ? `Wave 2: immediately after the reviewer calls, without waiting for them to finish, run the ci-monitoring request resolver for event=${input.ciEvent}, changed=true, pr=${input.pr.number}, cwd=${input.repo}, and reviewState=${input.reviewers.length > 0 ? "launched" : "not-required"}; submit its returned public ci-monitor subagent request unchanged exactly once. CI is independent of review acknowledgement.`
     : "Wave 2: no CI launch is required for this boundary.";
   const details: Record<string, unknown> = {
     head: input.pr.headRefOid,
+    prNumber: input.pr.number,
     ackHead: input.ackHead,
     reviewRange: input.range,
     ...(input.phase === "plan" ? { scope: scopeContract("diff") } : {}),
     [input.phase === "plan" ? "requiredLanes" : "missingLanes"]: input.reviewers,
     launchWaves: [input.reviewers, ...(input.ciEvent ? [["ci-monitor"]] : [])],
     ciEvent: input.ciEvent,
+    ...(input.autonomyOverride ? { autonomyOverride: "fully-autonomous" } : {}),
   };
   pi.sendMessage({
     customType: input.phase === "plan" ? "pr-boundary-launch-plan" : "pr-boundary-launch-follow-up",
@@ -312,9 +342,16 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       .map((command) => ({ command, classification: classifyReviewBoundaryCommand(command) }))
       .find(({ classification }) => classification.reminder);
     if (!boundary) return;
+    const query = boundary.classification.event === "pr-update-branch"
+      ? {
+          ...(boundary.classification.prTarget ? { target: boundary.classification.prTarget } : {}),
+          ...(boundary.classification.repoTarget ? { repo: boundary.classification.repoTarget } : {}),
+        }
+      : {};
     const review = await currentReview(
       ctx,
       dependencies,
+      query,
       boundary.classification.event === "pr-update-branch",
     );
     if (!review || !isEnforcedPr(review.pr)) return;
@@ -338,6 +375,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       range,
       reviewers: requiredLanes,
       ciEvent,
+      autonomyOverride: fullyAutonomousUserDirection(review.file),
     });
   });
 
@@ -347,7 +385,14 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const preview = reviewTranscriptFacts({ sessionFile: context.file, requiredLanes: [] });
     if (!preview.boundary) return;
 
-    const reviewedPr = await dependencies.queryPr(context.repo);
+    const boundaryClassification = classifyReviewBoundaryCommand(preview.boundary.command);
+    const query = boundaryClassification.event === "pr-update-branch"
+      ? {
+          ...(boundaryClassification.prTarget ? { target: boundaryClassification.prTarget } : {}),
+          ...(boundaryClassification.repoTarget ? { repo: boundaryClassification.repoTarget } : {}),
+        }
+      : {};
+    const reviewedPr = await dependencies.queryPr(context.repo, query);
     const reviewedHead = preview.reviewHead;
     const reviewedAck = readAck(context.repo);
     if (isEnforcedPr(reviewedPr)
@@ -373,7 +418,12 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       }
     }
 
-    const review = await currentReview(ctx, dependencies);
+    const review = await currentReview(
+      ctx,
+      dependencies,
+      query,
+      boundaryClassification.event === "pr-update-branch",
+    );
     if (!review) return;
     const ackHead = readAck(review.repo);
     const range = reviewRange({ repo: review.repo, ackHead, head: review.pr.headRefOid });
@@ -418,6 +468,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         range,
         reviewers: requiredLanes,
         ciEvent,
+        autonomyOverride: fullyAutonomousUserDirection(review.file),
       });
       return;
     }
@@ -440,6 +491,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       range,
       reviewers: missingLanes,
       ciEvent,
+      autonomyOverride: fullyAutonomousUserDirection(review.file),
     });
   });
 }
@@ -458,11 +510,19 @@ export async function queryHead(repo: string, runner: QueryPrRunner = execFileAs
   }
 }
 
-export async function queryPr(repo: string, runner: QueryPrRunner = execFileAsync): Promise<PrState | undefined> {
+export async function queryPr(
+  repo: string,
+  runner: QueryPrRunner = execFileAsync,
+  query: PrQuery = {},
+): Promise<PrState | undefined> {
   try {
+    const args = ["pr", "view"];
+    if (query.target) args.push(query.target);
+    if (query.repo) args.push("--repo", query.repo);
+    args.push("--json", "state,baseRefName,headRefOid,headRefName,number,isDraft");
     const { stdout } = await runner(
       "gh",
-      ["pr", "view", "--json", "state,baseRefName,headRefOid,headRefName,number,isDraft"],
+      args,
       { cwd: repo, encoding: "utf8", timeout: 10_000 },
     );
     const value = JSON.parse(String(stdout)) as PrState;
@@ -473,5 +533,8 @@ export async function queryPr(repo: string, runner: QueryPrRunner = execFileAsyn
 }
 
 export default function reviewEnforcement(pi: ExtensionAPI): void {
-  registerReviewEnforcement(pi as unknown as ReviewPi, { queryPr });
+  registerReviewEnforcement(pi as unknown as ReviewPi, {
+    queryPr: (repo, query) => queryPr(repo, execFileAsync, query),
+    fetchPrHead: (repo, pr, query) => fetchPrHead(repo, pr, query),
+  });
 }

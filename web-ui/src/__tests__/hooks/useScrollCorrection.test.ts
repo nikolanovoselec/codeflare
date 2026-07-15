@@ -74,9 +74,9 @@ describe('useScrollCorrection / REQ-TERM-014 terminal scroll anchoring', () => {
   });
 
   // ==========================================================================
-  // REQ-MOB-012 AC2/AC4: touch-keyboard viewport ownership
+  // REQ-MOB-012 AC3/AC6: touch-keyboard viewport ownership
   // ==========================================================================
-  it('REQ-MOB-012 AC2: freezes correction-owned viewport movement while the touch keyboard is open', () => {
+  it('REQ-MOB-012 AC3: freezes correction-owned viewport movement while the touch keyboard is open', () => {
     createRoot((dispose) => {
       mobileMock.touch = true;
       mobileMock.keyboardOpen = true;
@@ -116,7 +116,7 @@ describe('useScrollCorrection / REQ-TERM-014 terminal scroll anchoring', () => {
     });
   });
 
-  it('REQ-MOB-012 AC2: still corrects when keyboard is open but device is NOT touch', () => {
+  it('REQ-MOB-012 AC3: still corrects when keyboard is open but device is NOT touch', () => {
     createRoot((dispose) => {
       mobileMock.touch = false;
       mobileMock.keyboardOpen = true;
@@ -130,6 +130,41 @@ describe('useScrollCorrection / REQ-TERM-014 terminal scroll anchoring', () => {
 
       expect(terminal.scrollToBottom).toHaveBeenCalledTimes(1);
       dispose();
+    });
+  });
+
+  it('REQ-MOB-012 AC7: keyboard transition preserves later manual viewport ownership', async () => {
+    await createRoot(async (dispose) => {
+      vi.useFakeTimers();
+      try {
+        mobileMock.touch = true;
+        mobileMock.keyboardOpen = true;
+
+        const terminal = createFakeTerminal();
+        const container = document.createElement('div');
+        useScrollCorrection(terminal as any, container, { sessionId: 's1', terminalId: '1' });
+
+        terminal.emitScroll(200, 200);
+        terminal.emitScroll(199, 200);
+        expect(terminal.scrollToBottom).not.toHaveBeenCalled();
+
+        mobileMock.keyboardOpen = false;
+        terminal.emitScroll(198, 200);
+        expect(terminal.buffer.active.viewportY).toBe(200);
+
+        terminal.scrollToBottom.mockClear();
+        container.dispatchEvent(new WheelEvent('wheel'));
+        terminal.emitScroll(120, 200);
+        vi.advanceTimersByTime(5_000);
+        terminal.emitScroll(0, 200);
+        await Promise.resolve();
+
+        expect(terminal.scrollToBottom).not.toHaveBeenCalled();
+        expect(terminal.buffer.active.viewportY).toBe(0);
+      } finally {
+        vi.useRealTimers();
+        dispose();
+      }
     });
   });
 
