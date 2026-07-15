@@ -298,7 +298,6 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-plan',
-        content: expect.stringContaining('triage summary before fixing'),
         display: true,
         details: {
           head: fixture.head,
@@ -307,22 +306,17 @@ describe('Pi review reminder and settled enforcement', () => {
           scope: diffScope(),
           requiredLanes: ALL_LANES,
           launchWaves: launchWaves(ALL_LANES, true),
-          reviewHandoff: 'triage-summary-before-fixes',
           ciEvent: 'push',
         },
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
-    expect(harness.sent[0]?.message.content).toContain(
-      'apply legitimate minimal fixes by default unless the user explicitly requested approval',
-    );
 
     harness.sent.splice(0);
     await harness.emit('agent_settled');
     expect(harness.sent).toEqual([{
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-follow-up',
-        content: expect.stringContaining('triage summary before fixing'),
         display: true,
         details: {
           head: fixture.head,
@@ -330,7 +324,6 @@ describe('Pi review reminder and settled enforcement', () => {
           reviewRange: `${fixture.base}..${fixture.head}`,
           missingLanes: ALL_LANES,
           launchWaves: launchWaves(ALL_LANES, true),
-          reviewHandoff: 'triage-summary-before-fixes',
           ciEvent: 'push',
         },
       }),

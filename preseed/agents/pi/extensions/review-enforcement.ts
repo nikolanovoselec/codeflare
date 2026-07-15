@@ -295,7 +295,6 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
     ...(input.phase === "plan" ? { scope: scopeContract("diff") } : {}),
     [input.phase === "plan" ? "requiredLanes" : "missingLanes"]: input.reviewers,
     launchWaves: [input.reviewers, ...(input.ciEvent ? [["ci-monitor"]] : [])],
-    ...(input.reviewers.length > 0 ? { reviewHandoff: "triage-summary-before-fixes" } : {}),
     ciEvent: input.ciEvent,
   };
   pi.sendMessage({
