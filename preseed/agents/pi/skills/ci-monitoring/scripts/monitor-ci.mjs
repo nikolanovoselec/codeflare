@@ -50,11 +50,11 @@ async function readHead({ repo, pr, runner, cwd }) {
   }
 }
 
-export async function resolveCiMonitorRequest({ event, changed, repo, cwd, reviewState, runner = runCommand } = {}) {
+export async function resolveCiMonitorRequest({ event, changed, repo, pr: requestedPr, cwd, reviewState, runner = runCommand } = {}) {
   if (!['push', 'pr-create'].includes(event) || changed !== true || !repo || !cwd || !['launched', 'not-required'].includes(reviewState)) return null;
 
   const lookupArgs = ['pr', 'view'];
-  if (Number.isInteger(pr)) lookupArgs.push(String(pr), '--repo', repo);
+  if (Number.isInteger(requestedPr)) lookupArgs.push(String(requestedPr), '--repo', repo);
   lookupArgs.push('--json', 'number,state,baseRefName,headRefOid');
 
   let result;
@@ -67,19 +67,19 @@ export async function resolveCiMonitorRequest({ event, changed, repo, cwd, revie
   } catch {
     return null;
   }
-  const pr = parseJson(result);
+  const resolvedPr = parseJson(result);
   if (
-    !pr ||
-    pr.state !== 'OPEN' ||
-    !['main', 'master'].includes(pr.baseRefName) ||
-    !Number.isInteger(pr.number) ||
-    !/^[0-9a-f]{40}$/i.test(pr.headRefOid ?? '')
+    !resolvedPr ||
+    resolvedPr.state !== 'OPEN' ||
+    !['main', 'master'].includes(resolvedPr.baseRefName) ||
+    !Number.isInteger(resolvedPr.number) ||
+    !/^[0-9a-f]{40}$/i.test(resolvedPr.headRefOid ?? '')
   ) return null;
 
   return {
     subagent_type: 'ci-monitor',
-    description: `Monitor PR #${pr.number} CI`,
-    prompt: `repo=${repo} pr=${pr.number} head=${pr.headRefOid}`,
+    description: `Monitor PR #${resolvedPr.number} CI`,
+    prompt: `repo=${repo} pr=${resolvedPr.number} head=${resolvedPr.headRefOid}`,
     run_in_background: true,
     inherit_context: false,
   };

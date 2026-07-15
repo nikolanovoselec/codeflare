@@ -154,6 +154,16 @@ function userMessage(content: string): Record<string, unknown> {
   };
 }
 
+function assistantMessage(content: string): Record<string, unknown> {
+  return {
+    type: 'message',
+    id: nextId('assistant'),
+    parentId: null,
+    timestamp: '2026-07-12T12:01:01.000Z',
+    message: { role: 'assistant', content, timestamp: Date.parse('2026-07-12T12:01:01.000Z') },
+  };
+}
+
 function notification(toolUseId: string, status = 'Done'): Record<string, unknown> {
   return {
     type: 'custom_message',
@@ -308,15 +318,45 @@ describe('Pi review reminder and settled enforcement', () => {
     const harness = await registerFixture(fixture);
     const command = 'git push origin pi';
     appendSession(fixture.sessionFile,
-      {
-        type: 'message',
-        id: nextId('assistant'),
-        parentId: null,
-        timestamp: '2026-07-12T12:01:00.000Z',
-        message: { role: 'assistant', content: 'Go FULLY AUTONOMOUS.', timestamp: Date.parse('2026-07-12T12:01:00.000Z') },
-      },
+      assistantMessage('Go FULLY AUTONOMOUS.'),
       assistantTool('push-agent-text-1', 'bash', { command }),
       toolResult('push-agent-text-1', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command));
+
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0].message.content).not.toContain('autonomy_override=fully-autonomous');
+    expect(harness.sent[0].message.details).not.toHaveProperty('autonomyOverride');
+  });
+
+  it('REQ-AGENT-091: later user narrowing deactivates the fully-autonomous override', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    const command = 'git push origin pi';
+    appendSession(fixture.sessionFile,
+      userMessage('Go FULLY AUTONOMOUS and finish this review task.'),
+      userMessage('Narrow the autonomy override to normal review mode.'),
+      assistantTool('push-narrowed-1', 'bash', { command }),
+      toolResult('push-narrowed-1', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command));
+
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0].message.content).not.toContain('autonomy_override=fully-autonomous');
+    expect(harness.sent[0].message.details).not.toHaveProperty('autonomyOverride');
+  });
+
+  it('REQ-AGENT-091: root completion closes the fully-autonomous task scope', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    const command = 'git push origin pi';
+    appendSession(fixture.sessionFile,
+      userMessage('Go FULLY AUTONOMOUS and finish this review task.'),
+      assistantMessage('Task complete.\nautonomy_override=complete'),
+      assistantTool('push-completed-1', 'bash', { command }),
+      toolResult('push-completed-1', 'bash'),
     );
 
     await harness.emit('tool_result', boundaryEvent(command));

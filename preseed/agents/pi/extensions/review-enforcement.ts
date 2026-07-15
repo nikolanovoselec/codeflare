@@ -275,22 +275,52 @@ type LaunchMessage = {
   autonomyOverride?: boolean;
 };
 
+type SessionMessageEntry = {
+  type?: string;
+  message?: { role?: string; content?: unknown };
+};
+
+function sessionMessageText(entry: SessionMessageEntry): string {
+  const content = entry.message?.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((part): part is { type: "text"; text: string } => (
+      typeof part === "object"
+      && part !== null
+      && (part as { type?: unknown }).type === "text"
+      && typeof (part as { text?: unknown }).text === "string"
+    ))
+    .map((part) => part.text)
+    .join("\n");
+}
+
 function fullyAutonomousUserDirection(file: string): boolean {
+  let active = false;
   try {
-    return readFileSync(file, "utf8")
-      .split("\n")
-      .filter(Boolean)
-      .some((line) => {
-        const entry = JSON.parse(line);
-        if (entry?.type !== "message" || entry?.message?.role !== "user") return false;
-        const content = entry.message.content;
-        const text = typeof content === "string"
-          ? content
-          : Array.isArray(content)
-            ? content.filter((part) => part?.type === "text").map((part) => part.text).join("\n")
-            : "";
-        return /\b(?:go|run|continue|work|operate|proceed|be)\s+(?:in\s+)?fully\s+autonomous\b/i.test(text);
-      });
+    for (const line of readFileSync(file, "utf8").split("\n").filter(Boolean)) {
+      let entry: SessionMessageEntry;
+      try {
+        entry = JSON.parse(line) as SessionMessageEntry;
+      } catch {
+        continue;
+      }
+      if (entry?.type !== "message") continue;
+      const text = sessionMessageText(entry);
+      if (entry?.message?.role === "assistant" && /^autonomy_override=complete$/im.test(text)) {
+        active = false;
+        continue;
+      }
+      if (entry?.message?.role !== "user") continue;
+      if (/\b(?:stop|cancel|disable|end|narrow)\s+(?:the\s+)?(?:fully\s+autonomous|autonomy\s+override)\b|\bno\s+longer\s+(?:run\s+)?fully\s+autonomous\b/i.test(text)) {
+        active = false;
+        continue;
+      }
+      if (/\b(?:go|run|continue|work|operate|proceed|be)\s+(?:in\s+)?fully\s+autonomous\b/i.test(text)) {
+        active = true;
+      }
+    }
+    return active;
   } catch {
     return false;
   }

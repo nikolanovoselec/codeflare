@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-07-14
 
-- **Explicit fully-autonomous direction now overrides only the five-round review stop** ([REQ-AGENT-091](agents.md#req-agent-091-explicit-fully-autonomous-direction-overrides-the-review-round-stop) added; Implemented). A direct current-session user instruction activates the task-scoped marker carried to later reviewers. Behavioral-test, SDD truth, review, CI, deployment, and root-only mutation gates remain unchanged.
+- **Explicit fully-autonomous direction now overrides only the five-round review stop** ([REQ-AGENT-091](agents.md#req-agent-091-explicit-fully-autonomous-direction-overrides-the-review-round-stop) added; Implemented). A direct current-session user instruction activates the task-scoped marker carried to later reviewers; a later user cancellation/narrowing directive or the root's terminal completion marker deactivates it. Behavioral-test, SDD truth, review, CI, deployment, and root-only mutation gates remain unchanged.
 
 - **Explicit `gh pr update-branch` targets now drive both review and CI resolution** ([REQ-AGENT-092](agents.md#req-agent-092-explicit-update-branch-targets-remain-authoritative) added; Implemented). The boundary retains its PR target and repository selector, verifies that remote head, and carries the affected PR number to exact-head CI. Targetless push and PR-create behavior is unchanged.
 

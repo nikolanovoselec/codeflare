@@ -24,7 +24,7 @@ In the boundary-command turn, report only the push result or PR URL. Do not call
 
 The Pi extension is the sole automatic boundary dispatcher. Do not independently infer or duplicate an automatic CI launch from the preceding Git command. When it emits a launch plan or follow-up in the next turn:
 
-1. Launch every review agent listed in wave 1 together through public `subagent` calls with `run_in_background: true` and `inherit_context: false`. Preserve the exact `review_range=<acknowledged>..<current>` marker when supplied. When a direct current-session user instruction activated the fully-autonomous override for this task, also include `autonomy_override=fully-autonomous` in every reviewer prompt.
+1. Launch every review agent listed in wave 1 together through public `subagent` calls with `run_in_background: true` and `inherit_context: false`. Preserve the exact `review_range=<acknowledged>..<current>` marker when supplied. When a direct current-session user instruction activated the fully-autonomous override for this task, also include `autonomy_override=fully-autonomous` in every reviewer prompt. A later direct user cancellation/narrowing instruction deactivates it; after every requested gate completes, the root emits `autonomy_override=complete` in its terminal response.
 2. Immediately after issuing the wave-1 calls—not after reviewer completion—run the plan's wave-2 resolver exactly once:
 
    ```bash

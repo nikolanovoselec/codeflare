@@ -2478,11 +2478,13 @@ None.
 1. A direct current-session user instruction to go fully autonomous activates the task override. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousUserDirection --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: direct fully-autonomous user direction marks every review launch) -->
 2. Agent-authored fully-autonomous text does not activate the task override. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousUserDirection --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: agent-authored fully-autonomous text cannot activate the override) -->
 3. Every subsequent reviewer launch for that task carries the exact fully-autonomous override marker. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: direct fully-autonomous user direction marks every review launch) -->
+4. A later direct user cancellation or narrowing instruction deactivates the task override. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousUserDirection --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: later user narrowing deactivates the fully-autonomous override) -->
+5. The root's terminal task-completion marker deactivates the task override. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fullyAutonomousUserDirection --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: root completion closes the fully-autonomous task scope) -->
 
 **Constraints:**
 
 - Only direct user text in the current root session can activate the override.
-- The override expires when the task completes, is cancelled, or is explicitly narrowed.
+- The root emits `autonomy_override=complete` only in its terminal response after all requested review, CI, deployment, and verification gates complete.
 - Review, CI, behavioral-test, SDD truth, deployment, and root-only mutation gates remain binding.
 - Canonical Pi and Claude enforcement policy defines the same task-scoped round-limit exception.
 
