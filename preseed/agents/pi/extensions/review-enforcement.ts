@@ -24,12 +24,45 @@ type PrState = {
   isDraft?: boolean;
 };
 
+type ServiceSpawnOptions = {
+  description?: string;
+  model?: string;
+  maxTurns?: number;
+  thinkingLevel?: string;
+  inheritContext?: boolean;
+  foreground?: boolean;
+};
+
+type SubagentsService = {
+  spawn(type: string, prompt: string, options?: ServiceSpawnOptions): string;
+};
+
+type CiMonitorRequest = {
+  subagent_type: "ci-monitor";
+  description: string;
+  prompt: string;
+  run_in_background: true;
+  inherit_context: false;
+  model?: string;
+  thinking?: string;
+  max_turns?: number;
+};
+
+type ResolveCiRequestInput = {
+  event: "push" | "pr-create";
+  repo: string;
+  pr: number;
+  reviewState: "launched" | "not-required";
+};
+
 type Dependencies = {
   queryPr(repo: string, target?: string): Promise<PrState | undefined>;
   queryHead?(repo: string): Promise<string | undefined>;
   fetchPrHead?(repo: string, pr: PrState): Promise<boolean>;
   sleep?(delayMs: number): Promise<void>;
   headRetryDelaysMs?: number[];
+  getSubagentsService?(): SubagentsService | undefined;
+  resolveCiRequest?(input: ResolveCiRequestInput): Promise<CiMonitorRequest | undefined>;
 };
 
 type ReviewContext = {
@@ -42,6 +75,8 @@ type ReviewContext = {
 
 type ReviewPi = {
   on(event: "tool_result" | "agent_settled", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
+  appendEntry(customType: string, data: unknown): void;
+  exec(command: string, args: string[], options?: { cwd?: string; timeout?: number }): Promise<{ stdout: string; stderr: string; code: number }>;
   sendMessage(
     message: { customType: string; content?: string; details?: Record<string, unknown>; display?: boolean },
     options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
@@ -57,6 +92,8 @@ type QueryPrRunner = (
 const execFileAsync = promisify(execFile) as unknown as QueryPrRunner;
 const MAX_BLOCKS = 5;
 const BYPASS_FILE = process.env.REVIEW_BYPASS_FILE || "/tmp/review-bypass";
+const CI_RESOLVER = join(process.env.HOME || "/home/user", ".pi", "agent", "skills", "ci-monitoring", "scripts", "monitor-ci.mjs");
+const SUBAGENTS_SERVICE = Symbol.for("@gotgenes/pi-subagents:service");
 
 function fullSha(value: string | undefined): value is string {
   return Boolean(value && /^[0-9a-f]{40}$/.test(value));
@@ -267,6 +304,8 @@ type LaunchMessage = {
   ackHead?: string;
   range?: string;
   reviewers: ReviewLane[];
+  reviewState: "launched" | "not-required";
+  autonomyOverride: boolean;
   ciEvent?: CiBoundaryEvent;
 };
 
@@ -277,17 +316,92 @@ function ciBoundaryEvent(event: ReviewBoundaryEvent | undefined): CiBoundaryEven
 
 function scopeInstruction(pr: PrState, range: string | undefined): string {
   return range
-    ? `scope=diff. Review only review_range=${range}. Include that exact marker in every reviewer prompt.`
-    : `scope=diff. Review the full PR against origin/${pr.baseRefName}.`;
+    ? `scope=diff\nreview_range=${range}`
+    : `scope=diff\nreview_base=origin/${pr.baseRefName}`;
 }
 
-function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
-  const reviewerWave = input.reviewers.length > 0
-    ? `Wave 1: launch these review agents together with public background subagent calls and inherit_context=false: ${input.reviewers.join(", ")}. ${scopeInstruction(input.pr, input.range)}`
-    : "Wave 1: no review-agent launch is required.";
-  const ciWave = input.ciEvent
-    ? `Wave 2: immediately after the reviewer calls, without waiting for them to finish, run the ci-monitoring request resolver for event=${input.ciEvent}, changed=true, repo=<owner/repo>, pr=${input.pr.number}, cwd=${input.repo}, and reviewState=${input.reviewers.length > 0 ? "launched" : "not-required"}; submit its returned public ci-monitor subagent request unchanged exactly once. CI is independent of review acknowledgement.`
-    : "Wave 2: no CI launch is required for this boundary.";
+function subagentsService(dependencies: Dependencies): SubagentsService | undefined {
+  const published = (globalThis as Record<symbol, unknown>)[SUBAGENTS_SERVICE];
+  return dependencies.getSubagentsService?.() ?? (published as SubagentsService | undefined);
+}
+
+function reviewerPrompt(input: LaunchMessage, lane: ReviewLane): string {
+  const autonomy = input.autonomyOverride ? "\nautonomy_override=fully-autonomous" : "";
+  return [
+    `Review lane: ${lane}. Report findings only; do not modify files or Git state.`,
+    `repo=${input.repo}`,
+    `head=${input.pr.headRefOid}`,
+    scopeInstruction(input.pr, input.range),
+    autonomy,
+  ].filter(Boolean).join("\n");
+}
+
+function spawnOptions(request: Pick<CiMonitorRequest, "description" | "model" | "thinking" | "max_turns">): ServiceSpawnOptions {
+  return {
+    description: request.description,
+    inheritContext: false,
+    foreground: false,
+    ...(request.model ? { model: request.model } : {}),
+    ...(request.thinking ? { thinkingLevel: request.thinking } : {}),
+    ...(request.max_turns ? { maxTurns: request.max_turns } : {}),
+  };
+}
+
+function validCiRequest(value: unknown): value is CiMonitorRequest {
+  const request = value as Partial<CiMonitorRequest> | undefined;
+  return Boolean(request
+    && request.subagent_type === "ci-monitor"
+    && typeof request.description === "string"
+    && typeof request.prompt === "string"
+    && request.run_in_background === true
+    && request.inherit_context === false);
+}
+
+async function defaultResolveCiRequest(pi: ReviewPi, input: ResolveCiRequestInput): Promise<CiMonitorRequest | undefined> {
+  try {
+    const repository = await pi.exec("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], {
+      cwd: input.repo,
+      timeout: 10_000,
+    });
+    const nameWithOwner = repository.stdout.trim();
+    if (repository.code !== 0 || !/^[^/\s]+\/[^/\s]+$/.test(nameWithOwner)) return undefined;
+    const result = await pi.exec(process.execPath, [
+      CI_RESOLVER,
+      "request",
+      `event=${input.event}`,
+      "changed=true",
+      `repo=${nameWithOwner}`,
+      `pr=${input.pr}`,
+      `cwd=${input.repo}`,
+      `reviewState=${input.reviewState}`,
+    ], { cwd: input.repo, timeout: 20_000 });
+    if (result.code !== 0 || !result.stdout.trim()) return undefined;
+    const request = JSON.parse(result.stdout.trim());
+    return validCiRequest(request) ? request : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function appendDispatch(pi: ReviewPi, input: LaunchMessage, data: {
+  agentId: string;
+  kind: "reviewer" | "ci";
+  lane?: ReviewLane;
+}): void {
+  pi.appendEntry("codeflare:subagent-dispatch", {
+    version: 1,
+    ...data,
+    head: input.pr.headRefOid,
+    ...(input.range ? { range: input.range } : {}),
+  });
+}
+
+async function sendLaunchMessage(
+  pi: ReviewPi,
+  dependencies: Dependencies,
+  input: LaunchMessage,
+  dispatch = true,
+): Promise<void> {
   const details: Record<string, unknown> = {
     head: input.pr.headRefOid,
     ackHead: input.ackHead,
@@ -299,10 +413,49 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
   };
   pi.sendMessage({
     customType: input.phase === "plan" ? "pr-boundary-launch-plan" : "pr-boundary-launch-follow-up",
-    content: `${reviewerWave} ${ciWave}${input.reviewers.length > 0 ? " Wait for every required reviewer result, then automatically publish a triage summary before fixing. Classify each finding's validity, the proposed fix's proportionality, and the smallest correction that reuses existing machinery. Reject unsupported or overengineered proposals; apply legitimate minimal fixes by default unless the user explicitly requested approval." : ""}`,
+    content: `Automatic boundary dispatch for ${input.pr.headRefOid} started.`,
     display: true,
     details,
-  }, { deliverAs: "followUp", triggerTurn: true });
+  }, { triggerTurn: false });
+
+  if (!dispatch) return;
+  const service = subagentsService(dependencies);
+  if (!service) return;
+  let reviewerSpawnFailed = false;
+  for (const lane of input.reviewers) {
+    const prompt = reviewerPrompt(input, lane);
+    try {
+      const agentId = service.spawn(lane, prompt, {
+        description: `${lane} ${input.pr.headRefOid.slice(0, 8)}`,
+        inheritContext: false,
+        foreground: false,
+      });
+      if (!agentId) throw new Error("Subagent service returned no reviewer ID");
+      appendDispatch(pi, input, { agentId, kind: "reviewer", lane });
+    } catch {
+      reviewerSpawnFailed = true;
+    }
+  }
+
+  if (reviewerSpawnFailed || !input.ciEvent) return;
+  const request = await (dependencies.resolveCiRequest
+    ?? ((ciInput: ResolveCiRequestInput) => defaultResolveCiRequest(pi, ciInput)))({
+    event: input.ciEvent,
+    repo: input.repo,
+    pr: input.pr.number,
+    reviewState: input.reviewState,
+  });
+  if (!request) {
+    pi.appendEntry("codeflare:ci-resolution", { version: 1, head: input.pr.headRefOid, outcome: "not-requested" });
+    return;
+  }
+  try {
+    const agentId = service.spawn(request.subagent_type, request.prompt, spawnOptions(request));
+    if (!agentId) throw new Error("Subagent service returned no CI ID");
+    appendDispatch(pi, input, { agentId, kind: "ci" });
+  } catch {
+    // Leave CI undispatched so the next settled pass can retry it.
+  }
 }
 
 export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): void {
@@ -335,15 +488,17 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const ciEvent = ciBoundaryEvent(boundary.classification.event);
     if (requiredLanes.length === 0 && !ciEvent) return;
 
-    sendLaunchMessage(pi, {
+    await sendLaunchMessage(pi, dependencies, {
       phase: "plan",
       repo: review.repo,
       pr: review.pr,
       ackHead,
       range,
       reviewers: requiredLanes,
+      reviewState: requiredLanes.length > 0 ? "launched" : "not-required",
+      autonomyOverride: false,
       ciEvent,
-    });
+    }, false);
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
@@ -424,13 +579,15 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
 
     if (shouldReview && requiredLanes.length > 0
       && (facts.reviewHead !== review.pr.headRefOid || facts.reviewRange !== range)) {
-      sendLaunchMessage(pi, {
+      await sendLaunchMessage(pi, dependencies, {
         phase: "plan",
         repo: review.repo,
         pr: review.pr,
         ackHead,
         range,
         reviewers: requiredLanes,
+        reviewState: requiredLanes.length > 0 ? "launched" : "not-required",
+        autonomyOverride: facts.fullyAutonomous,
         ciEvent,
       });
       return;
@@ -446,13 +603,15 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if (missingLanes.length === 0 && !ciEvent) return;
     if (missingLanes.length > 0 && blockDecision(review.repo, review.pr.headRefOid) === "giveup") return;
 
-    sendLaunchMessage(pi, {
+    await sendLaunchMessage(pi, dependencies, {
       phase: "follow-up",
       repo: review.repo,
       pr: review.pr,
       ackHead,
       range,
       reviewers: missingLanes,
+      reviewState: requiredLanes.length > 0 ? "launched" : "not-required",
+      autonomyOverride: facts.fullyAutonomous,
       ciEvent,
     });
   });

@@ -32,9 +32,9 @@ A direct current-session user instruction to go **FULLY AUTONOMOUS** for the act
 
 ## Review and CI handoff
 
-The Pi boundary extension emits one ordered launch plan and is the sole automatic dispatcher. PR-boundary reviewers are visible, independent, report-only background subagents. Launch every required reviewer first with inherited context disabled, then launch the same plan's independent CI wave last. Do not infer a second CI trigger from the Git command. Wait for every required native reviewer notification, then publish one consolidated triage summary before any fix: independently classify each finding's validity, the proposed fix's proportionality, and the smallest correction that reuses existing machinery. Reject unsupported or overengineered proposals; apply legitimate minimal fixes automatically unless the user explicitly requests approval. The root main session alone owns Git writes.
+The Pi boundary extension emits one ordered launch plan and is the sole automatic dispatcher. It uses the stock session subagent service to launch every required visible, independent, report-only reviewer first with inherited context disabled, then resolves and launches the same plan's independent CI wave last. The root must not duplicate these launches or infer a second CI trigger from the Git command. Wait for every required native reviewer result, then publish one consolidated triage summary before any fix: independently classify each finding's validity, the proposed fix's proportionality, and the smallest correction that reuses existing machinery. Reject unsupported or overengineered proposals; apply legitimate minimal fixes automatically unless the user explicitly requests approval. The root main session alone owns Git writes.
 
-Do not duplicate an unmatched reviewer call. Do not fabricate completion after reload. Review and CI never launch, track, or recover each other.
+Do not duplicate an unmatched reviewer dispatch. Do not fabricate completion after reload. Review and CI never wait for or recover each other.
 
 When a CI monitor returns `CI_RESULT`, the next root response begins with the exact result, monitored head, available run links, and the planned next action.
 

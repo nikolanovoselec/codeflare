@@ -1,12 +1,12 @@
 ---
 name: git-review-pipeline
-description: "SDD-mode PR-boundary review policy for Pi. The extension names required visible reviewer lanes; the root main session launches them together, waits for all, fixes legitimate findings, and alone pushes. Review is independent of CI."
-version: 3.0.0
+description: "SDD-mode PR-boundary review policy for Pi. The extension service-dispatches required visible reviewer lanes; the root waits for all, fixes legitimate findings, and alone pushes. Review is independent of CI."
+version: 4.0.0
 ---
 
 # Git Review Pipeline in Pi
 
-This skill explains how the root main session handles Pi's PR-boundary review instruction.
+This skill explains how Pi deterministically dispatches PR-boundary review and how the root main session handles its results.
 
 ## Trigger and scope
 
@@ -14,7 +14,7 @@ Use the `review-scope` skill as the canonical scope contract.
 
 SDD projects (`sdd/` + `sdd/README.md`) are reviewed only when work is headed to `main` or `master`. Draft PRs remain eligible. Integration-branch PRs defer review until their PR to `main`/`master`.
 
-The Pi extension emits one structured launch plan after a supported successful boundary and a follow-up naming every reviewer lane still needed for the current head. The plan has separate reviewer and CI waves. Passive startup, branch existence, child sessions, failed commands, and unsupported commands do not launch review.
+The Pi extension emits one passive structured plan after a supported successful boundary. On settled enforcement it uses the stock session subagent service to dispatch every missing reviewer lane, then resolves and dispatches CI last. Passive startup, branch existence, child sessions, failed commands, and unsupported commands do not launch review.
 
 | Boundary | Review behavior |
 |---|---|
@@ -25,24 +25,25 @@ The Pi extension emits one structured launch plan after a supported successful b
 | PR into `develop` / `staging` | Review deferred |
 | Push with no open main-bound PR | No PR-boundary review |
 
-## Root main-session action
+## Dispatch and root action
 
 When the reminder or follow-up lists lanes:
 
-1. Call every listed reviewer together through the public `subagent` tool.
-2. Set `run_in_background: true` and `inherit_context: false` on every call. Every reviewer prompt carries `scope=diff`: a PR review is a change-set review, never whole-tree enforcement. When the reminder supplies `review_range=<acknowledged>..<current>`, include that exact marker in each prompt; otherwise use the full protected-base PR diff.
-3. Do not duplicate any unmatched reviewer call; it remains in flight until its native terminal notification.
-4. If the same extension plan includes a CI wave, submit that independent CI request last without waiting for review completion. Do not infer a second CI trigger from the Git command.
-5. Wait for every required reviewer notification, regardless of completion order.
-6. Automatically publish one consolidated triage summary before any fixing or project mutation. For every finding, decide independently whether the finding is evidence-backed and in scope, whether its proposed fix is proportional, and what smallest correction reuses existing machinery.
-7. Reject false positives and overengineered proposals with evidence. Apply legitimate minimal fixes automatically unless the user explicitly requested approval or validation.
-8. The root main session alone commits and pushes. Reviewers and other subagents never push.
+1. The extension calls the already-published stock `@gotgenes/pi-subagents` service once per missing reviewer with background execution and inherited context disabled. The root must not duplicate those launches through the public `subagent` tool.
+2. Every reviewer prompt carries `scope=diff`. When a valid `review_range=<acknowledged>..<current>` exists, the prompt and dispatch record carry that exact range; otherwise they name the full protected-base PR diff.
+3. Each successful spawn appends minimal transcript evidence keyed by its returned agent ID. An unmatched dispatch remains in flight until its matching `subagents:record`; reload does not turn absence into completion.
+4. After every requested reviewer returns an agent ID, the extension invokes the existing CI resolver and service-spawns a returned monitor request last. Review completion does not gate CI, and no model turn launches either wave.
+5. Service-owned launches remain visible session subagents, but they are not assistant public-tool-call transcript blocks.
+6. The root waits for every required successful reviewer result, regardless of completion order.
+7. The root automatically publishes one consolidated triage summary before any fixing or project mutation. For every finding, decide independently whether the finding is evidence-backed and in scope, whether its proposed fix is proportional, and what smallest correction reuses existing machinery.
+8. Reject false positives and overengineered proposals with evidence. Apply legitimate minimal fixes automatically unless the user explicitly requested approval or validation.
+9. The root main session alone commits and pushes. Reviewers and other subagents never push.
 
-Review is session-scoped. Reload can discard active work and does not prove completion; a later supported root boundary may request the missing lanes again.
+Review is session-scoped. Reload replays dispatch evidence but cannot fabricate a terminal result; failed spawns remain missing and retry within the existing bound.
 
 ## Independence from CI
 
-Review never launches, tracks, waits for, or relaunches CI. CI never launches reviewers. The boundary dispatcher names both waves in one plan; the root issues CI after reviewer calls and before their completion. Their execution, completion, and acknowledgement remain independent.
+Review never waits for or relaunches CI. CI never launches reviewers. The boundary dispatcher owns both waves and dispatches CI after reviewer agent IDs are obtained but before reviewer completion. Their execution, completion, and acknowledgement remain independent.
 
 ## Finding discipline
 

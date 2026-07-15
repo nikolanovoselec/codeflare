@@ -20,7 +20,7 @@ type TranscriptFacts = {
   reviewRange?: string;
   bypassed: boolean;
   ciLaunched: boolean;
-  lanes: Record<ReviewLane, { state: 'missing' | 'in-flight' | 'terminal'; toolUseId?: string }>;
+  lanes: Record<ReviewLane, { state: 'missing' | 'in-flight' | 'terminal'; toolUseId?: string; agentId?: string }>;
 };
 type PlannedReviewHelpers = {
   classifyReviewBoundaryCommand(command: string): BoundarySurfaces;
@@ -110,6 +110,23 @@ function reviewReminder(head: string, reviewRange: string): Record<string, unkno
     content: `review_range=${reviewRange}`,
     details: { head, reviewRange },
     display: true,
+  });
+}
+
+function serviceDispatch(input: {
+  agentId: string;
+  kind: 'reviewer' | 'ci';
+  head: string;
+  range?: string;
+  lane?: ReviewLane;
+}): Record<string, unknown> {
+  return sessionEntry('custom', { customType: 'codeflare:subagent-dispatch', data: input });
+}
+
+function subagentRecord(agentId: string, status: 'queued' | 'running' | 'completed' | 'steered' | 'aborted' | 'stopped' | 'error'): Record<string, unknown> {
+  return sessionEntry('custom', {
+    customType: 'subagents:record',
+    data: { id: agentId, status, result: status === 'completed' ? 'review result' : undefined },
   });
 }
 
@@ -273,6 +290,59 @@ describe('native Pi transcript review facts', () => {
     const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
     expect(facts.boundary).toBeUndefined();
     expect(Object.values(facts.lanes).every((lane) => lane.state === 'missing')).toBe(true);
+  });
+
+  it('REQ-AGENT-053/REQ-AGENT-059: correlates terminal service records only by dispatched agent ID', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const head = 'b'.repeat(40);
+    const range = `${'a'.repeat(40)}..${head}`;
+    const sessionFile = writeSession([
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+      reviewReminder(head, range),
+      serviceDispatch({ agentId: 'code-agent', kind: 'reviewer', lane: 'code-reviewer', head, range }),
+      serviceDispatch({ agentId: 'spec-agent', kind: 'reviewer', lane: 'spec-reviewer', head, range }),
+      subagentRecord('unrelated-agent', 'completed'),
+      subagentRecord('code-agent', 'steered'),
+      subagentRecord('spec-agent', 'error'),
+    ]);
+
+    const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
+    expect(facts.lanes).toEqual({
+      'code-reviewer': { state: 'terminal', agentId: 'code-agent' },
+      'spec-reviewer': { state: 'missing' },
+      'doc-updater': { state: 'missing' },
+    });
+  });
+
+  it('REQ-AGENT-055/REQ-AGENT-074: keeps an unmatched service dispatch in flight across reload', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const head = 'b'.repeat(40);
+    const range = `${'a'.repeat(40)}..${head}`;
+    const sessionFile = writeSession([
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+      reviewReminder(head, range),
+      serviceDispatch({ agentId: 'doc-agent', kind: 'reviewer', lane: 'doc-updater', head, range }),
+      subagentRecord('doc-agent', 'running'),
+    ]);
+
+    const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
+    expect(facts.lanes['doc-updater']).toEqual({ state: 'in-flight', agentId: 'doc-agent' });
+  });
+
+  it('REQ-AGENT-068/REQ-AGENT-080: recognizes a matching service-owned CI dispatch', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const head = 'b'.repeat(40);
+    const sessionFile = writeSession([
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+      serviceDispatch({ agentId: 'ci-old', kind: 'ci', head: 'a'.repeat(40) }),
+      serviceDispatch({ agentId: 'ci-current', kind: 'ci', head }),
+    ]);
+
+    const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES, ciHead: head });
+    expect(facts.ciLaunched).toBe(true);
   });
 
   it('REQ-AGENT-053/REQ-AGENT-059: correlates successful native notifications by XML tool-use-id', async () => {

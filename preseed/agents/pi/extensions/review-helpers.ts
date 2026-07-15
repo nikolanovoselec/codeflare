@@ -13,12 +13,17 @@ type BoundarySurfaces = {
   protectedRetarget?: true;
   prTarget?: string;
 };
-type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
+type LaneFact = {
+  state: "missing" | "in-flight" | "terminal";
+  toolUseId?: string;
+  agentId?: string;
+};
 export type TranscriptFacts = {
   boundary?: { toolUseId: string; command: string };
   reviewHead?: string;
   reviewRange?: string;
   bypassed: boolean;
+  fullyAutonomous: boolean;
   ciLaunched: boolean;
   closedNotified: boolean;
   lanes: Record<ReviewLane, LaneFact>;
@@ -328,6 +333,51 @@ function nativeNotification(entry: Record<string, any>): { toolUseId: string; su
   return { toolUseId, succeeded: /^(?:Done|Completed)$/i.test(status) };
 }
 
+type ServiceDispatch = {
+  agentId: string;
+  kind: "reviewer" | "ci";
+  head: string;
+  range?: string;
+  lane?: ReviewLane;
+};
+
+type ServiceRecord = { id: string; status: string };
+
+function serviceDispatch(entry: Record<string, any>): ServiceDispatch | undefined {
+  if (entry.type !== "custom" || entry.customType !== "codeflare:subagent-dispatch") return undefined;
+  const data = entry.data;
+  if (!data || typeof data !== "object"
+    || typeof data.agentId !== "string"
+    || !data.agentId
+    || !["reviewer", "ci"].includes(data.kind)
+    || !fullSha(data.head)) return undefined;
+  if (data.kind === "reviewer" && !ALL_REVIEW_LANES.includes(data.lane)) return undefined;
+  return {
+    agentId: data.agentId,
+    kind: data.kind,
+    head: data.head,
+    range: typeof data.range === "string" ? data.range : undefined,
+    lane: data.lane,
+  };
+}
+
+function serviceRecord(entry: Record<string, any>): ServiceRecord | undefined {
+  if (entry.type !== "custom" || entry.customType !== "subagents:record") return undefined;
+  const data = entry.data;
+  return data && typeof data.id === "string" && typeof data.status === "string"
+    ? { id: data.id, status: data.status }
+    : undefined;
+}
+
+function fullyAutonomousOverride(entries: Record<string, any>[]): boolean {
+  return entries.reduce((active, entry) => {
+    const text = userText(entry);
+    if (!text) return active;
+    if (/\b(?:CANCEL|STOP) FULLY AUTONOMOUS\b/.test(text)) return false;
+    return /\bFULLY AUTONOMOUS\b/.test(text);
+  }, false);
+}
+
 function reviewWindow(entry: Record<string, any>): { head?: string; range?: string } | undefined {
   if (entry.type !== "custom_message" || ![
     "pr-boundary-launch-plan",
@@ -346,6 +396,7 @@ export function reviewTranscriptFacts(input: {
   ciHead?: string;
 }): TranscriptFacts {
   const entries = readEntries(input.sessionFile);
+  const fullyAutonomous = fullyAutonomousOverride(entries);
   const successfulToolIds = new Set(entries
     .filter((entry) => entry.type === "message" && entry.message?.role === "toolResult" && entry.message?.isError !== true)
     .map((entry) => entry.message.toolCallId));
@@ -363,9 +414,36 @@ export function reviewTranscriptFacts(input: {
   });
 
   const lanes = Object.fromEntries(ALL_REVIEW_LANES.map((lane) => [lane, { state: "missing" }])) as Record<ReviewLane, LaneFact>;
-  if (boundaryIndex < 0) return { bypassed: false, ciLaunched: false, closedNotified: false, lanes };
+  if (boundaryIndex < 0) return {
+    bypassed: false,
+    fullyAutonomous,
+    ciLaunched: false,
+    closedNotified: false,
+    lanes,
+  };
   const later = entries.slice(boundaryIndex + 1);
   const window = later.reduce<{ head?: string; range?: string } | undefined>((current, entry) => reviewWindow(entry) ?? current, undefined);
+  const serviceRecords = new Map<string, ServiceRecord>();
+  for (const entry of later) {
+    const record = serviceRecord(entry);
+    if (record) serviceRecords.set(record.id, record);
+  }
+  for (const dispatch of later.map(serviceDispatch).filter((candidate): candidate is ServiceDispatch => Boolean(candidate))) {
+    if (dispatch.kind !== "reviewer"
+      || !dispatch.lane
+      || !input.requiredLanes.includes(dispatch.lane)
+      || dispatch.head !== window?.head
+      || dispatch.range !== window?.range) continue;
+    const record = serviceRecords.get(dispatch.agentId);
+    if (record && (record.status === "completed" || record.status === "steered")) {
+      lanes[dispatch.lane] = { state: "terminal", agentId: dispatch.agentId };
+    } else if ((!record || record.status === "queued" || record.status === "running")
+      && lanes[dispatch.lane].state !== "terminal") {
+      lanes[dispatch.lane] = { state: "in-flight", agentId: dispatch.agentId };
+    } else if (lanes[dispatch.lane].state !== "terminal") {
+      lanes[dispatch.lane] = { state: "missing" };
+    }
+  }
   later.forEach((entry, entryIndex) => {
     for (const call of toolCalls(entry)) {
       const lane = call.arguments?.subagent_type as ReviewLane;
@@ -382,19 +460,33 @@ export function reviewTranscriptFacts(input: {
       else if (lanes[lane].state !== "terminal") lanes[lane] = { state: "in-flight", toolUseId: call.id };
     }
   });
-  const ciLaunched = Boolean(input.ciHead && later.some((entry) => toolCalls(entry).some((call) => {
-    const prompt = typeof call.arguments?.prompt === "string" ? call.arguments.prompt : "";
-    return call.name === "subagent"
-      && call.arguments?.subagent_type === "ci-monitor"
-      && call.arguments?.run_in_background === true
-      && call.arguments?.inherit_context === false
-      && prompt.split(/\s+/).includes(`head=${input.ciHead}`);
-  })));
+  const ciLaunched = Boolean(input.ciHead && later.some((entry) => {
+    const dispatch = serviceDispatch(entry);
+    if (dispatch?.kind === "ci" && dispatch.head === input.ciHead) return true;
+    if (entry.type === "custom" && entry.customType === "codeflare:ci-resolution" && entry.data?.head === input.ciHead) return true;
+    return toolCalls(entry).some((call) => {
+      const prompt = typeof call.arguments?.prompt === "string" ? call.arguments.prompt : "";
+      return call.name === "subagent"
+        && call.arguments?.subagent_type === "ci-monitor"
+        && call.arguments?.run_in_background === true
+        && call.arguments?.inherit_context === false
+        && prompt.split(/\s+/).includes(`head=${input.ciHead}`);
+    });
+  }));
   const bypassed = later.some((entry) => /\bskip (?:the )?(?:review|verification)\b/i.test(userText(entry)));
   const closedNotified = later.some((entry) =>
     entry.type === "custom_message" && entry.customType === "pr-boundary-review-closed-unacknowledged",
   );
-  return { boundary, reviewHead: window?.head, reviewRange: window?.range, bypassed, ciLaunched, closedNotified, lanes };
+  return {
+    boundary,
+    reviewHead: window?.head,
+    reviewRange: window?.range,
+    bypassed,
+    fullyAutonomous,
+    ciLaunched,
+    closedNotified,
+    lanes,
+  };
 }
 
 export default function () {}

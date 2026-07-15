@@ -2,11 +2,15 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-07-15
+
+- **Pi PR-boundary review and CI now dispatch deterministically through stock Pi's published subagent service** ([REQ-AGENT-036](agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-053](agents.md#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-055](agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-059](agents.md#req-agent-059-pi-native-review-findings-handoff), [REQ-AGENT-068](agents.md#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-071](agents.md#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-074](agents.md#req-agent-074-pi-settled-review-handoff), [REQ-AGENT-080](agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan), and [REQ-AGENT-084](agents.md#req-agent-084-pi-reviewer-policy-contract); all stay Implemented; [AD98](../../documentation/decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents) and [AD99](../../documentation/decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent) amended). The passive plan no longer asks a model turn to launch work. Settled enforcement service-spawns missing reviewers, persists minimal head/range/lane/agent-ID evidence, correlates successful `subagents:record` entries by agent ID, and resolves/spawns CI only after reviewer IDs exist. Failed immediate spawns remain missing and retry within the existing bound; empty CI resolution is persisted to prevent reload duplication. The design uses no Pi fork, host patch, queue, database, or durable review result state. Service-owned launches are visible session agents but not assistant public-tool-call transcript blocks.
+
 ## 2026-07-14
 
 - **Pi extraction launch payloads are now visible to the model** ([REQ-MEM-015](memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard) AC4 added; Implemented). Custom-message `details` remains durable retry metadata, while the same bounded request items are serialized into model-facing `content`; reminders preserve exact parity and require no session-JSONL recovery. Existing public-request contracts in REQ-MEM-014 AC7 and REQ-VAULT-027 AC1 remain unchanged.
 
-- **Direct fully-autonomous user direction overrides only the five-round review stop** ([REQ-AGENT-084](agents.md#req-agent-084-pi-reviewer-policy-contract) clarified; stays Implemented). The root carries one reviewer-prompt marker; every test, review, CI, deployment, and ownership gate remains unchanged.
+- **Direct fully-autonomous user direction overrides only the five-round review stop** ([REQ-AGENT-084](agents.md#req-agent-084-pi-reviewer-policy-contract) clarified; stays Implemented). The reviewer dispatcher carries one prompt marker; every test, review, CI, deployment, and ownership gate remains unchanged.
 
 - **Same-repository `gh pr update-branch <target>` resolves that PR for review and CI** ([REQ-AGENT-036](agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC1 and [REQ-AGENT-068](agents.md#req-agent-068-independent-pi-ci-monitoring) AC1 clarified; stay Implemented). URL targets and `--repo` selectors are inert rather than crossing checkout boundaries.
 

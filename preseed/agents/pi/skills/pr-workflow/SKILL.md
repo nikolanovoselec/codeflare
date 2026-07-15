@@ -1,7 +1,7 @@
 ---
 name: pr-workflow
 description: "Pull request creation workflow for Pi. Covers commit/diff review, title and body drafting, REQ backlinks, push/upstream handling, independent CI request dispatch, and visible PR-boundary reviewers."
-version: 3.0.0
+version: 4.0.0
 ---
 
 # Pull Request Workflow in Pi
@@ -12,13 +12,13 @@ Use this when the user asks to open a PR.
 
 PR review and CI monitoring are separate.
 
-- The Pi boundary extension emits one ordered launch plan after an eligible push or protected-base PR creation. Its first wave names any required SDD reviewers; its second wave names independent CI when eligible.
-- The root main session follows that plan exactly once: all named reviewers together through public background `subagent` calls without inherited context, then the resolver's zero-or-one CI request unchanged once.
+- The Pi boundary extension emits one passive ordered plan after an eligible push or protected-base PR creation. On settled enforcement it service-spawns any required SDD reviewers first, then resolves and service-spawns independent CI when eligible.
+- The root main session does not repeat those launches through public `subagent` calls. It waits for the visible service-owned results, triages reviewers together, and handles `CI_RESULT` independently.
 - Reviewer agents and the CI agent are report-only. They never fix, commit, push, or launch each other. The root main session alone owns follow-up edits and Git writes.
 
 ## Mandatory boundary stop
 
-After any successful `git push` or `gh pr create`, **end the current assistant turn immediately**. Becoming idle is what delivers the extension's queued `deliverAs: "followUp"` boundary launch plan.
+After any successful `git push` or `gh pr create`, **end the current assistant turn immediately**. Becoming idle is what triggers the extension's deterministic settled dispatch.
 
 After the Git command succeeds:
 
@@ -28,7 +28,7 @@ After the Git command succeeds:
 - do not run `gh pr edit`, another push, or the CI resolver to retrigger a boundary;
 - do not infer that a plan is missing while the current turn is still active.
 
-The next turn begins when the queued launch plan arrives. Execute that supplied plan exactly once in that next turn.
+Do not execute the passive plan manually. The extension dispatches it through the stock session subagent service after the turn settles.
 
 ## Steps
 
