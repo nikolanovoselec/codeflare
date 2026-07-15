@@ -2,9 +2,13 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-07-15
+
+- **Pi extensions now invoke exact registered tools without a provider turn** ([REQ-MEM-015](memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard) AC4-AC5, [REQ-MEM-014](memory.md#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever) AC7, [REQ-VAULT-027](vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional) AC1, [REQ-AGENT-036](agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC7, [REQ-AGENT-071](agents.md#req-agent-071-pr-boundary-review-agent-dispatch) AC1, [REQ-AGENT-074](agents.md#req-agent-074-pi-settled-review-handoff) AC1, [REQ-AGENT-080](agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan) AC1, and [REQ-AGENT-084](agents.md#req-agent-084-pi-reviewer-policy-contract) AC5 clarified; all stay Implemented). Memory, Vault, reviewer, and boundary CI dispatch now traverse Pi's normal public tool pipeline deterministically, preserving real tool-use IDs, hooks, transcript correlation, ordering, bounded retries, exact-head gates, native notifications, and root-only triage/mutation ownership. Visible plan metadata remains durable but no longer asks the model to launch work.
+
 ## 2026-07-14
 
-- **Pi extraction launch payloads are now visible to the model** ([REQ-MEM-015](memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard) AC4 added; Implemented). Custom-message `details` remains durable retry metadata, while the same bounded request items are serialized into model-facing `content`; reminders preserve exact parity and require no session-JSONL recovery. Existing public-request contracts in REQ-MEM-014 AC7 and REQ-VAULT-027 AC1 remain unchanged.
+- **Pi extraction launch payloads became visible to the model as an interim transport** ([REQ-MEM-015](memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard) AC4 added at the time). This model-mediated step was superseded on 2026-07-15 by exact extension-owned public tool invocation; durable request metadata remains.
 
 - **Direct fully-autonomous user direction overrides only the five-round review stop** ([REQ-AGENT-084](agents.md#req-agent-084-pi-reviewer-policy-contract) clarified; stays Implemented). The root carries one reviewer-prompt marker; every test, review, CI, deployment, and ownership gate remains unchanged.
 

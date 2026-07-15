@@ -233,12 +233,19 @@ export function extractionTranscriptFacts(input: {
     item?.requestId === input.requestId && item?.jobType === input.job
   )));
 
+  const failedToolIds = new Set(input.entries
+    .filter((entry) => entry?.type === "message"
+      && entry?.message?.role === "toolResult"
+      && entry?.message?.isError === true
+      && typeof entry?.message?.toolCallId === "string")
+    .map((entry) => entry.message.toolCallId));
   const calls = input.entries.flatMap((entry) => toolCallParts(entry).map((part) => ({
     id: typeof part?.id === "string" ? part.id : "",
     timestamp: entry?.timestamp,
     name: part?.name,
     arguments: part?.arguments,
   }))).filter((call) => call.id
+    && !failedToolIds.has(call.id)
     && call.name === "subagent"
     && publicRequestMatches(call.arguments, input.requestId, input.job));
   const notifications = new Map<string, string>();

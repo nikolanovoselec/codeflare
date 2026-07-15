@@ -19,7 +19,9 @@ export type TranscriptFacts = {
   reviewHead?: string;
   reviewRange?: string;
   bypassed: boolean;
+  fullyAutonomous: boolean;
   ciLaunched: boolean;
+  ciResolved: boolean;
   closedNotified: boolean;
   lanes: Record<ReviewLane, LaneFact>;
 };
@@ -320,6 +322,14 @@ function userText(entry: Record<string, any>): string {
   return Array.isArray(content) ? content.filter((part) => part?.type === "text").map((part) => part.text).join("\n") : "";
 }
 
+function fullyAutonomousOverride(entries: Record<string, any>[]): boolean {
+  return entries.reduce((active, entry) => {
+    const text = userText(entry);
+    if (/\b(?:CANCEL|STOP) FULLY AUTONOMOUS\b/.test(text)) return false;
+    return /\bFULLY AUTONOMOUS\b/.test(text) ? true : active;
+  }, false);
+}
+
 function nativeNotification(entry: Record<string, any>): { toolUseId: string; succeeded: boolean } | undefined {
   if (entry.type !== "custom_message" || entry.customType !== "subagent-notification" || typeof entry.content !== "string") return undefined;
   const toolUseId = /<tool-use-id>([^<]+)<\/tool-use-id>/.exec(entry.content)?.[1];
@@ -346,8 +356,12 @@ export function reviewTranscriptFacts(input: {
   ciHead?: string;
 }): TranscriptFacts {
   const entries = readEntries(input.sessionFile);
+  const fullyAutonomous = fullyAutonomousOverride(entries);
   const successfulToolIds = new Set(entries
     .filter((entry) => entry.type === "message" && entry.message?.role === "toolResult" && entry.message?.isError !== true)
+    .map((entry) => entry.message.toolCallId));
+  const failedToolIds = new Set(entries
+    .filter((entry) => entry.type === "message" && entry.message?.role === "toolResult" && entry.message?.isError === true)
     .map((entry) => entry.message.toolCallId));
   let boundaryIndex = -1;
   let boundary: TranscriptFacts["boundary"];
@@ -363,7 +377,14 @@ export function reviewTranscriptFacts(input: {
   });
 
   const lanes = Object.fromEntries(ALL_REVIEW_LANES.map((lane) => [lane, { state: "missing" }])) as Record<ReviewLane, LaneFact>;
-  if (boundaryIndex < 0) return { bypassed: false, ciLaunched: false, closedNotified: false, lanes };
+  if (boundaryIndex < 0) return {
+    bypassed: false,
+    fullyAutonomous,
+    ciLaunched: false,
+    ciResolved: false,
+    closedNotified: false,
+    lanes,
+  };
   const later = entries.slice(boundaryIndex + 1);
   const window = later.reduce<{ head?: string; range?: string } | undefined>((current, entry) => reviewWindow(entry) ?? current, undefined);
   later.forEach((entry, entryIndex) => {
@@ -371,7 +392,12 @@ export function reviewTranscriptFacts(input: {
       const lane = call.arguments?.subagent_type as ReviewLane;
       const prompt = typeof call.arguments?.prompt === "string" ? call.arguments.prompt : "";
       const wrongRange = window?.range && !prompt.includes(`review_range=${window.range}`);
-      if (call.name !== "subagent" || call.arguments?.run_in_background !== true || call.arguments?.inherit_context !== false || !input.requiredLanes.includes(lane) || wrongRange) continue;
+      if (failedToolIds.has(call.id)
+        || call.name !== "subagent"
+        || call.arguments?.run_in_background !== true
+        || call.arguments?.inherit_context !== false
+        || !input.requiredLanes.includes(lane)
+        || wrongRange) continue;
       const notifications = later.slice(entryIndex + 1)
         .map(nativeNotification)
         .filter((candidate) => candidate?.toolUseId === call.id);
@@ -384,17 +410,33 @@ export function reviewTranscriptFacts(input: {
   });
   const ciLaunched = Boolean(input.ciHead && later.some((entry) => toolCalls(entry).some((call) => {
     const prompt = typeof call.arguments?.prompt === "string" ? call.arguments.prompt : "";
-    return call.name === "subagent"
+    return !failedToolIds.has(call.id)
+      && call.name === "subagent"
       && call.arguments?.subagent_type === "ci-monitor"
       && call.arguments?.run_in_background === true
       && call.arguments?.inherit_context === false
       && prompt.split(/\s+/).includes(`head=${input.ciHead}`);
   })));
+  const ciResolved = Boolean(input.ciHead && later.some((entry) =>
+    entry.type === "custom_message"
+    && entry.customType === "pr-boundary-ci-resolution"
+    && entry.details?.head === input.ciHead,
+  ));
   const bypassed = later.some((entry) => /\bskip (?:the )?(?:review|verification)\b/i.test(userText(entry)));
   const closedNotified = later.some((entry) =>
     entry.type === "custom_message" && entry.customType === "pr-boundary-review-closed-unacknowledged",
   );
-  return { boundary, reviewHead: window?.head, reviewRange: window?.range, bypassed, ciLaunched, closedNotified, lanes };
+  return {
+    boundary,
+    reviewHead: window?.head,
+    reviewRange: window?.range,
+    bypassed,
+    fullyAutonomous,
+    ciLaunched,
+    ciResolved,
+    closedNotified,
+    lanes,
+  };
 }
 
 export default function () {}

@@ -8,7 +8,7 @@
 
 | Event | Skill |
 |---|---|
-| Pi emits a PR-boundary launch plan after a successful push or protected-base PR creation | Follow its ordered reviewer wave, then its independent `ci-monitoring` wave |
+| Pi emits a PR-boundary launch plan after a successful push or protected-base PR creation | Extension dispatches its exact reviewer wave, then its independent `ci-monitoring` wave |
 | PR-boundary launch plan includes reviewers | `git-review-pipeline` (visible spec/doc/code reviewers, independent of CI) |
 | User explicitly requests CI monitoring | `ci-monitoring` |
 | User asks to open a PR | `pr-workflow` (body template + REQ backlinks + test plan) |
@@ -16,22 +16,17 @@
 
 ## Mandatory stop after boundary commands
 
-After any successful `git push` or `gh pr create`, **end the current assistant turn immediately**. The extension queues its boundary message with `deliverAs: "followUp"`; becoming idle is the delivery trigger.
+After any successful `git push` or `gh pr create`, **end the current assistant turn immediately**. Becoming idle lets the extension dispatch the exact boundary tool calls without another provider turn.
 
-In the boundary-command turn, report only the push result or PR URL. Do not call another tool, inspect session JSONL, search for the plan, run `gh pr edit`, invoke the CI resolver, or attempt another boundary command. A plan that is not yet visible while the turn is active is queued, not missing. Execute it exactly once when it starts the next turn.
+In the boundary-command turn, report only the push result or PR URL. Do not call another tool, inspect session JSONL, search for the plan, run `gh pr edit`, invoke the CI resolver, or attempt another boundary command. A plan or tool call that is not yet visible while the turn is active is pending, not missing. The extension owns dispatch; the root must not duplicate it.
 
 ## Unified PR-boundary launch plan
 
-The Pi extension is the sole automatic boundary dispatcher. Do not independently infer or duplicate an automatic CI launch from the preceding Git command. When it emits a launch plan or follow-up in the next turn:
+The Pi extension is the sole automatic boundary dispatcher. Do not independently infer, launch, or duplicate review or CI work from the preceding Git command or its visible plan.
 
-1. Launch every review agent listed in wave 1 together through public `subagent` calls with `run_in_background: true` and `inherit_context: false`. Preserve the exact `review_range=<acknowledged>..<current>` marker when supplied. When the current user activated the fully-autonomous override for this task, include `autonomy_override=fully-autonomous` in every reviewer prompt until the user cancels or narrows it.
-2. Immediately after issuing the wave-1 calls—not after reviewer completion—run the plan's wave-2 resolver exactly once:
-
-   ```bash
-   node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> pr=<affected-pr-number> cwd=<absolute-repo-root> reviewState=<launched|not-required>
-   ```
-
-3. No stdout means no CI monitor is requested. Otherwise parse the sole JSON object and submit it unchanged exactly once through the public `subagent` tool. CI is the last launch for that boundary.
+1. At the idle boundary, the extension invokes every listed reviewer together through exact public `subagent` calls with `run_in_background: true` and `inherit_context: false`.
+2. Every ranged reviewer request carries the exact `review_range=<acknowledged>..<current>` marker. An exact direct-user `FULLY AUTONOMOUS` marker is carried as `autonomy_override=fully-autonomous` until an explicit `CANCEL FULLY AUTONOMOUS` or `STOP FULLY AUTONOMOUS` marker.
+3. Immediately after the reviewer calls start—not after completion—the extension runs the existing wave-2 resolver once with the affected PR, repository cwd, and review launch state. It invokes the resolver's zero-or-one request unchanged; CI is the final launch for that boundary.
 4. Wait for every required reviewer result before editing, committing, or pushing. CI completion is independent and never gates review acknowledgement.
 5. After all required reviewer results arrive, automatically publish one consolidated triage summary before the first fixing or other project-mutation tool call. For each finding, classify the finding's validity, the proposed fix's proportionality, and the smallest correction that reuses existing machinery.
 6. Reject unsupported or overengineered proposals. Apply legitimate minimal fixes automatically unless the user explicitly requested approval or validation.
@@ -49,11 +44,11 @@ A plan may contain reviewers only, CI only, or both. Vibe-coding repositories re
 
 <!-- git-workflow-hard-obligations -->
 
-- After a successful push or PR creation, stop the current turn before any other tool call so the queued boundary plan can be delivered.
+- After a successful push or PR creation, stop the current turn before any other tool call so settled exact-tool dispatch can run.
 - Never search for, recreate, or retrigger a boundary plan from the same turn; in particular, never use a no-op `gh pr edit` as a delivery mechanism.
-- Obey each extension-issued launch plan exactly once in the next turn: all listed reviewers first, independent CI last, without waiting between waves.
-- Never create a second automatic CI trigger from the Git command itself.
-- Pass explicit repository cwd and review launch state. Submit a returned CI request unchanged exactly once through public `subagent`; no request means no monitor.
+- Never execute an extension-issued plan manually: the extension invokes all listed reviewers first and independent CI last without waiting between waves.
+- Never create a second automatic review or CI trigger from the Git command or visible plan.
+- The extension passes explicit repository cwd and review launch state and invokes a returned CI request unchanged exactly once; no request means no monitor.
 - Never run long CI, deploy, log, watch, or polling commands in the root session.
 - Wait for all required visible reviewers, then publish the consolidated triage summary before any review follow-up mutation. Triage and apply legitimate minimal fixes automatically unless the user explicitly requests approval.
 - Never deploy to integration until every required CI check is green.

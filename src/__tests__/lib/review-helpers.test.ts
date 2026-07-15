@@ -19,7 +19,9 @@ type TranscriptFacts = {
   reviewHead?: string;
   reviewRange?: string;
   bypassed: boolean;
+  fullyAutonomous: boolean;
   ciLaunched: boolean;
+  ciResolved: boolean;
   lanes: Record<ReviewLane, { state: 'missing' | 'in-flight' | 'terminal'; toolUseId?: string }>;
 };
 type PlannedReviewHelpers = {
@@ -275,7 +277,7 @@ describe('native Pi transcript review facts', () => {
     expect(Object.values(facts.lanes).every((lane) => lane.state === 'missing')).toBe(true);
   });
 
-  it('REQ-AGENT-053/REQ-AGENT-059: correlates successful native notifications by XML tool-use-id', async () => {
+  it('REQ-AGENT-053/REQ-AGENT-059/REQ-AGENT-071: correlates native notifications and rejects failed tool launches', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
     const sessionFile = writeSession([
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
@@ -286,6 +288,8 @@ describe('native Pi transcript review facts', () => {
       notification('different-id'),
       assistantTool('spec-1', 'subagent', { subagent_type: 'spec-reviewer', run_in_background: true, inherit_context: false }),
       notification('spec-1', 'Error'),
+      assistantTool('doc-error', 'subagent', { subagent_type: 'doc-updater', run_in_background: true, inherit_context: false }),
+      toolResult('doc-error', 'subagent', true),
     ]);
 
     const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
@@ -358,6 +362,23 @@ describe('native Pi transcript review facts', () => {
     expect(Object.values(facts.lanes).every((lane) => lane.state === 'missing')).toBe(true);
   });
 
+  it('REQ-AGENT-080: treats a matching no-request CI resolution as terminal for that boundary', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const head = 'b'.repeat(40);
+    const sessionFile = writeSession([
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+      sessionEntry('custom', {
+        customType: 'pr-boundary-ci-resolution',
+        details: { head, outcome: 'no-request' },
+      }),
+    ]);
+
+    const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES, ciHead: head });
+    expect(facts.ciLaunched).toBe(false);
+    expect(facts.ciResolved).toBe(true);
+  });
+
   it('REQ-AGENT-071: rejects reviewer calls that inherit or omit parent context isolation', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
     const sessionFile = writeSession([
@@ -396,5 +417,29 @@ describe('native Pi transcript review facts', () => {
 
     expect(reviewTranscriptFacts({ sessionFile: before, requiredLanes: ALL_LANES }).bypassed).toBe(false);
     expect(reviewTranscriptFacts({ sessionFile: after, requiredLanes: ALL_LANES }).bypassed).toBe(true);
+  });
+
+  it('REQ-AGENT-084: carries only a direct exact fully autonomous marker until explicit cancellation', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const inactive = writeSession([
+      userMessage('please work autonomously'),
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    ]);
+    const active = writeSession([
+      userMessage('go FULLY AUTONOMOUS for this task'),
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    ]);
+    const cancelled = writeSession([
+      userMessage('go FULLY AUTONOMOUS for this task'),
+      userMessage('CANCEL FULLY AUTONOMOUS'),
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    ]);
+
+    expect(reviewTranscriptFacts({ sessionFile: inactive, requiredLanes: ALL_LANES }).fullyAutonomous).toBe(false);
+    expect(reviewTranscriptFacts({ sessionFile: active, requiredLanes: ALL_LANES }).fullyAutonomous).toBe(true);
+    expect(reviewTranscriptFacts({ sessionFile: cancelled, requiredLanes: ALL_LANES }).fullyAutonomous).toBe(false);
   });
 });

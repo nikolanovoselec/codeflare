@@ -46,9 +46,12 @@ type PlannedReviewEnforcement = {
     target?: string,
   ): Promise<PrState | undefined>;
 };
+type ExactInvocation = { name: string; arguments: Record<string, unknown> };
 type TestPi = {
   on(event: string, handler: ExtensionHandler): void;
   sendMessage(message: SentMessage['message'], options?: SentMessage['options']): void;
+  invokeTools(invocations: ExactInvocation[]): Promise<Array<Record<string, unknown>>>;
+  exec(command: string, args: string[], options?: { cwd?: string }): Promise<{ stdout: string; stderr: string; code: number; killed: boolean }>;
 };
 
 const ALL_LANES: ReviewLane[] = ['code-reviewer', 'spec-reviewer', 'doc-updater'];
@@ -216,10 +219,12 @@ function makeHarness(repo: string, sessionFile: string): {
   pi: TestPi;
   ctx: TestContext;
   sent: SentMessage[];
+  invocations: ExactInvocation[][];
   emit(event: string, payload?: unknown): Promise<void>;
 } {
   const handlers = new Map<string, ExtensionHandler[]>();
   const sent: SentMessage[] = [];
+  const invocations: ExactInvocation[][] = [];
   const pi: TestPi = {
     on: (event, handler) => handlers.set(event, [...(handlers.get(event) ?? []), handler]),
     sendMessage: (message, options) => {
@@ -231,6 +236,34 @@ function makeHarness(repo: string, sessionFile: string): {
         timestamp: new Date(NOW).toISOString(),
         ...message,
       });
+    },
+    invokeTools: async (batch) => {
+      invocations.push(batch);
+      const calls = batch.map((invocation) => ({ type: 'toolCall', id: nextId('invoked'), ...invocation }));
+      appendSession(sessionFile, {
+        type: 'message',
+        id: nextId('message'),
+        parentId: null,
+        timestamp: new Date(NOW).toISOString(),
+        message: { role: 'assistant', content: calls, timestamp: NOW },
+      }, ...calls.map((call) => toolResult(call.id, call.name)));
+      return calls.map((call) => ({ toolCallId: call.id, toolName: call.name, isError: false }));
+    },
+    exec: async (command, args) => {
+      if (command === 'gh') return { stdout: 'owner/repo\n', stderr: '', code: 0, killed: false };
+      const head = git(repo, 'rev-parse', 'HEAD');
+      return {
+        stdout: `${JSON.stringify({
+          subagent_type: 'ci-monitor',
+          description: 'Monitor PR #42 CI',
+          prompt: `repo=owner/repo pr=42 head=${head}`,
+          run_in_background: true,
+          inherit_context: false,
+        })}\n`,
+        stderr: '',
+        code: args.length > 0 ? 0 : 1,
+        killed: false,
+      };
     },
   };
   const ctx: TestContext = {
@@ -244,6 +277,7 @@ function makeHarness(repo: string, sessionFile: string): {
     pi,
     ctx,
     sent,
+    invocations,
     emit: async (event, payload = {}) => {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
     },
@@ -309,12 +343,13 @@ describe('Pi review reminder and settled enforcement', () => {
           ciEvent: 'push',
         },
       }),
-      options: { deliverAs: 'followUp', triggerTurn: true },
+      options: { deliverAs: 'followUp', triggerTurn: false },
     }]);
+    expect(harness.invocations).toHaveLength(0);
 
     harness.sent.splice(0);
     await harness.emit('agent_settled');
-    expect(harness.sent).toEqual([{
+    expect(harness.sent[0]).toEqual({
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-follow-up',
         display: true,
@@ -327,9 +362,78 @@ describe('Pi review reminder and settled enforcement', () => {
           ciEvent: 'push',
         },
       }),
-      options: { deliverAs: 'followUp', triggerTurn: true },
+      options: { deliverAs: 'followUp', triggerTurn: false },
+    });
+    expect(harness.sent[1]).toEqual({
+      message: expect.objectContaining({
+        customType: 'pr-boundary-ci-resolution',
+        details: { head: fixture.head, outcome: 'launched' },
+      }),
+      options: { triggerTurn: false },
+    });
+    expect(harness.invocations).toHaveLength(2);
+    expect(harness.invocations[0]?.map((invocation) => invocation.arguments.subagent_type)).toEqual(ALL_LANES);
+    expect(harness.invocations[0]?.every((invocation) =>
+      invocation.name === 'subagent'
+      && invocation.arguments.run_in_background === true
+      && invocation.arguments.inherit_context === false
+      && String(invocation.arguments.prompt).includes(`review_range=${fixture.base}..${fixture.head}`)))
+      .toBe(true);
+    expect(harness.invocations[1]).toEqual([{
+      name: 'subagent',
+      arguments: expect.objectContaining({
+        subagent_type: 'ci-monitor',
+        run_in_background: true,
+        inherit_context: false,
+        prompt: `repo=owner/repo pr=42 head=${fixture.head}`,
+      }),
     }]);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
+  });
+
+  it('REQ-AGENT-080: records a no-request CI resolution and does not run the resolver again', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    harness.pi.exec = async (command) => command === 'gh'
+      ? { stdout: 'owner/repo\n', stderr: '', code: 0, killed: false }
+      : { stdout: '', stderr: '', code: 0, killed: false };
+    appendSession(fixture.sessionFile,
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent());
+    harness.sent.splice(0);
+    await harness.emit('agent_settled');
+
+    expect(harness.invocations).toHaveLength(1);
+    expect(harness.sent.at(-1)?.message).toMatchObject({
+      customType: 'pr-boundary-ci-resolution',
+      details: { head: fixture.head, outcome: 'no-request' },
+    });
+
+    harness.sent.splice(0);
+    await harness.emit('agent_settled');
+    expect(harness.invocations).toHaveLength(1);
+    expect(harness.sent).toEqual([]);
+  });
+
+  it('REQ-AGENT-084: carries the active direct-user autonomy marker into exact reviewer invocations', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      userMessage('go FULLY AUTONOMOUS for this task'),
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent());
+    await harness.emit('agent_settled');
+
+    expect(harness.invocations[0]).toHaveLength(3);
+    expect(harness.invocations[0]?.every((invocation) =>
+      String(invocation.arguments.prompt).includes('autonomy_override=fully-autonomous')))
+      .toBe(true);
   });
 
   it('REQ-AGENT-055/REQ-AGENT-071: invalid acknowledgements request a full-PR review', async () => {
@@ -382,7 +486,7 @@ describe('Pi review reminder and settled enforcement', () => {
             ciEvent: 'push',
           },
         }),
-        options: { deliverAs: 'followUp', triggerTurn: true },
+        options: { deliverAs: 'followUp', triggerTurn: false },
       }]);
     }
   });
@@ -411,7 +515,7 @@ describe('Pi review reminder and settled enforcement', () => {
           ciEvent: 'push',
         },
       }),
-      options: { deliverAs: 'followUp', triggerTurn: true },
+      options: { deliverAs: 'followUp', triggerTurn: false },
     }]);
     expect(ackHead(fixture.repo)).toBe(fixture.head);
   });
@@ -483,7 +587,7 @@ describe('Pi review reminder and settled enforcement', () => {
           ciEvent: 'push',
         },
       }),
-      options: { deliverAs: 'followUp', triggerTurn: true },
+      options: { deliverAs: 'followUp', triggerTurn: false },
     }]);
   });
 
@@ -575,7 +679,7 @@ describe('Pi review reminder and settled enforcement', () => {
           ciEvent: 'push',
         },
       }),
-      options: { deliverAs: 'followUp', triggerTurn: true },
+      options: { deliverAs: 'followUp', triggerTurn: false },
     }]);
   });
 
@@ -600,7 +704,7 @@ describe('Pi review reminder and settled enforcement', () => {
           ciEvent: 'pr-create',
         },
       }),
-      options: { deliverAs: 'followUp', triggerTurn: true },
+      options: { deliverAs: 'followUp', triggerTurn: false },
     }]);
   });
 
@@ -632,7 +736,7 @@ describe('Pi review reminder and settled enforcement', () => {
             ciEvent: 'push',
           },
         }),
-        options: { deliverAs: 'followUp', triggerTurn: true },
+        options: { deliverAs: 'followUp', triggerTurn: false },
       }]);
     } finally {
       if (previousMode === undefined) delete process.env.SESSION_MODE;
@@ -866,7 +970,7 @@ describe('Pi review reminder and settled enforcement', () => {
           ciEvent: 'push',
         },
       }),
-      options: { deliverAs: 'followUp', triggerTurn: true },
+      options: { deliverAs: 'followUp', triggerTurn: false },
     }]);
   });
 
@@ -913,7 +1017,7 @@ describe('Pi review reminder and settled enforcement', () => {
           ciEvent: undefined,
         },
       }),
-      options: { deliverAs: 'followUp', triggerTurn: true },
+      options: { deliverAs: 'followUp', triggerTurn: false },
     }]);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
@@ -935,7 +1039,7 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('agent_settled');
 
-    expect(harness.sent).toEqual([{
+    expect(harness.sent[0]).toEqual({
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-follow-up',
         details: {
@@ -947,8 +1051,12 @@ describe('Pi review reminder and settled enforcement', () => {
           ciEvent: 'push',
         },
       }),
-      options: { deliverAs: 'followUp', triggerTurn: true },
-    }]);
+      options: { deliverAs: 'followUp', triggerTurn: false },
+    });
+    expect(harness.sent[1]?.message).toMatchObject({
+      customType: 'pr-boundary-ci-resolution',
+      details: { head: fixture.head, outcome: 'launched' },
+    });
   });
 
   it('REQ-AGENT-053/REQ-AGENT-055/REQ-AGENT-074: acknowledges only the reminder head after all lanes terminate', async () => {
@@ -1087,7 +1195,7 @@ describe('Pi review reminder and settled enforcement', () => {
           ciEvent: 'pr-create',
         },
       }),
-      options: { deliverAs: 'followUp', triggerTurn: true },
+      options: { deliverAs: 'followUp', triggerTurn: false },
     }]);
     expect(existsSync(REVIEW_BYPASS_FILE)).toBe(false);
     harness.sent.splice(0);
@@ -1113,7 +1221,7 @@ describe('Pi review reminder and settled enforcement', () => {
     appendSession(fixture.sessionFile, userMessage('skip review'));
 
     await harness.emit('agent_settled');
-    expect(harness.sent).toEqual([{
+    expect(harness.sent[0]).toEqual({
       message: expect.objectContaining({
         customType: 'pr-boundary-launch-follow-up',
         details: {
@@ -1125,8 +1233,12 @@ describe('Pi review reminder and settled enforcement', () => {
           ciEvent: 'push',
         },
       }),
-      options: { deliverAs: 'followUp', triggerTurn: true },
-    }]);
+      options: { deliverAs: 'followUp', triggerTurn: false },
+    });
+    expect(harness.sent[1]?.message).toMatchObject({
+      customType: 'pr-boundary-ci-resolution',
+      details: { head: fixture.head, outcome: 'launched' },
+    });
     expect(ackHead(fixture.repo)).toBe(fixture.base);
     expect(existsSync(join(fixture.repo, '.git/sdd-review-block-count'))).toBe(false);
   });

@@ -63,6 +63,8 @@ interface TestContext {
 class FakePi implements MemoryVaultPi {
   readonly handlers = new Map<string, Handler[]>();
   readonly sent: SentMessage[] = [];
+  readonly invocations: Array<Array<{ name: string; arguments: Record<string, unknown> }>> = [];
+  readonly toolCallIds: string[] = [];
 
   constructor(private readonly sessionFile: string) {}
 
@@ -79,6 +81,37 @@ class FakePi implements MemoryVaultPi {
       timestamp: new Date(NOW).toISOString(),
       ...message,
     });
+  }
+
+  async invokeTools(invocations: Array<{ name: string; arguments: Record<string, unknown> }>): Promise<Array<Record<string, unknown>>> {
+    this.invocations.push(invocations);
+    const calls = invocations.map((invocation) => {
+      const id = nextId('invoked-tool');
+      this.toolCallIds.push(id);
+      return { type: 'toolCall', id, ...invocation };
+    });
+    appendEntry(this.sessionFile, {
+      type: 'message',
+      id: nextId('assistant'),
+      parentId: null,
+      timestamp: new Date(NOW).toISOString(),
+      message: { role: 'assistant', content: calls, timestamp: NOW },
+    }, ...calls.map((call) => ({
+      type: 'message',
+      id: nextId('tool-result'),
+      parentId: null,
+      timestamp: new Date(NOW).toISOString(),
+      message: {
+        role: 'toolResult',
+        toolCallId: call.id,
+        toolName: call.name,
+        content: [{ type: 'text', text: 'started' }],
+        details: { agentId: nextId('agent') },
+        isError: false,
+        timestamp: NOW,
+      },
+    })));
+    return calls.map((call) => ({ toolCallId: call.id, toolName: call.name, isError: false }));
   }
 
   async emit(event: string, payload: unknown, ctx: TestContext): Promise<void> {
@@ -137,6 +170,23 @@ function toolCall(
         arguments: { ...request, subagent_type: job, ...overrides },
       }],
       timestamp: Date.parse(timestamp),
+    },
+  };
+}
+
+function toolResult(toolUseId: string, isError: boolean): Record<string, unknown> {
+  return {
+    type: 'message',
+    id: nextId('tool-result'),
+    parentId: null,
+    timestamp: '2026-07-14T09:45:01.000Z',
+    message: {
+      role: 'toolResult',
+      toolCallId: toolUseId,
+      toolName: 'subagent',
+      content: [],
+      isError,
+      timestamp: Date.parse('2026-07-14T09:45:01.000Z'),
     },
   };
 }
@@ -275,12 +325,6 @@ function latestLaunchMessage(pi: FakePi, job: ExtractionJob): SentMessage {
   return sent;
 }
 
-function modelVisibleLaunchItems(sent: SentMessage): Array<Record<string, unknown>> {
-  const match = sent.message.content?.match(/<extraction-items-json>\n(.+)\n<\/extraction-items-json>/s);
-  if (!match) throw new Error('missing model-visible extraction items');
-  return JSON.parse(match[1]) as Array<Record<string, unknown>>;
-}
-
 function latestLaunch(pi: FakePi, job: ExtractionJob): { requestId: string; reminder: number; request: PublicExtractionRequest } {
   const sent = latestLaunchMessage(pi, job);
   const item = sent.message.details?.items?.find((candidate) => candidate.jobType === job);
@@ -296,7 +340,6 @@ async function appendPrompt(harness: Harness, ordinal: number): Promise<void> {
 
 afterEach(() => {
   delete process.env.CODEFLARE_MEMORY_MODEL;
-  delete (globalThis as Record<symbol, unknown>)[Symbol.for('@gotgenes/pi-subagents:service')];
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -367,6 +410,13 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
       now: NOW,
       successQualifies: () => true,
     })).toMatchObject({ launchCount: 1, attemptCount: 1, state: 'running', giveup: false });
+    expect(extractionTranscriptFacts({
+      entries: [...entries, toolResult('exact-call', true)],
+      requestId: UUIDS[0],
+      job: 'memory-capture',
+      now: NOW,
+      successQualifies: () => true,
+    })).toMatchObject({ attemptCount: 0, state: 'missing' });
 
     expect(extractionTranscriptFacts({
       entries,
@@ -428,12 +478,8 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
 });
 
 describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => {
-  it('creates work on the fifteenth real prompt and emits a visible reminder without private spawn', async () => {
+  it('creates work on the fifteenth real prompt and invokes the exact public tool request', async () => {
     const harness = makeHarness();
-    let privateSpawnCalls = 0;
-    (globalThis as Record<symbol, unknown>)[Symbol.for('@gotgenes/pi-subagents:service')] = {
-      spawn: () => { privateSpawnCalls += 1; throw new Error('private spawn forbidden'); },
-    };
     await harness.emit('session_start');
     mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
     writeFileSync(memoryCounterPath(harness), '0', 'utf8');
@@ -455,11 +501,15 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
       max_turns: 4,
     });
     expect(launch.request.prompt).toContain(`CODEFLARE_EXTRACTION_REQUEST=${launch.requestId}`);
-    expect(privateSpawnCalls).toBe(0);
-    expect(harness.pi.sent.at(-1)?.options).toEqual({ deliverAs: 'followUp', triggerTurn: true });
+    expect(harness.pi.invocations).toEqual([[{ name: 'subagent', arguments: launch.request }]]);
+    expect(parseSessionEntries(readFileSync(harness.sessionFile, 'utf8')).some((entry) =>
+      entry?.message?.role === 'assistant'
+      && entry.message.content?.some((part: any) => part?.name === 'subagent' && part?.arguments?.prompt === launch.request.prompt)))
+      .toBe(true);
+    expect(harness.pi.sent.at(-1)?.options).toEqual({ deliverAs: 'followUp', triggerTurn: false });
   });
 
-  it('REQ-MEM-015 AC4: exposes identical extraction items to the model and durable metadata', async () => {
+  it('REQ-MEM-015 AC4: invokes memory and Vault requests together while persisting bounded metadata', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
     mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
@@ -471,7 +521,10 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     const sent = latestLaunchMessage(harness.pi, 'memory-capture');
     expect(sent.message.details?.items?.map((item) => item.jobType).sort())
       .toEqual(['memory-capture', 'vault-extract']);
-    expect(modelVisibleLaunchItems(sent)).toEqual(sent.message.details?.items);
+    expect(harness.pi.invocations).toHaveLength(1);
+    expect(harness.pi.invocations[0]?.map((invocation) => invocation.name)).toEqual(['subagent', 'subagent']);
+    expect(harness.pi.invocations[0]?.map((invocation) => invocation.arguments))
+      .toEqual(sent.message.details?.items?.map((item) => item.request));
   });
 
   it('captures only prompts after the root-owned successful counter', async () => {
@@ -516,16 +569,18 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     writeFileSync(memoryCounterPath(harness), '0', 'utf8');
     for (let ordinal = 1; ordinal <= 15; ordinal += 1) await appendPrompt(harness, ordinal);
 
-    for (let attempt = 0; attempt < 7; attempt += 1) await harness.emit('agent_settled');
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      await harness.emit('agent_settled');
+      appendEntry(harness.sessionFile, notification(harness.pi.toolCallIds.at(-1)!, 'Error'));
+    }
+    await harness.emit('agent_settled');
     const launchMessages = harness.pi.sent
       .filter((sent) => sent.message.customType === 'background-extraction-launch');
     const reminders = launchMessages
       .flatMap((sent) => sent.message.details?.items ?? [])
       .map((item) => item.reminder);
     expect(reminders).toEqual([0, 1, 2, 3, 4, 5]);
-    for (const sent of launchMessages) {
-      expect(modelVisibleLaunchItems(sent)).toEqual(sent.message.details?.items);
-    }
+    expect(harness.pi.invocations).toHaveLength(6);
     expect(harness.pi.sent.filter((sent) => sent.message.customType === 'background-extraction-giveup')).toHaveLength(1);
 
     const sentBeforeReload = harness.pi.sent.length;

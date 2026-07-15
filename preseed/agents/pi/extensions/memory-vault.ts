@@ -69,6 +69,7 @@ export interface MemoryVaultDependencies {
 
 export interface MemoryVaultPi {
   on(event: string, handler: (event: any, ctx: any) => void | Promise<void>): void;
+  invokeTools(invocations: Array<{ name: string; arguments: Record<string, unknown> }>): Promise<Array<Record<string, unknown>>>;
   sendMessage(
     message: {
       customType: string;
@@ -473,15 +474,15 @@ function dueItem(
   };
 }
 
-function sendDueExtractionMessages(
+async function sendDueExtractionMessages(
   pi: MemoryVaultPi,
   paths: MemoryVaultPaths,
   dependencies: MemoryVaultDependencies,
   entries: any[],
   memory: MemoryCaptureRequest | undefined,
   vault: VaultExtractRequest | undefined,
-): void {
-  const launches: Array<Record<string, unknown>> = [];
+): Promise<void> {
+  const launches: Array<ReturnType<typeof dueItem>> = [];
   const giveups: Array<Record<string, unknown>> = [];
   for (const item of [
     memory ? { request: memory, job: "memory-capture" as const } : undefined,
@@ -504,15 +505,11 @@ function sendDueExtractionMessages(
   if (launches.length > 0) {
     pi.sendMessage({
       customType: "background-extraction-launch",
-      content: [
-        "[codeflare-extraction] For every item in the JSON array below, launch item.request through a public background subagent call, unchanged exactly once, with all calls started together.",
-        "<extraction-items-json>",
-        JSON.stringify(launches),
-        "</extraction-items-json>",
-      ].join("\n"),
+      content: `[codeflare-extraction] Launching ${launches.length} exact public background subagent request${launches.length === 1 ? "" : "s"}.`,
       display: true,
       details: { items: launches },
-    }, { deliverAs: "followUp", triggerTurn: true });
+    }, { deliverAs: "followUp", triggerTurn: false });
+    await pi.invokeTools(launches.map((item) => ({ name: "subagent", arguments: { ...item.request } })));
   }
   if (giveups.length > 0) {
     pi.sendMessage({
@@ -600,7 +597,7 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
     lastMessages = Array.isArray(event?.messages) ? event.messages : lastMessages;
   });
 
-  pi.on("agent_settled", (_event, ctx) => {
+  pi.on("agent_settled", async (_event, ctx) => {
     if (isChildSession(ctx)) return;
     ensureDirs(paths);
     const entries = readSessionEntries(ctx);
@@ -610,7 +607,7 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
     detectNewVaultRequestWhenNoneExists(paths, dependencies);
     const memory = readActiveMemoryRequest(paths, session)?.request;
     const vault = readActiveVaultRequest(paths)?.request;
-    sendDueExtractionMessages(pi, paths, dependencies, entries, memory, vault);
+    await sendDueExtractionMessages(pi, paths, dependencies, entries, memory, vault);
   });
 }
 

@@ -180,19 +180,13 @@ Pi gets its own native `preseed/agents/pi/rules/git-workflow.md` from the Pi man
 which delegates branched mechanics to `ci-monitoring`, `git-review-pipeline`,
 `pr-workflow`, and `deploy-credentials`.
 
-Pi's PR-boundary extension is the sole automatic dispatcher for review and CI ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)). After an eligible Git action it emits one structured plan: wave 1 lists required reviewers, and wave 2 requests independent CI. The root launches wave 1 together, then immediately runs wave 2 exactly once without waiting:
-
-```bash
-node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> pr=<affected-pr-number> cwd=<absolute-repo-root> reviewState=<launched|not-required>
-```
-
-No stdout means no action. Otherwise the root submits the resolver's request unchanged once through public `subagent`. The report-only `ci-monitor` remains independent from review acknowledgement and relies on the bounded script rather than an agent turn cap, preserving verbatim native output.
+Pi's PR-boundary extension is the sole automatic dispatcher for review and CI ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)). After an eligible Git action it emits one structured visible plan, then settled enforcement invokes wave 1 reviewers together through Pi's exact public tool pipeline. Without waiting for reviewer completion, it runs the existing CI resolver once with the affected repository, PR, cwd, and review launch state. No stdout means no action; otherwise the extension invokes the resolver's request unchanged as wave 2. The report-only `ci-monitor` remains independent from review acknowledgement and relies on the bounded script rather than an agent turn cap, preserving verbatim native output.
 
 Malformed or superseded heads fail closed. [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed) permits only the observed 41-character transcription whose first 40 characters exactly equal GitHub's authoritative PR head.
 
 Non-SDD repositories and default-mode sessions receive CI-only plans. An aborted task is relaunched only after a later plan or explicit request. Implements [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring).
 
-Pi review is session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). Successful persisted boundaries produce a triggering root launch plan. With a valid acknowledgement, the plan and every counted reviewer prompt carry the exact acknowledged-to-current range; unmatched calls remain in flight until native terminal notification. A delayed notification can acknowledge its reviewed PR head after reload or newer unpublished local work only while GitHub still reports that same authoritative head.
+Pi review is session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). Successful persisted boundaries produce a visible launch plan; when the turn settles, the extension invokes its exact public calls without another provider turn. With a valid acknowledgement, the plan and every counted reviewer prompt carry the exact acknowledged-to-current range; unmatched calls remain in flight until native terminal notification. A delayed notification can acknowledge its reviewed PR head after reload or newer unpublished local work only while GitHub still reports that same authoritative head.
 
 Generated reviewer system prompts embed their canonical scope and enforcement skills, so reviewers build the lane packet without retrieving policy first. All three use Pi's provider-neutral `medium` thinking level rather than inheriting the root session's level. The foreground-only context-mode extension is intentionally unavailable inside in-process reviewers. Each reviewer invokes the packet CLI through repository-rooted Bash/Node and consumes its JSON in the same processing call; packets are never persisted or handed between calls. Standalone read, grep, Graphify, and indexed batch/global retrieval are unavailable to the lanes. The root waits for every report and alone changes the head.
 
@@ -401,7 +395,7 @@ Pi-native review and CI assets are seeded with explicit ownership:
 | `preseed/agents/pi/extensions/review-tool-guard.ts` | advanced | `~/.pi/agent/extensions/review-tool-guard.ts` | Reviewer-only direct-execution intent stripping |
 | `preseed/agents/pi/skills/{spec-enforce*,doc-enforce*}/SKILL.md` | advanced | `~/.pi/agent/skills/` | Native scoped SDD enforcement |
 | `preseed/agents/pi/extensions/active-repo-memory.ts` | default, advanced | `~/.pi/agent/extensions/active-repo-memory.ts` | Shared foreground repository memory without loading advanced commands |
-| `preseed/agents/pi/extensions/review-enforcement.ts` | default, advanced | `~/.pi/agent/extensions/review-enforcement.ts` | Ordered boundary launch plan, settled missing-wave follow-up, acknowledgement |
+| `preseed/agents/pi/extensions/review-enforcement.ts` | default, advanced | `~/.pi/agent/extensions/review-enforcement.ts` | Ordered exact-tool boundary dispatch, settled missing-wave follow-up, acknowledgement |
 | `preseed/agents/pi/extensions/review-helpers.ts` | default, advanced | `~/.pi/agent/extensions/review-helpers.ts` | Command grammar, lane classification, transcript correlation |
 | `preseed/agents/pi/extensions/review-scope.ts` | default, advanced | `~/.pi/agent/extensions/review-scope.ts` | Executable shared scope/work-set contract for commands and boundaries |
 
@@ -466,10 +460,10 @@ preserving user-added extensions
 AC6–AC7).
 
 CI follows a distinct execution path inside the extension-issued launch plan. The
-root invokes the plan's request resolver exactly once after reviewer calls and
-submits its zero-or-one JSON request unchanged once. The dedicated agent runs one
-attached monitor. Review acknowledgement has no CI condition, and interruption is
-intentionally not recovered automatically. This implements
+extension invokes the plan's request resolver exactly once after reviewer calls and
+invokes its zero-or-one JSON request unchanged through Pi's normal public tool
+pipeline. The dedicated agent runs one attached monitor. Review acknowledgement has
+no CI condition, and interruption is intentionally not recovered automatically. This implements
 [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring),
 [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan), and
 [AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent).
@@ -477,8 +471,12 @@ intentionally not recovered automatically. This implements
 Pi extraction is driven by two deployed contracts:
 `prompts/memory-agent-prompt.md` and `prompts/vault-extract-prompt.md`. The root
 extension reads Pi's durable session transcript, filters synthetic prompts,
-creates request-specific execution snapshots, and emits visible public
-background requests instead of invoking the private subagent service. Each launch repeats the same bounded item array in model-facing content and durable details metadata so the model can issue the exact public calls without reading session JSONL. Generated agents and emitted requests use provider-neutral medium reasoning, Bash-only evidence, and four turns ([AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional), [AD103](../decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs)).
+creates request-specific execution snapshots, records visible public launch metadata,
+and invokes exact background requests through Pi's normal public tool pipeline instead
+of using either the private subagent service or model-chosen dispatch. The durable
+metadata request objects equal the exact invoked arguments. Generated agents and
+emitted requests use provider-neutral medium reasoning, Bash-only evidence, and four
+turns ([AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional), [AD103](../decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs)).
 
 `memory-vault.ts` owns delivery and high-water state. `<sessionId>.vars` and
 `vault-extract.pi.vars` are tiny active request-ID pointers used only for reload
@@ -1015,7 +1013,7 @@ For Pi, the acknowledged full SHA remains at `.git/sdd-last-ack-pr-head`. A succ
 
 The USER-ONLY `/tmp/review-bypass` sentinel and explicit user wording remain review bypass surfaces; agents must not invoke them autonomously. Claude keeps its existing Stop-hook checkpoint and bypass semantics. Pi adds no pre-command merge interceptor.
 
-A direct current-session instruction to go **FULLY AUTONOMOUS** supersedes only the five-round commit stop for the active task. The root adds `autonomy_override=fully-autonomous` to reviewer prompts until the user cancels or narrows the task; manifest row 23 resolves that exact marker through the seeded round-limit script, while all other gates remain unchanged ([REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-pi-reviewer-policy-contract)).
+A direct current-session instruction containing the exact marker **FULLY AUTONOMOUS** supersedes only the five-round commit stop for the active task. The boundary extension adds `autonomy_override=fully-autonomous` to exact reviewer prompts until a direct user message contains **CANCEL FULLY AUTONOMOUS** or **STOP FULLY AUTONOMOUS**; manifest row 23 resolves that marker through the seeded round-limit script, while all other gates remain unchanged ([REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-pi-reviewer-policy-contract)).
 <!-- @impl: preseed/agents/pi/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override -->
 <!-- @impl: preseed/agents/pi/skills/spec-enforce/scripts/round-limit.mjs::action -->
 
@@ -1023,7 +1021,7 @@ After every required reviewer result arrives, the launch handoff requires an aut
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage -->
 <!-- @impl: preseed/agents/pi/skills/git-review-pipeline/SKILL.md::Finding discipline -->
 
-Pi CI is not part of review completion or acknowledgement. After an eligible successful Git action, including `gh pr update-branch`, the extension issues one ordered plan; the root launches required reviewers first, then runs that plan's resolver once with explicit repository cwd and review launch state. CI launches last without waiting for review completion. An empty response means no monitor, and interruption remains aborted until a later plan or explicit request ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)).
+Pi CI is not part of review completion or acknowledgement. After an eligible successful Git action, including `gh pr update-branch`, the extension issues one ordered plan, invokes required reviewers first, then runs that plan's resolver once with explicit repository cwd and review launch state through Pi's exact public tool pipeline. CI launches last without waiting for review completion. An empty response means no monitor, and interruption remains aborted until a later plan or explicit request ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)).
 
 ---
 
