@@ -64,9 +64,9 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ---
 
-### REQ-MEM-015: Pi Memory Capture Transcript Source and Child-Session Guard
+### REQ-MEM-015: Pi Extraction Transcript Visibility and Child-Session Guard
 
-**Intent:** Pi memory capture must read the durable session transcript and stay inert inside child subagent sessions so captures survive reloads without polluting monitor or capture transcripts.
+**Intent:** Pi extraction must read durable root-session input, expose launch requests to the model, and stay inert inside child subagent sessions so work survives reloads without polluting child transcripts.
 
 **Applies To:** User
 
@@ -75,6 +75,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 1. Capture reads each runtime's durable resume transcript, never volatile memory, so reload and resume retain full history; an empty resolved transcript skips capture instead of writing a placeholder. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (creates work on the fifteenth real prompt and emits a visible reminder without private spawn) -->
 2. Pi capture triggers are inert inside subagent child sessions — sessions whose header carries a parent-session pointer (review monitors, CI monitors, capture/extract subagents themselves) — so a background task's transcript never receives an injected capture follow-up as its visible output. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::isChildSession --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (keeps all handlers inert in child sessions) -->
 3. After root-session reload or resume, Pi reconstructs each active capture's launch, reminder, running, failure, and success state from durable session JSONL; a bounded turn-limit completion qualifies only with the job's post-commit artifacts, and unrelated or superseded results never count. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (correlates exact public calls and reconstructs running, failed, and successful state) -->
+4. Every capture/extract launch serializes identical bounded request items into model-facing custom-message content and durable delivery metadata. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-015 AC4: exposes identical extraction items to the model and durable metadata) -->
 
 **Notes:** Reload-safe transcript correlation is documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional).
 
@@ -390,7 +391,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 4. Capture input contains only uncaptured user/assistant text. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::compactMessages --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-001: compactMessages prefilter (AD58)) -->
 5. Capture input contains no more than 40 text turns of 4000 characters each. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::compactMessages --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-001: compactMessages prefilter (AD58)) -->
 6. Each Pi capture/extract request includes the optional model from `CODEFLARE_MEMORY_MODEL` only when non-empty; when unset, no model name is hardcoded. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (builds one bounded medium-reasoning public background request) -->
-7. Pi exposes each capture/extract launch as a public background `subagent` request with inherited context disabled, and the model-facing custom-message content carries the same bounded request items as durable delivery metadata. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (creates work on the fifteenth real prompt and emits a visible reminder without private spawn) -->
+7. Pi exposes each capture/extract launch as a public background `subagent` request with inherited context disabled, so main-session work cannot cancel it and no private service spawn is required. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (creates work on the fifteenth real prompt and emits a visible reminder without private spawn) -->
 
 **Notes:** Public delivery is documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional). The execution profile is owned by [REQ-MEM-016](#req-mem-016-pi-extraction-jobs-have-a-bounded-execution-profile) and documented in [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs).
 

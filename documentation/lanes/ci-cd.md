@@ -93,7 +93,7 @@ Two parallel jobs:
 
 ### PR Exact-Head Monitoring
 
-Pi resolves one report-only CI monitor after an eligible PR boundary. A same-repository `gh pr update-branch <target>` carries that PR number to the resolver; URL targets and `--repo` selectors are inert. Targetless push and PR creation retain checkout-relative lookup, while unresolved, closed, non-protected-base, or malformed-head targets fail closed ([REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring)).
+PR-boundary eligibility, exact-head target resolution, and CI-monitor recovery are owned by [Preseed — Resetting Review-Spawn Checkpoints](preseed.md#resetting-review-spawn-checkpoints).
 
 ### E2E Workflow Detail
 

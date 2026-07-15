@@ -445,9 +445,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(existsSync(memoryPointerPath(harness))).toBe(true);
     await harness.emit('agent_settled');
 
-    const launchMessage = latestLaunchMessage(harness.pi, 'memory-capture');
     const launch = latestLaunch(harness.pi, 'memory-capture');
-    expect(modelVisibleLaunchItems(launchMessage)).toEqual(launchMessage.message.details?.items);
     expect(launch.reminder).toBe(0);
     expect(launch.request).toMatchObject({
       subagent_type: 'memory-capture',
@@ -459,6 +457,21 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(launch.request.prompt).toContain(`CODEFLARE_EXTRACTION_REQUEST=${launch.requestId}`);
     expect(privateSpawnCalls).toBe(0);
     expect(harness.pi.sent.at(-1)?.options).toEqual({ deliverAs: 'followUp', triggerTurn: true });
+  });
+
+  it('REQ-MEM-015 AC4: exposes identical extraction items to the model and durable metadata', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
+    writeFileSync(memoryCounterPath(harness), '0', 'utf8');
+    for (let ordinal = 1; ordinal <= 15; ordinal += 1) await appendPrompt(harness, ordinal);
+    writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'visible.md'), 'visible\n', 'utf8');
+
+    await harness.emit('agent_settled');
+    const sent = latestLaunchMessage(harness.pi, 'memory-capture');
+    expect(sent.message.details?.items?.map((item) => item.jobType).sort())
+      .toEqual(['memory-capture', 'vault-extract']);
+    expect(modelVisibleLaunchItems(sent)).toEqual(sent.message.details?.items);
   });
 
   it('captures only prompts after the root-owned successful counter', async () => {
@@ -604,9 +617,7 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery', () => {
     expect(coalesced.changedFiles).toEqual([first, second]);
 
     await harness.emit('agent_settled');
-    const launchMessage = latestLaunchMessage(harness.pi, 'vault-extract');
     const launch = latestLaunch(harness.pi, 'vault-extract');
-    expect(modelVisibleLaunchItems(launchMessage)).toEqual(launchMessage.message.details?.items);
     expect(launch.request).toMatchObject({
       subagent_type: 'vault-extract',
       run_in_background: true,

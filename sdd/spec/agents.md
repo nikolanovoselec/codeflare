@@ -497,7 +497,7 @@ Multi-agent support, preseed system, and session modes.
 **Constraints:**
 
 - On Claude this workflow ships as the `commands/review.md` slash command; on Pi (where Claude slash commands do not deploy) the same workflow is delivered through the dedicated Pi-native `review` skill injected by the `/review` command handler, per [REQ-AGENT-050](#req-agent-050-pi-native-review-workflow-skill).
-- Report persistence, interactive triage, and mutation ownership live in [REQ-AGENT-088](#req-agent-088-user-invoked-review-ownership-and-triage).
+- Report persistence, interactive triage, and mutation ownership live in [REQ-AGENT-088](#req-agent-088-review-ownership-and-triage).
 
 **Priority:** P1
 
@@ -1104,7 +1104,7 @@ None.
 4. Passive lifecycle and child sessions cannot start or complete review. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes) -->
 5. Successful protected-base PR creation creates a settled review window whose successful reviewer completion can acknowledge the head. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-055: PR creation completion acknowledges its review window) -->
 6. Boundary repository context resolves through shell `cd`, explicit tool cwd, or Git `-C`. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::rememberActiveRepoFromToolResult --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (Pi review reminder and settled enforcement) -->
-7. An eligible reviewer launch plan triggers the next model turn with a triage-summary-before-fixes handoff. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074: emits one ordered reviewer-then-CI launch plan) -->
+7. An eligible launch plan is a root follow-up that triggers the next model turn. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074: emits one ordered reviewer-then-CI launch plan) -->
 
 **Constraints:**
 
@@ -2381,9 +2381,9 @@ None.
 
 ---
 
-### REQ-AGENT-088: User-Invoked Review Ownership and Triage
+### REQ-AGENT-088: Review Ownership and Triage
 
-**Intent:** User-invoked review must preserve specialist independence while keeping every persisted artifact and mutation under explicit root and user control.
+**Intent:** Review must preserve specialist independence while the root controls finding disposition, approval mode, persisted artifacts, and every mutation.
 
 **Applies To:** User
 
@@ -2392,8 +2392,8 @@ None.
 1. Pi `/review` dispatches a report-only execution contract whose reports belong to the root. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::REVIEW_EXECUTION --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-050 AC1/REQ-AGENT-088 AC1: dispatches the dedicated /review workflow contract) -->
 2. Claude `/review` gives every subagent a binding report-only execution mode. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) -->
 3. The root session persists every returned review report. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Review ownership (binding) -->
-4. The root applies a review fix only after the user approves it. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Review ownership (binding) -->
-5. Interactive triage records exactly one decision for each surfaced finding. <!-- @impl: preseed/agents/claude/commands/review.md::Phase 8: Interactive Triage --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Phase 8: Interactive triage -->
+4. User-invoked `/review` applies fixes only after user approval, while PR-boundary review applies legitimate minimal fixes automatically unless the user explicitly requested approval. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Review ownership (binding) --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074: emits one ordered reviewer-then-CI launch plan) -->
+5. User-invoked interactive triage records one decision per finding; PR-boundary triage independently records finding validity, proposed-fix proportionality, and the smallest correction before mutation. <!-- @impl: preseed/agents/claude/commands/review.md::Phase 8: Interactive Triage --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Phase 8: Interactive triage --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-074: emits one ordered reviewer-then-CI launch plan) -->
 6. Defer, ignore, and technical-debt decisions persist to `sdd/.review-decisions.md`. <!-- @impl: preseed/agents/claude/commands/review.md::Phase 9: Save Triage Results + Append to .review-decisions --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Phase 9: Save triage results + append to .review-decisions -->
 
 **Notes:** Report persistence, approval gating, and triage cardinality are manually verified through the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).

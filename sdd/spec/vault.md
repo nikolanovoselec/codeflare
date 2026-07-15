@@ -854,7 +854,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Acceptance Criteria:**
 
-1. The Pi root exposes each Vault extraction as one public background `subagent` request with inherited context disabled, with the exact bounded request visible both to the model and in durable delivery metadata. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (coalesces edits before launch and freezes the request after its first exact call) -->
+1. The Pi root exposes each Vault extraction as one public background `subagent` request with inherited context disabled, and never invokes a private spawn service. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (coalesces edits before launch and freezes the request after its first exact call) -->
 2. The Pi root reconstructs each request's launch count and missing, running, failed, successful, or GIVEUP state from durable root-session JSONL after reload; failed or missing work receives at most five reminders before GIVEUP. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (uses one reducer for reminders zero through five and then latches GIVEUP) -->
 3. Vault edits detected before launch coalesce into the pending request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::refreshPendingVaultRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (coalesces edits before launch and freezes the request after its first exact call) -->
 4. The committed manifest advances only when the matching request-specific post-commit chunk and staged bytes both validate; every other completion outcome leaves it unchanged. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::vaultSuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-VAULT-027: transactional Pi Vault extraction delivery) -->
@@ -871,7 +871,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s), [REQ-VAULT-026](#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-MEM-016](memory.md#req-mem-016-pi-extraction-jobs-have-a-bounded-execution-profile)
+**Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s), [REQ-VAULT-026](#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-MEM-015](memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard), [REQ-MEM-016](memory.md#req-mem-016-pi-extraction-jobs-have-a-bounded-execution-profile)
 
 **Verification:** [Pi extraction delivery tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [manifest promotion tests](../../src/__tests__/lib/vault-manifest-detection.test.ts)
 

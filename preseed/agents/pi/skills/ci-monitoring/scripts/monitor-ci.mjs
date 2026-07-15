@@ -70,6 +70,7 @@ export async function resolveCiMonitorRequest({ event, changed, repo, pr: reques
     resolvedPr.state !== 'OPEN' ||
     !['main', 'master'].includes(resolvedPr.baseRefName) ||
     !Number.isInteger(resolvedPr.number) ||
+    resolvedPr.number !== requestedPr ||
     !/^[0-9a-f]{40}$/i.test(resolvedPr.headRefOid ?? '')
   ) return null;
 

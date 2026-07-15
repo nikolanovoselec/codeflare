@@ -313,6 +313,9 @@ describe('Pi review reminder and settled enforcement', () => {
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
+    expect(harness.sent[0]?.message.content).toContain(
+      'apply legitimate minimal fixes by default unless the user explicitly requested approval',
+    );
 
     harness.sent.splice(0);
     await harness.emit('agent_settled');

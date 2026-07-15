@@ -219,6 +219,20 @@ test('REQ-AGENT-068 AC1: missing or malformed affected PR numbers fail closed', 
   assert.equal(calls, 0);
 });
 
+test('REQ-AGENT-068 AC1: a mismatched resolved PR number fails closed', async () => {
+  const request = await resolveCiMonitorRequest({
+    event: 'push',
+    changed: true,
+    repo: REPO,
+    pr: PR,
+    cwd: REQUEST_CWD,
+    reviewState: 'launched',
+    runner: async () => commandResult(openPr({ number: PR + 1 })),
+  });
+
+  assert.equal(request, null);
+});
+
 test('REQ-AGENT-068 AC1: unsupported, unchanged, missing, closed, and integration PR events return no request', async () => {
   const cases = [
     ['unsupported event', { event: 'review', changed: true }, openPr()],

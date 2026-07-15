@@ -1019,7 +1019,7 @@ A direct current-session instruction to go **FULLY AUTONOMOUS** supersedes only 
 <!-- @impl: preseed/agents/pi/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override -->
 <!-- @impl: preseed/agents/pi/skills/spec-enforce/scripts/round-limit.mjs::action -->
 
-After every required reviewer result arrives, the launch handoff requires an automatic triage summary before mutation. The root separately judges finding validity and proposed-fix proportionality, prefers existing machinery, rejects unsupported or overengineered proposals, and applies legitimate minimal fixes unless the user requested approval ([REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions)).
+After every required reviewer result arrives, the launch handoff requires an automatic triage summary before mutation. The root separately judges finding validity and proposed-fix proportionality, prefers existing machinery, rejects unsupported or overengineered proposals, and applies legitimate minimal fixes unless the user requested approval ([REQ-AGENT-088](../../sdd/spec/agents.md#req-agent-088-review-ownership-and-triage)).
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage -->
 <!-- @impl: preseed/agents/pi/skills/git-review-pipeline/SKILL.md::Finding discipline -->
 
