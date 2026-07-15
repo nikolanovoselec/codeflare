@@ -25,6 +25,7 @@ export type TranscriptFacts = {
   bypassed: boolean;
   fullyAutonomous: boolean;
   ciLaunched: boolean;
+  ciAgentId?: string;
   closedNotified: boolean;
   lanes: Record<ReviewLane, LaneFact>;
 };
@@ -465,6 +466,12 @@ export function reviewTranscriptFacts(input: {
       else if (lanes[lane].state !== "terminal") lanes[lane] = { state: "in-flight", toolUseId: call.id };
     }
   });
+  const matchingCiDispatch = input.ciHead
+    ? later.reduce<ServiceDispatch | undefined>((current, entry) => {
+      const dispatch = serviceDispatch(entry);
+      return dispatch?.kind === "ci" && dispatch.head === input.ciHead ? dispatch : current;
+    }, undefined)
+    : undefined;
   const ciLaunched = Boolean(input.ciHead && later.some((entry) => {
     const dispatch = serviceDispatch(entry);
     if (dispatch?.kind === "ci" && dispatch.head === input.ciHead) return true;
@@ -489,6 +496,7 @@ export function reviewTranscriptFacts(input: {
     bypassed,
     fullyAutonomous,
     ciLaunched,
+    ciAgentId: matchingCiDispatch?.agentId,
     closedNotified,
     lanes,
   };

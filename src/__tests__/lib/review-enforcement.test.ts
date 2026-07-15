@@ -44,6 +44,7 @@ type SpawnedAgent = {
 };
 type TestSubagentsService = {
   spawn(type: string, prompt: string, options?: ServiceSpawnOptions): string;
+  getRecord(id: string): { status: string } | undefined;
 };
 type CiRequest = {
   subagent_type: 'ci-monitor';
@@ -265,6 +266,7 @@ function makeHarness(repo: string, sessionFile: string): {
   sent: SentMessage[];
   appended: AppendedEntry[];
   service: TestSubagentsService;
+  serviceStatuses: Map<string, string>;
   spawned: SpawnedAgent[];
   emit(event: string, payload?: unknown): Promise<void>;
 } {
@@ -272,11 +274,17 @@ function makeHarness(repo: string, sessionFile: string): {
   const sent: SentMessage[] = [];
   const appended: AppendedEntry[] = [];
   const spawned: SpawnedAgent[] = [];
+  const serviceStatuses = new Map<string, string>();
   const service: TestSubagentsService = {
     spawn: (type, prompt, options) => {
       const id = nextId('agent');
       spawned.push({ id, type, prompt, options });
+      serviceStatuses.set(id, 'queued');
       return id;
+    },
+    getRecord: (id) => {
+      const status = serviceStatuses.get(id);
+      return status ? { status } : undefined;
     },
   };
   const pi: TestPi = {
@@ -316,6 +324,7 @@ function makeHarness(repo: string, sessionFile: string): {
     sent,
     appended,
     service,
+    serviceStatuses,
     spawned,
     emit: async (event, payload = {}) => {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
@@ -583,6 +592,32 @@ describe('Pi review reminder and settled enforcement', () => {
       ...ALL_LANES,
       'ci-monitor',
       'code-reviewer',
+    ]);
+  });
+
+  it('REQ-AGENT-053/REQ-AGENT-074: keeps unknown reload dispatches in flight but retries live stopped agents', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    appendSession(fixture.sessionFile,
+      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-1', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent());
+    await harness.emit('agent_settled');
+    expect(harness.spawned.map((agent) => agent.type)).toEqual([...ALL_LANES, 'ci-monitor']);
+
+    const reloadedHarness = await registerFixture(fixture);
+    await reloadedHarness.emit('agent_settled');
+    expect(reloadedHarness.spawned).toEqual([]);
+
+    for (const agent of harness.spawned) harness.serviceStatuses.set(agent.id, 'stopped');
+    await harness.emit('agent_settled');
+    expect(harness.spawned.map((agent) => agent.type)).toEqual([
+      ...ALL_LANES,
+      'ci-monitor',
+      ...ALL_LANES,
+      'ci-monitor',
     ]);
   });
 

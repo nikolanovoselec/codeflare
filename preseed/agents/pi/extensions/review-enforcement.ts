@@ -36,6 +36,7 @@ type ServiceSpawnOptions = {
 
 type SubagentsService = {
   spawn(type: string, prompt: string, options?: ServiceSpawnOptions): string;
+  getRecord(id: string): { status: string } | undefined;
 };
 
 type CiMonitorRequest = {
@@ -326,6 +327,12 @@ function subagentsService(dependencies: Dependencies): SubagentsService | undefi
   return dependencies.getSubagentsService?.() ?? (published as SubagentsService | undefined);
 }
 
+function serviceDispatchFailed(service: SubagentsService | undefined, agentId: string | undefined): boolean {
+  if (!service || !agentId) return false;
+  const status = service.getRecord(agentId)?.status;
+  return status === "stopped" || status === "aborted" || status === "error";
+}
+
 function reviewerPrompt(input: LaunchMessage, lane: ReviewLane): string {
   const autonomy = input.autonomyOverride ? "\nautonomy_override=fully-autonomous" : "";
   return [
@@ -569,7 +576,8 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       return;
     }
 
-    const ciEvent = facts.ciLaunched
+    const service = subagentsService(dependencies);
+    const ciEvent = facts.ciLaunched && !serviceDispatchFailed(service, facts.ciAgentId)
       ? undefined
       : ciBoundaryEvent(classifyReviewBoundaryCommand(facts.boundary.command).event);
     if (shouldReview && requiredLanes.length === 0) acknowledge(review.repo, review.pr.headRefOid);
@@ -596,7 +604,11 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
 
     const missingLanes = allReviewersTerminal || !shouldReview
       ? []
-      : requiredLanes.filter((lane): lane is ReviewLane => facts.lanes[lane].state === "missing");
+      : requiredLanes.filter((lane): lane is ReviewLane => {
+        const fact = facts.lanes[lane];
+        return fact.state === "missing"
+          || (fact.state === "in-flight" && serviceDispatchFailed(service, fact.agentId));
+      });
     if (missingLanes.length === 0 && !ciEvent) return;
     if (missingLanes.length > 0 && blockDecision(review.repo, review.pr.headRefOid) === "giveup") return;
 
