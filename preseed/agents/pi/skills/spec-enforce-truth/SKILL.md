@@ -38,10 +38,10 @@ Missing symbol or value drift is HIGH. Behavior mismatch is MEDIUM or HIGH when 
 Canonical parser:
 
 ```regex
-<!--\s*@test:\s*(\S+?)\s*\((.+)\)\s*-->
+<!--\s*@test:\s*(\S+?)\s*\((.*?)\)\s*-->
 ```
 
-The title capture is greedy. Therefore an AC carries **at most one** `@test` comment. Multiple test anchors on one AC are HIGH `spec-test-anchor-multiple`; split the behaviors into separate ACs or point to one encompassing named test block.
+Apply the parser globally to each HTML comment independently. An AC may carry multiple `@test` comments when several named blocks jointly cover the behavior; each anchor is resolved and validated separately. The title capture stops only at a `)` followed by the comment terminator, so nested parentheses remain supported without swallowing later anchors.
 
 For each in-scope test anchor:
 

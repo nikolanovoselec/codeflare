@@ -198,6 +198,14 @@ const FileList: Component<FileListProps> = (props) => {
         }}
       </For>
 
+      <Show when={storageStore.isTruncated && !storageStore.loadingMore && !storageStore.loadMoreError}>
+        <div class="storage-pagination-status" data-testid="storage-load-more">
+          <Button variant="secondary" size="sm" onClick={() => void storageStore.loadMore()}>
+            Load more
+          </Button>
+        </div>
+      </Show>
+
       <Show when={storageStore.loadingMore}>
         <div
           class="storage-pagination-status"

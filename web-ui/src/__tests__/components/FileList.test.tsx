@@ -59,6 +59,25 @@ describe('FileList pagination', () => {
     fireEvent.scroll(dropZone);
     expect(loadMore).toHaveBeenCalledTimes(1);
   });
+
+  it('REQ-STOR-016 AC7: exposes continuation when the first page cannot scroll', () => {
+    const loadMore = vi.spyOn(storageStore, 'loadMore').mockResolvedValue(undefined);
+    vi.spyOn(storageStore, 'isTruncated', 'get').mockReturnValue(true);
+    vi.spyOn(storageStore, 'loadingMore', 'get').mockReturnValue(false);
+    vi.spyOn(storageStore, 'loadMoreError', 'get').mockReturnValue(null);
+    const { getByTestId } = render(() => (
+      <FileList {...makeProps({
+        objects: [{ key: 'Notes/a.md', size: 1, lastModified: '2026-07-14T00:00:00Z' }],
+        prefixes: [],
+      })} />
+    ));
+
+    const control = getByTestId('storage-load-more');
+    const button = control.querySelector('button');
+    expect(button).toBeTruthy();
+    fireEvent.click(button!);
+    expect(loadMore).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('FileList — clicking a file opens it in a new tab (not download)', () => {

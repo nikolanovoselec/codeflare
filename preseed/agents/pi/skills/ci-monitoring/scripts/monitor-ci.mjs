@@ -90,10 +90,19 @@ export async function monitorCi({
   clock = { now: Date.now },
   sleep = (milliseconds) => new Promise((done) => setTimeout(done, milliseconds)),
 } = {}) {
-  const base = { repo, pr, head };
-  if (!repo || !Number.isInteger(pr) || !/^[0-9a-f]{40}$/i.test(head ?? '')) {
-    return summary('timeout', { ...base, reason: 'invalid_request' });
+  if (!repo || !Number.isInteger(pr)) {
+    return summary('timeout', { repo, pr, head, reason: 'invalid_request' });
   }
+  if (!/^[0-9a-f]{40}$/i.test(head ?? '')) {
+    const currentHead = /^[0-9a-f]{41}$/i.test(head ?? '')
+      ? await readHead({ repo, pr, runner, cwd })
+      : null;
+    if (!currentHead || head.slice(0, 40) !== currentHead) {
+      return summary('timeout', { repo, pr, head, reason: 'invalid_request' });
+    }
+    head = currentHead;
+  }
+  const base = { repo, pr, head };
   const startedAt = clock.now();
   let fingerprint = '';
   let stablePolls = 0;

@@ -133,7 +133,7 @@ function assertResult(output, status) {
   return lines;
 }
 
-test('REQ-AGENT-068 AC6: command execution is bounded when a provider hangs', async () => {
+test('REQ-AGENT-068 AC7: command execution is bounded when a provider hangs', async () => {
   const result = await runCommand(
     process.execPath,
     ['-e', 'setTimeout(() => {}, 200)'],
@@ -227,7 +227,7 @@ test('REQ-AGENT-068 AC2: valid check JSON is parsed despite gh exit statuses 1 a
   assert.equal(github.checkCalls(), 2);
 });
 
-test('REQ-AGENT-068 AC2: pending checks wait for a stable pass and skipping fingerprint', async () => {
+test('REQ-AGENT-068 AC2/AC3: pending checks wait for a stable pass and skipping fingerprint', async () => {
   const terminal = [
     check('lint / linux', 'pass', { workflow: 'Buildkite mirror' }),
     check('license scan', 'skipping', { workflow: 'External compliance' }),
@@ -245,7 +245,7 @@ test('REQ-AGENT-068 AC2: pending checks wait for a stable pass and skipping fing
   assert.ok(lines.length <= 8, 'result should remain concise');
 });
 
-test('REQ-AGENT-068 AC2: a changed terminal fingerprint resets the stability requirement', async () => {
+test('REQ-AGENT-068 AC3: a changed terminal fingerprint resets the stability requirement', async () => {
   const first = [check('unit', 'pass')];
   const changed = [check('unit', 'pass'), check('security', 'pass')];
   const { output, github } = await runMonitor({ checks: [first, changed, changed] });
@@ -254,7 +254,7 @@ test('REQ-AGENT-068 AC2: a changed terminal fingerprint resets the stability req
   assert.equal(github.checkCalls(), 3);
 });
 
-test('REQ-AGENT-068 AC4: failed and cancelled arbitrary providers report failure with links', async () => {
+test('REQ-AGENT-068 AC5: failed and cancelled arbitrary providers report failure with links', async () => {
   const failed = check('Vendor A / shard 9', 'fail', { workflow: 'Provider Alpha', state: 'FAILURE' });
   const cancelled = check('queue-check', 'cancel', { workflow: 'Provider Beta', state: 'CANCELLED' });
   const { output, github } = await runMonitor({ checks: [[failed, cancelled]] });
@@ -269,7 +269,44 @@ test('REQ-AGENT-068 AC4: failed and cancelled arbitrary providers report failure
   }
 });
 
-test('REQ-AGENT-068 AC6: malformed and transient GitHub responses never become success', async () => {
+test('REQ-AGENT-068 AC7: one appended head character is corrected only against the authoritative PR head', async () => {
+  const time = fakeClock();
+  const github = monitorRunner({
+    checks: [[check('unit', 'pass')], [check('unit', 'pass')]],
+  });
+  const output = await monitorCi({
+    repo: REPO,
+    pr: PR,
+    head: `${HEAD}f`,
+    runner: github.runner,
+    clock: time.clock,
+    sleep: time.sleep,
+  });
+
+  assertResult(output, 'success');
+  assert.equal(github.checkCalls(), 2);
+});
+
+test('REQ-AGENT-068 AC7: unrelated malformed heads remain invalid', async () => {
+  const time = fakeClock();
+  const github = monitorRunner();
+  const malformed = `f${HEAD}`;
+  const output = await monitorCi({
+    repo: REPO,
+    pr: PR,
+    head: malformed,
+    runner: github.runner,
+    clock: time.clock,
+    sleep: time.sleep,
+  });
+
+  assert.match(output, /^CI_RESULT timeout/m);
+  assert.match(output, /invalid_request/);
+  assert.match(output, new RegExp(`head=${malformed}`));
+  assert.equal(github.checkCalls(), 0);
+});
+
+test('REQ-AGENT-068 AC7: malformed and transient GitHub responses never become success', async () => {
   const { output, time } = await runMonitor({
     checks: [commandResult('{not-json', 1), new Error('temporary network failure')],
     fallbackChecks: [check('still-running', 'pending')],
@@ -280,7 +317,7 @@ test('REQ-AGENT-068 AC6: malformed and transient GitHub responses never become s
   assert.ok(time.elapsed() >= 30 * 60_000);
 });
 
-test('REQ-AGENT-068 AC6: pending checks enforce the thirty-minute total timeout', async () => {
+test('REQ-AGENT-068 AC7: pending checks enforce the thirty-minute total timeout', async () => {
   const { output, time } = await runMonitor({
     fallbackChecks: [check('long-running', 'pending')],
   });
@@ -290,7 +327,7 @@ test('REQ-AGENT-068 AC6: pending checks enforce the thirty-minute total timeout'
   assert.ok(time.elapsed() < 30 * 60_000 + POLL_MS);
 });
 
-test('REQ-AGENT-068 AC3: a superseded head stops before checks are queried', async () => {
+test('REQ-AGENT-068 AC4: a superseded head stops before checks are queried', async () => {
   const { output, github } = await runMonitor({ heads: [NEXT_HEAD] });
 
   assertResult(output, 'timeout');
@@ -299,7 +336,7 @@ test('REQ-AGENT-068 AC3: a superseded head stops before checks are queried', asy
   assert.equal(github.checkCalls(), 0);
 });
 
-test('REQ-AGENT-068 AC3: a superseded head prevents terminal success', async () => {
+test('REQ-AGENT-068 AC4: a superseded head prevents terminal success', async () => {
   const passing = [check('unit', 'pass')];
   const { output, github } = await runMonitor({
     heads: [HEAD, HEAD, HEAD, NEXT_HEAD],
@@ -312,7 +349,7 @@ test('REQ-AGENT-068 AC3: a superseded head prevents terminal success', async () 
   assert.equal(github.checkCalls(), 2);
 });
 
-test('REQ-AGENT-068 AC3/AC4: a superseded head prevents terminal failure', async () => {
+test('REQ-AGENT-068 AC4/AC5: a superseded head prevents terminal failure', async () => {
   const { output, github } = await runMonitor({
     heads: [HEAD, NEXT_HEAD],
     checks: [[check('unit', 'fail')]],
@@ -324,7 +361,7 @@ test('REQ-AGENT-068 AC3/AC4: a superseded head prevents terminal failure', async
   assert.equal(github.checkCalls(), 1);
 });
 
-test('REQ-AGENT-068 AC5: monitoring creates no Codeflare state, log, or PID files', async () => {
+test('REQ-AGENT-068 AC6: monitoring creates no Codeflare state, log, or PID files', async () => {
   const repo = mkdtempSync(join(tmpdir(), 'pi-ci-monitor-'));
   const time = fakeClock();
   const github = monitorRunner({

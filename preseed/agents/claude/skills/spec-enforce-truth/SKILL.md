@@ -90,10 +90,10 @@ Beyond the binary REQ-level check above, when `enforce_tdd: true` CQ-TEST verifi
 **Anchor parsing.** For every `Implemented` or `Partial` REQ (skip `Verification: Manual check`), scan each AC bullet for the inline test-anchor comment:
 
 ```
-<!--\s*@test:\s*(\S+?)\s*\((.+)\)\s*-->
+<!--\s*@test:\s*(\S+?)\s*\((.*?)\)\s*-->
 ```
 
-Capture groups: `<path>`, `<block-title>` (`(.+)` is greedy so parentheses nested in the title are captured).
+Capture groups: `<path>`, `<block-title>`. Apply the regex globally to each HTML comment independently. The title capture stops only at a `)` followed by the comment terminator, so nested parentheses remain supported without swallowing later `@test` comments on the same AC.
 
 **Per-anchor validation.** For each captured `@test` anchor:
 

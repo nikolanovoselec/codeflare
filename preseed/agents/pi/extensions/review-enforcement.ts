@@ -240,6 +240,7 @@ type LaunchMessage = {
 };
 
 function ciBoundaryEvent(event: ReviewBoundaryEvent | undefined): CiBoundaryEvent | undefined {
+  if (event === "pr-update-branch") return "push";
   return event === "push" || event === "pr-create" ? event : undefined;
 }
 

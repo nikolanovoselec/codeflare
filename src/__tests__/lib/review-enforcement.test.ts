@@ -432,6 +432,34 @@ describe('Pi review reminder and settled enforcement', () => {
     });
   });
 
+  it('REQ-AGENT-036/REQ-AGENT-068: update-branch emits reviewers and exact-head CI', async () => {
+    const fixture = makeReviewFixture();
+    const harness = await registerFixture(fixture);
+    const command = 'gh pr update-branch 42';
+    appendSession(fixture.sessionFile,
+      assistantTool('update-branch-1', 'bash', { command }),
+      toolResult('update-branch-1', 'bash'),
+    );
+
+    await harness.emit('tool_result', boundaryEvent(command));
+
+    expect(harness.sent).toEqual([{
+      message: expect.objectContaining({
+        customType: 'pr-boundary-launch-plan',
+        details: {
+          head: fixture.head,
+          ackHead: fixture.base,
+          reviewRange: `${fixture.base}..${fixture.head}`,
+          scope: diffScope(),
+          requiredLanes: ALL_LANES,
+          launchWaves: launchWaves(ALL_LANES, true),
+          ciEvent: 'push',
+        },
+      }),
+      options: { deliverAs: 'followUp', triggerTurn: true },
+    }]);
+  });
+
   it('REQ-AGENT-055/REQ-AGENT-082: protected retarget invalidation survives compound commands and disabled review mode', async () => {
     const fixture = makeReviewFixture();
     writeFileSync(join(fixture.repo, '.git/sdd-last-ack-pr-head'), `${fixture.head}\n`, 'utf8');

@@ -5,7 +5,7 @@ import { join } from "node:path";
 export const ALL_REVIEW_LANES = ["code-reviewer", "spec-reviewer", "doc-updater"] as const;
 export type ReviewLane = (typeof ALL_REVIEW_LANES)[number];
 
-export type ReviewBoundaryEvent = "push" | "pr-create" | "pr-edit" | "pr-merge";
+export type ReviewBoundaryEvent = "push" | "pr-create" | "pr-edit" | "pr-update-branch" | "pr-merge";
 type BoundarySurfaces = { reminder: boolean; settled: boolean; event?: ReviewBoundaryEvent; protectedRetarget?: true };
 type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
 export type TranscriptFacts = {
@@ -183,6 +183,10 @@ export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces
       reminder = settled = true;
       protectedRetarget = true;
       event = "pr-edit";
+    }
+    if (words[0] === "gh" && words[1] === "pr" && words[2] === "update-branch") {
+      reminder = settled = true;
+      event = "pr-update-branch";
     }
     if (words[0] === "gh" && words[1] === "pr" && words[2] === "merge") {
       settled = true;

@@ -39,8 +39,22 @@ def dedupe_node_link_edges(blob: dict[str, Any]) -> dict[str, Any]:
     return {**blob, edge_key: list(unique.values())}
 
 
-def dedupe_node_link_file(path: Path) -> dict[str, Any]:
-    normalized = dedupe_node_link_edges(json.loads(path.read_text(encoding="utf-8")))
+def merge_node_link_evidence(
+    persisted: dict[str, Any], *evidence_blobs: dict[str, Any]
+) -> dict[str, Any]:
+    """Restore all prior/new edge evidence after simple graph composition."""
+    edge_key = "links" if "links" in persisted or "edges" not in persisted else "edges"
+    edges = list(persisted.get("links", persisted.get("edges", [])))
+    for blob in evidence_blobs:
+        edges.extend(blob.get("links", blob.get("edges", [])))
+    return dedupe_node_link_edges({**persisted, edge_key: edges})
+
+
+def dedupe_node_link_file(
+    path: Path, *evidence_blobs: dict[str, Any]
+) -> dict[str, Any]:
+    persisted = json.loads(path.read_text(encoding="utf-8"))
+    normalized = merge_node_link_evidence(persisted, *evidence_blobs)
     work_path = path.with_name(f".{path.name}.dedupe")
     work_path.write_text(
         json.dumps(normalized, ensure_ascii=False, indent=2) + "\n",
@@ -63,6 +77,7 @@ def main() -> None:
     out_path = Path(sys.argv[3] if len(sys.argv) > 3 else DEFAULT_OUT)
 
     graph_prior = nx.DiGraph()
+    prior_blob: dict[str, Any] = {"nodes": [], "links": []}
     try:
         if vault_graph_path.exists():
             prior_blob = json.loads(vault_graph_path.read_text(encoding="utf-8"))
@@ -85,7 +100,7 @@ def main() -> None:
     graph_merged = nx.compose(graph_prior, graph_new)
     communities = cluster(graph_merged) if graph_merged.number_of_nodes() else {}
     to_json(graph_merged, communities, str(vault_graph_path))
-    persisted = dedupe_node_link_file(vault_graph_path)
+    persisted = dedupe_node_link_file(vault_graph_path, prior_blob, extraction)
 
     if out_path != vault_graph_path:
         out_work = out_path.with_name(f".{out_path.name}.merge")

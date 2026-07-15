@@ -105,6 +105,37 @@ print(json.dumps(module['dedupe_node_link_edges'](blob), sort_keys=True))
   ]);
 });
 
+test('REQ-MEM-009 AC2: cumulative merge preserves distinct evidence between the same nodes', () => {
+  const code = `
+import json, runpy
+module = runpy.run_path(${JSON.stringify(SCRIPT)}, run_name='merge_contract_test')
+persisted = {
+  'nodes': [{'id': 'document'}, {'id': 'concept'}],
+  'links': [
+    {'source': 'document', 'target': 'concept', 'relation': 'mentions', 'source_file': '/new.md'},
+  ],
+}
+prior = {
+  'links': [
+    {'source': 'document', 'target': 'concept', 'relation': 'references', 'source_file': '/prior.md'},
+  ],
+}
+new = {
+  'links': [
+    {'source': 'document', 'target': 'concept', 'relation': 'mentions', 'source_file': '/new.md'},
+  ],
+}
+print(json.dumps(module['merge_node_link_evidence'](persisted, prior, new), sort_keys=True))
+`;
+  const result = spawnSync('python3', ['-c', code], { encoding: 'utf8', timeout: 5_000 });
+  assert.equal(result.status, 0, result.stderr);
+  const merged = JSON.parse(result.stdout);
+  assert.deepEqual(merged.links, [
+    { source: 'document', target: 'concept', relation: 'mentions', source_file: '/new.md' },
+    { source: 'document', target: 'concept', relation: 'references', source_file: '/prior.md' },
+  ]);
+});
+
 test('REQ-MEM-009 AC2: script normalises both operands to directed before nx.compose (no crash on an undirected prior graph)', () => {
   // build_from_json returns an undirected Graph, and a prior vault-graph.json
   // written by an older release (directed:false, or lacking the flag) also
