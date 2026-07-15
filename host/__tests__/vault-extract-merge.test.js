@@ -1,13 +1,13 @@
 // REQ-MEM-009: vault-extract cumulative merge pipeline.
 //
 // Behavioral cases execute merge-vault-graph.py against persisted and
-// request graphs. Focused AST checks cover recovery branches that are
-// difficult to trigger without coupling tests to NetworkX internals.
+// request graphs. Focused AST checks cover static export/composition wiring.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -188,19 +188,65 @@ print(len(calls))
   );
 });
 
-test('REQ-MEM-009: missing or corrupt persistent graph input has a guarded recovery branch', () => {
-  const r = pyAst(`
-tries = [n for n in ast.walk(tree) if isinstance(n, ast.Try)]
-ok = False
-for t in tries:
-    body_src = ast.unparse(t)
-    if 'vault_graph_path' in body_src and t.handlers:
-        ok = True
-        break
-print('OK' if ok else 'MISSING')
-`);
-  assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout.trim(), 'OK', 'merge-vault-graph.py must wrap the vault_graph_path read in a try/except block');
+test('REQ-MEM-009: missing or corrupt persistent graph input recovers to a valid merged graph', () => {
+  for (const [name, persisted] of [['missing', null], ['corrupt', '{not-json']]) {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), `vault-merge-${name}-`));
+    const chunkPath = path.join(directory, 'chunk.json');
+    const vaultPath = path.join(directory, 'vault-graph.json');
+    const outPath = path.join(directory, 'graph.json');
+
+    try {
+      fs.writeFileSync(chunkPath, JSON.stringify({ nodes: [{ id: 'new' }], links: [] }));
+      if (persisted !== null) fs.writeFileSync(vaultPath, persisted);
+      const code = `
+import json, runpy, sys, types
+
+class Graph:
+    def __init__(self, blob=None):
+        self.blob = blob or {'nodes': [], 'links': []}
+    def is_directed(self):
+        return True
+    def to_directed(self):
+        return self
+    def number_of_nodes(self):
+        return len(self.blob.get('nodes', []))
+
+def compose(left, right):
+    nodes = {}
+    for item in left.blob.get('nodes', []) + right.blob.get('nodes', []):
+        if isinstance(item, dict) and isinstance(item.get('id'), str):
+            nodes.setdefault(item['id'], item)
+    return Graph({'nodes': list(nodes.values()), 'links': left.blob.get('links', []) + right.blob.get('links', [])})
+
+networkx = types.ModuleType('networkx')
+networkx.DiGraph = Graph
+networkx.node_link_graph = lambda blob, edges='edges': Graph(blob)
+networkx.compose = compose
+sys.modules['networkx'] = networkx
+
+graphify = types.ModuleType('graphify')
+graphify.__path__ = []
+build = types.ModuleType('graphify.build')
+build.build_from_json = lambda blob: Graph(blob)
+cluster_module = types.ModuleType('graphify.cluster')
+cluster_module.cluster = lambda graph: {}
+export = types.ModuleType('graphify.export')
+export.to_json = lambda graph, communities, output: open(output, 'w', encoding='utf-8').write(json.dumps(graph.blob))
+sys.modules.update({'graphify': graphify, 'graphify.build': build, 'graphify.cluster': cluster_module, 'graphify.export': export})
+
+sys.argv = [${JSON.stringify(SCRIPT)}, ${JSON.stringify(chunkPath)}, ${JSON.stringify(vaultPath)}, ${JSON.stringify(outPath)}]
+runpy.run_path(${JSON.stringify(SCRIPT)}, run_name='__main__')
+`;
+      const result = spawnSync('python3', ['-c', code], { encoding: 'utf8', timeout: 5_000 });
+      assert.equal(result.status, 0, `${name}: ${result.stderr}`);
+      const persistedGraph = JSON.parse(fs.readFileSync(vaultPath, 'utf8'));
+      assert.deepEqual(persistedGraph.nodes.map((node) => node.id), ['new'], name);
+      assert.deepEqual(persistedGraph.links, [], name);
+      assert.deepEqual(JSON.parse(fs.readFileSync(outPath, 'utf8')), persistedGraph, name);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  }
 });
 
 test('REQ-MEM-009: the Pi-local merge-vault-graph.py is byte-identical to the Claude copy (path-agnostic, no drift)', () => {

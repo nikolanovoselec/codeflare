@@ -23,7 +23,6 @@ type TranscriptFacts = {
   lanes: Record<ReviewLane, { state: 'missing' | 'in-flight' | 'terminal'; toolUseId?: string }>;
 };
 type PlannedReviewHelpers = {
-  reviewRoundLimitAction(countedCommits: number, autonomyOverride?: string): 'continue' | 'stop';
   classifyReviewBoundaryCommand(command: string): BoundarySurfaces;
   isReviewTransitionSuspended(repo: string): boolean;
   requiredReviewLanes(input: { repo: string; ackHead?: string; head: string }): ReviewLane[];
@@ -135,14 +134,6 @@ afterEach(() => {
 });
 
 describe('Claude-equivalent review boundary helpers', () => {
-  it('REQ-AGENT-084: fully autonomous marker bypasses only the five-round stop', async () => {
-    const { reviewRoundLimitAction } = await plannedHelpers();
-
-    expect(reviewRoundLimitAction(4)).toBe('continue');
-    expect(reviewRoundLimitAction(5)).toBe('stop');
-    expect(reviewRoundLimitAction(5, 'fully-autonomous')).toBe('continue');
-  });
-
   it('REQ-AGENT-063: distinguishes supported reminder and settled command surfaces', async () => {
     const { classifyReviewBoundaryCommand } = await plannedHelpers();
     const push = { reminder: true, settled: true, event: 'push' as const };

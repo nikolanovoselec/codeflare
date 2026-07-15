@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,6 +56,22 @@ describe('REQ-AGENT-006 AC1 and REQ-AGENT-007 AC4: Pi manifest ownership', () =>
         );
       }
     }
+  });
+
+  it('REQ-AGENT-084: enforcement round limit honors only the exact fully autonomous marker', () => {
+    const script = join(repoRoot, 'preseed/agents/pi/skills/spec-enforce/scripts/round-limit.mjs');
+    const decide = (count, marker) => {
+      const result = spawnSync(process.execPath, [script, String(count), ...(marker ? [marker] : [])], {
+        encoding: 'utf8',
+      });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+
+    assert.equal(decide(4), 'continue');
+    assert.equal(decide(5), 'stop');
+    assert.equal(decide(5, 'fully-autonomous'), 'continue');
+    assert.equal(decide(5, 'FULLY AUTONOMOUS'), 'stop');
   });
 
   it('REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt', () => {

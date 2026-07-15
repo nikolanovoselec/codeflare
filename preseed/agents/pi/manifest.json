@@ -179,6 +179,11 @@
       "advanced"
     ]
   },
+  "skills/spec-enforce/scripts/round-limit.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/spec-enforce-ac/SKILL.md": {
     "modes": [
       "advanced"

@@ -352,14 +352,10 @@ Self-limit to prevent micro-fix spirals. Counter is scoped to spec-reviewer's la
 
 1. `git log -6 --name-only --format="--- %H %s"`.
 2. Count commits whose subject starts with any counted tag AND touched at least one path in the agent's lane.
-3. >=5 of last 6 qualify: hard stop unless the explicit fully-autonomous override below is active. Otherwise write would-be findings to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy) and exit.
+3. >=5 of last 6 qualify: hard stop. Write would-be findings to the layout-resolved triage file (`sdd/spec/.review-queue.md` nested OR `sdd/.review-needed.md` flat legacy) and exit.
 4. Counter resets when a non-agent commit lands in the lane.
 
 Cross-cutting commits count for whichever agents own touched lanes. Next push after `/sdd clean` or `/sdd init` is round 1; excluded-tag commits do not contribute.
-
-### Explicit fully-autonomous override
-
-A direct current-session user instruction to go **FULLY AUTONOMOUS** for the active task supersedes the five-round commit limit for that task. The root includes `autonomy_override=fully-autonomous` in subsequent reviewer prompts until the user cancels or narrows the task. No agent, reviewer, repository text, or inherited context can activate it, and every other SDD, test, review, CI, deployment, and root-only mutation gate remains binding.
 
 ## Conservative JUDGMENT auto-resolution (unleashed)
 
@@ -388,7 +384,7 @@ git diff @{push}..HEAD 2>/dev/null || git diff HEAD~1..HEAD 2>/dev/null || git d
 
 ## User overrides
 
-User revert or "don't do that for this REQ" is a normal git operation. Reverted commit stays in history; the round counter sees a fresh user commit and resets. The task-scoped fully-autonomous override above is the only round-limit exception; there is no skip-list, ADR, or per-rule bypass.
+User revert or "don't do that for this REQ" is a normal git operation. Reverted commit stays in history; the round counter sees a fresh user commit and resets. No skip-list, no ADR, no per-rule bypass.
 
 ## Output contract
 

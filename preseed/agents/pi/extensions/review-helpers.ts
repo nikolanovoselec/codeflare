@@ -6,13 +6,6 @@ export const ALL_REVIEW_LANES = ["code-reviewer", "spec-reviewer", "doc-updater"
 export type ReviewLane = (typeof ALL_REVIEW_LANES)[number];
 
 export type ReviewBoundaryEvent = "push" | "pr-create" | "pr-edit" | "pr-update-branch" | "pr-merge";
-
-export function reviewRoundLimitAction(
-  countedCommits: number,
-  autonomyOverride?: string,
-): "continue" | "stop" {
-  return countedCommits >= 5 && autonomyOverride !== "fully-autonomous" ? "stop" : "continue";
-}
 type BoundarySurfaces = {
   reminder: boolean;
   settled: boolean;
