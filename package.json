@@ -50,7 +50,7 @@
     "@vitest/coverage-v8": "4.1.10",
     "fast-check": "^4.8.0",
     "knip": "^6.17.1",
-    "oxlint": "^1.70.0",
+    "oxlint": "^1.74.0",
     "puppeteer": "^25.3.0",
     "typescript": "^6.0.3",
     "vitest": "4.1.10",
