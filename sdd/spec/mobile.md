@@ -35,7 +35,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 3. The mobile E2E test suite passes against the deployed worker. <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-001: Terminal fully usable on mobile devices) -->
 4. Terminal dimensions are recalculated on every viewport change (virtual keyboard open/close, orientation change, resize), keeping the layout free of visual corruption. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-001 AC5: visualViewport resize event triggers keyboard state update (fallback path)) -->
 5. The terminal layout recalculation is skipped when the terminal container has no visible height, preventing row calculation corruption on inactive terminals. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-001 AC6: skips the keyboard refit (no fit, no PTY resize) when the container has zero visible height) -->
-6. Floating page controls navigate normal terminal scrollback through xterm's viewport APIs. <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::FloatingTerminalButtons --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)) -->
+6. Floating page controls navigate normal terminal scrollback through xterm's buffer scroll pipeline with buffer-derived deltas. <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::FloatingTerminalButtons --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (REQ-MOB-001 AC7: navigates normal-buffer pages through the buffer scroll pipeline) -->
 7. Floating page controls send PageUp/PageDown input to navigate alternate-screen application history. <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::FloatingTerminalButtons --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (REQ-MOB-001 AC7: sends PageUp and PageDown to an alternate-screen application) -->
 
 **Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
@@ -192,7 +192,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 7. When the keyboard is open, vertical swipes send arrow keys while horizontal swipes remain available, regardless of any fullscreen application wheel capture. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-005 AC7: keyboard-open vertical swipes send arrow keys even under fullscreen wheel tracking) -->
 **Constraints:**
 
-- Normal scrollback uses xterm's buffer-scroll API; alternate-screen application scrolling uses xterm's public DOM wheel pipeline so mouse-protocol encoding remains owned by xterm.
+- Normal scrollback scrolls xterm's buffer service directly rather than the public viewport-relative scroll API — the viewport's DOM scroll state can diverge from the buffer and resolve one relative tick as a jump to the top of scrollback; buffer scroll events re-command the DOM state absolutely, repairing divergence ([REQ-TERM-014](terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming)).
+- Alternate-screen application scrolling uses xterm's public DOM wheel pipeline so mouse-protocol encoding remains owned by xterm.
 
 **Priority:** P1
 

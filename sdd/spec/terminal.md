@@ -472,6 +472,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 **Constraints:**
 
 - The write buffer either defers or writes; it never scrolls the viewport. Output-driven trimming stays delegated to xterm.
+- User-driven scrollback navigation (touch gestures, floating page controls) scrolls the buffer service directly with buffer-derived deltas; each buffer scroll event re-commands the viewport DOM scroll state absolutely, so DOM/buffer divergence is repaired per tick instead of resolving as a single jump to the top of scrollback.
 - Held output is capped at 2,000,000 characters; a cap-exceeding flush proceeds and may trim beneath the reader.
 - Alternate-buffer output is never deferred — fullscreen applications own their history and have no scrollback to read.
 - A zero display offset during full-buffer trimming is valid xterm behavior and is not, by itself, evidence of a browser reset.

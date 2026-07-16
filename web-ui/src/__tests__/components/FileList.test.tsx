@@ -51,7 +51,7 @@ describe('FileList pagination', () => {
       prefixes: [],
       isTruncated: false,
     };
-    vi.spyOn(storageApi, 'browseStorage').mockResolvedValueOnce(pageOne).mockResolvedValueOnce(pageTwo);
+    const browseSpy = vi.spyOn(storageApi, 'browseStorage').mockResolvedValueOnce(pageOne).mockResolvedValueOnce(pageTwo);
     await storageStore.browse('Notes/');
     const { getByTestId } = render(() => <FileList {...makeProps(pageOne)} />);
     const dropZone = getByTestId('storage-drop-zone');
@@ -62,6 +62,9 @@ describe('FileList pagination', () => {
     });
 
     fireEvent.scroll(dropZone);
+    // loadMore is async, so the objects assertion alone could pass even if an
+    // erroneous request were in flight — the call count is the real negative.
+    expect(browseSpy).toHaveBeenCalledTimes(1);
     expect(storageStore.objects.map((object) => object.key)).toEqual(['Notes/a.md']);
 
     Object.defineProperty(dropZone, 'scrollTop', { configurable: true, value: 49 });

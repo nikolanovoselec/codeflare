@@ -1,5 +1,5 @@
 import type { Terminal } from '@xterm/xterm';
-import { getXtermCore } from './xterm-internals';
+import { getXtermCore, scrollBufferLines } from './xterm-internals';
 
 // --- Tuning constants ---
 const SWIPE_THRESHOLD = 20; // px minimum delta to qualify as a swipe
@@ -57,7 +57,10 @@ function scrollTouchLines(
 ): void {
   const element = terminal.element;
   if (!hasFullscreenWheelTracking(terminal) || !element) {
-    terminal.scrollLines(lines);
+    // Buffer-authoritative scroll: the public scrollLines() resolves the
+    // delta against DOM scroll state that can diverge from the buffer and
+    // yank the viewport to the top of scrollback (see scrollBufferLines).
+    scrollBufferLines(terminal, lines);
     return;
   }
 

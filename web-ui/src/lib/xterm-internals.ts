@@ -27,8 +27,13 @@ export interface XtermCoreService {
   triggerDataEvent: (data: string, wasUserInput: boolean) => void;
 }
 
+export interface XtermBufferService {
+  scrollLines: (disp: number, suppressScrollEvent?: boolean) => void;
+}
+
 export interface XtermCore {
   coreService: XtermCoreService | undefined;
+  _bufferService: XtermBufferService | undefined;
   _coreBrowserService: XtermCoreBrowserService | undefined;
   _syncTextArea: (() => void) | undefined;
   _handleTextAreaFocus: ((e: FocusEvent) => void) | undefined;
@@ -54,6 +59,35 @@ export function getXtermCore(terminal: Terminal): XtermCore | undefined {
 /** Access the active terminal buffer (used for URL detection, cursor position). */
 export function getBufferActive(terminal: Terminal): XtermBufferActive | undefined {
   return (terminal as any).buffer?.active as XtermBufferActive | undefined;
+}
+
+/**
+ * Scroll normal-buffer scrollback through xterm's internal BufferService.
+ *
+ * The public Terminal.scrollLines() routes through the viewport and applies
+ * the delta RELATIVE to the DOM scroll state's current scrollTop
+ * (CoreBrowserTerminal: "All scrollLines methods need to go via the viewport
+ * in order to support smooth scroll"). That DOM state can silently diverge
+ * from the buffer: Viewport._sync() clamps scrollTop via setScrollDimensions()
+ * with its scroll handler suppressed (e.g. a refit passing through zero
+ * height), and the divergence is never repaired while ydisp matches the
+ * viewport's cached _latestYDisp. The next relative tick then makes xterm
+ * resolve the full divergence in one giant scrollLines() — the viewport
+ * yanks to the top of scrollback mid-gesture.
+ *
+ * Scrolling the BufferService directly moves by exactly the requested delta,
+ * and the onScroll it fires makes Viewport._sync() re-command the DOM scroll
+ * state ABSOLUTELY (setScrollPosition(ydisp * cellHeight)), repairing any
+ * divergence on every tick instead of amplifying it. Falls back to the
+ * public API when internals are unavailable.
+ */
+export function scrollBufferLines(terminal: Terminal, lines: number): void {
+  const bufferService = getXtermCore(terminal)?._bufferService;
+  if (bufferService?.scrollLines) {
+    bufferService.scrollLines(lines);
+  } else {
+    terminal.scrollLines(lines);
+  }
 }
 
 // ── Custom property storage (WeakMap-based) ──────────────────────────
