@@ -186,7 +186,7 @@ Write sites that touch the global graph:
 - `graphify-active-repo.sh`, on every active-repo transition where a per-repo graph exists or its `source_hash` differs from the manifest (single-active-repo invariant; see below).
 - The `/graphify` skill, on commit, after building a repo's graph.
 
-All four serialize on `/tmp/graphify-global.lock`. Claude and active-repo maintenance retain the short five-second lock bound. Each Pi extraction uses one required 300-second critical section spanning both cumulative merge and global publication, then exposes its post-commit request chunk; a timeout or missing chunk leaves root-owned high-water state unchanged. <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::merge_node_link_evidence --> Pi visualization is separately capped at 15 seconds. <!-- audit: the 15-second visualization cap could not be traced to a named source constant on 2026-07-16; verify against the extraction worker contract before relying on the exact value -->
+All four serialize on `/tmp/graphify-global.lock`. Claude and active-repo maintenance retain the short five-second lock bound. Each Pi extraction uses one required 300-second critical section spanning both cumulative merge and global publication, then exposes its post-commit request chunk; a timeout or missing chunk leaves root-owned high-water state unchanged. <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::merge_node_link_evidence --> Pi visualization is separately capped at 15 seconds. <!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md::at most 15 seconds -->
 
 ### Single-active-repo invariant
 

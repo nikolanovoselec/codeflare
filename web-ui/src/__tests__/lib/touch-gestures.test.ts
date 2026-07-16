@@ -184,7 +184,7 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
     });
 
     describe('vertical swipe with keyboard closed (scroll mode)', () => {
-      it('should call scrollLines on vertical swipe when keyboard is closed', () => {
+      it('scrolls the buffer on vertical swipe when keyboard is closed', () => {
         (window as any).ontouchstart = null;
         const { terminal, triggerDataEvent, scrollLines, bufferScrollLines } = createMockTerminal();
         const isKeyboardOpen = vi.fn(() => false);

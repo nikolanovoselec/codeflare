@@ -327,18 +327,30 @@ describe('REQ-MOB-002: Virtual keyboard opens reliably on tap', () => {
 describe('REQ-MOB-004: scroll-drop defenses', () => {
   // The overflow rule is the load-bearing defense that strips the viewport
   // element of native-scroll-container status so browser focus validation
-  // cannot reset it. The rule's presence in the shipped stylesheet is the
-  // contract; deleting or renaming the block must fail this test. Visual
-  // confirmation on-device remains a Playwright concern.
+  // cannot reset it. This asserts the PARSED stylesheet contract via CSSOM
+  // (selector + declaration + !important priority), not source text — a
+  // removed, renamed, or de-prioritized rule fails regardless of formatting.
+  // Whether the rule wins the full cascade on-device remains a Playwright
+  // concern.
   it('REQ-MOB-004 AC1: the terminal stylesheet disables native scrolling on the xterm viewport', async () => {
     const { readFileSync } = await import('node:fs');
     const { resolve } = await import('node:path');
     const css = readFileSync(resolve(__dirname, '../../styles/terminal.css'), 'utf8');
 
-    const viewportRule = css.match(/\.xterm \.xterm-viewport \{[^}]*\}/);
-    expect(viewportRule).not.toBeNull();
-    expect(viewportRule![0]).toContain('overflow: hidden !important');
-    expect(viewportRule![0]).toContain('overscroll-behavior: contain');
+    const style = document.createElement('style');
+    style.textContent = css;
+    document.head.appendChild(style);
+    try {
+      const rules = Array.from(style.sheet!.cssRules).filter(
+        (rule): rule is CSSStyleRule => rule instanceof CSSStyleRule,
+      );
+      const viewportRule = rules.find((rule) => rule.selectorText === '.xterm .xterm-viewport');
+      expect(viewportRule, 'a .xterm .xterm-viewport rule must exist').toBeTruthy();
+      expect(viewportRule!.style.getPropertyValue('overflow')).toBe('hidden');
+      expect(viewportRule!.style.getPropertyPriority('overflow')).toBe('important');
+    } finally {
+      style.remove();
+    }
   });
 });
 

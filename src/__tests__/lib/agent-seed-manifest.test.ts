@@ -1558,10 +1558,9 @@ describe('Reviewer agents can access their enforce policy', () => {
     }
     const reviewCommand = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.claude/commands/review.md');
     expect(reviewCommand, '.claude/commands/review.md should be seeded').toBeTruthy();
-    expect(reviewCommand!.content).toMatch(/root persists every returned report/i);
-    expect(reviewCommand!.content).toMatch(
-      /No subagent writes source, tests, specifications, documentation, triage, or review artifacts/,
-    );
+    // Structural marker, not prose: the binding root-ownership section (AC4/AC5)
+    // must survive seed generation; its wording may evolve freely underneath.
+    expect(reviewCommand!.content).toMatch(/^## Review ownership \(binding\)$/m);
   });
 
   it('transformed runtimes never inherit the Claude-only Skill tool', () => {

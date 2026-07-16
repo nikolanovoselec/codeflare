@@ -263,7 +263,7 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
       expect(term.scrollToBottom).not.toHaveBeenCalled();
     });
 
-    it('REQ-MOB-001 AC7: navigates normal-buffer pages through the buffer scroll pipeline', () => {
+    it('REQ-MOB-001 AC6: navigates normal-buffer pages through the buffer scroll pipeline', () => {
       const { term, bufferScrollLines } = setActiveTerminal('normal');
       vi.mocked(sendTerminalKey).mockClear();
       render(() => <FloatingTerminalButtons showTerminal={true} />);
