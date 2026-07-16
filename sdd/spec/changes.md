@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-07-16
+
+- **Pi recovery now requires durable evidence of actual dispatch** ([REQ-AGENT-058](agents.md#req-agent-058-supported-boundary-recovery) AC1 and [REQ-MEM-002](memory.md#req-mem-002-capture-triggers-every-15-user-messages) AC5 clarified; stay Implemented). Settled PR review cannot rebind a stale boundary to another PR head, and extraction reminders advance only after exact public calls rather than after unconsumed reminder messages.
+
 ## 2026-07-14
 
 - **Pi extraction launch payloads are now visible to the model** ([REQ-MEM-015](memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard) AC4 added; Implemented). Custom-message `details` remains durable retry metadata, while the same bounded request items are serialized into model-facing `content`; reminders preserve exact parity and require no session-JSONL recovery. Existing public-request contracts in REQ-MEM-014 AC7 and REQ-VAULT-027 AC1 remain unchanged.

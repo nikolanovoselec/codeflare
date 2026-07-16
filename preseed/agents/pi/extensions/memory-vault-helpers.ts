@@ -45,6 +45,7 @@ export interface ExtractionTranscriptFacts {
   launchCount: number;
   giveup: boolean;
   attemptCount: number;
+  pendingLaunch: boolean;
   state: ExtractionState;
 }
 
@@ -241,6 +242,7 @@ export function extractionTranscriptFacts(input: {
   }))).filter((call) => call.id
     && call.name === "subagent"
     && publicRequestMatches(call.arguments, input.requestId, input.job));
+  const pendingLaunch = launchCount > calls.length;
   const notifications = new Map<string, string>();
   for (const entry of input.entries) {
     const notification = notificationFacts(entry);
@@ -265,12 +267,12 @@ export function extractionTranscriptFacts(input: {
       : calls.length > 0
         ? "failed"
         : "missing";
-  return { launchCount, giveup, attemptCount: calls.length, state };
+  return { launchCount, giveup, attemptCount: calls.length, pendingLaunch, state };
 }
 
 export function extractionDue(facts: ExtractionTranscriptFacts): ExtractionDue {
-  if (facts.giveup || facts.state === "running" || facts.state === "succeeded") return { kind: "none" };
-  if (facts.launchCount < 6) return { kind: "launch", reminder: facts.launchCount as 0 | 1 | 2 | 3 | 4 | 5 };
+  if (facts.giveup || facts.pendingLaunch || facts.state === "running" || facts.state === "succeeded") return { kind: "none" };
+  if (facts.attemptCount < 6) return { kind: "launch", reminder: facts.attemptCount as 0 | 1 | 2 | 3 | 4 | 5 };
   return { kind: "giveup" };
 }
 

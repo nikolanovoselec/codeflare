@@ -824,6 +824,30 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.sent).toEqual([]);
   });
 
+  it('REQ-AGENT-058: recovered review requires a matching emitted head', async () => {
+    for (const emittedHead of [undefined, 'f'.repeat(40)]) {
+      const fixture = makeReviewFixture();
+      const { registerReviewEnforcement } = await plannedEnforcement();
+      const harness = makeHarness(fixture.repo, fixture.sessionFile);
+      registerReviewEnforcement(harness.pi, { queryPr: async () => fixture.pr });
+      appendSession(fixture.sessionFile,
+        assistantTool('stale-push', 'bash', { command: 'git push origin pi' }),
+        toolResult('stale-push', 'bash'),
+        ...(emittedHead ? [{
+          type: 'custom_message',
+          customType: 'pr-boundary-launch-plan',
+          details: { head: emittedHead, reviewRange: `${fixture.base}..${emittedHead}` },
+          display: true,
+        }] : []),
+      );
+
+      await harness.emit('agent_settled');
+
+      expect(harness.sent).toEqual([]);
+      expect(ackHead(fixture.repo)).toBe(fixture.base);
+    }
+  });
+
   it('REQ-AGENT-058: one boundary lifecycle retries bounded PR-head propagation and emits one plan', async () => {
     const fixture = makeReviewFixture();
     const staleHead = fixture.head;

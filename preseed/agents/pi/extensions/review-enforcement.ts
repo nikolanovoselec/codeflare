@@ -353,10 +353,12 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if (!preview.boundary) return;
 
     const boundaryClassification = classifyReviewBoundaryCommand(preview.boundary.command);
+    if (boundaryClassification.event !== "pr-merge" && !fullSha(preview.reviewHead)) return;
     const target = boundaryClassification.event === "pr-update-branch"
       ? boundaryClassification.prTarget
       : undefined;
     const reviewedPr = await dependencies.queryPr(context.repo, target);
+    if (fullSha(preview.reviewHead) && reviewedPr?.headRefOid !== preview.reviewHead) return;
     const reviewedHead = preview.reviewHead;
     const reviewedAck = readAck(context.repo);
     if (isEnforcedPr(reviewedPr)

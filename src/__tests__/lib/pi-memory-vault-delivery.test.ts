@@ -294,6 +294,16 @@ async function appendPrompt(harness: Harness, ordinal: number): Promise<void> {
   await harness.emit('before_agent_start', { prompt: content });
 }
 
+async function failExactAttempts(harness: Harness, job: ExtractionJob): Promise<void> {
+  await harness.emit('agent_settled');
+  for (let attempt = 1; attempt <= 6; attempt += 1) {
+    const launch = latestLaunch(harness.pi, job);
+    const toolUseId = nextId(`${job}-attempt`);
+    appendEntry(harness.sessionFile, toolCall(toolUseId, job, launch.request), notification(toolUseId, 'Error'));
+    await harness.emit('agent_settled');
+  }
+}
+
 afterEach(() => {
   delete process.env.CODEFLARE_MEMORY_MODEL;
   delete (globalThis as Record<symbol, unknown>)[Symbol.for('@gotgenes/pi-subagents:service')];
@@ -366,7 +376,17 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
       job: 'memory-capture',
       now: NOW,
       successQualifies: () => true,
-    })).toMatchObject({ launchCount: 1, attemptCount: 1, state: 'running', giveup: false });
+    })).toMatchObject({ launchCount: 1, attemptCount: 1, pendingLaunch: false, state: 'running', giveup: false });
+
+    const awaitingPublicCall = extractionTranscriptFacts({
+      entries: [launchEntry(UUIDS[0], 'memory-capture', 0, request)],
+      requestId: UUIDS[0],
+      job: 'memory-capture',
+      now: NOW,
+      successQualifies: () => true,
+    });
+    expect(awaitingPublicCall).toMatchObject({ launchCount: 1, attemptCount: 0, pendingLaunch: true, state: 'missing' });
+    expect(extractionDue(awaitingPublicCall)).toEqual({ kind: 'none' });
 
     expect(extractionTranscriptFacts({
       entries,
@@ -408,16 +428,17 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
     }).state).toBe('failed');
   });
 
-  it('uses one reducer for reminders zero through five and then latches GIVEUP', () => {
-    for (let launchCount = 0; launchCount < 6; launchCount += 1) {
-      expect(extractionDue({ launchCount, attemptCount: launchCount, giveup: false, state: 'failed' })).toEqual({
+  it('uses actual public attempts for reminders zero through five and then latches GIVEUP', () => {
+    for (let attemptCount = 0; attemptCount < 6; attemptCount += 1) {
+      expect(extractionDue({ launchCount: attemptCount, attemptCount, pendingLaunch: false, giveup: false, state: 'failed' })).toEqual({
         kind: 'launch',
-        reminder: launchCount,
+        reminder: attemptCount,
       });
     }
-    expect(extractionDue({ launchCount: 6, attemptCount: 6, giveup: false, state: 'failed' })).toEqual({ kind: 'giveup' });
-    expect(extractionDue({ launchCount: 6, attemptCount: 6, giveup: true, state: 'failed' })).toEqual({ kind: 'none' });
-    expect(extractionDue({ launchCount: 1, attemptCount: 1, giveup: false, state: 'running' })).toEqual({ kind: 'none' });
+    expect(extractionDue({ launchCount: 6, attemptCount: 6, pendingLaunch: false, giveup: false, state: 'failed' })).toEqual({ kind: 'giveup' });
+    expect(extractionDue({ launchCount: 6, attemptCount: 6, pendingLaunch: false, giveup: true, state: 'failed' })).toEqual({ kind: 'none' });
+    expect(extractionDue({ launchCount: 1, attemptCount: 1, pendingLaunch: false, giveup: false, state: 'running' })).toEqual({ kind: 'none' });
+    expect(extractionDue({ launchCount: 1, attemptCount: 0, pendingLaunch: true, giveup: false, state: 'missing' })).toEqual({ kind: 'none' });
   });
 
   it('parses session JSONL without losing custom messages or valid entries around malformed lines', () => {
@@ -509,26 +530,19 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(execution.promptCount).toBe(15);
   });
 
-  it('emits reminders zero through five, one GIVEUP, and derives the latch after re-registration', async () => {
+  it('REQ-MEM-002: advances retries only after exact calls and re-arms after fifteen later prompts', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
     mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
     writeFileSync(memoryCounterPath(harness), '0', 'utf8');
     for (let ordinal = 1; ordinal <= 15; ordinal += 1) await appendPrompt(harness, ordinal);
 
-    for (let attempt = 0; attempt < 7; attempt += 1) await harness.emit('agent_settled');
-    const launchMessages = harness.pi.sent
-      .filter((sent) => sent.message.customType === 'background-extraction-launch');
-    const reminders = launchMessages
-      .flatMap((sent) => sent.message.details?.items ?? [])
-      .map((item) => item.reminder);
-    expect(reminders).toEqual([0, 1, 2, 3, 4, 5]);
-    for (const sent of launchMessages) {
-      expect(modelVisibleLaunchItems(sent)).toEqual(sent.message.details?.items);
-    }
-    expect(harness.pi.sent.filter((sent) => sent.message.customType === 'background-extraction-giveup')).toHaveLength(1);
+    for (let settlement = 0; settlement < 7; settlement += 1) await harness.emit('agent_settled');
 
-    const sentBeforeReload = harness.pi.sent.length;
+    expect(harness.pi.sent.filter((sent) => sent.message.customType === 'background-extraction-launch')).toHaveLength(1);
+    expect(latestLaunch(harness.pi, 'memory-capture').reminder).toBe(0);
+    expect(harness.pi.sent.some((sent) => sent.message.customType === 'background-extraction-giveup')).toBe(false);
+
     const reloadedPi = new FakePi(harness.sessionFile);
     registerMemoryVault(reloadedPi, {
       paths: harness.paths,
@@ -537,7 +551,20 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     });
     await reloadedPi.emit('agent_settled', {}, harness.ctx);
     expect(reloadedPi.sent).toHaveLength(0);
-    expect(harness.pi.sent).toHaveLength(sentBeforeReload);
+
+    await failExactAttempts(harness, 'memory-capture');
+    const launchMessages = harness.pi.sent
+      .filter((sent) => sent.message.customType === 'background-extraction-launch');
+    expect(launchMessages.flatMap((sent) => sent.message.details?.items ?? []).map((item) => item.reminder))
+      .toEqual([0, 1, 2, 3, 4, 5]);
+    for (const sent of launchMessages) expect(modelVisibleLaunchItems(sent)).toEqual(sent.message.details?.items);
+    expect(harness.pi.sent.filter((sent) => sent.message.customType === 'background-extraction-giveup')).toHaveLength(1);
+
+    const completedRequest = readJson(memoryPointerPath(harness)).requestId;
+    for (let ordinal = 16; ordinal <= 29; ordinal += 1) await appendPrompt(harness, ordinal);
+    expect(readJson(memoryPointerPath(harness)).requestId).toBe(completedRequest);
+    await appendPrompt(harness, 30);
+    expect(readJson(memoryPointerPath(harness)).requestId).not.toBe(completedRequest);
   });
 
   it('requires the post-commit note and chunk before exact success advances the frozen counter', async () => {
@@ -577,7 +604,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
     writeFileSync(memoryCounterPath(harness), '0', 'utf8');
     for (let ordinal = 1; ordinal <= 15; ordinal += 1) await appendPrompt(harness, ordinal);
-    for (let attempt = 0; attempt < 7; attempt += 1) await harness.emit('agent_settled');
+    await failExactAttempts(harness, 'memory-capture');
     const oldPointer = readJson(memoryPointerPath(harness));
     const oldExecution = activeExecutionPath(harness, 'memory-capture');
 
@@ -719,7 +746,7 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery', () => {
     const unchanged = makeHarness();
     await unchanged.emit('session_start');
     writeFileSync(join(unchanged.paths.vaultRoot, 'Notes', 'unchanged.md'), 'changed\n', 'utf8');
-    for (let attempt = 0; attempt < 7; attempt += 1) await unchanged.emit('agent_settled');
+    await failExactAttempts(unchanged, 'vault-extract');
     const unchangedPointer = readJson(vaultPointerPath(unchanged));
     appendEntry(unchanged.sessionFile, userMessage('check unchanged giveup'));
     await unchanged.emit('before_agent_start', { prompt: 'check unchanged giveup' });
@@ -735,7 +762,7 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery', () => {
     await reverted.emit('session_start');
     const revertedFile = join(reverted.paths.vaultRoot, 'Notes', 'reverted.md');
     writeFileSync(revertedFile, 'temporary\n', 'utf8');
-    for (let attempt = 0; attempt < 7; attempt += 1) await reverted.emit('agent_settled');
+    await failExactAttempts(reverted, 'vault-extract');
     rmSync(revertedFile, { force: true });
     appendEntry(reverted.sessionFile, userMessage('clear reverted giveup'));
     await reverted.emit('before_agent_start', { prompt: 'clear reverted giveup' });
