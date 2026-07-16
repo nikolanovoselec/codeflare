@@ -127,7 +127,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 - The exclusion list is identical across runtimes (Claude's `vault-manifest.py` and Pi's `vault-manifest-fs.ts` share the generated-prefix + preseed-root-page set); the four preseed-managed root pages are codeflare-authoritative, so a per-boot preseed copy must not count as a user edit.
 - A 30-minute in-flight sentinel prevents repeated dispatch during extraction and exceeds the measured 18-minute duration for 30-plus files.
 - The hook creates the sentinel on emission; the agent removes it as its final step.
-- Claude: the vault-extract subagent is pinned to sonnet at the definition level per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad).
+- Claude: the vault-extract subagent is pinned to sonnet at the definition level per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad), with reasoning effort pinned at medium.
 - Pi: the provider-neutral model lever is optional; [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) fixes reasoning effort at medium.
 - PDF-specific ingestion behavior is specified in [REQ-VAULT-011](#req-vault-011-vault-extract-ingests-pdf-files).
 - AC3–AC5 describe the Claude hook/agent delivery path; Pi's root-owned transactional delivery and high-water promotion are specified separately in [REQ-VAULT-027](#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional).
