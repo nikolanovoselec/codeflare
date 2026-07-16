@@ -76,6 +76,10 @@ const ENGINEERING_CONSTITUTION = [
   "</codeflare_constitution>",
 ].join("\n");
 
+export function composeCodeflareBaseSystemPrompt(systemPrompt: string): string {
+  return [systemPrompt, ENGINEERING_CONSTITUTION].filter(Boolean).join("\n\n");
+}
+
 export type PiSettings = {
   packages?: Array<string | { source?: string; extensions?: string[]; skills?: string[]; [key: string]: unknown }>;
   extensions?: string[];
@@ -620,7 +624,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("before_agent_start", (event, ctx) => {
     const repo = activeRepo(ctx);
-    const parts = [String(event?.systemPrompt ?? ""), ENGINEERING_CONSTITUTION];
+    const parts = [composeCodeflareBaseSystemPrompt(String(event?.systemPrompt ?? ""))];
     if (repo) {
       const summary = graphSummary(repo);
       if (summary) parts.push(`<codeflare_graphify>\n${summary}\n</codeflare_graphify>`);

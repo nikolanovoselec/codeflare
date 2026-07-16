@@ -21,10 +21,12 @@ type TranscriptFacts = {
   reviewHead?: string;
   reviewRange?: string;
   bypassed: boolean;
+  fullyAutonomous: boolean;
   ciLaunched: boolean;
   lanes: Record<ReviewLane, { state: 'missing' | 'in-flight' | 'terminal'; toolUseId?: string; agentId?: string }>;
 };
 type PlannedReviewHelpers = {
+  parseControlDirectives(text: string): Array<'skip-review' | 'enable-autonomy' | 'disable-autonomy'>;
   classifyReviewBoundaryCommand(command: string): BoundarySurfaces;
   isReviewTransitionSuspended(repo: string): boolean;
   requiredReviewLanes(input: { repo: string; ackHead?: string; head: string }): ReviewLane[];
@@ -467,20 +469,35 @@ describe('native Pi transcript review facts', () => {
     });
   });
 
-  it('REQ-AGENT-041: recognizes an explicit user bypass only when it follows the latest boundary', async () => {
-    const { reviewTranscriptFacts } = await plannedHelpers();
-    const before = writeSession([
-      userMessage('skip review'),
-      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
-      toolResult('push-1', 'bash'),
+  it('REQ-AGENT-041 AC3: parses positive pre-task review bypass directives without matching discussion', async () => {
+    const { parseControlDirectives } = await plannedHelpers();
+
+    expect(parseControlDirectives('Push to remote and skip review.')).toEqual(['skip-review']);
+    expect(parseControlDirectives('Fix this; please skip the verification.')).toEqual(['skip-review']);
+    expect(parseControlDirectives('Do not skip review.')).toEqual([]);
+    expect(parseControlDirectives('Can I push to remote and skip review?')).toEqual([]);
+    expect(parseControlDirectives('Explain “push to remote and skip review”.')).toEqual([]);
+  });
+
+  it('REQ-AGENT-084 AC4: enables autonomy before or during a task and honors an explicit stop', async () => {
+    const { parseControlDirectives, reviewTranscriptFacts } = await plannedHelpers();
+
+    expect(parseControlDirectives('Fix and deploy this fully autonomously.')).toEqual(['enable-autonomy']);
+    expect(parseControlDirectives('Do this fully autonomously.')).toEqual(['enable-autonomy']);
+    expect(parseControlDirectives('Go fully autonomous from here.')).toEqual(['enable-autonomy']);
+    expect(parseControlDirectives('What does "fully autonomous" mean?')).toEqual([]);
+    expect(parseControlDirectives('Stop fully autonomous mode.')).toEqual(['disable-autonomy']);
+
+    const upgraded = writeSession([
+      userMessage('Start investigating the issue.'),
+      userMessage('Go fully autonomous from here.'),
     ]);
-    const after = writeSession([
-      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
-      toolResult('push-1', 'bash'),
-      userMessage('skip verification'),
+    const stopped = writeSession([
+      userMessage('fully autonomous'),
+      userMessage('Stop fully autonomous mode.'),
     ]);
 
-    expect(reviewTranscriptFacts({ sessionFile: before, requiredLanes: ALL_LANES }).bypassed).toBe(false);
-    expect(reviewTranscriptFacts({ sessionFile: after, requiredLanes: ALL_LANES }).bypassed).toBe(true);
+    expect(reviewTranscriptFacts({ sessionFile: upgraded, requiredLanes: ALL_LANES }).fullyAutonomous).toBe(true);
+    expect(reviewTranscriptFacts({ sessionFile: stopped, requiredLanes: ALL_LANES }).fullyAutonomous).toBe(false);
   });
 });

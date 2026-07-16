@@ -145,7 +145,7 @@ function runMonitorFor(skill, sequence, fallback = sequence.at(-1) ?? [], branch
   }
 }
 
-test('REQ-AGENT-070 AC3: Claude ci monitor launcher starts detached work and returns a durable log path', () => {
+test('REQ-AGENT-070 AC1: Claude ci monitor launcher starts detached work and returns a durable log path', () => {
   const dir = mkdtempSync(join(tmpdir(), 'claude-ci-monitor-launch-'));
   const bin = join(dir, 'bin');
   const fixtures = join(dir, 'fixtures');
@@ -185,7 +185,7 @@ test('REQ-AGENT-070 AC3: Claude ci monitor launcher starts detached work and ret
   }
 });
 
-test('REQ-AGENT-070 AC4: Claude ci monitor waits for a stable workflow/run set before success', () => {
+test('REQ-AGENT-070 AC2: Claude ci monitor waits for a stable workflow/run set before success', () => {
   const result = runMonitorFor(CLAUDE_SKILL, [[row(1)], [row(1)]]);
 
   assert.equal(result.status, 0, result.stderr);
@@ -193,7 +193,7 @@ test('REQ-AGENT-070 AC4: Claude ci monitor waits for a stable workflow/run set b
   assert.match(result.log, /CI_RESULT success/);
 });
 
-test('REQ-AGENT-070 AC5: Claude ci monitor reports failed workflow rows', () => {
+test('REQ-AGENT-070 AC3: Claude ci monitor reports failed workflow rows', () => {
   const result = runMonitorFor(CLAUDE_SKILL, [[row(1, { conclusion: 'failure' })]]);
 
   assert.equal(result.status, 10, result.stderr);
@@ -201,7 +201,7 @@ test('REQ-AGENT-070 AC5: Claude ci monitor reports failed workflow rows', () => 
   assert.match(result.log, /CI_RESULT failure/);
 });
 
-test('REQ-AGENT-070 AC6: Claude ci monitor reports gh access failures in the durable log', () => {
+test('REQ-AGENT-070 AC4: Claude ci monitor reports gh access failures in the durable log', () => {
   const dir = mkdtempSync(join(tmpdir(), 'claude-ci-monitor-gh-fail-'));
   const bin = join(dir, 'bin');
   const repo = join(dir, 'repo');

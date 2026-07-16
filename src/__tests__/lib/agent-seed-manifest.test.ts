@@ -1395,7 +1395,7 @@ describe('Pi /debug, /deploy, /brainstorm commands / REQ-AGENT-051 (Claude-only 
   });
 });
 
-describe('native /sdd hard gates / REQ-AGENT-021 AC5 (the native /sdd command enforces command-file hard gates before workflow dispatch)', () => {
+describe('native /sdd hard gates / REQ-AGENT-021 AC3 (the native /sdd command enforces command-file hard gates before workflow dispatch)', () => {
   // sddCommandDecision is the pure gate logic codeflare-pi.ts dispatches on
   // (sddRepoState -> sddCommandDecision). It takes no runtime, so it runs in
   // the Workers pool. These assert the gate DECISIONS (kind + which path is

@@ -192,7 +192,11 @@ Non-SDD repositories and default-mode sessions receive CI-only plans. An aborted
 
 Pi review is session-scoped ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)). Successful persisted boundaries produce an extension-only review window; no model turn sees or owns dispatch. Shell `cd`, Git `-C`, explicit push refspecs, and `gh pr create --head` select the repository and PR used for lookup. With a valid acknowledgement, the window, reviewer prompt, and dispatch record carry the exact acknowledged-to-current range. Agent IDs unknown to a reloaded service remain in flight; live stopped, aborted, or failed records are retried. A delayed successful record can acknowledge its reviewed PR head after reload or newer unpublished local work only while GitHub still reports that same authoritative head.
 
-Generated reviewer system prompts embed their canonical scope and enforcement skills, so reviewers build the lane packet without retrieving policy first. All three use Pi's provider-neutral `medium` thinking level rather than inheriting the root session's level. The foreground-only context-mode extension is intentionally unavailable inside in-process reviewers. Each reviewer invokes the packet CLI through repository-rooted Bash/Node and consumes its JSON in the same processing call; packets are never persisted or handed between calls. Standalone read, grep, Graphify, and indexed batch/global retrieval are unavailable to the lanes. Each successful reviewer completion adds a model-facing reminder requiring a consolidated adversarial `FINDING | PROPOSED FIX | STATUS | DECISION` table; the final reviewer directs the root to publish it and automatically apply legitimate minimal fixes unless approval was explicitly requested. The root waits for every report and alone changes the head.
+Generated reviewer system prompts embed their canonical scope and enforcement skills, so reviewers build the lane packet without retrieving policy first. All three use Pi's provider-neutral `medium` thinking level rather than inheriting the root session's level. The foreground-only context-mode extension is intentionally unavailable inside in-process reviewers.
+
+Each reviewer invokes the packet CLI through repository-rooted Bash/Node and consumes its JSON in the same processing call; packets are never persisted or handed between calls. Standalone read, grep, Graphify, and indexed batch/global retrieval are unavailable to the lanes.
+
+Each successful reviewer completion adds a model-facing reminder requiring a consolidated adversarial `FINDING | PROPOSED FIX | STATUS | DECISION` table. The final reviewer directs the root to publish it and automatically apply legitimate minimal fixes unless approval was explicitly requested. The root waits for every report and alone changes the head.
 
 Cross-lane packet inputs carry exact old/new hunk ranges. Reviewers resolve an anchored implementation symbol or named test block and follow it only when that range intersects a changed hunk; sharing a changed file is not direct invalidation. Reviewers consolidate deterministic checks, emit failures rather than successful manifests, and verify generated seed through canonical preseed plus one identity check. The direct Bash/Node packet path preserves the declared scope, evidence, and dispositions.
 
@@ -461,7 +465,7 @@ following [AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-s
 At startup, R2 sync excludes the three retired durable-review extension paths. The
 managed-extension relay also removes local copies before Pi loads runtime code while
 preserving user-added extensions
-([REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake)
+([REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync-bisync-head-storm-fix-governed-mode-preseed-bake)
 AC6–AC7).
 
 CI follows a distinct execution path inside the extension-issued launch plan. After
@@ -486,10 +490,11 @@ discovery; public prompts receive immutable `<sessionId>.<requestId>.vars` or
 attempts, native completion, reminders `0..5`, and GIVEUP. Background agents
 never write counters, pointers, or manifests. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts -->
 
-Memory capture still triggers at the 15-real-prompt cadence and force-captures a resumed durable transcript when no counter exists. Normal request snapshots contain the uncaptured interval inline in `VARS_FILE.transcript`, bounded to 40 text turns at 4000 characters; they never reference an `INPUT_FILE` or separate transcript path. The public request and generated agent repeat that boundary so the first Bash call reads the self-contained snapshot once instead of probing for a legacy carrier file. Exact success plus the post-commit note and request chunk lets the root advance the frozen counter and remove only the matching request. Vault indexing retains the shared content-hash format and
-exclusion set, but writes a request-specific pending manifest and promotes it
-only after exact success/hash validation; prelaunch edits coalesce and during-run
-edits produce one follow-up ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-VAULT-026](../../sdd/spec/vault.md#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)).
+Memory capture still triggers at the 15-real-prompt cadence and force-captures a resumed durable transcript when no counter exists. Normal request snapshots contain the uncaptured interval inline in `VARS_FILE.transcript`, bounded to 40 text turns at 4000 characters; they never reference an `INPUT_FILE` or separate transcript path. The public request and generated agent repeat that boundary so the first Bash call reads the self-contained snapshot once instead of probing for a legacy carrier file.
+
+Exact success plus the post-commit note and request chunk lets the root advance the frozen counter and remove only the matching request ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages)).
+
+Vault indexing retains the shared content-hash format and exclusion set, but writes a request-specific pending manifest and promotes it only after exact success/hash validation. Prelaunch edits coalesce; during-run edits produce one follow-up ([REQ-VAULT-026](../../sdd/spec/vault.md#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)).
 
 Both prompt contracts read immutable inputs once, write a request-specific work chunk, and require one 300-second lock spanning cumulative merge and global publication. Pi session capture derives that chunk with the advanced-only `scripts/build-memory-graph.py` asset rather than model-authored graph JSON, keeping semantic IDs deterministic. Both runtimes' byte-identical merge script normalizes serialized edge tuples after Graphify conversion and copies the cumulative bytes to `graph.json`. Canonical chunks appear only after publication and qualify root finalization; required failure leaves high-water state unchanged. Visualization is best effort with a 15-second ceiling.
 
@@ -1016,9 +1021,16 @@ For Pi, the acknowledged full SHA remains at `.git/sdd-last-ack-pr-head`. A succ
 
 Durable dispatch entries remain correlation and retry evidence rather than synthetic UI state. Agent IDs unknown to a reloaded service stay in flight, live stopped/aborted/error states retry, and only the reminder head can be acknowledged. A delayed successful record can acknowledge that head after reload or newer unpublished local work while the PR still points to it; unfinished or replaced work may repeat at a later boundary ([AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents)).
 
-The USER-ONLY `/tmp/review-bypass` sentinel and explicit user wording remain review bypass surfaces; agents must not invoke them autonomously. Claude keeps its existing Stop-hook checkpoint and bypass semantics. Pi adds no pre-command merge interceptor.
+The USER-ONLY `/tmp/review-bypass` sentinel and explicit user wording remain review bypass surfaces; agents must not invoke them autonomously. Pi parses a positive `skip review` or `skip verification` command from direct interactive or RPC input before task execution, including a compound instruction such as `push to remote and skip review`. The command arms the existing one-shot sentinel before a boundary can dispatch reviewers.
 
-A direct current-session instruction to go **FULLY AUTONOMOUS** supersedes only the five-round commit stop for the active task. The boundary dispatcher adds `autonomy_override=fully-autonomous` to reviewer prompts until a later user instruction cancels or narrows the task; manifest row 23 resolves that exact marker through the seeded round-limit script, while all other gates remain unchanged ([REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-pi-reviewer-policy-contract)).
+Questions, quotations, negations, extension-injected input, and mid-task steering do not arm the bypass. A bypass prevents reviewer launch for the next eligible boundary without cancelling running reviewers, suppressing independent CI, or writing acknowledgement. Claude keeps its existing Stop-hook checkpoint and bypass semantics. Pi adds no pre-command merge interceptor.
+<!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::parseControlDirectives -->
+<!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
+
+A direct current-session instruction can start a task in fully autonomous mode or upgrade an active task. Questions, quotations, negations, and incidental mentions do not activate it; an explicit stop disables it.
+
+The boundary dispatcher adds `autonomy_override=fully-autonomous` to subsequent reviewer prompts while the mode is active. Manifest row 23 resolves that exact marker through the seeded round-limit script, while every other gate remains unchanged ([REQ-AGENT-084](../../sdd/spec/agents.md#req-agent-084-pi-reviewer-policy-contract)).
+<!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::parseControlDirectives -->
 <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::fullyAutonomousOverride -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewerPrompt -->
 <!-- @impl: preseed/agents/pi/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override -->

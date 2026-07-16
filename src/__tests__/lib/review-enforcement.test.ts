@@ -722,11 +722,12 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(harness.spawned.map((agent) => agent.type)).toEqual(ALL_LANES);
   });
 
-  it('REQ-AGENT-084: carries a direct fully-autonomous override into reviewer service prompts', async () => {
+  it('REQ-AGENT-084 AC5: carries a mid-task fully-autonomous upgrade into reviewer service prompts', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
-      userMessage('Proceed FULLY AUTONOMOUS for this task.'),
+      userMessage('Start investigating this issue.'),
+      userMessage('Go fully autonomous from here.'),
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
       toolResult('push-1', 'bash'),
     );
@@ -1530,30 +1531,44 @@ describe('Pi review reminder and settled enforcement', () => {
       .toHaveLength(2);
   });
 
-  it('REQ-AGENT-041: honors an explicit post-boundary user bypass without fabricating acknowledgement', async () => {
-    const fixture = makeReviewFixture();
-    const harness = await registerFixture(fixture);
-    appendSession(fixture.sessionFile,
+  it('REQ-AGENT-041 AC1/AC3/AC4: applies a one-shot bypass only from initiating direct-user wording', async () => {
+    const acceptedFixture = makeReviewFixture();
+    const accepted = await registerFixture(acceptedFixture);
+    await accepted.emit('input', {
+      text: 'Push to remote and skip review.',
+      source: 'interactive',
+    });
+    appendSession(acceptedFixture.sessionFile,
+      userMessage('Push to remote and skip review.'),
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
       toolResult('push-1', 'bash'),
     );
-    await harness.emit('tool_result', boundaryEvent());
-    harness.sent.splice(0);
-    appendSession(fixture.sessionFile, userMessage('skip review'));
 
-    await harness.emit('agent_settled');
-    expect(harness.sent).toEqual([]);
-    expect(latestReviewWindow(harness)).toMatchObject({
-      phase: 'follow-up',
-      head: fixture.head,
-      ackHead: fixture.base,
-      reviewRange: `${fixture.base}..${fixture.head}`,
-      missingLanes: [],
-      launchWaves: launchWaves([], true),
-      ciEvent: 'push',
+    await accepted.emit('tool_result', boundaryEvent());
+    await accepted.emit('agent_settled');
+
+    expect(accepted.spawned.map((agent) => agent.type)).toEqual(['ci-monitor']);
+    expect(ackHead(acceptedFixture.repo)).toBe(acceptedFixture.base);
+    expect(existsSync(REVIEW_BYPASS_FILE)).toBe(false);
+    expect(existsSync(join(acceptedFixture.repo, '.git/sdd-review-block-count'))).toBe(false);
+
+    const rejectedFixture = makeReviewFixture();
+    const rejected = await registerFixture(rejectedFixture);
+    await rejected.emit('input', { text: 'skip review', source: 'extension' });
+    await rejected.emit('input', {
+      text: 'skip review',
+      source: 'interactive',
+      streamingBehavior: 'steer',
     });
-    expect(ackHead(fixture.repo)).toBe(fixture.base);
-    expect(existsSync(join(fixture.repo, '.git/sdd-review-block-count'))).toBe(false);
+    appendSession(rejectedFixture.sessionFile,
+      assistantTool('push-2', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-2', 'bash'),
+    );
+
+    await rejected.emit('tool_result', boundaryEvent());
+    await rejected.emit('agent_settled');
+
+    expect(rejected.spawned.map((agent) => agent.type)).toEqual([...ALL_LANES, 'ci-monitor']);
   });
 
   it('REQ-AGENT-041/REQ-AGENT-074: retries immediate service failures five times then latches GIVEUP', async () => {

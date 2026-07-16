@@ -486,16 +486,13 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. `/review` launches the six existing specialist roles (security, architecture, code quality, dead code, test gaps, documentation) in one parallel wave.
-2. The complete specialist reports are cross-referenced and deduplicated.
-3. Canonical findings are filtered against accepted architecture decisions.
-4. A sequential Reality Filter evaluates every still-active finding.
-5. Optional external verification covers HIGH and CRITICAL findings.
+1. Pi `/review` dispatches the dedicated canonical review workflow contract to the root session. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::REVIEW_EXECUTION --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-050 AC1/REQ-AGENT-088 AC1: dispatches the dedicated /review workflow contract) -->
 
 **Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
+- The canonical workflow launches the six existing specialist roles (security, architecture, code quality, dead code, test gaps, documentation) in one parallel wave, cross-references and deduplicates their complete reports, filters findings against accepted architecture decisions, applies a sequential Reality Filter, and optionally verifies HIGH and CRITICAL findings externally.
 - On Claude this workflow ships as the `commands/review.md` slash command; on Pi (where Claude slash commands do not deploy) the same workflow is delivered through the dedicated Pi-native `review` skill injected by the `/review` command handler, per [REQ-AGENT-050](#req-agent-050-pi-native-review-workflow-skill).
 - Report persistence, interactive triage, and mutation ownership live in [REQ-AGENT-088](#req-agent-088-user-invoked-review-ownership-and-triage).
 
@@ -503,7 +500,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** [Pi review scope tests](../../src/__tests__/lib/pi-review-scope.test.ts)
 
 **Status:** Implemented
 
@@ -632,18 +629,17 @@ None.
 
 **Acceptance Criteria:**
 
-1. Pro mode preseeds the `spec-driven-development` skill, the `sdd-init` and `sdd-clean` sub-command skills, the `vault-operations` skill, the `ci-monitoring` skill, the `/sdd` command, the `spec-discipline`, `documentation-discipline`, and `tdd-discipline` rules (loaded into every agent's instructions), and the `spec-reviewer` + `doc-updater` agents. <!-- @test: src/__tests__/lib/agent-seed-ecc-rules.test.ts (ECC rules in agent-seed) -->
-2. Every `/sdd` sub-command (`init`, `edit`, `add`, `clean`, `mode`) works in Pi without context-mode by using native Bash/Read/Grep/Find/Write/Edit tools; context-management helper tools, when present in another runtime, are optional rather than required. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
-3. Large discovery commands use Pi-native discovery tools when context-mode is absent. <!-- @impl: scripts/generate-agent-seed.mjs::PI_SDD_COMPATIBILITY_NOTE -->
-4. Pi-transformed SDD skills use Pi-native graphify tools and `Agent`/`Plan` terminology. <!-- @impl: scripts/generate-agent-seed.mjs::PI_SDD_COMPATIBILITY_NOTE -->
-5. The native `/sdd` command enforces command-file hard gates before workflow dispatch. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::sddRepoState --> <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddCommandDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (native /sdd hard gates / REQ-AGENT-021 AC5 (the native /sdd command enforces command-file hard gates before workflow dispatch)) -->
-6. `/sdd init` and `/sdd clean` are root-session mutation workflows and do not dispatch PR-boundary reviewer agents. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddWorkflowExecutionText --> <!-- @impl: preseed/agents/claude/commands/sdd.md::Execution ownership (binding) --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-021/REQ-AGENT-037: keeps SDD mutation workflows in the root session) -->
-7. `/sdd init` and `/sdd clean` run required specification and documentation enforcement inline in that order. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::rootSddExecution --> <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Execution ownership (binding) --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-021/REQ-AGENT-037: keeps SDD mutation workflows in the root session) -->
+1. Pro mode preseeds the `spec-driven-development` skill, the `sdd-init` and `sdd-clean` sub-command skills, the `vault-operations` skill, the `ci-monitoring` skill, the `/sdd` command, the `spec-discipline`, `documentation-discipline`, and `tdd-discipline` rules (loaded into every agent's instructions), and the `spec-reviewer` + `doc-updater` agents. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/agent-seed-ecc-rules.test.ts (ECC rules in agent-seed) -->
+2. Every `/sdd` sub-command (`init`, `edit`, `add`, `clean`, `mode`) works in Pi without context-mode by using native Bash/Read/Grep/Find/Write/Edit tools; context-management helper tools, when present in another runtime, are optional rather than required. <!-- @impl: scripts/generate-agent-seed.mjs::adaptPiSkillContent --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
+3. The native `/sdd` command enforces command-file hard gates before workflow dispatch. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::sddRepoState --> <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddCommandDecision --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (native /sdd hard gates / REQ-AGENT-021 AC3 (the native /sdd command enforces command-file hard gates before workflow dispatch)) -->
+4. `/sdd init` and `/sdd clean` are root-session mutation workflows and do not dispatch PR-boundary reviewer agents. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddWorkflowExecutionText --> <!-- @impl: preseed/agents/claude/commands/sdd.md::Execution ownership (binding) --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-021/REQ-AGENT-037: keeps SDD mutation workflows in the root session) -->
+5. `/sdd init` and `/sdd clean` run required specification and documentation enforcement inline in that order. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::rootSddExecution --> <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Execution ownership (binding) --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-021/REQ-AGENT-037: keeps SDD mutation workflows in the root session) -->
 
-**Notes:** AC3 and AC4 are manually verified through the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+**Notes:** Runtime portability procedures are also documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
+- Large discovery commands use Pi-native discovery tools when context-mode is absent; Pi-transformed SDD skills use Pi-native Graphify tools and `Agent`/`Plan` terminology.
 - CI-monitoring launch, reporting, and non-blocking wait policy lives in [REQ-AGENT-068](#req-agent-068-ci-monitoring-background-agent-policy).
 - `/sdd init` scaffolding lives in [REQ-AGENT-033](#req-agent-033-sdd-init-scaffolding-and-canonical-render); enrichment lives in [REQ-AGENT-034](#req-agent-034-sdd-init-enrichment-pass-with-graphify).
 - Phase 7a / 7b verifier gates live in [REQ-AGENT-035](#req-agent-035-sdd-init-phase-7a-source-anchor-verifier-gate) and [REQ-AGENT-039](#req-agent-039-sdd-init-phase-7b-enumeration-coverage-verifier-gate).
@@ -653,7 +649,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-025](#req-agent-025-post-clone-graph-triage)
 
-**Verification:** Manual check
+**Verification:** [Agent seed tests](../../src/__tests__/lib/agent-seed-manifest.test.ts), [Pi review scope tests](../../src/__tests__/lib/pi-review-scope.test.ts)
 
 **Status:** Implemented
 
@@ -1136,14 +1132,14 @@ None.
 3. `unleashed` mode applies SAFE + RISKY + JUDGMENT fixes on the current branch via per-category `[sdd-clean]` commits and uses conservative JUDGMENT auto-resolution that never overwrites intent. <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-037: /sdd clean rescue and autonomy modes) -->
 4. `unleashed` refuses when `enforce_tdd: false`; users must enable TDD or use `auto`. It creates no branch or PR, and per-category commits remain independently revertible. <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-037: /sdd clean rescue and autonomy modes) -->
 5. `/sdd clean` rescues rotted specs with conservative JUDGMENT auto-resolution that never overwrites spec intent (mark Partial + Notes, move to Out of Scope, shrink in place). <!-- @test: host/__tests__/skill-sdd-clean-contract.test.js (REQ-AGENT-037: /sdd clean rescue and autonomy modes) -->
-6. A successful `auto` or `unleashed` cleanup leaves its resulting commits on the checked-out remote branch. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::rootSddExecution --> <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Execution ownership (binding) -->
-7. Specification repair completes before documentation repair. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::rootSddExecution --> <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Execution ownership (binding) --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-021/REQ-AGENT-037: keeps SDD mutation workflows in the root session) -->
+6. Specification repair completes before documentation repair. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::rootSddExecution --> <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Execution ownership (binding) --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-021/REQ-AGENT-037: keeps SDD mutation workflows in the root session) -->
 
 **Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
 - Status semantics, `Deprecated` requirements, the spec-discipline enforcement layer, and the `enforce_tdd` test-coverage rule follow `rules/spec-discipline.md`.
+- A successful `auto` or `unleashed` cleanup leaves its resulting commits on the checked-out remote branch.
 - Inline repair invokes `spec-enforce` before `doc-enforce`; report-only reviewers never own mutations or Git operations.
 
 **Priority:** P1
@@ -1261,10 +1257,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. A user-created one-shot sentinel bypasses one otherwise eligible root review boundary without writing acknowledgement. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041: consumes a one-shot bypass on reminder-only PR creation) -->
+1. A direct user instruction can arm a one-shot sentinel before task execution, bypassing one otherwise eligible root review boundary without writing acknowledgement. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041 AC1/AC3/AC4: applies a one-shot bypass only from initiating direct-user wording) -->
 2. A non-SDD project does not consume the one-shot sentinel. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::BYPASS_FILE --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (H1: vibe-coding project does NOT consume the /tmp/review-bypass sentinel) -->
-3. Only a finalized user message after the latest boundary containing `skip review` or `skip verification` is recognized as a transcript bypass. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-041: recognizes an explicit user bypass only when it follows the latest boundary) -->
-4. A recognized post-boundary user bypass emits no reminder and writes no acknowledgement. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041: honors an explicit post-boundary user bypass without fabricating acknowledgement) -->
+3. A positive `skip review` or `skip verification` command in direct interactive or RPC input, including a compound initiating instruction, arms the bypass; questions, negations, quotations, extension-injected input, and mid-task steering do not. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::parseControlDirectives --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041 AC1/AC3/AC4: applies a one-shot bypass only from initiating direct-user wording) -->
+4. A bypass armed before the boundary prevents reviewer dispatch without suppressing independent CI or writing acknowledgement; it never cancels reviewers already running. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041 AC1/AC3/AC4: applies a one-shot bypass only from initiating direct-user wording) -->
 5. Child sessions never consume the sentinel, write acknowledgement, or mutate the block counter. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes) -->
 6. One unreviewed head emits at most five settled follow-ups before latching `GIVEUP`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::blockDecision --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041/REQ-AGENT-074: retries immediate service failures five times then latches GIVEUP) -->
 7. A different head starts a fresh follow-up count. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::blockDecision --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041/REQ-AGENT-074: retries immediate service failures five times then latches GIVEUP) -->
@@ -1360,15 +1356,14 @@ None.
 2. The enforce pass rejects placeholder or nonspecific triage guidance. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Phase 7a + Iterate-to-clean against enforcement skills (binding) --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-045: Import-Mode triage queue and transition state) -->
 3. A lost triage entry carries a one-line Reason. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off --> <!-- @test: host/__tests__/skill-sdd-init-contract.test.js (REQ-AGENT-045: Import-Mode triage queue and transition state) -->
 4. Open transition triage suppresses Pi review lanes. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-045/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
-5. Import Mode with `enforce_tdd: false` marks source-implemented CLEAR requirements Implemented. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Import Mode — two-output model -->
-6. Import Mode with `enforce_tdd: true` marks requirements without REQ-referencing tests Partial. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Import Mode — two-output model -->
-7. Open transition triage suppresses the Claude PR-review hooks. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::requires_lane --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh - SDD transition gate (REQ-AGENT-022)) -->
+5. Open transition triage suppresses the Claude PR-review hooks. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::requires_lane --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh - SDD transition gate (REQ-AGENT-022)) -->
 
-**Notes:** AC5-AC6 are manually verified through the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+**Notes:** Import-mode status handling is documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
 - Triage state lives only in `sdd/.init-triage.md` and Git history.
+- Import Mode with `enforce_tdd: false` marks source-implemented CLEAR requirements Implemented; with `enforce_tdd: true`, requirements without REQ-referencing tests remain Partial.
 - Triage resolution is interactive only.
 - `/sdd init` owns the triage file.
 - spec-reviewer may read the triage file.
@@ -1394,16 +1389,14 @@ None.
 
 **Acceptance Criteria:**
 
-1. Resolving the final open triage item clears transition. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off -->
-2. Transition closure records resolved and lost entry totals. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off -->
-3. Transition closure leaves `enforce_tdd` unchanged. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off -->
-4. Transition closure preserves the triage file as its audit record. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off -->
-5. Open transition triage suppresses the Claude PR-review hooks. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::SDD transition gate (REQ-AGENT-022) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh - SDD transition gate (REQ-AGENT-022)) -->
-6. Open transition triage suppresses Pi PR review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-045/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
+1. Open transition triage suppresses the Claude PR-review hooks. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::SDD transition gate (REQ-AGENT-022) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (git-push-review-reminder.sh - SDD transition gate (REQ-AGENT-022)) -->
+2. Open transition triage suppresses Pi PR review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-045/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
 
-**Notes:** AC1, AC2, AC3, and AC4 are manually verified through the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+**Notes:** Resume-closure procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
-**Constraints:** None.
+**Constraints:**
+
+- Resolving the final open triage item clears transition, records resolved and lost totals, leaves `enforce_tdd` unchanged, and preserves the triage file as its audit record.
 
 **Priority:** P1
 
@@ -1760,7 +1753,7 @@ None.
 3. The callback binds an HMAC-signed, single-use state to the initiating user's bucket; a forged, expired, or replayed state is rejected without exchanging the code. On success it stores the token and auto-selects the account when exactly one is accessible, else redirects to an account picker. <!-- @impl: src/lib/cloudflare-token.ts::connectCloudflare --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (GET /auth/cloudflare/connect/callback) -->
 4. A currently-valid token is returned, refreshing within the skew window and failing closed (never a stale token); the resolved token is injected into the container env on session start. <!-- @impl: src/lib/cloudflare-token.ts::getValidCloudflareToken --> <!-- @impl: src/lib/cloudflare-token.ts::applyCloudflareOAuthToken --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (getValidCloudflareToken) -->
 5. The connect URL carries a scope `tier`; the server maps it to the OAuth `scope`, always including `offline_access` so a refresh token is issued. <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @test: src/__tests__/routes/cloudflare-oauth.test.ts (feeds the scope tier into the OAuth authorize scope param (always incl. offline_access)) -->
-6. The operator's Cloudflare OAuth client id + secret are configured in the admin-gated Setup wizard (KV; id plain, secret encrypted at rest, fail-closed without `ENCRYPTION_KEY`), mirroring the GitHub provider config ([REQ-GITHUB-008](github.md#req-github-008-enterprise-github-provider-configuration-via-setup)). <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
+6. The operator's Cloudflare OAuth client id + secret are configured in the admin-gated Setup wizard (KV; id plain, secret encrypted at rest, fail-closed without `ENCRYPTION_KEY`), mirroring the GitHub provider config ([REQ-GITHUB-008](github.md#req-github-008-enterprise-github-provider-configuration-via-setup)). <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup.test.ts (persists the Cloudflare OAuth client encrypted and fails closed without an encryption key) -->
 7. Enterprise is unchanged: the OAuth provider resolves to none in enterprise, so every Cloudflare-OAuth route fails closed there; enterprise keeps the admin-global Browser Rendering token ([REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)). <!-- @impl: src/lib/cloudflare-token.ts::getCloudflareProvider --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (applyCloudflareOAuthToken (REQ-AGENT-078: injects the placeholder, real token never in the container)) -->
 
 **Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
@@ -1850,8 +1843,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. In advanced session mode, the constitution is seeded as a Claude rule — the preseed rule file is present and the seed manifest gates it to `advanced` only, matching the other engineering rules ([REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)). <!-- @test: host/__tests__/engineering-constitution.test.js (seeds the Claude constitution rule, gated to advanced mode) -->
-2. The constitution is injected into every Pi agent system prompt on `before_agent_start` as an always-on, self-contained `<codeflare_constitution>` block (placed in the base prompt parts, not behind a conditional), so it is present in every Pi session. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::ENGINEERING_CONSTITUTION -->
+1. In advanced session mode, the constitution is seeded as a Claude rule — the preseed rule file is present and the seed manifest gates it to `advanced` only, matching the other engineering rules ([REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)). <!-- @impl: preseed/agents/claude/manifest.json::modes --> <!-- @test: host/__tests__/engineering-constitution.test.js (seeds the Claude constitution rule, gated to advanced mode) -->
+2. The constitution is injected into every Pi agent system prompt on `before_agent_start` as an always-on, self-contained `<codeflare_constitution>` block (placed in the base prompt parts, not behind a conditional), so it is present in every Pi session. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::composeCodeflareBaseSystemPrompt --> <!-- @test: src/__tests__/lib/codeflare-system-prompt.test.ts (REQ-AGENT-065 AC2: composes the constitution into every Pi base system prompt) -->
 
 **Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
@@ -1879,11 +1872,11 @@ None.
 
 **Acceptance Criteria:**
 
-1. The skill is invoked only when the user's current request asks for external LLMs or names GPT, ChatGPT, Gemini, OpenAI, or `consult_llm`. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
-2. Without a named model, the agent asks one model-selection question with latest Gemini, latest OpenAI, both, list-all, and the tool-provided write-in option. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
-3. The list-all path reads concrete Gemini/OpenAI model IDs from the consult-llm startup log, not from provider selectors. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
-4. Latest-model choices use server-side `"openai"` / `"gemini"` selectors and never perform provider model-list HTTP requests with raw keys. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
-5. When the user names a specific model, no dialog is shown and that exact ID is passed. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
+1. The skill is invoked only when the user's current request asks for external LLMs or names GPT, ChatGPT, Gemini, OpenAI, or `consult_llm`. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md::Hard gate — explicit user request only --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
+2. Without a named model, the agent asks one model-selection question with latest Gemini, latest OpenAI, both, list-all, and the tool-provided write-in option. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md::Step 1 — Choose the model --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
+3. The list-all path reads concrete Gemini/OpenAI model IDs from the consult-llm startup log, not from provider selectors. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md::Listing concrete models --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
+4. Latest-model choices use server-side `"openai"` / `"gemini"` selectors and never perform provider model-list HTTP requests with raw keys. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md::Step 1 — Choose the model --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
+5. When the user names a specific model, no dialog is shown and that exact ID is passed. <!-- @impl: preseed/agents/claude/skills/consult-llm/SKILL.md::Step 1 — Choose the model --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-031/REQ-AGENT-067 consult-llm invocation behaviour (explicit gate + model dialog + selectors)) -->
 
 **Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
@@ -1975,24 +1968,23 @@ None.
 
 **Acceptance Criteria:**
 
-1. Routine pushes do not auto-start Claude `ci-monitoring`. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Hard obligations -->
-2. Claude invokes `ci-monitoring` only for an explicit request or a fresh deploy/merge gate. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Hard obligations -->
-3. The Claude monitor launcher returns the monitored head, detached process identity, and durable log path. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::The monitor launcher --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC3: Claude ci monitor launcher starts detached work and returns a durable log path) -->
-4. Claude success requires a non-empty workflow/run fingerprint that remains stable across two polls. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Reading the result --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC4: Claude ci monitor waits for a stable workflow/run set before success) -->
-5. A failed workflow row writes a terminal failure result to the durable log. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Reading the result --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC5: Claude ci monitor reports failed workflow rows) -->
-6. Unavailable GitHub CLI access writes a terminal timeout result to the durable log. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Reading the result --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC6: Claude ci monitor reports gh access failures in the durable log) -->
+1. The Claude monitor launcher returns the monitored head, detached process identity, and durable log path. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::The monitor launcher --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC1: Claude ci monitor launcher starts detached work and returns a durable log path) -->
+2. Claude success requires a non-empty workflow/run fingerprint that remains stable across two polls. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Reading the result --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC2: Claude ci monitor waits for a stable workflow/run set before success) -->
+3. A failed workflow row writes a terminal failure result to the durable log. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Reading the result --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC3: Claude ci monitor reports failed workflow rows) -->
+4. Unavailable GitHub CLI access writes a terminal timeout result to the durable log. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/SKILL.md::Reading the result --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-AGENT-070 AC4: Claude ci monitor reports gh access failures in the durable log) -->
 
-**Notes:** AC1 and AC2 are manually verified through the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+**Notes:** Policy triggers are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
+- Routine pushes do not auto-start Claude `ci-monitoring`; Claude invokes it only for an explicit request or a fresh deploy/merge gate.
 - Claude monitoring remains independent of Pi's automatic policy in [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring)
 
-**Verification:** Manual check
+**Verification:** [Claude CI monitoring tests](../../host/__tests__/ci-monitoring-skill.test.js)
 
 **Status:** Implemented
 
@@ -2076,10 +2068,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. All 11 Cloudflare skills (`cloudflare`, `cloudflare-one`, `cloudflare-one-migrations`, `wrangler`, `workers-best-practices`, `durable-objects`, `agents-sdk`, `sandbox-sdk`, `turnstile-spin`, `cloudflare-email-service`, `web-perf`) plus the `cloudflare-build-agent`/`cloudflare-build-mcp` commands are seeded to advanced-mode agents (Claude + the non-Claude agents via the shared pipeline) and gated `advanced`-only; default mode receives none. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (default mode receives NONE of the Cloudflare skills (advanced/Pro-only)) -->
-2. The cloudflare mega-skill is slimmed: its `SKILL.md` decision tree is kept (with the dangling `references:` frontmatter removed) but the `references/` tree is NOT bundled, so the Worker bundle does not carry ~2.2 MB × every agent of retrieval-first reference markdown. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (SLIMS the cloudflare mega-skill: SKILL.md is kept, the references/ tree is NOT bundled) -->
-3. Doc retrieval is via WebFetch of `developers.cloudflare.com`: a `paths:`-scoped `rules/cloudflare-workers.md` (loaded only on Workers files, not always-on) carries the retrieval-first guidance, and the upstream remote-MCP config (`.mcp.json`) is NOT bundled. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (the Workers retrieval rule is path-conditional (not always-on) and WebFetch-oriented) -->
-4. The upstream Apache-2.0 `LICENSE` is vendored alongside the skills for attribution. <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (carries the upstream Apache-2.0 LICENSE alongside the vendored skills (attribution)) -->
+1. All 11 Cloudflare skills (`cloudflare`, `cloudflare-one`, `cloudflare-one-migrations`, `wrangler`, `workers-best-practices`, `durable-objects`, `agents-sdk`, `sandbox-sdk`, `turnstile-spin`, `cloudflare-email-service`, `web-perf`) plus the `cloudflare-build-agent`/`cloudflare-build-mcp` commands are seeded to advanced-mode agents (Claude + the non-Claude agents via the shared pipeline) and gated `advanced`-only; default mode receives none. <!-- @impl: preseed/agents/claude/manifest.json::modes --> <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (default mode receives NONE of the Cloudflare skills (advanced/Pro-only)) -->
+2. The cloudflare mega-skill is slimmed: its `SKILL.md` decision tree is kept (with the dangling `references:` frontmatter removed) but the `references/` tree is NOT bundled, so the Worker bundle does not carry ~2.2 MB × every agent of retrieval-first reference markdown. <!-- @impl: preseed/agents/claude/manifest.json::skills/cloudflare/SKILL.md --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (SLIMS the cloudflare mega-skill: SKILL.md is kept, the references/ tree is NOT bundled) -->
+3. Doc retrieval is via WebFetch of `developers.cloudflare.com`: a `paths:`-scoped `rules/cloudflare-workers.md` (loaded only on Workers files, not always-on) carries the retrieval-first guidance, and the upstream remote-MCP config (`.mcp.json`) is NOT bundled. <!-- @impl: preseed/agents/claude/rules/cloudflare-workers.md::Cloudflare Workers --> <!-- @impl: preseed/agents/claude/manifest.json::rules/cloudflare-workers.md --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (the Workers retrieval rule is path-conditional (not always-on) and WebFetch-oriented) -->
+4. The upstream Apache-2.0 `LICENSE` is vendored alongside the skills for attribution. <!-- @impl: preseed/agents/claude/manifest.json::skills/cloudflare/LICENSE --> <!-- @test: src/__tests__/lib/cloudflare-skills-seed.test.ts (carries the upstream Apache-2.0 LICENSE alongside the vendored skills (attribution)) -->
 
 **Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
@@ -2273,7 +2265,9 @@ None.
 1. Code, specification, and documentation reviewers begin with every declared canonical policy available before their first tool call. <!-- @impl: scripts/generate-agent-seed.mjs::expandPiSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
 2. Reviewer configuration omits unsupported skill-access declarations. <!-- @impl: scripts/generate-agent-seed.mjs::generate --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
 3. Policy available to each reviewer is identical to its separately seeded canonical policy. <!-- @impl: scripts/generate-agent-seed.mjs::expandPiSkillIncludes --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: expands canonical policy into each generated reviewer system prompt) -->
-4. At five or more counted commits, the direct-user fully-autonomous marker is carried into reviewer service prompts and changes only the enforced round-limit decision from stop to continue. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewerPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::fullyAutonomousOverride --> <!-- @impl: preseed/agents/pi/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override --> <!-- @impl: preseed/agents/pi/skills/spec-enforce/scripts/round-limit.mjs::action --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-084: carries a direct fully-autonomous override into reviewer service prompts) -->
+4. A direct user instruction enables fully autonomous execution either before a task or as a mid-task upgrade; the latest explicit stop disables it, while questions, quotations, negations, and incidental prose do not change the mode. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::parseControlDirectives --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::fullyAutonomousOverride --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-084 AC4: enables autonomy before or during a task and honors an explicit stop) -->
+5. The active direct-user fully-autonomous marker is carried into subsequent reviewer service prompts. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewerPrompt --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-084 AC5: carries a mid-task fully-autonomous upgrade into reviewer service prompts) -->
+6. At five or more counted commits, that exact marker changes only the enforced round-limit decision from stop to continue. <!-- @impl: preseed/agents/pi/skills/spec-enforce/SKILL.md::Explicit fully-autonomous override --> <!-- @impl: preseed/agents/pi/skills/spec-enforce/scripts/round-limit.mjs::action --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-084: enforcement round limit honors only the exact fully autonomous marker) -->
 
 **Constraints:**
 
@@ -2393,24 +2387,21 @@ None.
 **Acceptance Criteria:**
 
 1. Pi `/review` dispatches a report-only execution contract whose reports belong to the root. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::REVIEW_EXECUTION --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-050 AC1/REQ-AGENT-088 AC1: dispatches the dedicated /review workflow contract) -->
-2. Claude `/review` gives every subagent a binding report-only execution mode. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) -->
-3. The root session persists every returned review report. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Review ownership (binding) -->
-4. The root applies a review fix only after the user approves it. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Review ownership (binding) -->
-5. Interactive triage records exactly one decision for each surfaced finding. <!-- @impl: preseed/agents/claude/commands/review.md::Phase 8: Interactive Triage --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Phase 8: Interactive triage -->
-6. Defer, ignore, and technical-debt decisions persist to `sdd/.review-decisions.md`. <!-- @impl: preseed/agents/claude/commands/review.md::Phase 9: Save Triage Results + Append to .review-decisions --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Phase 9: Save triage results + append to .review-decisions -->
 
-**Notes:** Report persistence, approval gating, and triage cardinality are manually verified through the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
+**Notes:** Report persistence, approval gating, and triage cardinality are policy constraints documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
 **Constraints:**
 
 - Existing specialist agent types are reused; this requirement introduces no duplicate review agents.
+- Claude gives every `/review` subagent a binding report-only execution mode; the root persists every report and applies fixes only after user approval.
+- Interactive triage records one decision per surfaced finding, and defer, ignore, and technical-debt decisions persist to `sdd/.review-decisions.md`.
 - Reviewer scope, evidence completeness, and severity remain unchanged.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-015](#req-agent-015-review-command-for-multi-perspective-codebase-review), [REQ-AGENT-050](#req-agent-050-pi-native-review-workflow-skill)
 
-**Verification:** Manual check
+**Verification:** [Pi review scope tests](../../src/__tests__/lib/pi-review-scope.test.ts)
 
 **Status:** Implemented
 

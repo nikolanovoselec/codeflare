@@ -405,6 +405,46 @@ function userText(entry: Record<string, any>): string {
   return Array.isArray(content) ? content.filter((part) => part?.type === "text").map((part) => part.text).join("\n") : "";
 }
 
+export type ControlDirective = "skip-review" | "enable-autonomy" | "disable-autonomy";
+
+function withoutQuotedText(text: string): string {
+  return text
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`[^`\n]*`/g, " ")
+    .replace(/"(?:\\.|[^"\\])*"/g, " ")
+    .replace(/'(?:\\.|[^'\\])*'/g, " ")
+    .replace(/“[^”]*”|‘[^’]*’/g, " ");
+}
+
+export function parseControlDirectives(text: string): ControlDirective[] {
+  const normalized = withoutQuotedText(text.normalize("NFKC"))
+    .replace(/\r\n?/g, "\n")
+    .trim();
+  if (!normalized || normalized.includes("?")
+    || /^(?:what|why|how|when|where|who|can|could|would|should|will|is|are|does|did|explain|describe|define|discuss|document|quote)\b/i.test(normalized)) {
+    return [];
+  }
+
+  return normalized
+    .split(/(?:\s+\b(?:and|then)\b\s+|[;\n]+)/i)
+    .map((clause) => clause.trim().replace(/[.!]+$/, ""))
+    .flatMap<ControlDirective>((clause) => {
+      if (/^(?:please\s+)?skip\s+(?:the\s+)?(?:review|verification)(?:\s+for\s+(?:this|the current)\s+(?:push|pr|boundary|task))?$/i.test(clause)) {
+        return ["skip-review"];
+      }
+      if (/^(?:please\s+)?(?:stop|cancel|disable|exit|leave)\s+(?:the\s+)?fully\s+autonomous(?:\s+mode)?$/i.test(clause)) {
+        return ["disable-autonomy"];
+      }
+      if (/\b(?:do\s+not|don't|never|without|not)\b.*\bfully\s+autonomous(?:ly)?\b/i.test(clause)) return [];
+      if (/^(?:please\s+)?fully\s+autonomous(?:\s+mode)?(?:\s+for\s+(?:this|the current)\s+task)?$/i.test(clause)
+        || /^(?:please\s+)?(?:go|proceed|continue|work|operate|execute|run|be)\s+fully\s+autonomous(?:ly)?(?:\s+(?:for\s+(?:this|the current)\s+task|from\s+(?:here|now\s+on)))?$/i.test(clause)
+        || /\bfully\s+autonomously(?:\s+(?:for\s+(?:this|the current)\s+task|from\s+(?:here|now\s+on)))?$/i.test(clause)) {
+        return ["enable-autonomy"];
+      }
+      return [];
+    });
+}
+
 function nativeNotification(entry: Record<string, any>): { toolUseId: string; succeeded: boolean } | undefined {
   if (entry.type !== "custom_message" || entry.customType !== "subagent-notification" || typeof entry.content !== "string") return undefined;
   const toolUseId = /<tool-use-id>([^<]+)<\/tool-use-id>/.exec(entry.content)?.[1];
@@ -450,12 +490,14 @@ function serviceRecord(entry: Record<string, any>): ServiceRecord | undefined {
 }
 
 function fullyAutonomousOverride(entries: Record<string, any>[]): boolean {
-  return entries.reduce((active, entry) => {
-    const text = userText(entry);
-    if (!text) return active;
-    if (/\b(?:CANCEL|STOP) FULLY AUTONOMOUS\b/.test(text)) return false;
-    return /\bFULLY AUTONOMOUS\b/.test(text);
-  }, false);
+  return entries.reduce((active, entry) => parseControlDirectives(userText(entry)).reduce(
+    (current, directive) => directive === "enable-autonomy"
+      ? true
+      : directive === "disable-autonomy"
+        ? false
+        : current,
+    active,
+  ), false);
 }
 
 function reviewWindow(entry: Record<string, any>): { head?: string; range?: string } | undefined {
@@ -477,7 +519,7 @@ function reviewWindow(entry: Record<string, any>): { head?: string; range?: stri
 
 export function reviewTranscriptFacts(input: {
   sessionFile: string;
-  requiredLanes: ReviewLane[];
+  requiredLanes: readonly ReviewLane[];
   ciHead?: string;
 }): TranscriptFacts {
   const entries = readEntries(input.sessionFile);
@@ -564,7 +606,7 @@ export function reviewTranscriptFacts(input: {
         && prompt.split(/\s+/).includes(`head=${input.ciHead}`);
     });
   }));
-  const bypassed = later.some((entry) => /\bskip (?:the )?(?:review|verification)\b/i.test(userText(entry)));
+  const bypassed = false;
   const closedNotified = later.some((entry) =>
     entry.type === "custom_message" && entry.customType === "pr-boundary-review-closed-unacknowledged",
   );

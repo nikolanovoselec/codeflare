@@ -7,6 +7,7 @@ import { recallActiveRepo, rememberActiveRepoFromToolResult } from "./active-rep
 import {
   classifyReviewBoundaryCommand,
   isReviewTransitionSuspended,
+  parseControlDirectives,
   requiredReviewLanes,
   reviewRange,
   reviewTranscriptFacts,
@@ -112,7 +113,7 @@ type ReviewContext = {
 };
 
 type ReviewPi = {
-  on(event: "tool_result" | "agent_settled" | "turn_start" | "session_start" | "session_shutdown", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
+  on(event: "input" | "tool_result" | "agent_settled" | "turn_start" | "session_start" | "session_shutdown", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
   appendEntry(customType: string, data: unknown): void;
   exec(command: string, args: string[], options?: { cwd?: string; timeout?: number }): Promise<{ stdout: string; stderr: string; code: number }>;
   sendMessage(
@@ -811,6 +812,13 @@ async function dispatchReviewWindow(
 export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): void {
   const visual = createReviewVisualController();
   const triage = createReviewTriageController(pi);
+  pi.on("input", (event) => {
+    const directUserInput = event.source === "interactive" || event.source === "rpc";
+    const initiatingPrompt = event.streamingBehavior === undefined;
+    if (directUserInput && initiatingPrompt && parseControlDirectives(event.text).includes("skip-review")) {
+      writeFileSync(BYPASS_FILE, "", "utf8");
+    }
+  });
   const removeVisualListeners = REVIEW_VISUAL_EVENTS.map((channel) =>
     pi.events.on(channel, (data) => {
       visual.refresh();

@@ -2187,7 +2187,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).toHaveBeenCalledWith('setup:github_oauth_client_secret', expect.any(String));
       });
 
-      it('persists the Cloudflare OAuth client (id plain, secret encrypted) in non-enterprise', async () => {
+      it('persists the Cloudflare OAuth client encrypted and fails closed without an encryption key', async () => {
         const app = createTestApp({ ENCRYPTION_KEY: ENC_KEY }); // no ENTERPRISE_MODE
         mockFullSuccessFlow();
 
@@ -2201,18 +2201,16 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         await readNdjson(res);
         expect(mockKV.put).toHaveBeenCalledWith('setup:cloudflare_oauth_client_id', 'cf-cid');
         expect(mockKV.put).toHaveBeenCalledWith('setup:cloudflare_oauth_client_secret', expect.any(String));
-      });
 
-      it('rejects a Cloudflare client secret with no ENCRYPTION_KEY (fail closed, no write)', async () => {
-        const app = createTestApp({}); // no ENCRYPTION_KEY, no ENTERPRISE_MODE
-
-        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+        mockKV.put.mockClear();
+        const noEncryptionApp = createTestApp({});
+        const rejected = await noEncryptionApp.request('https://codeflare.test.workers.dev/api/setup/configure', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...standardBody, cloudflareOauthClientSecret: 'cf-secret' }),
         });
 
-        expect(res.status).toBe(400);
+        expect(rejected.status).toBe(400);
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:cloudflare_oauth_client_secret', expect.anything());
       });
 
