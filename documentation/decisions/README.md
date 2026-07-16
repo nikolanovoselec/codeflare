@@ -2500,7 +2500,7 @@ The dedicated agent runs one attached Node process and returns `CI_RESULT` throu
 
 **Decision:** The root Pi session emits public background requests and reconstructs launch, running, failure, success, reminder, and GIVEUP state from durable session JSONL. Every launch serializes identical bounded items into model-facing content and durable metadata. One tiny active request-ID pointer enables reload discovery, while one request-specific immutable snapshot prevents a late call from reading replacement work.
 
-Memory snapshots use the shared home-backed cache so child Bash sees them; active legacy temp snapshots migrate before retry. Memory counters and the committed Vault manifest advance only after exact native success plus request-specific post-commit artifacts.
+Memory snapshots use the shared home-backed cache so child Bash sees them; active legacy temp snapshots migrate before retry, as detailed in [Pi Memory and Vault Extraction Data Flow](../lanes/architecture.md#pi-memory-and-vault-extraction-data-flow). Memory counters and the committed Vault manifest advance only after exact native success plus request-specific post-commit artifacts.
 
 Vault promotion validates staged bytes, prelaunch edits coalesce, and during-run edits become one follow-up request. Request-specific chunks and one lock spanning cumulative merge plus global publication prevent cross-request graph corruption. [AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) bounds the workers without changing this delivery ownership.
 

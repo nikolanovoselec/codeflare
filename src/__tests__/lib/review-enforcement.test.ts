@@ -968,6 +968,13 @@ describe('Pi review reminder and settled enforcement', () => {
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
+    const followUp = harness.sent[0]?.message.content;
+    expect(markdownHeadings(followUp)).toEqual([
+      '## PR boundary follow-up — missing work',
+      '### 1. Start reviewers together',
+      '### 2. Triage before fixing',
+    ]);
+    expect(followUp).toMatch(/\*\*Recovery rule:\*\*[\s\S]+Do not duplicate unmatched calls/);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 

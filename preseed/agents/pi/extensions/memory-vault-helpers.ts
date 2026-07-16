@@ -362,7 +362,8 @@ export function isSyntheticPrompt(prompt: string): boolean {
     || text.startsWith("Agent(")
     || text.startsWith("PROMPT_FILE=")
     || text.startsWith("[silent]")
-    || text.startsWith("[codeflare-extraction]");
+    || text.startsWith("[codeflare-extraction]")
+    || (text.startsWith("## Extraction jobs ready") && text.includes("\n<extraction-items-json>\n"));
 }
 
 export function isRealUserPrompt(message: any): boolean {

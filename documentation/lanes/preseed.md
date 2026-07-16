@@ -490,7 +490,7 @@ Generated agents and emitted requests use provider-neutral medium reasoning, Bas
 
 `memory-vault.ts` owns delivery and high-water state. `/tmp/.memory-counter/<sessionId>.vars` and `vault-extract.pi.vars` are active request-ID pointers for reload discovery.
 
-Public prompts receive immutable home-backed cache snapshots named `memory-capture.<sessionId>.<requestId>.vars` or `vault-extract.pi.<requestId>.vars`. Moving memory input out of `/tmp` makes it immediately visible to child Bash; active legacy temp snapshots migrate before retry.
+Public prompts receive immutable home-backed cache snapshots named `memory-capture.<sessionId>.<requestId>.vars` or `vault-extract.pi.<requestId>.vars`. The [extraction data flow](architecture.md#pi-memory-and-vault-extraction-data-flow) owns the child-visible location and legacy migration details.
 
 Root-session JSONL determines exact public-call attempts, native completion, reminders `0..5`, and GIVEUP. An emitted request with no matching call remains one pending delivery, so repeated settlements and reloads emit neither duplicates nor GIVEUP. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts -->
 

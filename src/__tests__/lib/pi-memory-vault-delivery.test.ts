@@ -541,7 +541,8 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     const visibleItems = modelVisibleLaunchItems(sent);
     expect(visibleItems).toEqual(sent.message.details?.items);
     const memoryItem = visibleItems.find((item) => item.jobType === 'memory-capture');
-    expect((memoryItem?.request as PublicExtractionRequest).prompt).toMatch(/\nPROMPT_FILE=/);
+    if (!memoryItem) throw new Error('missing model-visible memory request');
+    expect((memoryItem.request as PublicExtractionRequest).prompt).toMatch(/\nPROMPT_FILE=/);
     expect(markdownHeadings(sent.message.content)).toEqual(['## Extraction jobs ready']);
     expect(extractionJobLines(sent.message.content)).toEqual([
       '- `memory-capture` · delivery 1/6',
@@ -585,7 +586,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(execution.promptCount).toBe(15);
   });
 
-  it('REQ-MEM-002: advances retries only after exact calls and re-arms after fifteen later prompts', async () => {
+  it('REQ-MEM-015 AC5: advances retries only after exact public calls', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
     mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
@@ -593,10 +594,8 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     for (let ordinal = 1; ordinal <= 15; ordinal += 1) await appendPrompt(harness, ordinal);
 
     for (let settlement = 0; settlement < 7; settlement += 1) await harness.emit('agent_settled');
-
     expect(harness.pi.sent.filter((sent) => sent.message.customType === 'background-extraction-launch')).toHaveLength(1);
     expect(latestLaunch(harness.pi, 'memory-capture').reminder).toBe(0);
-    expect(harness.pi.sent.some((sent) => sent.message.customType === 'background-extraction-giveup')).toBe(false);
 
     const reloadedPi = new FakePi(harness.sessionFile);
     registerMemoryVault(reloadedPi, {
@@ -613,18 +612,24 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(launchMessages.flatMap((sent) => sent.message.details?.items ?? []).map((item) => item.reminder))
       .toEqual([0, 1, 2, 3, 4, 5]);
     for (const sent of launchMessages) expect(modelVisibleLaunchItems(sent)).toEqual(sent.message.details?.items);
+    expect(harness.pi.sent.filter((sent) => sent.message.customType === 'background-extraction-giveup')).toHaveLength(1);
+  });
+
+  it('REQ-MEM-015 AC6: emits structured GIVEUP state and re-arm guidance', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
+    writeFileSync(memoryCounterPath(harness), '0', 'utf8');
+    for (let ordinal = 1; ordinal <= 15; ordinal += 1) await appendPrompt(harness, ordinal);
+
+    await failExactAttempts(harness, 'memory-capture');
     const giveups = harness.pi.sent.filter((sent) => sent.message.customType === 'background-extraction-giveup');
     expect(giveups).toHaveLength(1);
     expect(markdownHeadings(giveups[0]?.message.content)).toEqual(['## Extraction delivery stopped']);
     expect(extractionJobLines(giveups[0]?.message.content)).toEqual([
       expect.stringMatching(/^- `memory-capture` · request `[^`]+` · 6\/6 failed calls$/),
     ]);
-
-    const completedRequest = readJson(memoryPointerPath(harness)).requestId;
-    for (let ordinal = 16; ordinal <= 29; ordinal += 1) await appendPrompt(harness, ordinal);
-    expect(readJson(memoryPointerPath(harness)).requestId).toBe(completedRequest);
-    await appendPrompt(harness, 30);
-    expect(readJson(memoryPointerPath(harness)).requestId).not.toBe(completedRequest);
+    expect(giveups[0]?.message.content).toMatch(/\*\*Next automatic opportunity\*\*[\s\S]+15 later real user prompts/);
   });
 
   it('requires the post-commit note and chunk before exact success advances the frozen counter', async () => {
@@ -658,17 +663,20 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(existsSync(memoryExecutionPath(harness, launch.requestId))).toBe(false);
   });
 
-  it('re-arms only after fifteen later real prompts and isolates the replacement from the old request', async () => {
+  it('REQ-MEM-002 AC5: re-arms only after fifteen later real prompts', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
     mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
     writeFileSync(memoryCounterPath(harness), '0', 'utf8');
     for (let ordinal = 1; ordinal <= 15; ordinal += 1) await appendPrompt(harness, ordinal);
     await failExactAttempts(harness, 'memory-capture');
+    const extractionFollowUp = latestLaunchMessage(harness.pi, 'memory-capture').message.content;
     const oldPointer = readJson(memoryPointerPath(harness));
     const oldExecution = activeExecutionPath(harness, 'memory-capture');
 
     for (let ordinal = 16; ordinal <= 29; ordinal += 1) await appendPrompt(harness, ordinal);
+    expect(readJson(memoryPointerPath(harness)).requestId).toBe(oldPointer.requestId);
+    await harness.emit('before_agent_start', { prompt: extractionFollowUp });
     expect(readJson(memoryPointerPath(harness)).requestId).toBe(oldPointer.requestId);
     await appendPrompt(harness, 30);
 
@@ -685,6 +693,28 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
 });
 
 describe('REQ-VAULT-027: transactional Pi Vault extraction delivery', () => {
+  it('REQ-VAULT-027 AC2: reconstructs Vault retry state from root JSONL after reload', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'retry.md'), 'retry\n', 'utf8');
+    await harness.emit('agent_settled');
+    const launch = latestLaunch(harness.pi, 'vault-extract');
+    appendEntry(harness.sessionFile,
+      toolCall('vault-failed-call', 'vault-extract', launch.request),
+      notification('vault-failed-call', 'Error'),
+    );
+
+    const reloadedPi = new FakePi(harness.sessionFile);
+    registerMemoryVault(reloadedPi, {
+      paths: harness.paths,
+      now: () => NOW,
+      randomUUID: () => UUIDS[1],
+    });
+    await reloadedPi.emit('agent_settled', {}, harness.ctx);
+
+    expect(latestLaunch(reloadedPi, 'vault-extract').reminder).toBe(1);
+  });
+
   it('coalesces edits before launch and freezes the request after its first exact call', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');

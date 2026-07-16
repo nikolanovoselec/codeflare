@@ -590,7 +590,7 @@ the default for hermetic tests; production never sets it.
 
 On Pi, `/tmp/.memory-counter` keeps `<sessionId>.count` for the high-water count and `<sessionId>.vars` for the active request pointer.
 
-The immutable execution snapshot is home-backed at `~/.cache/codeflare-hooks/memory-capture.<sessionId>.<requestId>.vars` so child Bash sees it; active legacy temp snapshots migrate before delivery. The pointer exists only for reload discovery and is never passed to the background agent.
+The immutable execution snapshot is home-backed at `~/.cache/codeflare-hooks/memory-capture.<sessionId>.<requestId>.vars`; the [extraction data flow](architecture.md#pi-memory-and-vault-extraction-data-flow) owns child visibility and legacy migration. The pointer exists only for reload discovery and is never passed to the background agent.
 
 Cross-reference: the verified Cloudflare-Containers ephemerality contract
 this design relies on is captured at `~/Vault/References/Cloudflare-Containers-Ephemerality.md`

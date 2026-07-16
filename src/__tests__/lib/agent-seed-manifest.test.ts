@@ -944,7 +944,7 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(dropped).toBe('');
   });
 
-  it('REQ-MEM-001 AC2: real-user prompt counting matches Claude synthetic-wrapper filtering', () => {
+  it('REQ-MEM-001 AC2: Pi excludes synthetic envelopes and preserves genuine code-like prompts', () => {
     const messages = [
       { role: 'user', content: 'real prompt' },
       { role: 'user', content: '<div>real HTML question</div>' },
