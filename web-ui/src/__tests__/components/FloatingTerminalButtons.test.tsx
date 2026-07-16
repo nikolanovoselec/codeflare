@@ -232,18 +232,20 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
   describe('Page navigation', () => {
     const setActiveTerminal = (bufferType: 'normal' | 'alternate') => {
       const bufferScrollLines = vi.fn();
+      const refresh = vi.fn();
       const term = {
         rows: 24,
         buffer: { active: { type: bufferType, viewportY: 300, baseY: 1000 } },
         _core: { _bufferService: { scrollLines: bufferScrollLines } },
         scrollPages: vi.fn(),
         scrollToBottom: vi.fn(),
+        refresh,
         textarea: document.createElement('textarea'),
       };
       (sessionStore as any).activeSessionId = 'test-session';
       vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({ activeTabId: '1' } as any);
       vi.mocked(terminalStore.getTerminal).mockReturnValue(term as any);
-      return { term, bufferScrollLines };
+      return { term, bufferScrollLines, refresh };
     };
 
     it('REQ-MOB-001 AC7: sends PageUp and PageDown to an alternate-screen application', () => {
@@ -264,7 +266,7 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
     });
 
     it('REQ-MOB-001 AC6: navigates normal-buffer pages through the buffer scroll pipeline', () => {
-      const { term, bufferScrollLines } = setActiveTerminal('normal');
+      const { term, bufferScrollLines, refresh } = setActiveTerminal('normal');
       vi.mocked(sendTerminalKey).mockClear();
       render(() => <FloatingTerminalButtons showTerminal={true} />);
 
@@ -274,6 +276,8 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
       // Page up moves one page (rows - 1); bottom moves the exact buffer
       // distance — deltas come from the buffer, never from DOM scroll state.
       expect(bufferScrollLines.mock.calls).toEqual([[-23], [700]]);
+      // Each direct buffer scroll must carry its own viewport repaint.
+      expect(refresh.mock.calls).toEqual([[0, 23], [0, 23]]);
       expect(term.scrollPages).not.toHaveBeenCalled();
       expect(term.scrollToBottom).not.toHaveBeenCalled();
       expect(sendTerminalKey).not.toHaveBeenCalledWith(term, '\x1b[5~');

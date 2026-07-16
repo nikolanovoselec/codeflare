@@ -10,6 +10,7 @@ function createMockTerminal(options: {
   const triggerDataEvent = vi.fn();
   const scrollLines = vi.fn();
   const bufferScrollLines = vi.fn();
+  const refresh = vi.fn();
   const element = document.createElement('div');
   const terminal = {
     _core: {
@@ -24,9 +25,11 @@ function createMockTerminal(options: {
     element,
     buffer: { active: { type: options.bufferType ?? 'normal' } },
     modes: { mouseTrackingMode: options.mouseTrackingMode ?? 'none' },
+    rows: 24,
     scrollLines,
+    refresh,
   } as unknown as Terminal;
-  return { terminal, triggerDataEvent, scrollLines, bufferScrollLines, element };
+  return { terminal, triggerDataEvent, scrollLines, bufferScrollLines, refresh, element };
 }
 
 // Helper: create a minimal TouchEvent
@@ -186,7 +189,7 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
     describe('vertical swipe with keyboard closed (scroll mode)', () => {
       it('scrolls the buffer on vertical swipe when keyboard is closed', () => {
         (window as any).ontouchstart = null;
-        const { terminal, triggerDataEvent, scrollLines, bufferScrollLines } = createMockTerminal();
+        const { terminal, triggerDataEvent, scrollLines, bufferScrollLines, refresh } = createMockTerminal();
         const isKeyboardOpen = vi.fn(() => false);
         const cleanup = attachSwipeGestures(container, terminal, isKeyboardOpen)!;
 
@@ -202,12 +205,16 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         // buffer and turn one tick into a jump to the top of scrollback).
         expect(bufferScrollLines).toHaveBeenCalledWith(2);
         expect(scrollLines).not.toHaveBeenCalled();
+        // Direct buffer scrolls bypass xterm's DOM-path repaint pairing, so
+        // the helper must repaint the viewport itself — without this the
+        // scrollbar moves while the canvas stays frozen.
+        expect(refresh).toHaveBeenCalledWith(0, 23);
         cleanup();
       });
 
       it('falls back to the public scrollLines API when buffer internals are unavailable', () => {
         (window as any).ontouchstart = null;
-        const { terminal, scrollLines } = createMockTerminal();
+        const { terminal, scrollLines, refresh } = createMockTerminal();
         delete ((terminal as any)._core as { _bufferService?: unknown })._bufferService;
         const cleanup = attachSwipeGestures(container, terminal, () => false)!;
 
@@ -215,6 +222,8 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         container.dispatchEvent(makeTouchEvent('touchmove', 100, 60, { cancelable: true }));
 
         expect(scrollLines).toHaveBeenCalledWith(2);
+        // The public API repaints via xterm's own DOM scroll path.
+        expect(refresh).not.toHaveBeenCalled();
         cleanup();
       });
 

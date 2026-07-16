@@ -85,6 +85,12 @@ export function scrollBufferLines(terminal: Terminal, lines: number): void {
   const bufferService = getXtermCore(terminal)?._bufferService;
   if (bufferService?.scrollLines) {
     bufferService.scrollLines(lines);
+    // The repaint is wired to the viewport's DOM scroll path, not to buffer
+    // scroll events: CoreBrowserTerminal pairs onRequestScrollLines with
+    // `this.refresh(0, this.rows - 1)`. Scrolling the buffer service directly
+    // bypasses that pairing, so without this refresh the scrollbar syncs but
+    // the canvas keeps showing the old rows.
+    terminal.refresh(0, terminal.rows - 1);
   } else {
     terminal.scrollLines(lines);
   }
