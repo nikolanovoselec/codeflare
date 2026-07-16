@@ -1532,12 +1532,28 @@ describe('Reviewer agents can access their enforce policy', () => {
     }
   });
 
-  it('REQ-AGENT-086: Claude PR reviewers expose only skills and direct evidence execution', () => {
-    const expectedTools = ['Skill', 'Bash', 'mcp__context-mode__ctx_execute'];
+  it('REQ-AGENT-086: Claude PR reviewers expose research and indexed-retrieval toolsets', () => {
+    // Indexed retrieval (ctx_search/ctx_batch_execute) is the transport that
+    // keeps raw scan output out of reviewer context; stripping it regressed
+    // review cost by an order of magnitude. Capability inclusion, not exact
+    // equality, so adding tools never breaks this contract.
+    const required = [
+      'Skill',
+      'Bash',
+      'Read',
+      'Grep',
+      'mcp__context-mode__ctx_search',
+      'mcp__context-mode__ctx_batch_execute',
+      'mcp__context-mode__ctx_execute',
+      'mcp__graphify__query_graph',
+    ];
     for (const name of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
       const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === `.claude/agents/${name}.md`);
       expect(doc, `.claude/agents/${name}.md should be seeded`).toBeTruthy();
-      expect(JSON.parse(frontmatter(doc!.content).tools)).toEqual(expectedTools);
+      const tools = JSON.parse(frontmatter(doc!.content).tools) as string[];
+      for (const tool of required) {
+        expect(tools, `${name} must expose ${tool}`).toContain(tool);
+      }
     }
   });
 

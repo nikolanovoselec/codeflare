@@ -2326,14 +2326,14 @@ None.
 
 ### REQ-AGENT-086: Claude Reviewer Direct Evidence and Root Handoff
 
-**Intent:** Claude PR reviewers must complete exact scoped reviews through direct evidence while leaving every file and Git mutation to the root session.
+**Intent:** Claude PR reviewers must complete exact scoped reviews through first-hand, context-efficient evidence while leaving every project-file and Git mutation to the root session.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. Claude `code-reviewer`, `spec-reviewer`, and `doc-updater` expose only `Skill`, Bash fallback, and direct context execution. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::tools --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086: Claude PR reviewers expose only skills and direct evidence execution) -->
-2. Indexed retrieval, Graphify discovery, external-LLM calls, and file mutation tools are unavailable to those reviewers. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Direct evidence transport (binding) --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::Direct evidence transport (binding) --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::Direct evidence transport (binding) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086: Claude PR reviewers expose only skills and direct evidence execution) -->
+1. Claude `code-reviewer`, `spec-reviewer`, and `doc-updater` expose the research toolset: enforcement skills, native file reads and search, indexed context-mode retrieval with direct execution, and Graphify discovery. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::tools --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086: Claude PR reviewers expose research and indexed-retrieval toolsets) -->
+2. Reviewer writes are limited to designated triage and report artifacts; source, specification, and documentation trees stay read-only to reviewers. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Operating Mode: Research + Report --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::REPORT-ONLY --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::REPORT-ONLY --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086: Claude PR reviewers expose research and indexed-retrieval toolsets) -->
 3. PR-boundary reviewers return structured findings without writing project or triage files. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Operating Mode: Research + Report --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::REPORT-ONLY --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::REPORT-ONLY --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC3-AC5: seeded reviewers and review command carry the report-only root-handoff contract) -->
 4. The root session alone persists PR-boundary triage content. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC3-AC5: seeded reviewers and review command carry the report-only root-handoff contract) -->
 5. The root session evaluates and applies legitimate PR-boundary fixes. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086 AC3-AC5: seeded reviewers and review command carry the report-only root-handoff contract) -->
@@ -2344,7 +2344,7 @@ None.
 
 - Exact-head checkpoints, ancestry-derived ranges, lane classification, parallel launch, and completion correlation remain unchanged.
 - Review scope, enforcement manifests, severity, and evidence truth remain complete.
-- Reviewers inspect the complete scoped work set internally and return compact direct results without token, turn, output-size, evidence, or concurrency caps.
+- Reviewers inspect the complete scoped work set; indexed retrieval bounds context, never scope.
 - `/review` persists returned Phase 2/4/5/6 reports in the root; external verification, triage history, ADR updates, and issue creation are root-owned.
 - Context-mode is optional transport; Bash preserves the same work set and findings.
 

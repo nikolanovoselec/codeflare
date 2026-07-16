@@ -1800,13 +1800,13 @@ REQ-VAULT-017 already serves the SW credential-less inside the Worker, but Acces
 
 **Category:** Agents
 
-**Status:** Accepted (2026-06-09); amended for Pi execution by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) (2026-07-12); amended for Claude direct evidence and root-only persistence (2026-07-13)
+**Status:** Accepted (2026-06-09); amended for Pi execution by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) (2026-07-12); amended for Claude direct evidence and root-only persistence (2026-07-13); Claude direct-evidence transport reverted after measured cost regression, root-only persistence retained (2026-07-16)
 
 **Context:** At a PR boundary the SDD pipeline dispatches three review lanes — `code-reviewer` (source), `spec-reviewer` (`sdd/`), and `doc-updater` (`documentation/` + root `README.md`). The original design ran them sequentially because reviewers edited their lanes in place and documentation validation depended on completed spec edits (the race concern recorded in [AD44](#ad44-sdd-three-mode-autonomy-with-conservative-judgment-resolution)).
 
 PR-boundary reviewers are now report-only and the root main session applies findings. Claude reviewers publish independent lane results through Claude's existing review pipeline. Pi reviewers return native terminal notifications to the root transcript under [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); Pi has no durable review result files or lane jobs. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 
-**Decision:** Dispatch every required review lane in parallel at a PR boundary. Reviewers are read-only with respect to source, specs, documentation, triage, and review artifacts, so they have no shared-write ordering dependency. Claude code/spec/doc reviewers expose only enforcement skills, direct context execution, and Bash fallback; they return structured findings to the root without indexed or Graphify discovery. Pi launches visible public background reviewer calls and correlates their native notifications.
+**Decision:** Dispatch every required review lane in parallel at a PR boundary. Reviewers are read-only with respect to source, specs, and documentation, so they have no shared-write ordering dependency. Claude code/spec/doc reviewers return structured findings to the root and gather evidence through native reads, indexed context-mode retrieval, and Graphify discovery — the 2026-07-13 direct-evidence-only transport multiplied review token cost roughly tenfold (raw scan output entered reviewer context uncapped) and was reverted. Pi reviewers are unaffected: their native agents, packet CLI, and enforcement skills are dedicated Pi manifest overrides. Pi launches visible public background reviewer calls and correlates their native notifications.
 
 `/sdd clean` is explicitly excluded because it applies fixes inline. It keeps the AD44 sequential order: spec enforcement before documentation enforcement, so documentation cross-references see the corrected spec.
 
