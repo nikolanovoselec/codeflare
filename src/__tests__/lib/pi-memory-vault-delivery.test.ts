@@ -586,7 +586,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(execution.promptCount).toBe(15);
   });
 
-  it('REQ-MEM-015 AC5: advances retries only after exact public calls', async () => {
+  it('REQ-MEM-015 AC5: keeps an emitted request pending until an exact public call', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
     mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
@@ -605,6 +605,14 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     });
     await reloadedPi.emit('agent_settled', {}, harness.ctx);
     expect(reloadedPi.sent).toHaveLength(0);
+  });
+
+  it('REQ-MEM-015 AC6: advances one delivery attempt after each failed exact call', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
+    writeFileSync(memoryCounterPath(harness), '0', 'utf8');
+    for (let ordinal = 1; ordinal <= 15; ordinal += 1) await appendPrompt(harness, ordinal);
 
     await failExactAttempts(harness, 'memory-capture');
     const launchMessages = harness.pi.sent
@@ -615,7 +623,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(harness.pi.sent.filter((sent) => sent.message.customType === 'background-extraction-giveup')).toHaveLength(1);
   });
 
-  it('REQ-MEM-015 AC6: emits structured GIVEUP state and re-arm guidance', async () => {
+  it('REQ-MEM-015 AC7: emits structured GIVEUP state and re-arm guidance', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
     mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
