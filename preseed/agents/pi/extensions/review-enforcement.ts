@@ -275,19 +275,103 @@ function ciBoundaryEvent(event: ReviewBoundaryEvent | undefined): CiBoundaryEven
   return event === "push" || event === "pr-create" ? event : undefined;
 }
 
-function scopeInstruction(pr: PrState, range: string | undefined): string {
+function scopeSummary(pr: PrState, range: string | undefined): string {
   return range
-    ? `scope=diff. Review only review_range=${range}. Include that exact marker in every reviewer prompt.`
-    : `scope=diff. Review the full PR against origin/${pr.baseRefName}.`;
+    ? `diff · \`review_range=${range}\``
+    : `full PR against \`origin/${pr.baseRefName}\``;
+}
+
+function reviewerPromptScope(pr: PrState, range: string | undefined): string {
+  return range
+    ? `\`scope=diff\` and \`review_range=${range}\``
+    : `\`scope=diff\` and \`review_base=origin/${pr.baseRefName}\``;
 }
 
 function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
-  const reviewerWave = input.reviewers.length > 0
-    ? `Wave 1: launch these review agents together with public background subagent calls and inherit_context=false: ${input.reviewers.join(", ")}. ${scopeInstruction(input.pr, input.range)}`
-    : "Wave 1: no review-agent launch is required.";
-  const ciWave = input.ciEvent
-    ? `Wave 2: immediately after the reviewer calls, without waiting for them to finish, run the ci-monitoring request resolver for event=${input.ciEvent}, changed=true, repo=<owner/repo>, pr=${input.pr.number}, cwd=${input.repo}, and reviewState=${input.reviewers.length > 0 ? "launched" : "not-required"}; submit its returned public ci-monitor subagent request unchanged exactly once. CI is independent of review acknowledgement.`
-    : "Wave 2: no CI launch is required for this boundary.";
+  const sections: string[] = [];
+  const order: string[] = [];
+  if (input.reviewers.length > 0) {
+    order.push("REVIEWERS");
+    sections.push([
+      `### ${sections.length + 1}. Start reviewers together`,
+      "",
+      `- Agents: ${input.reviewers.map((lane) => `\`${lane}\``).join(", ")}`,
+      "- Calls: public background subagents",
+      "- `inherit_context`: `false`",
+      `- Prompt scope: ${reviewerPromptScope(input.pr, input.range)}`,
+    ].join("\n"));
+  }
+  if (input.ciEvent) {
+    order.push("CI");
+    sections.push([
+      `### ${sections.length + 1}. Start CI immediately`,
+      "",
+      input.reviewers.length > 0
+        ? "**Do not wait for reviewers to finish.**"
+        : "No reviewer launch is required; start CI now.",
+      "",
+      "Run the `ci-monitoring` request resolver exactly once with:",
+      "",
+      `- \`event\`: \`${input.ciEvent}\``,
+      "- `changed`: `true`",
+      "- `repo`: `<owner/repo>`",
+      `- \`pr\`: \`${input.pr.number}\``,
+      `- \`cwd\`: \`${input.repo}\``,
+      `- \`reviewState\`: \`${input.reviewers.length > 0 ? "launched" : "not-required"}\``,
+      "",
+      "Submit its returned public `ci-monitor` subagent request unchanged exactly once.",
+      "",
+      "CI is independent of review acknowledgement.",
+    ].join("\n"));
+  }
+  if (input.reviewers.length > 0) {
+    order.push("TRIAGE", "FIX");
+    sections.push([
+      `### ${sections.length + 1}. Triage before fixing`,
+      "",
+      "Wait for every required reviewer result. **Before any file change**, publish one table:",
+      "",
+      "| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |",
+      "|---|---|---|---|---|",
+      "",
+      "For every finding:",
+      "",
+      "- verify that it is evidence-backed and in scope",
+      "- judge the finding separately from its proposed fix",
+      "- reject unsupported or overengineered proposals",
+      "- prefer the smallest correction that reuses existing machinery",
+      "",
+      "Only after publishing the table, apply accepted minimal fixes unless the user explicitly requested approval.",
+    ].join("\n"));
+  }
+  const title = input.phase === "follow-up"
+    ? "## PR boundary follow-up — missing work"
+    : input.reviewers.length > 0 && input.ciEvent
+      ? "## PR boundary — review + CI"
+      : input.reviewers.length > 0
+        ? "## PR boundary — review"
+        : "## PR boundary — CI";
+  const status = [
+    ...(input.reviewers.length === 0 ? ["**Review:** No reviewer launch is required for this boundary."] : []),
+    ...(!input.ciEvent ? ["**CI:** No CI launch is required for this boundary."] : []),
+    ...(input.phase === "follow-up"
+      ? ["**Recovery rule:** Launch only the work listed below. Do not duplicate unmatched calls; they remain in flight until native completion."]
+      : []),
+  ];
+  const content = [
+    title,
+    "",
+    `**Order:** ${order.join(" → ")}`,
+    "",
+    "**Context**",
+    "",
+    `- PR: #${input.pr.number}`,
+    `- Head: \`${input.pr.headRefOid}\``,
+    `- Scope: ${scopeSummary(input.pr, input.range)}`,
+    ...(status.length > 0 ? ["", ...status] : []),
+    "",
+    ...sections.flatMap((section, index) => index === sections.length - 1 ? [section] : [section, ""]),
+  ].join("\n");
   const details: Record<string, unknown> = {
     head: input.pr.headRefOid,
     ackHead: input.ackHead,
@@ -299,7 +383,7 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
   };
   pi.sendMessage({
     customType: input.phase === "plan" ? "pr-boundary-launch-plan" : "pr-boundary-launch-follow-up",
-    content: `${reviewerWave} ${ciWave}${input.reviewers.length > 0 ? " Wait for every required reviewer result, then automatically publish a triage summary before fixing. Classify each finding's validity, the proposed fix's proportionality, and the smallest correction that reuses existing machinery. Reject unsupported or overengineered proposals; apply legitimate minimal fixes by default unless the user explicitly requested approval." : ""}`,
+    content,
     display: true,
     details,
   }, { deliverAs: "followUp", triggerTurn: true });
@@ -411,7 +495,15 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       if (reviewEnabled(review.repo) && !facts.closedNotified && classifyReviewBoundaryCommand(facts.boundary.command).settled) {
         pi.sendMessage({
           customType: "pr-boundary-review-closed-unacknowledged",
-          content: `PR head ${review.pr.headRefOid} is ${review.pr.state} without review acknowledgement. No acknowledgement was written.`,
+          content: [
+            "## PR review — acknowledgement missing",
+            "",
+            `- Head: \`${review.pr.headRefOid}\``,
+            `- PR state: \`${review.pr.state}\``,
+            "- Acknowledgement written: `no`",
+            "",
+            "Review completion was not proven before the PR closed. This notice is visibility only; review the head manually if required.",
+          ].join("\n"),
           display: true,
           details: { head: review.pr.headRefOid, state: review.pr.state },
         }, { triggerTurn: false });

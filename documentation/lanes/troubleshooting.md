@@ -390,13 +390,13 @@ The setup wizard auto-provisions a higher-precedence Access **bypass** app (`dec
 
 One emitted request remains pending until an exact public `subagent` call appears. Each failed exact call advances one reminder, only six failed calls reach GIVEUP, and a terminal notification cannot advance state without the required post-commit artifacts. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memorySuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::vaultSuccessQualifies -->
 
-**Fix detail:** Correlate the visible `background-extraction-launch`, its `<extraction-items-json>`, the exact public call, and `subagent-notification` by tool-use ID. Memory requires `/home/user/Vault/Raw/Sessions/<captureFilename>` plus its request chunk after graph publication; Vault requires its post-commit chunk and staged manifest hash. Do not delete counters or manifests manually.
+**Fix detail:** Correlate the visible “Extraction jobs ready” summary, its pretty-printed `<extraction-items-json>`, the exact public call, and `subagent-notification` by tool-use ID. Memory requires `/home/user/Vault/Raw/Sessions/<captureFilename>` plus its request chunk after graph publication; Vault requires its post-commit chunk and staged manifest hash. Do not delete counters or manifests manually.
 
 Current workers expose only Bash, use medium reasoning, stop after four turns, and cap noncritical visualization at 15 seconds. `VARS_FILE.transcript` is memory capture's complete input; `invalid INPUT_FILE: missing` identifies a stale mirror.
 
 Session graph output uses the note H1, `concept_<normalised_label>` IDs, and unique edges. A filename document label, colon-prefixed concepts, duplicate edges, broad worker tools, or review-scale runtime for one file identifies stale seed bytes; remirror and run `/reload` before reprocessing.
 
-**Verification:** Repeated settlements without a public call emit no duplicate or GIVEUP; each failed exact call advances at most one reminder. Successful memory advances the frozen counter only after its note/chunk exist, and successful Vault work promotes only matching staged manifest bytes.
+**Verification:** Repeated settlements without a public call emit no duplicate or GIVEUP; each failed exact call advances at most one reminder. At six failures, the structured GIVEUP message names the job, unchanged committed state, and its next automatic opportunity.
 
 <a id="onboarding-mode-the-vault-editor-never-loads-silverbullet-service-work"></a>
 #### Onboarding mode: the Vault editor never loads / SilverBullet service worker fails to register (browser console shows `script resource is behind a redirect`, 302 to `*.cloudflareaccess.com`)

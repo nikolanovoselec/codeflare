@@ -186,13 +186,15 @@ Pi gets its own native `preseed/agents/pi/rules/git-workflow.md` from the Pi man
 which delegates branched mechanics to `ci-monitoring`, `git-review-pipeline`,
 `pr-workflow`, and `deploy-credentials`.
 
-Pi's PR-boundary extension is the sole automatic dispatcher for review and CI ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)). After an eligible Git action it emits one structured plan: wave 1 lists required reviewers, and wave 2 requests independent CI. The root launches wave 1 together, then immediately runs wave 2 exactly once without waiting:
+Pi's PR-boundary extension is the sole automatic dispatcher for review and CI ([AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent)). After an eligible Git action it emits a numbered Markdown runbook with PR/head/scope context and the order `REVIEWERS → CI → TRIAGE → FIX`. Reviewer calls start together; CI starts immediately afterward without waiting.
 
 ```bash
 node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> pr=<affected-pr-number> cwd=<absolute-repo-root> reviewState=<launched|not-required>
 ```
 
-No stdout means no action. Otherwise the root submits the resolver's request unchanged once through public `subagent`. The report-only `ci-monitor` remains independent from review acknowledgement and relies on the bounded script rather than an agent turn cap, preserving verbatim native output.
+No stdout means no action. Otherwise the root submits the resolver's request unchanged once through public `subagent`. The report-only `ci-monitor` remains independent from review acknowledgement and relies on the bounded script rather than an agent turn cap.
+
+When reviewers are required, the final runbook section forbids file changes until every result has one row in `FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION`. Follow-ups label themselves as missing work and forbid duplicating unmatched calls.
 
 Malformed or superseded heads fail closed. [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed) permits only the observed 41-character transcription whose first 40 characters exactly equal GitHub's authoritative PR head.
 
@@ -480,17 +482,17 @@ intentionally not recovered automatically. This implements
 [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan), and
 [AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent).
 
-Pi extraction is driven by two deployed contracts:
-`prompts/memory-agent-prompt.md` and `prompts/vault-extract-prompt.md`. The root
-extension reads Pi's durable session transcript, filters synthetic prompts,
-creates request-specific execution snapshots, and emits visible public
-background requests instead of invoking the private subagent service. Each launch repeats the same bounded item array in model-facing content and durable details metadata so the model can issue the exact public calls without reading session JSONL. Generated agents and emitted requests use provider-neutral medium reasoning, Bash-only evidence, and four turns ([AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional), [AD103](../decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs)).
+Pi extraction is driven by `prompts/memory-agent-prompt.md` and `prompts/vault-extract-prompt.md`. The root reads Pi's durable transcript, filters synthetic prompts, creates request-specific snapshots, and emits visible public background requests instead of using the private subagent service.
+
+Each launch shows a job/delivery summary followed by pretty-printed `<extraction-items-json>` whose request items exactly match durable details metadata.
+
+Generated agents and emitted requests use provider-neutral medium reasoning, Bash-only evidence, and four turns ([AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional), [AD103](../decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs)).
 
 `memory-vault.ts` owns delivery and high-water state. `<sessionId>.vars` and `vault-extract.pi.vars` are active request-ID pointers for reload discovery. Public prompts receive immutable `<sessionId>.<requestId>.vars` or `vault-extract.pi.<requestId>.vars` snapshots.
 
 Root-session JSONL determines exact public-call attempts, native completion, reminders `0..5`, and GIVEUP. An emitted request with no matching call remains one pending delivery, so repeated settlements and reloads emit neither duplicates nor GIVEUP. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts -->
 
-Each failed exact call advances one reminder, and only six failed calls exhaust delivery. Background agents never write counters, pointers, or manifests. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionDue -->
+Each failed exact call advances one reminder. Six failed calls emit a structured GIVEUP summary with unchanged committed state and job-specific re-arm conditions. Background agents never write counters, pointers, or manifests. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionDue -->
 
 Memory capture triggers at the 15-real-prompt cadence and force-captures a resumed durable transcript when no counter exists. Request snapshots contain up to 40 text turns of 4000 characters inline in `VARS_FILE.transcript`; they never reference an `INPUT_FILE` or separate transcript path.
 

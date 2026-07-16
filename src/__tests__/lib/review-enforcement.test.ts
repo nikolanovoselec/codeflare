@@ -144,6 +144,15 @@ function diffScope() {
   return { mode: 'diff', workSet: 'changed-hunks-and-direct-invalidations' };
 }
 
+function markdownHeadings(content: string | undefined): string[] {
+  return String(content ?? '').split('\n').filter((line) => /^#{2,3} /.test(line));
+}
+
+function markdownTableColumns(content: string | undefined): string[] {
+  const header = String(content ?? '').split('\n').find((line) => line.startsWith('| FINDING |')) ?? '';
+  return header.split('|').map((column) => column.trim()).filter(Boolean);
+}
+
 function userMessage(content: string): Record<string, unknown> {
   return {
     type: 'message',
@@ -311,6 +320,15 @@ describe('Pi review reminder and settled enforcement', () => {
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
+    expect(markdownHeadings(harness.sent[0]?.message.content)).toEqual([
+      '## PR boundary — review + CI',
+      '### 1. Start reviewers together',
+      '### 2. Start CI immediately',
+      '### 3. Triage before fixing',
+    ]);
+    expect(markdownTableColumns(harness.sent[0]?.message.content)).toEqual([
+      'FINDING', 'VALIDITY', 'PROPOSED FIX', 'PROPORTIONALITY', 'MINIMAL DECISION',
+    ]);
 
     harness.sent.splice(0);
     await harness.emit('agent_settled');
@@ -329,6 +347,12 @@ describe('Pi review reminder and settled enforcement', () => {
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
+    expect(markdownHeadings(harness.sent[0]?.message.content)).toEqual([
+      '## PR boundary follow-up — missing work',
+      '### 1. Start reviewers together',
+      '### 2. Start CI immediately',
+      '### 3. Triage before fixing',
+    ]);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
@@ -545,6 +569,11 @@ describe('Pi review reminder and settled enforcement', () => {
         launchWaves: launchWaves([], true),
         ciEvent: 'push',
       });
+      expect(markdownHeadings(harness.sent[0]?.message.content)).toEqual([
+        '## PR boundary — CI',
+        '### 1. Start CI immediately',
+      ]);
+      expect(markdownTableColumns(harness.sent[0]?.message.content)).toEqual([]);
     } finally {
       if (previousMode === undefined) delete process.env.SESSION_MODE;
       else process.env.SESSION_MODE = previousMode;
@@ -1206,6 +1235,9 @@ describe('Pi review reminder and settled enforcement', () => {
       }),
       options: { triggerTurn: false },
     }]);
+    expect(markdownHeadings(harness.sent[0]?.message.content)).toEqual([
+      '## PR review — acknowledgement missing',
+    ]);
     expect(ackHead(fixture.repo)).toBe(fixture.base);
 
     harness.sent.splice(0);

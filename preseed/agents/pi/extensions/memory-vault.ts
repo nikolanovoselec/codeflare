@@ -502,12 +502,24 @@ function sendDueExtractionMessages(
     if (due.kind === "giveup") giveups.push({ requestId: item.request.requestId, jobType: item.job });
   }
   if (launches.length > 0) {
+    const jobs = launches.map((item) => (
+      `- \`${String(item.jobType)}\` · delivery ${Number(item.reminder) + 1}/6`
+    ));
     pi.sendMessage({
       customType: "background-extraction-launch",
       content: [
-        "[codeflare-extraction] For every item in the JSON array below, launch item.request through a public background subagent call, unchanged exactly once, with all calls started together.",
+        "## Extraction jobs ready",
+        "",
+        "**Action:** Start every `item.request` as a public background subagent call, unchanged exactly once. Start all calls together.",
+        "",
+        "**Jobs**",
+        "",
+        ...jobs,
+        "",
+        "**Request payload**",
+        "",
         "<extraction-items-json>",
-        JSON.stringify(launches),
+        JSON.stringify(launches, null, 2),
         "</extraction-items-json>",
       ].join("\n"),
       display: true,
@@ -515,9 +527,32 @@ function sendDueExtractionMessages(
     }, { deliverAs: "followUp", triggerTurn: true });
   }
   if (giveups.length > 0) {
+    const jobs = giveups.map((item) => (
+      `- \`${String(item.jobType)}\` · request \`${String(item.requestId)}\` · 6/6 failed calls`
+    ));
+    const next = giveups.flatMap((item) => item.jobType === "memory-capture"
+      ? ["- `memory-capture`: a new request may re-arm after 15 later real user prompts"]
+      : ["- `vault-extract`: a new Vault edit may re-arm delivery"]);
     pi.sendMessage({
       customType: "background-extraction-giveup",
-      content: "[codeflare-extraction] Extraction delivery reached GIVEUP after the initial request and five reminders.",
+      content: [
+        "## Extraction delivery stopped",
+        "",
+        "**Jobs**",
+        "",
+        ...jobs,
+        "",
+        "**State**",
+        "",
+        "- Committed counters and manifests were not advanced.",
+        "- Delivery is latched; this request receives no further reminders.",
+        "",
+        "**Next automatic opportunity**",
+        "",
+        ...next,
+        "",
+        "Inspect the exact public calls and their correlated native notifications before retrying manually.",
+      ].join("\n"),
       display: true,
       details: { items: giveups },
     }, { deliverAs: "followUp", triggerTurn: false });

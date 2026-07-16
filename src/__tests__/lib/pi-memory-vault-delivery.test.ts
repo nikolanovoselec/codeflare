@@ -281,6 +281,14 @@ function modelVisibleLaunchItems(sent: SentMessage): Array<Record<string, unknow
   return JSON.parse(match[1]) as Array<Record<string, unknown>>;
 }
 
+function markdownHeadings(content: string | undefined): string[] {
+  return String(content ?? '').split('\n').filter((line) => /^#{2,3} /.test(line));
+}
+
+function extractionJobLines(content: string | undefined): string[] {
+  return String(content ?? '').split('\n').filter((line) => /^- `(?:memory-capture|vault-extract)`/.test(line));
+}
+
 function latestLaunch(pi: FakePi, job: ExtractionJob): { requestId: string; reminder: number; request: PublicExtractionRequest } {
   const sent = latestLaunchMessage(pi, job);
   const item = sent.message.details?.items?.find((candidate) => candidate.jobType === job);
@@ -493,6 +501,12 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(sent.message.details?.items?.map((item) => item.jobType).sort())
       .toEqual(['memory-capture', 'vault-extract']);
     expect(modelVisibleLaunchItems(sent)).toEqual(sent.message.details?.items);
+    expect(markdownHeadings(sent.message.content)).toEqual(['## Extraction jobs ready']);
+    expect(extractionJobLines(sent.message.content)).toEqual([
+      '- `memory-capture` · delivery 1/6',
+      '- `vault-extract` · delivery 1/6',
+    ]);
+    expect(sent.message.content).toContain('<extraction-items-json>\n[\n  {');
   });
 
   it('captures only prompts after the root-owned successful counter', async () => {
@@ -558,7 +572,12 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(launchMessages.flatMap((sent) => sent.message.details?.items ?? []).map((item) => item.reminder))
       .toEqual([0, 1, 2, 3, 4, 5]);
     for (const sent of launchMessages) expect(modelVisibleLaunchItems(sent)).toEqual(sent.message.details?.items);
-    expect(harness.pi.sent.filter((sent) => sent.message.customType === 'background-extraction-giveup')).toHaveLength(1);
+    const giveups = harness.pi.sent.filter((sent) => sent.message.customType === 'background-extraction-giveup');
+    expect(giveups).toHaveLength(1);
+    expect(markdownHeadings(giveups[0]?.message.content)).toEqual(['## Extraction delivery stopped']);
+    expect(extractionJobLines(giveups[0]?.message.content)).toEqual([
+      expect.stringMatching(/^- `memory-capture` · request `[^`]+` · 6\/6 failed calls$/),
+    ]);
 
     const completedRequest = readJson(memoryPointerPath(harness)).requestId;
     for (let ordinal = 16; ordinal <= 29; ordinal += 1) await appendPrompt(harness, ordinal);
