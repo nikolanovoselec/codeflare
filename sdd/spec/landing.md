@@ -204,7 +204,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 1. The landing header renders a single sign-in CTA whose visible text is an on-theme decode label sourced from the typed content model, linking to the sign-in destination unchanged. <!-- @impl: landing/src/content/site.ts::NAV_LINKS --> <!-- @test: landing/src/__tests__/components.test.ts (renders one Enter-the-Matrix sign-in CTA: content-model label, aria-label, unchanged href, matrix modifier + hover-scramble hooks) -->
 2. The CTA carries `aria-label="Sign in"` so its accessible name and purpose stay clear regardless of the visible flourish. <!-- @test: landing/src/__tests__/components.test.ts (header sign-in CTA (REQ-LANDING-006)) -->
-3. The CTA text renders in the page primary white and carries the shared scramble hook in hover/focus decode mode, with a static readable fallback under reduced-motion and with no JavaScript. <!-- @impl: landing/src/components/Header.astro::brand --> <!-- @test: landing/src/__tests__/scramble.script.test.ts (REQ-LANDING-006: the hover-decode sign-in CTA locks each word span to its resting width so the header never reflows) -->
+3. The CTA text renders in the page primary white and carries the shared scramble hook in hover/focus decode mode, with a static readable fallback under reduced-motion and with no JavaScript. <!-- @impl: landing/src/components/Header.astro::brand --> <!-- @test: landing/src/__tests__/scramble.script.test.ts (REQ-LANDING-006: the hover-decode sign-in CTA holds a resting-width ghost box per word so the header never reflows) -->
 
 **Notes:** Manual verification procedures are documented in the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 

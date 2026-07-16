@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-07-17
+
+- **The Enter-the-Matrix CTA decode no longer escapes the button border** ([REQ-LANDING-006](landing.md#req-landing-006-enter-the-matrix-sign-in-cta) AC3 test anchor updated; stays Implemented). The hover decode previously pinned each word span to a pixel width measured once at font-ready; measured while the nav was hidden or mid-layout, the lock captured a stale width and churn glyphs overflowed rightward past the border. The CTA now reuses the idle scramble's ghost + overlay structure with a centered-overlay variant: the in-flow ghost holds the footprint with no measurement at all, and churn spill is symmetric.
+
 ## 2026-07-16
 
 - **Buffer-authoritative scrolling now repaints the viewport it moves** ([REQ-TERM-014](terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming) constraint clarified; stays Implemented). The emulator wires its viewport repaint to the DOM scroll path (`onRequestScrollLines` pairs the buffer scroll with `refresh(0, rows-1)`); scrolling the buffer service directly bypassed that pairing, so on the first integration deploy the scrollbar moved while the canvas stayed frozen for touch swipes and the floating page controls. `scrollBufferLines()` now issues the paired repaint itself, with the repaint contract asserted in the touch-gesture and floating-button tests.

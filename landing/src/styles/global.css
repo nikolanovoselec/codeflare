@@ -462,13 +462,14 @@ svg {
   color: transparent;
 }
 
-/* Idle-scramble layout: a .scramble-box reserves the resting-width box via an invisible
+/* Scramble layout: a .scramble-box reserves the resting-width box via an invisible
    .scramble-ghost copy of the word, and the churning .scramble-word paints on an absolute
    overlay on top (see .scramble-box rules below) -- content-sized, so a churn glyph wider
    than the resting letters paints past the box without clipping and without growing it, so
-   the phrase never reflows. The hover CTA reuses .scramble-word as a plain inline-block (no
-   box), so that scoping leaves it untouched. Each .scramble-word carries its own gradient
-   clip because a parent's clip does not paint through child boxes; nowrap keeps a word intact. */
+   the phrase never reflows. The hover CTA uses the same boxes with the --center modifier,
+   which centers the overlay so churn spill is symmetric instead of escaping one edge.
+   Each .scramble-word carries its own gradient clip because a parent's clip does not
+   paint through child boxes; nowrap keeps a word intact. */
 .scramble-word {
   display: inline-block;
   white-space: nowrap;
@@ -495,6 +496,16 @@ svg {
   position: absolute;
   top: 0;
   left: 0;
+}
+
+/* Hover-CTA variant: pin the overlay to the ghost's full box and center its text.
+   The resting label is width-identical to the ghost, so it sits exactly where the
+   ghost sits (no transform, no subpixel blur); an over-wide churn frame overflows a
+   centered line symmetrically, keeping the spill balanced around the button border. */
+.scramble-box--center .scramble-word {
+  left: 0;
+  right: 0;
+  text-align: center;
 }
 
 /* The plain "what it is" answer directly under the headline: the terminal command
