@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -259,11 +260,19 @@ function readJson(path: string): Record<string, any> {
   return JSON.parse(readFileSync(path, 'utf8')) as Record<string, any>;
 }
 
+function memoryExecutionPath(harness: Harness, requestId: string): string {
+  return join(harness.paths.cacheDir, `memory-capture.${harness.sessionId}.${requestId}.vars`);
+}
+
+function legacyMemoryExecutionPath(harness: Harness, requestId: string): string {
+  return join(harness.paths.memoryCounterDir, `${harness.sessionId}.${requestId}.vars`);
+}
+
 function activeExecutionPath(harness: Harness, job: ExtractionJob): string {
   const pointerPath = job === 'memory-capture' ? memoryPointerPath(harness) : vaultPointerPath(harness);
   const requestId = String(readJson(pointerPath).requestId);
   return job === 'memory-capture'
-    ? join(harness.paths.memoryCounterDir, `${harness.sessionId}.${requestId}.vars`)
+    ? memoryExecutionPath(harness, requestId)
     : join(harness.paths.cacheDir, `vault-extract.pi.${requestId}.vars`);
 }
 
@@ -484,8 +493,37 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
       max_turns: 4,
     });
     expect(launch.request.prompt).toContain(`CODEFLARE_EXTRACTION_REQUEST=${launch.requestId}`);
+    const executionPath = memoryExecutionPath(harness, launch.requestId);
+    expect(launch.request.prompt).toContain(`VARS_FILE=${executionPath}`);
+    expect(readJson(executionPath).requestId).toBe(launch.requestId);
     expect(privateSpawnCalls).toBe(0);
     expect(harness.pi.sent.at(-1)?.options).toEqual({ deliverAs: 'followUp', triggerTurn: true });
+  });
+
+  it('migrates an active legacy temp snapshot to the shared path before delivery', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
+    writeFileSync(memoryCounterPath(harness), '0', 'utf8');
+    for (let ordinal = 1; ordinal <= 15; ordinal += 1) await appendPrompt(harness, ordinal);
+
+    const requestId = String(readJson(memoryPointerPath(harness)).requestId);
+    const sharedPath = memoryExecutionPath(harness, requestId);
+    const legacyPath = legacyMemoryExecutionPath(harness, requestId);
+    if (existsSync(sharedPath)) renameSync(sharedPath, legacyPath);
+
+    const reloadedPi = new FakePi(harness.sessionFile);
+    registerMemoryVault(reloadedPi, {
+      paths: harness.paths,
+      now: () => NOW,
+      randomUUID: () => UUIDS[1],
+    });
+    await reloadedPi.emit('agent_settled', {}, harness.ctx);
+
+    const launch = latestLaunch(reloadedPi, 'memory-capture');
+    expect(launch.request.prompt).toContain(`VARS_FILE=${sharedPath}`);
+    expect(readJson(sharedPath).requestId).toBe(requestId);
+    expect(existsSync(legacyPath)).toBe(false);
   });
 
   it('REQ-MEM-015 AC4: exposes identical extraction items to the model and durable metadata', async () => {
@@ -500,7 +538,10 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     const sent = latestLaunchMessage(harness.pi, 'memory-capture');
     expect(sent.message.details?.items?.map((item) => item.jobType).sort())
       .toEqual(['memory-capture', 'vault-extract']);
-    expect(modelVisibleLaunchItems(sent)).toEqual(sent.message.details?.items);
+    const visibleItems = modelVisibleLaunchItems(sent);
+    expect(visibleItems).toEqual(sent.message.details?.items);
+    const memoryItem = visibleItems.find((item) => item.jobType === 'memory-capture');
+    expect((memoryItem?.request as PublicExtractionRequest).prompt).toMatch(/\nPROMPT_FILE=/);
     expect(markdownHeadings(sent.message.content)).toEqual(['## Extraction jobs ready']);
     expect(extractionJobLines(sent.message.content)).toEqual([
       '- `memory-capture` · delivery 1/6',
@@ -614,7 +655,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('15');
     expect(existsSync(memoryPointerPath(harness))).toBe(false);
     expect(existsSync(vaultChunkPath(harness, execution.requestId))).toBe(false);
-    expect(existsSync(join(harness.paths.memoryCounterDir, `${harness.sessionId}.${launch.requestId}.vars`))).toBe(false);
+    expect(existsSync(memoryExecutionPath(harness, launch.requestId))).toBe(false);
   });
 
   it('re-arms only after fifteen later real prompts and isolates the replacement from the old request', async () => {

@@ -546,7 +546,9 @@ The one exception is **own-account R2**: the controller strips the container's p
 
 Pi keeps memory capture and user-curated Vault extraction as separate bounded background agents, but the root session owns both delivery lifecycles ([AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional), [AD103](../decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs), [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)). A small active request-ID pointer supports reload discovery; its request-specific execution snapshot is written first and becomes immutable after the first exact public tool call.
 
-Memory snapshots carry the bounded transcript inline as their sole conversation input—there is no secondary `INPUT_FILE` or transcript path. Each launch shows a job/delivery summary and pretty-printed request payload whose items exactly match durable details metadata.
+Memory snapshots carry the bounded transcript inline as their sole conversation input—there is no secondary `INPUT_FILE` or transcript path. They live in the home-backed cache so child Bash sees them; active legacy `/tmp` snapshots migrate before retry.
+
+Each launch shows a job/delivery summary and pretty-printed request payload whose items exactly match durable details metadata.
 
 Root-session JSONL correlates exact public calls and native notifications by tool-use ID. An unconsumed launch remains pending without duplicates; each failed call advances one reminder, and six failures emit structured GIVEUP state and re-arm guidance. No queue, receipt, lease, scheduler, or private spawn service exists. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts -->
 

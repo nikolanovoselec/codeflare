@@ -394,6 +394,8 @@ One emitted request remains pending until an exact public `subagent` call appear
 
 Current workers expose only Bash, use medium reasoning, stop after four turns, and cap noncritical visualization at 15 seconds. `VARS_FILE.transcript` is memory capture's complete input; `invalid INPUT_FILE: missing` identifies a stale mirror.
 
+A memory result reporting `VARS_FILE` missing while the root can see the file under `/tmp/.memory-counter` identifies the legacy temp-backed snapshot visibility race. Reload a seed with home-backed `memory-capture.<sessionId>.<requestId>.vars`; the root migrates an active legacy snapshot before retry.
+
 Session graph output uses the note H1, `concept_<normalised_label>` IDs, and unique edges. A filename document label, colon-prefixed concepts, duplicate edges, broad worker tools, or review-scale runtime for one file identifies stale seed bytes; remirror and run `/reload` before reprocessing.
 
 **Verification:** Repeated settlements without a public call emit no duplicate or GIVEUP; each failed exact call advances at most one reminder. At six failures, the structured GIVEUP message names the job, unchanged committed state, and its next automatic opportunity.

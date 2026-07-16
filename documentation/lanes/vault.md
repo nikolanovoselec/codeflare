@@ -588,7 +588,9 @@ resume detection. No bisync filter is required because `/tmp` is not
 synced in the first place. The `MEMCAP_COUNTER_DIR` env var overrides
 the default for hermetic tests; production never sets it.
 
-On Pi, the same directory uses `<sessionId>.count` for the high-water count, `<sessionId>.vars` for the active request pointer, and `<sessionId>.<requestId>.vars` for the immutable execution snapshot. The pointer exists only for reload discovery; it is never passed to the background agent.
+On Pi, `/tmp/.memory-counter` keeps `<sessionId>.count` for the high-water count and `<sessionId>.vars` for the active request pointer.
+
+The immutable execution snapshot is home-backed at `~/.cache/codeflare-hooks/memory-capture.<sessionId>.<requestId>.vars` so child Bash sees it; active legacy temp snapshots migrate before delivery. The pointer exists only for reload discovery and is never passed to the background agent.
 
 Cross-reference: the verified Cloudflare-Containers ephemerality contract
 this design relies on is captured at `~/Vault/References/Cloudflare-Containers-Ephemerality.md`

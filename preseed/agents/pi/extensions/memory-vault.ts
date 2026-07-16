@@ -167,6 +167,10 @@ function memoryActiveVarsPath(paths: MemoryVaultPaths, session: string): string 
 }
 
 function memoryExecutionVarsPath(paths: MemoryVaultPaths, session: string, requestId: string): string {
+  return join(paths.cacheDir, `memory-capture.${session}.${requestId}.vars`);
+}
+
+function legacyMemoryExecutionVarsPath(paths: MemoryVaultPaths, session: string, requestId: string): string {
   return join(paths.memoryCounterDir, `${session}.${requestId}.vars`);
 }
 
@@ -225,7 +229,16 @@ function readActiveMemoryRequest(paths: MemoryVaultPaths, session: string): Acti
     return undefined;
   }
   const executionPath = memoryExecutionVarsPath(paths, session, pointer.requestId);
-  const request = parseMemoryCaptureRequest(readJson(executionPath));
+  let request = parseMemoryCaptureRequest(readJson(executionPath));
+  if (!request) {
+    const legacyPath = legacyMemoryExecutionVarsPath(paths, session, pointer.requestId);
+    const legacyRequest = parseMemoryCaptureRequest(readJson(legacyPath));
+    if (legacyRequest?.requestId === pointer.requestId && legacyRequest.sessionId === session) {
+      writeJsonAtomic(executionPath, legacyRequest);
+      safeUnlink(legacyPath);
+      request = legacyRequest;
+    }
+  }
   if (!request || request.requestId !== pointer.requestId || request.sessionId !== session) {
     safeUnlink(pointerPath);
     return undefined;
@@ -517,6 +530,8 @@ function sendDueExtractionMessages(
         ...jobs,
         "",
         "**Request payload**",
+        "",
+        "JSON `\\n` escapes become line breaks when submitted; terminal wrapping does not change the request.",
         "",
         "<extraction-items-json>",
         JSON.stringify(launches, null, 2),

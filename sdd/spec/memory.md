@@ -120,7 +120,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 - Detection uses no timestamps, mtimes, or external sentinels.
 - The hook does not detect in-session `/compact`; its surviving counter catches up within the 15-prompt window while the compressed summary preserves orientation.
 - This remains an accepted limitation pending observed harm.
-- On Pi, one active request pointer enables reload discovery while a request-specific execution snapshot remains immutable after the first exact public call.
+- On Pi, one ephemeral active request pointer enables reload discovery while a request-specific execution snapshot in the shared home-backed cache remains immutable after the first exact public call.
 
 **Priority:** P0
 
@@ -392,7 +392,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 4. Capture input contains only uncaptured user/assistant text. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::compactMessages --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-001: compactMessages prefilter (AD58)) -->
 5. Capture input contains no more than 40 text turns of 4000 characters each. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::compactMessages --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-001: compactMessages prefilter (AD58)) -->
 6. Each Pi capture/extract request includes the optional model from `CODEFLARE_MEMORY_MODEL` only when non-empty; when unset, no model name is hardcoded. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (builds one bounded medium-reasoning public background request) -->
-7. Pi exposes each capture/extract launch as a public background `subagent` request with inherited context disabled, so main-session work cannot cancel it and no private service spawn is required. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (creates work on the fifteenth real prompt and emits a visible reminder without private spawn) -->
+7. Pi exposes each capture/extract launch as a public background `subagent` request with inherited context disabled, and places memory execution snapshots in the shared home-backed cache before delivery so child Bash can read them; legacy temp snapshots migrate before retry. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::readActiveMemoryRequest --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (creates work on the fifteenth real prompt and emits a visible reminder without private spawn) -->
 
 **Notes:** Public delivery is documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional). The execution profile is owned by [REQ-MEM-016](#req-mem-016-pi-extraction-jobs-have-a-bounded-execution-profile) and documented in [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs).
 
