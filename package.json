@@ -52,7 +52,7 @@
     "knip": "^6.17.1",
     "oxlint": "^1.74.0",
     "puppeteer": "^25.3.0",
-    "typescript": "^7.0.2",
+    "typescript": "^6.0.3",
     "vitest": "4.1.10",
     "wrangler": "4.111.0"
   }
