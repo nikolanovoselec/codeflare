@@ -12,6 +12,8 @@ type BoundarySurfaces = {
   event?: ReviewBoundaryEvent;
   protectedRetarget?: true;
   prTarget?: string;
+  repoPath?: string;
+  remoteHeadAuthoritative?: true;
 };
 type LaneFact = {
   state: "missing" | "in-flight" | "terminal";
@@ -154,12 +156,36 @@ function shellWords(segment: string): ShellWords {
   return words;
 }
 
-function commandWords(command: string): ShellWords[] {
-  return shellSegments(command).map(shellWords).map((words) => {
-    let index = words[0] === "env" ? 1 : 0;
-    while (/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(words[index] ?? "")) index += 1;
-    return words.slice(index);
-  });
+type CommandEntry = { words: ShellWords; repoPath?: string };
+
+function normalizedWords(segment: string): ShellWords {
+  const words = shellWords(segment);
+  let index = words[0] === "env" ? 1 : 0;
+  while (/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(words[index] ?? "")) index += 1;
+  return words.slice(index);
+}
+
+function gitRepoPath(words: ShellWords): string | undefined {
+  if (words[0] !== "git") return undefined;
+  let path: string | undefined;
+  for (let index = 1; words[index] === "-C" && words[index + 1]; index += 2) path = words[index + 1];
+  return path;
+}
+
+function commandEntries(command: string): CommandEntry[] {
+  const entries: CommandEntry[] = [];
+  let repoPath: string | undefined;
+  for (const segment of shellSegments(command)) {
+    const words = normalizedWords(segment);
+    if (words[0] === "cd") {
+      const path = words[1] === "--" ? words[2] : words[1];
+      if (path) repoPath = path;
+      continue;
+    }
+    const commandRepoPath = gitRepoPath(words) ?? repoPath;
+    entries.push({ words, ...(commandRepoPath ? { repoPath: commandRepoPath } : {}) });
+  }
+  return entries;
 }
 
 function gitSubcommand(words: ShellWords): string | undefined {
@@ -167,6 +193,40 @@ function gitSubcommand(words: ShellWords): string | undefined {
   let index = 1;
   while (words[index] === "-C" && words[index + 1]) index += 2;
   return words[index];
+}
+
+function optionValue(words: ShellWords, names: readonly string[]): string | undefined {
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index] ?? "";
+    const inline = names.find((name) => word.startsWith(`${name}=`));
+    if (inline) return word.slice(inline.length + 1);
+    if (names.includes(word) && words[index + 1]) return words[index + 1];
+  }
+  return undefined;
+}
+
+function explicitPushTarget(words: ShellWords): string | undefined {
+  const pushIndex = words.indexOf("push");
+  if (pushIndex < 0) return undefined;
+  const optionsWithValues = new Set(["--exec", "--receive-pack", "--repo", "--push-option", "-o"]);
+  const positionals: string[] = [];
+  for (let index = pushIndex + 1; index < words.length; index += 1) {
+    const word = words[index] ?? "";
+    if (optionsWithValues.has(word)) {
+      index += 1;
+      continue;
+    }
+    if (word.startsWith("-")) continue;
+    positionals.push(word);
+  }
+  const advancingTargets = positionals.slice(1).flatMap((refspec) => {
+    const normalized = refspec.replace(/^\+/, "");
+    const separator = normalized.indexOf(":");
+    if (separator <= 0) return [];
+    const destination = normalized.slice(separator + 1).replace(/^refs\/heads\//, "");
+    return destination ? [destination] : [];
+  });
+  return advancingTargets.length === 1 ? advancingTargets[0] : undefined;
 }
 
 function protectedEdit(words: ShellWords): boolean {
@@ -193,31 +253,48 @@ export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces
   let protectedRetarget = false;
   let event: ReviewBoundaryEvent | undefined;
   let prTarget: string | undefined;
-  for (const words of commandWords(command)) {
+  let repoPath: string | undefined;
+  let remoteHeadAuthoritative = false;
+  for (const entry of commandEntries(command)) {
+    const { words } = entry;
     if (gitSubcommand(words) === "push") {
       reminder = settled = true;
       event = "push";
+      repoPath = entry.repoPath;
+      prTarget = explicitPushTarget(words);
+      remoteHeadAuthoritative = Boolean(prTarget);
     }
     if (words[0] === "gh" && words[1] === "pr" && words[2] === "create") {
       reminder = settled = true;
       event = "pr-create";
+      repoPath = entry.repoPath;
+      prTarget = optionValue(words, ["--head", "-H"]);
+      remoteHeadAuthoritative = Boolean(prTarget);
     }
     if (protectedEdit(words)) {
       reminder = settled = true;
       protectedRetarget = true;
       event = "pr-edit";
+      repoPath = entry.repoPath;
+      prTarget = undefined;
+      remoteHeadAuthoritative = false;
     }
     if (words[0] === "gh" && words[1] === "pr" && words[2] === "update-branch") {
       const target = updateBranchTarget(words);
       if (target.supported) {
         reminder = settled = true;
         event = "pr-update-branch";
+        repoPath = entry.repoPath;
         prTarget = target.prTarget;
+        remoteHeadAuthoritative = true;
       }
     }
     if (words[0] === "gh" && words[1] === "pr" && words[2] === "merge") {
       settled = true;
       event = "pr-merge";
+      repoPath = entry.repoPath;
+      prTarget = undefined;
+      remoteHeadAuthoritative = false;
     }
   }
   return {
@@ -225,7 +302,9 @@ export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces
     settled,
     ...(event ? { event } : {}),
     ...(protectedRetarget ? { protectedRetarget: true as const } : {}),
-    ...(event === "pr-update-branch" && prTarget ? { prTarget } : {}),
+    ...(prTarget ? { prTarget } : {}),
+    ...(repoPath ? { repoPath } : {}),
+    ...(remoteHeadAuthoritative ? { remoteHeadAuthoritative: true as const } : {}),
   };
 }
 

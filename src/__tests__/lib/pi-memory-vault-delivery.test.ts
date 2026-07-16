@@ -346,7 +346,7 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
     expect(buildPublicExtractionRequest({ ...base, model: 'provider/model' })).toHaveProperty('model', 'provider/model');
   });
 
-  it('REQ-VAULT-027 AC2: reconstructs durable delivery states and bounds reminders zero through five', () => {
+  it('REQ-MEM-015 AC3 / REQ-VAULT-029 AC1: reconstructs durable missing, running, failed, and successful states', () => {
     const request = buildPublicExtractionRequest({
       job: 'memory-capture',
       requestId: UUIDS[0],
@@ -406,7 +406,9 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
       now: NOW,
       successQualifies: () => false,
     }).state).toBe('failed');
+  });
 
+  it('REQ-VAULT-029 AC2: bounds failed or missing work to reminders zero through five before GIVEUP', () => {
     for (let launchCount = 0; launchCount < 6; launchCount += 1) {
       expect(extractionDue({ launchCount, attemptCount: launchCount, giveup: false, state: 'failed' })).toEqual({
         kind: 'launch',

@@ -526,7 +526,7 @@ Note: `/api/setup/detect-token` and `/api/setup/prefill` are also subject to the
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/api/storage/browse` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser) | List objects in R2 prefix |
+| GET | `/api/storage/browse` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser), [REQ-STOR-018](../../sdd/spec/storage.md#req-stor-018-file-browser-pagination-is-append-only-and-recoverable) | List one paginated R2 prefix page |
 | POST | `/api/storage/upload` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser), [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Upload file |
 | GET | `/api/storage/download` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser), [REQ-SEC-013](../../sdd/spec/security.md#req-sec-013-content-disposition-hardening-on-downloads) | Download file as an attachment; with `?disposition=inline` serves it inline for in-browser viewing (XSS-safe content-type + nosniff) |
 | POST | `/api/storage/delete` | Session cookie | [REQ-STOR-007](../../sdd/spec/storage.md#req-stor-007-web-file-browser) | Delete objects by key and/or prefix (server-side bulk delete) |
@@ -550,7 +550,16 @@ Lists one R2 `ListObjectsV2` page for the current user's bucket.
 | `continuationToken` | No | Opaque token returned by the preceding page. |
 | `maxKeys` | No | Integer from 1 through 1000; defaults to 200. Invalid values return a validation error. |
 
-A successful response is `{ objects, prefixes, isTruncated, nextContinuationToken? }`. Each object contains `key`, byte `size`, ISO `lastModified`, and optional `etag`; `prefixes` contains grouped prefix strings. `isTruncated` reports whether another page exists, and a truncated response supplies the opaque `nextContinuationToken` used by the next request. A newly created empty bucket returns empty arrays and `isTruncated: false`.
+Authentication is required through the shared storage middleware. A successful request returns `200` with `{ objects, prefixes, isTruncated, nextContinuationToken? }`. Each object contains `key`, byte `size`, ISO `lastModified`, and optional `etag`; `prefixes` contains grouped prefix strings. `isTruncated` reports whether another page exists, and a truncated response supplies the opaque `nextContinuationToken` used by the next request. A newly created empty bucket returns `200` with empty arrays and `isTruncated: false`.
+
+| Status | Error contract |
+|---|---|
+| `400` | Invalid `prefix` or `maxKeys`; `{ "error": "...", "code": "VALIDATION_ERROR" }`. |
+| `401` / `403` | Missing or unauthorized session; the shared authentication middleware returns the standard AppError shape. |
+| `429` | More than 30 browse requests in 60 seconds; `{ "error": "Please slow down and try again.", "code": "RATE_LIMIT_ERROR" }`. |
+| `500` | Bucket creation or R2 listing failure; `{ "error": "Container operation failed. Please try again.", "code": "CONTAINER_ERROR" }`. |
+
+Source: `src/routes/storage/index.ts::authMiddleware`, `src/routes/storage/browse.ts::app`, and `src/lib/error-types.ts::AppError`.
 
 ### Preferences
 

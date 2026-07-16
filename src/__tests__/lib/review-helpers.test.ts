@@ -13,6 +13,8 @@ type BoundarySurfaces = {
   event?: BoundaryEvent;
   protectedRetarget?: true;
   prTarget?: string;
+  repoPath?: string;
+  remoteHeadAuthoritative?: true;
 };
 type TranscriptFacts = {
   boundary?: { toolUseId: string; command: string };
@@ -172,11 +174,25 @@ describe('Claude-equivalent review boundary helpers', () => {
       ['gh pr edit 42 --base main && git push origin pi', { reminder: true, settled: true, event: 'push', protectedRetarget: true }],
       ['gh pr merge 42', { reminder: false, settled: true, event: 'pr-merge' }],
       ['gh pr edit 42 --base develop', none],
-      ['gh pr update-branch 42', { reminder: true, settled: true, event: 'pr-update-branch', prTarget: '42' }],
+      ['gh pr update-branch 42', { reminder: true, settled: true, event: 'pr-update-branch', prTarget: '42', remoteHeadAuthoritative: true }],
       ['gh pr update-branch 42 --repo other/repository', none],
       ['gh pr update-branch -Rother/repository 42', none],
       ['gh pr update-branch https://github.com/other/repository/pull/42', none],
-      ['git -C /tmp/repo push origin pi', push],
+      ['git -C /tmp/repo push origin pi', { ...push, repoPath: '/tmp/repo' }],
+      ['git -C /tmp/repo push origin feature:review-head', {
+        ...push,
+        repoPath: '/tmp/repo',
+        prTarget: 'review-head',
+        remoteHeadAuthoritative: true,
+      }],
+      ['cd /tmp/repo && gh pr create --base main --head review-head', {
+        reminder: true,
+        settled: true,
+        event: 'pr-create',
+        repoPath: '/tmp/repo',
+        prTarget: 'review-head',
+        remoteHeadAuthoritative: true,
+      }],
     ];
 
     expect(cases.map(([command, expected]) => [command, classifyReviewBoundaryCommand(command), expected]))

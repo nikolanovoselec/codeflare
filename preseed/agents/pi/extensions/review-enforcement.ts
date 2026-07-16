@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, readSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { recallActiveRepo, rememberActiveRepoFromToolResult } from "./active-repo-memory";
@@ -278,8 +278,11 @@ function consumeBypassSentinel(): boolean {
   }
 }
 
-function boundaryContext(ctx: ReviewContext): { repo: string; file: string } | undefined {
-  const repo = existsSync(join(ctx.cwd, ".git")) ? ctx.cwd : (recallActiveRepo() ?? ctx.cwd);
+function boundaryContext(ctx: ReviewContext, commandRepoPath?: string): { repo: string; file: string } | undefined {
+  const commandRepo = commandRepoPath ? resolve(ctx.cwd, commandRepoPath) : undefined;
+  if (commandRepo && !existsSync(join(commandRepo, ".git"))) return undefined;
+  const repo = commandRepo
+    ?? (existsSync(join(ctx.cwd, ".git")) ? ctx.cwd : (recallActiveRepo() ?? ctx.cwd));
   const file = sessionFile(ctx);
   if (!file || isChildSession(ctx, file)) return undefined;
   return { repo, file };
@@ -322,8 +325,9 @@ async function currentReview(
   dependencies: Dependencies,
   target: string | undefined,
   remoteHeadAuthoritative = false,
+  commandRepoPath?: string,
 ): Promise<{ repo: string; file: string; pr: PrState } | undefined> {
-  const context = boundaryContext(ctx);
+  const context = boundaryContext(ctx, commandRepoPath);
   if (!context) return undefined;
   const head = await (dependencies.queryHead ?? queryHead)(context.repo);
   if (!head) return undefined;
@@ -333,10 +337,8 @@ async function currentReview(
     if (delayMs > 0) await sleep(delayMs);
     const pr = await dependencies.queryPr(context.repo, target);
     if (!isProtectedPr(pr)) continue;
-    if (!remoteHeadAuthoritative && head === pr.headRefOid) return { ...context, pr };
-    if (remoteHeadAuthoritative
-      && head !== pr.headRefOid
-      && await (dependencies.fetchPrHead ?? fetchPrHead)(context.repo, pr)) {
+    if (head === pr.headRefOid) return { ...context, pr };
+    if (remoteHeadAuthoritative && await (dependencies.fetchPrHead ?? fetchPrHead)(context.repo, pr)) {
       return { ...context, pr };
     }
   }
@@ -552,8 +554,100 @@ function createReviewVisualController(): ReviewVisualController {
   };
 }
 
-function restoreReviewVisualFromSession(
+type ReviewTriageController = {
+  begin(head: string, service: SubagentsService): void;
+  restore(head: string, service: SubagentsService, agents: readonly ReviewVisualAgent[]): void;
+  track(agent: ReviewVisualAgent): void;
+  complete(data: unknown): void;
+  dispose(): void;
+};
+
+const TRIAGE_TABLE_COLUMNS = ["FINDING", "PROPOSED FIX", "STATUS", "DECISION"] as const;
+
+function reviewTriageReminder(head: string, lane: ReviewLane, allRequiredReviewersCompleted: boolean): string {
+  return [
+    `REVIEW TRIAGE REQUIRED — ${lane} completed for ${head}.`,
+    "Preserve this result. Do not mutate the project until every required reviewer for this exact head is terminal. Then publish one consolidated adversarial triage before any project mutation.",
+    "Critically challenge every finding against its evidence, review scope, current implementation, specifications, documentation, architecture decisions, project intent, and direct current-session instructions. Do not accept reviewer claims at face value.",
+    "Output exactly one row per finding, with none omitted:",
+    "| FINDING (as output by reviewer) | PROPOSED FIX (by reviewer) | STATUS | DECISION |",
+    "|---|---|---|---|",
+    "Use STATUS values ACCEPTED, REJECTED, DUPLICATE, SUPERSEDED, ACCEPTED — PROPOSAL REJECTED, or ACCEPTED — PROPOSAL OVERENGINEERED. In DECISION, state the final smallest correct fix and rationale; explain every rejection, duplication, supersession, wrong proposal, or overengineered proposal. Reuse existing machinery, or design a minimal replacement when the reviewer proposal is unsuitable.",
+    "After publishing the table, automatically implement every legitimate minimal fix and continue the review/fix cycle. Do not request confirmation unless the user explicitly required review or approval before fixes. The root agent alone owns project mutations.",
+    ...(allRequiredReviewersCompleted
+      ? ["ALL REQUIRED REVIEWERS ARE TERMINAL. Publish the consolidated triage now, then automatically implement the accepted fixes."]
+      : []),
+  ].join("\n\n");
+}
+
+function createReviewTriageController(pi: ReviewPi): ReviewTriageController {
+  let head: string | undefined;
+  let service: SubagentsService | undefined;
+  let reviewers: readonly ReviewVisualAgent[] = [];
+  let emitted = new Set<string>();
+
+  const reset = (nextHead: string, nextService: SubagentsService): void => {
+    if (head !== nextHead) {
+      reviewers = [];
+      emitted = new Set<string>();
+    }
+    head = nextHead;
+    service = nextService;
+  };
+
+  return {
+    begin(nextHead, nextService) {
+      reset(nextHead, nextService);
+    },
+    restore(nextHead, nextService, agents) {
+      reset(nextHead, nextService);
+      reviewers = agents.filter((agent) => agent.kind === "reviewer" && nextService.getRecord(agent.agentId));
+    },
+    track(agent) {
+      if (agent.kind !== "reviewer") return;
+      reviewers = [
+        ...reviewers.filter((candidate) => candidate.kind !== "reviewer" || candidate.lane !== agent.lane),
+        agent,
+      ];
+    },
+    complete(data) {
+      const agentId = typeof (data as { id?: unknown } | undefined)?.id === "string"
+        ? (data as { id: string }).id
+        : undefined;
+      const reviewer = agentId ? reviewers.find((candidate) => candidate.agentId === agentId) : undefined;
+      if (!head || !service || !agentId || reviewer?.kind !== "reviewer" || !reviewer.lane || emitted.has(agentId)) return;
+      emitted = new Set([...emitted, agentId]);
+      const allRequiredReviewersCompleted = reviewers.length > 0
+        && reviewers.every((candidate) => service?.getRecord(candidate.agentId)?.status === "completed");
+      const reminderHead = head;
+      const lane = reviewer.lane;
+      queueMicrotask(() => pi.sendMessage({
+        customType: "codeflare:review-triage-reminder",
+        content: reviewTriageReminder(reminderHead, lane, allRequiredReviewersCompleted),
+        display: true,
+        details: {
+          agentId,
+          head: reminderHead,
+          lane,
+          allRequiredReviewersCompleted,
+          automaticFixes: true,
+          confirmationRequired: false,
+          tableColumns: [...TRIAGE_TABLE_COLUMNS],
+        },
+      }, { deliverAs: "followUp", triggerTurn: false }));
+    },
+    dispose() {
+      head = undefined;
+      service = undefined;
+      reviewers = [];
+      emitted = new Set<string>();
+    },
+  };
+}
+
+function restoreReviewControllersFromSession(
   visual: ReviewVisualController,
+  triage: ReviewTriageController,
   ctx: ReviewContext,
   dependencies: Dependencies,
 ): void {
@@ -575,6 +669,7 @@ function restoreReviewVisualFromSession(
     ...(facts.ciAgentId ? [{ agentId: facts.ciAgentId, kind: "ci" as const }] : []),
   ];
   visual.restore(preview.reviewHead, service, agents);
+  triage.restore(preview.reviewHead, service, agents);
 }
 
 function reviewerPrompt(input: LaunchMessage, lane: ReviewLane): string {
@@ -655,6 +750,7 @@ async function dispatchReviewWindow(
   input: LaunchMessage,
   dispatch = true,
   visual?: ReviewVisualController,
+  triage?: ReviewTriageController,
 ): Promise<void> {
   pi.appendEntry("codeflare:review-window", {
     version: 1,
@@ -671,6 +767,7 @@ async function dispatchReviewWindow(
   const service = subagentsService(dependencies);
   if (!service) return;
   visual?.begin(input.pr.headRefOid, service);
+  triage?.begin(input.pr.headRefOid, service);
   let reviewerSpawnFailed = false;
   for (const lane of input.reviewers) {
     const prompt = reviewerPrompt(input, lane);
@@ -683,6 +780,7 @@ async function dispatchReviewWindow(
       if (!agentId) throw new Error("Subagent service returned no reviewer ID");
       appendDispatch(pi, input, { agentId, kind: "reviewer", lane });
       visual?.track({ agentId, kind: "reviewer", lane });
+      triage?.track({ agentId, kind: "reviewer", lane });
     } catch {
       reviewerSpawnFailed = true;
     }
@@ -712,11 +810,15 @@ async function dispatchReviewWindow(
 
 export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): void {
   const visual = createReviewVisualController();
+  const triage = createReviewTriageController(pi);
   const removeVisualListeners = REVIEW_VISUAL_EVENTS.map((channel) =>
-    pi.events.on(channel, () => visual.refresh()));
+    pi.events.on(channel, (data) => {
+      visual.refresh();
+      if (channel === "subagents:completed") triage.complete(data);
+    }));
   const attachAndRestoreVisual = (ctx: ReviewContext): void => {
     visual.attach(ctx.ui);
-    restoreReviewVisualFromSession(visual, ctx, dependencies);
+    restoreReviewControllersFromSession(visual, triage, ctx, dependencies);
   };
   pi.on("session_start", (_event, ctx) => attachAndRestoreVisual(ctx));
   pi.on("turn_start", (_event, ctx) => {
@@ -726,6 +828,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   pi.on("session_shutdown", () => {
     for (const remove of removeVisualListeners) remove();
     visual.dispose();
+    triage.dispose();
   });
 
   pi.on("tool_result", async (event, ctx) => {
@@ -736,14 +839,13 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       .map((command) => ({ command, classification: classifyReviewBoundaryCommand(command) }))
       .find(({ classification }) => classification.reminder);
     if (!boundary) return;
-    const target = boundary.classification.event === "pr-update-branch"
-      ? boundary.classification.prTarget
-      : undefined;
+    const target = boundary.classification.prTarget;
     const review = await currentReview(
       ctx,
       dependencies,
       target,
-      boundary.classification.event === "pr-update-branch",
+      boundary.classification.remoteHeadAuthoritative === true,
+      boundary.classification.repoPath,
     );
     if (!review || !isEnforcedPr(review.pr)) return;
 
@@ -779,23 +881,23 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if (!preview.boundary) return;
 
     const boundaryClassification = classifyReviewBoundaryCommand(preview.boundary.command);
-    const target = boundaryClassification.event === "pr-update-branch"
-      ? boundaryClassification.prTarget
-      : undefined;
-    const reviewedPr = await dependencies.queryPr(context.repo, target);
+    const targetedContext = boundaryContext(ctx, boundaryClassification.repoPath);
+    if (!targetedContext) return;
+    const target = boundaryClassification.prTarget;
+    const reviewedPr = await dependencies.queryPr(targetedContext.repo, target);
     const reviewedHead = preview.reviewHead;
-    const reviewedAck = readAck(context.repo);
+    const reviewedAck = readAck(targetedContext.repo);
     if (isEnforcedPr(reviewedPr)
-      && reviewEnabled(context.repo)
+      && reviewEnabled(targetedContext.repo)
       && !preview.bypassed
       && !bypassSentinelPresent()
       && fullSha(reviewedHead)
       && reviewedHead === reviewedPr.headRefOid
       && reviewedAck !== reviewedHead) {
-      const reviewedRange = reviewRange({ repo: context.repo, ackHead: reviewedAck, head: reviewedHead });
-      const reviewedLanes = requiredReviewLanes({ repo: context.repo, ackHead: reviewedAck, head: reviewedHead });
+      const reviewedRange = reviewRange({ repo: targetedContext.repo, ackHead: reviewedAck, head: reviewedHead });
+      const reviewedLanes = requiredReviewLanes({ repo: targetedContext.repo, ackHead: reviewedAck, head: reviewedHead });
       const reviewedFacts = reviewTranscriptFacts({
-        sessionFile: context.file,
+        sessionFile: targetedContext.file,
         requiredLanes: reviewedLanes,
         ciHead: reviewedHead,
       });
@@ -804,7 +906,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       if (reviewedFacts.reviewHead === reviewedHead
         && reviewedFacts.reviewRange === reviewedRange
         && allReviewedLanesTerminal) {
-        acknowledge(context.repo, reviewedHead);
+        acknowledge(targetedContext.repo, reviewedHead);
       }
     }
 
@@ -812,7 +914,8 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       ctx,
       dependencies,
       target,
-      boundaryClassification.event === "pr-update-branch",
+      boundaryClassification.remoteHeadAuthoritative === true,
+      boundaryClassification.repoPath,
     );
     if (!review) return;
     const ackHead = readAck(review.repo);
@@ -861,7 +964,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         reviewState: requiredLanes.length > 0 ? "launched" : "not-required",
         autonomyOverride: facts.fullyAutonomous,
         ciEvent,
-      }, true, visual);
+      }, true, visual, triage);
       return;
     }
 
@@ -889,7 +992,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       reviewState: requiredLanes.length > 0 ? "launched" : "not-required",
       autonomyOverride: facts.fullyAutonomous,
       ciEvent,
-    }, true, visual);
+    }, true, visual, triage);
   });
 }
 

@@ -141,7 +141,7 @@ Enter the new client id + creation secret in the admin Setup wizard (REQ-AGENT-0
 
 **Fix:** Batched writes never alter viewport position. Correlated user intent establishes manual ownership until the viewport returns to the live bottom; xterm alone owns output trimming, including a legitimate zero offset when viewed content has aged out. Touch-keyboard mode remains the explicit bottom-anchored exception.
 
-**Verify:** At full scrollback, a small trim such as `500 -> 490` remains uncorrected. A dense batch that would clamp `500 -> 0` finishes at the prior distance (`viewportY = 500`) rather than either edge. CI's `terminal.test.ts` drives both cases through the WebSocket batching path and verifies the boundary guard does not run for a non-full buffer, a changed base, an already-top viewport, or a bottom follower.
+**Verify:** At full scrollback, a small trim such as `500 -> 490` remains uncorrected. A dense batch that ages out the viewed lines and clamps `500 -> 0` remains at `viewportY = 0`; Codeflare does not restore the prior distance or snap to the live bottom. CI's `terminal.test.ts` drives both cases through the WebSocket batching path and verifies the boundary guard does not run for a non-full buffer, a changed base, an already-top viewport, or a bottom follower.
 
 ### Claude Fullscreen TUI Does Not Scroll on Mobile
 

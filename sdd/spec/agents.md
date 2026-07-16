@@ -704,7 +704,7 @@ None.
 4. Startup with no graph is tolerated: Claude starts empty and rebinds later; advanced-mode Pi clone triage asks before graph work. Query tools use the active repo graph after it exists. <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::graphifyCloneAction --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::fallbackGraphifyToolResult --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, four files, CC-only) / REQ-AGENT-007 (multi-agent adaptation pipeline: per-agent generation, tool name remap, frontmatter rewrite, model field removal, path rewrites, extension changes, exclusion lists) / REQ-AGENT-030 (per-agent adaptation: skills/agent files generated into the right per-agent prefix with the right shape)) -->
 5. Advanced mode tracks the active repository; resolution walks up to the nearest Git repo or graph artefact and understands command-local `cd ... &&` plus `git -C ...` forms. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::effectivePathForCommand --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::updateActiveRepoFromPath --> <!-- @test: host/__tests__/graphify-active-repo.test.js (graphify-active-repo.sh / REQ-VAULT-004 (unified global graph merges vault + active repos)) -->
 6. When the active-repo signal is absent or stale, Pi graphify query tools fall back from the session cwd repo graph to the same-repo sentinel graph and then to the merged global graph. <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::pickGraphSource --> <!-- @test: host/__tests__/graphify-mcp-lazy.test.js (graphify-mcp-lazy.py static contract) -->
-7. Claude and Pi full-semantic extraction scope each semantic-cache write to the files actually dispatched in the current uncached set, preventing a model-attributed out-of-scope node from replacing another file's complete cache entry. <!-- @impl: preseed/agents/claude/skills/graphify/references/extraction-spec.md::Step B3 - Collect, cache, and merge --> <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::Step 3 — merge chunks into Graphify semantic cache and local fragment --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Claude semantic extraction scopes cache writes to the dispatched files) --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (Pi semantic extraction scopes cache writes to the dispatched files) -->
+7. Claude and Pi full-semantic extraction scope each semantic-cache write to the files actually dispatched in the current uncached set, preventing a model-attributed out-of-scope node from replacing another file's complete cache entry. <!-- @impl: preseed/agents/claude/skills/graphify/references/extraction-spec.md::Step B3 - Collect, cache, and merge --> <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::Step 3 — merge chunks into Graphify semantic cache and local fragment --> <!-- @test: host/__tests__/graphify-build-scripts.test.js (REQ-AGENT-023 AC7: semantic extraction scopes each runtime cache write to dispatched files) -->
 
 **Constraints:**
 
@@ -1098,12 +1098,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. A supported head-changing root boundary, including an explicit same-repository `gh pr update-branch <target>`, requests reviewers only for an SDD repository with a fresh open protected-base PR. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::queryPr --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fetchPrHead --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036: update-branch fetches and reviews a remote-only PR head) -->
+1. A supported head-changing root boundary, including an explicit push refspec, `gh pr create --head`, or same-repository `gh pr update-branch <target>`, requests reviewers only for an SDD repository with a fresh open protected-base PR. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::queryPr --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::fetchPrHead --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036: resolves an explicit push refspec and PR --head without checkout-HEAD equality) -->
 2. Ineligible PR state or an unsuccessful command requests no reviewer. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (Pi review reminder and settled enforcement) -->
 3. Root and nested SDD layouts suppress review only while transition is true and the active triage queue contains an open item. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-045/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
 4. Passive lifecycle and child sessions cannot start or complete review. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes) -->
 5. Successful protected-base PR creation creates a settled review window whose successful reviewer completion can acknowledge the head. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-055: PR creation completion acknowledges its review window) -->
-6. Boundary repository context resolves through shell `cd`, explicit tool cwd, or Git `-C`. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::rememberActiveRepoFromToolResult --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (Pi review reminder and settled enforcement) -->
+6. Boundary repository context resolves through shell `cd`, explicit tool cwd, or Git `-C`, and PR lookup uses that command-selected repository. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::rememberActiveRepoFromToolResult --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::boundaryContext --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-036/REQ-AGENT-063/REQ-AGENT-068: dispatches a git -C push against the command-selected repository) -->
 7. An eligible boundary appends an extension-only structured review window, then settled enforcement dispatches it without adding launch instructions to LLM context. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::dispatchReviewWindow --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-071/REQ-AGENT-080: delegates background reviewers to the stock service widget before CI without a model launch turn) -->
 
 **Constraints:**
@@ -1266,8 +1266,8 @@ None.
 3. Only a finalized user message after the latest boundary containing `skip review` or `skip verification` is recognized as a transcript bypass. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-041: recognizes an explicit user bypass only when it follows the latest boundary) -->
 4. A recognized post-boundary user bypass emits no reminder and writes no acknowledgement. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041: honors an explicit post-boundary user bypass without fabricating acknowledgement) -->
 5. Child sessions never consume the sentinel, write acknowledgement, or mutate the block counter. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-055/REQ-AGENT-058: keeps child sessions inert for reminders, settled follow-ups, and state writes) -->
-6. One unreviewed head emits at most five settled follow-ups before latching `GIVEUP`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::blockDecision --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041: blocks five times then latches GIVEUP for the same head without acknowledging it) -->
-7. A different head starts a fresh follow-up count. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::blockDecision --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041: blocks five times then latches GIVEUP for the same head without acknowledging it) -->
+6. One unreviewed head emits at most five settled follow-ups before latching `GIVEUP`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::blockDecision --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041/REQ-AGENT-074: retries immediate service failures five times then latches GIVEUP) -->
+7. A different head starts a fresh follow-up count. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::blockDecision --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-041/REQ-AGENT-074: retries immediate service failures five times then latches GIVEUP) -->
 
 **Constraints:**
 
@@ -2008,7 +2008,7 @@ None.
 
 1. Settled enforcement service-spawns every missing required lane as background work in one reviewer wave without a model-facing launch message. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::dispatchReviewWindow --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-071/REQ-AGENT-080: delegates background reviewers to the stock service widget before CI without a model launch turn) -->
 2. An unmatched reviewer dispatch suppresses only its own lane until a matching terminal service record, while other missing lanes are dispatched together. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-074/REQ-AGENT-080: waits for every reviewer agent ID before spawning CI) -->
-3. Every service-spawned reviewer and CI monitor appears in one above-editor widget whose stock-derived renderer fits the current terminal width and reports queued/running/finished state, animation, elapsed time, tool and token metrics, and compaction count; its redraw timer stops after terminal completion and on session shutdown. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::createReviewVisualController --> <!-- @impl: preseed/agents/pi/extensions/review-widget-renderer.ts::renderReviewWidgetLines --> <!-- @test: src/__tests__/lib/review-widget-renderer.test.ts (renders lifecycle metrics and spinner frames without exceeding a mobile terminal width) -->
+3. Reviewer and CI progress remains visible in one width-safe widget with live lifecycle and resource metrics; animation stops when work is terminal or the session shuts down. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::createReviewVisualController --> <!-- @impl: preseed/agents/pi/extensions/review-widget-renderer.ts::renderReviewWidgetLines --> <!-- @test: src/__tests__/lib/review-widget-renderer.test.ts (renders lifecycle metrics and spinner frames without exceeding a mobile terminal width) -->
 4. The managed stock-service configuration executes at most one in-process reviewer at a time; reviewer requests still enter one wave and CI bypasses that reviewer queue. <!-- @impl: preseed/agents/pi/subagents.json::maxConcurrent --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::spawnOptions --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-071: bounds in-process reviewer concurrency for the container memory budget) -->
 5. A valid prior acknowledgement scopes lane selection to its acknowledged-to-current range. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: classifies generated, docs, spec, source, and mixed commit ranges into reviewer lanes) -->
 6. Each reviewer dispatch record and prompt carries the exact valid acknowledged-to-current range. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewerPrompt --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewRange --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-071/REQ-AGENT-080: delegates background reviewers to the stock service widget before CI without a model launch turn) -->
@@ -2336,9 +2336,7 @@ None.
 
 1. Claude `code-reviewer`, `spec-reviewer`, and `doc-updater` expose only `Skill`, Bash fallback, and direct context execution. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::tools --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::tools --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086: Claude PR reviewers expose only skills and direct evidence execution) -->
 2. Indexed retrieval, Graphify discovery, external-LLM calls, and file mutation tools are unavailable to those reviewers. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Direct evidence transport (binding) --> <!-- @impl: preseed/agents/claude/agents/spec-reviewer.md::Direct evidence transport (binding) --> <!-- @impl: preseed/agents/claude/agents/doc-updater.md::Direct evidence transport (binding) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-086: Claude PR reviewers expose only skills and direct evidence execution) -->
-3. PR-boundary reviewers return structured findings without writing project or triage files. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE -->
-4. The root session alone persists PR-boundary triage content. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE -->
-5. The root session evaluates and applies legitimate PR-boundary fixes. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::DIRECTIVE -->
+
 
 **Notes:** PR-boundary handoff ownership is manually verified through the [architecture checklist](../../documentation/lanes/architecture.md#manual-verification-checklist).
 
@@ -2349,6 +2347,7 @@ None.
 - Reviewers inspect the complete scoped work set internally and return compact direct results without token, turn, output-size, evidence, or concurrency caps.
 - `/review` persists returned Phase 2/4/5/6 reports in the root; external verification, triage history, ADR updates, and issue creation are root-owned.
 - Context-mode is optional transport; Bash preserves the same work set and findings.
+- PR-boundary reviewers return structured findings without writing project or triage files; the root alone persists triage and applies legitimate fixes.
 
 **Priority:** P1
 
@@ -2468,5 +2467,34 @@ None.
 **Dependencies:** [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring)
 
 **Verification:** [Pi CI monitor behavioral tests](../../host/__tests__/pi-ci-monitor.test.js)
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-091: Pi reviewer completions require automatic adversarial triage
+
+**Intent:** Every completed Pi reviewer must explicitly hand its findings to the root for critical, consolidated, automatic triage before fixes begin.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Each successful reviewer completion emits one model-facing reminder correlated to its exact head, lane, and agent ID; CI completion and duplicate events emit none. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::createReviewTriageController --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: requests one automatic adversarial triage per reviewer completion and marks the final result) -->
+2. The reminder requires one consolidated table containing every finding under `FINDING`, `PROPOSED FIX`, `STATUS`, and `DECISION`, published before project mutation. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewTriageReminder --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: requests one automatic adversarial triage per reviewer completion and marks the final result) -->
+3. Triage challenges evidence, scope, project intent, architecture decisions, and current-session instructions; it may reject findings or reviewer proposals and chooses the smallest correct fix. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewTriageReminder --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: requests one automatic adversarial triage per reviewer completion and marks the final result) -->
+4. The final successful reviewer completion marks all required reviewers complete, after which the root automatically implements accepted fixes unless the user explicitly requested approval. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::createReviewTriageController --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-091: requests one automatic adversarial triage per reviewer completion and marks the final result) -->
+
+**Constraints:**
+
+- The stock subagent notification remains unmodified; the reminder is an adjacent Codeflare custom message.
+- The root remains the only project mutator.
+- Interactive `/review` retains its explicit approval contract under [REQ-AGENT-088](#req-agent-088-user-invoked-review-ownership-and-triage).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-074](#req-agent-074-pi-settled-review-handoff)
+
+**Verification:** [Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts)
 
 **Status:** Implemented

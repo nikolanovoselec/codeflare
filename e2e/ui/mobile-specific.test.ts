@@ -33,6 +33,15 @@ describe.skipIf(!isSetup || !IS_MOBILE)('Mobile-specific UI', () => {
 
 // REQ-MOB-001: Terminal fully usable on mobile devices
 
+  it('REQ-MOB-004 AC1: terminal viewport leaves scrolling to xterm', async () => {
+    await page.waitForSelector('.xterm-viewport', { timeout: TIMEOUTS.TERMINAL_READY });
+    const overflow = await page.$eval(
+      '.xterm-viewport',
+      element => getComputedStyle(element).overflowY,
+    );
+    expect(overflow).toBe('hidden');
+  });
+
   it('session switcher renders mobile icon instead of name', async () => {
     const switcher = await page.$('[data-testid="session-switcher"]');
     expect(switcher).toBeTruthy();

@@ -856,18 +856,17 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Acceptance Criteria:**
 
 1. Each pending Vault extraction is exposed once as visible background work without inherited conversation or a private launch path. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (coalesces edits before launch and freezes the request after its first exact call) -->
-2. After reload, each request resumes its prior missing, running, failed, successful, or GIVEUP state; failed or missing work receives at most five reminders before GIVEUP. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-VAULT-027 AC2: reconstructs durable delivery states and bounds reminders zero through five) -->
-3. Vault edits detected before launch coalesce into the pending request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::refreshPendingVaultRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (coalesces edits before launch and freezes the request after its first exact call) -->
-4. The committed manifest advances only after the matching request's graph commit and staged manifest both validate; every other completion outcome leaves it unchanged. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::vaultSuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-VAULT-027: transactional Pi Vault extraction delivery) -->
-5. A crash after manifest promotion but before cleanup is recovered idempotently. <!-- @impl: preseed/agents/pi/extensions/vault-manifest-fs.ts::promoteVaultManifest --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (REQ-VAULT-027: recovers rename-before-cleanup only when committed bytes match) -->
-6. Missing or corrupt staged data creates a full-delta follow-up request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (recovers a missing or corrupt successful stage with a new full-delta request) -->
-7. An older completion notification cannot suppress the full-delta follow-up from AC6. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (recovers a missing or corrupt successful stage with a new full-delta request) -->
+2. Vault edits detected before launch coalesce into the pending request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::refreshPendingVaultRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (coalesces edits before launch and freezes the request after its first exact call) -->
+3. The committed manifest advances only after the matching request's graph commit and staged manifest both validate; every other completion outcome leaves it unchanged. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::vaultSuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-VAULT-027: transactional Pi Vault extraction delivery) -->
+4. A crash after manifest promotion but before cleanup is recovered idempotently. <!-- @impl: preseed/agents/pi/extensions/vault-manifest-fs.ts::promoteVaultManifest --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (REQ-VAULT-027: recovers rename-before-cleanup only when committed bytes match) -->
+5. Missing or corrupt staged data creates a full-delta follow-up request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (recovers a missing or corrupt successful stage with a new full-delta request) -->
+6. An older completion notification cannot suppress the full-delta follow-up from AC5. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (recovers a missing or corrupt successful stage with a new full-delta request) -->
 
-**Notes:** Delivery ownership and transaction rationale are documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional). Pi realizes AC1 through the public `subagent` tool, AC2 from durable root-session JSONL, and AC4 through request-specific post-commit chunks plus staged-byte validation. Bounded agent execution is owned by [REQ-MEM-016](memory.md#req-mem-016-pi-extraction-jobs-have-a-bounded-execution-profile) and documented in [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs). Native completion labels qualify only with the post-commit artifact required by AC4.
+**Notes:** Delivery ownership and transaction rationale are documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional). Pi realizes AC1 through the public `subagent` tool and AC3 through request-specific post-commit chunks plus staged-byte validation. Reload and retry behavior is owned by [REQ-VAULT-029](#req-vault-029-pi-vault-extraction-retry-state-is-reload-safe-and-bounded). Bounded agent execution is owned by [REQ-MEM-016](memory.md#req-mem-016-pi-extraction-jobs-have-a-bounded-execution-profile) and documented in [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs). Native completion labels qualify only with the post-commit artifact required by AC3.
 
 **Constraints:**
 
-- Runtime coordination uses only one tiny active request pointer and one request-specific execution snapshot; no receipt, lease, queue, scheduler, service, or new endpoint is introduced. The already-required request chunk becomes visible at its canonical path only after graph commit and is root-cleaned after promotion, so it qualifies completion without adding delivery state.
+- Runtime coordination is limited to one active request pointer and one request-specific execution snapshot.
 - Claude extraction behavior and acceptance criteria remain unchanged.
 
 **Priority:** P0
@@ -899,6 +898,32 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Priority:** P0
 
 **Dependencies:** [REQ-VAULT-027](#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)
+
+**Verification:** [Pi extraction delivery tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
+
+**Status:** Implemented
+
+---
+
+### REQ-VAULT-029: Pi vault extraction retry state is reload-safe and bounded
+
+**Intent:** Reload and transient failure must preserve one Vault extraction request without allowing retries to continue indefinitely.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. After reload, a request resumes its prior missing, running, failed, successful, or GIVEUP state. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-015 AC3 / REQ-VAULT-029 AC1: reconstructs durable missing, running, failed, and successful states) -->
+2. Failed or missing work receives reminders zero through five and then enters GIVEUP. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionDue --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-VAULT-029 AC2: bounds failed or missing work to reminders zero through five before GIVEUP) -->
+
+**Constraints:**
+
+- Retry state is reconstructed from the root-session transcript; no queue or receipt store is added.
+- A replacement request has independent retry state.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-VAULT-027](#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional), [REQ-MEM-015](memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard)
 
 **Verification:** [Pi extraction delivery tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts)
 

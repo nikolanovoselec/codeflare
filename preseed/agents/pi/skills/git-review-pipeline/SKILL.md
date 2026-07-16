@@ -35,8 +35,8 @@ When the reminder or follow-up lists lanes:
 4. After every requested reviewer returns an agent ID, the extension invokes the existing CI resolver and service-spawns a returned monitor request last with queue bypass. Review completion does not gate CI, and no model turn launches either wave.
 5. The boundary extension correlates service-owned reviewer and CI IDs internally. A focused copy of the stock `AgentWidget` display/lifecycle renders those correlated public records because the service API omits the invocation field used by the package widget filter; Codeflare adds no second execution path. These launches are not assistant public-tool-call transcript blocks.
 6. The root waits for every required successful reviewer result, regardless of completion order.
-7. The root automatically publishes one consolidated triage summary before any fixing or project mutation. For every finding, decide independently whether the finding is evidence-backed and in scope, whether its proposed fix is proportional, and what smallest correction reuses existing machinery.
-8. Reject false positives and overengineered proposals with evidence. Apply legitimate minimal fixes automatically unless the user explicitly requested approval or validation.
+7. The root automatically publishes one consolidated adversarial triage table before any fixing or project mutation. Include exactly one row per finding under `FINDING (as output by reviewer) | PROPOSED FIX (by reviewer) | STATUS | DECISION`, with no omissions. Challenge each finding against evidence, scope, current implementation, specifications, documentation, architecture decisions, project intent, and direct current-session instructions. Decide finding validity and proposal proportionality independently.
+8. Reject unsupported findings and wrong or overengineered proposals. Explain every rejection in `DECISION`, select the smallest correction that reuses existing machinery, and design a minimal replacement when the reviewer proposal is unsuitable. Apply every legitimate minimal fix automatically unless the user explicitly requested approval or validation.
 9. The root main session alone commits and pushes. Reviewers and other subagents never push.
 
 Review is session-scoped. Reload replays dispatch evidence but cannot fabricate a terminal result; failed spawns remain missing and retry within the existing bound.
@@ -49,7 +49,7 @@ Review never waits for or relaunches CI. CI never launches reviewers. The bounda
 
 In `scope=diff`, reviewers inspect changed hunks and only directly invalidated callers, anchors, tests, and owner documentation. They do not run whole-tree manifests or report unchanged baseline debt. `scope=all` is reserved for explicit `/review --all` and `/sdd clean --all` requests.
 
-Do not act on a subset of required reviewer outputs. Wait until every required reviewer has finished, then assess all findings together in the visible triage summary. Finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction. Prefer an existing implementation path before adding machinery. Fix every legitimate finding by default, explain rejected findings or proposals with evidence, and ask only when the user explicitly requested approval or the change is destructive or irreversible.
+Do not act on a subset of required reviewer outputs. Wait until every required reviewer has finished, then assess all findings together in the visible four-column triage table. Finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction. Prefer an existing implementation path before adding machinery. Fix every legitimate finding by default, explain rejected findings or proposals with evidence, and ask only when the user explicitly requested approval or confirmation.
 
 ## Claude behavior
 

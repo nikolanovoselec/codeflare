@@ -507,13 +507,13 @@ R2 persistence, rclone bisync, quotas, and file browser.
 ### REQ-STOR-017: Faster startup sync — bisync HEAD-storm fix + Governed Mode preseed bake
 
 
-**Intent:** Startup and steady-state sync must not waste time on avoidable R2 round-trips, and startup must not re-pay work the image already did. Three costs are addressed: (a) the steady-state bisync issued one HEAD per object to read its mtime metadata (the dominant sync cost, ~2,900 HEADs/cycle on a populated bucket); (b) the blocking initial sync re-downloads the entire agent seed (~627 files, ~9 MB — about half of a populated bucket) every boot, because the container filesystem is ephemeral and the seed lives only in R2; and (c) the Pi extension jiti prewarm cache misses every session, re-transpiling the first-party extensions (~2.4s on the advanced set) even though the image already baked them. Cost (a) is fixed with server-modtime bisync; (b) is eliminated in Governed Mode by laying down an image-baked seed locally and letting a content-checksum sync transfer only the user's deltas; (c) is fixed because jiti keys its cache on *where* a file sits as well as its bytes, so the image warms the cache at the real runtime agent dir and the entrypoint relays the managed extension content over the synced tree in all modes, making both the path and content halves match. Persisted sync must also be unable to restore retired managed Pi extensions.
+**Intent:** Startup and steady-state synchronization avoid repeating image-baked seed work, per-object freshness requests, and first-session extension transpilation, while retired managed extensions cannot return from persisted state.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Both bisync invocations (the retrying `--resync` baseline and steady-state cycle) compare object freshness via R2 `LastModified` from the bulk `--fast-list` (`--use-server-modtime`) instead of a per-object mtime HEAD, and run with `--checkers 64`, eliminating the per-file HEAD storm. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 / AD88: bisync uses server-modtime + wider checkers (entrypoint.sh)) -->
+1. Baseline and steady-state bisync determine freshness from one bulk listing and issue no per-object mtime requests. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 / AD88: bisync uses server-modtime + wider checkers (entrypoint.sh)) -->
 2. The container image bakes the agent seed as an on-disk file tree, materialized from the single generated seed source, byte-identical to the set seeded to R2 for each session mode (the tier-gated context-mode subtree is excluded — it delta-syncs from R2). <!-- @impl: scripts/materialize-agent-seed.mjs::CONTEXT_MODE_KEY_PREFIX --> <!-- @test: src/__tests__/lib/agent-seed-bake.test.ts (agent-seed bake byte-identity (REQ-STOR-017 / AD90)) -->
 3. In Governed Mode (R2 SSE-C disabled), the entrypoint lays the mode-appropriate baked seed into the user home before the initial sync, and the initial sync compares by `--checksum` (usable MD5 ETags) so it skips the unchanged seed files and transfers only user deltas. <!-- @impl: entrypoint.sh::lay_down_agent_seed_preseed --> <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 / AD90: image-baked agent-seed lay-down (entrypoint.sh lay_down_agent_seed_preseed)) -->
 4. Pi's jiti prewarm cache hits in every deployment mode: entrypoint relays existing managed extensions from the unfiltered image while preserving mode gates. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-017 / AD90: post-sync managed Pi extension relay (entrypoint.sh relay_managed_pi_extensions)) -->
@@ -523,6 +523,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Constraints:**
 
+- Rclone realizes AC1 with `--fast-list`, `--use-server-modtime`, and `--checkers 64` on both bisync paths.
 - The preseed bake + `--checksum` initial sync are gated on Governed Mode.
 - The bake is derived in-image from the committed, freshness-enforced `src/lib/agent-seed.generated.ts`, so it never drifts from the seed and needs no host.
 - The jiti prewarm cache key is `hash(absolute path + source + version)` — path-sensitive, not content-only — so both the warm-bake path and the relayed runtime content must match the build for a cache hit.

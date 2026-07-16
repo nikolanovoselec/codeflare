@@ -597,11 +597,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Watched Dockerfile binaries: zoxide, yazi, lazygit, silverbullet. Each has its own parallel job checking GitHub releases. <!-- @impl: .github/workflows/bump-shadow-pins.yml::ver -->
-2. The context-mode job atomically bumps its Claude-plugin and Pi-prewarm pins in one PR; build validation rejects drift. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-preseed -->
-3. Dedicated jobs bump the remaining Pi preseed packages, bun, consult-llm-mcp, chrome-devtools-mcp, Browser Run MCP SDK, Impeccable bundles, and Graphify plugin version and description. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-preseed -->
-4. SHA256 checksum is reset to a placeholder on Dockerfile bumps, causing Docker build failure until the operator verifies and updates the hash. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit -->
-5. A bump branch is skipped if one already exists for that version (deduplication guard). <!-- @impl: .github/workflows/bump-shadow-pins.yml::branch -->
+1. Watched Dockerfile binaries include zoxide, yazi, lazygit, SilverBullet, and OpenVSCode Server; each has its own release-check job. <!-- @impl: .github/workflows/bump-shadow-pins.yml::ver --> <!-- @test: host/__tests__/bump-shadow-pins-workflow.test.js (REQ-OPS-020 AC1: watches every pinned Docker binary through its own release job) -->
+2. The context-mode job atomically bumps its Claude-plugin and Pi-prewarm pins in one PR; build validation rejects drift. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-preseed --> <!-- @test: host/__tests__/bump-shadow-pins-workflow.test.js (REQ-OPS-020 AC2: updates context-mode Claude and Pi pins in one generated-seed job) -->
+3. Dedicated jobs bump the remaining Pi preseed packages, bun, consult-llm-mcp, chrome-devtools-mcp, Browser Run MCP SDK, Impeccable bundles, and Graphify plugin version and description. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-preseed --> <!-- @test: host/__tests__/bump-shadow-pins-workflow.test.js (REQ-OPS-020 AC3: exposes dedicated jobs for every non-Docker shadow pin) -->
+4. SHA256 checksum is reset to a placeholder on Dockerfile bumps, causing Docker build failure until the operator verifies and updates the hash. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @test: host/__tests__/bump-shadow-pins-workflow.test.js (REQ-OPS-020 AC4: invalidates each Docker checksum before opening its bump PR) -->
+5. A bump branch is skipped if one already exists for that version (deduplication guard). <!-- @impl: .github/workflows/bump-shadow-pins.yml::branch --> <!-- @test: host/__tests__/bump-shadow-pins-workflow.test.js (REQ-OPS-020 AC5: every bump job checks for its version branch before creating a PR) -->
 6. The context-mode and generic Pi-preseed jobs regenerate the Pi package lock without executing runtime-layout package lifecycle scripts, then regenerate the embedded seed from the updated manifest and lockfile. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-preseed --> <!-- @impl: scripts/regenerate-pi-preseed-lock.mjs::packageDirectory --> <!-- @test: host/__tests__/pi-preseed-lockfile-regeneration.test.js (creates the lockfile without executing package lifecycle scripts) -->
 
 **Constraints:** None.
