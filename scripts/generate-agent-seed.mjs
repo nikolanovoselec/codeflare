@@ -222,6 +222,9 @@ function adaptAgentFrontmatter(content, agentId) {
 
   for (const line of lines) {
     if (line.startsWith('model:')) continue;
+    // Claude-only reasoning-effort pin: transformed runtimes (pi, codex, gemini,
+    // copilot, opencode) have no equivalent frontmatter key and must not carry it.
+    if (line.startsWith('effort:')) continue;
     if (piExtractionAgent && line.startsWith('description:')) {
       newLines.push(agentName === 'memory-capture'
         ? 'description: Visible Pi memory capture worker. The root launches one public background request, retains the request-specific execution snapshot and counter, and finalizes them only after exact native success.'

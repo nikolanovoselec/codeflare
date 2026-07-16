@@ -1579,6 +1579,26 @@ describe('Reviewer agents can access their enforce policy', () => {
     expect(reviewCommand!.content).toMatch(/^## Review ownership \(binding\)$/m);
   });
 
+  it('REQ-AGENT-086 AC6: reviewer effort pins are seeded for Claude and stripped from transforms', () => {
+    const expectedEffort: Record<string, string> = {
+      'code-reviewer': 'high',
+      'spec-reviewer': 'medium',
+      'doc-updater': 'medium',
+    };
+    for (const [name, effort] of Object.entries(expectedEffort)) {
+      const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === `.claude/agents/${name}.md`);
+      expect(doc, `.claude/agents/${name}.md should be seeded`).toBeTruthy();
+      expect(frontmatter(doc!.content).effort, `${name} effort pin`).toBe(effort);
+      // Transformed runtimes have no effort frontmatter key; it must be stripped.
+      for (const prefix of ['.pi/agent/agents', '.gemini/agents']) {
+        const transformed = AGENTS_SEEDED_CONFIGS.find((d) => d.key === `${prefix}/${name}.md`);
+        if (transformed) {
+          expect(transformed.content, `${prefix}/${name}.md must not carry effort`).not.toMatch(/^effort:/m);
+        }
+      }
+    }
+  });
+
   it('transformed runtimes never inherit the Claude-only Skill tool', () => {
     const piCr = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
     expect(piCr).toBeTruthy();

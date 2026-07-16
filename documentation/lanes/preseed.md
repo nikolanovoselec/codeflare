@@ -733,7 +733,7 @@ Hooks registered in settings.json, scripts delivered via plugin.
 
 [context-mode](https://github.com/mksglu/context-mode) is registered as a Claude Code MCP server (`ctx_*` helper tools) where that runtime enables it. Pi loads context-mode by default in the settings `required` set. `/ctx off` disables the package for the current running Pi session and reloads resources; `/ctx on` re-enables it. The next Codeflare container start resets Pi back to enabled.
 
-The npm package is fetched by the user's own container from the npm registry on first invocation; Codeflare does not redistribute the source. Custom-tier (`unlimited` subscription) users receive the MCP registration. Claude's three PR reviewer definitions carry the full research toolset — native reads, indexed context-mode retrieval (`ctx_search`/`ctx_batch_execute`), direct `ctx_execute`, Graphify discovery, and Bash fallback; indexed retrieval keeps raw scan output out of reviewer context.
+The npm package is fetched by the user's own container from the npm registry on first invocation; Codeflare does not redistribute the source. Custom-tier (`unlimited` subscription) users receive the MCP registration. Claude's three PR reviewer definitions carry the full research toolset — native reads, indexed context-mode retrieval (`ctx_search`/`ctx_batch_execute`), direct `ctx_execute`, Graphify discovery, and Bash fallback; indexed retrieval keeps raw scan output out of reviewer context. Reasoning effort is pinned per lane (`high` for code, `medium` for spec and docs), and the generator strips the Claude-only `effort` key from every transformed runtime.
 
 Codeflare no longer ships the former Bash/WebFetch/Grep deny-gate
 (`enforce-ctx-mode.sh`) in the context-mode plugin. Context-mode is
