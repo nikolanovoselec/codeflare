@@ -177,6 +177,8 @@ When `OAUTH_CLIENT_ID` IS set: no CF Access groups or policies are created.
 
 ### Access Session Expiry and Restored Pages ([REQ-AUTH-022](../../sdd/spec/authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page))
 
+Implementation entry points: the API client's expiry detection lives in `web-ui/src/api/fetch-helper.ts` (`expiredSessionError`), and the resume revalidation plus the redirecting state live in `web-ui/src/App.tsx`.
+
 Cloudflare Access validates every request against the application session. For SPA subrequests, Codeflare sends `X-Requested-With: XMLHttpRequest`, which lets Access return a 401 when the session expires. Some Access/browser paths still expose a manual 3xx, opaque redirect, or HTML login response; the API client treats all forms identically on authenticated routes: replace the top-level location with `/`, tag the rejected API error, and let the existing redirecting state render until navigation commits.
 
 Mobile browsers can restore a live DOM from background or bfcache without rerunning application bootstrap. The authenticated app therefore revalidates the current user on hidden-to-visible and persisted `pageshow` transitions. Checks are deduplicated, valid sessions continue unchanged, and expired sessions navigate through the normal Access/sign-in front door.

@@ -113,7 +113,7 @@ on explicit action.
 
 ## Preseed Components
 
-ECC-derived rules, agents, commands, and skills are preseeded directly
+ECC (Everything Claude Code)-derived rules, agents, commands, and skills are preseeded directly
 to the agent config filesystem. No external plugins are installed.
 
 **Agents**: `architect`, `build-error-resolver`, `code-reviewer`,
@@ -386,9 +386,10 @@ The generator maps each manifest key by directory prefix: `extensions/` to
 `.pi/agent/rules/`, `scripts/` to `.pi/agent/scripts/`, `prompts/` to
 `.pi/agent/prompts/`, and `agents/` to `.pi/agent/agents/`.
 
-The `agents/` prefix maps both to `.pi/agent/agents/` for session-local overrides
-for `@gotgenes/pi-subagents` and to `~/.pi/agent/agents/` for persistent user-level
-overrides. Native Pi definitions include Explore plus the code, spec, and
+R2 seed keys are rooted at the container user's home directory, so the
+tilde-less `.pi/agent/agents/` target and `~/.pi/agent/agents/` are the same
+on-disk tree: session-local overrides for `@gotgenes/pi-subagents` and
+persistent user-level overrides both land there. Native Pi definitions include Explore plus the code, spec, and
 documentation reviewers. Package files deploy under `.pi/agent/npm/`.
 
 Pi-native review and CI assets are seeded with explicit ownership:
@@ -732,7 +733,7 @@ Hooks registered in settings.json, scripts delivered via plugin.
 
 [context-mode](https://github.com/mksglu/context-mode) is registered as a Claude Code MCP server (`ctx_*` helper tools) where that runtime enables it. Pi loads context-mode by default in the settings `required` set. `/ctx off` disables the package for the current running Pi session and reloads resources; `/ctx on` re-enables it. The next Codeflare container start resets Pi back to enabled.
 
-The npm package is fetched by the user's own container from the npm registry on first invocation; Codeflare does not redistribute the source. Commercial users receive the MCP registration. Claude's three PR reviewer definitions may call direct `ctx_execute` for compact, non-indexed evidence and retain Bash fallback; other tool selection remains agent-controlled.
+The npm package is fetched by the user's own container from the npm registry on first invocation; Codeflare does not redistribute the source. Custom-tier (`unlimited` subscription) users receive the MCP registration. Claude's three PR reviewer definitions may call direct `ctx_execute` for compact, non-indexed evidence and retain Bash fallback; other tool selection remains agent-controlled.
 
 Codeflare no longer ships the former Bash/WebFetch/Grep deny-gate
 (`enforce-ctx-mode.sh`) in the context-mode plugin. Context-mode is
