@@ -380,7 +380,6 @@ The setup wizard auto-provisions a higher-precedence Access **bypass** app (`dec
 
 `cat ~/.cache/codeflare-hooks/graphify-active-cwd` should contain the current repo root. If missing, the active-repo hook has not fired yet - trigger a Bash `cd` to the repo, or Edit any file in it. Advanced session mode only: confirm `graphify-active-repo.sh` is registered under `~/.claude/settings.json` `hooks.PostToolUse`. Default mode has no sentinel by design (fallback only). This sentinel governs graphify graph resolution only.
 
-<a id="onboarding-mode-the-vault-editor-never-loads-silverbullet-service-work"></a>
 #### Pi memory/Vault extraction repeats reminders, reaches GIVEUP, or reports Done without advancing state
 
 Pi now treats the root session transcript as delivery truth ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)). Inspect the visible `background-extraction-launch` messages, their model-facing `<extraction-items-json>` payload, the exact public `subagent` tool call, and the correlated `subagent-notification` by tool-use ID. If the model asks for `details.items`, the running seed is stale because Pi does not expose custom-message details to the model. A missing/failed request receives reminders `0..5`, then one `background-extraction-giveup`; this is bounded failure, not a hidden hang.
@@ -389,6 +388,7 @@ For memory, a `Done`, `Completed`, or `Wrapped up (turn limit)` notification doe
 
 Current Pi extraction workers are bounded by [AD103](../decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs): Bash-only, medium reasoning, four turns, one read per immutable input, and a 15-second noncritical visualization limit. For memory capture, `VARS_FILE.transcript` is the complete input; `invalid INPUT_FILE: missing` identifies stale generated agent/prompt bytes and requires remirroring the managed Pi preseed before `/reload`. Session graph output must use the note H1, `concept_<normalised_label>` IDs, and unique edges; colon-prefixed concepts, a filename document label, or duplicate edges identify an old model-authored chunk and require reprocessing after remirroring. If a one-file task still runs for minutes or accumulates review-scale tokens, compare live agent hashes with the generated advanced seed and run `/reload`; broad `read`/`grep`/context tools or absent `thinking: medium` identify a stale mirror.
 
+<a id="onboarding-mode-the-vault-editor-never-loads-silverbullet-service-work"></a>
 #### Onboarding mode: the Vault editor never loads / SilverBullet service worker fails to register (browser console shows `script resource is behind a redirect`, 302 to `*.cloudflareaccess.com`)
 
 **Fix detail:**

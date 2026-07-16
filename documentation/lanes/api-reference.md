@@ -539,6 +539,19 @@ Note: `/api/setup/detect-token` and `/api/setup/prefill` are also subject to the
 | POST | `/api/storage/upload/complete` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Complete multipart upload |
 | POST | `/api/storage/upload/abort` | Session cookie | [REQ-STOR-008](../../sdd/spec/storage.md#req-stor-008-multipart-upload-for-large-files) | Abort multipart upload |
 
+#### `GET /api/storage/browse`
+
+Lists one R2 `ListObjectsV2` page for the current user's bucket.
+
+| Query parameter | Required | Contract |
+|---|---|---|
+| `prefix` | No | Object-key prefix; defaults to the bucket root and rejects protected or parent-traversal paths. |
+| `delimiter` | No | Grouping delimiter; defaults to `/`. |
+| `continuationToken` | No | Opaque token returned by the preceding page. |
+| `maxKeys` | No | Integer from 1 through 1000; defaults to 200. Invalid values return a validation error. |
+
+A successful response is `{ objects, prefixes, isTruncated, nextContinuationToken? }`. Each object contains `key`, byte `size`, ISO `lastModified`, and optional `etag`; `prefixes` contains grouped prefix strings. `isTruncated` reports whether another page exists, and a truncated response supplies the opaque `nextContinuationToken` used by the next request. A newly created empty bucket returns empty arrays and `isTruncated: false`.
+
 ### Preferences
 
 GET `/api/preferences`, PATCH `/api/preferences`

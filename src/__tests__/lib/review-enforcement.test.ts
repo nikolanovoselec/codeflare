@@ -20,7 +20,7 @@ type SentMessage = {
 };
 type AppendedEntry = { customType: string; data: unknown };
 type ExtensionHandler = (event: unknown, ctx: TestContext) => unknown | Promise<unknown>;
-type TestWidgetContent = string[] | undefined;
+type TestWidgetContent = unknown;
 type TestContext = {
   cwd: string;
   hasUI: boolean;
@@ -89,9 +89,6 @@ type TestPi = {
   on(event: string, handler: ExtensionHandler): void;
   appendEntry(customType: string, data: unknown): void;
   sendMessage(message: SentMessage['message'], options?: SentMessage['options']): void;
-  events: {
-    on(channel: string, handler: (data: unknown) => void): () => void;
-  };
 };
 
 const ALL_LANES: ReviewLane[] = ['code-reviewer', 'spec-reviewer', 'doc-updater'];
@@ -279,16 +276,14 @@ function makeHarness(repo: string, sessionFile: string): {
   widgets: Map<string, TestWidgetContent>;
   statuses: Map<string, string | undefined>;
   emit(event: string, payload?: unknown): Promise<void>;
-  emitServiceEvent(channel: string, payload?: unknown): void;
 } {
   const handlers = new Map<string, ExtensionHandler[]>();
-  const serviceEventHandlers = new Map<string, Array<(data: unknown) => void>>();
   const sent: SentMessage[] = [];
   const appended: AppendedEntry[] = [];
   const spawned: SpawnedAgent[] = [];
   const serviceStatuses = new Map<string, string>();
   const widgets = new Map<string, TestWidgetContent>();
-  const statuses = new Map<string, string | undefined>();
+  const statuses = new Map<string, string | undefined>;
   const service: TestSubagentsService = {
     spawn: (type, prompt, options) => {
       const id = nextId('agent');
@@ -324,15 +319,6 @@ function makeHarness(repo: string, sessionFile: string): {
         ...message,
       });
     },
-    events: {
-      on: (channel, handler) => {
-        serviceEventHandlers.set(channel, [...(serviceEventHandlers.get(channel) ?? []), handler]);
-        return () => serviceEventHandlers.set(
-          channel,
-          (serviceEventHandlers.get(channel) ?? []).filter((candidate) => candidate !== handler),
-        );
-      },
-    },
   };
   const ctx: TestContext = {
     cwd: repo,
@@ -345,7 +331,7 @@ function makeHarness(repo: string, sessionFile: string): {
       setWidget: (key, content) => widgets.set(key, content),
     },
   };
-  return {
+  const harness = {
     pi,
     ctx,
     sent,
@@ -355,13 +341,11 @@ function makeHarness(repo: string, sessionFile: string): {
     spawned,
     widgets,
     statuses,
-    emit: async (event, payload = {}) => {
+    emit: async (event: string, payload: unknown = {}) => {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
     },
-    emitServiceEvent: (channel, payload = {}) => {
-      for (const handler of serviceEventHandlers.get(channel) ?? []) handler(payload);
-    },
   };
+  return harness;
 }
 
 function latestReviewWindow(harness: ReturnType<typeof makeHarness>): Record<string, unknown> | undefined {
@@ -457,7 +441,7 @@ describe('Pi review reminder and settled enforcement', () => {
     expect(ackHead(fixture.repo)).toBe(fixture.base);
   });
 
-  it('REQ-AGENT-071/REQ-AGENT-080: spawns reviewers through the service before CI without a model launch turn', async () => {
+  it('REQ-AGENT-071/REQ-AGENT-080: delegates background reviewers to the stock service widget before CI without a model launch turn', async () => {
     const fixture = makeReviewFixture();
     const harness = await registerFixture(fixture);
     appendSession(fixture.sessionFile,
@@ -495,6 +479,8 @@ describe('Pi review reminder and settled enforcement', () => {
       options: { foreground: false, inheritContext: false, bypassQueue: true },
     });
     expect(harness.sent).toEqual([]);
+    expect(harness.widgets.has('codeflare-review-agents')).toBe(false);
+    expect(harness.statuses.has('codeflare-review-agents')).toBe(false);
 
     const entries = readFileSync(fixture.sessionFile, 'utf8')
       .split('\n')
@@ -511,52 +497,6 @@ describe('Pi review reminder and settled enforcement', () => {
 
     await harness.emit('agent_settled');
     expect(harness.spawned).toHaveLength(4);
-  });
-
-  it('REQ-AGENT-071: renders deterministic reviewer lifecycle state without a model launch turn', async () => {
-    const fixture = makeReviewFixture();
-    const harness = await registerFixture(fixture);
-    appendSession(fixture.sessionFile,
-      assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
-      toolResult('push-1', 'bash'),
-    );
-
-    await harness.emit('tool_result', boundaryEvent());
-    await harness.emit('agent_settled');
-
-    const initialRows = harness.widgets.get('codeflare-review-agents');
-    expect(initialRows).toHaveLength(5);
-    expect(initialRows?.slice(1).map((row) => row.match(/(queued|running|completed|failed)$/)?.[1])).toEqual([
-      'queued',
-      'queued',
-      'queued',
-      'queued',
-    ]);
-    expect(harness.statuses.get('codeflare-review-agents')).toBe('Review: 4 queued');
-    expect(harness.sent).toEqual([]);
-
-    harness.serviceStatuses.set(harness.spawned[0].id, 'running');
-    harness.serviceStatuses.set(harness.spawned[3].id, 'running');
-    harness.emitServiceEvent('subagents:started');
-    expect(harness.widgets.get('codeflare-review-agents')?.slice(1)
-      .map((row) => row.match(/(queued|running|completed|failed)$/)?.[1])).toEqual([
-      'running',
-      'queued',
-      'queued',
-      'running',
-    ]);
-    expect(harness.statuses.get('codeflare-review-agents')).toBe('Review: 2 running, 2 queued');
-
-    for (const agent of harness.spawned) harness.serviceStatuses.set(agent.id, 'completed');
-    harness.emitServiceEvent('subagents:completed');
-    expect(harness.widgets.get('codeflare-review-agents')?.slice(1)
-      .map((row) => row.match(/(queued|running|completed|failed)$/)?.[1])).toEqual([
-      'completed',
-      'completed',
-      'completed',
-      'completed',
-    ]);
-    expect(harness.statuses.get('codeflare-review-agents')).toBeUndefined();
   });
 
   it('REQ-AGENT-071: resolves the stock service from its published global symbol', async () => {

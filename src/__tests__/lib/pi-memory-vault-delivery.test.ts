@@ -346,7 +346,7 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
     expect(buildPublicExtractionRequest({ ...base, model: 'provider/model' })).toHaveProperty('model', 'provider/model');
   });
 
-  it('correlates exact public calls and reconstructs running, failed, and successful state', () => {
+  it('REQ-VAULT-027 AC2: reconstructs durable delivery states and bounds reminders zero through five', () => {
     const request = buildPublicExtractionRequest({
       job: 'memory-capture',
       requestId: UUIDS[0],
@@ -406,9 +406,7 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
       now: NOW,
       successQualifies: () => false,
     }).state).toBe('failed');
-  });
 
-  it('uses one reducer for reminders zero through five and then latches GIVEUP', () => {
     for (let launchCount = 0; launchCount < 6; launchCount += 1) {
       expect(extractionDue({ launchCount, attemptCount: launchCount, giveup: false, state: 'failed' })).toEqual({
         kind: 'launch',
@@ -600,6 +598,10 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
 describe('REQ-VAULT-027: transactional Pi Vault extraction delivery', () => {
   it('coalesces edits before launch and freezes the request after its first exact call', async () => {
     const harness = makeHarness();
+    let privateSpawnCalls = 0;
+    (globalThis as Record<symbol, unknown>)[Symbol.for('@gotgenes/pi-subagents:service')] = {
+      spawn: () => { privateSpawnCalls += 1; },
+    };
     await harness.emit('session_start');
     const first = join(harness.paths.vaultRoot, 'Notes', 'first.md');
     writeFileSync(first, 'first\n', 'utf8');
@@ -631,6 +633,7 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery', () => {
     appendEntry(harness.sessionFile, userMessage('do not mutate launched work'));
     await harness.emit('before_agent_start', { prompt: 'do not mutate launched work' });
     expect(readFileSync(executionPath, 'utf8')).toBe(frozenBytes);
+    expect(privateSpawnCalls).toBe(0);
   });
 
   it('keeps the committed manifest byte-identical on failure and emits the next reminder', async () => {
@@ -712,6 +715,11 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery', () => {
     await harness.emit('agent_settled');
     const replacement = readJson(vaultPointerPath(harness));
     expect(replacement.requestId).not.toBe(original.requestId);
+    expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([changed]);
+
+    appendEntry(harness.sessionFile, notification('corrupt-stage'));
+    await harness.emit('agent_settled');
+    expect(readJson(vaultPointerPath(harness)).requestId).toBe(replacement.requestId);
     expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([changed]);
   });
 
