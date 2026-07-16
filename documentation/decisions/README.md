@@ -2468,7 +2468,7 @@ The dedicated agent runs one attached Node process and returns `CI_RESULT` throu
 
 **Consequences:** Reload and branch replay keep their existing task semantics, while subagent lifecycle events cannot erase foreground tasks. The image prewarm and generated Pi npm seed carry the same patch payload. The temporary override adds four pinned source files and must be removed when a reviewed upstream release ships the fix.
 
-**Related REQ:** [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation), [Pi preseed](../lanes/preseed.md#agent-seed-system).
+**Related REQ:** [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation), [Pi preseed](../lanes/preseed.md#agent-preseed-system).
 
 ---
 
@@ -2486,7 +2486,7 @@ The dedicated agent runs one attached Node process and returns `CI_RESULT` throu
 
 **Consequences:** One Pi process owns at most one active context-mode bridge. In-process reviewers, memory capture, CI monitors, and other children use their documented native/Bash fallbacks; exact review scope and evidence are unchanged. The wrapper imports the registry-installed adapter rather than copying or modifying it, so npm upgrades remain upstream-owned. A full Pi process restart is required once to reap helpers leaked by sessions created before this decision.
 
-**Related REQ:** [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport), [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership), [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents), [Pi preseed](../lanes/preseed.md#agent-seed-system).
+**Related REQ:** [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-085](../../sdd/spec/agents.md#req-agent-085-pi-reviewer-direct-evidence-transport), [REQ-AGENT-089](../../sdd/spec/agents.md#req-agent-089-pi-context-mode-foreground-ownership), [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents), [Pi preseed](../lanes/preseed.md#agent-preseed-system).
 
 ---
 

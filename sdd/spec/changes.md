@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-07-16
 
+- **Implemented acceptance criteria now retain one canonical behavioral test anchor while Pi preserves genuine code-like prompts** ([REQ-AGENT-023](agents.md#req-agent-023-knowledge-graph-capability-graphify), [REQ-AUTH-022](authentication.md#req-auth-022-session-expiry-on-resume-produces-a-clean-sign-in-redirect-never-a-blank-page), [REQ-MEM-001](memory.md#req-mem-001-conversation-context-automatically-captured-to-vault), and [REQ-VAULT-026](vault.md#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest); stay Implemented). Runtime-specific capture and manifest contracts are separated where capacity permits; cohesive Graphify/authentication coverage is consolidated, and Pi now excludes only known synthetic envelopes so HTML, `"directive"`, and `subagent_type` questions remain eligible for capture.
+
 - **Pi recovery now requires durable evidence of actual dispatch** ([REQ-AGENT-058](agents.md#req-agent-058-supported-boundary-recovery) AC1 and [REQ-MEM-002](memory.md#req-mem-002-capture-triggers-every-15-user-messages) AC5 clarified; stay Implemented). Settled PR review cannot rebind a stale boundary to another PR head, and extraction reminders advance only after exact public calls rather than after unconsumed reminder messages.
 
 ## 2026-07-14

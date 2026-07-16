@@ -282,22 +282,22 @@ describe('Graphify build preseed', () => {
     assert.equal(calls[0].manifest_path, 'graphify-out/manifest.json');
   });
 
-  it('Claude semantic extraction scopes cache writes to the dispatched files', () => {
-    const calls = runSemanticCacheSkillStep(
-      'preseed/agents/claude/skills/graphify/references/extraction-spec.md',
-      '**Step B3 - Collect, cache, and merge**',
-      '.',
-    );
-    assert.deepEqual(calls[0].allowed_source_files, ['doc.md']);
-  });
-
-  it('Pi semantic extraction scopes cache writes to the dispatched files', () => {
-    const calls = runSemanticCacheSkillStep(
-      'preseed/agents/pi/skills/graphify/references/build.md',
-      '## Step 3 — merge chunks into Graphify semantic cache and local fragment',
-      'graphify-out',
-    );
-    assert.deepEqual(calls[0].allowed_source_files, ['doc.md']);
+  it('REQ-AGENT-023 AC7: Claude and Pi semantic extraction scope cache writes to dispatched files', () => {
+    for (const testCase of [
+      {
+        path: 'preseed/agents/claude/skills/graphify/references/extraction-spec.md',
+        heading: '**Step B3 - Collect, cache, and merge**',
+        chunkDir: '.',
+      },
+      {
+        path: 'preseed/agents/pi/skills/graphify/references/build.md',
+        heading: '## Step 3 — merge chunks into Graphify semantic cache and local fragment',
+        chunkDir: 'graphify-out',
+      },
+    ]) {
+      const calls = runSemanticCacheSkillStep(testCase.path, testCase.heading, testCase.chunkDir);
+      assert.deepEqual(calls[0].allowed_source_files, ['doc.md']);
+    }
   });
 
   it('Pi AST-only build writes a portable manifest rooted at the scanned repo', () => {

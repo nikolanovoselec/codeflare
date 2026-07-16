@@ -101,7 +101,7 @@ describe('REQ-AUTH-022 AC2: expired-session 401 shows the redirecting state, not
   });
 });
 
-describe('REQ-AUTH-022 AC6: restored app pages revalidate authentication', () => {
+describe('REQ-AUTH-022 AC6: restored app resume revalidates once and preserves valid sessions', () => {
   it.each(['visibility', 'bfcache'] as const)(
     'moves a loaded app to the redirecting state after an expired %s resume',
     async (resumeKind) => {

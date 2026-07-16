@@ -94,22 +94,12 @@ describe('REQ-AUTH-022 AC1: 401 on an authed page redirects + throws (never hang
   });
 
   it.each([
-    { type: 'basic' as const, status: 302 },
-    { type: 'opaqueredirect' as const, status: 0 },
-  ])('REQ-AUTH-022 AC5: Access $type redirect navigates the top-level app instead of stranding it', async ({ type, status }) => {
+    { label: 'basic redirect', response: () => accessRedirect('basic', 302) },
+    { label: 'opaque redirect', response: () => accessRedirect('opaqueredirect', 0) },
+    { label: 'HTML login response', response: () => accessHtml403() },
+  ])('REQ-AUTH-022 AC5: Access response shapes navigate the top-level app instead of stranding it ($label)', async ({ response }) => {
     stubLocation('/app/sessions');
-    mockFetch.mockResolvedValueOnce(accessRedirect(type, status));
-
-    await expect(baseFetch('/api/user', {})).rejects.toMatchObject({
-      status: 401,
-      authRedirect: true,
-    });
-    expect(replaceSpy).toHaveBeenCalledWith('/');
-  });
-
-  it('REQ-AUTH-022 AC5: an Access HTML response navigates the top-level app instead of rendering auth markup', async () => {
-    stubLocation('/app/sessions');
-    mockFetch.mockResolvedValueOnce(accessHtml403());
+    mockFetch.mockResolvedValueOnce(response());
 
     await expect(baseFetch('/api/user', {})).rejects.toMatchObject({
       status: 401,

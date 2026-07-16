@@ -258,18 +258,6 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
 
   });
 
-  it('REQ-AGENT-080: generated Pi boundary instructions stop the command turn so follow-up delivery can trigger', () => {
-    for (const key of [
-      '.pi/agent/rules/git-workflow.md',
-      '.pi/agent/skills/pr-workflow/SKILL.md',
-    ]) {
-      const content = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === key)?.content ?? '';
-      expect(content).toMatch(/end the current assistant turn immediately/i);
-      expect(content).toContain('deliverAs: "followUp"');
-      expect(content).toMatch(/gh pr edit/);
-    }
-  });
-
   it('preseeds work continuity, review push, and result handoff gates into every generated instruction surface', () => {
     const instructionKeys = [
       '.codex/AGENTS.md',
@@ -959,14 +947,21 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
   it('REQ-MEM-001 AC2: real-user prompt counting matches Claude synthetic-wrapper filtering', () => {
     const messages = [
       { role: 'user', content: 'real prompt' },
+      { role: 'user', content: '<div>real HTML question</div>' },
+      { role: 'user', content: 'How does the "directive" field work?' },
+      { role: 'user', content: 'What does subagent_type mean?' },
       { role: 'user', content: '<task-notification>done</task-notification>' },
       { role: 'user', content: [{ type: 'tool_result', content: 'tool output' }] },
       { role: 'assistant', content: 'reply' },
     ];
-    expect(messages.map(isRealUserPrompt)).toEqual([true, false, false, false]);
-    expect(realUserPromptCount(messages)).toBe(1);
-    expect(compactMessages(messages)).toContain('real prompt');
-    expect(compactMessages(messages)).not.toContain('task-notification');
+    expect(messages.map(isRealUserPrompt)).toEqual([true, true, true, true, false, false, false]);
+    expect(realUserPromptCount(messages)).toBe(4);
+    const compacted = compactMessages(messages);
+    expect(compacted).toContain('real prompt');
+    expect(compacted).toContain('<div>real HTML question</div>');
+    expect(compacted).toContain('How does the "directive" field work?');
+    expect(compacted).toContain('What does subagent_type mean?');
+    expect(compacted).not.toContain('task-notification');
   });
 
   it('REQ-MEM-002 AC7: withCurrentPrompt counts the submitted prompt once for resume detection', () => {

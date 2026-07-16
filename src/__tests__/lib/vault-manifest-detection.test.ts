@@ -1,8 +1,9 @@
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
   collectVaultFileHashes,
   changedVaultFilesIn,
@@ -108,6 +109,25 @@ describe('vault-manifest content-hash detection', () => {
     for (const page of ['Index.md', 'README.md', 'CONFIG.md', 'STYLES.md']) {
       expect(hashes[page]).toBeUndefined();
     }
+  });
+
+  it('REQ-VAULT-026 AC5: Claude and Pi commit equivalent manifest content', () => {
+    const claudeManifest = join(vault, 'graphify-out', 'claude-manifest.json');
+    const piManifest = join(vault, 'graphify-out', 'pi-manifest.json');
+    write('Index.md', 'excluded root page');
+    write('Raw/Sessions/generated.md', 'excluded generated note');
+    execFileSync('python3', [
+      resolve('preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py'),
+      'commit',
+      vault,
+      claudeManifest,
+    ]);
+    commitVaultManifestTo(vault, piManifest);
+
+    const piContent = JSON.parse(readFileSync(piManifest, 'utf8'));
+    expect(piContent).toEqual(JSON.parse(readFileSync(claudeManifest, 'utf8')));
+    expect(Object.keys(piContent.files)).not.toContain('Index.md');
+    expect(Object.keys(piContent.files)).not.toContain('Raw/Sessions/generated.md');
   });
 
   it('REQ-VAULT-026/027: returns the SHA of the exact atomically written manifest bytes', () => {

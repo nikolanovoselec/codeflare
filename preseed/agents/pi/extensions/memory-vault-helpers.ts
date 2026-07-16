@@ -358,13 +358,11 @@ export function messageText(message: any): string {
 export function isSyntheticPrompt(prompt: string): boolean {
   const text = prompt.trim();
   return !text
-    || text.startsWith("<")
+    || text.startsWith("<task-notification>")
     || text.startsWith("Agent(")
     || text.startsWith("PROMPT_FILE=")
     || text.startsWith("[silent]")
-    || text.startsWith("[codeflare-extraction]")
-    || text.includes('"directive"')
-    || text.includes("subagent_type");
+    || text.startsWith("[codeflare-extraction]");
 }
 
 export function isRealUserPrompt(message: any): boolean {
