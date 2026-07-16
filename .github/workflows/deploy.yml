@@ -339,11 +339,18 @@ jobs:
         run: |
           KEEP="${{ steps.docker-build.outputs.local_ref }}"
           docker builder prune -af || true
+          docker container prune -f || true
           docker image prune -f || true
+          # Remove EVERY image except the one under scan, base images included:
+          # buildx restores layers from the remote GHA cache, so local copies
+          # only cost the disk Trivy is about to need.
           docker images --format '{{.Repository}}:{{.Tag}}' \
-            | grep -- '-container:' | grep -vxF "$KEEP" \
+            | grep -vxF "$KEEP" \
             | xargs -r docker rmi -f || true
-          rm -rf /tmp/trivy-* /tmp/docker-export-* || true
+          docker volume prune -f || true
+          rm -rf /tmp/trivy-* /tmp/docker-export-* ~/.cache/trivy || true
+          # Diagnostics for the next capacity incident: what actually holds disk.
+          docker system df -v 2>/dev/null | head -40 || true
           df -h / /tmp 2>/dev/null || true
 
       - name: Scan container image for vulnerabilities
