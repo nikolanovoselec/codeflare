@@ -253,11 +253,20 @@ describe('scramble.ts (REQ-LANDING-001)', () => {
 
     // The decode animates the overlay only; the ghost (the layout box) never mutates.
     el.dispatchEvent(new Event('mouseenter'));
-    vi.advanceTimersByTime(3 * 50);
-    expect(boxes[0].querySelector('.scramble-ghost')!.textContent).toBe('Enter');
+    const live = boxes[0].querySelector<HTMLElement>('.scramble-word')!;
+    const ghost = boxes[0].querySelector<HTMLElement>('.scramble-ghost')!;
+    // Sample several early frames (settle probability is 0 before frame 8): the
+    // overlay must actually churn away from the label, or the decode is a no-op.
+    let liveDeviated = false;
+    for (let tick = 0; tick < 6; tick++) {
+      vi.advanceTimersByTime(50);
+      if (live.textContent !== 'Enter') liveDeviated = true;
+      expect(ghost.textContent).toBe('Enter'); // the layout box never mutates
+    }
+    expect(liveDeviated).toBe(true);
     // After the full decode pass the overlay settles back to the exact label.
     vi.advanceTimersByTime(30 * 50);
-    expect(boxes[0].querySelector('.scramble-word')!.textContent).toBe('Enter');
+    expect(live.textContent).toBe('Enter');
   });
 
   it('REQ-LANDING-001: element with no text content is handled without error', async () => {
