@@ -45,7 +45,7 @@
     "@vitest/spy": "4.1.10"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "0.18.4",
+    "@cloudflare/vitest-pool-workers": "0.18.5",
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "4.1.10",
     "fast-check": "^4.8.0",
