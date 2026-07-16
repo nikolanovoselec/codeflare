@@ -153,6 +153,11 @@ function markdownTableColumns(content: string | undefined): string[] {
   return header.split('|').map((column) => column.trim()).filter(Boolean);
 }
 
+function markdownValue(content: string | undefined, prefix: string): string | undefined {
+  const line = String(content ?? '').split('\n').find((candidate) => candidate.startsWith(prefix));
+  return line?.slice(prefix.length);
+}
+
 function userMessage(content: string): Record<string, unknown> {
   return {
     type: 'message',
@@ -320,13 +325,26 @@ describe('Pi review reminder and settled enforcement', () => {
       }),
       options: { deliverAs: 'followUp', triggerTurn: true },
     }]);
-    expect(markdownHeadings(harness.sent[0]?.message.content)).toEqual([
+    const plan = harness.sent[0]?.message.content;
+    expect(markdownHeadings(plan)).toEqual([
       '## PR boundary — review + CI',
       '### 1. Start reviewers together',
       '### 2. Start CI immediately',
       '### 3. Triage before fixing',
     ]);
-    expect(markdownTableColumns(harness.sent[0]?.message.content)).toEqual([
+    expect(markdownValue(plan, '**Order:** ')).toBe('REVIEWERS → CI → TRIAGE → FIX');
+    expect(markdownValue(plan, '- Agents: ')).toBe('`code-reviewer`, `spec-reviewer`, `doc-updater`');
+    expect(markdownValue(plan, '- `inherit_context`: ')).toBe('`false`');
+    expect(markdownValue(plan, '- Prompt scope: ')).toBe(
+      `\`scope=diff\` and \`review_range=${fixture.base}..${fixture.head}\``,
+    );
+    expect(markdownValue(plan, '- `event`: ')).toBe('`push`');
+    expect(markdownValue(plan, '- `changed`: ')).toBe('`true`');
+    expect(markdownValue(plan, '- `repo`: ')).toBe('`<owner/repo>`');
+    expect(markdownValue(plan, '- `pr`: ')).toBe('`42`');
+    expect(markdownValue(plan, '- `cwd`: ')).toBe(`\`${fixture.repo}\``);
+    expect(markdownValue(plan, '- `reviewState`: ')).toBe('`launched`');
+    expect(markdownTableColumns(plan)).toEqual([
       'FINDING', 'VALIDITY', 'PROPOSED FIX', 'PROPORTIONALITY', 'MINIMAL DECISION',
     ]);
 

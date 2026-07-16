@@ -623,7 +623,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(harness.pi.sent.filter((sent) => sent.message.customType === 'background-extraction-giveup')).toHaveLength(1);
   });
 
-  it('REQ-MEM-015 AC7: emits structured GIVEUP state and re-arm guidance', async () => {
+  it('REQ-MEM-015 AC7: identifies the failed job and next automatic opportunity', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
     mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
