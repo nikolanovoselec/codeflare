@@ -339,6 +339,12 @@
       "advanced"
     ]
   },
+  "extensions/review-widget-renderer.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "extensions/review-helpers.ts": {
     "modes": [
       "default",

@@ -104,11 +104,11 @@ function contextPercent(ctx: ExtensionContext): string {
   return Number.isFinite(percent) ? `${Math.round(percent as number)}%` : "--%";
 }
 
-function visibleWidth(text: string): number {
+export function visibleWidth(text: string): number {
   return text.replace(/\x1b\[[0-9;]*m/g, "").length;
 }
 
-function truncateToWidth(text: string, width: number): string {
+export function truncateToWidth(text: string, width: number): string {
   if (visibleWidth(text) <= width) return text;
 
   let visible = 0;

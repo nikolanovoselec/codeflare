@@ -14,6 +14,11 @@ import {
   type ReviewLane,
 } from "./review-helpers";
 import { scopeContract } from "./review-scope";
+import {
+  renderReviewWidgetLines,
+  type ReviewWidgetAgent,
+  type ReviewWidgetTheme,
+} from "./review-widget-renderer";
 
 type PrState = {
   state: "OPEN" | "CLOSED" | "MERGED";
@@ -34,11 +39,39 @@ type ServiceSpawnOptions = {
   bypassQueue?: boolean;
 };
 
-type SubagentServiceRecord = { status: string };
+type SubagentServiceRecord = {
+  status: string;
+  description: string;
+  error?: string;
+  toolUses: number;
+  startedAt: number;
+  completedAt?: number;
+  lifetimeUsage: { input: number; output: number; cacheWrite: number };
+  compactionCount: number;
+};
 
 type SubagentsService = {
   spawn(type: string, prompt: string, options?: ServiceSpawnOptions): string;
   getRecord(id: string): SubagentServiceRecord | undefined;
+};
+
+type ReviewWidgetTui = {
+  terminal: { columns: number };
+  requestRender(): void;
+};
+
+type ReviewWidgetComponent = {
+  render(width?: number): string[];
+  invalidate(): void;
+};
+
+type ReviewUi = {
+  setStatus(key: string, text: string | undefined): void;
+  setWidget(
+    key: string,
+    content: string[] | ((tui: ReviewWidgetTui, theme: ReviewWidgetTheme) => ReviewWidgetComponent) | undefined,
+    options?: { placement?: "aboveEditor" | "belowEditor" },
+  ): void;
 };
 
 type CiMonitorRequest = {
@@ -71,6 +104,7 @@ type Dependencies = {
 
 type ReviewContext = {
   cwd: string;
+  ui: ReviewUi;
   sessionManager: {
     getSessionFile(): string | undefined;
     getHeader?(): { parentSession?: string } | undefined;
@@ -85,6 +119,9 @@ type ReviewPi = {
     message: { customType: string; content?: string; details?: Record<string, unknown>; display?: boolean },
     options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
   ): void;
+  events: {
+    on(channel: string, handler: (data: unknown) => void): () => void;
+  };
 };
 
 type QueryPrRunner = (
@@ -98,6 +135,13 @@ const MAX_BLOCKS = 5;
 const BYPASS_FILE = process.env.REVIEW_BYPASS_FILE || "/tmp/review-bypass";
 const CI_RESOLVER = join(process.env.HOME || "/home/user", ".pi", "agent", "skills", "ci-monitoring", "scripts", "monitor-ci.mjs");
 const SUBAGENTS_SERVICE = Symbol.for("@gotgenes/pi-subagents:service");
+const REVIEW_VISUAL_KEY = "codeflare-review-agents";
+const REVIEW_VISUAL_EVENTS = [
+  "subagents:created",
+  "subagents:started",
+  "subagents:completed",
+  "subagents:failed",
+] as const;
 
 function fullSha(value: string | undefined): value is string {
   return Boolean(value && /^[0-9a-f]{40}$/.test(value));
@@ -335,6 +379,204 @@ function serviceDispatchFailed(service: SubagentsService | undefined, agentId: s
   return status === "stopped" || status === "aborted" || status === "error";
 }
 
+type ReviewVisualAgent = {
+  agentId: string;
+  kind: "reviewer" | "ci";
+  lane?: ReviewLane;
+};
+
+type ReviewVisualController = {
+  attach(ui: ReviewUi): void;
+  begin(head: string, service: SubagentsService): void;
+  restore(head: string, service: SubagentsService, agents: readonly ReviewVisualAgent[]): void;
+  track(agent: ReviewVisualAgent): void;
+  refresh(): void;
+  clearFinished(): void;
+  dispose(): void;
+};
+
+const REVIEW_VISUAL_LANES: readonly ReviewLane[] = ["code-reviewer", "spec-reviewer", "doc-updater"];
+const REVIEW_VISUAL_LABELS: Record<ReviewLane | "ci", string> = {
+  "code-reviewer": "Code review",
+  "spec-reviewer": "Specification review",
+  "doc-updater": "Documentation review",
+  ci: "CI monitoring",
+};
+const REVIEW_REFRESH_INTERVAL_MS = 80;
+
+function createReviewVisualController(): ReviewVisualController {
+  let ui: ReviewUi | undefined;
+  let service: SubagentsService | undefined;
+  let head: string | undefined;
+  let tracked: readonly ReviewVisualAgent[] = [];
+  let frame = 0;
+  let interval: ReturnType<typeof setInterval> | undefined;
+  let widgetRegistered = false;
+  let tui: ReviewWidgetTui | undefined;
+  let lastStatusText: string | undefined;
+
+  const records = (): Array<{ agent: ReviewVisualAgent; record: SubagentServiceRecord }> =>
+    tracked.flatMap((agent) => {
+      const record = service?.getRecord(agent.agentId);
+      return record ? [{ agent, record }] : [];
+    });
+
+  const widgetAgents = (): ReviewWidgetAgent[] => records().map(({ agent, record }) => ({
+    id: agent.agentId,
+    label: REVIEW_VISUAL_LABELS[agent.kind === "ci" ? "ci" : agent.lane!],
+    description: record.description,
+    status: record.status,
+    toolUses: record.toolUses,
+    startedAt: record.startedAt,
+    completedAt: record.completedAt,
+    error: record.error,
+    lifetimeUsage: record.lifetimeUsage,
+    compactionCount: record.compactionCount,
+  }));
+
+  const stopInterval = (): void => {
+    if (!interval) return;
+    clearInterval(interval);
+    interval = undefined;
+  };
+
+  const clearPresentation = (): void => {
+    stopInterval();
+    if (widgetRegistered) ui?.setWidget(REVIEW_VISUAL_KEY, undefined);
+    if (lastStatusText !== undefined) ui?.setStatus(REVIEW_VISUAL_KEY, undefined);
+    widgetRegistered = false;
+    tui = undefined;
+    lastStatusText = undefined;
+  };
+
+  const updateStatus = (current: ReturnType<typeof records>): void => {
+    if (!ui) return;
+    const running = current.filter(({ record }) => record.status === "running").length;
+    const queued = current.filter(({ record }) => record.status === "queued").length;
+    const parts = [
+      ...(running > 0 ? [`${running} running`] : []),
+      ...(queued > 0 ? [`${queued} queued`] : []),
+    ];
+    const next = parts.length > 0 ? `Review: ${parts.join(", ")}` : undefined;
+    if (next === lastStatusText) return;
+    ui.setStatus(REVIEW_VISUAL_KEY, next);
+    lastStatusText = next;
+  };
+
+  const refresh = (): void => {
+    if (!ui || !head || tracked.length === 0) return;
+    const current = records();
+    if (current.length === 0) {
+      clearPresentation();
+      return;
+    }
+    const active = current.some(({ record }) => record.status === "queued" || record.status === "running");
+    updateStatus(current);
+    if (!active) stopInterval();
+    else if (!interval) {
+      interval = setInterval(() => {
+        frame += 1;
+        tui?.requestRender();
+      }, REVIEW_REFRESH_INTERVAL_MS);
+    }
+
+    if (!widgetRegistered) {
+      ui.setWidget(REVIEW_VISUAL_KEY, (nextTui, theme) => {
+        tui = nextTui;
+        return {
+          render: (width) => renderReviewWidgetLines({
+            agents: widgetAgents(),
+            spinnerFrame: frame,
+            terminalWidth: Math.min(width ?? nextTui.terminal.columns, nextTui.terminal.columns),
+            theme,
+          }),
+          invalidate: () => undefined,
+        };
+      }, { placement: "aboveEditor" });
+      widgetRegistered = true;
+    } else {
+      tui?.requestRender();
+    }
+  };
+
+  const resetForHead = (nextHead: string, nextService: SubagentsService): void => {
+    if (head !== nextHead) {
+      clearPresentation();
+      tracked = [];
+      frame = 0;
+    }
+    head = nextHead;
+    service = nextService;
+  };
+
+  return {
+    attach(nextUi) {
+      if (ui !== nextUi) {
+        clearPresentation();
+        ui = nextUi;
+      }
+      refresh();
+    },
+    begin(nextHead, nextService) {
+      resetForHead(nextHead, nextService);
+      refresh();
+    },
+    restore(nextHead, nextService, agents) {
+      resetForHead(nextHead, nextService);
+      tracked = agents.filter((agent) => nextService.getRecord(agent.agentId));
+      refresh();
+    },
+    track(agent) {
+      const key = agent.kind === "ci" ? "ci" : agent.lane;
+      tracked = [
+        ...tracked.filter((candidate) => (candidate.kind === "ci" ? "ci" : candidate.lane) !== key),
+        agent,
+      ];
+      refresh();
+    },
+    refresh,
+    clearFinished() {
+      const current = records();
+      if (current.length === 0 || current.some(({ record }) => record.status === "queued" || record.status === "running")) return;
+      clearPresentation();
+      tracked = [];
+      head = undefined;
+      service = undefined;
+    },
+    dispose() {
+      clearPresentation();
+      tracked = [];
+      head = undefined;
+      service = undefined;
+    },
+  };
+}
+
+function restoreReviewVisualFromSession(
+  visual: ReviewVisualController,
+  ctx: ReviewContext,
+  dependencies: Dependencies,
+): void {
+  const context = boundaryContext(ctx);
+  const service = subagentsService(dependencies);
+  if (!context || !service) return;
+  const preview = reviewTranscriptFacts({ sessionFile: context.file, requiredLanes: REVIEW_VISUAL_LANES });
+  if (!preview.boundary || !fullSha(preview.reviewHead)) return;
+  const facts = reviewTranscriptFacts({
+    sessionFile: context.file,
+    requiredLanes: REVIEW_VISUAL_LANES,
+    ciHead: preview.reviewHead,
+  });
+  const agents: ReviewVisualAgent[] = [
+    ...REVIEW_VISUAL_LANES.flatMap((lane) => {
+      const agentId = facts.lanes[lane].agentId;
+      return agentId ? [{ agentId, kind: "reviewer" as const, lane }] : [];
+    }),
+    ...(facts.ciAgentId ? [{ agentId: facts.ciAgentId, kind: "ci" as const }] : []),
+  ];
+  visual.restore(preview.reviewHead, service, agents);
+}
+
 function reviewerPrompt(input: LaunchMessage, lane: ReviewLane): string {
   const autonomy = input.autonomyOverride ? "\nautonomy_override=fully-autonomous" : "";
   return [
@@ -412,6 +654,7 @@ async function dispatchReviewWindow(
   dependencies: Dependencies,
   input: LaunchMessage,
   dispatch = true,
+  visual?: ReviewVisualController,
 ): Promise<void> {
   pi.appendEntry("codeflare:review-window", {
     version: 1,
@@ -427,6 +670,7 @@ async function dispatchReviewWindow(
   if (!dispatch) return;
   const service = subagentsService(dependencies);
   if (!service) return;
+  visual?.begin(input.pr.headRefOid, service);
   let reviewerSpawnFailed = false;
   for (const lane of input.reviewers) {
     const prompt = reviewerPrompt(input, lane);
@@ -438,6 +682,7 @@ async function dispatchReviewWindow(
       });
       if (!agentId) throw new Error("Subagent service returned no reviewer ID");
       appendDispatch(pi, input, { agentId, kind: "reviewer", lane });
+      visual?.track({ agentId, kind: "reviewer", lane });
     } catch {
       reviewerSpawnFailed = true;
     }
@@ -459,13 +704,32 @@ async function dispatchReviewWindow(
     const agentId = service.spawn(request.subagent_type, request.prompt, spawnOptions(request));
     if (!agentId) throw new Error("Subagent service returned no CI ID");
     appendDispatch(pi, input, { agentId, kind: "ci" });
+    visual?.track({ agentId, kind: "ci" });
   } catch {
     // Leave CI undispatched so the next settled pass can retry it.
   }
 }
 
 export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): void {
+  const visual = createReviewVisualController();
+  const removeVisualListeners = REVIEW_VISUAL_EVENTS.map((channel) =>
+    pi.events.on(channel, () => visual.refresh()));
+  const attachAndRestoreVisual = (ctx: ReviewContext): void => {
+    visual.attach(ctx.ui);
+    restoreReviewVisualFromSession(visual, ctx, dependencies);
+  };
+  pi.on("session_start", (_event, ctx) => attachAndRestoreVisual(ctx));
+  pi.on("turn_start", (_event, ctx) => {
+    attachAndRestoreVisual(ctx);
+    visual.clearFinished();
+  });
+  pi.on("session_shutdown", () => {
+    for (const remove of removeVisualListeners) remove();
+    visual.dispose();
+  });
+
   pi.on("tool_result", async (event, ctx) => {
+    visual.attach(ctx.ui);
     if (!successful(event)) return;
     rememberActiveRepoFromToolResult(event, ctx.cwd);
     const boundary = shellCommands(event)
@@ -508,6 +772,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
+    visual.attach(ctx.ui);
     const context = boundaryContext(ctx);
     if (!context) return;
     const preview = reviewTranscriptFacts({ sessionFile: context.file, requiredLanes: [] });
@@ -596,7 +861,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         reviewState: requiredLanes.length > 0 ? "launched" : "not-required",
         autonomyOverride: facts.fullyAutonomous,
         ciEvent,
-      }, true);
+      }, true, visual);
       return;
     }
 
@@ -624,7 +889,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       reviewState: requiredLanes.length > 0 ? "launched" : "not-required",
       autonomyOverride: facts.fullyAutonomous,
       ciEvent,
-    }, true);
+    }, true, visual);
   });
 }
 

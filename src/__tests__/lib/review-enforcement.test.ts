@@ -89,6 +89,7 @@ type TestPi = {
   on(event: string, handler: ExtensionHandler): void;
   appendEntry(customType: string, data: unknown): void;
   sendMessage(message: SentMessage['message'], options?: SentMessage['options']): void;
+  events: { on(channel: string, handler: (data: unknown) => void): () => void };
 };
 
 const ALL_LANES: ReviewLane[] = ['code-reviewer', 'spec-reviewer', 'doc-updater'];
@@ -98,6 +99,7 @@ const ORIGINAL_SERVICE = (globalThis as Record<symbol, unknown>)[SERVICE_SYMBOL]
 const NOW = Date.parse('2026-07-12T12:10:00.000Z');
 process.env.REVIEW_BYPASS_FILE = REVIEW_BYPASS_FILE;
 const roots: string[] = [];
+const activeHarnesses: Array<{ emit(event: string, payload?: unknown): Promise<void> }> = [];
 let entrySequence = 0;
 
 async function plannedEnforcement(): Promise<PlannedReviewEnforcement> {
@@ -319,6 +321,7 @@ function makeHarness(repo: string, sessionFile: string): {
         ...message,
       });
     },
+    events: { on: () => () => undefined },
   };
   const ctx: TestContext = {
     cwd: repo,
@@ -345,6 +348,7 @@ function makeHarness(repo: string, sessionFile: string): {
       for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
     },
   };
+  activeHarnesses.push(harness);
   return harness;
 }
 
@@ -398,7 +402,8 @@ function ackHead(repo: string): string {
   return readFileSync(join(repo, '.git/sdd-last-ack-pr-head'), 'utf8').trim();
 }
 
-afterEach(() => {
+afterEach(async () => {
+  for (const harness of activeHarnesses.splice(0)) await harness.emit('session_shutdown');
   rmSync(REVIEW_BYPASS_FILE, { force: true });
   if (ORIGINAL_SERVICE === undefined) delete (globalThis as Record<symbol, unknown>)[SERVICE_SYMBOL];
   else (globalThis as Record<symbol, unknown>)[SERVICE_SYMBOL] = ORIGINAL_SERVICE;
@@ -479,8 +484,8 @@ describe('Pi review reminder and settled enforcement', () => {
       options: { foreground: false, inheritContext: false, bypassQueue: true },
     });
     expect(harness.sent).toEqual([]);
-    expect(harness.widgets.has('codeflare-review-agents')).toBe(false);
-    expect(harness.statuses.has('codeflare-review-agents')).toBe(false);
+    expect(harness.widgets.has('codeflare-review-agents')).toBe(true);
+    expect(harness.statuses.get('codeflare-review-agents')).toBe('Review: 4 queued');
 
     const entries = readFileSync(fixture.sessionFile, 'utf8')
       .split('\n')
