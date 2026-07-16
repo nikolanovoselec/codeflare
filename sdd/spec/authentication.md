@@ -639,7 +639,7 @@ None.
 
 1. The API client's 401 handler on an authenticated path (`/app/*`, `/admin/*`) performs `window.location.replace('/')` and **throws** an `ApiError` tagged `authRedirect = true`; it never returns a non-resolving promise, so the bootstrap promise always settles. <!-- @impl: web-ui/src/api/fetch-helper.ts::ApiError --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC1: 401 on an authed page redirects + throws (never hangs)) -->
 2. On a caught `authRedirect`/401 bootstrap error, `AppContent` clears the loading shell and renders a calm "redirecting" state, not the generic auth-error page and not a hung spinner. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC2: expired-session 401 shows the redirecting state, not a hung/blank or error page) -->
-3. `RootPage` renders a non-empty state for every mode including `redirect`, so a pending hard navigation never shows a blank document. <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC3: RootPage renders a non-empty redirect state (no blank document)) -->
+3. `RootPage` renders a non-empty state for every mode including `redirect`, so a pending hard navigation never shows a blank document. <!-- @impl: web-ui/src/App.tsx::RootPage --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC3: RootPage renders a non-empty redirect state (no blank document)) -->
 4. A top-level `ErrorBoundary` wraps the app; an unhandled bootstrap/render error renders a recovery fallback (reload control) instead of a blank document. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC4: top-level ErrorBoundary catches a render throw) -->
 5. An Access 3xx, opaque manual redirect, or HTML login response on an authenticated API request performs the same top-level `location.replace('/')` and tagged rejection as an explicit 401. <!-- @impl: web-ui/src/api/fetch-helper.ts::expiredSessionError --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC5: Access response shapes navigate the top-level app instead of stranding it ($label)) -->
 6. A hidden-to-visible transition or persisted bfcache `pageshow` revalidates the authenticated user once; overlapping resume events are deduplicated, expiry replaces the loaded app with the existing redirecting state, and valid sessions continue unchanged. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @test: web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx (REQ-AUTH-022 AC6: restored app resume revalidates once and preserves valid sessions) -->
@@ -660,6 +660,6 @@ None.
 
 **Dependencies:** [REQ-AUTH-007](#req-auth-007-jit-user-provisioning-in-saas-mode)
 
-**Verification:** Automated test
+**Verification:** [Resume-redirect component tests](../../web-ui/src/__tests__/components/auth-022-resume-redirect.test.tsx), [fetch-helper 401-redirect tests](../../web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts), [asset-serving tests](../../src/__tests__/index.test.ts)
 
 **Status:** Implemented

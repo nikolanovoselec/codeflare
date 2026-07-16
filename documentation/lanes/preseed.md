@@ -496,7 +496,7 @@ Root-session JSONL determines exact public-call attempts, native completion, rem
 
 Each failed exact call advances one reminder. Six failed calls emit a structured GIVEUP summary with unchanged committed state and job-specific re-arm conditions. Background agents never write counters, pointers, or manifests. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionDue -->
 
-Memory capture triggers at the 15-real-prompt cadence and force-captures a resumed durable transcript when no counter exists. Request snapshots contain up to 40 text turns of 4000 characters inline in `VARS_FILE.transcript`; they never reference an `INPUT_FILE` or separate transcript path.
+Memory capture triggers at the 15-real-prompt cadence and force-captures a resumed durable transcript when no counter exists. Request snapshots contain up to 40 text turns of 4000 characters inline in `VARS_FILE.transcript`; they never reference an `INPUT_FILE` or separate transcript path. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::MEMORY_EVERY_N_PROMPTS --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::MEMORY_CAPTURE_MAX_TURNS -->
 
 The public request and generated agent repeat that input boundary. Exact success plus the post-commit note and request chunk lets the root advance the frozen counter and remove only matching state.
 

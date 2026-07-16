@@ -555,8 +555,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 6. Retrying a failed continuation reuses its continuation token. <!-- @impl: web-ui/src/stores/storage.ts::loadMore --> <!-- @test: web-ui/src/__tests__/stores/storage.test.ts (REQ-STOR-018: preserves rows on failure and retries the same continuation) -->
 7. After pagination starts, periodic refresh updates statistics without replacing the accumulated listing. <!-- @impl: web-ui/src/components/StorageBrowser.tsx::StorageBrowser --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (REQ-STOR-018 AC7: suppresses listing refresh after pagination starts while stats continue) -->
 
-**Notes:** Continuations are generation-scoped. Loading and retry footer states remain visible without hiding rows already loaded.
-
 **Constraints:**
 
 - Explicit navigation or manual refresh starts a new browse generation and resets pagination state.

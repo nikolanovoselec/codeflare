@@ -38,9 +38,9 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 1. A UserPromptSubmit hook injects a short capture instruction into the active agent context on each trigger. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::CONTEXT --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
 2. Pi excludes tool results and known synthetic agent envelopes from its real-user count while preserving genuine code-like prompts. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::isSyntheticPrompt --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-MEM-001 AC2: Pi excludes synthetic envelopes and preserves genuine code-like prompts) -->
 3. Each triggered Claude capture receives bounded uncaptured user/assistant content from the durable transcript. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/prefilter-transcript.sh::is_synthetic_marker --> <!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh (REQ-MEM-001 AC3) / REQ-VAULT-002 (conversation captures land in vault as markdown)) -->
-4. Capture-file timestamps reflect the user's local timezone, resolved per [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC4.
-5. The capture file uses a YAML frontmatter template with session, capture-time, and capture-range fields followed by Context / Decisions / Observations / References sections. <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
-6. Extracted chunks merge serially and atomically into cumulative `vault-graph.json`, then into the global graph under `user_vault`, making new content queryable in the same turn. On Pi, the capture note and request chunk are published from temporary work only after required graph publication, and both post-commit artifacts plus an exact successful background-task result must precede root-owned prompt-counter advancement. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memorySuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (requires the post-commit note and chunk before exact success advances the frozen counter) -->
+4. Capture-file timestamps reflect the user's local timezone, resolved per [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC4. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh::ISO_TS --> <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (assert-iso-ts.sh / REQ-MEM-010 AC5+AC6+AC7) -->
+5. The capture file uses a YAML frontmatter template with session, capture-time, and capture-range fields followed by Context / Decisions / Observations / References sections. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-agent-prompt.md::captured_at --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
+6. Extracted chunks merge serially and atomically into cumulative `vault-graph.json`, then into the global graph under `user_vault`, queryable in the same turn. On Pi, post-commit note and chunk artifacts plus an exact successful background-task result precede root-owned counter advancement. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memorySuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (requires the post-commit note and chunk before exact success advances the frozen counter) -->
 7. Pi builds each capture request from only the root-bounded uncaptured interval after the last successful counter. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::compactMessages --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (captures only prompts after the root-owned successful counter) -->
 
 **Notes:** Pi's root-owned extraction lifecycle is documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional); its bounded execution profile is [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs).
@@ -49,9 +49,11 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 - The hook runs in approximately 150ms (lightweight shell script, no heavy processing).
 - Memory capture requires advanced session mode (the hook, plugin, and memory rule are only preseeded in advanced mode).
-- Claude's capture agent is sonnet per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad). Pi keeps the optional provider-neutral model lever but fixes reasoning effort at medium.
+- Claude: the capture agent is sonnet per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad).
+- Pi: the optional provider-neutral model lever remains, with reasoning effort fixed at medium.
 - The capture agent itself is the LLM that produces the extracted graph (the upstream headless extract CLI is not invoked) to avoid duplicating inference cost.
-- The Claude capture subagent retains its existing tools and scratchpad pipeline. The Pi capture subagent uses Bash-only evidence transport with medium reasoning and a finite public turn ceiling.
+- Claude: the capture subagent retains its existing tools and scratchpad pipeline.
+- Pi: the capture subagent uses Bash-only evidence transport with medium reasoning and a finite public turn ceiling.
 - Claude reads the hook-provided transcript JSONL range; Pi reads message entries from the persisted session returned by `getSessionFile()`.
 - Both runtimes skip capture when the resolved transcript is empty.
 
@@ -279,7 +281,8 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Constraints:**
 
-- On Claude, the carrier file acts as the dedup gate and the capture subagent deletes it first. Pi's separate root-owned delivery contract is specified by [REQ-MEM-002](#req-mem-002-capture-triggers-every-15-user-messages) AC5–AC6.
+- Claude: the carrier file acts as the dedup gate and the capture subagent deletes it first.
+- Pi: the separate root-owned delivery contract is specified by [REQ-MEM-002](#req-mem-002-capture-triggers-every-15-user-messages) AC5–AC6.
 
 **Priority:** P0
 

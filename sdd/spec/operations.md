@@ -604,12 +604,14 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 5. A bump branch is skipped if one already exists for that version (deduplication guard). <!-- @impl: .github/workflows/bump-shadow-pins.yml::branch -->
 6. The context-mode and generic Pi-preseed jobs regenerate the Pi package lock without executing runtime-layout package lifecycle scripts, then regenerate the embedded seed from the updated manifest and lockfile. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-preseed --> <!-- @impl: scripts/regenerate-pi-preseed-lock.mjs::packageDirectory --> <!-- @test: host/__tests__/pi-preseed-lockfile-regeneration.test.js (creates the lockfile without executing package lifecycle scripts) -->
 
+**Notes:** Workflow execution (AC1-AC5) is verified manually per the [CI/CD lane](../../documentation/lanes/ci-cd.md); AC6's lockfile regeneration additionally carries automated lifecycle-suppression coverage.
+
 **Constraints:** None.
 
 **Priority:** P2
 
 **Dependencies:** None.
 
-**Verification:** Automated lifecycle-suppression coverage plus scheduled/manual workflow execution
+**Verification:** Manual check
 
 **Status:** Implemented

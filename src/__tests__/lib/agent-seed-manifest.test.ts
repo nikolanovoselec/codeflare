@@ -1541,6 +1541,29 @@ describe('Reviewer agents can access their enforce policy', () => {
     }
   });
 
+  it('REQ-AGENT-086 AC3-AC5: seeded reviewers and review command carry the report-only root-handoff contract', () => {
+    // The seeded prompt files ARE the enforcement surface for the handoff
+    // contract: reviewers report without writing (AC3), the root alone
+    // persists triage (AC4) and applies fixes (AC5). Removing the binding
+    // sections from the generated seed must fail here.
+    const reviewerBindings: Array<[string, RegExp]> = [
+      ['.claude/agents/code-reviewer.md', /## Operating Mode: Research \+ Report/],
+      ['.claude/agents/spec-reviewer.md', /## REPORT-ONLY \(binding/],
+      ['.claude/agents/doc-updater.md', /## REPORT-ONLY \(binding/],
+    ];
+    for (const [key, pattern] of reviewerBindings) {
+      const doc = AGENTS_SEEDED_CONFIGS.find((d) => d.key === key);
+      expect(doc, `${key} should be seeded`).toBeTruthy();
+      expect(doc!.content).toMatch(pattern);
+    }
+    const reviewCommand = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.claude/commands/review.md');
+    expect(reviewCommand, '.claude/commands/review.md should be seeded').toBeTruthy();
+    expect(reviewCommand!.content).toMatch(/root persists every returned report/i);
+    expect(reviewCommand!.content).toMatch(
+      /No subagent writes source, tests, specifications, documentation, triage, or review artifacts/,
+    );
+  });
+
   it('transformed runtimes never inherit the Claude-only Skill tool', () => {
     const piCr = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/agents/code-reviewer.md');
     expect(piCr).toBeTruthy();

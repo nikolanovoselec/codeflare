@@ -176,7 +176,7 @@ The OAuth callback is mounted separately under `/auth/github` (`src/routes/githu
 
 | Method | Endpoint | Auth | Implements | Description |
 |--------|----------|------|------------|-------------|
-| GET | `/auth/github/connect/callback` | Session cookie | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) | Connect-GitHub callback (distinct from the SaaS-login `/auth/github/callback`): re-derives identity from the live session, verifies the bucket-bound OAuth state, exchanges the code, and persists the repo token to the deploy-keys entry; never mints a session cookie. The GitHub App / OAuth App registers this exact URL. |
+| GET | `/auth/github/connect/callback` | Session cookie | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage) | Connect-GitHub callback (distinct from SaaS-login `/auth/github/callback`): re-derives identity from the live session, verifies the bucket-bound OAuth state, exchanges the code, persists the repo token to deploy-keys; never mints a session cookie. GitHub App/OAuth App registers this exact URL. |
 
 The **new-session** clone path is not a GitHub route: `POST /api/sessions` accepts an optional `clone: { repo, ref? }` field ([REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session)) that clones the repo into the workspace before the agent process starts.
 
