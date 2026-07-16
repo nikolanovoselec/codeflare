@@ -1,7 +1,7 @@
 
 # Architecture Decisions
 
-Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), then [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
+Architecture Decision Records for Codeflare. Each decision documents a design trade-off with rationale. Referenced as [AD1](#ad1-one-container-per-session) through [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) throughout the codebase and documentation. Most ADRs carry active content; a few are superseded ([AD4](#ad4-periodic-rclone-bisync) by [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) + [AD57](#ad57-135-second-shutdown-budget-for-final-bisync); [AD38](#ad38-github-oidc-replaces-cf-access-in-saas-mode) by [AD48](#ad48-oauth-state-replaced-by-hmac-signed-stateless-token); [AD45](#ad45-user-overrides-recorded-as-adrs-not-skip-list) and [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) by [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features); [AD64](#ad64-durable-review-lanes-load-extensions-additively-behind-the-noextensions-shield) by [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), then [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes) and [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth) by [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents); [AD65](#ad65-gemini-cli-replaced-by-antigravity-agy)'s no-preseed-lane clause by [AD67](#ad67-antigravity-reads-the-gemini-cli-config-tree-preseed-lane-restored); [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) by [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input)) or are redirect anchors (merged or reclassified per the documentation-discipline "What is NOT an ADR" rule).
 
 **Audience:** Developers
 
@@ -115,6 +115,7 @@ Architecture Decision Records for Codeflare. Each decision documents a design tr
 | [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional) | Pi extraction delivery is root-owned, visible, and transactional | Agents, Architecture |
 | [AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) | Pi extraction agents use bounded medium reasoning and one-pass inputs | Agents, Memory, Performance |
 | [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) | Terminal viewport ownership is mode-based; xterm owns manual scrollback trimming | Architecture, Mobile |
+| [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) | Streamed output defers while the user reads scrollback; keyboard-open swipes are always terminal input | Architecture, Mobile |
 
 ---
 
@@ -2548,7 +2549,7 @@ Required graph publication remains unchanged. Each worker writes its graph to `<
 
 **Category:** Architecture, Mobile
 
-**Status:** Accepted (2026-07-14)
+**Status:** Superseded by [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) (2026-07-16). The per-mode ownership model survives, but its two operative clauses failed in the field: letting xterm trim a full buffer under a reader pinned the reader to the top within seconds of agent output, and the keyboard-open fullscreen wheel exception broke the typing-mode scroll-lock.
 
 **Context:** Under sustained output with a full scrollback buffer, xterm legitimately moves a manually selected viewport toward zero as old lines are discarded. Codeflare's write callback restored a saved distance at the zero boundary while a separate scroll-event path interpreted the same transition as a browser reset. Each programmatic correction emitted more scroll events, so competing paths repeatedly snapped between the oldest content and the live prompt. The bug intensified after the prior programmatic-scroll suppression handoff was removed. The next xterm beta changes only WebGL atlas invalidation and does not alter this event ordering.
 
@@ -2565,6 +2566,27 @@ Required graph publication remains unchanged. Each worker writes its graph to `<
 **Alternatives considered:** Upgrade xterm alone; retain write-side zero-clamp recovery; keep a distance-based browser-reset heuristic; or use a short grace timer as ownership. The available xterm update has no relevant scroll change, both correction heuristics misclassify valid full-buffer transitions, and a timer cannot represent the persistent user state.
 
 **Related REQ:** [REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming), [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output), [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll), [REQ-MOB-012](../../sdd/spec/mobile.md#req-mob-012-scroll-anchoring-during-keyboard-transitions), [Mobile scroll stability](../lanes/mobile.md#scroll-stability).
+
+---
+
+### AD105: Streamed output defers while the user reads scrollback; keyboard-open swipes are always terminal input
+
+**Category:** Architecture, Mobile
+
+**Status:** Accepted (2026-07-16)
+
+**Context:** [AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming) accepted that a full 1000-line scrollback trims under a reader, "correctly" leaving them at the oldest available line. In practice agent bursts fill the buffer within seconds, so any scrolled-up reader slid to `viewportY = 0` and watched their content get destroyed — the reported "terminal snaps to the top while the agent is outputting". No viewport correction can fix content deletion. Separately, AD104 kept the keyboard-open fullscreen wheel exception, so with the keyboard open a vertical swipe over Claude Code scrolled the application instead of sending arrow keys, breaking the typing-mode gesture contract; and touch drags only marked scroll intent at `pointerdown`, so a drag's first scroll event after the 150ms grace was misread as a displacement and snapped to the bottom mid-gesture.
+
+**Decision:** Keep AD104's per-mode ownership (`FOLLOW_OUTPUT` / `READ_SCROLLBACK` / `MOBILE_INPUT_LOCKED`) and change three behaviors. (1) While manual ownership is active in the normal buffer, `flushWriteBuffer()` defers streamed output instead of writing it — the buffer freezes under the reader, and returning to the live bottom (or exceeding a 2,000,000-character held-output cap) releases everything in one write; alternate-buffer output never defers. (2) Vertical swipes with the touch keyboard open are always terminal input (arrow keys); fullscreen wheel routing applies only while the keyboard is closed. (3) `touchmove` refreshes the scroll-intent window so an in-progress drag is always correlated with its own scroll events.
+<!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer -->
+<!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures -->
+<!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection -->
+
+**Consequences:** A reader's viewport is perfectly stable during agent output — no trims occur beneath them — and scrolling back down shows the held output at once, at the cost of the display lagging live output during a read (bounded by the cap; a cap-exceeding flush may still trim beneath a very long read). Keyboard-open gestures are deterministic again: arrows while typing, wheel/scrollback only with the keyboard closed. Mid-drag bottom snaps are gone. Held output is dropped with the write buffer on disconnect, where the server-side restore replay already owns repainting.
+
+**Alternatives considered:** Enlarge scrollback (delays, does not remove, the top-pin and costs mobile memory); restore distance-from-bottom after trims (AD104 already showed it yanks the reader through moving content); pause the PTY via flow control (server-side complexity, risks blocking the agent); keep keyboard-open wheel routing behind a setting (two gesture contracts to document and test for one mode).
+
+**Related REQ:** [REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming), [REQ-MOB-004](../../sdd/spec/mobile.md#req-mob-004-scroll-drop-detection-during-burst-output), [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll), [REQ-MOB-012](../../sdd/spec/mobile.md#req-mob-012-scroll-anchoring-during-keyboard-transitions), [REQ-MOB-017](../../sdd/spec/mobile.md#req-mob-017-fullscreen-application-touch-scrolling), [Mobile scroll stability](../lanes/mobile.md#scroll-stability).
 
 ---
 

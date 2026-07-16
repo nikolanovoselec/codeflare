@@ -152,20 +152,47 @@ const WRITE_FLUSH_INTERVAL_MS = 33;
 const writeBuffers = new Map<string, string[]>();
 const pendingFlushes = new Map<string, number>();
 
+// Cap on output held while the user reads scrollback. Beyond this the flush
+// proceeds anyway so held PTY output cannot grow memory without bound.
+export const READ_HOLD_MAX_CHARS = 2_000_000;
+
+/**
+ * Whether the user is reading normal-buffer scrollback (viewport above the
+ * live bottom). Alternate-buffer applications have no scrollback to read, so
+ * they never defer.
+ */
+function isReadingScrollback(terminal: Terminal): boolean {
+  const active = terminal.buffer.active;
+  return active.type === 'normal' && active.viewportY < active.baseY;
+}
+
 function flushWriteBuffer(key: string, terminal: Terminal): void {
   pendingFlushes.delete(key);
   const buffer = writeBuffers.get(key);
   if (!buffer || buffer.length === 0) return;
+
+  // Defer the flush while the user reads scrollback: writing would trim the
+  // full 1000-line buffer beneath the reader, dragging the viewport line by
+  // line to the top (the "snaps to top during agent output" failure). Output
+  // keeps accumulating and each tick re-checks; returning the viewport to the
+  // live bottom — or exceeding the hold cap — releases everything in one write.
+  if (isReadingScrollback(terminal)) {
+    let heldChars = 0;
+    for (const chunk of buffer) heldChars += chunk.length;
+    if (heldChars <= READ_HOLD_MAX_CHARS) {
+      const timerId = window.setTimeout(() => flushWriteBuffer(key, terminal), WRITE_FLUSH_INTERVAL_MS);
+      pendingFlushes.set(key, timerId);
+      return;
+    }
+  }
 
   const data = buffer.join('');
   buffer.length = 0;
 
   recordFlush(key, data.length);
 
-  // xterm owns output-driven scrollback trimming. In particular, a manually
-  // scrolled full buffer intentionally reaches viewportY=0 once the viewed
-  // lines age out; restoring an earlier distance here pulls the user toward
-  // the bottom and competes with xterm's onScroll lifecycle.
+  // xterm owns output-driven scrollback trimming; the write buffer never
+  // scrolls or restores a viewport position after a write.
   terminal.write(data);
 }
 

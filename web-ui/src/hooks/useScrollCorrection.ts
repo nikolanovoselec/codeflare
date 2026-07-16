@@ -15,14 +15,14 @@ export interface ScrollCorrectionParams {
  * Keeps bottom-following terminals anchored without taking scroll ownership
  * away from a user who is reading scrollback.
  *
- * A wheel, pointer, navigation key, or external scroll intent establishes
- * manual viewport ownership when the resulting viewport is above the buffer
- * base. That ownership persists until the viewport returns to the bottom; it
- * does not expire with the short event-correlation window.
+ * A wheel, pointer, touch drag, navigation key, or external scroll intent
+ * establishes manual viewport ownership when the resulting viewport is above
+ * the buffer base. That ownership persists until the viewport returns to the
+ * bottom; it does not expire with the short event-correlation window.
  *
- * Output-driven scrollback trimming remains entirely xterm-owned. When a full
- * buffer naturally reaches viewportY=0 because viewed lines aged out, this
- * hook does not restore an earlier distance from the bottom.
+ * While ownership is active, the write buffer defers streamed output
+ * (stores/terminal.ts::flushWriteBuffer), so scrollback trimming cannot move
+ * an owned viewport. This hook never restores a distance from the bottom.
  *
  * While the touch keyboard is open, the keyboard lifecycle owns the viewport:
  * it performs fit + scrollToBottom on keyboard geometry changes, and touch
@@ -50,8 +50,13 @@ export function useScrollCorrection(
   };
 
   // Capture intent before xterm handles the event and emits onScroll.
+  // touchmove is included because a touch drag keeps producing scrollLines
+  // calls long after its initial pointerdown left the grace window; each
+  // move refreshes intent so a mid-drag scroll event is never mistaken for
+  // a browser displacement and snapped back to the bottom.
   container.addEventListener('wheel', markUserScrollIntent, { passive: true, capture: true });
   container.addEventListener('pointerdown', markUserScrollIntent, { passive: true, capture: true });
+  container.addEventListener('touchmove', markUserScrollIntent, { passive: true, capture: true });
   container.addEventListener('keydown', onNavKeyDown, { capture: true });
 
   const scrollDisposable = terminal.onScroll((viewportY: number) => {
@@ -110,6 +115,7 @@ export function useScrollCorrection(
   onCleanup(() => {
     container.removeEventListener('wheel', markUserScrollIntent, { capture: true });
     container.removeEventListener('pointerdown', markUserScrollIntent, { capture: true });
+    container.removeEventListener('touchmove', markUserScrollIntent, { capture: true });
     container.removeEventListener('keydown', onNavKeyDown, { capture: true });
     scrollDisposable.dispose();
     clearScrollIntent(sessionId, terminalId);

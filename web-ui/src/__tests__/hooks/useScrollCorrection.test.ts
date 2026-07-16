@@ -228,6 +228,38 @@ describe('useScrollCorrection / REQ-TERM-014 terminal scroll anchoring', () => {
     });
   });
 
+  it('REQ-TERM-014 AC2: a touch drag that outlives the intent grace still transfers ownership (no bottom snap)', async () => {
+    await createRoot(async (dispose) => {
+      vi.useFakeTimers();
+      try {
+        const terminal = createFakeTerminal();
+        const container = document.createElement('div');
+        useScrollCorrection(terminal as any, container, { sessionId: 's1', terminalId: '1' });
+
+        terminal.emitScroll(200, 200);
+        // Finger lands, then rests longer than the grace window before moving.
+        container.dispatchEvent(new Event('pointerdown'));
+        vi.advanceTimersByTime(400);
+
+        // The drag's touchmove precedes the scroll event its scrollLines call
+        // emits, so intent must be fresh when that scroll event arrives.
+        container.dispatchEvent(new TouchEvent('touchmove'));
+        terminal.emitScroll(199, 200);
+
+        expect(terminal.scrollToBottom).not.toHaveBeenCalled();
+
+        // Ownership persists for later output-driven scroll events.
+        vi.advanceTimersByTime(5_000);
+        terminal.emitScroll(198, 200);
+        expect(terminal.scrollToBottom).not.toHaveBeenCalled();
+        expect(terminal.buffer.active.viewportY).toBe(198);
+      } finally {
+        vi.useRealTimers();
+        dispose();
+      }
+    });
+  });
+
   it('REQ-MOB-004 AC5: ignores a small trim shift while manual ownership is active', async () => {
     await createRoot(async (dispose) => {
       vi.useFakeTimers();

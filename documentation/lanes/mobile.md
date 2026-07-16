@@ -161,7 +161,7 @@ Horizontal swipe gestures (left/right arrow key simulation) use a `setInterval` 
 
 Fix: a bubble-phase `stopPropagation` "Gesture shield" for `touchstart`/`touchmove`/`touchend` on the terminal container in `attachSwipeGestures()` (`web-ui/src/lib/touch-gestures.ts`) — codeflare's own capture-phase handlers still run first, `stopPropagation()` (never `preventDefault`) does not affect browser click synthesis, and xterm's document-level Gesture singleton never sees a terminal-container touch. Removed on terminal cleanup. Covered by `touch-gestures.test.ts` (shield blocks container-origin touches from reaching document-level listeners; outside-container touches unaffected; cleanup removes the shield). Kept on top of the beta pin rather than reverting it — pinning an intermediate build is impossible (both breaking commits are ancestors of #5770's branch, the Pi-flicker mitigation this repo needs; see [Pi Terminal Flicker](troubleshooting.md#pi-terminal-flicker-or-scrollback-snaps-to-an-edge)). ([REQ-MOB-002](../../sdd/spec/mobile.md#req-mob-002-virtual-keyboard-opens-reliably-on-tap) AC6)
 
-**Fullscreen alternate-buffer scroll routing (git: Fix 22).** Claude Code `/tui fullscreen` renders conversation history inside the alternate screen and captures wheel reports, so `terminal.scrollLines()` cannot move that application-owned history. Desktop wheel events already reach Claude; mobile swipes did not because the Gesture shield deliberately keeps xterm's document-level touch handler out. `attachSwipeGestures()` now detects an alternate buffer with wheel-capable mouse tracking and emits one line-mode `WheelEvent` per accumulated touch line on `terminal.element`. xterm retains ownership of mouse-protocol encoding, the route works with the keyboard open or closed, and the shield continues preserving tap-to-open-keyboard. Normal-buffer swipes still use `terminal.scrollLines()`. ([REQ-MOB-017](../../sdd/spec/mobile.md#req-mob-017-fullscreen-application-touch-scrolling) AC1)
+**Fullscreen alternate-buffer scroll routing (git: Fix 22).** Claude Code `/tui fullscreen` renders conversation history inside the alternate screen and captures wheel reports, so `terminal.scrollLines()` cannot move that application-owned history. Desktop wheel events already reach Claude; mobile swipes did not because the Gesture shield deliberately keeps xterm's document-level touch handler out. `attachSwipeGestures()` now detects an alternate buffer with wheel-capable mouse tracking and emits one line-mode `WheelEvent` per accumulated touch line on `terminal.element`. xterm retains ownership of mouse-protocol encoding and the shield continues preserving tap-to-open-keyboard. The route applies only while the keyboard is closed: with the keyboard open, vertical swipes always send arrow keys (the typing-mode scroll-lock — Fix 22's original keyboard-open wheel routing regressed it and was reverted). Normal-buffer swipes still use `terminal.scrollLines()`. ([REQ-MOB-017](../../sdd/spec/mobile.md#req-mob-017-fullscreen-application-touch-scrolling) AC1, [REQ-MOB-005](../../sdd/spec/mobile.md#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll) AC7)
 
 ### Input Architecture
 
@@ -227,40 +227,40 @@ xterm 6.0.0 replaced `.xterm-viewport` (native `overflow-y: scroll` with a scrol
 
 1. **FOLLOW_OUTPUT** -- the synchronous `useScrollCorrection()` guard owns bottom following. It re-anchors before paint only when the terminal was already following output and no correlated user scroll intent transferred ownership.
 
-2. **READ_SCROLLBACK** -- wheel, pointer, navigation-key, touch-scroll, and registered external intent transfer ownership to the user until the viewport returns to the live bottom. xterm alone applies output-driven scrollback trimming. Reaching `viewportY === 0` as viewed lines age out is valid and does not trigger restoration.
+2. **READ_SCROLLBACK** -- wheel, pointer, navigation-key, touch-drag, and registered external intent transfer ownership to the user until the viewport returns to the live bottom. While ownership is active, `flushWriteBuffer()` defers streamed output (bounded by a 2M-character cap) so trimming cannot move the owned viewport; returning to bottom releases the held output in one write. xterm alone applies any trimming that does occur (e.g. a cap-exceeding flush), and no restoration is ever injected.
 
-3. **MOBILE_INPUT_LOCKED** -- opening the touch keyboard keeps the established fit-and-bottom transition in `useTerminal()`. Generic correction stays inactive while the keyboard is open, and vertical swipes remain terminal input gestures; fullscreen application mouse tracking remains the deliberate exception.
+3. **MOBILE_INPUT_LOCKED** -- opening the touch keyboard keeps the established fit-and-bottom transition in `useTerminal()`. Generic correction stays inactive while the keyboard is open, and vertical swipes always remain terminal input gestures -- fullscreen wheel routing applies only while the keyboard is closed.
 
 **Verification (git: Fix 10):** Deep analysis of xterm 6.0.0 source confirmed that `.xterm-viewport` is genuinely empty (`CoreBrowserTerminal.ts` creates a bare `<div>` with no children), no xterm code reads/writes `_viewportElement.scrollTop`, mouse wheel is handled by `SmoothScrollableElement` JS (`scrollableElement.ts`), and the visible scrollbar is the overlay widget (`.xterm-scrollable-element > .scrollbar`). `overflow: hidden` on an empty element has zero functional impact on xterm.
 
 **Additional hardening:**
 - All `fitAddon.fit()` call sites are guarded with `containerEl.clientHeight === 0` checks to prevent zero-row dimension calculations during CSS visibility transitions (inactive terminals have `height: 0`).
 - All `scrollToBottom()` call sites check `viewportY >= baseY` before scrolling to preserve manual scrollback position.
-- `flushWriteBuffer()` only passes the batch to xterm; it does not inspect or alter viewport position after the write.
+- `flushWriteBuffer()` either defers the batch (owned viewport) or passes it to xterm unchanged; it never inspects or alters viewport position after a write.
 - `refitAllTerminals()` skips the resize WS message if dimensions didn't change.
 
 ### Persistent Manual Ownership
 
 The earlier distance-from-bottom detector remained incorrect at the full-buffer boundary. xterm can legitimately move a manually selected viewport from a deep offset all the way to zero when one dense batch ages out every viewed line; the detector treated that native transition as a focus reset and injected `scrollLines()`. The write callback could then restore distance again, producing more `onScroll` events and visible top/bottom snapping.
 
-The short intent window now serves only to correlate a wheel, pointer, navigation-key, touch, or registered external action with its first scroll event. Once correlated, manual ownership persists without a timer and is released only when the viewport reaches the live bottom. No generic zero-clamp or distance-restoration heuristic remains.
+The short intent window now serves only to correlate a wheel, pointer, navigation-key, touch, or registered external action with its first scroll event. Touch drags refresh the window on every `touchmove`: a drag's first `scrollLines` call can land hundreds of milliseconds after the initial `pointerdown`, and without the refresh that scroll event was misread as a browser displacement and snapped back to the bottom mid-gesture. Once correlated, manual ownership persists without a timer and is released only when the viewport reaches the live bottom. No generic zero-clamp or distance-restoration heuristic remains.
 
 ### xterm 6.1 Native Full-Buffer Anchoring
 
-When the 1000-line scrollback is full, xterm 6.1 decrements `viewportY` as old lines trim so the same surviving content remains under a scrolled-up user. Codeflare's older generic distance guard interpreted every multi-line shift as drift and called `scrollLines` toward the former distance after each 33ms batch, repeatedly overriding xterm and pulling the viewport toward the live prompt.
+When the 1000-line scrollback is full, xterm 6.1 decrements `viewportY` as old lines trim so the same surviving content remains under a scrolled-up user. That anchor is only content-stable until it reaches zero: under sustained agent output the reader's `viewportY` slides to the top within seconds and the viewed lines are then destroyed beneath them — the "terminal snaps to the top while the agent is outputting" failure. No viewport correction can fix this, because the content itself is being trimmed away.
 
-Once a dense batch trims at least the current `viewportY`, xterm's native anchor reaches zero because the lines the user was viewing no longer exist. Codeflare now accepts that oldest-available-line boundary. `flushWriteBuffer()` performs no viewport correction, while `useScrollCorrection()` retains manual ownership so the zero offset cannot be reclassified as bottom-following or pulled toward the live prompt.
+Codeflare therefore stops trimming under a reader entirely: while manual ownership is active in the normal buffer, `flushWriteBuffer()` defers streamed output (data keeps accumulating in the per-terminal write buffer, re-checked every 33ms tick) instead of writing it. The frozen buffer means no trims, no `onScroll` churn, and a perfectly stable reading position. Returning the viewport to the live bottom — swipe down, floating page-down button, or the keyboard-open bottom anchor — releases the entire held batch in one write. A 2,000,000-character cap bounds held memory; a cap-exceeding flush proceeds and may then trim beneath the reader (bounded regression, preferable to unbounded memory). Alternate-buffer output is never deferred: fullscreen applications own their history and have no scrollback to read. `useScrollCorrection()` retains manual ownership throughout so a post-cap zero offset cannot be reclassified as bottom-following or pulled toward the live prompt.
 
 #### Keyboard-Open Suppression
 
-With the keyboard open, normal terminal scrollback is bottom-anchored: output auto-follows and vertical swipes send arrow keys. Fullscreen application scrolling is the deliberate exception: its wheel reports change application-owned history without moving xterm's viewport. Multiple independent xterm scroll mechanisms previously fought during keyboard-open output (git: Fix 16):
+With the keyboard open, normal terminal scrollback is bottom-anchored: output auto-follows and vertical swipes send arrow keys — including under fullscreen applications with mouse tracking, where the arrow keys drive the application's own input handling. (An earlier revision routed keyboard-open swipes to the fullscreen wheel pipeline; that broke the typing-mode scroll-lock and was reverted — wheel routing now applies only while the keyboard is closed.) Multiple independent xterm scroll mechanisms previously fought during keyboard-open output (git: Fix 16):
 
 1. Keyboard height change effect called `scrollToBottom()` (leading + trailing edge)
 2. ResizeObserver called `scrollToBottom()` ~18 times during 300ms keyboard animation
 3. Generic scroll correction could react to side effects of the above
 
 **Solution:**
-1. **Disable generic correction during touch-keyboard mode** -- keyboard lifecycle owns fit and bottom anchoring; fullscreen wheel reports do not alter the xterm viewport.
+1. **Disable generic correction during touch-keyboard mode** -- keyboard lifecycle owns fit and bottom anchoring.
 2. **Keep ResizeObserver from adding keyboard-open bottom snaps** -- the keyboard height effect already owns fit + bottom during animation, so concurrent observer snaps remain redundant.
 
 The keyboard height effect remains the source of truth for keyboard-transition refits; the pre-paint scroll-event handler preserves bottom-following output.
@@ -273,7 +273,7 @@ Users following the prompt saw flashing when generic post-write correction compe
 
 1. **Bottom-following correction stays in `onScroll`** (`useScrollCorrection.ts`) -- when `wasFollowingOutput` is true and `ydisp < ybase`, call `scrollToBottom()` immediately. The `isCorrectingScroll` flag prevents recursion, and recent wheel/pointer/navigation intent prevents trapping a user at the bottom.
 
-2. **Writes never correct scrolling** (`terminal.ts`) -- `flushWriteBuffer()` delegates the complete batch to xterm with no callback-owned distance restoration, line scrolling, or bottom snap. Integrated tests compose `write()` with native-like `onScroll` events to prove that prolonged trimming cannot create a correction loop ([REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming) AC2/AC3/AC7).
+2. **Writes never correct scrolling** (`terminal.ts`) -- `flushWriteBuffer()` defers the batch while the user owns the viewport and otherwise delegates it to xterm whole, with no callback-owned distance restoration, line scrolling, or bottom snap. Integrated tests compose `write()` with native-like `onScroll` events to prove that streamed output can neither move an owned viewport nor create a correction loop ([REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming) AC2/AC3).
 
 ### Scroll Stability Overhaul Context
 
@@ -299,15 +299,15 @@ The WebSocket reconnection logic retries on a set of close codes (`WS_RETRYABLE_
 ### REQ-MOB-004 test scenarios
 
 1. **Burst output retains bottom anchor.** Start a session, open a terminal tab, stream more than the 1,000-line cap, and confirm a bottom follower remains at the live prompt.
-2. **Manual ownership survives prolonged trimming.** Scroll into history, continue output beyond the intent-correlation window, and confirm xterm keeps the surviving-content anchor without Codeflare pulling toward the prompt. If all viewed lines age out, remaining at the oldest available line is correct.
+2. **Manual ownership freezes streamed output.** Scroll into history, continue output beyond the intent-correlation window, and confirm the reading position stays perfectly still (output is deferred — no trims, no drift toward the top). Scrolling back to the prompt releases the held output in one batch.
 3. **Returning to bottom restores following.** Scroll back to the live prompt, continue output, and confirm bottom following resumes.
 4. **Viewport overflow style.** Confirm `.xterm .xterm-viewport` retains `overflow: hidden`; xterm's scroll layer remains the sole scroller.
 
 ### REQ-MOB-012 test scenarios
 
 1. **Tap opens and anchors.** Tap the terminal, confirm the virtual keyboard opens, and confirm the lifecycle fit performs one intentional bottom anchor.
-2. **Keyboard-open viewport is locked.** During keyboard-open output, confirm generic correction does not move the viewport and ordinary vertical swipes send terminal arrow input.
-3. **Fullscreen exception remains application-owned.** In an application that enables mouse-wheel tracking, confirm vertical swipes continue through xterm's wheel pipeline.
+2. **Keyboard-open viewport is locked.** During keyboard-open output, confirm generic correction does not move the viewport and every vertical swipe sends terminal arrow input — including inside fullscreen applications with mouse tracking.
+3. **Fullscreen wheel routing stays keyboard-closed.** With the keyboard closed, in an application that enables mouse-wheel tracking, confirm vertical swipes route through xterm's wheel pipeline.
 4. **Keyboard close restores scrollback.** Close the keyboard, confirm vertical swipes scroll terminal history, and confirm manual ownership persists until the viewport returns to bottom.
 
 The Verification fields in [`sdd/spec/mobile.md`](../../sdd/spec/mobile.md) point at the committed behavioral tests; this checklist supplies deployed-browser confirmation of rendering and native event ordering.

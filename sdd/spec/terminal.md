@@ -463,17 +463,19 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 **Acceptance Criteria:**
 
 1. A terminal following the bottom remains at the bottom while output exceeds the scrollback cap. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014: re-anchors a bottom-following terminal when scrollback trimming displaces it) -->
-2. Any registered user-scroll intent establishes manual viewport ownership until the viewport returns to the live bottom, regardless of continuing output. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014 AC2: manual scroll ownership persists when output trimming reaches zero) -->
-3. While manual ownership is active, streamed output preserves the selected viewport until viewed content ages out, then leaves it at the oldest available line. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC3: streamed output leaves a user-owned full-buffer viewport at the oldest available line) -->
+2. Any registered user-scroll intent establishes manual viewport ownership until the viewport returns to the live bottom, regardless of continuing output. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014 AC2: manual scroll ownership persists when output trimming reaches zero) --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014 AC2: a touch drag that outlives the intent grace still transfers ownership (no bottom snap)) -->
+3. While manual ownership is active in the normal buffer, streamed output is deferred in the write buffer so the selected viewport does not move; deferred output flushes when the viewport returns to the live bottom or the held-output cap is exceeded. <!-- @impl: web-ui/src/stores/terminal.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC3: defers streamed output while the user owns the viewport and flushes on bottom return) -->
 4. Returning a manually owned viewport to the live bottom releases that ownership and restores bottom following for later output. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-TERM-014 AC1/AC2: returning to bottom releases manual ownership and restores bottom following) -->
 5. A resize frame is emitted only for a visible, connected terminal, carrying its current fitted dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::resize --> <!-- @test: host/__tests__/session-resize-authority.test.js (REQ-TERM-014: accepts resize frames only from the foreground WebSocket owner) -->
 6. A pane that loses focus before its terminal connection opens does not claim resize authority when that connection later opens. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::clearPendingResizeAuthority --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-014: clears a queued resize-authority claim when the pane loses focus) -->
 
 **Constraints:**
 
-- Output-driven trimming is delegated to xterm; the write buffer performs no viewport correction.
+- The write buffer either defers or writes; it never scrolls the viewport. Output-driven trimming stays delegated to xterm.
+- Held output is capped at 2,000,000 characters; a cap-exceeding flush proceeds and may trim beneath the reader.
+- Alternate-buffer output is never deferred — fullscreen applications own their history and have no scrollback to read.
 - A zero display offset during full-buffer trimming is valid xterm behavior and is not, by itself, evidence of a browser reset.
-- The short intent window correlates input with the first scroll event; it does not expire persistent manual ownership.
+- The short intent window correlates input (including touch drags) with the first scroll event; it does not expire persistent manual ownership.
 - Floating-button page navigation registers external intent through the same ownership path.
 - Mobile keyboard resize behavior must preserve the existing virtual-keyboard safeguards.
 

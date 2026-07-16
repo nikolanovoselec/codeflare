@@ -306,7 +306,7 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         cleanup();
       });
 
-      it('REQ-MOB-017 AC1: routes keyboard-open vertical swipes as wheel input', () => {
+      it('REQ-MOB-005 AC7: keyboard-open vertical swipes send arrow keys even under fullscreen wheel tracking', () => {
         (window as any).ontouchstart = null;
         const { terminal, triggerDataEvent, scrollLines, element } = createMockTerminal({
           bufferType: 'alternate',
@@ -318,11 +318,16 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         const cleanup = attachSwipeGestures(container, terminal, () => true)!;
 
         container.dispatchEvent(makeTouchEvent('touchstart', 100, 100));
-        container.dispatchEvent(makeTouchEvent('touchmove', 100, 140));
+        const moveEvent = makeTouchEvent('touchmove', 100, 140, { cancelable: true });
+        const preventDefaultSpy = vi.spyOn(moveEvent, 'preventDefault');
+        container.dispatchEvent(moveEvent);
 
-        expect(wheelEvents.map((event) => event.deltaY)).toEqual([-1, -1]);
+        expect(wheelEvents).toEqual([]);
         expect(scrollLines).not.toHaveBeenCalled();
-        expect(triggerDataEvent).not.toHaveBeenCalled();
+        expect(preventDefaultSpy).toHaveBeenCalled();
+        // dy = +40, downward swipe → down arrow, exactly once per gesture
+        expect(triggerDataEvent).toHaveBeenCalledTimes(1);
+        expect(triggerDataEvent).toHaveBeenCalledWith('\x1b[B', false);
         cleanup();
       });
     });
