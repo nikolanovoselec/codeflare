@@ -348,6 +348,7 @@ describe('REQ-MOB-004: scroll-drop defenses', () => {
       expect(viewportRule, 'a .xterm .xterm-viewport rule must exist').toBeTruthy();
       expect(viewportRule!.style.getPropertyValue('overflow')).toBe('hidden');
       expect(viewportRule!.style.getPropertyPriority('overflow')).toBe('important');
+      expect(viewportRule!.style.getPropertyValue('overscroll-behavior')).toBe('contain');
     } finally {
       style.remove();
     }
