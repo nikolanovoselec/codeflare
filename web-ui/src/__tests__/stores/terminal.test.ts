@@ -1005,10 +1005,12 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
-    it.each([
+    const batchedWriteViewportCases = [
       { name: 'the viewport follows the live bottom', bufferType: 'normal', viewportY: 1000, baseY: 1000 },
       { name: 'an alternate-buffer application owns the screen', bufferType: 'alternate', viewportY: 0, baseY: 80 },
-    ])('REQ-TERM-014 AC3: writes batched output without viewport correction when $name', async ({ bufferType, viewportY, baseY }) => {
+    ];
+
+    it.each(batchedWriteViewportCases)('REQ-TERM-014 AC3: writes batched output without viewport correction when $name', async ({ bufferType, viewportY, baseY }) => {
       const activeBuffer = { type: bufferType, viewportY, baseY };
       const scrollLines = vi.fn((delta: number) => {
         activeBuffer.viewportY += delta;
